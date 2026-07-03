@@ -1,99 +1,125 @@
 // server/routes/hpc.js — HPC (Hendon Police College)
-// Cadet roster, course completion tracking, pass/fail, graduation status,
-// instructor sign-off. Mounted at /api/hpc behind requireDivision('HPC').
+// Mounted at /api/hpc behind requireAuth + requireDivision('HPC') (Junior
+// Instructor and above). Provides:
+//   • Final-exam marking (Database Manager and above)
+//   • Quota check (Assistant Director and above) — DB wiring pending
 const express = require('express');
 const prisma  = require('../lib/db');
-const { requireDivisionLead } = require('../middleware/division');
+const hpcExam = require('../lib/hpcExam');
+const { sendHpcExamResult } = require('../lib/webhook');
+const { requireHpcMarker, requireHpcQuota, userHpcTier } = require('../middleware/division');
 
 const router = express.Router();
-const instructor = requireDivisionLead('HPC'); // HPC leads act as instructors for sign-off purposes
 
-function summarise(r) {
-  return {
-    id: r.id,
-    cadetId: r.cadetId,
-    cadet: r.cadet && { id: r.cadet.id, displayName: r.cadet.displayName || r.cadet.discordUsername },
-    courseName: r.courseName,
-    status: r.status,
-    instructorId: r.instructorId,
-    instructorNote: r.instructorNote,
-    signedOffAt: r.signedOffAt,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
+// GET /api/hpc/context — what the current HPC member can do (drives the UI).
+router.get('/context', (req, res) => {
+  res.json({
+    canMark:  userHpcTier(req.user, 'marker'),
+    canQuota: userHpcTier(req.user, 'quota'),
+  });
+});
+
+// GET /api/hpc/exam/paper — the paper, for markers to see each prompt.
+router.get('/exam/paper', requireHpcMarker, (req, res) => res.json(hpcExam.publicPaper()));
+
+function summariseSubmission(s, full) {
+  const base = {
+    id: s.id,
+    discordId: s.discordId,
+    discordUsername: s.discordUsername,
+    robloxUsername: s.robloxUsername,
+    status: s.status,
+    score: s.score,
+    maxScore: s.maxScore,
+    percentage: s.percentage,
+    flagCount: Array.isArray(s.flags) ? s.flags.length : 0,
+    highFlags: Array.isArray(s.flags) ? s.flags.filter(f => f.severity === 'high').length : 0,
+    markedByName: s.markedByName,
+    markedAt: s.markedAt,
+    createdAt: s.createdAt,
   };
+  if (!full) return base;
+  return { ...base, answers: s.answers, detection: s.detection, flags: s.flags, scores: s.scores, markerNote: s.markerNote };
 }
 
-// GET /api/hpc/records — full roster / training record list
-router.get('/records', async (req, res) => {
+// GET /api/hpc/exam/submissions?status=PENDING — marker queue / archive.
+router.get('/exam/submissions', requireHpcMarker, async (req, res) => {
   try {
-    const records = await prisma.hpcTrainingRecord.findMany({
-      include: { cadet: { select: { id: true, displayName: true, discordUsername: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(records.map(summarise));
+    const where = {};
+    if (['PENDING', 'PASSED', 'FAILED'].includes(req.query.status)) where.status = req.query.status;
+    const subs = await prisma.hpcExamSubmission.findMany({ where, orderBy: { createdAt: 'desc' }, take: 300 });
+    res.json(subs.map(s => summariseSubmission(s, false)));
   } catch (err) {
-    res.status(500).json({ error: 'Failed to load training records' });
+    res.status(500).json({ error: 'Failed to load submissions' });
   }
 });
 
-// GET /api/hpc/records/my — the current cadet's own course history
-router.get('/records/my', async (req, res) => {
+// GET /api/hpc/exam/submissions/:id — full detail (answers + AI flags) to mark.
+router.get('/exam/submissions/:id', requireHpcMarker, async (req, res) => {
   try {
-    const records = await prisma.hpcTrainingRecord.findMany({
-      where: { cadetId: req.user.id },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(records.map(summarise));
+    const s = await prisma.hpcExamSubmission.findUnique({ where: { id: req.params.id } });
+    if (!s) return res.status(404).json({ error: 'Submission not found' });
+    res.json({ paper: hpcExam.publicPaper(), submission: summariseSubmission(s, true) });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to load your records' });
+    res.status(500).json({ error: 'Failed to load submission' });
   }
 });
 
-// POST /api/hpc/records — enrol a cadet onto a course (instructors only)
-// Cadets are identified by Discord ID (what an instructor actually has to
-// hand) — they must have signed into the portal at least once already.
-router.post('/records', instructor, async (req, res) => {
+// POST /api/hpc/exam/submissions/:id/mark { scores:{qid:points}, note }
+router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => {
+  const { scores, note } = req.body || {};
+  if (!scores || typeof scores !== 'object') return res.status(400).json({ error: 'scores are required' });
   try {
-    const { cadetDiscordId, courseName } = req.body || {};
-    if (!cadetDiscordId || !courseName) {
-      return res.status(400).json({ error: 'cadetDiscordId and courseName are required' });
+    const s = await prisma.hpcExamSubmission.findUnique({ where: { id: req.params.id } });
+    if (!s) return res.status(404).json({ error: 'Submission not found' });
+
+    // Clamp each score to its question's max; sum the total.
+    const clean = {};
+    let total = 0;
+    for (const q of hpcExam.QUESTIONS) {
+      const raw = Number(scores[q.id]);
+      const pts = Number.isFinite(raw) ? Math.max(0, Math.min(q.points, raw)) : 0;
+      clean[q.id] = pts;
+      total += pts;
     }
-    const cadet = await prisma.user.findUnique({ where: { discordId: String(cadetDiscordId) } });
-    if (!cadet) return res.status(404).json({ error: 'That Discord user hasn’t signed into the portal yet' });
+    const maxScore   = hpcExam.totalPoints();
+    const percentage = Math.round((total / maxScore) * 100);
+    const passed     = percentage >= hpcExam.PASS_PERCENT;
 
-    const r = await prisma.hpcTrainingRecord.create({
-      data: { cadetId: cadet.id, courseName: String(courseName).slice(0, 200), instructorId: req.user.id },
-      include: { cadet: { select: { id: true, displayName: true, discordUsername: true } } },
-    });
-    res.status(201).json(summarise(r));
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to enrol cadet' });
-  }
-});
-
-// PATCH /api/hpc/records/:id/status — pass/fail/graduate a cadet (instructors only)
-router.patch('/records/:id/status', instructor, async (req, res) => {
-  try {
-    const { status, instructorNote } = req.body || {};
-    if (!['ENROLLED', 'IN_TRAINING', 'PASSED', 'FAILED', 'GRADUATED'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    const signedOff = ['PASSED', 'FAILED', 'GRADUATED'].includes(status);
-
-    const r = await prisma.hpcTrainingRecord.update({
-      where: { id: req.params.id },
+    const updated = await prisma.hpcExamSubmission.update({
+      where: { id: s.id },
       data: {
-        status,
-        instructorId: req.user.id,
-        instructorNote: instructorNote ? String(instructorNote).slice(0, 2000) : undefined,
-        signedOffAt: signedOff ? new Date() : null,
+        scores: clean,
+        score: total,
+        percentage,
+        status: passed ? 'PASSED' : 'FAILED',
+        markerNote: note ? String(note).slice(0, 2000) : null,
+        markedById: req.user.id,
+        markedByName: req.user.displayName || req.user.discordUsername,
+        markedAt: new Date(),
       },
-      include: { cadet: { select: { id: true, displayName: true, discordUsername: true } } },
     });
-    res.json(summarise(r));
+
+    // Post the result to the MET results channel (best-effort).
+    const msgId = await sendHpcExamResult({
+      discordId: s.discordId,
+      robloxUsername: s.robloxUsername,
+      discordUsername: s.discordUsername,
+      score: total, maxScore, percentage, passed,
+      note,
+    }).catch(() => null);
+    if (msgId) await prisma.hpcExamSubmission.update({ where: { id: s.id }, data: { resultMessageId: msgId } }).catch(() => {});
+
+    res.json({ success: true, status: updated.status, score: total, maxScore, percentage, posted: !!msgId });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update training record' });
+    console.error('[HPC] mark failed:', err.message);
+    res.status(500).json({ error: 'Failed to mark exam' });
   }
+});
+
+// GET /api/hpc/quota — Assistant Director+. DB not wired yet (provided later).
+router.get('/quota', requireHpcQuota, (req, res) => {
+  res.json({ configured: false, message: 'The HPC quota database has not been connected yet.' });
 });
 
 module.exports = router;

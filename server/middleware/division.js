@@ -3,6 +3,7 @@
 // req.user.divisions (kept fresh by lib/accessControl.js) so it never needs a
 // live Discord call on the request path. Developers always pass every check.
 const { hasDivisionAccess, divisionTier } = require('../lib/roleResolver');
+const { hpcRankAtLeast, hpcExamRoleId } = require('../lib/divisions');
 
 const DIVISION_SLUG = { CID: 'cid', SCO19: 'sco19', IA: 'ia', FLP: 'flp', HPC: 'hpc' };
 
@@ -22,9 +23,11 @@ function userDivisions(user) {
   return [];
 }
 
-// Does the user have access to `division`? IA → site role; others → cache.
+// Does the user have access to `division`? IA → site role; HPC → Junior
+// Instructor and above (not mere group membership); others → cache.
 function userHasDivision(user, division) {
-  if (division === 'IA') return IA_MEMBER_ROLES.includes(user.role);
+  if (division === 'IA')  return IA_MEMBER_ROLES.includes(user.role);
+  if (division === 'HPC') return user.role === 'DEVELOPER' || userHpcTier(user, 'instructor');
   return hasDivisionAccess(userDivisions(user), division);
 }
 
@@ -61,7 +64,37 @@ function requireDivisionLead(division) {
   };
 }
 
+// ── HPC-specific tiers (Junior Instructor / Database Manager / Assistant Dir) ──
+function hpcEntry(user) { return userDivisions(user).find(d => d.division === 'HPC'); }
+
+// A cadet who holds the HPC final-exam Discord role must sit the exam.
+function userNeedsFinalExam(user) {
+  const ids = Array.isArray(user.metRoleIds) ? user.metRoleIds : [];
+  return ids.includes(hpcExamRoleId());
+}
+
+// kind: 'instructor' | 'marker' | 'quota'. DEVELOPER always passes.
+function userHpcTier(user, kind) {
+  if (user.role === 'DEVELOPER') return true;
+  const e = hpcEntry(user);
+  if (!e) return false;
+  return hpcRankAtLeast(e.rankName, e.rank, kind);
+}
+
+function requireHpcMarker(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (userHpcTier(req.user, 'marker')) return next();
+  return res.status(403).json({ error: 'HPC marker access required (Database Manager and above).' });
+}
+
+function requireHpcQuota(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (userHpcTier(req.user, 'quota')) return next();
+  return res.status(403).json({ error: 'HPC quota access required (Assistant Director and above).' });
+}
+
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
+  userNeedsFinalExam, userHpcTier, requireHpcMarker, requireHpcQuota,
 };

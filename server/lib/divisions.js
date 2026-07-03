@@ -195,10 +195,37 @@ function meta(division) {
 }
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
 
+// ── HPC-specific rank gates ──────────────────────────────────────────
+// HPC has finer, named access tiers on top of the group rank:
+//   • Junior Instructor and above  → can access the HPC division
+//   • Database Manager and above    → can mark final exams
+//   • Assistant Director and above  → can view the HPC quota check
+// Matched by rank NAME (provisional until the full HPC ladder is confirmed).
+// The env override HPC_*_MIN_RANK sets a numeric-rank threshold instead.
+const HPC_INSTRUCTOR = /junior instructor|instructor|database manager|deputy director|assistant director|director/i;
+const HPC_MARKER     = /database manager|deputy director|assistant director|director/i;
+const HPC_QUOTA      = /assistant director|deputy director|director/i;
+
+function hpcRankAtLeast(rankName, rankNumber, kind) {
+  const envKey = { instructor: 'HPC_INSTRUCTOR_MIN_RANK', marker: 'HPC_MARKER_MIN_RANK', quota: 'HPC_QUOTA_MIN_RANK' }[kind];
+  const envMin = parseInt(process.env[envKey], 10);
+  if (Number.isFinite(envMin)) return Number(rankNumber) >= envMin;
+  const pat = { instructor: HPC_INSTRUCTOR, marker: HPC_MARKER, quota: HPC_QUOTA }[kind];
+  return pat ? pat.test(String(rankName || '')) : false;
+}
+
+// The Discord role that requires a cadet to sit the final exam.
+function hpcExamRoleId() { return process.env.HPC_EXAM_ROLE_ID || '1509521712058990743'; }
+
+// Where final-exam results are posted (a webhook on the MET results channel
+// 1509522116590960640 — create one there and set HPC_RESULTS_WEBHOOK_URL).
+function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || null; }
+
 module.exports = {
   ALL, GROUP_DIVISIONS, META,
   meta, allMeta,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
   explicitGroupId, isLeadRank, holderUsername, metGroupId,
+  hpcRankAtLeast, hpcExamRoleId, hpcResultsWebhookUrl,
 };

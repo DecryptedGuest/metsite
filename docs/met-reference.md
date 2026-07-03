@@ -114,6 +114,32 @@ IA already ships penal-code / offense libraries (`server/lib/penalCodes.js`,
 
 ---
 
+## HPC Final Examination ✅ (built) / 🟡 (needs data)
+
+- Cadets with Discord role `1509521712058990743` must sit the exam (`HPC_EXAM_ROLE_ID`).
+- Taken on-site at `/exam` with anti-cheat telemetry (paste, tab-switch, copy,
+  right-click, devtools, keystroke-vs-length, timing → flags shown to markers). ✅
+- HPC access tiers (by Roblox group rank name, provisional):
+  - **Junior Instructor+** → HPC shows as one of their divisions.
+  - **Database Manager+** → "Mark Final Exams" tab.
+  - **Assistant Director+** → "Quota Check" tab (DB pending).
+- Marker scores each question (0..max), pass = ≥ 80%; result posts to channel
+  `1509522116590960640` (set `HPC_RESULTS_WEBHOOK_URL` to a webhook there) and
+  shows on the cadet's profile. ✅
+- 🟡 **Exam total**: the transcribed paper is **15 questions = 30 pts**, but MET
+  said "/36". Send the missing questions / point values (or confirm 30) — the
+  system already computes the total + 80% pass dynamically from the question list
+  in `server/lib/hpcExam.js`.
+- ❓ HPC rank ladder (group `35685825`) to make the "and above" tiers exact.
+
+## Deferred (still to build)
+
+- **Nav reframe**: a normal sign-in landing + a single MET dashboard where
+  divisions live in a tab (not the current division-cards hub). Large front-end
+  restructure — next up.
+- **HPC quota tab** wiring — waiting on the HPC quota database.
+- Per-division quotas (MET/SCO/CID) — waiting on the quota data-source decision.
+
 ## Open decisions (blocking the quota build)
 
 1. **Quota activity data source** — where do "events attended / hosted / points

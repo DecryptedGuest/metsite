@@ -34,9 +34,7 @@
       <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
       <span id="met-user-name">Loading…</span>
     </div>
-    <form action="/auth/logout" method="POST">
-      <button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button>
-    </form>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
   </div>
 </div>
 
@@ -54,118 +52,101 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
-        <div class="nav-section-label">Training</div>
-        <button class="nav-item" data-page="my-training"><i class="ti ti-school nav-icon"></i><span>My Training</span></button>
-        <button class="nav-item" data-page="roster"><i class="ti ti-users nav-icon"></i><span>Cadet Roster</span></button>
+        <div class="nav-section-label marker-only" style="display:none;">Examinations</div>
+        <button class="nav-item marker-only" data-page="mark" style="display:none;"><i class="ti ti-checkbox nav-icon"></i><span>Mark Final Exams</span><span class="nav-badge pending" id="hpc-pending-badge" style="display:none;"></span></button>
+        <div class="nav-section-label quota-only" style="display:none;">Oversight</div>
+        <button class="nav-item quota-only" data-page="quota" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check</span></button>
       </nav>
     </div>
   </aside>
 
   <main class="main-content">
+    <!-- OVERVIEW -->
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
         <div><h1 class="page-title">Dashboard</h1><p class="page-sub">Hendon Police College · Overview</p></div>
-        <button class="btn btn-primary" onclick="openEnrolModal()"><i class="ti ti-plus"></i> Enrol Cadet</button>
       </div>
       <div class="stats-grid">
-        <div class="stat-card blue fade-up stagger-1"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-users"></i></div>
-          <div class="stat-body"><div class="stat-label">Total Records</div><div class="stat-value" id="stat-total">—</div></div>
-        </div><div class="stat-bar blue"></div></div>
-        <div class="stat-card amber fade-up stagger-2"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-school"></i></div>
-          <div class="stat-body"><div class="stat-label">In Training</div><div class="stat-value" id="stat-training">—</div></div>
+        <div class="stat-card amber fade-up stagger-1"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+          <div class="stat-body"><div class="stat-label">Exams Awaiting Marking</div><div class="stat-value" id="stat-pending">—</div></div>
         </div><div class="stat-bar amber"></div></div>
-        <div class="stat-card green fade-up stagger-3"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-certificate"></i></div>
-          <div class="stat-body"><div class="stat-label">Graduated</div><div class="stat-value" id="stat-graduated">—</div></div>
+        <div class="stat-card green fade-up stagger-2"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+          <div class="stat-body"><div class="stat-label">Passed</div><div class="stat-value" id="stat-passed">—</div></div>
         </div><div class="stat-bar green"></div></div>
-        <div class="stat-card red fade-up stagger-4"><div class="stat-card-inner">
+        <div class="stat-card red fade-up stagger-3"><div class="stat-card-inner">
           <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
           <div class="stat-body"><div class="stat-label">Failed</div><div class="stat-value" id="stat-failed">—</div></div>
         </div><div class="stat-bar red"></div></div>
       </div>
+      <div class="panel glass fade-up stagger-2" id="hpc-nonmarker-note" style="display:none;">
+        <div style="padding:1.4rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
+          Welcome to Hendon Police College. Marking final exams requires <strong>Database Manager</strong> and above;
+          the quota check requires <strong>Assistant Director</strong> and above. More HPC features are coming soon.
+        </div>
+      </div>
+    </section>
 
-      <div class="panel glass fade-up stagger-2">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Recent Records</div></div>
+    <!-- MARK FINAL EXAMS (Database Manager+) -->
+    <section class="page" id="page-mark">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Mark Final Exams</h1><p class="page-sub">Score submissions · review AI/cheating detection</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Submissions</div>
+          <div class="filter-tabs" id="hpc-filter-tabs">
+            <button class="filter-tab active" data-filter="PENDING">Awaiting</button>
+            <button class="filter-tab" data-filter="PASSED">Passed</button>
+            <button class="filter-tab" data-filter="FAILED">Failed</button>
+            <button class="filter-tab" data-filter="all">All</button>
+          </div>
+        </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Cadet</th><th>Course</th><th>Status</th><th>Enrolled</th></tr></thead>
-            <tbody id="dash-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+            <thead><tr><th>Student</th><th>Roblox</th><th>Detections</th><th>Status</th><th>Submitted</th><th></th></tr></thead>
+            <tbody id="hpc-subs-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <section class="page" id="page-my-training">
+    <!-- QUOTA CHECK (Assistant Director+) -->
+    <section class="page" id="page-quota">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">My Training</h1><p class="page-sub">Your course history</p></div>
+        <div><h1 class="page-title">Quota Check</h1><p class="page-sub">Assistant Director+ · HPC quota</p></div>
       </div>
       <div class="panel glass fade-up stagger-1">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Courses</div></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Course</th><th>Status</th><th>Instructor Note</th><th>Enrolled</th></tr></thead>
-            <tbody id="my-training-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section class="page" id="page-roster">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">Cadet Roster</h1><p class="page-sub">All training records</p></div>
-        <button class="btn btn-primary" onclick="openEnrolModal()"><i class="ti ti-plus"></i> Enrol Cadet</button>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Roster</div></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Cadet</th><th>Course</th><th>Status</th><th>Enrolled</th><th></th></tr></thead>
-            <tbody id="roster-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
+        <div style="padding:2.5rem 1.4rem;text-align:center;color:var(--text-secondary);">
+          <div style="font-size:34px;margin-bottom:0.8rem;">🗄️</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:0.4rem;">Quota database not connected yet</div>
+          <div style="font-size:13px;">The HPC quota database will be wired in once it's provided. This tab will then work like the IA quota check.</div>
         </div>
       </div>
     </section>
   </main>
 </div>
 
-<div class="modal-overlay" id="modal-enrol">
-  <div class="modal">
-    <div class="modal-header"><div class="modal-title">Enrol Cadet</div>
-      <button class="modal-close" onclick="closeModal('modal-enrol')"><i class="ti ti-x"></i></button></div>
+<!-- MARKING MODAL -->
+<div class="modal-overlay" id="modal-mark">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title" id="mark-title">Mark Exam</div>
+      <button class="modal-close" onclick="closeModal('modal-mark')"><i class="ti ti-x"></i></button>
+    </div>
     <div class="modal-body">
-      <div class="form-group"><label class="form-label">Cadet Discord ID</label>
-        <input type="text" class="form-control" id="en-cadet-discord-id" placeholder="Cadet's Discord user ID" /></div>
-      <div class="form-group"><label class="form-label">Course Name</label>
-        <input type="text" class="form-control" id="en-course" placeholder="e.g. Basic Training — Intake 12" /></div>
+      <div id="mark-flags"></div>
+      <div id="mark-questions"></div>
+      <div class="form-group" style="margin-top:1rem;">
+        <label class="form-label">Marker note (sent with the result)</label>
+        <textarea class="form-control" id="mark-note" rows="2" placeholder="Feedback for the cadet…"></textarea>
+      </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-enrol')">Cancel</button>
-      <button class="btn btn-primary" onclick="submitEnrol()">Enrol</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="modal-status">
-  <div class="modal">
-    <div class="modal-header"><div class="modal-title">Update Training Status</div>
-      <button class="modal-close" onclick="closeModal('modal-status')"><i class="ti ti-x"></i></button></div>
-    <div class="modal-body">
-      <div class="form-group"><label class="form-label">Status</label>
-        <select class="form-control" id="us-status">
-          <option value="ENROLLED">Enrolled</option>
-          <option value="IN_TRAINING">In Training</option>
-          <option value="PASSED">Passed</option>
-          <option value="FAILED">Failed</option>
-          <option value="GRADUATED">Graduated</option>
-        </select></div>
-      <div class="form-group"><label class="form-label">Instructor Note</label>
-        <textarea class="form-control" id="us-note" rows="3" placeholder="Optional note"></textarea></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-status')">Cancel</button>
-      <button class="btn btn-primary" onclick="submitStatusUpdate()">Save</button>
+      <div style="margin-right:auto;font-size:14px;font-weight:700;" id="mark-total">0 / 0 · 0%</div>
+      <button class="btn btn-ghost" onclick="closeModal('modal-mark')">Cancel</button>
+      <button class="btn btn-primary" id="mark-submit-btn" onclick="submitMark()"><i class="ti ti-send"></i> Submit Result</button>
     </div>
   </div>
 </div>

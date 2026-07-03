@@ -34,9 +34,7 @@
       <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
       <span id="met-user-name">Loading…</span>
     </div>
-    <form action="/auth/logout" method="POST">
-      <button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button>
-    </form>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
   </div>
 </div>
 
@@ -54,9 +52,6 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
-        <div class="nav-section-label">Shifts</div>
-        <button class="nav-item" data-page="my-shifts"><i class="ti ti-clock nav-icon"></i><span>My Shifts</span></button>
-        <button class="nav-item" data-page="all-shifts"><i class="ti ti-list nav-icon"></i><span>All Shifts</span></button>
       </nav>
     </div>
   </aside>
@@ -64,95 +59,22 @@
   <main class="main-content">
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Dashboard</h1><p class="page-sub">Frontline Policing · Overview</p></div>
-        <button class="btn btn-primary" id="btn-shift-action"><i class="ti ti-clock"></i> Start Shift</button>
-      </div>
-      <div class="stats-grid">
-        <div class="stat-card blue fade-up stagger-1"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-clock"></i></div>
-          <div class="stat-body"><div class="stat-label">Total Shifts</div><div class="stat-value" id="stat-shifts">—</div></div>
-        </div><div class="stat-bar blue"></div></div>
-        <div class="stat-card amber fade-up stagger-2"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-alert-triangle"></i></div>
-          <div class="stat-body"><div class="stat-label">Incidents Attended</div><div class="stat-value" id="stat-incidents">—</div></div>
-        </div><div class="stat-bar amber"></div></div>
-        <div class="stat-card red fade-up stagger-3"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-handcuffs"></i></div>
-          <div class="stat-body"><div class="stat-label">Arrests Made</div><div class="stat-value" id="stat-arrests">—</div></div>
-        </div><div class="stat-bar red"></div></div>
-        <div class="stat-card green fade-up stagger-4"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-user"></i></div>
-          <div class="stat-body"><div class="stat-label">My Shifts</div><div class="stat-value" id="stat-my-shifts">—</div></div>
-        </div><div class="stat-bar green"></div></div>
-      </div>
-
-      <div class="panel glass fade-up stagger-2">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Recent Shifts (All Officers)</div></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Officer</th><th>Start</th><th>End</th><th>Incidents</th><th>Arrests</th></tr></thead>
-            <tbody id="dash-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section class="page" id="page-my-shifts">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">My Shifts</h1><p class="page-sub">Your shift history</p></div>
-        <button class="btn btn-primary" id="btn-shift-action-2"><i class="ti ti-clock"></i> Start Shift</button>
+        <div><h1 class="page-title">Frontline Policing</h1><p class="page-sub">FLP · Overview</p></div>
       </div>
       <div class="panel glass fade-up stagger-1">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Shifts</div></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Start</th><th>End</th><th>Incidents</th><th>Arrests</th><th>Notes</th></tr></thead>
-            <tbody id="my-shifts-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section class="page" id="page-all-shifts">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">All Shifts</h1><p class="page-sub">Every officer's logged shifts</p></div>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Shift Log</div></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Officer</th><th>Start</th><th>End</th><th>Incidents</th><th>Arrests</th><th>Notes</th></tr></thead>
-            <tbody id="all-shifts-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
+        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
+          <div style="font-size:40px;margin-bottom:1rem;">🚧</div>
+          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
+          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">FLP tools are being built. You have access to this division — check back soon for its features.</div>
         </div>
       </div>
     </section>
   </main>
 </div>
 
-<div class="modal-overlay" id="modal-end-shift">
-  <div class="modal">
-    <div class="modal-header"><div class="modal-title">End Shift</div>
-      <button class="modal-close" onclick="closeModal('modal-end-shift')"><i class="ti ti-x"></i></button></div>
-    <div class="modal-body">
-      <div class="form-group"><label class="form-label">Incidents Attended</label>
-        <input type="number" min="0" class="form-control" id="es-incidents" value="0" /></div>
-      <div class="form-group"><label class="form-label">Arrests Made</label>
-        <input type="number" min="0" class="form-control" id="es-arrests" value="0" /></div>
-      <div class="form-group"><label class="form-label">Notes</label>
-        <textarea class="form-control" id="es-notes" rows="3" placeholder="Anything worth logging?"></textarea></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-end-shift')">Cancel</button>
-      <button class="btn btn-primary" onclick="submitEndShift()">End Shift</button>
-    </div>
-  </div>
-</div>
-
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
 <script src="/js/met-topbar.js"></script>
-<script src="/js/flp-dashboard.js"></script>
 <script>initMetTopbar('FLP');</script>
 </body>
 </html>

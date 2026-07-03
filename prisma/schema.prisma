@@ -39,6 +39,12 @@ model User {
   // on the request path.
   divisions       Json?
 
+  // The user's MET-server Discord role IDs, captured at login. Used to decide
+  // things gated on a specific Discord role (e.g. the HPC final-exam role).
+  metRoleIds      Json?
+
+  hpcExamSubmissions HpcExamSubmission[]
+
   cases              Case[]
   caseActions        CaseAction[]
   tickets             Ticket[]
@@ -490,4 +496,37 @@ model DiscordModerationLog {
   @@index([targetDiscordId])
   @@index([createdAt])
   @@map("discord_moderation_log")
+}
+
+// A cadet's Metropolitan Police Final Examination attempt. Answers + the
+// anti-cheat telemetry are stored on submit; a marker (HPC Database Manager+)
+// later scores each question, and the result is posted to the MET results
+// channel and shown on the cadet's own dashboard.
+model HpcExamSubmission {
+  id              String    @id @default(uuid())
+  userId          String
+  discordId       String
+  discordUsername String?
+  robloxUsername  String?
+  answers         Json      // { [questionId]: answerString }
+  detection       Json?     // raw anti-cheat telemetry from the exam page
+  flags           Json?     // computed [{ severity, code, label, detail }]
+  status          String    @default("PENDING") // PENDING | PASSED | FAILED
+  scores          Json?     // { [questionId]: pointsAwarded } (set at marking)
+  score           Int?      // total awarded
+  maxScore        Int       // total possible at submit time
+  percentage      Int?      // computed at marking
+  markerNote      String?
+  markedById      String?
+  markedByName    String?
+  markedAt        DateTime?
+  resultMessageId String?   // Discord message id of the posted result
+  createdAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("hpc_exam_submissions")
 }

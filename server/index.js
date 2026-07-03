@@ -19,6 +19,7 @@ const cidRoutes   = require('./routes/cid');
 const sco19Routes = require('./routes/sco19');
 const flpRoutes   = require('./routes/flp');
 const hpcRoutes   = require('./routes/hpc');
+const examRoutes  = require('./routes/exam');
 const { requireAuth } = require('./middleware/auth');
 const { requireDivision } = require('./middleware/division');
 const { recordVisit } = require('./middleware/visit');
@@ -145,6 +146,9 @@ app.use('/api/cid',   requireAuth, requireDivision('CID'),   cidRoutes);
 app.use('/api/sco19', requireAuth, requireDivision('SCO19'), sco19Routes);
 app.use('/api/flp',   requireAuth, requireDivision('FLP'),   flpRoutes);
 app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
+// Final Examination — MET-wide (cadet eligibility is a Discord role, not HPC
+// division membership), so it is NOT behind the HPC division gate.
+app.use('/api/exam',  requireAuth, examRoutes);
 
 // Visibility check for hosted media. Returns { allowed, user }.
 async function checkMediaAccess(req, m) {
@@ -436,6 +440,10 @@ async function computeMyDivisions(user) {
     if (['IA', 'SUPERVISOR', 'HICOMM'].includes(user.role) && !mine.some(d => d.division === 'IA')) {
       mine.push({ division: 'IA', tier: ['HICOMM', 'SUPERVISOR'].includes(user.role) ? 'LEAD' : 'MEMBER', rankName: user.role });
     }
+    // HPC is only a "division" for Junior Instructor and above — a plain HPC
+    // group member (e.g. a cadet) doesn't get the HPC dashboard.
+    const { userHpcTier } = require('./middleware/division');
+    mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
   }
   // Group icons (best-effort; empty when Roblox is unreachable / ids unset).
   let cfg = {};
@@ -543,6 +551,10 @@ app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'po
 
 // Officer profile — any signed-in MET officer (no division gate).
 app.get('/profile', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
+
+// Final Examination — any signed-in officer; the page itself gates on
+// eligibility (the HPC final-exam Discord role) via /api/exam/my.
+app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'exam.html')));
 
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
 app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));

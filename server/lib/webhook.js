@@ -174,4 +174,48 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
   }
 }
 
-module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook };
+/**
+ * Post a marked HPC Final Exam result to the MET results channel.
+ * Mirrors the channel's existing format:
+ *   Username of student: @<discord>
+ *   Mark: 30/36 · Percentage: 83% · PASS ✅ / FAIL ❌ · NOTE: …
+ * Uses HPC_RESULTS_WEBHOOK_URL (a webhook on the results channel). Returns the
+ * posted message id, or null if no webhook is configured / it failed.
+ */
+async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, score, maxScore, percentage, passed, note }) {
+  const url = process.env.HPC_RESULTS_WEBHOOK_URL;
+  if (!url) { console.warn('No HPC_RESULTS_WEBHOOK_URL configured — skipping exam result post.'); return null; }
+
+  const embed = {
+    color: passed ? 0x2ed896 : 0xf04f5e,
+    title: `Final Exam Result — ${passed ? 'PASS ✅' : 'FAIL ❌'}`,
+    fields: [
+      { name: 'Student',    value: discordId ? `<@${discordId}>${discordUsername ? ` (@${discordUsername})` : ''}` : (discordUsername || 'Unknown'), inline: false },
+      ...(robloxUsername ? [{ name: 'Roblox', value: String(robloxUsername), inline: true }] : []),
+      { name: 'Mark',       value: `${score}/${maxScore}`, inline: true },
+      { name: 'Percentage', value: `${percentage}%`, inline: true },
+    ],
+    description: note ? `**NOTE:** ${String(note).slice(0, 1500)}` : undefined,
+    footer:    { text: 'Hendon Police College · Final Examination' },
+    timestamp: new Date().toISOString(),
+  };
+
+  const body = { embeds: [embed] };
+  if (discordId) body.content = `<@${discordId}>`;
+
+  try {
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    if (!res.ok) { console.error(`HPC exam webhook failed [${res.status}]:`, await res.text()); return null; }
+    const msg = await res.json().catch(() => ({}));
+    return msg.id || null;
+  } catch (err) {
+    console.error('HPC exam webhook error:', err.message);
+    return null;
+  }
+}
+
+module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult };
