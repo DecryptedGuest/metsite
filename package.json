@@ -12,6 +12,7 @@
     "db:push": "npx prisma db push",
     "db:studio": "npx prisma studio",
     "import:cases": "node scripts/import-forum-cases.js",
+    "discover:divisions": "node scripts/discover-divisions.js",
     "postinstall": "npx prisma generate"
   },
   "dependencies": {
