@@ -116,12 +116,19 @@
   transition: transform 0.2s, border-color 0.2s;
 }
 .hub-card:hover { transform: translateY(-3px); border-color: var(--border-bright); }
+.hub-card-head { display: flex; align-items: center; gap: 0.7rem; }
+.hub-card-icon {
+  width: 40px; height: 40px; border-radius: 9px; flex-shrink: 0;
+  object-fit: cover; background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-dim);
+}
 .hub-card-abbr {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--blue);
+  min-width: 40px;
 }
 .hub-card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .hub-card-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.55; flex: 1; }

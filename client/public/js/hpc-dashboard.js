@@ -30,7 +30,7 @@ async function checkInstructor() {
   try {
     const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     const mine = (data && data.mine || []).find(d => d.division === 'HPC');
-    hpcIsInstructor = !!mine && mine.rank === 'LEAD';
+    hpcIsInstructor = !!mine && mine.tier === 'LEAD';
   } catch (e) { hpcIsInstructor = false; }
   document.querySelectorAll('.hpc-instructor-only').forEach(el => el.style.display = hpcIsInstructor ? '' : 'none');
 }

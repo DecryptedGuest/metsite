@@ -166,15 +166,17 @@ router.get('/discord/callback', async (req, res) => {
       // is the single place login is actually denied.
     }
     // ── Step 4b: Resolve division access (CID/SCO19/IA/FLP/HPC) ──────
-    // A user may hold a divisional role without holding an IA/HICOMM role at
-    // all — the portal login must not gate on IA membership alone. Only
-    // block the login entirely when the user has neither an IA system role
+    // A user may belong to a division's Roblox group without holding any IA
+    // role at all — the portal login must not gate on IA membership alone.
+    // Division membership comes from each division's Roblox group rank
+    // (resolveDivisionsForUser resolves the user's Roblox id internally).
+    // Only block login entirely when the user has neither an IA system role
     // nor access to any other division.
-    const divisions = resolveDivisionsForUser({ discordId: discordUser.id, memberRoles });
-    console.log('[Auth] Divisions resolved:', divisions.map(d => `${d.division}:${d.rank}`).join(', ') || 'none');
+    const divisions = await resolveDivisionsForUser({ discordId: discordUser.id, siteRole: systemRole });
+    console.log('[Auth] Divisions resolved:', divisions.map(d => `${d.division}:${d.tier}`).join(', ') || 'none');
 
     if (!isDeveloper && !grant && !systemRole && divisions.length === 0) {
-      console.warn('[Auth] No IA group rank, Discord role, or division role — denying');
+      console.warn('[Auth] No IA group rank or division group membership — denying');
       return res.redirect('/denied?reason=no_role');
     }
     console.log('[Auth] System role assigned:', systemRole || '(none — division-only access)');

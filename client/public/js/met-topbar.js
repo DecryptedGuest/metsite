@@ -47,7 +47,8 @@ async function initMetTopbar(currentDivision) {
         const isCurrent = d.division === currentDivision;
         a.href = `/${d.slug}/dashboard`;
         a.className = 'met-switcher-item' + (isCurrent ? ' current' : '');
-        a.innerHTML = `<span>${d.name}</span><span class="rank-tag">${isCurrent ? 'current' : d.rank}</span>`;
+        const tag = isCurrent ? 'current' : (d.rankName || d.tier || '');
+        a.innerHTML = `<span>${d.name}</span><span class="rank-tag">${tag}</span>`;
         menu.appendChild(a);
       });
     }

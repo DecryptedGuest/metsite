@@ -110,11 +110,24 @@ async function loadHub() {
     const hasAccess = !!(me && mine);
     const card = document.createElement('div');
     card.className = 'glass hub-card fade-up' + (hasAccess ? '' : ' locked') + ` stagger-${(i % 4) + 1}`;
+
+    // Division icon comes from the holder account's Roblox group; fall back to
+    // the abbreviation badge when no icon has resolved (e.g. group id unset).
+    const icon = d.icon
+      ? `<img class="hub-card-icon" src="${d.icon}" alt="${d.name}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'hub-card-abbr',textContent:'${d.name}'}))" />`
+      : `<div class="hub-card-abbr">${d.name}</div>`;
+
+    // Rank line shows the user's actual Roblox rank name + tier in the division.
+    let rankLine = '';
+    if (hasAccess) {
+      const tierLabel = mine.tier === 'LEAD' ? 'Lead' : 'Member';
+      rankLine = `<div class="hub-card-rank">${mine.rankName ? escHtml(mine.rankName) + ' · ' : ''}${tierLabel}</div>`;
+    }
+
     card.innerHTML = `
-      <div class="hub-card-abbr">${d.name}</div>
-      <div class="hub-card-name">${d.fullName}</div>
+      <div class="hub-card-head">${icon}<div class="hub-card-name">${d.fullName}</div></div>
       <div class="hub-card-desc">${describeDivision(d.division)}</div>
-      ${hasAccess ? `<div class="hub-card-rank">${mine.rank === 'LEAD' ? 'Lead access' : 'Member access'}</div>` : ''}
+      ${rankLine}
       <div>
         ${!me
           ? `<a href="/auth/discord" class="btn btn-primary btn-sm">Sign in</a>`
@@ -124,6 +137,10 @@ async function loadHub() {
       </div>`;
     grid.appendChild(card);
   });
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function describeDivision(division) {

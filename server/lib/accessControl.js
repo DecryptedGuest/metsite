@@ -27,9 +27,19 @@ async function revalidateUser(user, getMemberRecord) {
   const { role: newRole, conclusive } =
     await resolveSiteRoleDetailed({ discordId: user.discordId, memberRoles });
 
-  // Refresh the cached per-division access alongside the site role, from the
-  // same memberRoles we already fetched — no extra Discord/Roblox calls.
-  const divisions = resolveDivisionsForUser({ discordId: user.discordId, memberRoles });
+  // Refresh the cached per-division access alongside the site role. IA comes
+  // from the (freshly resolved) site role; the other divisions come from their
+  // Roblox group rank (resolved from the user's stored Roblox link).
+  let divisions;
+  try {
+    divisions = await resolveDivisionsForUser({
+      discordId: user.discordId,
+      siteRole:  newRole || user.role,
+      robloxId:  user.robloxId || null,
+    });
+  } catch (e) {
+    divisions = Array.isArray(user.divisions) ? user.divisions : [];
+  }
   const stamp = { lastRoleCheck: new Date(), divisions };
 
   if (newRole) {

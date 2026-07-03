@@ -2,9 +2,15 @@
 // Per-division access gate, layered on top of requireAuth. Reads the cached
 // req.user.divisions (kept fresh by lib/accessControl.js) so it never needs a
 // live Discord call on the request path. Developers always pass every check.
-const { hasDivisionAccess, divisionRank } = require('../lib/roleResolver');
+const { hasDivisionAccess, divisionTier } = require('../lib/roleResolver');
 
 const DIVISION_SLUG = { CID: 'cid', SCO19: 'sco19', IA: 'ia', FLP: 'flp', HPC: 'hpc' };
+
+// IA access is governed by the IA SITE ROLE (unchanged), never by the divisions
+// cache — this keeps IA's gating identical to the original system and immune to
+// the divisions cache being empty/stale for a legacy user.
+const IA_MEMBER_ROLES = ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'];
+const IA_LEAD_ROLES   = ['SUPERVISOR', 'HICOMM', 'DEVELOPER'];
 
 function userDivisions(user) {
   if (Array.isArray(user.divisions)) return user.divisions;
@@ -16,13 +22,25 @@ function userDivisions(user) {
   return [];
 }
 
+// Does the user have access to `division`? IA → site role; others → cache.
+function userHasDivision(user, division) {
+  if (division === 'IA') return IA_MEMBER_ROLES.includes(user.role);
+  return hasDivisionAccess(userDivisions(user), division);
+}
+
+// Is the user LEAD-tier in `division`? IA → HICOMM/SUPERVISOR/DEV; others → cache.
+function userIsDivisionLead(user, division) {
+  if (division === 'IA') return IA_LEAD_ROLES.includes(user.role);
+  return divisionTier(userDivisions(user), division) === 'LEAD';
+}
+
 // requireDivision('CID') — 403/redirect-to-denied unless the user has any
-// rank (MEMBER or LEAD) in that division. DEVELOPER always passes.
+// tier (MEMBER or LEAD) in that division. DEVELOPER always passes.
 function requireDivision(division) {
   return function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
     if (req.user.role === 'DEVELOPER') return next();
-    if (hasDivisionAccess(userDivisions(req.user), division)) return next();
+    if (userHasDivision(req.user, division)) return next();
 
     const isApi = req.originalUrl.startsWith('/api');
     if (isApi) return res.status(403).json({ error: `${division} access required` });
@@ -30,12 +48,12 @@ function requireDivision(division) {
   };
 }
 
-// requireDivisionLead('SCO19') — division access AND rank === 'LEAD'.
+// requireDivisionLead('SCO19') — division access AND tier === 'LEAD'.
 function requireDivisionLead(division) {
   return function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
     if (req.user.role === 'DEVELOPER') return next();
-    if (divisionRank(userDivisions(req.user), division) === 'LEAD') return next();
+    if (userIsDivisionLead(req.user, division)) return next();
 
     const isApi = req.originalUrl.startsWith('/api');
     if (isApi) return res.status(403).json({ error: `${division} lead access required` });
@@ -43,4 +61,7 @@ function requireDivisionLead(division) {
   };
 }
 
-module.exports = { requireDivision, requireDivisionLead, userDivisions, DIVISION_SLUG };
+module.exports = {
+  requireDivision, requireDivisionLead,
+  userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
+};

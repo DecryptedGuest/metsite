@@ -111,55 +111,59 @@ async function resolveSiteRole(opts) {
 
 // ─────────────────────────────────────────────────────────────────
 // Multi-division access — additive, does not change anything above.
-// Each division has a MEMBER role id and an optional LEAD role id,
-// following the existing ROLE_IA / ROLE_HICOMM env var pattern.
+//
+// Membership + rank in the four new divisions (CID/SCO19/FLP/HPC) comes
+// ONLY from each division's Roblox GROUP rank (see lib/divisions.js) — no
+// Discord-role fallback. IA is deliberately resolved from its existing site
+// role instead, so IA's own pipeline (resolveSiteRole* above) is untouched.
 // ─────────────────────────────────────────────────────────────────
-
-const DIVISION_DEFAULT_ROLE_IDS = {
-  CID:   { member: '1398071208343244871', lead: '1398071208343244872' },
-  SCO19: { member: '1398071208343244873', lead: '1398071208343244874' },
-  FLP:   { member: '1398071208343244875', lead: '1398071208343244876' },
-  HPC:   { member: '1398071208343244877', lead: '1398071208343244878' },
-};
-
-// IA has its own well-established role IDs already (ROLE_IA / ROLE_HICOMM) —
-// treat IA membership + HICOMM/SUPERVISOR/DEVELOPER site roles as LEAD-level
-// IA division access so the division model can gate the /ia/* routes too,
-// without touching how ROLE_IA/ROLE_HICOMM are read anywhere else.
-function getDivisionRoleIds(division) {
-  if (division === 'IA') {
-    return { member: getRoleIA(), lead: getRoleHICOMM() };
-  }
-  const d = DIVISION_DEFAULT_ROLE_IDS[division];
-  return {
-    member: process.env[`ROLE_${division}`]      || (d && d.member),
-    lead:   process.env[`ROLE_${division}_LEAD`] || (d && d.lead),
-  };
-}
 
 const ALL_DIVISIONS = ['CID', 'SCO19', 'IA', 'FLP', 'HPC'];
 
-// Resolve which divisions a user has access to, and their rank in each, from
-// the same memberRoles array already fetched for resolveSiteRoleDetailed (no
-// extra Discord/Roblox calls). Returns [{ division, rank }].
-//   rank — 'LEAD' | 'MEMBER'
-// A developer (by user id or DEVELOPER_ROLE_ID) gets LEAD in every division.
-function resolveDivisionsForUser({ discordId, memberRoles = [] }) {
-  const ids = Array.isArray(memberRoles) ? memberRoles : [];
+// Map an IA site role to an IA-division tier. HICOMM/SUPERVISOR/DEVELOPER can
+// approve → LEAD; a plain IA member → MEMBER. Mirrors the IA route guards.
+function iaTierFromSiteRole(siteRole) {
+  if (!siteRole) return null;
+  if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(siteRole)) return 'LEAD';
+  if (siteRole === 'IA') return 'MEMBER';
+  return null;
+}
 
-  const isDeveloper =
-    discordId === getDeveloperDiscordId() ||
-    getDeveloperRoleIds().some(id => ids.includes(id));
+// Resolve every division the user can access, with their tier + Roblox rank.
+// Returns [{ division, tier, rankName, rank }] where tier is 'LEAD' | 'MEMBER'.
+//   - IA: from the site role (no Roblox group query — unchanged behaviour).
+//   - CID/SCO19/FLP/HPC: from each division's Roblox group rank.
+// A developer (by id or DEVELOPER site role) gets LEAD in every division.
+async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null }) {
+  const { resolveGroupDivisions } = require('./divisions');
+
+  const isDeveloper = discordId === getDeveloperDiscordId() || siteRole === 'DEVELOPER';
   if (isDeveloper) {
-    return ALL_DIVISIONS.map(division => ({ division, rank: 'LEAD' }));
+    return ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: 'Developer', rank: null }));
   }
 
   const divisions = [];
-  for (const division of ALL_DIVISIONS) {
-    const { member, lead } = getDivisionRoleIds(division);
-    if (lead && ids.includes(lead))        divisions.push({ division, rank: 'LEAD' });
-    else if (member && ids.includes(member)) divisions.push({ division, rank: 'MEMBER' });
+
+  // IA — from the site role, keeping IA fully decoupled from the group logic.
+  const iaTier = iaTierFromSiteRole(siteRole);
+  if (iaTier) divisions.push({ division: 'IA', tier: iaTier, rankName: siteRole, rank: null });
+
+  // CID / SCO19 / FLP / HPC — Roblox group rank only. Resolve the user's Roblox
+  // id from the stored/RoVer link if the caller didn't supply one.
+  let rId = robloxId;
+  if (!rId) {
+    try {
+      const { getRobloxIdFromDiscord } = require('./roblox');
+      rId = await getRobloxIdFromDiscord(discordId);
+    } catch (e) { rId = null; }
   }
+  if (rId) {
+    try {
+      const groupDivs = await resolveGroupDivisions(rId);
+      divisions.push(...groupDivs);
+    } catch (e) { /* Roblox unreachable → no group divisions this pass */ }
+  }
+
   return divisions;
 }
 
@@ -167,12 +171,13 @@ function hasDivisionAccess(divisions, division) {
   return Array.isArray(divisions) && divisions.some(d => d.division === division);
 }
 
-function divisionRank(divisions, division) {
+// The user's tier ('LEAD' | 'MEMBER') in a division, or null if no access.
+function divisionTier(divisions, division) {
   const entry = Array.isArray(divisions) && divisions.find(d => d.division === division);
-  return entry ? entry.rank : null;
+  return entry ? entry.tier : null;
 }
 
 module.exports = {
   resolveSiteRole, resolveSiteRoleDetailed, roleFromIaGroupRank, roleFromDiscordRoles,
-  resolveDivisionsForUser, getDivisionRoleIds, hasDivisionAccess, divisionRank, ALL_DIVISIONS,
+  resolveDivisionsForUser, hasDivisionAccess, divisionTier, ALL_DIVISIONS,
 };

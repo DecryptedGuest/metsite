@@ -30,7 +30,7 @@ async function checkLead() {
   try {
     const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     const mine = (data && data.mine || []).find(d => d.division === 'SCO19');
-    sco19IsLead = !!mine && mine.rank === 'LEAD';
+    sco19IsLead = !!mine && mine.tier === 'LEAD';
   } catch (e) { sco19IsLead = false; }
 }
 

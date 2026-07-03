@@ -89,19 +89,45 @@ metsite/
 ## How access works
 
 Login is one shared Discord OAuth2 flow for the whole portal (`/auth/discord`). After
-signing in, a user lands on the hub (`/`), which shows all 5 divisions — cards for
-divisions they can access link to that division's dashboard; the rest are shown locked.
+signing in, a user lands on the hub (`/`), which shows all 5 divisions with the user's
+**rank in each** — cards for divisions they belong to link to that division's dashboard;
+the rest are shown locked.
 
-Each user's Discord roles are resolved into **divisions + rank** (`MEMBER` or `LEAD`),
-cached on `User.divisions`, and refreshed at login and by the same background job that
-already refreshes IA's `role` field. Visiting a division's dashboard without the right
-role redirects to that division's `/denied` page; visiting one you have redirects
-nowhere — you're in.
+**Division membership + rank come from Roblox groups, not Discord roles.** Each of the
+four new divisions is a Roblox group held by the **holder account**
+(`FNTHOLDER_V2` by default, via `DIVISION_HOLDER_USERNAME`), whose group icon becomes the
+division's icon. A user's rank in that group — resolved through RoVer, exactly the way IA
+already resolves its rank — decides whether they're in the division and at what tier
+(`MEMBER` or `LEAD`). There is **no Discord-role fallback**: if the group rank can't be
+read, the user has no access to that division. The resolved divisions are cached on
+`User.divisions` and refreshed at login and by the same background job that refreshes IA's
+`role`. `server/lib/divisions.js` is the single place group ids, icons, and rank→tier
+mapping live.
 
-IA's own role (`IA` / `HICOMM` / `SUPERVISOR` / `DEVELOPER`) still governs everything
-*inside* IA (who can approve a case, view the audit log, etc.) exactly as before — it's
-now just one of several things a user can hold, rather than the only thing that gates
-login to the whole site. A `DEVELOPER` always has LEAD access to every division.
+**IA is the exception** and is deliberately left on its original pipeline: IA access is
+governed by the IA **site role** (`IA` / `SUPERVISOR` / `HICOMM` / `DEVELOPER`) derived
+from the IA Roblox group by `roleResolver.js` — unchanged from the original system, and
+independent of the `divisions` cache so IA can never be locked out by a stale cache. That
+site role still governs everything *inside* IA (who can approve a case, view the audit
+log, etc.) exactly as before.
+
+A `DEVELOPER` always has LEAD access to every division. Visiting a division you don't
+belong to redirects to that division's `/denied` page.
+
+The **LEAD (high-rank) tier** — which unlocks a division's restricted actions — is defined
+per the divisional spec:
+
+| Division | LEAD when the member's Roblox rank is… |
+|----------|----------------------------------------|
+| CID, SCO-19 | Assistant Commander / Director and above |
+| FLP, HPC    | Deputy Director and above |
+| IA          | HICOMM / SUPERVISOR site role (i.e. Deputy Director+ in the IA group) |
+
+> **Tiers are provisional.** LEAD is currently matched by rank **name** (see
+> `LEAD_RANK_PATTERNS` in `server/lib/divisions.js`), so "and above" ranks with other
+> names won't be recognised until each group's full rank ladder is confirmed. Override
+> per division with `LEAD_MIN_RANK_<DIV>` (member is LEAD when their group rank number is
+> ≥ that value) once the exact ranks are known.
 
 ---
 
@@ -211,25 +237,30 @@ Railway auto-deploys on every push to `main`. `railway.toml` handles:
 
 ---
 
-## Role Mapping
+## Division → Roblox group mapping
 
-Every division follows the same MEMBER/LEAD role-id pattern. `LEAD` grants that
-division's approval / sign-off / instructor actions; either role grants the dashboard.
+The four new divisions resolve membership + rank from a Roblox group held by
+`DIVISION_HOLDER_USERNAME` (`FNTHOLDER_V2`). Pin each group id explicitly (recommended),
+or leave it blank to auto-discover it by matching the holder account's groups by name.
 
-| Division | MEMBER env var | LEAD env var | Notes |
-|----------|-----------------|--------------|-------|
-| CID      | `ROLE_CID`      | `ROLE_CID_LEAD`     | Lead can reassign a case's investigators |
-| SCO-19   | `ROLE_SCO19`    | `ROLE_SCO19_LEAD`   | Lead can sign off / reject a deployment |
-| IA       | `ROLE_IA`       | `ROLE_HICOMM`       | Unchanged — IA's own long-standing role IDs |
-| FLP      | `ROLE_FLP`      | `ROLE_FLP_LEAD`     | No lead-only actions yet — all officers log their own shifts |
-| HPC      | `ROLE_HPC`      | `ROLE_HPC_LEAD`     | Lead acts as the instructor: enrols cadets, sets pass/fail |
+| Division | Group id env var | Lead threshold env var | Notes |
+|----------|------------------|------------------------|-------|
+| CID      | `GROUP_CID`      | `LEAD_MIN_RANK_CID`    | Lead can reassign a case's investigators |
+| SCO-19   | `GROUP_SCO19`    | `LEAD_MIN_RANK_SCO19`  | Lead can sign off / reject a deployment |
+| FLP      | `GROUP_FLP`      | `LEAD_MIN_RANK_FLP`    | No lead-only actions yet — all officers log their own shifts |
+| HPC      | `GROUP_HPC`      | `LEAD_MIN_RANK_HPC`    | Lead acts as the instructor: enrols cadets, sets pass/fail |
 
-A user with none of these roles for a given division is redirected to that division's
-`/denied` page. `DEVELOPER_DISCORD_ID` (and `DEVELOPER_ROLE_ID`/`DEVELOPER_ROLE_ID2`)
-always grant LEAD access to every division.
+`LEAD_MIN_RANK_<DIV>` is the Roblox group rank number at/above which a member is treated
+as `LEAD` (default 255 = owner only). This is provisional until each division's real rank
+ladder is defined — see the note under **How access works**.
 
-IA additionally has `ROLE_SUPERVISOR` for case/ticket approval without full HICOMM
-audit/quota access — see `server/middleware/auth.js`.
+IA is **not** in this table: IA access comes from the IA site role, mapped from the IA
+Roblox group (`IA_GROUP_ID`, default `407296071`) by `roleResolver.js`, using `ROLE_IA` /
+`ROLE_HICOMM` / `ROLE_SUPERVISOR` as the Discord-role fallback — all unchanged from the
+original IA system.
+
+`DEVELOPER_DISCORD_ID` (and `DEVELOPER_ROLE_ID`/`DEVELOPER_ROLE_ID2`) always grant LEAD
+access to every division.
 
 ---
 

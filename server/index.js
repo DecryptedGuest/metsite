@@ -404,22 +404,33 @@ app.get('/api/me', requireAuth, async (req, res) => {
   });
 });
 
-// ── Divisions the current user can access — powers the hub page and the
-// "Switch division" control in the shared nav on every dashboard. ───
-const DIVISION_META = {
-  CID:   { slug: 'cid',   name: 'CID',    fullName: 'Criminal Investigation Department' },
-  SCO19: { slug: 'sco19', name: 'SCO-19', fullName: 'Specialist Firearms Command' },
-  IA:    { slug: 'ia',    name: 'IA',     fullName: 'Internal Affairs' },
-  FLP:   { slug: 'flp',   name: 'FLP',    fullName: 'Frontline Policing' },
-  HPC:   { slug: 'hpc',   name: 'HPC',    fullName: 'Hendon Police College' },
-};
-app.get('/api/me/divisions', requireAuth, (req, res) => {
-  const mine = req.user.role === 'DEVELOPER'
-    ? Object.keys(DIVISION_META).map(division => ({ division, rank: 'LEAD' }))
-    : (Array.isArray(req.user.divisions) ? req.user.divisions : []);
+// ── Divisions the current user can access — powers the hub dashboard and the
+// "Switch division" control in the shared nav on every dashboard. Each entry
+// carries the division's group icon (from the holder account) + the user's
+// Roblox rank name/tier in that division. ───
+const { meta: divisionMeta, allMeta: allDivisionMeta, getDivisionConfig } = require('./lib/divisions');
+app.get('/api/me/divisions', requireAuth, async (req, res) => {
+  const { ALL } = require('./lib/divisions');
+  let mine;
+  if (req.user.role === 'DEVELOPER') {
+    mine = ALL.map(division => ({ division, tier: 'LEAD', rankName: 'Developer' }));
+  } else {
+    mine = (Array.isArray(req.user.divisions) ? req.user.divisions : []).slice();
+    // IA access is governed by the site role, not the cache — surface it here
+    // even if this user's cached divisions predate the multi-division rollout.
+    if (['IA', 'SUPERVISOR', 'HICOMM'].includes(req.user.role) && !mine.some(d => d.division === 'IA')) {
+      mine.push({ division: 'IA', tier: ['HICOMM', 'SUPERVISOR'].includes(req.user.role) ? 'LEAD' : 'MEMBER', rankName: req.user.role });
+    }
+  }
+
+  // Group icons (best-effort; empty when Roblox is unreachable / ids unset).
+  let cfg = {};
+  try { cfg = await getDivisionConfig(); } catch (e) { cfg = {}; }
+  const icon = (d) => (cfg[d] && cfg[d].icon) || null;
+
   res.json({
-    all:   Object.entries(DIVISION_META).map(([division, meta]) => ({ division, ...meta })),
-    mine:  mine.map(d => ({ ...d, ...DIVISION_META[d.division] })),
+    all:  allDivisionMeta().map(m => ({ ...m, icon: icon(m.division) })),
+    mine: mine.map(d => ({ ...d, ...divisionMeta(d.division), icon: icon(d.division) })),
   });
 });
 
