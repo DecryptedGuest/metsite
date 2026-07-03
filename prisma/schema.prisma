@@ -420,3 +420,51 @@ model HpcTrainingRecord {
 
   @@map("hpc_training_records")
 }
+
+// ─────────────────────────────────────────────────────────────────
+// MET bot-populated data. The MET bot upserts these keyed by Discord
+// id; the site joins them to the logged-in user by discordId. Kept in
+// their own tables so the bot never needs the site's user ids and IA's
+// User model stays untouched. All fields the bot writes are optional
+// from the site's side — the profile page degrades gracefully until the
+// bot fills them in.
+// ─────────────────────────────────────────────────────────────────
+
+// One row per MET member. `roles` and `perms` are rendered on the profile
+// page as Discord-style chips.
+model MetMemberProfile {
+  id              String   @id @default(uuid())
+  discordId       String   @unique
+  discordUsername String?
+  metNickname     String?          // the member's nickname in the MET server
+  robloxId        String?
+  robloxUsername  String?
+  // MET-server Discord roles: [{ id, name, color, position, icon }]
+  roles           Json?
+  // Portal / gang / multi-division perms shown as chips:
+  //   [{ key, label, category, color }]
+  perms           Json?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@map("met_member_profiles")
+}
+
+// A member's disciplinary history in the MET server (written by the bot).
+model MetPunishment {
+  id         String    @id @default(uuid())
+  discordId  String                       // the punished member
+  type       String                       // WARNING | STRIKE | SUSPENSION | BAN | DEMOTION | ...
+  reason     String?
+  issuedById String?                       // moderator discord id
+  issuedBy   String?                       // moderator display name
+  caseRef    String?                       // optional external reference
+  active     Boolean   @default(true)
+  issuedAt   DateTime  @default(now())
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([discordId])
+  @@index([issuedAt])
+  @@map("met_punishments")
+}

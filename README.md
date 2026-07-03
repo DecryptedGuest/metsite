@@ -56,7 +56,8 @@ metsite/
 │       └── webhook.js        # Discord webhook sender (IA)
 ├── client/
 │   ├── views/
-│   │   ├── index.html            # Hub — the 5 division cards
+│   │   ├── index.html            # Hub — the 5 division cards + your rank in each
+│   │   ├── profile.html          # Officer profile — roles/perms/punishments/ranks
 │   │   ├── portal-denied.html    # Generic "no access" page (used by all new divisions)
 │   │   ├── login.html            # IA's own login page (/ia/login)
 │   │   ├── dashboard.html        # IA's dashboard (/ia/dashboard) — unchanged, + shared topbar
@@ -74,6 +75,7 @@ metsite/
 │           ├── ui.js             # Toast, modal, API helpers (shared, unchanged)
 │           ├── dashboard.js      # IA dashboard logic (unchanged)
 │           ├── met-topbar.js     # Shared topbar: user info + "Switch division" (new)
+│           ├── profile.js        # Officer profile page logic (new)
 │           ├── cid-dashboard.js
 │           ├── sco19-dashboard.js
 │           ├── flp-dashboard.js
@@ -236,6 +238,37 @@ Railway auto-deploys on every push to `main`. `railway.toml` handles:
 - Starting the server with `prisma db push --accept-data-loss && node server/index.js`
 
 ---
+
+## MET bot data contract
+
+The officer profile page (`/profile`) shows each officer's MET-server roles, perms and
+punishment history as Discord-style chips. That data is **written by the MET bot** into
+two tables in this same database — the site only reads them, and the profile degrades
+gracefully (division ranks still show; a notice explains the rest is pending) until the
+bot populates them.
+
+**`met_member_profiles`** — one row per member, upserted on `discordId`:
+
+| Column | Meaning |
+|--------|---------|
+| `discordId` (unique) | the member's Discord id |
+| `discordUsername`, `metNickname` | display fields |
+| `robloxId`, `robloxUsername` | linked Roblox identity (optional) |
+| `roles` (JSON) | MET-server Discord roles → chips: `[{ id, name, color, position, icon }]` (`color` = Discord's decimal int or `#hex`) |
+| `perms` (JSON) | multi-division / gang / portal perms → chips: `[{ key, label, category, color }]` |
+
+**`met_punishments`** — one row per punishment, inserted by the bot:
+
+| Column | Meaning |
+|--------|---------|
+| `discordId` | the punished member |
+| `type` | `WARNING` / `STRIKE` / `SUSPENSION` / `BAN` / `DEMOTION` / … (free-form) |
+| `reason`, `issuedBy`, `issuedById`, `caseRef` | details |
+| `active`, `issuedAt`, `expiresAt` | status + timing |
+
+The bot connects with the same `DATABASE_URL` and writes these rows; nothing else on the
+site needs to change for the profile to light up. Division rank/quota and division access
+continue to come from Roblox groups (above), independent of this bot data.
 
 ## Division → Roblox group mapping
 

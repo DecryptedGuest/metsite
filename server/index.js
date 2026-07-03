@@ -409,28 +409,81 @@ app.get('/api/me', requireAuth, async (req, res) => {
 // carries the division's group icon (from the holder account) + the user's
 // Roblox rank name/tier in that division. ───
 const { meta: divisionMeta, allMeta: allDivisionMeta, getDivisionConfig } = require('./lib/divisions');
-app.get('/api/me/divisions', requireAuth, async (req, res) => {
+
+// Compute the divisions (with tier/rank/icon) a user belongs to. Shared by the
+// hub, the "Switch division" control, and the profile page.
+async function computeMyDivisions(user) {
   const { ALL } = require('./lib/divisions');
   let mine;
-  if (req.user.role === 'DEVELOPER') {
+  if (user.role === 'DEVELOPER') {
     mine = ALL.map(division => ({ division, tier: 'LEAD', rankName: 'Developer' }));
   } else {
-    mine = (Array.isArray(req.user.divisions) ? req.user.divisions : []).slice();
+    mine = (Array.isArray(user.divisions) ? user.divisions : []).slice();
     // IA access is governed by the site role, not the cache — surface it here
     // even if this user's cached divisions predate the multi-division rollout.
-    if (['IA', 'SUPERVISOR', 'HICOMM'].includes(req.user.role) && !mine.some(d => d.division === 'IA')) {
-      mine.push({ division: 'IA', tier: ['HICOMM', 'SUPERVISOR'].includes(req.user.role) ? 'LEAD' : 'MEMBER', rankName: req.user.role });
+    if (['IA', 'SUPERVISOR', 'HICOMM'].includes(user.role) && !mine.some(d => d.division === 'IA')) {
+      mine.push({ division: 'IA', tier: ['HICOMM', 'SUPERVISOR'].includes(user.role) ? 'LEAD' : 'MEMBER', rankName: user.role });
     }
   }
-
   // Group icons (best-effort; empty when Roblox is unreachable / ids unset).
   let cfg = {};
   try { cfg = await getDivisionConfig(); } catch (e) { cfg = {}; }
   const icon = (d) => (cfg[d] && cfg[d].icon) || null;
+  return {
+    icon,
+    mine: mine.map(d => ({ ...d, ...divisionMeta(d.division), icon: icon(d.division) })),
+  };
+}
 
+app.get('/api/me/divisions', requireAuth, async (req, res) => {
+  const { mine, icon } = await computeMyDivisions(req.user);
   res.json({
     all:  allDivisionMeta().map(m => ({ ...m, icon: icon(m.division) })),
-    mine: mine.map(d => ({ ...d, ...divisionMeta(d.division), icon: icon(d.division) })),
+    mine,
+  });
+});
+
+// ── Officer profile — the logged-in officer's identity, MET-server roles,
+// division ranks, perms and punishment history. MET-server roles/perms and
+// punishments are written by the MET bot into met_member_profiles /
+// met_punishments; this endpoint degrades gracefully (empty arrays) until the
+// bot populates them. See the "MET bot data contract" section of the README. ─
+app.get('/api/me/profile', requireAuth, async (req, res) => {
+  const { mine } = await computeMyDivisions(req.user);
+
+  let metProfile = null, punishments = [];
+  try {
+    metProfile = await dbPrisma.metMemberProfile.findUnique({ where: { discordId: req.user.discordId } });
+  } catch (e) { metProfile = null; }
+  try {
+    punishments = await dbPrisma.metPunishment.findMany({
+      where: { discordId: req.user.discordId },
+      orderBy: { issuedAt: 'desc' },
+      take: 100,
+    });
+  } catch (e) { punishments = []; }
+
+  res.json({
+    user: {
+      id:              req.user.id,
+      discordId:       req.user.discordId,
+      discordUsername: req.user.discordUsername,
+      displayName:     req.user.displayName,
+      discordAvatar:   req.user.discordAvatar,
+      role:            req.user.role,
+      robloxUsername:  req.user.robloxUsername,
+      robloxId:        req.user.robloxId,
+    },
+    divisions: mine,
+    metNickname: metProfile ? metProfile.metNickname : null,
+    roles: (metProfile && Array.isArray(metProfile.roles)) ? metProfile.roles : [],
+    perms: (metProfile && Array.isArray(metProfile.perms)) ? metProfile.perms : [],
+    punishments: punishments.map(p => ({
+      id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
+      caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt,
+    })),
+    // Whether the MET bot has ever written a profile for this member yet.
+    botLinked: !!metProfile,
   });
 });
 
@@ -472,6 +525,9 @@ function sendPage(res, file) {
 app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'index.html')));
 app.get('/login',                (req, res) => res.redirect('/' + req.url.replace(/^\/login/, '')));
 app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+
+// Officer profile — any signed-in MET officer (no division gate).
+app.get('/profile', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
 app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));

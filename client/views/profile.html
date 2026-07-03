@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · Officer Profile</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
+</div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division" id="met-division-badge">Officer Profile</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <a href="/" class="btn btn-ghost btn-sm"><i class="ti ti-layout-grid"></i> Hub</a>
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <form action="/auth/logout" method="POST">
+      <button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button>
+    </form>
+  </div>
+</div>
+
+<div class="profile-wrap">
+  <!-- Identity header -->
+  <div class="glass profile-hero fade-up">
+    <div class="profile-avatar-wrap">
+      <img id="p-avatar" class="profile-avatar" src="" alt="" style="display:none;" />
+      <div class="profile-avatar-fallback" id="p-avatar-fallback">?</div>
+    </div>
+    <div class="profile-id">
+      <div class="profile-name" id="p-name">Loading…</div>
+      <div class="profile-sub" id="p-sub"></div>
+      <div class="profile-meta" id="p-meta"></div>
+    </div>
+  </div>
+
+  <div id="bot-notice" class="glass profile-notice" style="display:none;">
+    <i class="ti ti-robot"></i>
+    <span>The MET bot hasn't linked this profile yet, so MET-server roles, perms and punishment history aren't available. Division ranks below are live.</span>
+  </div>
+
+  <!-- Divisions + rank -->
+  <div class="panel glass fade-up stagger-1">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Divisions &amp; Rank</div></div>
+    <div class="profile-section" id="p-divisions"><div class="table-loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- MET server roles -->
+  <div class="panel glass fade-up stagger-2">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot purple"></span>MET Server Roles</div></div>
+    <div class="profile-section"><div class="chip-row" id="p-roles"></div></div>
+  </div>
+
+  <!-- Perms -->
+  <div class="panel glass fade-up stagger-2">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Permissions</div></div>
+    <div class="profile-section"><div class="chip-row" id="p-perms"></div></div>
+  </div>
+
+  <!-- Punishment history -->
+  <div class="panel glass fade-up stagger-3">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Punishment History</div></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Type</th><th>Reason</th><th>Issued By</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody id="p-punishments"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/met-topbar.js"></script>
+<script src="/js/profile.js"></script>
+<script>initMetTopbar('');</script>
+</body>
+</html>

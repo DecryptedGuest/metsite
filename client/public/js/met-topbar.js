@@ -11,7 +11,9 @@ function metInitials(name) {
 
 async function initMetTopbar(currentDivision) {
   const badge = document.getElementById('met-division-badge');
-  if (badge) badge.textContent = DIVISION_LABEL[currentDivision] || currentDivision;
+  // Leave the badge's markup as-is on pages with no specific division (e.g. the
+  // profile page sets its own label in HTML).
+  if (badge && currentDivision) badge.textContent = DIVISION_LABEL[currentDivision] || currentDivision;
 
   try {
     const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
@@ -41,6 +43,12 @@ async function initMetTopbar(currentDivision) {
       hubLink.className = 'met-switcher-item';
       hubLink.innerHTML = '<span><i class="ti ti-layout-grid"></i> All divisions</span>';
       menu.appendChild(hubLink);
+
+      const profileLink = document.createElement('a');
+      profileLink.href = '/profile';
+      profileLink.className = 'met-switcher-item';
+      profileLink.innerHTML = '<span><i class="ti ti-user"></i> My profile</span>';
+      menu.appendChild(profileLink);
 
       (data.mine || []).forEach(d => {
         const a = document.createElement('a');
