@@ -19,14 +19,20 @@ function holderUsername() { return process.env.DIVISION_HOLDER_USERNAME || 'FNTH
 
 // Division metadata. `groupEnv` is the env var that pins the group id;
 // `match` recognises the group by name during holder auto-discovery.
-// IA keeps its long-standing group id + env var untouched.
+// Roblox group ids are known/fixed (provided by MET), so they're the defaults;
+// the GROUP_* / IA_GROUP_ID env vars still override if ever needed.
 const META = {
-  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    match: /criminal invest|\bcid\b/i },
-  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
+  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
+  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
   IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
-  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    match: /frontline/i },
-  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    match: /hendon|police college|\bhpc\b/i },
+  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
+  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
 };
+
+// The top-level Metropolitan Police group — the umbrella every officer belongs
+// to. Its rank drives MET-wide quota (low rank / senior officer / high rank),
+// and its icon is the portal's brand mark. Not a "division", so it's not in ALL.
+function metGroupId() { return process.env.GROUP_MET || '17275620'; }
 
 // Division order the portal shows everywhere.
 const ALL = ['CID', 'SCO19', 'IA', 'FLP', 'HPC'];
@@ -118,8 +124,13 @@ async function getDivisionConfig() {
     }
   }
 
-  const icons = await fetchGroupIcons(ALL.map(d => data[d].groupId));
+  const metId = metGroupId();
+  const icons = await fetchGroupIcons(ALL.map(d => data[d].groupId).concat([metId]));
   for (const d of ALL) if (data[d].groupId) data[d].icon = icons[data[d].groupId] || null;
+
+  // The MET umbrella group's icon (portal brand mark). Kept off ALL so it's
+  // never rendered as a division card.
+  data.MET = { groupId: metId, icon: icons[metId] || null };
 
   configCache = { at: Date.now(), data };
   return data;
@@ -165,5 +176,5 @@ module.exports = {
   meta, allMeta,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
-  explicitGroupId, isLeadRank, holderUsername,
+  explicitGroupId, isLeadRank, holderUsername, metGroupId,
 };

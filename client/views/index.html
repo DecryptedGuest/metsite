@@ -40,9 +40,9 @@
 
 <div class="hub-wrap">
   <div class="hub-hero">
-    <img src="/img/logo.png" alt="MET Police" />
+    <img id="hub-hero-logo" src="/img/logo.png" alt="MET Police" />
     <div class="hub-title">Metropolitan Police Service</div>
-    <div class="hub-subtitle">Division Portal</div>
+    <div class="hub-subtitle">Officer Portal</div>
 
     <div id="error-banner" class="error-banner" style="display:none;max-width:420px;margin:1.2rem auto 0;">
       <i class="ti ti-alert-triangle"></i>
@@ -127,7 +127,6 @@ async function loadHub() {
 
     card.innerHTML = `
       <div class="hub-card-head">${icon}<div class="hub-card-name">${d.fullName}</div></div>
-      <div class="hub-card-desc">${describeDivision(d.division)}</div>
       ${rankLine}
       <div>
         ${!me
@@ -138,20 +137,16 @@ async function loadHub() {
       </div>`;
     grid.appendChild(card);
   });
+
+  // Portal brand mark from the MET umbrella group, when it resolves.
+  if (divisionsData && divisionsData.metIcon) {
+    const hero = document.getElementById('hub-hero-logo');
+    if (hero) hero.src = divisionsData.metIcon;
+  }
 }
 
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function describeDivision(division) {
-  return {
-    CID:   'Open cases, log evidence and notes, and track investigations through to closure.',
-    SCO19: 'Log firearms deployments and authorisations, with lead sign-off on every operation.',
-    IA:    'Case management, ticketing, quota tracking and the audit log for Internal Affairs.',
-    FLP:   'Log shifts, incidents attended and arrests made on the frontline.',
-    HPC:   'Track cadet enrolment, course completion, and graduation sign-off.',
-  }[division] || '';
 }
 
 loadHub();

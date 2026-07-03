@@ -449,9 +449,12 @@ async function computeMyDivisions(user) {
 
 app.get('/api/me/divisions', requireAuth, async (req, res) => {
   const { mine, icon } = await computeMyDivisions(req.user);
+  let metIcon = null;
+  try { const cfg = await getDivisionConfig(); metIcon = cfg.MET ? cfg.MET.icon : null; } catch (e) {}
   res.json({
     all:  allDivisionMeta().map(m => ({ ...m, icon: icon(m.division) })),
     mine,
+    metIcon,
   });
 });
 
