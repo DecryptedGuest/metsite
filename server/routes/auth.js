@@ -310,4 +310,8 @@ router.post('/logout', (req, res) => {
   res.redirect('/login');
 });
 
+// Exposed so the debug endpoint can show the EXACT redirect_uri the app sends
+// to Discord (must be registered verbatim in the Discord Developer Portal).
+router.buildRedirectUri = buildRedirectUri;
+
 module.exports = router;
