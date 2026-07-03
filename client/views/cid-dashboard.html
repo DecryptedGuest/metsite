@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · CID Dashboard</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
+</div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division" id="met-division-badge">CID</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST">
+      <button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button>
+    </form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo"><img src="/img/logo.png" alt="CID" /></div>
+        <div class="brand-text">
+          <div class="brand-name">MET · CID</div>
+          <div class="brand-sub">Criminal Investigation</div>
+        </div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Overview</div>
+        <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Investigations</div>
+        <button class="nav-item" data-page="cases"><i class="ti ti-folder nav-icon"></i><span>Case Log</span></button>
+      </nav>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <!-- DASHBOARD -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Dashboard</h1><p class="page-sub">Criminal Investigation Department · Overview</p></div>
+        <button class="btn btn-primary" onclick="openNewCaseModal()"><i class="ti ti-plus"></i> Open Case</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card blue fade-up stagger-1"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-files"></i></div>
+          <div class="stat-body"><div class="stat-label">Total Cases</div><div class="stat-value" id="stat-total">—</div></div>
+        </div><div class="stat-bar blue"></div></div>
+        <div class="stat-card amber fade-up stagger-2"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+          <div class="stat-body"><div class="stat-label">Open</div><div class="stat-value" id="stat-open">—</div></div>
+        </div><div class="stat-bar amber"></div></div>
+        <div class="stat-card purple fade-up stagger-3"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-eye"></i></div>
+          <div class="stat-body"><div class="stat-label">Under Review</div><div class="stat-value" id="stat-review">—</div></div>
+        </div><div class="stat-bar purple"></div></div>
+        <div class="stat-card green fade-up stagger-4"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+          <div class="stat-body"><div class="stat-label">Closed</div><div class="stat-value" id="stat-closed">—</div></div>
+        </div><div class="stat-bar green"></div></div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Recent Cases</div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Case Ref</th><th>Title</th><th>Lead Investigator</th><th>Status</th><th>Opened</th></tr></thead>
+            <tbody id="dash-cases-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- CASE LOG -->
+    <section class="page" id="page-cases">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Case Log</h1><p class="page-sub">Every CID investigation</p></div>
+        <button class="btn btn-primary" onclick="openNewCaseModal()"><i class="ti ti-plus"></i> Open Case</button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Cases</div>
+          <div class="filter-tabs" id="cases-filter-tabs">
+            <button class="filter-tab active" data-filter="all">All</button>
+            <button class="filter-tab" data-filter="OPEN">Open</button>
+            <button class="filter-tab" data-filter="UNDER_REVIEW">Under Review</button>
+            <button class="filter-tab" data-filter="CLOSED">Closed</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Case Ref</th><th>Title</th><th>Lead Investigator</th><th>Status</th><th>Opened</th><th></th></tr></thead>
+            <tbody id="cases-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- New Case modal -->
+<div class="modal-overlay" id="modal-new-case">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Open a New Case</div>
+      <button class="modal-close" onclick="closeModal('modal-new-case')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Title</label>
+        <input type="text" class="form-control" id="nc-title" placeholder="e.g. Fraud investigation — Blue Line Bank" /></div>
+      <div class="form-group"><label class="form-label">Summary</label>
+        <textarea class="form-control" id="nc-summary" rows="4" placeholder="What's this case about?"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-case')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewCase()">Open Case</button>
+    </div>
+  </div>
+</div>
+
+<!-- Case Detail modal -->
+<div class="modal-overlay" id="modal-case-detail">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-header"><div class="modal-title" id="cd-title">Case</div>
+      <button class="modal-close" onclick="closeModal('modal-case-detail')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div id="cd-body"></div>
+      <div class="form-group" style="margin-top:1rem;">
+        <label class="form-label">Add note / evidence</label>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="cd-entry-kind" style="max-width:140px;">
+            <option value="note">Note</option>
+            <option value="evidence">Evidence</option>
+          </select>
+          <input type="text" class="form-control" id="cd-entry-body" placeholder="Details…" />
+          <button class="btn btn-primary" onclick="submitEntry()">Add</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <select class="form-control" id="cd-status" style="max-width:180px;">
+        <option value="OPEN">Open</option>
+        <option value="UNDER_REVIEW">Under Review</option>
+        <option value="CLOSED">Closed</option>
+      </select>
+      <button class="btn btn-primary" onclick="submitStatusChange()">Update Status</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/met-topbar.js"></script>
+<script src="/js/cid-dashboard.js"></script>
+<script>initMetTopbar('CID');</script>
+</body>
+</html>

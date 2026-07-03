@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET Police Portal · Access Denied</title>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .denied-wrap { position: relative; z-index: 1; max-width: 440px; width: 100%; padding: 1rem;
+      display: flex; flex-direction: column; align-items: center; gap: 1.8rem; text-align: center; }
+    .denied-icon {
+      width: 80px; height: 80px; background: rgba(120, 15, 30, 0.3); border: 1px solid rgba(200, 40, 60, 0.3);
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 36px; color: var(--red); box-shadow: 0 0 40px rgba(180, 20, 40, 0.2);
+    }
+    .denied-code { font-family: var(--font-mono); font-size: 11px; color: var(--text-tiny);
+      letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.3rem; }
+    .denied-title { font-family: var(--font-display); font-size: 30px; font-weight: 700; color: var(--red);
+      letter-spacing: 0.06em; text-transform: uppercase; }
+    .denied-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+    .denied-card { width: 100%; padding: 1.2rem 1.4rem; }
+    .reason-row { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: var(--text-secondary);
+      padding: 0.5rem 0; border-bottom: 1px solid var(--border-dim); }
+    .reason-row:last-child { border-bottom: none; }
+    .reason-row i { color: var(--red); margin-top: 1px; font-size: 15px; flex-shrink: 0; }
+    .denied-actions { display: flex; gap: 10px; }
+  </style>
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div>
+  <div class="bg-glow-1" style="background: radial-gradient(ellipse, rgba(180, 20, 40, 0.06) 0%, transparent 65%);"></div>
+  <div class="bg-scanline"></div>
+</div>
+
+<div class="denied-wrap">
+  <div class="denied-icon"><i class="ti ti-ban"></i></div>
+  <div>
+    <div class="denied-code">Error 403 · Forbidden</div>
+    <div class="denied-title" id="denied-title">Access Denied</div>
+  </div>
+  <div class="denied-sub" id="denied-sub">
+    Your Discord account does not have the roles required for this part of the MET Police portal.
+  </div>
+  <div class="denied-card glass" id="denied-card">
+    <div class="reason-row">
+      <i class="ti ti-x"></i>
+      <span id="denied-reason-1">You don't hold a role that grants access here.</span>
+    </div>
+    <div class="reason-row">
+      <i class="ti ti-x"></i>
+      <span>If you believe this is an error, contact a server administrator to verify your roles.</span>
+    </div>
+  </div>
+  <div class="denied-actions">
+    <a href="/" class="btn btn-ghost"><i class="ti ti-arrow-left"></i> Back to Hub</a>
+    <a href="/auth/discord" class="btn btn-discord"><i class="ti ti-refresh"></i> Try Again</a>
+  </div>
+</div>
+
+<script>
+(function () {
+  const division = location.pathname.split('/')[1] || '';
+  const reason = new URLSearchParams(location.search).get('reason');
+  const NAMES = { cid: 'CID', sco19: 'SCO-19', ia: 'Internal Affairs', flp: 'FLP', hpc: 'HPC' };
+  const divisionName = NAMES[division];
+
+  if (reason === 'lockdown') {
+    document.getElementById('denied-title').textContent = 'Logins Temporarily Disabled';
+    document.getElementById('denied-sub').textContent = 'Logins are currently restricted to the development team while maintenance is in progress. Please try again later.';
+    document.getElementById('denied-card').style.display = 'none';
+  } else if (reason === 'not_in_server') {
+    document.getElementById('denied-sub').textContent = 'You must be a member of the MET Police Discord server to sign in.';
+    document.getElementById('denied-card').style.display = 'none';
+  } else if (reason === 'blacklisted') {
+    document.getElementById('denied-sub').textContent = 'Your account has been blacklisted from this system.';
+    document.getElementById('denied-card').style.display = 'none';
+  } else if (divisionName) {
+    document.getElementById('denied-sub').textContent =
+      'Your Discord account does not have the role required to access ' + divisionName + '.';
+    document.getElementById('denied-reason-1').textContent =
+      'You must hold a ' + divisionName + ' Discord role to enter this division.';
+  }
+})();
+</script>
+</body>
+</html>

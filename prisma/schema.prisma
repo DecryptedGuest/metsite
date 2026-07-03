@@ -1,0 +1,422 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  discordId       String   @unique
+  discordUsername String
+  displayName     String?
+  discordAvatar   String?
+  role            Role     @default(IA)
+  isBlacklisted   Boolean  @default(false)
+  blacklistReason String?
+  mustReauth      Boolean  @default(false)
+  lastIp          String?
+  robloxId        String?
+  robloxUsername  String?
+  notifyAsked     Boolean  @default(false)
+  notifyEnabled   Boolean  @default(false)
+  notifyPrefs     Json?
+  lastRoleCheck   DateTime?
+  createdAt       DateTime @default(now())
+  lastLogin       DateTime @default(now())
+
+  // Cached result of resolving this user's Discord roles against the
+  // per-division role env vars, e.g. [{"division":"CID","rank":"LEAD"}].
+  // Refreshed at login and by the same background revalidator that
+  // refreshes `role`, so the division middleware never has to hit Discord
+  // on the request path.
+  divisions       Json?
+
+  cases              Case[]
+  caseActions        CaseAction[]
+  tickets             Ticket[]
+  pushSubscriptions   PushSubscription[]
+  media               Media[]
+  cidCases            CidCase[]
+  sco19Deployments    Sco19Deployment[]
+  flpShiftLogs        FlpShiftLog[]
+  hpcTrainingRecords  HpcTrainingRecord[]
+
+  @@map("users")
+}
+
+model Visit {
+  id              String   @id @default(uuid())
+  path            String
+  ip              String?
+  userAgent       String?
+  userId          String?
+  discordId       String?
+  discordUsername String?
+  robloxId        String?
+  robloxUsername  String?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("visits")
+}
+
+model CaptureLog {
+  id              String   @id @default(uuid())
+  method          String
+  details         String?
+  page            String?
+  os              String?
+  browser         String?
+  device          String?
+  userAgent       String?
+  screenInfo      String?
+  language        String?
+  screenshot      String?
+  ip              String?
+  userId          String?
+  discordId       String?
+  discordUsername String?
+  robloxId        String?
+  robloxUsername  String?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("capture_logs")
+}
+
+model Case {
+  id               String     @id @default(uuid())
+  caseRef          String     @unique
+  userId           String
+  officerDiscordId String?
+  robloxUserId     String?
+  robloxUsername   String?
+  action           String
+  actions          Json?
+  reason           String
+  notes            String     @default("N/A")
+  caseLink                    String?
+  investigatorRobloxId        String?
+  investigatorRobloxUsername  String?
+  investigatorDiscordUsername String?
+  suspectRobloxDisplayName    String?
+  punishmentsSummary          String?
+  logMessageId                String?
+  reviewNote                  String?
+  reviewChanges               Json?
+  status           CaseStatus @default(PENDING)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id])
+  caseActions     CaseAction[]
+  casePunishments CasePunishment[]
+
+  @@map("cases")
+}
+
+model CaseAction {
+  id          String     @id @default(uuid())
+  caseId      String
+  actionType  ActionType
+  performedBy String
+  timestamp   DateTime   @default(now())
+  notes       String?
+
+  case Case @relation(fields: [caseId], references: [id])
+  user User @relation(fields: [performedBy], references: [id])
+
+  @@map("case_actions")
+}
+
+model CasePunishment {
+  id           String    @id @default(uuid())
+  caseId       String
+  action       String
+  roleId       String?
+  durationDays Int?
+  expiresAt    DateTime?
+  roleRemoved  Boolean   @default(false)
+
+  case Case @relation(fields: [caseId], references: [id])
+
+  @@map("case_punishments")
+}
+
+model CaseCounter {
+  id    Int @id @default(1)
+  count Int @default(0)
+
+  @@map("case_counter")
+}
+
+model Ticket {
+  id             String       @id @default(uuid())
+  ticketRef      String       @unique
+  userId         String
+  robloxUsername String
+  ticketType     TicketType
+  submittedAt    String
+  timezone       String
+  conclusion     String
+  transcriptLink String?
+  proofImages    Json?
+  status         TicketStatus @default(PENDING)
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("tickets")
+}
+
+model TicketCounter {
+  id    Int @id @default(1)
+  count Int @default(0)
+
+  @@map("ticket_counter")
+}
+
+model AccessGrant {
+  id        String   @id @default(uuid())
+  discordId String   @unique
+  role      Role     @default(IA)
+  note      String?
+  grantedBy String?
+  createdAt DateTime @default(now())
+
+  @@map("access_grants")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// Permanently-hosted images/videos uploaded by IA members. Stored in the DB so
+// they survive deploys (Railway's filesystem is ephemeral). Served via /media/:id.
+model Media {
+  id         String   @id @default(uuid())
+  title      String?
+  filename   String
+  mimeType   String
+  size       Int
+  data       Bytes
+  kind       String   // 'image' | 'video'
+  visibility String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
+  uploaderId String
+  views      Int      @default(0)
+  width      Int?     // pixel dimensions (for video/image OG embeds)
+  height     Int?
+  poster     Bytes?   // JPEG poster frame for videos (used as the embed thumbnail)
+  posterMime String?  // e.g. 'image/jpeg'; presence signals a poster exists
+  createdAt  DateTime @default(now())
+
+  uploader User @relation(fields: [uploaderId], references: [id])
+
+  @@index([createdAt])
+  @@map("media")
+}
+
+// Durable outbox for quota point awards. Every approved case/ticket records an
+// award here, and a background worker retries until the sheet write succeeds —
+// so points are never lost to a transient webhook/RoVer failure or a spam burst.
+model QuotaAward {
+  id             String   @id @default(uuid())
+  refType        String   // 'case' | 'ticket'
+  refId          String   // case/ticket id — one award per ref (idempotent)
+  discordId      String?
+  robloxUsername String?
+  points         Int
+  label          String?
+  status         String   @default("PENDING") // PENDING | DONE | FAILED
+  attempts       Int      @default(0)
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([refType, refId])
+  @@index([status])
+  @@map("quota_awards")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("push_subscriptions")
+}
+
+enum Role {
+  IA
+  HICOMM
+  SUPERVISOR
+  DEVELOPER
+}
+
+enum CaseStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum ActionType {
+  CREATED
+  APPROVED
+  DENIED
+  DELETED
+  BLACKLISTED
+  UNBLACKLISTED
+}
+
+enum TicketType {
+  GENERAL_SUPPORT
+  HICOMM
+  OFFICER_REPORT
+  APPEAL
+}
+
+enum TicketStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Multi-division portal — additive models. IA's own models above
+// (Case, Ticket, ...) are untouched; each new division gets its own
+// model(s) scoped by division rather than reusing/mutating Case.
+// ─────────────────────────────────────────────────────────────────
+
+enum Division {
+  CID
+  SCO19
+  IA
+  FLP
+  HPC
+}
+
+// A user's rank within a single division, as resolved from Discord roles.
+enum DivisionRank {
+  MEMBER
+  LEAD
+}
+
+// ── CID — Criminal Investigation Department ───────────────────────
+enum CidCaseStatus {
+  OPEN
+  UNDER_REVIEW
+  CLOSED
+}
+
+model CidCase {
+  id             String        @id @default(uuid())
+  caseRef        String        @unique
+  title          String
+  summary        String
+  leadInvestigatorId String
+  assignedIds    Json?         // array of userIds assigned to the case
+  status         CidCaseStatus @default(OPEN)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  leadInvestigator User          @relation(fields: [leadInvestigatorId], references: [id])
+  entries          CidCaseEntry[]
+
+  @@map("cid_cases")
+}
+
+// Evidence / notes log entries attached to a CID case.
+model CidCaseEntry {
+  id        String   @id @default(uuid())
+  caseId    String
+  authorId  String
+  kind       String  // 'note' | 'evidence'
+  body      String
+  createdAt DateTime @default(now())
+
+  case CidCase @relation(fields: [caseId], references: [id])
+
+  @@map("cid_case_entries")
+}
+
+// ── SCO-19 — Specialist Firearms Command ──────────────────────────
+enum Sco19DeploymentStatus {
+  PENDING_REVIEW
+  SIGNED_OFF
+  REJECTED
+}
+
+model Sco19Deployment {
+  id             String                 @id @default(uuid())
+  deploymentRef  String                 @unique
+  officerId      String
+  callsign       String
+  incidentType   String
+  authorisation  String                 // authorising officer / firearms authority reference
+  summary        String
+  status         Sco19DeploymentStatus  @default(PENDING_REVIEW)
+  signedOffById  String?
+  signedOffAt    DateTime?
+  createdAt      DateTime               @default(now())
+
+  officer User @relation(fields: [officerId], references: [id])
+
+  @@map("sco19_deployments")
+}
+
+// ── FLP — Frontline Policing ───────────────────────────────────────
+model FlpShiftLog {
+  id             String    @id @default(uuid())
+  officerId      String
+  shiftStart     DateTime
+  shiftEnd       DateTime?
+  incidentsCount Int       @default(0)
+  arrestsCount   Int       @default(0)
+  notes          String?
+  createdAt      DateTime  @default(now())
+
+  officer User @relation(fields: [officerId], references: [id])
+
+  @@map("flp_shift_logs")
+}
+
+// ── HPC — Hendon Police College ────────────────────────────────────
+enum HpcCadetStatus {
+  ENROLLED
+  IN_TRAINING
+  PASSED
+  FAILED
+  GRADUATED
+}
+
+model HpcTrainingRecord {
+  id              String         @id @default(uuid())
+  cadetId         String
+  courseName      String
+  status          HpcCadetStatus @default(ENROLLED)
+  instructorId    String?
+  instructorNote  String?
+  signedOffAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  cadet User @relation(fields: [cadetId], references: [id])
+
+  @@map("hpc_training_records")
+}

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · SCO-19 Dashboard</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
+</div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division" id="met-division-badge">SCO-19</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST">
+      <button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button>
+    </form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo"><img src="/img/logo.png" alt="SCO-19" /></div>
+        <div class="brand-text">
+          <div class="brand-name">MET · SCO-19</div>
+          <div class="brand-sub">Specialist Firearms</div>
+        </div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Overview</div>
+        <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Operations</div>
+        <button class="nav-item" data-page="deployments"><i class="ti ti-target nav-icon"></i><span>Deployment Log</span></button>
+      </nav>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <section class="page active" id="page-dashboard">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Dashboard</h1><p class="page-sub">Specialist Firearms Command · Overview</p></div>
+        <button class="btn btn-primary" onclick="openNewDeploymentModal()"><i class="ti ti-plus"></i> Log Deployment</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card blue fade-up stagger-1"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-target"></i></div>
+          <div class="stat-body"><div class="stat-label">Total Deployments</div><div class="stat-value" id="stat-total">—</div></div>
+        </div><div class="stat-bar blue"></div></div>
+        <div class="stat-card amber fade-up stagger-2"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+          <div class="stat-body"><div class="stat-label">Pending Review</div><div class="stat-value" id="stat-pending">—</div></div>
+        </div><div class="stat-bar amber"></div></div>
+        <div class="stat-card green fade-up stagger-3"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+          <div class="stat-body"><div class="stat-label">Signed Off</div><div class="stat-value" id="stat-signed">—</div></div>
+        </div><div class="stat-bar green"></div></div>
+        <div class="stat-card red fade-up stagger-4"><div class="stat-card-inner">
+          <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
+          <div class="stat-body"><div class="stat-label">Rejected</div><div class="stat-value" id="stat-rejected">—</div></div>
+        </div><div class="stat-bar red"></div></div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Recent Deployments</div></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Ref</th><th>Callsign</th><th>Incident Type</th><th>Officer</th><th>Status</th><th>Logged</th></tr></thead>
+            <tbody id="dash-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-deployments">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Deployment Log</h1><p class="page-sub">All logged firearms deployments</p></div>
+        <button class="btn btn-primary" onclick="openNewDeploymentModal()"><i class="ti ti-plus"></i> Log Deployment</button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Deployments</div>
+          <div class="filter-tabs" id="filter-tabs">
+            <button class="filter-tab active" data-filter="all">All</button>
+            <button class="filter-tab" data-filter="PENDING_REVIEW">Pending</button>
+            <button class="filter-tab" data-filter="SIGNED_OFF">Signed Off</button>
+            <button class="filter-tab" data-filter="REJECTED">Rejected</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Ref</th><th>Callsign</th><th>Incident Type</th><th>Authorisation</th><th>Officer</th><th>Status</th><th></th></tr></thead>
+            <tbody id="deployments-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-overlay" id="modal-new-deployment">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Log a Deployment</div>
+      <button class="modal-close" onclick="closeModal('modal-new-deployment')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Callsign</label>
+        <input type="text" class="form-control" id="nd-callsign" placeholder="e.g. Trojan 7-9" /></div>
+      <div class="form-group"><label class="form-label">Incident Type</label>
+        <input type="text" class="form-control" id="nd-incident" placeholder="e.g. Armed response" /></div>
+      <div class="form-group"><label class="form-label">Authorisation</label>
+        <input type="text" class="form-control" id="nd-auth" placeholder="Authorising officer / firearms authority ref" /></div>
+      <div class="form-group"><label class="form-label">Summary</label>
+        <textarea class="form-control" id="nd-summary" rows="4" placeholder="What happened?"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-deployment')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewDeployment()">Log Deployment</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/met-topbar.js"></script>
+<script src="/js/sco19-dashboard.js"></script>
+<script>initMetTopbar('SCO19');</script>
+</body>
+</html>
