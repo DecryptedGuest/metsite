@@ -12,10 +12,28 @@
 // is unreachable the config resolves to whatever is known (fail-closed on
 // access), never throwing on the request path.
 const fetch = require('node-fetch');
+const fs   = require('fs');
+const path = require('path');
 const { getRobloxIdFromUsername, getUserGroupRole } = require('./roblox');
 
 // The Roblox account that holds every divisional group (and their icons).
 function holderUsername() { return process.env.DIVISION_HOLDER_USERNAME || 'FNTHOLDER_V2'; }
+
+// Committed local logos live here and take priority over the live Roblox group
+// icon (Roblox's thumbnail API is flaky and can fail to load). Drop a file named
+// <slug>.<ext> (cid/sco19/ia/flp/hpc/met) into this folder and it's used as-is.
+const DIVISION_IMG_DIR = path.join(__dirname, '../../client/public/img/divisions');
+const ICON_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'];
+function localIcon(slug) {
+  try {
+    for (const ext of ICON_EXTS) {
+      if (fs.existsSync(path.join(DIVISION_IMG_DIR, `${slug}.${ext}`))) {
+        return `/img/divisions/${slug}.${ext}`;
+      }
+    }
+  } catch (e) { /* fall through to Roblox */ }
+  return null;
+}
 
 // Division metadata. `groupEnv` is the env var that pins the group id;
 // `match` recognises the group by name during holder auto-discovery.
@@ -124,13 +142,19 @@ async function getDivisionConfig() {
     }
   }
 
+  // Prefer a committed local logo; only hit Roblox for icons we don't have one for.
+  for (const d of ALL) data[d].icon = localIcon(META[d].slug);
   const metId = metGroupId();
-  const icons = await fetchGroupIcons(ALL.map(d => data[d].groupId).concat([metId]));
-  for (const d of ALL) if (data[d].groupId) data[d].icon = icons[data[d].groupId] || null;
+  const metLocal = localIcon('met');
+
+  const needIds = ALL.filter(d => !data[d].icon).map(d => data[d].groupId).filter(Boolean);
+  if (!metLocal) needIds.push(metId);
+  const icons = needIds.length ? await fetchGroupIcons(needIds) : {};
+  for (const d of ALL) if (!data[d].icon && data[d].groupId) data[d].icon = icons[data[d].groupId] || null;
 
   // The MET umbrella group's icon (portal brand mark). Kept off ALL so it's
   // never rendered as a division card.
-  data.MET = { groupId: metId, icon: icons[metId] || null };
+  data.MET = { groupId: metId, icon: metLocal || icons[metId] || null };
 
   configCache = { at: Date.now(), data };
   return data;
