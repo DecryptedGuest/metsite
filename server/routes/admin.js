@@ -6,6 +6,9 @@ const {
   listGroupRoles, listGroupMembers, listJoinRequests,
   resolveJoinRequest, changeGroupRank, exileFromGroup,
 } = require('../lib/roblox');
+const {
+  searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
+} = require('../lib/bot');
 
 const router = express.Router();
 
@@ -370,6 +373,126 @@ router.delete('/group/members/:userId', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to kick member' });
+  }
+});
+
+// ── Discord Moderation (Dev Panel) ────────────────────────────────
+// Ban / unban / kick / timeout ("mute") any Discord user by ID or by
+// searching the member list — for MET-server moderation, independent of any
+// IA case. Every action is logged to DiscordModerationLog for an audit trail.
+
+async function logModeration(req, { action, targetDiscordId, targetUsername, reason, durationMinutes }) {
+  try {
+    await prisma.discordModerationLog.create({
+      data: {
+        action, targetDiscordId, targetUsername: targetUsername || null,
+        reason: reason || null, durationMinutes: durationMinutes ?? null,
+        performedById: req.user.id,
+        performedBy:   req.user.displayName || req.user.discordUsername,
+      },
+    });
+  } catch (e) { console.error('[Moderation] audit log write failed:', e.message); }
+}
+
+function isValidDiscordId(id) { return /^\d{15,25}$/.test(String(id || '').trim()); }
+
+// GET /api/admin/discord/members?search=... — search the guild's member list.
+router.get('/discord/members', async (req, res) => {
+  try {
+    const q = String(req.query.search || '').trim();
+    if (!q) return res.json([]);
+    const members = await searchGuildMembers(q, 25);
+    res.json(members);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to search members' });
+  }
+});
+
+// GET /api/admin/discord/bans?search=... — list/search currently-banned users.
+router.get('/discord/bans', async (req, res) => {
+  try {
+    const bans = await listGuildBans(req.query.search || '');
+    res.json(bans);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to list bans' });
+  }
+});
+
+// GET /api/admin/discord/moderation-log — recent actions taken via this tool.
+router.get('/discord/moderation-log', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const log = await prisma.discordModerationLog.findMany({ orderBy: { createdAt: 'desc' }, take: limit });
+    res.json(log);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load moderation log' });
+  }
+});
+
+// POST /api/admin/discord/ban { discordId, reason, deleteMessageSeconds }
+router.post('/discord/ban', async (req, res) => {
+  const { discordId, reason, deleteMessageSeconds, username } = req.body || {};
+  if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
+  try {
+    await banMember(discordId, { reason, deleteMessageSeconds });
+    await logModeration(req, { action: 'BAN', targetDiscordId: discordId, targetUsername: username, reason });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to ban user' });
+  }
+});
+
+// POST /api/admin/discord/unban { discordId, reason }
+router.post('/discord/unban', async (req, res) => {
+  const { discordId, reason, username } = req.body || {};
+  if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
+  try {
+    await unbanMember(discordId, { reason });
+    await logModeration(req, { action: 'UNBAN', targetDiscordId: discordId, targetUsername: username, reason });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to unban user' });
+  }
+});
+
+// POST /api/admin/discord/kick { discordId, reason }
+router.post('/discord/kick', async (req, res) => {
+  const { discordId, reason, username } = req.body || {};
+  if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
+  try {
+    await kickMember(discordId, { reason });
+    await logModeration(req, { action: 'KICK', targetDiscordId: discordId, targetUsername: username, reason });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to kick user' });
+  }
+});
+
+// POST /api/admin/discord/timeout { discordId, durationMinutes, reason } — mute.
+router.post('/discord/timeout', async (req, res) => {
+  const { discordId, durationMinutes, reason, username } = req.body || {};
+  if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
+  if (!(Number(durationMinutes) > 0)) return res.status(400).json({ error: 'durationMinutes must be greater than 0.' });
+  try {
+    await timeoutMember(discordId, { durationMinutes, reason });
+    await logModeration(req, { action: 'TIMEOUT', targetDiscordId: discordId, targetUsername: username, reason, durationMinutes: Number(durationMinutes) });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to timeout user' });
+  }
+});
+
+// DELETE /api/admin/discord/timeout/:discordId — unmute (remove timeout).
+router.delete('/discord/timeout/:discordId', async (req, res) => {
+  const { discordId } = req.params;
+  const { reason, username } = req.body || {};
+  if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
+  try {
+    await timeoutMember(discordId, { durationMinutes: 0, reason });
+    await logModeration(req, { action: 'UNTIMEOUT', targetDiscordId: discordId, targetUsername: username, reason });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to remove timeout' });
   }
 });
 

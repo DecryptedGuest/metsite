@@ -122,6 +122,9 @@
         <button class="nav-item dev-only" data-page="group" style="display:none;">
           <i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-tag">DEV</span>
         </button>
+        <button class="nav-item dev-only" data-page="discord-mod" style="display:none;">
+          <i class="ti ti-gavel nav-icon"></i><span>Discord Moderation</span><span class="nav-tag">DEV</span>
+        </button>
         <button class="nav-item dev-only" data-page="visits" style="display:none;">
           <i class="ti ti-world-search nav-icon"></i><span>Visits</span><span class="nav-tag">DEV</span>
         </button>
@@ -668,6 +671,66 @@
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DISCORD MODERATION (DEVELOPER ONLY) -->
+    <section class="page" id="page-discord-mod">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Discord Moderation</h1>
+          <p class="page-sub">Developer &middot; Ban / Unban / Kick / Timeout MET server members</p>
+        </div>
+        <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
+      </div>
+
+      <!-- Member search + actions -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Find a Member</div>
+        </div>
+        <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.6;">
+            Search by Discord username, nickname, or paste a Discord user ID directly (works even if the
+            member already left the server — useful for unbanning).
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="dm-search" placeholder="Username or Discord ID…" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')searchDiscordMembers()" />
+            <button class="btn btn-primary" onclick="searchDiscordMembers()"><i class="ti ti-search"></i> Search</button>
+          </div>
+          <div id="dm-results" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <!-- Currently banned -->
+      <div class="panel glass fade-up stagger-2" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot red"></span>Banned Users</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="dm-ban-search" oninput="loadDiscordBans()" placeholder="Filter by username/ID…" style="height:30px;font-size:12px;width:180px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadDiscordBans()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Discord User</th><th>Ban Reason</th><th>Actions</th></tr></thead>
+            <tbody id="dm-bans-tbody"><tr><td colspan="3" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit log -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>Moderation Log</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadDiscordModLog()"><i class="ti ti-refresh"></i> Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Action</th><th>Target</th><th>Reason</th><th>By</th><th>When</th></tr></thead>
+            <tbody id="dm-log-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -1458,6 +1521,31 @@
   </div>
 </div>
 
+<!-- DISCORD MODERATION ACTION MODAL (Ban / Kick / Timeout / Unban) -->
+<div class="modal-overlay" id="modal-dm-action">
+  <div class="modal glass-bright" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title" id="dm-action-title" style="color:var(--red);"><i class="ti ti-gavel" style="font-size:18px;"></i> Confirm Action</div>
+      <button class="modal-close" onclick="closeModal('modal-dm-action')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;" id="dm-action-desc"></p>
+      <div class="form-group" id="dm-duration-group" style="display:none;">
+        <label class="form-label">Duration (minutes, max 40320 = 28 days)</label>
+        <input type="number" class="form-control" id="dm-duration" min="1" max="40320" value="60" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Reason</label>
+        <textarea class="form-control" id="dm-reason" rows="2" placeholder="Reason (shown in Discord's audit log)…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-dm-action')">Cancel</button>
+      <button class="btn btn-danger" id="dm-action-confirm"><i class="ti ti-check"></i> Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- PREFERENCES MODAL -->
 <div class="modal-overlay" id="modal-prefs">
   <div class="modal glass-bright" style="max-width:420px;">
@@ -1785,6 +1873,7 @@
 <script src="/js/quota-check.js?v=72"></script>
 <script src="/js/ai-review.js?v=72"></script>
 <script src="/js/media.js?v=72"></script>
+<script src="/js/discord-moderation.js"></script>
 <script src="/js/push-client.js?v=72"></script>
 <script src="/js/site-effects.js?v=72"></script>
 <script src="/js/met-topbar.js"></script>

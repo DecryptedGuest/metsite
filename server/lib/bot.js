@@ -536,4 +536,138 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
   return { matched: false, error: 'no matching transcript found in recent ticket logs' };
 }
 
-module.exports = { startBot, assignRole, removeRole, getMemberDisplayName, lookupMember, getMemberRecord, findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick, getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker, matchTicketTranscript };
+// ─────────────────────────────────────────────────────────────────
+// Discord moderation — ban / unban / kick / timeout ("mute"). Used by the
+// Dev Panel's Discord Moderation tool (server/routes/admin.js). Every action
+// operates on DISCORD_GUILD_ID by default, or an explicit guildId if passed
+// (e.g. the MET server, if it differs from the portal's primary guild).
+// ─────────────────────────────────────────────────────────────────
+
+function targetGuildId(guildId) { return guildId || process.env.DISCORD_GUILD_ID; }
+
+// Search guild members by username/nickname/ID substring — for the moderation
+// tool's member picker. Returns up to `limit` matches (Discord caps a single
+// fetch({query}) at 1000; we ask for a bit more than `limit` and trim).
+async function searchGuildMembers(query, limit = 25, guildId) {
+  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  const gId = targetGuildId(guildId);
+  if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
+  const guild = await guild_(gId);
+
+  // An exact numeric ID → fetch that one member directly (query search doesn't
+  // match raw IDs).
+  if (/^\d{15,25}$/.test(String(query || '').trim())) {
+    try {
+      const m = await guild.members.fetch(String(query).trim());
+      return [memberSummary(m)];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  const results = await guild.members.fetch({ query: String(query || '').trim(), limit: Math.min(limit, 100) });
+  return [...results.values()].slice(0, limit).map(memberSummary);
+}
+
+function memberSummary(member) {
+  return {
+    id:          member.user.id,
+    username:    member.user.username,
+    displayName: member.displayName || member.user.username,
+    avatar:      member.user.displayAvatarURL({ size: 64 }),
+    roleIds:     [...member.roles.cache.keys()],
+    isBot:       !!member.user.bot,
+    joinedAt:    member.joinedAt ? member.joinedAt.toISOString() : null,
+    timedOutUntil: member.communicationDisabledUntil ? member.communicationDisabledUntil.toISOString() : null,
+  };
+}
+
+async function guild_(guildId) { return client.guilds.fetch(guildId); }
+
+// List (optionally filtered by username/ID substring) currently-banned users.
+// Discord has no server-side ban search, so this fetches the full ban list
+// (fine for a single-server community) and filters in memory.
+async function listGuildBans(search, guildId) {
+  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  const gId = targetGuildId(guildId);
+  if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
+  const guild = await guild_(gId);
+  const bans  = await guild.bans.fetch();
+
+  const q = String(search || '').trim().toLowerCase();
+  const list = [...bans.values()]
+    .map(b => ({ id: b.user.id, username: b.user.username, reason: b.reason || null }))
+    .filter(b => !q || b.id === q || b.username.toLowerCase().includes(q));
+  return list;
+}
+
+// Ban a Discord user from the guild. `deleteMessageSeconds` (0-604800) purges
+// their recent messages too — defaults to 0 (no purge).
+async function banMember(discordUserId, { reason, deleteMessageSeconds = 0, guildId } = {}) {
+  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  const gId = targetGuildId(guildId);
+  if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
+  const guild = await guild_(gId);
+  await guild.members.ban(discordUserId, {
+    reason: reason || undefined,
+    deleteMessageSeconds: Math.max(0, Math.min(604800, Number(deleteMessageSeconds) || 0)),
+  });
+  console.log(`[Moderation] Banned ${discordUserId} from guild ${gId}${reason ? ` (${reason})` : ''}`);
+  return true;
+}
+
+// Unban a Discord user (by ID — they're not a guild member anymore, so this
+// works even if the bot can't otherwise "find" them). Throws with a clear
+// message when they aren't actually banned (Discord returns 10026 Unknown Ban).
+async function unbanMember(discordUserId, { reason, guildId } = {}) {
+  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  const gId = targetGuildId(guildId);
+  if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
+  const guild = await guild_(gId);
+  try {
+    await guild.bans.remove(discordUserId, reason || undefined);
+  } catch (err) {
+    if (err.code === 10026) throw new Error('That user is not currently banned.');
+    throw err;
+  }
+  console.log(`[Moderation] Unbanned ${discordUserId} from guild ${gId}`);
+  return true;
+}
+
+// Kick a current guild member.
+async function kickMember(discordUserId, { reason, guildId } = {}) {
+  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  const gId = targetGuildId(guildId);
+  if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
+  const guild  = await guild_(gId);
+  const member = await guild.members.fetch(discordUserId).catch(() => null);
+  if (!member) throw new Error('That user is not currently in the server.');
+  await member.kick(reason || undefined);
+  console.log(`[Moderation] Kicked ${discordUserId} from guild ${gId}${reason ? ` (${reason})` : ''}`);
+  return true;
+}
+
+// Timeout ("mute") a member for `durationMinutes` (Discord caps timeouts at 28
+// days). Pass durationMinutes <= 0 to remove an existing timeout ("unmute").
+async function timeoutMember(discordUserId, { durationMinutes, reason, guildId } = {}) {
+  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  const gId = targetGuildId(guildId);
+  if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
+  const guild  = await guild_(gId);
+  const member = await guild.members.fetch(discordUserId).catch(() => null);
+  if (!member) throw new Error('That user is not currently in the server.');
+
+  const MAX_MINUTES = 28 * 24 * 60; // Discord's hard cap: 28 days
+  const mins = Math.max(0, Math.min(MAX_MINUTES, Number(durationMinutes) || 0));
+  await member.timeout(mins > 0 ? mins * 60 * 1000 : null, reason || undefined);
+  console.log(`[Moderation] ${mins > 0 ? `Timed out ${discordUserId} for ${mins}m` : `Removed timeout from ${discordUserId}`} in guild ${gId}${reason ? ` (${reason})` : ''}`);
+  return true;
+}
+
+module.exports = {
+  startBot, assignRole, removeRole, getMemberDisplayName, lookupMember, getMemberRecord,
+  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
+  getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
+  matchTicketTranscript,
+  searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
+};

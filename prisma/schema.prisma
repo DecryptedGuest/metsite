@@ -471,3 +471,23 @@ model MetPunishment {
   @@index([issuedAt])
   @@map("met_punishments")
 }
+
+// Audit trail for Discord moderation actions taken via the Dev Panel
+// (server/routes/admin.js Discord Moderation tool). Purely a site-side log —
+// Discord's own audit log already records the action; this lets the Dev Panel
+// show "who did what, when" without needing Discord audit-log read access.
+model DiscordModerationLog {
+  id              String   @id @default(uuid())
+  action          String   // BAN | UNBAN | KICK | TIMEOUT | UNTIMEOUT
+  targetDiscordId String
+  targetUsername  String?
+  reason          String?
+  durationMinutes Int?     // for TIMEOUT only
+  performedById   String   // the developer's User.id
+  performedBy     String   // the developer's display name, snapshotted
+  createdAt       DateTime @default(now())
+
+  @@index([targetDiscordId])
+  @@index([createdAt])
+  @@map("discord_moderation_log")
+}
