@@ -46,12 +46,24 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Start Discord bot + Roblox CSRF warm-up ──────────────────────
-startBot();
-startRoleExpiryChecker();
-require('./lib/accessControl').startAccessRevalidator();
-require('./lib/quota').startQuotaWorker();
-initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
+// ── Start Discord bot + background workers + Roblox CSRF warm-up ──
+// These need a single, always-on process (a persistent Discord gateway
+// connection + interval timers), so they are skipped on serverless hosts
+// like Vercel, where each request is an ephemeral invocation. On such hosts
+// run them from a separate always-on worker (Railway/Fly) or trigger the
+// reconciliation endpoints from a scheduler. Set DISABLE_WORKERS=true to
+// force-skip them anywhere.
+const RUN_WORKERS = !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME
+  && process.env.DISABLE_WORKERS !== 'true';
+if (RUN_WORKERS) {
+  startBot();
+  startRoleExpiryChecker();
+  require('./lib/accessControl').startAccessRevalidator();
+  require('./lib/quota').startQuotaWorker();
+  initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
+} else {
+  console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');
+}
 
 // ── Middleware ───────────────────────────────────────────────────
 // Large limit so ticket-log proof images (base64 data URLs) fit in the body.
@@ -574,9 +586,18 @@ process.on('uncaughtException', (err) => {
   console.error('[Server] Uncaught exception:', (err && err.stack) || err);
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🛡  IACMS running on http://localhost:${PORT}`);
-  console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
-  console.log(`   DB: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}\n`);
-});
+// Only bind a port when run as a real long-lived process (Railway, local,
+// `node server/index.js`). On serverless (Vercel), this module is imported by
+// api/index.js and the platform provides the HTTP layer — no listener needed.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n🛡  MET Portal running on http://localhost:${PORT}`);
+    console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
+    console.log(`   DB: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}\n`);
+  });
+}
+
+// Export the Express app so serverless platforms (Vercel) can use it as a
+// request handler via api/index.js.
+module.exports = app;

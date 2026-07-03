@@ -2,6 +2,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local + Railway; the rhel targets are the Prisma query
+  // engines Vercel's serverless (AWS Lambda) runtime needs. Harmless elsewhere.
+  binaryTargets = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

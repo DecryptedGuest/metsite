@@ -237,6 +237,53 @@ Railway auto-deploys on every push to `main`. `railway.toml` handles:
 - Running `npm install` + `prisma generate`
 - Starting the server with `prisma db push --accept-data-loss && node server/index.js`
 
+Railway runs the app as a single always-on process, so the Discord bot and background
+workers run here. **This is the recommended host for the full app.**
+
+---
+
+## Deploying to Vercel
+
+Vercel is **serverless** — it runs the app as per-request functions with no always-on
+process. The repo is set up for it (`vercel.json` + `api/index.js` export the Express app;
+`server/index.js` skips its background workers and doesn't bind a port when imported), so
+the web app deploys and serves fine. Just be aware of what serverless can't do:
+
+**Works on Vercel:** the hub, officer profile, all dashboards, Discord OAuth login,
+division access/rank resolution, and every HTTP API — these use HTTP calls (RoVer, Roblox
+groups, Discord OAuth), not a persistent connection.
+
+**Does _not_ work on Vercel** (needs an always-on process — run it on Railway/Fly/a small
+worker, or trigger via a scheduler):
+- **Discord bot gateway** — role assignment, group management, ticket-transcript matching.
+- **Background workers** — access revalidation + the quota outbox retry loop. (Login still
+  resolves roles live via RoVer, so day-to-day auth is unaffected; only the periodic
+  reconciliation stops.)
+- **Media uploads larger than ~4.5 MB** — Vercel's hard serverless request-body limit.
+
+### Steps
+
+1. **Import the repo** at vercel.com → New Project. No framework preset needed; `vercel.json`
+   already routes every request to `api/index.js` and bundles the `client/` views/assets.
+2. **Set the environment variables** — the same ones from `.env.example` (Discord creds,
+   `JWT_SECRET`, the `GROUP_*` ids, etc.). Vercel sets `VERCEL=1` itself, which is what
+   disables the background workers.
+3. **Use a pooled `DATABASE_URL`.** Serverless opens many short-lived connections, so point
+   at a pooler (Supabase pooler, Neon, PgBouncer, or Prisma Accelerate) — not a direct
+   Postgres connection, which will exhaust connections.
+4. **Run migrations yourself** (Vercel has no start command): from a machine with access to
+   the production database,
+   ```bash
+   DATABASE_URL="<prod-url>" npx prisma migrate deploy
+   ```
+   Do this on each schema change; don't run migrations during the Vercel build.
+5. **Deploy.** `prisma generate` runs in the build (the schema declares the `rhel-openssl-*`
+   engines Lambda needs). The 404 you saw before was just the missing `vercel.json`/entrypoint.
+
+> **Recommended:** run the web app on Vercel and a tiny always-on companion (Railway/Fly)
+> that runs `DISABLE_WORKERS` unset (i.e. `node server/index.js`) purely to host the Discord
+> bot + workers against the same database. Or keep the whole thing on Railway.
+
 ---
 
 ## MET bot data contract
