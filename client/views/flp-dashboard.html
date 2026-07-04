@@ -52,6 +52,8 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label group-admin-only" style="display:none;">High Command</div>
+        <button class="nav-item group-admin-only" data-page="group" style="display:none;"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-badge pending" id="flp-pending-badge" style="display:none;"></span></button>
       </nav>
     </div>
   </aside>
@@ -69,12 +71,39 @@
         </div>
       </div>
     </section>
+
+    <!-- GROUP PANEL (FLP Assistant Director+) -->
+    <section class="page" id="page-group">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Group Panel</h1><p class="page-sub">FLP High Command · Department of Performance group</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadFlpGroup()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Pending Join Requests <span id="flp-pending-count" style="font-size:11px;color:var(--text-muted);"></span></div></div>
+        <div class="profile-section" id="flp-pending"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Members</div>
+          <input type="text" class="form-control" id="flp-member-search" placeholder="Search members…" style="width:200px;padding:5px 10px;font-size:12px;" oninput="renderFlpMembers()" />
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Change rank</th><th></th></tr></thead>
+            <tbody id="flp-members-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
 <script src="/js/met-topbar.js"></script>
+<script src="/js/flp-dashboard.js"></script>
 <script>initMetTopbar('FLP');</script>
 </body>
 </html>

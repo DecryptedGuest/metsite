@@ -447,8 +447,8 @@ async function initCsrfReal() {
  * Exile (kick) a Roblox user from the configured group.
  * DELETE /groups/{groupId}/users/{userId}. Returns true/false.
  */
-async function exileFromGroup(robloxUserId) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function exileFromGroup(robloxUserId, gid) {
+  const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId || !robloxCookie()) {
     console.warn('Group exile skipped — ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
     return false;
@@ -472,8 +472,8 @@ async function exileFromGroup(robloxUserId) {
  * List the group's role definitions (ranks).
  * Returns array of { id, path, name, rank, memberCount }.
  */
-async function listGroupRoles() {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listGroupRoles(gid) {
+  const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/roles`, { method: 'GET' });
@@ -495,8 +495,8 @@ async function listGroupRoles() {
  * List group members, paginated (100/page).
  * Returns { members: [{ userId, username, displayName, roleId }], nextPageToken }.
  */
-async function listGroupMembers(pageToken = null) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listGroupMembers(pageToken = null, gid) {
+  const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/users?limit=100&sortOrder=Asc`;
@@ -523,8 +523,8 @@ async function listGroupMembers(pageToken = null) {
  * List pending join requests, paginated (100/page).
  * Returns { requests: [{ userId, username, displayName, requestedAt }], nextPageToken }.
  */
-async function listJoinRequests(pageToken = null) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listJoinRequests(pageToken = null, gid) {
+  const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests?limit=100&sortOrder=Asc`;
@@ -549,8 +549,8 @@ async function listJoinRequests(pageToken = null) {
  * Approve or decline a join request for a Roblox user.
  * action: 'approve' (POST) | 'decline' (DELETE)
  */
-async function resolveJoinRequest(robloxUserId, action) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function resolveJoinRequest(robloxUserId, action, gid) {
+  const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   const url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests/users/${robloxUserId}`;
@@ -565,8 +565,8 @@ async function resolveJoinRequest(robloxUserId, action) {
  * Change a group member's rank.
  * PATCH /groups/{groupId}/users/{userId} with { roleId }.
  */
-async function changeGroupRank(robloxUserId, roleId) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function changeGroupRank(robloxUserId, roleId, gid) {
+  const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   // Accept either a numeric id or a full "groups/x/roles/y" path

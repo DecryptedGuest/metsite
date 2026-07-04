@@ -215,6 +215,24 @@ function divisionColor(division) {
 }
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
 
+// ── Group-panel targets ──────────────────────────────────────────────
+// Selectable groups for the developer Group Panel: every division (so future
+// ones added to ALL appear automatically) plus the MET umbrella group.
+function panelGroups() {
+  const out = ALL.map(d => ({ key: d, name: META[d].name, fullName: META[d].fullName, groupId: explicitGroupId(d) }));
+  out.push({ key: 'MET', name: 'MET', fullName: 'Metropolitan Police', groupId: metGroupId() });
+  return out.filter(g => g.groupId);
+}
+
+// Resolve a panel-group key ('CID' | 'IA' | 'FLP' | 'HPC' | 'SCO19' | 'MET') to
+// its Roblox group id. Returns null for an unknown key.
+function groupIdForKey(key) {
+  if (!key) return null;
+  if (key === 'MET') return metGroupId();
+  if (ALL.includes(key)) return explicitGroupId(key);
+  return null;
+}
+
 // ── HPC-specific rank gates ──────────────────────────────────────────
 // HPC has finer, named access tiers on top of the group rank:
 //   • Junior Instructor and above  → can access the HPC division
@@ -243,7 +261,7 @@ function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || 
 
 module.exports = {
   ALL, GROUP_DIVISIONS, META, DIVISION_COLORS_EXTRA,
-  meta, allMeta, divisionColor,
+  meta, allMeta, divisionColor, panelGroups, groupIdForKey,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
   explicitGroupId, isLeadRank, holderUsername, metGroupId,

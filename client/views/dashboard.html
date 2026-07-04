@@ -612,8 +612,14 @@
         <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
       </div>
 
-      <!-- Debug / refresh bar -->
-      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;">
+      <!-- Division switcher + debug / refresh bar -->
+      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+          <i class="ti ti-apps"></i> Division group
+          <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
+            <option value="">Default (ROBLOX_GROUP_ID)</option>
+          </select>
+        </label>
         <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
         <button class="btn btn-ghost btn-sm" onclick="runGroupDebug()"><i class="ti ti-bug"></i> Debug API</button>
         <span id="group-env-badge" style="font-size:10px;color:var(--text-muted);"></span>

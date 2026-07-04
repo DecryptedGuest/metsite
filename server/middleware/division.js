@@ -93,8 +93,26 @@ function requireHpcQuota(req, res, next) {
   return res.status(403).json({ error: 'HPC quota access required (Assistant Director and above).' });
 }
 
+// ── FLP group panel — Assistant Director and above (FLP group rank ≥ 170) ──
+// Lets FLP high command manage the FLP Roblox group from their dashboard.
+// Override the threshold with FLP_GROUP_ADMIN_MIN_RANK. DEVELOPER always passes.
+function userFlpGroupAdmin(user) {
+  if (user.role === 'DEVELOPER') return true;
+  const min = parseInt(process.env.FLP_GROUP_ADMIN_MIN_RANK, 10);
+  const threshold = Number.isFinite(min) ? min : 170; // Assistant Director
+  const e = userDivisions(user).find(d => d.division === 'FLP');
+  return !!(e && Number(e.rank) >= threshold);
+}
+
+function requireFlpGroupAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (userFlpGroupAdmin(req.user)) return next();
+  return res.status(403).json({ error: 'FLP Assistant Director or above required.' });
+}
+
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
   userNeedsFinalExam, userHpcTier, requireHpcMarker, requireHpcQuota,
+  userFlpGroupAdmin, requireFlpGroupAdmin,
 };

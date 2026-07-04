@@ -1746,10 +1746,43 @@ function groupError(msg) {
   </div>`;
 }
 
+// Which division's Roblox group the panel is currently managing ('' = the
+// default ROBLOX_GROUP_ID). The dev panel can switch between every division.
+let currentGroupDivision = '';
+
+// Build a query string carrying the selected division (+ any extra params).
+function gq(params) {
+  const p = new URLSearchParams(params || {});
+  if (currentGroupDivision) p.set('division', currentGroupDivision);
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
+// Populate the division switcher from the registry (future divisions auto-appear).
+async function loadGroupDivisions() {
+  const sel = document.getElementById('group-division-select');
+  if (!sel) return;
+  try {
+    const divs = await api('/api/admin/group/divisions');
+    sel.innerHTML = `<option value="">Default (ROBLOX_GROUP_ID)</option>` +
+      divs.map(d => `<option value="${d.key}">${d.name}${d.fullName && d.fullName !== d.name ? ' — ' + d.fullName : ''}</option>`).join('');
+    sel.value = currentGroupDivision;
+  } catch (e) { /* switcher optional */ }
+}
+
+// Switch the group the panel manages, then reload it.
+function changeGroupDivision(key) {
+  currentGroupDivision = key || '';
+  groupRolesCache = null;
+  groupMembersNextToken = null;
+  loadGroupPanel();
+}
+
 async function loadGroupPanel() {
+  loadGroupDivisions();
   // Always reload roles fresh so rank dropdowns are populated
   try {
-    groupRolesCache = await api('/api/admin/group/roles');
+    groupRolesCache = await api('/api/admin/group/roles' + gq());
     const badge = document.getElementById('group-env-badge');
     if (badge) badge.textContent = `${groupRolesCache.length} role(s) loaded`;
   } catch (err) {
@@ -1815,7 +1848,7 @@ async function loadPendingRequests() {
     pendingCache = [];
     let token = null, pages = 0;
     do {
-      const url  = '/api/admin/group/pending' + (token ? `?pageToken=${encodeURIComponent(token)}` : '');
+      const url  = '/api/admin/group/pending' + gq(token ? { pageToken: token } : {});
       const data = await api(url);
       pendingCache = pendingCache.concat(data?.requests || []);
       token = data?.nextPageToken || null;
@@ -1870,7 +1903,7 @@ function renderPendingRequests() {
 
 async function resolveRequest(userId, action, username) {
   try {
-    await api(`/api/admin/group/pending/${userId}/${action}`, { method: 'POST' });
+    await api(`/api/admin/group/pending/${userId}/${action}` + gq(), { method: 'POST' });
     showToast(`${username} ${action === 'approve' ? 'accepted' : 'declined'}.`,
               action === 'approve' ? 'success' : 'info');
     loadPendingRequests();
@@ -1888,7 +1921,7 @@ async function loadGroupMembers() {
     groupMembersCache = [];
     let token = null, pages = 0;
     do {
-      const url    = '/api/admin/group/members' + (token ? `?pageToken=${encodeURIComponent(token)}` : '');
+      const url    = '/api/admin/group/members' + gq(token ? { pageToken: token } : {});
       const result = await api(url);
       groupMembersCache = groupMembersCache.concat(result?.members || []);
       token = result?.nextPageToken || null;
@@ -2007,7 +2040,7 @@ async function changeGroupRankUI(userId, username) {
   const roleId = sel?.value;
   if (!roleId) { showToast('Select a rank first.', 'error'); return; }
   try {
-    await api(`/api/admin/group/members/${userId}/rank`, {
+    await api(`/api/admin/group/members/${userId}/rank` + gq(), {
       method: 'PATCH',
       body:   JSON.stringify({ roleId }),
     });
@@ -2022,7 +2055,7 @@ async function changeGroupRankUI(userId, username) {
 async function kickGroupMember(userId, username) {
   if (!confirm(`Kick ${username} from the Roblox group?`)) return;
   try {
-    await api(`/api/admin/group/members/${userId}`, { method: 'DELETE' });
+    await api(`/api/admin/group/members/${userId}` + gq(), { method: 'DELETE' });
     showToast(`${username} kicked from group.`, 'success');
     loadGroupMembers();
   } catch (err) {

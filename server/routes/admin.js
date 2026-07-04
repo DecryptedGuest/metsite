@@ -9,6 +9,18 @@ const {
 const {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
 } = require('../lib/bot');
+const { panelGroups, groupIdForKey } = require('../lib/divisions');
+
+// Resolve the ?division= query to a Roblox group id for the group panel.
+// No division → null (falls back to ROBLOX_GROUP_ID inside the roblox helpers,
+// preserving the original single-group behaviour). Unknown key → throws (400).
+function panelGroupId(req) {
+  const key = req.query.division;
+  if (!key) return null;
+  const gid = groupIdForKey(key);
+  if (!gid) { const e = new Error(`Unknown division "${key}"`); e.status = 400; throw e; }
+  return gid;
+}
 
 const router = express.Router();
 
@@ -299,14 +311,21 @@ router.get('/group/debug', async (req, res) => {
   });
 });
 
+// ── GET /api/admin/group/divisions ────────────────────────────────
+// The selectable groups for the panel's division switcher (every division that
+// has a group id, + MET). Client-safe: names/keys only, never the group ids.
+router.get('/group/divisions', (req, res) => {
+  res.json(panelGroups().map(g => ({ key: g.key, name: g.name, fullName: g.fullName })));
+});
+
 // ── GET /api/admin/group/roles ────────────────────────────────────
 router.get('/group/roles', async (req, res) => {
   try {
-    const roles = await listGroupRoles();
+    const roles = await listGroupRoles(panelGroupId(req));
     res.json(roles);
   } catch (err) {
     console.error('GET /group/roles error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -314,11 +333,11 @@ router.get('/group/roles', async (req, res) => {
 router.get('/group/members', async (req, res) => {
   try {
     const { pageToken } = req.query;
-    const result = await listGroupMembers(pageToken || null);
+    const result = await listGroupMembers(pageToken || null, panelGroupId(req));
     res.json(result);
   } catch (err) {
     console.error('GET /group/members error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -326,31 +345,31 @@ router.get('/group/members', async (req, res) => {
 router.get('/group/pending', async (req, res) => {
   try {
     const { pageToken } = req.query;
-    const result = await listJoinRequests(pageToken || null);
+    const result = await listJoinRequests(pageToken || null, panelGroupId(req));
     res.json(result);
   } catch (err) {
     console.error('GET /group/pending error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
 // ── POST /api/admin/group/pending/:userId/approve ─────────────────
 router.post('/group/pending/:userId/approve', async (req, res) => {
   try {
-    await resolveJoinRequest(req.params.userId, 'approve');
+    await resolveJoinRequest(req.params.userId, 'approve', panelGroupId(req));
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to approve join request' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to approve join request' });
   }
 });
 
 // ── POST /api/admin/group/pending/:userId/decline ─────────────────
 router.post('/group/pending/:userId/decline', async (req, res) => {
   try {
-    await resolveJoinRequest(req.params.userId, 'decline');
+    await resolveJoinRequest(req.params.userId, 'decline', panelGroupId(req));
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to decline join request' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to decline join request' });
   }
 });
 
@@ -359,20 +378,20 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
   const { roleId } = req.body;
   if (!roleId) return res.status(400).json({ error: 'roleId is required' });
   try {
-    await changeGroupRank(req.params.userId, roleId);
+    await changeGroupRank(req.params.userId, roleId, panelGroupId(req));
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to change rank' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to change rank' });
   }
 });
 
 // ── DELETE /api/admin/group/members/:userId ───────────────────────
 router.delete('/group/members/:userId', async (req, res) => {
   try {
-    await exileFromGroup(req.params.userId);
+    await exileFromGroup(req.params.userId, panelGroupId(req));
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to kick member' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to kick member' });
   }
 });
 
