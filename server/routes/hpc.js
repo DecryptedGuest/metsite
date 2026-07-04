@@ -161,6 +161,21 @@ router.get('/tryouts', async (req, res) => {
   }
 });
 
+// GET /api/hpc/tryouts/live — live tryouts + their latest in-game overview
+// snapshot, so HICOMM/instructors can watch a running tryout from the site.
+router.get('/tryouts/live', async (req, res) => {
+  try {
+    const live = await prisma.tryout.findMany({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' }, take: 20 });
+    res.json(live.map(t => ({
+      id: t.id, hostName: t.hostName, coHostName: t.coHostName,
+      lockState: t.lockState, scheduledAt: t.scheduledAt,
+      snapshot: t.liveSnapshot || null, // { at, attendees:[...], totalAttendees, passedCount, ... }
+    })));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load live tryouts' });
+  }
+});
+
 // POST /api/hpc/tryouts { scheduledAt, lockState, notes } — schedule one.
 router.post('/tryouts', async (req, res) => {
   try {
@@ -295,6 +310,7 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
     const updated = await prisma.tryoutLog.update({ where: { id: log.id }, data });
     const msgId = await sendTryoutLog(updated, { event: 'submitted' }).catch(() => null);
     if (msgId) await prisma.tryoutLog.update({ where: { id: log.id }, data: { logMessageId: msgId } }).catch(() => {});
+    tryoutLogsLib.notifyTryoutApprovers(updated).catch(() => {}); // push HICOMM (fire-and-forget)
     res.json({ success: true, status: 'PENDING', posted: !!msgId });
   } catch (err) {
     console.error('[HPC] submit tryout log failed:', err.message);
@@ -311,6 +327,8 @@ router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) 
 
     // Award the host their +1 HPC point (best-effort; never blocks approval).
     const awarded = await tryoutLogsLib.awardHpcPoint(log).catch(() => false);
+    // Optionally sync each attendee's pass/fail to the recruits sheet.
+    tryoutLogsLib.syncAttendanceToSheet(log).catch(() => {});
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },

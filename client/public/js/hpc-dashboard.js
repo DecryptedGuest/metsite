@@ -16,6 +16,8 @@ function navigateTo(pageId) {
   if (pageId === 'tryouts') loadTryouts();
   if (pageId === 'tryout-logs') loadMyTryoutLogs();
   if (pageId === 'review-logs') loadReviewLogs();
+  // Live page polls while open; stop polling when navigating away.
+  if (pageId === 'live') startLivePolling(); else stopLivePolling();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => navigateTo(btn.dataset.page)));
 
@@ -409,6 +411,74 @@ async function reviewTryoutLog(id, action) {
     closeModal('modal-tryout-log');
     loadReviewLogs(); loadReviewBadge();
   } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ── Live tryout mirror (read-only, polling) ────────────────────────
+let _liveTimer = null;
+
+function startLivePolling() {
+  loadLive();
+  if (_liveTimer) clearInterval(_liveTimer);
+  _liveTimer = setInterval(loadLive, 5000);
+}
+function stopLivePolling() { if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; } }
+// Pause polling when the tab is hidden; resume when it's shown again.
+document.addEventListener('visibilitychange', () => {
+  const onLive = document.getElementById('page-live')?.classList.contains('active');
+  if (document.hidden) stopLivePolling(); else if (onLive) startLivePolling();
+});
+
+function liveStat(n, label, cls) {
+  return `<div class="stat-card ${cls || ''}" style="text-align:left;"><div class="stat-value">${n}</div><div class="stat-label">${label}</div></div>`;
+}
+
+async function loadLive() {
+  const wrap = document.getElementById('hpc-live-wrap');
+  const status = document.getElementById('hpc-live-status');
+  let live;
+  try { live = await api('/api/hpc/tryouts/live'); }
+  catch (e) { if (status) status.innerHTML = '<span class="badge-dot"></span>Error'; return; }
+
+  const badge = document.getElementById('hpc-live-badge');
+  if (badge) { if (live.length) { badge.textContent = live.length; badge.style.display = ''; } else badge.style.display = 'none'; }
+  if (status) status.outerHTML = `<span class="badge ${live.length ? 'badge-approved' : 'badge-pending'}" id="hpc-live-status"><span class="badge-dot"></span>${live.length ? 'Live · ' + live.length : 'No live tryouts'}</span>`;
+
+  if (!live.length) {
+    wrap.innerHTML = `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">No tryouts are running right now. This page updates automatically when one goes live.</div></div></div>`;
+    return;
+  }
+
+  wrap.innerHTML = live.map(t => {
+    const s = t.snapshot || {};
+    const at = s.attendees || [];
+    const lock = ['UNLOCKED', 'UNSLOCKED'].includes(String(t.lockState).toUpperCase());
+    const rows = at.length ? at.map(a => `<tr>
+        <td>${a.robloxId ? `<img src="https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(a.robloxId)}&width=48&height=48&format=png" alt="" style="width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;background:#0b1c3a;" onerror="this.style.display='none'"/>` : ''}${esc(a.username || 'Unknown')}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}</td>
+        <td>${a.result === 'PASS' ? '<span style="color:var(--green);">Passed</span>' : a.result === 'FAIL' ? '<span style="color:var(--red);">Failed</span>' : '—'}</td>
+        <td>${a.strikes || 0}</td>
+      </tr>`).join('') : `<tr><td colspan="3" class="table-empty-text">Waiting for the panel to report attendees…</td></tr>`;
+    return `<div class="panel glass fade-up" style="margin-bottom:16px;">
+      <div class="panel-header">
+        <div class="panel-title"><span class="panel-dot green"></span>${esc(t.hostName)}${t.coHostName ? ' &amp; ' + esc(t.coHostName) : ''}</div>
+        <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? '🔓 Unlocked' : '🔒 Locked'}</span>
+      </div>
+      <div class="profile-section">
+        <div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;margin-bottom:14px;">
+          ${liveStat(s.totalAttendees ?? at.length, 'Attending', 'blue')}
+          ${liveStat(s.passedCount ?? 0, 'Passed', 'green')}
+          ${liveStat(s.failedCount ?? 0, 'Failed', 'red')}
+          ${liveStat(s.strikeCount ?? 0, 'Strikes', 'amber')}
+          ${liveStat(s.leftCount ?? 0, 'Left', 'purple')}
+          ${liveStat(s.kickedCount ?? 0, 'Kicked', '')}
+        </div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Attendee</th><th>Result</th><th>Strikes</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+        ${s.at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Last update ${formatDateTime(s.at)}</div>` : '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">No live snapshot yet — the in-game panel sends these while the tryout runs.</div>'}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 initHpc();

@@ -8,20 +8,43 @@
 // here and we update the tryout's lock state + re-render its Discord announcement
 // in real time.
 const express = require('express');
+const crypto  = require('crypto');
 const prisma  = require('../lib/db');
 
 const router = express.Router();
 
-function gameSecret() { return process.env.TRYOUT_GAME_SECRET || null; }
+function gameSecret()        { return process.env.TRYOUT_GAME_SECRET || null; }
+function gameSigningSecret() { return process.env.TRYOUT_GAME_SIGNING_SECRET || null; }
 
-// Timing-safe-ish shared-secret check. If no secret is configured the endpoint
-// is disabled (503) rather than open, so it can never be hit unauthenticated.
+// Constant-time string compare (avoids leaking length/where via early-exit).
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a)); const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+// Verify an optional HMAC-SHA256 signature over the raw body:
+//   x-game-signature: hex(HMAC_SHA256(rawBody, TRYOUT_GAME_SIGNING_SECRET))
+// Returns true if a valid signature is present, false otherwise.
+function hasValidSignature(req) {
+  const secret = gameSigningSecret();
+  const sig    = req.get('x-game-signature');
+  if (!secret || !sig || !req.rawBody) return false;
+  const expected = crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex');
+  return safeEqual(sig.trim().toLowerCase(), expected);
+}
+
+// Auth for game callbacks. Accepts EITHER a valid HMAC signature (preferred,
+// replay-resistant) OR the shared secret — so the game can adopt signing
+// gradually. If neither a shared secret nor a signing secret is configured, the
+// endpoint is disabled (503) rather than left open.
 function requireGameSecret(req, res, next) {
-  const configured = gameSecret();
-  if (!configured) return res.status(503).json({ error: 'Game callback not configured (set TRYOUT_GAME_SECRET).' });
+  if (!gameSecret() && !gameSigningSecret()) {
+    return res.status(503).json({ error: 'Game callback not configured (set TRYOUT_GAME_SECRET).' });
+  }
+  if (hasValidSignature(req)) return next();
   const provided = req.get('x-game-secret') || (req.body && req.body.secret) || '';
-  if (String(provided) !== String(configured)) return res.status(401).json({ error: 'Bad game secret.' });
-  next();
+  if (gameSecret() && safeEqual(provided, gameSecret())) return next();
+  return res.status(401).json({ error: 'Bad game secret or signature.' });
 }
 
 // Resolve which tryout the callback refers to:

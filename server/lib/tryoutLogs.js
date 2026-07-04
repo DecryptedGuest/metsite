@@ -75,39 +75,96 @@ async function resolveHostUser({ hostDiscordId, hostRobloxId }) {
   return null;
 }
 
-// Create a DRAFT tryout log from a game conclusion payload. Returns
-// { ok, id, reviewUrl } or { ok:false, error }.
+// Fill in any attendee usernames the game didn't send, from their Roblox id
+// (batched, best-effort). Lets the in-game panel send only ids.
+async function enrichAttendeeNames(attendees) {
+  const need = attendees.filter(a => a.robloxId && (!a.username || a.username === 'Unknown')).map(a => a.robloxId);
+  if (!need.length) return attendees;
+  try {
+    const { getRobloxUsersInfo } = require('./roblox');
+    const info = await getRobloxUsersInfo(need.slice(0, 100));
+    for (const a of attendees) {
+      if (a.robloxId && info.has(a.robloxId) && (!a.username || a.username === 'Unknown')) a.username = info.get(a.robloxId).username;
+    }
+  } catch (e) { /* names stay as sent */ }
+  return attendees;
+}
+
+// Resolve the co-host's Roblox id → username (and, best-effort, Discord id).
+async function resolveCoHost(coHost) {
+  if (!coHost) return { name: null, robloxId: null };
+  let name = coHost.username || coHost.name || null;
+  const robloxId = coHost.robloxId ? String(coHost.robloxId) : null;
+  if (robloxId && !name) {
+    try { const { getRobloxUserInfo } = require('./roblox'); const u = await getRobloxUserInfo(robloxId); if (u) name = u.username; }
+    catch (e) { /* leave null */ }
+  }
+  return { name, robloxId };
+}
+
+// Create a DRAFT tryout log from a game conclusion payload. Idempotent on
+// payload.sessionId (a per-tryout GUID): a retried POST returns the existing
+// log instead of creating a duplicate. Returns { ok, id, reviewUrl, existing? }
+// or { ok:false, error }.
 async function createFromGamePayload(payload = {}) {
+  // ── Idempotency: if this game session already logged, return it. ──
+  const sessionId = payload.sessionId || payload.gameSessionId || null;
+  if (sessionId) {
+    const existing = await prisma.tryoutLog.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
+    if (existing) {
+      const base = process.env.PUBLIC_BASE_URL || '';
+      return { ok: true, id: existing.id, reviewUrl: `${base}/hpc/dashboard?tryoutLog=${existing.id}`, existing: true };
+    }
+  }
+
   const host = payload.host || {};
-  const hostUser = await resolveHostUser({
-    hostDiscordId: host.discordId,
-    hostRobloxId:  host.robloxId,
-  });
+  const hostUser = await resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId });
   if (!hostUser) {
     return { ok: false, error: 'Host is not a known site user — they must sign in to the portal at least once.' };
   }
 
-  const attendees = normaliseAttendees(payload.attendees);
+  // Auto-fill identities from Roblox/RoVer so the game can send ids only.
+  let hostRobloxName = host.username || hostUser.robloxUsername || null;
+  if (!hostRobloxName && (host.robloxId || hostUser.robloxId)) {
+    try { const { getRobloxUserInfo } = require('./roblox'); const u = await getRobloxUserInfo(String(host.robloxId || hostUser.robloxId)); if (u) hostRobloxName = u.username; }
+    catch (e) { /* ok */ }
+  }
+  const coHost    = await resolveCoHost(payload.coHost);
+  const attendees = await enrichAttendeeNames(normaliseAttendees(payload.attendees));
   const events    = normaliseEvents(payload.events);
   const counts    = countsFor(attendees);
 
-  const log = await prisma.tryoutLog.create({
-    data: {
-      tryoutId:       payload.tryoutId || null,
-      hostId:         hostUser.id,
-      hostDiscordId:  hostUser.discordId,
-      hostName:       hostUser.displayName || hostUser.discordUsername || host.username || 'Host',
-      hostRobloxId:   host.robloxId ? String(host.robloxId) : hostUser.robloxId,
-      hostRobloxName: host.username || hostUser.robloxUsername || null,
-      coHostName:     (payload.coHost && (payload.coHost.username || payload.coHost.name)) || null,
-      coHostRobloxId: (payload.coHost && payload.coHost.robloxId) ? String(payload.coHost.robloxId) : null,
-      startedAt:      payload.startedAt ? new Date(payload.startedAt) : null,
-      concludedAt:    payload.concludedAt ? new Date(payload.concludedAt) : new Date(),
-      attendees, events, ...counts,
-      status:         'DRAFT',
-      gamePayload:    payload,
-    },
-  });
+  let log;
+  try {
+    log = await prisma.tryoutLog.create({
+      data: {
+        gameSessionId:  sessionId ? String(sessionId) : null,
+        tryoutId:       payload.tryoutId || null,
+        hostId:         hostUser.id,
+        hostDiscordId:  hostUser.discordId,
+        hostName:       hostUser.displayName || hostUser.discordUsername || hostRobloxName || 'Host',
+        hostRobloxId:   host.robloxId ? String(host.robloxId) : hostUser.robloxId,
+        hostRobloxName,
+        coHostName:     coHost.name,
+        coHostRobloxId: coHost.robloxId,
+        startedAt:      payload.startedAt ? new Date(payload.startedAt) : null,
+        concludedAt:    payload.concludedAt ? new Date(payload.concludedAt) : new Date(),
+        attendees, events, ...counts,
+        status:         'DRAFT',
+        gamePayload:    payload,
+      },
+    });
+  } catch (e) {
+    // Unique-violation race on gameSessionId → the log was created concurrently.
+    if (sessionId) {
+      const existing = await prisma.tryoutLog.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
+      if (existing) {
+        const base = process.env.PUBLIC_BASE_URL || '';
+        return { ok: true, id: existing.id, reviewUrl: `${base}/hpc/dashboard?tryoutLog=${existing.id}`, existing: true };
+      }
+    }
+    throw e;
+  }
 
   const base = process.env.PUBLIC_BASE_URL || '';
   return { ok: true, id: log.id, reviewUrl: `${base}/hpc/dashboard?tryoutLog=${log.id}` };
@@ -180,7 +237,61 @@ async function awardHpcPoint(log) {
   }
 }
 
+// ── Attendance sync to a "recruits" sheet (optional, on approval) ────
+// Appends one row per attendee to HPC_RECRUITS_SHEET_ID:
+//   [concluded date, host, recruit, roblox id, result, strikes, kicked/left]
+// Best-effort: no-op if the sheet isn't configured.
+async function syncAttendanceToSheet(log) {
+  const spreadsheetId = process.env.HPC_RECRUITS_SHEET_ID;
+  if (!spreadsheetId) return false;
+  try {
+    const q = require('./quota');
+    const sheets = q.getSheetsClient();
+    if (!sheets) return false;
+    let sheetName = process.env.HPC_RECRUITS_SHEET_NAME;
+    if (!sheetName) {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
+      sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
+    }
+    const when = (log.concludedAt ? new Date(log.concludedAt) : new Date()).toISOString().slice(0, 10);
+    const rows = (log.attendees || []).map(a => [
+      when, log.hostRobloxName || log.hostName || '', a.username || '', a.robloxId || '',
+      a.result || 'PENDING', String(a.strikes || 0), a.kicked ? 'KICKED' : (a.leftAt ? 'LEFT' : ''),
+    ]);
+    if (!rows.length) return false;
+    await sheets.spreadsheets.values.append({
+      spreadsheetId, range: sheetName, valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS', requestBody: { values: rows },
+    });
+    console.log(`[tryoutLog] synced ${rows.length} attendees → recruits sheet`);
+    return true;
+  } catch (err) {
+    console.error('[tryoutLog] syncAttendanceToSheet failed:', err.message);
+    return false;
+  }
+}
+
+// ── Push-notify approvers when a log is submitted for review ──────────
+async function notifyTryoutApprovers(log) {
+  try {
+    const { sendCustomNotification } = require('./push');
+    // Primary approver set: site HICOMM / developers (HPC quota-tier approvers
+    // still get the in-dashboard review badge). Notify those with push on.
+    const approvers = await prisma.user.findMany({
+      where: { role: { in: ['HICOMM', 'DEVELOPER'] } }, select: { id: true },
+    });
+    if (!approvers.length) return;
+    await sendCustomNotification({
+      userIds: approvers.map(u => u.id),
+      title:   'New tryout log to review',
+      body:    `${log.hostName} posted a tryout — ${log.totalAttendees} attended, ${log.passedCount} passed.`,
+      url:     '/hpc/dashboard?tryoutReview=1',
+    });
+  } catch (e) { console.error('[tryoutLog] notifyTryoutApprovers failed:', e.message); }
+}
+
 module.exports = {
   normaliseAttendees, normaliseEvents, countsFor, resolveHostUser,
   createFromGamePayload, serialize, awardHpcPoint,
+  syncAttendanceToSheet, notifyTryoutApprovers,
 };

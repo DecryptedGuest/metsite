@@ -57,6 +57,7 @@
         <button class="nav-item marker-only" data-page="mark" style="display:none;"><i class="ti ti-checkbox nav-icon"></i><span>Mark Final Exams</span><span class="nav-badge pending" id="hpc-pending-badge" style="display:none;"></span></button>
         <div class="nav-section-label">Tryouts</div>
         <button class="nav-item" data-page="tryouts"><i class="ti ti-calendar-event nav-icon"></i><span>Tryouts</span></button>
+        <button class="nav-item" data-page="live"><i class="ti ti-broadcast nav-icon"></i><span>Live</span><span class="nav-badge" id="hpc-live-badge" style="display:none;background:var(--green);"></span></button>
         <button class="nav-item" data-page="tryout-logs"><i class="ti ti-clipboard-list nav-icon"></i><span>My Tryout Logs</span></button>
         <button class="nav-item approve-only" data-page="review-logs" style="display:none;"><i class="ti ti-clipboard-check nav-icon"></i><span>Review Logs</span><span class="nav-badge pending" id="hpc-review-badge" style="display:none;"></span></button>
         <div class="nav-section-label quota-only" style="display:none;">Oversight</div>
@@ -125,6 +126,15 @@
           </table>
         </div>
       </div>
+    </section>
+
+    <!-- LIVE (read-only mirror of running tryouts) -->
+    <section class="page" id="page-live">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Live Tryouts</h1><p class="page-sub">Watch running tryouts in real time · updates every few seconds</p></div>
+        <span class="badge badge-pending" id="hpc-live-status"><span class="badge-dot"></span>Connecting…</span>
+      </div>
+      <div id="hpc-live-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
     </section>
 
     <!-- MY TRYOUT LOGS (host reviews + posts the log the in-game panel created) -->

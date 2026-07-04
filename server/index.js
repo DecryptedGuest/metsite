@@ -71,7 +71,12 @@ if (RUN_WORKERS) {
 // ── Middleware ───────────────────────────────────────────────────
 // Large limit so ticket-log proof images (base64 data URLs) fit in the body.
 // Up to 10 images × 5 MB inflate to ~67 MB once base64-encoded.
-app.use(express.json({ limit: process.env.BODY_LIMIT || '256mb' }));
+// Capture the raw JSON body so game callbacks can be HMAC-verified
+// (server/routes/game.js) without re-serialising (which wouldn't match).
+app.use(express.json({
+  limit: process.env.BODY_LIMIT || '256mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ extended: true, limit: process.env.BODY_LIMIT || '256mb' }));
 app.use(cookieParser());
 

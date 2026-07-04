@@ -261,6 +261,31 @@ async function getUserGroupRoles(robloxUserId, groupId) {
 }
 
 /**
+ * Batch-resolve many Roblox user IDs to { id, username, displayName } in one
+ * request (public Users API, no auth). Returns a Map keyed by string id.
+ * Best-effort: unresolved / errored ids are simply absent from the map.
+ */
+async function getRobloxUsersInfo(userIds) {
+  const ids = [...new Set((userIds || []).map(String).filter(Boolean))].map(Number).filter(Number.isFinite);
+  const out = new Map();
+  if (!ids.length) return out;
+  try {
+    const res = await fetch('https://users.roblox.com/v1/users', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userIds: ids, excludeBannedUsers: false }),
+    });
+    if (!res.ok) return out;
+    const data = await res.json();
+    for (const u of (data.data || [])) out.set(String(u.id), { id: String(u.id), username: u.name, displayName: u.displayName });
+    return out;
+  } catch (err) {
+    console.error('Roblox batch user info error:', err.message);
+    return out;
+  }
+}
+
+/**
  * Resolve a Roblox username to a user record via the public Users API.
  * Returns { id, username, displayName } or null if no such user.
  */
@@ -588,6 +613,7 @@ module.exports = {
   getDiscordFromRoblox,
   getRobloxIdFromUsername,
   getRobloxUserInfo,
+  getRobloxUsersInfo,
   getRobloxAvatarHeadshot,
   getGroupMembership,
   getUserGroupRole,

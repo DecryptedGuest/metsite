@@ -572,6 +572,7 @@ model Tryout {
 // awarded 1 point on the HPC database.
 model TryoutLog {
   id              String    @id @default(uuid())
+  gameSessionId   String?   @unique // idempotency key from the game (one log per tryout session)
   tryoutId        String?   // optional link to the scheduled Tryout
   hostId          String    // host (User.id)
   hostDiscordId   String?
