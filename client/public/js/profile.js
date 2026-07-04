@@ -65,27 +65,45 @@ async function loadProfile() {
   // ── Upcoming / live tryouts (British citizens) ──
   loadTryouts();
 
-  // ── Divisions & rank ──
+  // ── Standing / disciplinary flags ──
+  const flags = data.flags || [];
+  if (flags.length) {
+    document.getElementById('p-flags-panel').style.display = '';
+    document.getElementById('p-flags').innerHTML = flags.map(f => chip(f.label, f.color)).join('');
+  }
+
+  // ── Divisions & rank ── (coloured per the MET role scheme)
   const divEl = document.getElementById('p-divisions');
   if (data.divisions && data.divisions.length) {
-    divEl.innerHTML = `<div class="profile-div-grid">${data.divisions.map(d => `
-      <a class="profile-div-card" href="/${d.slug}/dashboard">
-        ${d.icon ? `<img class="profile-div-icon" src="${d.icon}" alt="${escHtml(d.name)}" onerror="this.style.display='none'" />` : `<div class="profile-div-abbr">${escHtml(d.name)}</div>`}
+    divEl.innerHTML = `<div class="profile-div-grid">${data.divisions.map(d => {
+      const hex = toHexColor(d.color);
+      const accent = hex ? `style="border-left:3px solid ${hex};"` : '';
+      const abbr = hex
+        ? `<div class="profile-div-abbr" style="background:${hex}22;color:${hex};">${escHtml(d.name)}</div>`
+        : `<div class="profile-div-abbr">${escHtml(d.name)}</div>`;
+      return `
+      <a class="profile-div-card" href="/${d.slug}/dashboard" ${accent}>
+        ${d.icon ? `<img class="profile-div-icon" src="${d.icon}" alt="${escHtml(d.name)}" onerror="this.style.display='none'" />` : abbr}
         <div class="profile-div-body">
           <div class="profile-div-name">${escHtml(d.fullName || d.name)}</div>
           <div class="profile-div-rank">${d.rankName ? escHtml(d.rankName) : ''}</div>
         </div>
         ${tierBadge(d.tier)}
-      </a>`).join('')}</div>`;
+      </a>`;
+    }).join('')}</div>`;
   } else {
     divEl.innerHTML = `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
 
-  // ── MET server roles ──
+  // ── MET server roles ── (division role chips first, then synced Discord roles)
   const rolesEl = document.getElementById('p-roles');
+  const divChips = (data.divisions || []).map(d =>
+    chip(`${d.name}${d.rankName ? ' · ' + d.rankName : ''}`, d.color));
   const roles = (data.roles || []).slice().sort((a, b) => (b.position || 0) - (a.position || 0));
-  rolesEl.innerHTML = roles.length
-    ? roles.map(r => chip(r.name, r.color)).join('')
+  const roleChips = roles.map(r => chip(r.name, r.color));
+  const allRoleChips = divChips.concat(roleChips);
+  rolesEl.innerHTML = allRoleChips.length
+    ? allRoleChips.join('')
     : `<span class="chip-empty">No MET-server roles synced yet.</span>`;
 
   // ── Perms ──

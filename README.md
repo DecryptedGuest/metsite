@@ -317,6 +317,27 @@ The bot connects with the same `DATABASE_URL` and writes these rows; nothing els
 site needs to change for the profile to light up. Division rank/quota and division access
 continue to come from Roblox groups (above), independent of this bot data.
 
+**Perms and standing flags the site derives itself (no bot needed).** In addition to any
+bot-written `perms`, the profile now derives:
+
+* **Permissions** from the member's rank in the **perms group** (`PERMS_GROUP_ID`, default
+  `381582724`) — every rank `2..99` becomes a perm chip (QUOTA EXEMPT, GANG PERMS, MULTI
+  DIVISION PERMS, the BUYER perms, the RANK-LOCK perms, …), coloured by the group's colour
+  scheme. Guest/Member and rank `100+` (MET ADMINISTRATION / HICOMM / Overseer / HOLDER)
+  are the member's MET *rank*, not a perm, so they're filtered out, as are the divider
+  roles (`-----`). Site-derived and bot-written perms are merged and de-duplicated. The
+  catalogue and filtering live in `server/lib/permsGroup.js`. *Caveat:* Roblox's public
+  API returns a **single** role per group, so this surfaces the one perm role the account
+  holds there — a member who is meant to hold several perms at once needs a multi-perm
+  source (see the note below / bot-written `perms`).
+* **Standing flags** from the disciplinary Discord roles (`ROLE_ACTIVITY_STRIKE`,
+  `ROLE_STRIKE_1/2/3`, `ROLE_SUSPENDED`, `ROLE_VERBAL_WARNING`, `ROLE_ZT`) — captured from
+  the member's Discord roles at login (`users.metRoleIds`) and shown as coloured chips.
+
+**Divisions render as coloured role chips** following the MET Discord colour scheme (FLP
+blue, SCO-19 grey, CID orange, HPC white, IA teal; MI5 sky-blue reserved) — see
+`META[...].color` in `server/lib/divisions.js`.
+
 ## Division → Roblox group mapping
 
 The four new divisions resolve membership + rank from a Roblox group held by

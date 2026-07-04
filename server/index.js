@@ -459,6 +459,23 @@ async function computeMyDivisions(user) {
   };
 }
 
+// Merge site-derived perms (from the perms group) with bot-written perms,
+// de-duplicated by key/label so the same perm never shows twice.
+function mergePerms(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    for (const p of (Array.isArray(list) ? list : [])) {
+      if (!p) continue;
+      const id = String(p.key || p.label || '').toLowerCase().trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 app.get('/api/me/divisions', requireAuth, async (req, res) => {
   const { mine, icon } = await computeMyDivisions(req.user);
   let metIcon = null;
@@ -490,6 +507,16 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     });
   } catch (e) { punishments = []; }
 
+  // Permissions come from the member's role in the perms group (rank 2..99),
+  // merged with any perms the bot wrote onto the profile. Standing flags come
+  // from the disciplinary Discord roles captured at login (user.metRoleIds).
+  const { resolveUserPerms, flagsFromRoleIds } = require('./lib/permsGroup');
+  let groupPerms = [];
+  try { groupPerms = await resolveUserPerms(req.user.robloxId); } catch (e) { groupPerms = []; }
+  const botPerms = (metProfile && Array.isArray(metProfile.perms)) ? metProfile.perms : [];
+  const perms = mergePerms(groupPerms, botPerms);
+  const flags = flagsFromRoleIds(req.user.metRoleIds);
+
   res.json({
     user: {
       id:              req.user.id,
@@ -504,7 +531,8 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     divisions: mine,
     metNickname: metProfile ? metProfile.metNickname : null,
     roles: (metProfile && Array.isArray(metProfile.roles)) ? metProfile.roles : [],
-    perms: (metProfile && Array.isArray(metProfile.perms)) ? metProfile.perms : [],
+    perms,
+    flags,
     punishments: punishments.map(p => ({
       id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
       caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt,

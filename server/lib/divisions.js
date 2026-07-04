@@ -39,13 +39,21 @@ function localIcon(slug) {
 // `match` recognises the group by name during holder auto-discovery.
 // Roblox group ids are known/fixed (provided by MET), so they're the defaults;
 // the GROUP_* / IA_GROUP_ID env vars still override if ever needed.
+// `color` follows the MET Discord role colour scheme so each division renders
+// as a coloured role chip on the profile: FLP blue, SCO-19 grey, CID orange,
+// HPC white, IA teal (MI5 sky-blue is kept for when that division exists).
 const META = {
-  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
-  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
-  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
-  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
-  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
+  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', color: '#e8842a', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
+  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       color: '#8b93a1', groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
+  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  color: '#14b8a6', groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
+  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                color: '#3b82f6', groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
+  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             color: '#e2e8f0', groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
 };
+
+// Extra divisional colours for divisions that exist in the MET server but not
+// (yet) as portal divisions — kept so a perms-group chip / future division can
+// reuse the same palette. MI5 = Military Intelligence 5 (sky), SAS (purple).
+const DIVISION_COLORS_EXTRA = { MI5: '#38bdf8', SAS: '#9b6ef3' };
 
 // The top-level Metropolitan Police group — the umbrella every officer belongs
 // to. Its rank drives MET-wide quota (low rank / senior officer / high rank),
@@ -191,7 +199,12 @@ async function resolveGroupDivisions(robloxId) {
 // Client-safe metadata only — never leak group ids / discovery regexes.
 function meta(division) {
   const m = META[division];
-  return m ? { name: m.name, slug: m.slug, fullName: m.fullName } : null;
+  return m ? { name: m.name, slug: m.slug, fullName: m.fullName, color: m.color || null } : null;
+}
+
+// The MET role-scheme colour for a division (or null if unknown).
+function divisionColor(division) {
+  return (META[division] && META[division].color) || DIVISION_COLORS_EXTRA[division] || null;
 }
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
 
@@ -222,8 +235,8 @@ function hpcExamRoleId() { return process.env.HPC_EXAM_ROLE_ID || '1509521712058
 function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || null; }
 
 module.exports = {
-  ALL, GROUP_DIVISIONS, META,
-  meta, allMeta,
+  ALL, GROUP_DIVISIONS, META, DIVISION_COLORS_EXTRA,
+  meta, allMeta, divisionColor,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
   explicitGroupId, isLeadRank, holderUsername, metGroupId,
