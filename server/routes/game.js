@@ -182,7 +182,7 @@ router.post('/tryout/live', requireGameSecret, async (req, res) => {
 async function resolveGameHost(host) {
   if (!host) return null;
   const { resolveHostUser } = require('../lib/tryoutLogs');
-  return resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId });
+  return resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId, hostRobloxName: host.username });
 }
 
 // A diagnostic 422 for an unresolvable host — says exactly why so the panel /

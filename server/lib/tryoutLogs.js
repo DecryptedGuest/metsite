@@ -54,7 +54,7 @@ function countsFor(attendees) {
 // ── Host resolution ──────────────────────────────────────────────────
 // The host must be a site user (an HPC instructor who has logged in). Resolve
 // by Discord id, then by stored Roblox id, then via RoVer (roblox → discord).
-async function resolveHostUser({ hostDiscordId, hostRobloxId }) {
+async function resolveHostUser({ hostDiscordId, hostRobloxId, hostRobloxName } = {}) {
   if (hostDiscordId) {
     const u = await prisma.user.findUnique({ where: { discordId: String(hostDiscordId) } }).catch(() => null);
     if (u) return u;
@@ -71,6 +71,14 @@ async function resolveHostUser({ hostDiscordId, hostRobloxId }) {
         if (u) return u;
       }
     } catch (e) { /* RoVer down → can't resolve */ }
+  }
+  // Last resort: a signed-in user whose stored Roblox username matches (handles a
+  // stale/absent robloxId link when the name is still on record).
+  if (hostRobloxName) {
+    const byName = await prisma.user.findFirst({
+      where: { robloxUsername: { equals: String(hostRobloxName), mode: 'insensitive' } },
+    }).catch(() => null);
+    if (byName) return byName;
   }
   return null;
 }
@@ -118,7 +126,7 @@ async function createFromGamePayload(payload = {}) {
   }
 
   const host = payload.host || {};
-  const hostUser = await resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId });
+  const hostUser = await resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId, hostRobloxName: host.username });
   if (!hostUser) {
     const roverConfigured = !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID);
     const site = process.env.PUBLIC_BASE_URL || 'the MET portal';

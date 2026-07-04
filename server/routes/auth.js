@@ -264,7 +264,10 @@ router.get('/discord/callback', async (req, res) => {
 
       let rbxId = null, rbxName = null;
       try {
-        rbxId = await getRobloxIdFromDiscord(discordUser.id);
+        // Force a fresh RoVer lookup on every login so a stale/missing Roblox
+        // link gets corrected — otherwise the DB-first path reuses the old value
+        // and "log out + back in" can't fix a wrong/absent link.
+        rbxId = await getRobloxIdFromDiscord(discordUser.id, { fresh: true });
         if (rbxId) {
           const info = await getRobloxUserInfo(rbxId);
           rbxName = info?.username || null;
