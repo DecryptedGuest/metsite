@@ -38,17 +38,11 @@ async function initMetTopbar(currentDivision) {
     const menu = document.getElementById('met-switcher-menu');
     if (data && menu) {
       menu.innerHTML = '';
-      const hubLink = document.createElement('a');
-      hubLink.href = '/';
-      hubLink.className = 'met-switcher-item';
-      hubLink.innerHTML = '<span><i class="ti ti-layout-grid"></i> All divisions</span>';
-      menu.appendChild(hubLink);
-
-      const profileLink = document.createElement('a');
-      profileLink.href = '/profile';
-      profileLink.className = 'met-switcher-item';
-      profileLink.innerHTML = '<span><i class="ti ti-user"></i> My profile</span>';
-      menu.appendChild(profileLink);
+      const dashLink = document.createElement('a');
+      dashLink.href = '/dashboard';
+      dashLink.className = 'met-switcher-item';
+      dashLink.innerHTML = '<span><i class="ti ti-layout-dashboard"></i> My dashboard</span>';
+      menu.appendChild(dashLink);
 
       (data.mine || []).forEach(d => {
         const a = document.createElement('a');

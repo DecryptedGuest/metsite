@@ -297,8 +297,8 @@ router.get('/discord/callback', async (req, res) => {
       maxAge:   7 * 24 * 60 * 60 * 1000,
     });
 
-    console.log('[Auth] Login complete, redirecting to hub');
-    res.redirect('/');
+    console.log('[Auth] Login complete, redirecting to dashboard');
+    res.redirect('/dashboard');
 
   } catch (err) {
     console.error('[Auth] Unhandled error in OAuth callback:', err.stack || err.message);

@@ -549,8 +549,10 @@ app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'ind
 app.get('/login',                (req, res) => res.redirect('/' + req.url.replace(/^\/login/, '')));
 app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
 
-// Officer profile — any signed-in MET officer (no division gate).
-app.get('/profile', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
+// MET dashboard — the signed-in landing: identity, divisions, exam, record.
+// (The profile page IS the dashboard; served at both paths.)
+app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
+app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 
 // Final Examination — any signed-in officer; the page itself gates on
 // eligibility (the HPC final-exam Discord role) via /api/exam/my.
