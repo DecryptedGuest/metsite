@@ -17,6 +17,7 @@ router.get('/context', (req, res) => {
     canMark:    userHpcTier(req.user, 'marker'),
     canQuota:   userHpcTier(req.user, 'quota'),
     canApprove: userHpcTier(req.user, 'quota') || ['HICOMM', 'DEVELOPER'].includes(req.user.role),
+    isDev:      req.user.role === 'DEVELOPER',
   });
 });
 
@@ -153,6 +154,21 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
   } catch (err) {
     console.error('[HPC] mark failed:', err.message);
     res.status(500).json({ error: 'Failed to mark exam' });
+  }
+});
+
+// DELETE /api/hpc/exam/submissions/:id — DEVELOPER ONLY. Voids a final exam
+// entirely: deletes the record so the cadet is treated as if they never sat it
+// (they become eligible to take it again).
+router.delete('/exam/submissions/:id', async (req, res) => {
+  if (req.user.role !== 'DEVELOPER') return res.status(403).json({ error: 'Developer access required.' });
+  try {
+    await prisma.hpcExamSubmission.delete({ where: { id: req.params.id } });
+    res.json({ success: true, voided: true });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Exam not found' });
+    console.error('[HPC] delete exam failed:', err.message);
+    res.status(500).json({ error: 'Failed to delete exam' });
   }
 });
 

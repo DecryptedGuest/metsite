@@ -212,10 +212,24 @@ async function openExamResult(id) {
     (r.markerNote ? `<div style="margin-top:12px;"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">Marker feedback</div>
        <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">${esc(r.markerNote)}</div></div>` : '');
 
-  // Markers get a shortcut into the full marked paper (answers + AI detail).
+  // Developers can void the exam; markers get a shortcut into the full paper.
   document.getElementById('exd-footer').innerHTML =
     `<button class="btn btn-ghost" onclick="closeModal('modal-exam-detail')">Close</button>` +
+    (hpcCtx.isDev ? `<button class="btn btn-danger" onclick="voidExam('${r.id}','${esc(r.discordUsername || r.robloxUsername || 'cadet')}')"><i class="ti ti-trash"></i> Delete / void</button>` : '') +
     (r.canMark ? `<button class="btn btn-primary" onclick="closeModal('modal-exam-detail');openMark('${r.id}')"><i class="ti ti-file-search"></i> Open full paper</button>` : '');
+}
+
+// Developer-only: permanently void an exam so the cadet can retake it fresh.
+async function voidExam(id, who) {
+  if (!confirm(`Void ${who}'s final exam? This deletes it entirely — they'll be treated as if they never took it and can sit it again. This can't be undone.`)) return;
+  try {
+    await api('/api/hpc/exam/submissions/' + id, { method: 'DELETE' });
+    showToast('Exam voided — the cadet can retake it.', 'success');
+    closeModal('modal-exam-detail');
+    loadResults();
+    if (typeof loadStats === 'function') loadStats();
+    if (document.getElementById('page-mark')?.classList.contains('active')) loadSubmissions();
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 // ── Tryouts ──────────────────────────────────────────────────────────
