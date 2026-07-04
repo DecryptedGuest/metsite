@@ -464,7 +464,12 @@ async function computeMyDivisions(user) {
   const icon = (d) => (cfg[d] && cfg[d].icon) || null;
   return {
     icon,
-    mine: mine.map(d => ({ ...d, ...divisionMeta(d.division), icon: icon(d.division) })),
+    // Prefer the live Roblox group icon; fall back to a static meta icon (e.g.
+    // the Developer division's committed logo) so DEV shows a crest like the rest.
+    mine: mine.map(d => {
+      const m = divisionMeta(d.division) || {};
+      return { ...d, ...m, icon: icon(d.division) || m.icon || null };
+    }),
   };
 }
 

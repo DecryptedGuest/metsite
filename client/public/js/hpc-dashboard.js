@@ -170,19 +170,52 @@ async function loadResults() {
   const tbody = document.getElementById('hpc-results-tbody');
   try {
     const rows = await api('/api/hpc/exam/results');
-    tbody.innerHTML = rows.length ? rows.map(r => `<tr>
+    tbody.innerHTML = rows.length ? rows.map(r => `<tr class="row-clickable" onclick="openExamResult('${r.id}')" title="Click for details">
         <td>${esc(r.discordUsername || r.discordId)}</td>
         <td>${esc(r.robloxUsername || '—')}</td>
         <td>${r.status === 'PENDING' ? '—' : `${r.score}/${r.maxScore}`}</td>
         <td>${r.percentage != null ? r.percentage + '%' : '—'}</td>
         <td>${statusBadge(r.status)}</td>
         <td>${esc(r.markedByName || '—')}</td>
-        <td>${formatDate(r.createdAt)}</td>
+        <td>${formatDate(r.createdAt)} <i class="ti ti-chevron-right" style="color:var(--text-muted);font-size:13px;vertical-align:middle;"></i></td>
       </tr>`).join('')
       : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No exams submitted yet.</div></td></tr>`;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
+}
+
+// Read-only exam detail (any HPC member clicks a Final Exam row).
+async function openExamResult(id) {
+  openModal('modal-exam-detail');
+  document.getElementById('exd-body').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  document.getElementById('exd-footer').innerHTML = '';
+  let r;
+  try { r = await api('/api/hpc/exam/results/' + id); }
+  catch (err) { document.getElementById('exd-body').innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${esc(err.message)}</div>`; return; }
+
+  document.getElementById('exd-title').textContent = `Final Exam · ${r.discordUsername || r.robloxUsername || 'Cadet'}`;
+  const marked = r.status !== 'PENDING';
+  const rowsHtml = [
+    ['Cadet', esc(r.discordUsername || r.discordId || '—')],
+    ['Roblox', esc(r.robloxUsername || '—')],
+    ['Status', statusBadge(r.status)],
+    ['Mark', marked ? `${r.score}/${r.maxScore}` : '—'],
+    ['Percentage', r.percentage != null ? r.percentage + '%' : '—'],
+    ['Marked by', esc(r.markedByName || '—')],
+    ['Marked', r.markedAt ? formatDateTime(r.markedAt) : '—'],
+    ['Submitted', formatDateTime(r.createdAt)],
+  ].map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px solid var(--border-dim);">
+      <span style="font-size:12px;color:var(--text-muted);">${k}</span><span style="font-size:13px;">${v}</span></div>`).join('');
+
+  document.getElementById('exd-body').innerHTML = rowsHtml +
+    (r.markerNote ? `<div style="margin-top:12px;"><div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">Marker feedback</div>
+       <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">${esc(r.markerNote)}</div></div>` : '');
+
+  // Markers get a shortcut into the full marked paper (answers + AI detail).
+  document.getElementById('exd-footer').innerHTML =
+    `<button class="btn btn-ghost" onclick="closeModal('modal-exam-detail')">Close</button>` +
+    (r.canMark ? `<button class="btn btn-primary" onclick="closeModal('modal-exam-detail');openMark('${r.id}')"><i class="ti ti-file-search"></i> Open full paper</button>` : '');
 }
 
 // ── Tryouts ──────────────────────────────────────────────────────────

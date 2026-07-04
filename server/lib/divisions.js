@@ -200,7 +200,7 @@ async function resolveGroupDivisions(robloxId) {
 // The Developer "division" — not a real MET division (never in ALL / the public
 // switcher), but developers get it in their `mine` list so it shows on their
 // profile + division switcher and links to the developer tools at /dev/dashboard.
-const DEV_META = { name: 'DEV', slug: 'dev', fullName: 'Developer Tools', color: '#f5c518' };
+const DEV_META = { name: 'DEV', slug: 'dev', fullName: 'Developer Tools', color: '#f5c518', icon: '/img/divisions/dev.svg' };
 
 function meta(division) {
   if (division === 'DEV') return { ...DEV_META };

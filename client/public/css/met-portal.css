@@ -173,6 +173,10 @@
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip-empty { font-size: 12px; color: var(--text-muted); }
 
+/* Clickable table rows (open a detail modal, like the IA case list). */
+.data-table tr.row-clickable { cursor: pointer; transition: background 0.15s; }
+.data-table tr.row-clickable:hover { background: rgba(74, 143, 255, 0.06); }
+
 .met-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 11px; border-radius: 999px;

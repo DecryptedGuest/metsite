@@ -59,6 +59,28 @@ router.get('/exam/results', async (req, res) => {
   }
 });
 
+// GET /api/hpc/exam/results/:id — read-only exam detail for ANY HPC member
+// (Junior Instructor+). Shows the mark, status, feedback note and timing — but
+// NOT the answers or anti-cheat detail (those stay marker-only via the
+// /exam/submissions/:id route). Lets everyone click a Final Exam to see more.
+router.get('/exam/results/:id', async (req, res) => {
+  try {
+    const s = await prisma.hpcExamSubmission.findUnique({ where: { id: req.params.id } });
+    if (!s) return res.status(404).json({ error: 'Exam not found' });
+    res.json({
+      id: s.id, discordUsername: s.discordUsername, discordId: s.discordId,
+      robloxUsername: s.robloxUsername, status: s.status,
+      score: s.score, maxScore: s.maxScore, percentage: s.percentage,
+      markerNote: s.markerNote, markedByName: s.markedByName, markedAt: s.markedAt,
+      createdAt: s.createdAt,
+      // Whether the viewer can open the full marked paper (answers + AI flags).
+      canMark: userHpcTier(req.user, 'marker'),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load exam' });
+  }
+});
+
 // GET /api/hpc/exam/submissions?status=PENDING — marker queue / archive.
 router.get('/exam/submissions', requireHpcMarker, async (req, res) => {
   try {
