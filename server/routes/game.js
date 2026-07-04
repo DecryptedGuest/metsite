@@ -74,4 +74,52 @@ router.post('/serverlock', requireGameSecret, async (req, res) => {
   }
 });
 
+// ── Tryout logging from the in-game HPCInstructorPanel ────────────────
+// When the host confirms conclusion in-game, the panel POSTs a full snapshot
+// here. We create a DRAFT tryout log owned by the host, who then reviews +
+// posts it on the site.
+//
+// POST /api/game/tryout/conclude
+//   {
+//     host:   { robloxId, username, discordId? },
+//     coHost: { robloxId?, username? },
+//     tryoutId?, startedAt?, concludedAt?,
+//     attendees: [{ robloxId, username, joinedAt, leftAt, kicked, result, strikes, note }],
+//     events:    [{ at, type, username, by, detail }]
+//   }
+router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
+  try {
+    const { createFromGamePayload } = require('../lib/tryoutLogs');
+    const result = await createFromGamePayload(req.body || {});
+    if (!result.ok) return res.status(422).json({ error: result.error });
+    res.status(201).json(result);
+  } catch (err) {
+    console.error('[Game] tryout conclude failed:', err.message);
+    res.status(500).json({ error: 'Failed to log tryout.' });
+  }
+});
+
+// POST /api/game/tryout/live — optional live snapshot while a tryout is running,
+// so the site can mirror the in-game overview. Stored on the linked Tryout's
+// row as a transient JSON blob (best-effort; requires a live tryout to attach to).
+router.post('/tryout/live', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const where = body.tryoutId ? { id: String(body.tryoutId) }
+      : (body.privateServerId ? { status: 'LIVE', privateServerId: String(body.privateServerId) } : null);
+    if (!where) return res.status(400).json({ error: 'tryoutId or privateServerId required.' });
+    const t = await prisma.tryout.findFirst({ where });
+    if (!t) return res.status(404).json({ error: 'No matching live tryout.' });
+    const { normaliseAttendees, countsFor } = require('../lib/tryoutLogs');
+    const attendees = normaliseAttendees(body.attendees);
+    await prisma.tryout.update({
+      where: { id: t.id },
+      data: { liveSnapshot: { at: new Date().toISOString(), attendees, ...countsFor(attendees) } },
+    }).catch(() => {}); // liveSnapshot column is optional; ignore if absent
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to store live snapshot.' });
+  }
+});
+
 module.exports = router;

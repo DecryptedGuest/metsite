@@ -665,4 +665,6 @@ module.exports = {
   addQuotaPoints, getMemberPoints, getAllMembersPoints, resetAllQuota, setMemberExempt, setMemberLOA,
   enqueueQuotaAward, processQuotaAwards, startQuotaWorker,
   setInvestigatorOfWeek,
+  // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts).
+  getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
 };

@@ -14,8 +14,9 @@ const router = express.Router();
 // GET /api/hpc/context — what the current HPC member can do (drives the UI).
 router.get('/context', (req, res) => {
   res.json({
-    canMark:  userHpcTier(req.user, 'marker'),
-    canQuota: userHpcTier(req.user, 'quota'),
+    canMark:    userHpcTier(req.user, 'marker'),
+    canQuota:   userHpcTier(req.user, 'quota'),
+    canApprove: userHpcTier(req.user, 'quota') || ['HICOMM', 'DEVELOPER'].includes(req.user.role),
   });
 });
 
@@ -213,6 +214,142 @@ router.post('/tryouts/:id/complete', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to complete tryout' });
+  }
+});
+
+// ── Tryout logs ───────────────────────────────────────────────────────
+// Host reviews + posts the log the in-game panel created; HPC HICOMM (quota
+// tier / site HICOMM / developer) approve or deny; approval awards +1 point.
+const tryoutLogsLib = require('../lib/tryoutLogs');
+const { sendTryoutLog } = require('../lib/webhook');
+
+// Who can approve/deny tryout logs: Assistant Director+ (HPC quota tier), or a
+// site HICOMM / developer.
+function canApproveTryouts(user) {
+  return userHpcTier(user, 'quota') || ['HICOMM', 'DEVELOPER'].includes(user.role);
+}
+function requireTryoutApprover(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (canApproveTryouts(req.user)) return next();
+  return res.status(403).json({ error: 'HPC HICOMM access required to review tryout logs.' });
+}
+
+// GET /api/hpc/tryout-logs/context — what the UI should show for this user.
+router.get('/tryout-logs/context', (req, res) => {
+  res.json({ canApprove: canApproveTryouts(req.user) });
+});
+
+// GET /api/hpc/tryout-logs/mine — the host's own logs (drafts + submitted).
+router.get('/tryout-logs/mine', async (req, res) => {
+  try {
+    const logs = await prisma.tryoutLog.findMany({ where: { hostId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 100 });
+    res.json(logs.map(l => tryoutLogsLib.serialize(l)));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load your tryout logs' });
+  }
+});
+
+// GET /api/hpc/tryout-logs/pending — the HICOMM review queue.
+router.get('/tryout-logs/pending', requireTryoutApprover, async (req, res) => {
+  try {
+    const status = ['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status) ? req.query.status : 'PENDING';
+    const logs = await prisma.tryoutLog.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, take: 200 });
+    res.json(logs.map(l => tryoutLogsLib.serialize(l)));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load the review queue' });
+  }
+});
+
+// GET /api/hpc/tryout-logs/:id — full detail (owner or approver only).
+router.get('/tryout-logs/:id', async (req, res) => {
+  try {
+    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    if (!log) return res.status(404).json({ error: 'Tryout log not found' });
+    if (log.hostId !== req.user.id && !canApproveTryouts(req.user)) {
+      return res.status(403).json({ error: 'Not your tryout log.' });
+    }
+    res.json(tryoutLogsLib.serialize(log, { full: true }));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load the tryout log' });
+  }
+});
+
+// POST /api/hpc/tryout-logs/:id/submit { notes?, attendees? } — host posts the
+// log for review (DRAFT → PENDING). Lets the host tweak notes + attendee
+// results/strikes on the site before submitting.
+router.post('/tryout-logs/:id/submit', async (req, res) => {
+  try {
+    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    if (!log) return res.status(404).json({ error: 'Tryout log not found' });
+    if (log.hostId !== req.user.id) return res.status(403).json({ error: 'Only the host can submit this log.' });
+    if (log.status !== 'DRAFT') return res.status(400).json({ error: 'This log has already been submitted.' });
+
+    const { notes, attendees } = req.body || {};
+    const data = { status: 'PENDING' };
+    if (typeof notes === 'string') data.notes = notes.slice(0, 3000);
+    if (Array.isArray(attendees)) {
+      const clean = tryoutLogsLib.normaliseAttendees(attendees);
+      Object.assign(data, { attendees: clean, ...tryoutLogsLib.countsFor(clean) });
+    }
+
+    const updated = await prisma.tryoutLog.update({ where: { id: log.id }, data });
+    const msgId = await sendTryoutLog(updated, { event: 'submitted' }).catch(() => null);
+    if (msgId) await prisma.tryoutLog.update({ where: { id: log.id }, data: { logMessageId: msgId } }).catch(() => {});
+    res.json({ success: true, status: 'PENDING', posted: !!msgId });
+  } catch (err) {
+    console.error('[HPC] submit tryout log failed:', err.message);
+    res.status(500).json({ error: 'Failed to submit the tryout log' });
+  }
+});
+
+// POST /api/hpc/tryout-logs/:id/approve { note? } — HICOMM approves → +1 point.
+router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) => {
+  try {
+    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    if (!log) return res.status(404).json({ error: 'Tryout log not found' });
+    if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
+
+    // Award the host their +1 HPC point (best-effort; never blocks approval).
+    const awarded = await tryoutLogsLib.awardHpcPoint(log).catch(() => false);
+
+    const updated = await prisma.tryoutLog.update({
+      where: { id: log.id },
+      data: {
+        status: 'APPROVED', pointAwarded: awarded,
+        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
+        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    await sendTryoutLog(updated, { event: 'approved' }).catch(() => null);
+    res.json({ success: true, status: 'APPROVED', pointAwarded: awarded });
+  } catch (err) {
+    console.error('[HPC] approve tryout log failed:', err.message);
+    res.status(500).json({ error: 'Failed to approve the tryout log' });
+  }
+});
+
+// POST /api/hpc/tryout-logs/:id/deny { note } — HICOMM denies.
+router.post('/tryout-logs/:id/deny', requireTryoutApprover, async (req, res) => {
+  try {
+    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    if (!log) return res.status(404).json({ error: 'Tryout log not found' });
+    if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be denied.' });
+
+    const updated = await prisma.tryoutLog.update({
+      where: { id: log.id },
+      data: {
+        status: 'DENIED',
+        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
+        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    await sendTryoutLog(updated, { event: 'denied' }).catch(() => null);
+    res.json({ success: true, status: 'DENIED' });
+  } catch (err) {
+    console.error('[HPC] deny tryout log failed:', err.message);
+    res.status(500).json({ error: 'Failed to deny the tryout log' });
   }
 });
 

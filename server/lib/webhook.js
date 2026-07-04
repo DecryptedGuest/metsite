@@ -218,4 +218,46 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
   }
 }
 
-module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult };
+// Post a submitted tryout log to the HPC tryout-logs channel for HICOMM review.
+// Returns the message id, or null if no webhook is configured / it fails.
+async function sendTryoutLog(log, { event = 'submitted' } = {}) {
+  const url = process.env.HPC_TRYOUT_LOG_WEBHOOK;
+  if (!url) { console.warn('No HPC_TRYOUT_LOG_WEBHOOK configured — skipping tryout log post.'); return null; }
+
+  const colorFor = { submitted: 0xf5b730, approved: 0x2ed896, denied: 0xf04f5e };
+  const titleFor = { submitted: '📋 Tryout Log — Pending Review', approved: '✅ Tryout Log — Approved', denied: '❌ Tryout Log — Denied' };
+
+  const embed = {
+    color: colorFor[event] || 0x4a8fff,
+    title: titleFor[event] || 'Tryout Log',
+    fields: [
+      { name: 'Host',     value: log.hostDiscordId ? `<@${log.hostDiscordId}>` : (log.hostName || 'Unknown'), inline: true },
+      ...(log.coHostName ? [{ name: 'Co-host', value: String(log.coHostName), inline: true }] : []),
+      { name: 'Attendees', value: String(log.totalAttendees ?? 0), inline: true },
+      { name: 'Passed',   value: String(log.passedCount ?? 0), inline: true },
+      { name: 'Failed',   value: String(log.failedCount ?? 0), inline: true },
+      { name: 'Strikes',  value: String(log.strikeCount ?? 0), inline: true },
+      { name: 'Left / Kicked', value: `${log.leftCount ?? 0} / ${log.kickedCount ?? 0}`, inline: true },
+    ],
+    description: (event === 'denied' || event === 'approved') && log.reviewNote
+      ? `**${event === 'approved' ? 'Note' : 'Reason'}:** ${String(log.reviewNote).slice(0, 1500)}`
+      : (log.notes ? `**Host notes:** ${String(log.notes).slice(0, 1500)}` : undefined),
+    footer:    { text: 'Hendon Police College · Tryout Log' },
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: [embed] }),
+    });
+    if (!res.ok) { console.error(`Tryout log webhook failed [${res.status}]:`, await res.text()); return null; }
+    const msg = await res.json().catch(() => ({}));
+    return msg.id || null;
+  } catch (err) {
+    console.error('Tryout log webhook error:', err.message);
+    return null;
+  }
+}
+
+module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog };

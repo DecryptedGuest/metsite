@@ -57,6 +57,8 @@
         <button class="nav-item marker-only" data-page="mark" style="display:none;"><i class="ti ti-checkbox nav-icon"></i><span>Mark Final Exams</span><span class="nav-badge pending" id="hpc-pending-badge" style="display:none;"></span></button>
         <div class="nav-section-label">Tryouts</div>
         <button class="nav-item" data-page="tryouts"><i class="ti ti-calendar-event nav-icon"></i><span>Tryouts</span></button>
+        <button class="nav-item" data-page="tryout-logs"><i class="ti ti-clipboard-list nav-icon"></i><span>My Tryout Logs</span></button>
+        <button class="nav-item approve-only" data-page="review-logs" style="display:none;"><i class="ti ti-clipboard-check nav-icon"></i><span>Review Logs</span><span class="nav-badge pending" id="hpc-review-badge" style="display:none;"></span></button>
         <div class="nav-section-label quota-only" style="display:none;">Oversight</div>
         <button class="nav-item quota-only" data-page="quota" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check</span></button>
       </nav>
@@ -120,6 +122,45 @@
           <table class="data-table">
             <thead><tr><th>When</th><th>Host</th><th>Co-Host</th><th>Status</th><th>Link</th><th></th></tr></thead>
             <tbody id="hpc-tryouts-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MY TRYOUT LOGS (host reviews + posts the log the in-game panel created) -->
+    <section class="page" id="page-tryout-logs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">My Tryout Logs</h1><p class="page-sub">Review what happened, then post your concluded tryout for approval</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Your Tryouts</div></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Concluded</th><th>Attendees</th><th>Passed</th><th>Failed</th><th>Strikes</th><th>Status</th><th></th></tr></thead>
+            <tbody id="hpc-mylogs-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEW TRYOUT LOGS (HPC HICOMM — approve/deny) -->
+    <section class="page" id="page-review-logs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Review Tryout Logs</h1><p class="page-sub">HPC HICOMM · approve or deny · approval awards the host 1 point</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Tryout Logs</div>
+          <div class="filter-tabs" id="hpc-logfilter-tabs">
+            <button class="filter-tab active" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Host</th><th>Attendees</th><th>Passed</th><th>Failed</th><th>Strikes</th><th>Status</th><th></th></tr></thead>
+            <tbody id="hpc-reviewlogs-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -215,6 +256,20 @@
       <button class="btn btn-ghost" onclick="closeModal('modal-tryout')">Cancel</button>
       <button class="btn btn-primary" onclick="submitTryout()"><i class="ti ti-calendar-plus"></i> Schedule</button>
     </div>
+  </div>
+</div>
+
+<!-- Tryout log detail — host review/post, or HICOMM approve/deny -->
+<div class="modal-overlay" id="modal-tryout-log">
+  <div class="modal glass-bright" style="max-width:760px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-clipboard-list" style="font-size:18px;"></i> <span id="tlog-title">Tryout Log</span></div>
+      <button class="modal-close" onclick="closeModal('modal-tryout-log')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="tlog-body">
+      <div class="table-loading"><div class="spinner"></div></div>
+    </div>
+    <div class="modal-footer" id="tlog-footer"></div>
   </div>
 </div>
 

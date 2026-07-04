@@ -45,6 +45,7 @@ model User {
 
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
+  tryoutLogs         TryoutLog[]
 
   cases              Case[]
   caseActions        CaseAction[]
@@ -553,6 +554,7 @@ model Tryout {
   announcementMsgId String?
   hostDmMessageId   String?
   notes             String?
+  liveSnapshot      Json?     // latest in-game overview while the tryout is live
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -561,4 +563,53 @@ model Tryout {
   @@index([scheduledAt])
   @@index([status])
   @@map("tryouts")
+}
+
+// A concluded MET (HPC) tryout, logged by the host for review. The in-game
+// HPCInstructorPanel sends a snapshot on conclusion (attendees, strikes, who
+// left / got kicked, pass/fail results); the host reviews + posts it on the
+// site (DRAFT → PENDING); HPC HICOMM approve/deny it; on approval the host is
+// awarded 1 point on the HPC database.
+model TryoutLog {
+  id              String    @id @default(uuid())
+  tryoutId        String?   // optional link to the scheduled Tryout
+  hostId          String    // host (User.id)
+  hostDiscordId   String?
+  hostName        String
+  hostRobloxId    String?
+  hostRobloxName  String?
+  coHostName      String?
+  coHostRobloxId  String?
+  startedAt       DateTime?
+  concludedAt     DateTime? // when the host confirmed conclusion in-game
+  // Per-attendee rows: [{ robloxId, username, joinedAt, leftAt, kicked,
+  //   result: 'PASS'|'FAIL'|'PENDING', strikes: int, note }]
+  attendees       Json?
+  // Chronological event feed: [{ at, type: 'JOIN'|'LEAVE'|'KICK'|'STRIKE'|'PASS'|'FAIL'|'NOTE', username, by, detail }]
+  events          Json?
+  // Denormalised counts for quick listing.
+  totalAttendees  Int       @default(0)
+  passedCount     Int       @default(0)
+  failedCount     Int       @default(0)
+  leftCount       Int       @default(0)
+  kickedCount     Int       @default(0)
+  strikeCount     Int       @default(0)
+  notes           String?   // host's write-up added on the site before posting
+  status          String    @default("DRAFT") // DRAFT | PENDING | APPROVED | DENIED
+  reviewNote      String?   // HICOMM note on approve/deny
+  reviewedById    String?
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  pointAwarded    Boolean   @default(false) // whether the +1 HPC point was written
+  logMessageId    String?   // Discord message id of the posted tryout log
+  gamePayload     Json?     // raw snapshot from the game (audit)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  host User @relation(fields: [hostId], references: [id])
+
+  @@index([hostId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("tryout_logs")
 }
