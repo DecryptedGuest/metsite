@@ -2,7 +2,8 @@
 // Discord.js bot — runs in the same process as Express.
 // Handles: role assignment after case approval, member lookup.
 
-const { Client, GatewayIntentBits, Partials, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, SlashCommandBuilder,
+        EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder } = require('discord.js');
 
 // The bulk-import feature needs to read forum starter messages, and the ticket
 // transcript import needs to read Tickety's log embeds + "View Transcript"
@@ -65,6 +66,14 @@ async function registerImportCommand() {
 
 // Handle the import slash command (restricted to the developer user)
 async function onInteraction(interaction) {
+  // Tryout DM buttons / co-host select menu.
+  if (interaction.isButton() || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())) {
+    if ((interaction.customId || '').startsWith('tryout_')) {
+      return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand() || interaction.commandName !== 'import-cases') return;
 
   const DEV = process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
@@ -537,6 +546,79 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// MET tryouts — DM the host when their tryout fires, with buttons to pick a
+// co-host and post the announcement. Interaction handlers live in
+// onInteraction (customIds prefixed "tryout_").
+// ─────────────────────────────────────────────────────────────────
+
+// DM the host their tryout details + action buttons. Returns the DM message id.
+async function sendTryoutHostDM(tryout) {
+  if (!ready) { console.warn('[Tryout] bot not ready — cannot DM host'); return null; }
+  try {
+    const user  = await client.users.fetch(tryout.hostDiscordId);
+    const embed = new EmbedBuilder()
+      .setColor(tryout.privateServerLink ? 0x2ed896 : 0xf5b730)
+      .setTitle('🎓 Your MET Tryout is live')
+      .setDescription('Your scheduled Metropolitan Police tryout has started. Pick a co-host, then post the announcement when you\'re ready.')
+      .addFields(
+        { name: 'Private server link', value: tryout.privateServerLink || '⚠️ Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
+        { name: 'Shift-lock', value: tryout.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED', inline: true },
+      );
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success),
+    );
+    const msg = await user.send({ embeds: [embed], components: [row] });
+    return msg.id;
+  } catch (e) {
+    console.error('[Tryout] sendTryoutHostDM failed:', e.message);
+    return null;
+  }
+}
+
+async function handleTryoutComponent(interaction) {
+  const prisma = require('./db');
+  const id = interaction.customId || '';
+
+  // "Pick Co-Host" → show a member picker.
+  if (id.startsWith('tryout_cohost_') && interaction.isButton()) {
+    const tryoutId = id.slice('tryout_cohost_'.length);
+    const row = new ActionRowBuilder().addComponents(
+      new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
+    );
+    return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
+  }
+
+  // Co-host chosen.
+  if (id.startsWith('tryout_cohostsel_') && interaction.isUserSelectMenu && interaction.isUserSelectMenu()) {
+    const tryoutId = id.slice('tryout_cohostsel_'.length);
+    const picked   = interaction.users.first();
+    const coName   = picked ? (picked.globalName || picked.username) : null;
+    await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: picked ? picked.id : null, coHostName: coName } }).catch(() => {});
+    return interaction.update({ content: `✅ Co-host set to **${coName}**. You can now send the announcement.`, components: [] });
+  }
+
+  // "Send Announcement" → post to the tryout announcement channel.
+  if (id.startsWith('tryout_announce_') && interaction.isButton()) {
+    const tryoutId = id.slice('tryout_announce_'.length);
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId } });
+    if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
+    if (!chId) return interaction.reply({ content: '⚠️ No announcement channel configured — set `TRYOUT_ANNOUNCE_CHANNEL_ID`.', flags: 64 });
+
+    const { formatAnnouncement } = require('./tryouts');
+    try {
+      const ch  = await client.channels.fetch(chId);
+      const msg = await ch.send({ content: formatAnnouncement(t), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
+      await prisma.tryout.update({ where: { id: t.id }, data: { announcementSent: true, announcementMsgId: msg.id } }).catch(() => {});
+      return interaction.reply({ content: '📢 Announcement posted!', flags: 64 });
+    } catch (e) {
+      return interaction.reply({ content: 'Failed to post the announcement: ' + e.message, flags: 64 });
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Discord moderation — ban / unban / kick / timeout ("mute"). Used by the
 // Dev Panel's Discord Moderation tool (server/routes/admin.js). Every action
 // operates on DISCORD_GUILD_ID by default, or an explicit guildId if passed
@@ -670,4 +752,5 @@ module.exports = {
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
+  sendTryoutHostDM,
 };

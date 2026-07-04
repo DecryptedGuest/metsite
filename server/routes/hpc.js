@@ -42,6 +42,22 @@ function summariseSubmission(s, full) {
   return { ...base, answers: s.answers, detection: s.detection, flags: s.flags, scores: s.scores, markerNote: s.markerNote };
 }
 
+// GET /api/hpc/exam/results — read-only list of ALL exams + marks/status for
+// any HPC member (Junior Instructor+). No answers/AI detail (that's marker-only).
+router.get('/exam/results', async (req, res) => {
+  try {
+    const subs = await prisma.hpcExamSubmission.findMany({ orderBy: { createdAt: 'desc' }, take: 500 });
+    res.json(subs.map(s => ({
+      id: s.id, discordUsername: s.discordUsername, discordId: s.discordId,
+      robloxUsername: s.robloxUsername, status: s.status, score: s.score,
+      maxScore: s.maxScore, percentage: s.percentage,
+      markedByName: s.markedByName, markedAt: s.markedAt, createdAt: s.createdAt,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load results' });
+  }
+});
+
 // GET /api/hpc/exam/submissions?status=PENDING — marker queue / archive.
 router.get('/exam/submissions', requireHpcMarker, async (req, res) => {
   try {
@@ -120,6 +136,84 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
 // GET /api/hpc/quota — Assistant Director+. DB not wired yet (provided later).
 router.get('/quota', requireHpcQuota, (req, res) => {
   res.json({ configured: false, message: 'The HPC quota database has not been connected yet.' });
+});
+
+// ── Tryouts (any HPC member — Junior Instructor+ — can schedule/view) ──
+function tryoutSummary(t) {
+  return {
+    id: t.id, hostName: t.hostName, hostDiscordId: t.hostDiscordId,
+    coHostName: t.coHostName, coHostDiscordId: t.coHostDiscordId,
+    scheduledAt: t.scheduledAt, status: t.status, lockState: t.lockState,
+    privateServerLink: t.privateServerLink, announcementSent: t.announcementSent,
+    notes: t.notes, createdAt: t.createdAt,
+    isMine: undefined,
+  };
+}
+
+// GET /api/hpc/tryouts — upcoming + recent tryouts.
+router.get('/tryouts', async (req, res) => {
+  try {
+    const tryouts = await prisma.tryout.findMany({ orderBy: { scheduledAt: 'desc' }, take: 100 });
+    res.json(tryouts.map(t => ({ ...tryoutSummary(t), isMine: t.hostId === req.user.id })));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load tryouts' });
+  }
+});
+
+// POST /api/hpc/tryouts { scheduledAt, lockState, notes } — schedule one.
+router.post('/tryouts', async (req, res) => {
+  try {
+    const { scheduledAt, lockState, notes } = req.body || {};
+    const when = new Date(scheduledAt);
+    if (isNaN(when.getTime())) return res.status(400).json({ error: 'A valid date/time is required.' });
+    if (when.getTime() < Date.now() - 60 * 1000) return res.status(400).json({ error: 'The scheduled time must be in the future.' });
+
+    const t = await prisma.tryout.create({
+      data: {
+        hostId: req.user.id,
+        hostDiscordId: req.user.discordId,
+        hostName: req.user.displayName || req.user.discordUsername,
+        scheduledAt: when,
+        lockState: lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED',
+        notes: notes ? String(notes).slice(0, 500) : null,
+      },
+    });
+    res.status(201).json(tryoutSummary(t));
+  } catch (err) {
+    console.error('[HPC] schedule tryout failed:', err.message);
+    res.status(500).json({ error: 'Failed to schedule tryout' });
+  }
+});
+
+// POST /api/hpc/tryouts/:id/cancel — host (or developer) cancels a tryout.
+router.post('/tryouts/:id/cancel', async (req, res) => {
+  try {
+    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Tryout not found' });
+    if (t.hostId !== req.user.id && req.user.role !== 'DEVELOPER') {
+      return res.status(403).json({ error: 'Only the host can cancel this tryout.' });
+    }
+    if (['COMPLETED', 'CANCELLED'].includes(t.status)) return res.status(400).json({ error: 'This tryout is already finished.' });
+    await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to cancel tryout' });
+  }
+});
+
+// POST /api/hpc/tryouts/:id/complete — mark a live tryout finished.
+router.post('/tryouts/:id/complete', async (req, res) => {
+  try {
+    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Tryout not found' });
+    if (t.hostId !== req.user.id && req.user.role !== 'DEVELOPER') {
+      return res.status(403).json({ error: 'Only the host can end this tryout.' });
+    }
+    await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to complete tryout' });
+  }
 });
 
 module.exports = router;

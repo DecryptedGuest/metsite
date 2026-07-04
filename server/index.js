@@ -20,6 +20,7 @@ const sco19Routes = require('./routes/sco19');
 const flpRoutes   = require('./routes/flp');
 const hpcRoutes   = require('./routes/hpc');
 const examRoutes  = require('./routes/exam');
+const tryoutRoutes = require('./routes/tryouts');
 const { requireAuth } = require('./middleware/auth');
 const { requireDivision } = require('./middleware/division');
 const { recordVisit } = require('./middleware/visit');
@@ -61,6 +62,7 @@ if (RUN_WORKERS) {
   startRoleExpiryChecker();
   require('./lib/accessControl').startAccessRevalidator();
   require('./lib/quota').startQuotaWorker();
+  require('./lib/tryouts').startTryoutWorker();
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');
@@ -149,6 +151,8 @@ app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
 // Final Examination — MET-wide (cadet eligibility is a Discord role, not HPC
 // division membership), so it is NOT behind the HPC division gate.
 app.use('/api/exam',  requireAuth, examRoutes);
+// Public tryout view (British citizens) — MET-wide, not HPC-gated.
+app.use('/api/tryouts', requireAuth, tryoutRoutes);
 
 // Visibility check for hosted media. Returns { allowed, user }.
 async function checkMediaAccess(req, m) {

@@ -62,6 +62,8 @@ async function loadProfile() {
 
   // ── Final exam (eligible cadets only) ──
   loadExamStatus();
+  // ── Upcoming / live tryouts (British citizens) ──
+  loadTryouts();
 
   // ── Divisions & rank ──
   const divEl = document.getElementById('p-divisions');
@@ -135,6 +137,37 @@ async function loadExamStatus() {
       ${!passed && s.canRetake ? `<div style="margin-top:12px;"><a href="/exam" class="btn btn-primary btn-sm"><i class="ti ti-refresh"></i> Retake Exam</a></div>` : ''}`;
   }
   el.innerHTML = html;
+}
+
+async function loadTryouts() {
+  let data;
+  try { data = await api('/api/tryouts/upcoming'); } catch (e) { return; }
+  if (!data.eligible) return;
+  const hasAny = (data.live && data.live.length) || (data.upcoming && data.upcoming.length);
+  if (!hasAny) return; // nothing to show — keep the panel hidden
+  document.getElementById('p-tryouts-panel').style.display = '';
+  const el = document.getElementById('p-tryouts');
+
+  const liveHtml = (data.live || []).map(t => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
+      <span class="badge badge-approved"><span class="badge-dot"></span>Live now</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">Hosted by ${escHtml(t.hostName)}${t.coHostName ? ' · Co-host ' + escHtml(t.coHostName) : ''}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${t.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED'}</div>
+      </div>
+      ${t.joinLink ? `<a href="${escHtml(t.joinLink)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm"><i class="ti ti-brand-roblox"></i> Join</a>` : '<span style="font-size:11px;color:var(--text-muted);">Link pending</span>'}
+    </div>`).join('');
+
+  const upHtml = (data.upcoming || []).map(t => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
+      <span class="badge badge-pending"><span class="badge-dot"></span>Upcoming</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">${formatDateTime(t.scheduledAt)}</div>
+        <div style="font-size:11px;color:var(--text-muted);">Hosted by ${escHtml(t.hostName)}</div>
+      </div>
+    </div>`).join('');
+
+  el.innerHTML = (liveHtml + upHtml) || '<div class="table-empty-text">No tryouts right now.</div>';
 }
 
 function punishmentColor(type) {

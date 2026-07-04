@@ -12,6 +12,8 @@ function navigateTo(pageId) {
   const btn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
   if (btn) btn.classList.add('active');
   if (pageId === 'mark') loadSubmissions();
+  if (pageId === 'results') loadResults();
+  if (pageId === 'tryouts') loadTryouts();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => navigateTo(btn.dataset.page)));
 
@@ -152,6 +154,89 @@ async function submitMark() {
   } finally {
     btn.disabled = false; btn.innerHTML = '<i class="ti ti-send"></i> Submit Result';
   }
+}
+
+// ── All final exams (read-only) ──────────────────────────────────────
+async function loadResults() {
+  const tbody = document.getElementById('hpc-results-tbody');
+  try {
+    const rows = await api('/api/hpc/exam/results');
+    tbody.innerHTML = rows.length ? rows.map(r => `<tr>
+        <td>${esc(r.discordUsername || r.discordId)}</td>
+        <td>${esc(r.robloxUsername || '—')}</td>
+        <td>${r.status === 'PENDING' ? '—' : `${r.score}/${r.maxScore}`}</td>
+        <td>${r.percentage != null ? r.percentage + '%' : '—'}</td>
+        <td>${statusBadge(r.status)}</td>
+        <td>${esc(r.markedByName || '—')}</td>
+        <td>${formatDate(r.createdAt)}</td>
+      </tr>`).join('')
+      : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No exams submitted yet.</div></td></tr>`;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
+  }
+}
+
+// ── Tryouts ──────────────────────────────────────────────────────────
+const TRYOUT_STATUS = {
+  SCHEDULED: ['badge-pending', 'Scheduled'], LIVE: ['badge-approved', '🔴 Live'],
+  COMPLETED: ['badge', 'Completed'], CANCELLED: ['badge-denied', 'Cancelled'],
+};
+async function loadTryouts() {
+  const tbody = document.getElementById('hpc-tryouts-tbody');
+  try {
+    const rows = await api('/api/hpc/tryouts');
+    tbody.innerHTML = rows.length ? rows.map(t => {
+      const s = TRYOUT_STATUS[t.status] || ['badge', t.status];
+      const canManage = t.isMine && ['SCHEDULED', 'LIVE'].includes(t.status);
+      return `<tr>
+        <td>${formatDateTime(t.scheduledAt)}</td>
+        <td>${esc(t.hostName)}</td>
+        <td>${esc(t.coHostName || '—')}</td>
+        <td><span class="badge ${s[0]}"><span class="badge-dot"></span>${s[1]}</span></td>
+        <td>${t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open</a>` : '—'}</td>
+        <td>${canManage ? `${t.status === 'LIVE' ? `<button class="btn btn-ghost btn-sm" onclick="completeTryout('${t.id}')">End</button>` : ''}<button class="btn btn-danger btn-sm" onclick="cancelTryout('${t.id}')">Cancel</button>` : ''}</td>
+      </tr>`;
+    }).join('')
+      : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts scheduled. Click “Schedule Tryout”.</div></td></tr>`;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
+  }
+}
+
+function openScheduleTryout() {
+  document.getElementById('tryout-when').value = '';
+  document.getElementById('tryout-lock').value = 'SLOCKED';
+  document.getElementById('tryout-notes').value = '';
+  openModal('modal-tryout');
+}
+
+async function submitTryout() {
+  const when = document.getElementById('tryout-when').value;
+  if (!when) return showToast('Pick a date and time.', 'warning');
+  const scheduledAt = new Date(when).toISOString();
+  try {
+    await api('/api/hpc/tryouts', { method: 'POST', body: JSON.stringify({
+      scheduledAt,
+      lockState: document.getElementById('tryout-lock').value,
+      notes: document.getElementById('tryout-notes').value.trim(),
+    }) });
+    closeModal('modal-tryout');
+    showToast('Tryout scheduled. The bot will DM you at the scheduled time.', 'success');
+    loadTryouts();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function cancelTryout(id) {
+  if (!confirm('Cancel this tryout?')) return;
+  try { await api(`/api/hpc/tryouts/${id}/cancel`, { method: 'POST' }); showToast('Tryout cancelled.', 'success'); loadTryouts(); }
+  catch (err) { showToast(err.message, 'error'); }
+}
+async function completeTryout(id) {
+  if (!confirm('Mark this tryout as finished?')) return;
+  try { await api(`/api/hpc/tryouts/${id}/complete`, { method: 'POST' }); showToast('Tryout ended.', 'success'); loadTryouts(); }
+  catch (err) { showToast(err.message, 'error'); }
 }
 
 initHpc();

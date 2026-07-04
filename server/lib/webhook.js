@@ -183,8 +183,8 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
  * posted message id, or null if no webhook is configured / it failed.
  */
 async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, score, maxScore, percentage, passed, note }) {
-  const url = process.env.HPC_RESULTS_WEBHOOK_URL;
-  if (!url) { console.warn('No HPC_RESULTS_WEBHOOK_URL configured — skipping exam result post.'); return null; }
+  const url = process.env.FINAL_EXAM_WEBHOOK || process.env.HPC_RESULTS_WEBHOOK_URL;
+  if (!url) { console.warn('No FINAL_EXAM_WEBHOOK configured — skipping exam result post.'); return null; }
 
   const embed = {
     color: passed ? 0x2ed896 : 0xf04f5e,

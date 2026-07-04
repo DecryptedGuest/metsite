@@ -44,6 +44,7 @@ model User {
   metRoleIds      Json?
 
   hpcExamSubmissions HpcExamSubmission[]
+  tryouts            Tryout[]
 
   cases              Case[]
   caseActions        CaseAction[]
@@ -529,4 +530,35 @@ model HpcExamSubmission {
   @@index([status])
   @@index([createdAt])
   @@map("hpc_exam_submissions")
+}
+
+// A scheduled MET (HPC) tryout. Created by an HPC Junior Instructor+; when its
+// scheduledAt is reached a background worker provisions a Roblox private server,
+// DMs the host the details + link, and the host posts the announcement. British
+// citizens can see upcoming/live tryouts and join the live one from the site.
+model Tryout {
+  id                String    @id @default(uuid())
+  hostId            String    // creator (User.id)
+  hostDiscordId     String
+  hostName          String
+  coHostDiscordId   String?
+  coHostName        String?
+  scheduledAt       DateTime
+  status            String    @default("SCHEDULED") // SCHEDULED | LIVE | COMPLETED | CANCELLED
+  lockState         String    @default("SLOCKED")   // SLOCKED | UNSLOCKED (shift-lock)
+  privateServerLink String?
+  privateServerId   String?
+  serverCreatedAt   DateTime?
+  announcementSent  Boolean   @default(false)
+  announcementMsgId String?
+  hostDmMessageId   String?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  host User @relation(fields: [hostId], references: [id])
+
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("tryouts")
 }

@@ -52,9 +52,6 @@ async function renderForm(prevFailed) {
   document.getElementById('exam-sub').textContent = paper.subtitle;
   document.getElementById('exam-rules').innerHTML = paper.rules.map(r => `<li>${esc(r)}</li>`).join('');
 
-  // MET brand icon if it resolved.
-  fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null)
-    .then(d => { if (d && d.metIcon) document.getElementById('exam-logo').src = d.metIcon; }).catch(() => {});
 
   const box = document.getElementById('exam-questions');
   box.innerHTML = paper.questions.map((q, i) => {
