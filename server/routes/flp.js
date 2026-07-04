@@ -5,9 +5,12 @@
 // scoped to FLP with an "assign below your own rank" guardrail.
 const express = require('express');
 const router  = express.Router();
+const prisma  = require('../lib/db');
 
 const { userFlpGroupAdmin, requireFlpGroupAdmin, userDivisions } = require('../middleware/division');
 const { explicitGroupId } = require('../lib/divisions');
+const patrolLib = require('../lib/patrolLog');
+const bot = require('../lib/bot');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
   resolveJoinRequest, changeGroupRank, exileFromGroup,
@@ -24,10 +27,49 @@ router.get('/', (req, res) => res.json({ division: 'flp' }));
 // What the FLP dashboard can show for this user (drives the UI).
 router.get('/context', (req, res) => {
   res.json({
-    canGroupAdmin: userFlpGroupAdmin(req.user),
-    flpRank:       myFlpRank(req.user),
-    isDev:         req.user.role === 'DEVELOPER',
+    canGroupAdmin:    userFlpGroupAdmin(req.user),
+    canReviewPatrols: userFlpGroupAdmin(req.user),
+    flpRank:          myFlpRank(req.user),
+    isDev:            req.user.role === 'DEVELOPER',
   });
+});
+
+// ── Patrol logs (Assistant Director+ review; bot reacts ✅/❌) ─────────
+router.get('/patrols', requireFlpGroupAdmin, async (req, res) => {
+  try {
+    const status = ['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status) ? req.query.status : 'PENDING';
+    const rows = await prisma.patrolLog.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, take: 200 });
+    res.json(rows.map(patrolLib.serialize));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load patrol logs' });
+  }
+});
+
+router.post('/patrols/:id/:action', requireFlpGroupAdmin, async (req, res) => {
+  const action = req.params.action;
+  if (!['approve', 'deny'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+  try {
+    const p = await prisma.patrolLog.findUnique({ where: { id: req.params.id } });
+    if (!p) return res.status(404).json({ error: 'Patrol log not found' });
+    if (p.status !== 'PENDING') return res.status(400).json({ error: 'This log has already been reviewed.' });
+
+    const status = action === 'approve' ? 'APPROVED' : 'DENIED';
+    const updated = await prisma.patrolLog.update({
+      where: { id: p.id },
+      data: {
+        status,
+        reviewedById: req.user.id,
+        reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    // Mark the original Discord message (best-effort).
+    const reacted = await bot.reactToMessage(p.channelId, p.messageId, action === 'approve' ? '✅' : '❌').catch(() => false);
+    res.json({ success: true, status, reacted });
+  } catch (err) {
+    console.error('[FLP] patrol review failed:', err.message);
+    res.status(500).json({ error: 'Failed to review patrol log' });
+  }
 });
 
 // ── FLP group panel (Assistant Director+) ─────────────────────────────

@@ -565,6 +565,33 @@ model Tryout {
   @@map("tryouts")
 }
 
+// An FLP patrol log posted in the patrol-logs channel (PATROL_CHANNEL_ID). The
+// bot captures + parses it, FLP reviews it on the site, and on approve/deny the
+// bot reacts ✅/❌ to the original Discord message.
+model PatrolLog {
+  id                   String    @id @default(uuid())
+  messageId            String    @unique   // Discord message id (react + idempotency)
+  channelId            String
+  submitterDiscordId   String
+  submitterUsername    String?             // discord username
+  submitterDisplayName String?             // server nickname, e.g. "DEV | realangeloo"
+  division             String?             // parsed; shown as "N/A" when absent
+  shiftStart           String?             // 24h "HH:MM" as stated on the log
+  shiftEnd             String?             // 24h "HH:MM"
+  totalMinutes         Int?                // computed from start→end
+  images               Json?               // attachment image URLs
+  rawContent           String?
+  status               String    @default("PENDING") // PENDING | APPROVED | DENIED
+  reviewedById         String?
+  reviewedByName       String?
+  reviewedAt           DateTime?
+  createdAt            DateTime  @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("patrol_logs")
+}
+
 // A concluded MET (HPC) tryout, logged by the host for review. The in-game
 // HPCInstructorPanel sends a snapshot on conclusion (attendees, strikes, who
 // left / got kicked, pass/fail results); the host reviews + posts it on the

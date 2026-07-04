@@ -20,7 +20,10 @@ const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || '145587742458
 // forum starter messages + Tickety transcript logs), but must never take the
 // whole bot offline over it — so startBot() logs in WITH it and transparently
 // retries WITHOUT it if the portal rejects it (role assignment etc. keep working).
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID);
+// FLP patrol-log channel — the bot reads new logs here (needs Message Content)
+// and reacts ✅/❌ once the site approves/denies them.
+const PATROL_CHANNEL_ID = process.env.PATROL_CHANNEL_ID || null;
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID);
 
 let ready = false;
 let client;
@@ -37,6 +40,7 @@ function buildClient(withMessageContent) {
   const c = new Client({ intents, partials: [Partials.GuildMember] });
   c.once('ready', onReady);
   c.on('interactionCreate', onInteraction);
+  if (withMessageContent) c.on('messageCreate', onPatrolMessage);
   c.on('error', err => console.error('Discord bot error:', err.message));
   return c;
 }
@@ -576,6 +580,36 @@ async function sendTryoutHostDM(tryout) {
   }
 }
 
+// ── FLP patrol logs ───────────────────────────────────────────────────
+// A new message in PATROL_CHANNEL_ID that looks like a patrol log → capture it
+// for site review. (Pure chat without "shift" is ignored.)
+async function onPatrolMessage(message) {
+  try {
+    if (!PATROL_CHANNEL_ID || String(message.channelId) !== String(PATROL_CHANNEL_ID)) return;
+    if (message.author && message.author.bot) return;
+    const content = message.content || '';
+    if (!/shift/i.test(content) && message.attachments.size === 0) return; // not a log
+    const { createFromMessage } = require('./patrolLog');
+    await createFromMessage(message);
+  } catch (e) {
+    console.error('[Patrol] messageCreate error:', e.message);
+  }
+}
+
+// React to a message with an emoji (used to mark a patrol log ✅ approved / ❌ denied).
+async function reactToMessage(channelId, messageId, emoji) {
+  if (!ready) return false;
+  try {
+    const ch  = await client.channels.fetch(String(channelId));
+    const msg = await ch.messages.fetch(String(messageId));
+    await msg.react(emoji);
+    return true;
+  } catch (e) {
+    console.warn('[Patrol] reactToMessage failed:', e.message);
+    return false;
+  }
+}
+
 // Post the tryout announcement to the configured channel and record the message
 // id on the tryout. Returns the message id, or null if it couldn't post.
 async function postTryoutAnnouncement(tryout) {
@@ -830,5 +864,6 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, cancelTryoutAnnouncement, dmTryoutStarted,
+  reactToMessage,
   isReady: () => ready,
 };

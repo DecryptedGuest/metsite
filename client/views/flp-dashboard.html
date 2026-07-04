@@ -53,6 +53,7 @@
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
         <div class="nav-section-label group-admin-only" style="display:none;">High Command</div>
+        <button class="nav-item group-admin-only" data-page="patrols" style="display:none;"><i class="ti ti-clipboard-check nav-icon"></i><span>Patrol Logs</span><span class="nav-badge pending" id="flp-patrol-badge" style="display:none;"></span></button>
         <button class="nav-item group-admin-only" data-page="group" style="display:none;"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-badge pending" id="flp-pending-badge" style="display:none;"></span></button>
       </nav>
     </div>
@@ -70,6 +71,19 @@
           <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">FLP tools are being built. You have access to this division — check back soon for its features.</div>
         </div>
       </div>
+    </section>
+
+    <!-- PATROL LOGS (FLP review — bot reacts ✅/❌) -->
+    <section class="page" id="page-patrols">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Patrol Logs</h1><p class="page-sub">Review shift logs from the patrol-logs channel · approve ✅ / deny ❌</p></div>
+        <div class="filter-tabs" id="flp-patrol-tabs">
+          <button class="filter-tab active" data-filter="PENDING">Pending</button>
+          <button class="filter-tab" data-filter="APPROVED">Approved</button>
+          <button class="filter-tab" data-filter="DENIED">Denied</button>
+        </div>
+      </div>
+      <div id="flp-patrols-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
     </section>
 
     <!-- GROUP PANEL (FLP Assistant Director+) -->

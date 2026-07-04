@@ -18,6 +18,7 @@ function flpNavigate(pageId) {
   const btn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
   if (btn) btn.classList.add('active');
   if (pageId === 'group') loadFlpGroup();
+  if (pageId === 'patrols') loadPatrols();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => flpNavigate(btn.dataset.page)));
 
@@ -27,6 +28,72 @@ async function initFlp() {
     document.querySelectorAll('.group-admin-only').forEach(el => el.style.display = '');
     loadFlpPendingBadge();
   }
+  if (flpCtx.canReviewPatrols) loadPatrolBadge();
+}
+
+// ── Patrol logs ──────────────────────────────────────────────────────
+let patrolFilter = 'PENDING';
+
+async function loadPatrolBadge() {
+  try {
+    const rows = await api('/api/flp/patrols?status=PENDING');
+    const b = document.getElementById('flp-patrol-badge');
+    if (b && rows.length) { b.textContent = rows.length; b.style.display = ''; }
+  } catch (e) { /* non-fatal */ }
+}
+
+const _patrolTabs = document.getElementById('flp-patrol-tabs');
+if (_patrolTabs) _patrolTabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('.filter-tab'); if (!btn) return;
+  _patrolTabs.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active'); patrolFilter = btn.dataset.filter; loadPatrols();
+});
+
+const PATROL_STATUS = {
+  PENDING:  '<span class="badge badge-pending"><span class="badge-dot"></span>Pending</span>',
+  APPROVED: '<span class="badge badge-approved"><span class="badge-dot"></span>Approved ✅</span>',
+  DENIED:   '<span class="badge badge-denied"><span class="badge-dot"></span>Denied ❌</span>',
+};
+
+async function loadPatrols() {
+  const wrap = document.getElementById('flp-patrols-wrap');
+  try {
+    const rows = await api('/api/flp/patrols?status=' + patrolFilter);
+    if (!rows.length) { wrap.innerHTML = `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">Nothing here.</div></div></div>`; return; }
+    wrap.innerHTML = rows.map(renderPatrol).join('');
+  } catch (err) {
+    wrap.innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${fesc(err.message)}</div>`;
+  }
+}
+
+function renderPatrol(p) {
+  const imgs = (p.images || []).map(u => `<a href="${fesc(u)}" target="_blank" rel="noopener"><img src="${fesc(u)}" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-dim);" loading="lazy" /></a>`).join('');
+  const rows = [
+    ['Submitted by', `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`],
+    ['Division', fesc(p.division || 'N/A')],
+    ['Shift started', fesc(p.shiftStart || '—')],
+    ['Shift ended', fesc(p.shiftEnd || '—')],
+    ['Total time', fesc(p.totalLabel || '—')],
+  ].map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;">${k}</span><span>${v}</span></div>`).join('');
+  return `<div class="panel glass fade-up" style="margin-bottom:16px;">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>${fesc(p.submitterDisplayName || p.submitterUsername || 'Patrol log')}</div>${PATROL_STATUS[p.status] || ''}</div>
+    <div class="profile-section">
+      ${rows}
+      ${imgs ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">${imgs}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">No images attached.</div>'}
+      ${p.status === 'PENDING' ? `<div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="btn btn-success btn-sm" onclick="reviewPatrol('${p.id}','approve')"><i class="ti ti-check"></i> Approve</button>
+        <button class="btn btn-danger btn-sm" onclick="reviewPatrol('${p.id}','deny')"><i class="ti ti-x"></i> Deny</button>
+      </div>` : `<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">${p.reviewedByName ? 'Reviewed by ' + fesc(p.reviewedByName) : ''}</div>`}
+    </div>
+  </div>`;
+}
+
+async function reviewPatrol(id, action) {
+  try {
+    const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
+    showToast(action === 'approve' ? `Approved${r.reacted ? ' — reacted ✅' : ''}` : `Denied${r.reacted ? ' — reacted ❌' : ''}`, 'success');
+    loadPatrols(); loadPatrolBadge();
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 async function loadFlpPendingBadge() {
