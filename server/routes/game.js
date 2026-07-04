@@ -63,6 +63,37 @@ async function resolveTargetTryout({ tryoutId, privateServerId }) {
   return prisma.tryout.findFirst({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' } });
 }
 
+// GET /api/game/health — public config visibility (booleans only, no secrets),
+// so you can confirm from a browser what's set up server-side. Optionally pass
+// ?robloxId=<id> WITH the secret (header/x-game-secret or ?secret=) to check
+// whether that Roblox account resolves to a signed-in portal user.
+router.get('/health', async (req, res) => {
+  let botReady = null;
+  try { botReady = require('../lib/bot').isReady(); } catch (e) { /* bot module absent */ }
+  const out = {
+    ok: true,
+    secretSet:          !!gameSecret(),
+    signingSet:         !!gameSigningSecret(),
+    roverConfigured:    !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID),
+    announceChannelSet: !!process.env.TRYOUT_ANNOUNCE_CHANNEL_ID,
+    publicBaseUrlSet:   !!process.env.PUBLIC_BASE_URL,
+    botReady,
+  };
+  // Secret-gated host check (so account lookups aren't public).
+  const provided = req.get('x-game-secret') || req.query.secret || '';
+  const authed = gameSecret() && safeEqual(provided, gameSecret());
+  if (req.query.robloxId && authed) {
+    try {
+      const { resolveHostUser } = require('../lib/tryoutLogs');
+      const u = await resolveHostUser({ hostRobloxId: String(req.query.robloxId) });
+      out.hostCheck = { robloxId: String(req.query.robloxId), resolved: !!u, siteUser: u ? (u.displayName || u.discordUsername || null) : null };
+    } catch (e) { out.hostCheck = { error: e.message }; }
+  } else if (req.query.robloxId) {
+    out.hostCheck = { note: 'pass the secret (?secret=… or x-game-secret header) to run the host check' };
+  }
+  res.json(out);
+});
+
 // POST /api/game/serverlock  { locked: bool, tryoutId?|privateServerId? }
 // Sets the live tryout's server-lock state and updates its Discord announcement.
 router.post('/serverlock', requireGameSecret, async (req, res) => {

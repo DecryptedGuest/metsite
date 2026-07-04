@@ -830,4 +830,5 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, cancelTryoutAnnouncement, dmTryoutStarted,
+  isReady: () => ready,
 };
