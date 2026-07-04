@@ -223,21 +223,40 @@ async function getRobloxUserInfo(robloxUserId) {
 const groupRoleCache = new Map(); // `${robloxUserId}:${groupId}` → { role, expires }
 const GROUP_ROLE_TTL = 30 * 60 * 1000; // 30 min — ranks rarely change minute-to-minute
 async function getUserGroupRole(robloxUserId, groupId) {
-  if (!groupId || !robloxUserId) return null;
+  const roles = await getUserGroupRoles(robloxUserId, groupId);
+  if (!roles || !roles.length) return null;
+  // Backwards-compatible single-role callers get the highest-rank role held.
+  return roles.reduce((a, b) => (Number(b.rank) > Number(a.rank) ? b : a));
+}
+
+// Get ALL of a user's roles in a SPECIFIC group. Roblox now lets a member hold
+// more than one role in a single group; the public v2 endpoint surfaces that as
+// multiple `{ group, role }` entries for the same group id, so we collect every
+// match (not just the first). Returns [{ id, name, rank }] — empty if not a
+// member / lookup failed. Cached for 30 min (ranks rarely change minute-to-minute).
+const groupRolesCache = new Map(); // `${robloxUserId}:${groupId}` → { roles, expires }
+async function getUserGroupRoles(robloxUserId, groupId) {
+  if (!groupId || !robloxUserId) return [];
   const key = `${robloxUserId}:${groupId}`;
-  const hit = groupRoleCache.get(key);
-  if (hit && Date.now() < hit.expires) return hit.role;
+  const hit = groupRolesCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.roles;
   try {
     const res = await fetch(`https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`);
-    if (!res.ok) return hit ? hit.role : null; // serve stale on transient error
+    if (!res.ok) return hit ? hit.roles : []; // serve stale on transient error
     const data = await res.json();
-    const g = (data.data || []).find(x => String(x.group.id) === String(groupId));
-    const role = g ? g.role : null;
-    groupRoleCache.set(key, { role, expires: Date.now() + GROUP_ROLE_TTL });
-    return role;
+    const roles = (data.data || [])
+      .filter(x => x && x.group && String(x.group.id) === String(groupId) && x.role)
+      .map(x => x.role);
+    groupRolesCache.set(key, { roles, expires: Date.now() + GROUP_ROLE_TTL });
+    // Keep the legacy single-role cache warm too, for getGroupMembership callers.
+    groupRoleCache.set(key, {
+      role: roles.length ? roles.reduce((a, b) => (Number(b.rank) > Number(a.rank) ? b : a)) : null,
+      expires: Date.now() + GROUP_ROLE_TTL,
+    });
+    return roles;
   } catch (err) {
-    console.error('Group role lookup error:', err.message);
-    return hit ? hit.role : null;
+    console.error('Group roles lookup error:', err.message);
+    return hit ? hit.roles : [];
   }
 }
 
@@ -572,6 +591,7 @@ module.exports = {
   getRobloxAvatarHeadshot,
   getGroupMembership,
   getUserGroupRole,
+  getUserGroupRoles,
   getOfficerProfile,
   getOfficerProfileByRobloxId,
   exileFromGroup,

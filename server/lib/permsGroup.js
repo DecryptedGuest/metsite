@@ -17,7 +17,7 @@
 // Both degrade gracefully: no group id / no Roblox link / Roblox unreachable →
 // empty perms; no env role ids or no captured Discord roles → empty flags.
 
-const { getUserGroupRole } = require('./roblox');
+const { getUserGroupRoles } = require('./roblox');
 
 // The perms group id. Public read-only Roblox group API is used, so only the id
 // is needed (no token). Override with PERMS_GROUP_ID if it ever changes.
@@ -148,17 +148,16 @@ function permsFromGroupRoles(input) {
 }
 
 // Resolve a member's perm chips live from the perms group by their Roblox id.
-// Best-effort: returns [] on no id / no group / Roblox error. Note the public
-// Roblox groups API returns a single role per group, so this yields the one
-// perm role the account holds there; the bot-written perms on the member
-// profile (if any) are merged on top by the caller for the full picture.
+// Best-effort: returns [] on no id / no group / Roblox error. Roblox now lets a
+// member hold multiple roles in one group, so every perm role they hold (rank
+// 2..99) is surfaced — the caller merges these with any bot-written perms.
 async function resolveUserPerms(robloxId) {
   if (!robloxId) return [];
   const gid = permsGroupId();
   if (!gid) return [];
-  let role = null;
-  try { role = await getUserGroupRole(robloxId, gid); } catch (e) { role = null; }
-  return permsFromGroupRoles(role);
+  let roles = [];
+  try { roles = await getUserGroupRoles(robloxId, gid); } catch (e) { roles = []; }
+  return permsFromGroupRoles(roles);
 }
 
 // ── Standing / disciplinary Discord roles ────────────────────────────

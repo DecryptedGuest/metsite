@@ -58,7 +58,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupFilterTabs();
   setupOfficerLookup();
   renderActionChecklist();
-  loadDashboard();
+  // Developer division lands on the Dev Panel; IA lands on the dashboard.
+  if (isDevContext() && currentUser && currentUser.role === 'DEVELOPER') navigateTo('admin');
+  else loadDashboard();
   startNavBadgePolling();   // keep the pending case/ticket badges current
   showClassifiedNotice();
   startSessionHeartbeat();
@@ -183,8 +185,11 @@ async function loadCurrentUser() {
       document.querySelectorAll('.hicomm-only, .supervisor-only').forEach(el => el.style.display = '');
     if (['HICOMM', 'DEVELOPER'].includes(currentUser.role))
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
-    if (currentUser.role === 'DEVELOPER')
-      document.querySelectorAll('.dev-only').forEach(el => el.style.display = '');
+
+    // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
+    // not mixed into the Internal Affairs section. The dev nav is therefore only
+    // revealed in that context — never on the IA dashboard, even for developers.
+    if (isDevContext() && currentUser.role === 'DEVELOPER') applyDevContext();
 
     // Register the service worker for elevated roles (no permission prompt yet)
     if (window.pushClient) window.pushClient.initForStaff(currentUser.role).catch(() => {});
@@ -221,6 +226,26 @@ async function maybeShowNotifyOptIn() {
     await ack();
   };
   openModal('modal-notify-optin');
+}
+
+// ── Developer division context ─────────────────────────────────────
+// The IA dashboard view is reused for the Developer division at /dev/dashboard.
+// In that context we show ONLY the developer tools and hide the IA nav, so the
+// two are cleanly separated (dev tools are no longer part of the IA section).
+function isDevContext() { return location.pathname.startsWith('/dev'); }
+
+function applyDevContext() {
+  // Reveal the developer nav + pages.
+  document.querySelectorAll('.dev-only').forEach(el => el.style.display = '');
+  // Hide every non-developer nav entry (Overview / Cases / Tickets / Tools /
+  // Review / Oversight) — the Developer division shows dev tools only.
+  document.querySelectorAll('.sidebar-nav .nav-item, .sidebar-nav .nav-section-label').forEach(el => {
+    if (!el.classList.contains('dev-only')) el.style.display = 'none';
+  });
+  // Rebrand the sidebar + tab for the Developer division.
+  const bn = document.querySelector('.brand-name'); if (bn) bn.textContent = 'MET · DEV';
+  const bs = document.querySelector('.brand-sub');  if (bs) bs.textContent = 'Developer Tools';
+  document.title = 'MET · Developer';
 }
 
 // ── Navigation ────────────────────────────────────────────────────

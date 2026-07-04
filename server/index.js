@@ -153,6 +153,8 @@ app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
 app.use('/api/exam',  requireAuth, examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
+// Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
+app.use('/api/game', require('./routes/game'));
 
 // Visibility check for hosted media. Returns { allowed, user }.
 async function checkMediaAccess(req, m) {
@@ -437,6 +439,8 @@ async function computeMyDivisions(user) {
   let mine;
   if (user.role === 'DEVELOPER') {
     mine = ALL.map(division => ({ division, tier: 'LEAD', rankName: 'Developer' }));
+    // Developers also get the Developer division (their own tools).
+    mine.push({ division: 'DEV', tier: 'LEAD', rankName: 'Developer' });
   } else {
     mine = (Array.isArray(user.divisions) ? user.divisions : []).slice();
     // IA access is governed by the site role, not the cache — surface it here
@@ -495,17 +499,33 @@ app.get('/api/me/divisions', requireAuth, async (req, res) => {
 app.get('/api/me/profile', requireAuth, async (req, res) => {
   const { mine } = await computeMyDivisions(req.user);
 
-  let metProfile = null, punishments = [];
+  let metProfile = null, botPunishments = [];
   try {
     metProfile = await dbPrisma.metMemberProfile.findUnique({ where: { discordId: req.user.discordId } });
   } catch (e) { metProfile = null; }
   try {
-    punishments = await dbPrisma.metPunishment.findMany({
+    botPunishments = await dbPrisma.metPunishment.findMany({
       where: { discordId: req.user.discordId },
       orderBy: { issuedAt: 'desc' },
       take: 100,
     });
-  } catch (e) { punishments = []; }
+  } catch (e) { botPunishments = []; }
+
+  // Disciplinary history = the member's own IA cases (reason, issuer, expiry,
+  // status) merged with any bot-written MetPunishment rows, newest first.
+  const { getCasePunishments } = require('./lib/punishments');
+  let casePunishments = [];
+  try {
+    casePunishments = await getCasePunishments({
+      discordId: req.user.discordId, robloxId: req.user.robloxId, robloxUsername: req.user.robloxUsername,
+    });
+  } catch (e) { casePunishments = []; }
+  const punishments = casePunishments
+    .concat(botPunishments.map(p => ({
+      id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
+      caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt, source: 'bot',
+    })))
+    .sort((a, b) => new Date(b.issuedAt) - new Date(a.issuedAt));
 
   // Permissions come from the member's role in the perms group (rank 2..99),
   // merged with any perms the bot wrote onto the profile. Standing flags come
@@ -609,6 +629,16 @@ mountDivisionPages('cid',   'CID');
 mountDivisionPages('sco19', 'SCO19');
 mountDivisionPages('flp',   'FLP');
 mountDivisionPages('hpc',   'HPC');
+
+// ── Developer division — the developer tools, moved out of the IA section into
+// their own division. Developers only. Reuses the IA dashboard view, which
+// switches to "developer mode" (dev tools only) when served from /dev. ──
+app.get('/dev',        recordVisit, (req, res) => res.redirect('/dev/dashboard'));
+app.get('/dev/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/dev/dashboard', recordVisit, requireAuth, (req, res) => {
+  if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
+  return sendPage(res, path.join(views, 'dashboard.html'));
+});
 
 // ── 404 / Error ──────────────────────────────────────────────────
 app.use((req, res) => {

@@ -10,13 +10,21 @@ const prisma = require('./db');
 
 const TRYOUT_PING_ROLE = () => process.env.TRYOUT_PING_ROLE_ID || '1432426322059329567';
 
-// The Discord announcement text, in the exact MET format. `status` is one of
-// 'SLOCKED' | 'UNSLOCKED' (shift-lock state).
+// Is the tryout's game server LOCKED (Adonis :serverlock on / :slock)? The lock
+// state is reported live by the Hendon game; we default to LOCKED. Accepts the
+// legacy SLOCKED/UNSLOCKED values as well as the current LOCKED/UNLOCKED ones.
+function isServerLocked(tryout) {
+  const s = String((tryout && tryout.lockState) || '').toUpperCase();
+  return !(s === 'UNLOCKED' || s === 'UNSLOCKED');
+}
+
+// The Discord announcement text, in the exact MET format. STATUS reflects the
+// live server-lock state (:serverlock on/off) of the Hendon tryout server.
 function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : tryout.hostName);
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
   const link   = tryout.privateServerLink || 'TBA';
-  const status = tryout.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED';
+  const status = isServerLocked(tryout) ? '🔒 SERVER LOCKED' : '🔓 SERVER UNLOCKED';
   return [
     ':HPC: College Entrance :HPC:',
     'Metropolitan Police Tryout',
@@ -104,4 +112,4 @@ function startTryoutWorker() {
   setInterval(processDueTryouts, 30 * 1000);
 }
 
-module.exports = { startTryoutWorker, processDueTryouts, fireTryout, formatAnnouncement, getServerLink, TRYOUT_PING_ROLE };
+module.exports = { startTryoutWorker, processDueTryouts, fireTryout, formatAnnouncement, isServerLocked, getServerLink, TRYOUT_PING_ROLE };

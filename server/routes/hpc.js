@@ -174,7 +174,7 @@ router.post('/tryouts', async (req, res) => {
         hostDiscordId: req.user.discordId,
         hostName: req.user.displayName || req.user.discordUsername,
         scheduledAt: when,
-        lockState: lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED',
+        lockState: ['UNLOCKED', 'UNSLOCKED'].includes(String(lockState).toUpperCase()) ? 'UNLOCKED' : 'LOCKED',
         notes: notes ? String(notes).slice(0, 500) : null,
       },
     });

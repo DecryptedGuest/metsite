@@ -117,14 +117,15 @@ async function loadProfile() {
   const pun = document.getElementById('p-punishments');
   if (data.punishments && data.punishments.length) {
     pun.innerHTML = data.punishments.map(p => `<tr>
-      <td>${chip(p.type, punishmentColor(p.type))}</td>
+      <td>${chip(p.type, punishmentColor(p.type))}${p.caseRef ? ` <span style="color:var(--text-muted);font-size:10px;">${escHtml(p.caseRef)}</span>` : ''}</td>
       <td>${escHtml(p.reason || '—')}</td>
       <td>${escHtml(p.issuedBy || '—')}</td>
       <td>${p.active ? '<span class="badge badge-denied"><span class="badge-dot"></span>Active</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Expired</span>'}</td>
+      <td>${p.expiresAt ? formatDate(p.expiresAt) : (p.active ? '<span style="color:var(--text-muted);">Permanent</span>' : '—')}</td>
       <td>${formatDate(p.issuedAt)}</td>
     </tr>`).join('');
   } else {
-    pun.innerHTML = `<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No punishments on record. 🎉</div></td></tr>`;
+    pun.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No punishments on record. 🎉</div></td></tr>`;
   }
 }
 
@@ -171,7 +172,7 @@ async function loadTryouts() {
       <span class="badge badge-approved"><span class="badge-dot"></span>Live now</span>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;">Hosted by ${escHtml(t.hostName)}${t.coHostName ? ' · Co-host ' + escHtml(t.coHostName) : ''}</div>
-        <div style="font-size:11px;color:var(--text-muted);">${t.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED'}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${['UNLOCKED', 'UNSLOCKED'].includes(String(t.lockState).toUpperCase()) ? '🔓 Server unlocked' : '🔒 Server locked'}</div>
       </div>
       ${t.joinLink ? `<a href="${escHtml(t.joinLink)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm"><i class="ti ti-brand-roblox"></i> Join</a>` : '<span style="font-size:11px;color:var(--text-muted);">Link pending</span>'}
     </div>`).join('');

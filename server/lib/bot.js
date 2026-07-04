@@ -562,7 +562,7 @@ async function sendTryoutHostDM(tryout) {
       .setDescription('Your scheduled Metropolitan Police tryout has started. Pick a co-host, then post the announcement when you\'re ready.')
       .addFields(
         { name: 'Private server link', value: tryout.privateServerLink || '⚠️ Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
-        { name: 'Shift-lock', value: tryout.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED', inline: true },
+        { name: 'Server lock', value: require('./tryouts').isServerLocked(tryout) ? '🔒 Locked' : '🔓 Unlocked', inline: true },
       );
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
@@ -573,6 +573,26 @@ async function sendTryoutHostDM(tryout) {
   } catch (e) {
     console.error('[Tryout] sendTryoutHostDM failed:', e.message);
     return null;
+  }
+}
+
+// Re-render the posted tryout announcement in place (e.g. after the game's
+// server-lock state changes). No-ops safely if the announcement was never
+// posted, the channel/message is gone, or the bot isn't ready.
+async function editTryoutAnnouncement(tryout) {
+  if (!ready) return false;
+  if (!tryout || !tryout.announcementMsgId) return false;
+  const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
+  if (!chId) return false;
+  try {
+    const { formatAnnouncement } = require('./tryouts');
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.messages.fetch(tryout.announcementMsgId);
+    await msg.edit({ content: formatAnnouncement(tryout), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] editTryoutAnnouncement failed:', e.message);
+    return false;
   }
 }
 
@@ -752,5 +772,5 @@ module.exports = {
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
-  sendTryoutHostDM,
+  sendTryoutHostDM, editTryoutAnnouncement,
 };

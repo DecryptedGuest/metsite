@@ -545,7 +545,7 @@ model Tryout {
   coHostName        String?
   scheduledAt       DateTime
   status            String    @default("SCHEDULED") // SCHEDULED | LIVE | COMPLETED | CANCELLED
-  lockState         String    @default("SLOCKED")   // SLOCKED | UNSLOCKED (shift-lock)
+  lockState         String    @default("LOCKED")    // LOCKED | UNLOCKED (game :serverlock state; legacy: SLOCKED/UNSLOCKED)
   privateServerLink String?
   privateServerId   String?
   serverCreatedAt   DateTime?

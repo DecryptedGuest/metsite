@@ -205,7 +205,7 @@ async function loadTryouts() {
 
 function openScheduleTryout() {
   document.getElementById('tryout-when').value = '';
-  document.getElementById('tryout-lock').value = 'SLOCKED';
+  document.getElementById('tryout-lock').value = 'LOCKED';
   document.getElementById('tryout-notes').value = '';
   openModal('modal-tryout');
 }

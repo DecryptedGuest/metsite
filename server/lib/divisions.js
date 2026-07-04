@@ -197,13 +197,20 @@ async function resolveGroupDivisions(robloxId) {
 }
 
 // Client-safe metadata only — never leak group ids / discovery regexes.
+// The Developer "division" — not a real MET division (never in ALL / the public
+// switcher), but developers get it in their `mine` list so it shows on their
+// profile + division switcher and links to the developer tools at /dev/dashboard.
+const DEV_META = { name: 'DEV', slug: 'dev', fullName: 'Developer Tools', color: '#f5c518' };
+
 function meta(division) {
+  if (division === 'DEV') return { ...DEV_META };
   const m = META[division];
   return m ? { name: m.name, slug: m.slug, fullName: m.fullName, color: m.color || null } : null;
 }
 
 // The MET role-scheme colour for a division (or null if unknown).
 function divisionColor(division) {
+  if (division === 'DEV') return DEV_META.color;
   return (META[division] && META[division].color) || DIVISION_COLORS_EXTRA[division] || null;
 }
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
