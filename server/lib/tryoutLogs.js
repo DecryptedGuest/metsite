@@ -120,7 +120,16 @@ async function createFromGamePayload(payload = {}) {
   const host = payload.host || {};
   const hostUser = await resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId });
   if (!hostUser) {
-    return { ok: false, error: 'Host is not a known site user — they must sign in to the portal at least once.' };
+    const roverConfigured = !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID);
+    const site = process.env.PUBLIC_BASE_URL || 'the MET portal';
+    const who  = `Roblox user ${host.robloxId || '?'}${host.username ? ` (${host.username})` : ''}`;
+    return {
+      ok: false,
+      error: roverConfigured
+        ? `No portal account is linked to ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
+        : `Cannot resolve ${who}: RoVer isn't configured on the server (set ROVER_API_KEY and DISCORD_GUILD_ID).`,
+      roverConfigured,
+    };
   }
 
   // Auto-fill identities from Roblox/RoVer so the game can send ids only.

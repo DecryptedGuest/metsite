@@ -154,6 +154,21 @@ async function resolveGameHost(host) {
   return resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId });
 }
 
+// A diagnostic 422 for an unresolvable host — says exactly why so the panel /
+// logs make the fix obvious (which Roblox id, whether RoVer is even configured).
+function hostNotFound(res, host) {
+  const roverConfigured = !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID);
+  const site = process.env.PUBLIC_BASE_URL || 'the MET portal';
+  const who  = `Roblox user ${(host && host.robloxId) || '?'}${host && host.username ? ` (${host.username})` : ''}`;
+  return res.status(422).json({
+    error: roverConfigured
+      ? `No portal account is linked to ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
+      : `Cannot resolve ${who}: RoVer isn't configured on the server (set ROVER_API_KEY and DISCORD_GUILD_ID). Until then, the host can only be matched if they've signed in on that Roblox account.`,
+    robloxId: host && host.robloxId != null ? String(host.robloxId) : null,
+    roverConfigured,
+  });
+}
+
 // Absolute review URL for host DMs (null if no base configured → link omitted).
 function reviewUrl() {
   const base = process.env.PUBLIC_BASE_URL;
@@ -200,7 +215,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
   try {
     const body = req.body || {};
     const hostUser = await resolveGameHost(body.host);
-    if (!hostUser) return res.status(422).json({ error: 'Host is not a known site user — they must sign in to the portal once first.' });
+    if (!hostUser) return hostNotFound(res, body.host);
 
     const existing = await ongoingTryout();
     if (existing) return res.status(409).json({ error: 'A tryout is already ongoing.', tryoutId: existing.id });
@@ -231,7 +246,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
     const body = req.body || {};
     if (!body.scheduledId) return res.status(400).json({ error: 'scheduledId is required.' });
     const hostUser = await resolveGameHost(body.host);
-    if (!hostUser) return res.status(422).json({ error: 'Host is not a known site user — they must sign in to the portal once first.' });
+    if (!hostUser) return hostNotFound(res, body.host);
 
     const t = await prisma.tryout.findUnique({ where: { id: String(body.scheduledId) } });
     if (!t) return res.status(404).json({ error: 'Scheduled tryout not found.' });
