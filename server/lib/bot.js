@@ -576,6 +576,67 @@ async function sendTryoutHostDM(tryout) {
   }
 }
 
+// Post the tryout announcement to the configured channel and record the message
+// id on the tryout. Returns the message id, or null if it couldn't post.
+async function postTryoutAnnouncement(tryout) {
+  if (!ready) return null;
+  const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
+  if (!chId) { console.warn('[Tryout] TRYOUT_ANNOUNCE_CHANNEL_ID not set — cannot announce.'); return null; }
+  try {
+    const { formatAnnouncement } = require('./tryouts');
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
+    await require('./db').tryout.update({ where: { id: tryout.id }, data: { announcementSent: true, announcementMsgId: msg.id } }).catch(() => {});
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] postTryoutAnnouncement failed:', e.message);
+    return null;
+  }
+}
+
+// DM the host that their tryout was created + announced, with the review link.
+// Used by the in-game "create"/"start scheduled" flows (announcement already
+// posted by us, so this is informational, not the button-driven host DM).
+async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
+  if (!ready || !tryout || !tryout.hostDiscordId) return false;
+  try {
+    const user  = await client.users.fetch(tryout.hostDiscordId);
+    const embed = new EmbedBuilder()
+      .setColor(0x2ed896)
+      .setTitle('🎓 Your MET Tryout is live')
+      .setDescription('Your tryout has started and been announced. Run it in-game from the HPC Instructor Panel, then conclude it to log the results.')
+      .addFields(
+        { name: 'Server lock', value: require('./tryouts').isServerLocked(tryout) ? '🔒 Locked' : '🔓 Unlocked', inline: true },
+        ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
+        ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
+      );
+    await user.send({ embeds: [embed] });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] dmTryoutStarted failed:', e.message);
+    return false;
+  }
+}
+
+// Edit the posted announcement into a "cancelled" notice. Best-effort.
+async function cancelTryoutAnnouncement(tryout, reason) {
+  if (!ready || !tryout || !tryout.announcementMsgId) return false;
+  const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
+  if (!chId) return false;
+  try {
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.messages.fetch(tryout.announcementMsgId);
+    await msg.edit({
+      content: `:HPC: College Entrance :HPC:\n~~Metropolitan Police Tryout~~\n\n❌ **This tryout has been cancelled.**${reason ? `\nReason: ${String(reason).slice(0, 300)}` : ''}`,
+      allowedMentions: { parse: [] },
+    });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] cancelTryoutAnnouncement failed:', e.message);
+    return false;
+  }
+}
+
 // Re-render the posted tryout announcement in place (e.g. after the game's
 // server-lock state changes). No-ops safely if the announcement was never
 // posted, the channel/message is gone, or the bot isn't ready.
@@ -626,15 +687,11 @@ async function handleTryoutComponent(interaction) {
     const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
     if (!chId) return interaction.reply({ content: '⚠️ No announcement channel configured — set `TRYOUT_ANNOUNCE_CHANNEL_ID`.', flags: 64 });
 
-    const { formatAnnouncement } = require('./tryouts');
-    try {
-      const ch  = await client.channels.fetch(chId);
-      const msg = await ch.send({ content: formatAnnouncement(t), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
-      await prisma.tryout.update({ where: { id: t.id }, data: { announcementSent: true, announcementMsgId: msg.id } }).catch(() => {});
-      return interaction.reply({ content: '📢 Announcement posted!', flags: 64 });
-    } catch (e) {
-      return interaction.reply({ content: 'Failed to post the announcement: ' + e.message, flags: 64 });
-    }
+    const msgId = await postTryoutAnnouncement(t);
+    return interaction.reply({
+      content: msgId ? '📢 Announcement posted!' : 'Failed to post the announcement.',
+      flags: 64,
+    });
   }
 }
 
@@ -772,5 +829,5 @@ module.exports = {
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
-  sendTryoutHostDM, editTryoutAnnouncement,
+  sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, cancelTryoutAnnouncement, dmTryoutStarted,
 };

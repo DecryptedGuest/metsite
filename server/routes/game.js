@@ -145,4 +145,134 @@ router.post('/tryout/live', requireGameSecret, async (req, res) => {
   }
 });
 
+// ── Tryout lifecycle driven from the in-game panel ────────────────────
+// Resolve a { robloxId, username, discordId? } host payload to a site user
+// (must have signed in — same rule as /tryout/conclude's 422).
+async function resolveGameHost(host) {
+  if (!host) return null;
+  const { resolveHostUser } = require('../lib/tryoutLogs');
+  return resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId });
+}
+
+// Absolute review URL for host DMs (null if no base configured → link omitted).
+function reviewUrl() {
+  const base = process.env.PUBLIC_BASE_URL;
+  return base ? `${base.replace(/\/$/, '')}/hpc/dashboard` : null;
+}
+
+// The single currently-ongoing (LIVE) tryout, if any.
+function ongoingTryout() {
+  return prisma.tryout.findFirst({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' } });
+}
+
+// Take a tryout LIVE-facing: post its announcement + DM the host. Returns
+// { tryoutId, dmed, announced }. Best-effort on the Discord side (never throws).
+async function announceAndDm(tryout, { edit = false } = {}) {
+  const bot = require('../lib/bot');
+  let announced;
+  if (edit && tryout.announcementMsgId) announced = await bot.editTryoutAnnouncement(tryout).catch(() => false);
+  else announced = await bot.postTryoutAnnouncement(tryout).then(id => !!id).catch(() => false);
+  const fresh = (await prisma.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null)) || tryout;
+  const dmed  = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl() }).catch(() => false);
+  return { tryoutId: tryout.id, dmed: !!dmed, announced: !!announced };
+}
+
+// GET /api/game/tryout/scheduled — upcoming scheduled tryouts for the "Begin
+// Scheduled Tryout" list. Returns { items: [{ id, name, scheduledAt, host }] }.
+// NOTE: Tryout has no name column, so `name` is derived as "<host>'s tryout".
+router.get('/tryout/scheduled', requireGameSecret, async (req, res) => {
+  try {
+    const rows = await prisma.tryout.findMany({
+      where: { status: 'SCHEDULED', scheduledAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } },
+      orderBy: { scheduledAt: 'asc' }, take: 25,
+    });
+    res.json({ items: rows.map(t => ({
+      id: t.id, name: `${t.hostName}'s tryout`, scheduledAt: t.scheduledAt, host: t.hostName,
+    })) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list scheduled tryouts.' });
+  }
+});
+
+// POST /api/game/tryout/create — start an unscheduled tryout instantly.
+// body: { host:{robloxId,username,discordId?}, coHost?, privateServerId?, startedAt? }
+router.post('/tryout/create', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const hostUser = await resolveGameHost(body.host);
+    if (!hostUser) return res.status(422).json({ error: 'Host is not a known site user — they must sign in to the portal once first.' });
+
+    const existing = await ongoingTryout();
+    if (existing) return res.status(409).json({ error: 'A tryout is already ongoing.', tryoutId: existing.id });
+
+    const coHost = body.coHost || {};
+    const t = await prisma.tryout.create({ data: {
+      hostId:            hostUser.id,
+      hostDiscordId:     hostUser.discordId,
+      hostName:          hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host',
+      coHostName:        coHost.username || coHost.name || null,
+      scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
+      status:            'LIVE',
+      privateServerId:   body.privateServerId ? String(body.privateServerId) : null,
+      privateServerLink: body.privateServerLink || null,
+      serverCreatedAt:   new Date(),
+    } });
+    res.status(201).json(await announceAndDm(t));
+  } catch (err) {
+    console.error('[Game] tryout create failed:', err.message);
+    res.status(500).json({ error: 'Failed to create tryout.' });
+  }
+});
+
+// POST /api/game/tryout/start-scheduled — start an existing scheduled tryout now.
+// body: { scheduledId, host, coHost?, privateServerId? }
+router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.scheduledId) return res.status(400).json({ error: 'scheduledId is required.' });
+    const hostUser = await resolveGameHost(body.host);
+    if (!hostUser) return res.status(422).json({ error: 'Host is not a known site user — they must sign in to the portal once first.' });
+
+    const t = await prisma.tryout.findUnique({ where: { id: String(body.scheduledId) } });
+    if (!t) return res.status(404).json({ error: 'Scheduled tryout not found.' });
+    if (['CANCELLED', 'COMPLETED'].includes(t.status)) return res.status(400).json({ error: 'That tryout is already finished.' });
+
+    const coHost = body.coHost || {};
+    const updated = await prisma.tryout.update({ where: { id: t.id }, data: {
+      status:          'LIVE',
+      hostId:          hostUser.id,
+      hostDiscordId:   hostUser.discordId,
+      hostName:        hostUser.displayName || hostUser.discordUsername || t.hostName,
+      coHostName:      coHost.username || coHost.name || t.coHostName,
+      privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
+      serverCreatedAt: t.serverCreatedAt || new Date(),
+    } });
+    res.json(await announceAndDm(updated, { edit: true }));
+  } catch (err) {
+    console.error('[Game] start-scheduled failed:', err.message);
+    res.status(500).json({ error: 'Failed to start scheduled tryout.' });
+  }
+});
+
+// POST /api/game/tryout/cancel — cancel the ongoing tryout + close its post.
+// body: { tryoutId?, privateServerId?, host?, reason? }
+router.post('/tryout/cancel', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    let t = null;
+    if (body.tryoutId)       t = await prisma.tryout.findUnique({ where: { id: String(body.tryoutId) } });
+    if (!t && body.privateServerId) t = await prisma.tryout.findFirst({ where: { status: 'LIVE', privateServerId: String(body.privateServerId) } });
+    if (!t) t = await ongoingTryout();
+    if (!t) return res.status(404).json({ error: 'No ongoing tryout to cancel.' });
+    if (['CANCELLED', 'COMPLETED'].includes(t.status)) return res.json({ ok: true, alreadyClosed: true });
+
+    const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+    await require('../lib/bot').cancelTryoutAnnouncement(updated, body.reason).catch(() => {});
+    res.json({ ok: true, tryoutId: updated.id });
+  } catch (err) {
+    console.error('[Game] cancel failed:', err.message);
+    res.status(500).json({ error: 'Failed to cancel tryout.' });
+  }
+});
+
 module.exports = router;
