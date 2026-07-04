@@ -17,11 +17,17 @@
 // Both degrade gracefully: no group id / no Roblox link / Roblox unreachable →
 // empty perms; no env role ids or no captured Discord roles → empty flags.
 
+const fetch = require('node-fetch');
 const { getUserGroupRoles } = require('./roblox');
 
-// The perms group id. Public read-only Roblox group API is used, so only the id
-// is needed (no token). Override with PERMS_GROUP_ID if it ever changes.
+// The perms group id. Override with PERMS_GROUP_ID if it ever changes.
 function permsGroupId() { return process.env.PERMS_GROUP_ID || '381582724'; }
+
+// Open Cloud API key (group read scope). REQUIRED for multiple-roles-per-member
+// (live 2026-03) — the legacy public endpoint returns only one role per group,
+// so without this a member's extra perm roles won't show. Create one at
+// create.roblox.com → Open Cloud → API Keys, scoped to this group's memberships.
+function openCloudKey() { return process.env.PERMS_GROUP_API_KEY || process.env.ROBLOX_OPEN_CLOUD_KEY || null; }
 
 // Ranks at/above this are MET ranks (MET ADMINISTRATION = 100, MET HICOMM = 110,
 // MET Overseer = 250, PERMS GROUP HOLDER = 255) — never shown as a perm.
@@ -147,16 +153,52 @@ function permsFromGroupRoles(input) {
   return out;
 }
 
+// Fetch ALL role IDs a user holds in the perms group via the Open Cloud v2
+// memberships endpoint (supports multiple-roles-per-member). Returns catalog
+// role objects [{ id, name, rank, color }]; [] on no key / error / no match.
+// The membership carries `roles` (array of role paths) and `role` (primary).
+async function fetchOpenCloudPermRoles(robloxId) {
+  const key = openCloudKey();
+  const gid = permsGroupId();
+  if (!key || !gid || !robloxId) return [];
+  try {
+    const filter = encodeURIComponent(`user == 'users/${robloxId}'`);
+    const url = `https://apis.roblox.com/cloud/v2/groups/${gid}/memberships?maxPageSize=10&filter=${filter}`;
+    const res = await fetch(url, { headers: { 'x-api-key': key } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const memberships = data.groupMemberships || data.memberships || [];
+    const rolePaths = new Set();
+    for (const m of memberships) {
+      if (Array.isArray(m.roles)) m.roles.forEach(p => p && rolePaths.add(p));
+      if (m.role) rolePaths.add(m.role);
+    }
+    // Map "groups/{gid}/roles/{roleId}" → the catalog entry (has name/rank/colour).
+    return [...rolePaths]
+      .map(p => PERMS_BY_ID.get(String(p).split('/').pop()))
+      .filter(Boolean);
+  } catch (e) {
+    console.error('[permsGroup] Open Cloud membership fetch failed:', e.message);
+    return [];
+  }
+}
+
 // Resolve a member's perm chips live from the perms group by their Roblox id.
-// Best-effort: returns [] on no id / no group / Roblox error. Roblox now lets a
-// member hold multiple roles in one group, so every perm role they hold (rank
-// 2..99) is surfaced — the caller merges these with any bot-written perms.
+// Prefers Open Cloud (all roles — needed for multiple-roles-per-member); falls
+// back to the legacy single-role endpoint when no API key is configured.
+// Best-effort: returns [] on no id / no group / errors.
 async function resolveUserPerms(robloxId) {
   if (!robloxId) return [];
   const gid = permsGroupId();
   if (!gid) return [];
   let roles = [];
-  try { roles = await getUserGroupRoles(robloxId, gid); } catch (e) { roles = []; }
+  if (openCloudKey()) {
+    roles = await fetchOpenCloudPermRoles(robloxId);
+  }
+  if (!roles.length) {
+    // No key, or Open Cloud returned nothing — legacy public endpoint (one role).
+    try { roles = await getUserGroupRoles(robloxId, gid); } catch (e) { roles = []; }
+  }
   return permsFromGroupRoles(roles);
 }
 
@@ -189,8 +231,8 @@ function flagsFromRoleIds(roleIds) {
 }
 
 module.exports = {
-  permsGroupId, PERM_RANK_MAX, PALETTE, paletteHex,
+  permsGroupId, openCloudKey, PERM_RANK_MAX, PALETTE, paletteHex,
   PERMS_ROLES, isDividerName, isPermRole,
-  permsFromGroupRoles, resolveUserPerms,
+  permsFromGroupRoles, resolveUserPerms, fetchOpenCloudPermRoles,
   FLAG_ROLES, flagsFromRoleIds,
 };

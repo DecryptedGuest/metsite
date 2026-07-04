@@ -572,6 +572,37 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   });
 });
 
+// ── Perms diagnostic — see exactly why perms do/don't show. Open while logged
+// in: /api/me/perms-debug. Shows your stored Roblox id, the RAW roles Roblox
+// returns for your account in the perms group, and the perm chips derived from
+// them (after the rank 2..99 / non-divider filter). ─────
+app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
+  const { getUserGroupRoles } = require('./lib/roblox');
+  const { permsGroupId, openCloudKey, permsFromGroupRoles, isPermRole, fetchOpenCloudPermRoles } = require('./lib/permsGroup');
+  const gid = permsGroupId();
+  const rid = req.user.robloxId;
+  let legacy = [], openCloud = [], error = null;
+  try { legacy = rid ? await getUserGroupRoles(rid, gid) : []; } catch (e) { error = e.message; }
+  try { openCloud = rid && openCloudKey() ? await fetchOpenCloudPermRoles(rid) : []; } catch (e) { error = (error ? error + '; ' : '') + e.message; }
+  const chips = permsFromGroupRoles(openCloud.length ? openCloud : legacy);
+  res.json({
+    robloxId:         rid || null,
+    robloxUsername:   req.user.robloxUsername || null,
+    permsGroupId:     gid,
+    openCloudKeySet:  !!openCloudKey(),
+    source:           openCloud.length ? 'open-cloud (all roles)' : 'legacy (single role)',
+    openCloudRoles:   openCloud.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
+    legacyRoles:      legacy.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
+    derivedPerms:     chips.map(p => p.label),
+    error,
+    hint: !rid ? 'No Roblox id stored — log out and back in to link it.'
+      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set — using the legacy endpoint which returns ONLY ONE role. Set an Open Cloud API key to see all your perm roles.'
+      : (!openCloud.length ? 'Open Cloud returned no roles — check the API key has this group\'s membership read scope and the id is in the group.'
+      : (!chips.length ? 'You hold roles but all were filtered (rank <2 / >99 / divider / Member).'
+      : 'Perms resolved OK — they should show on your profile.'))),
+  });
+});
+
 // ── Current user's quota points (from the IA Database sheet) ─────
 app.get('/api/me/points', requireAuth, async (req, res) => {
   try {
