@@ -2,6 +2,7 @@
 let flpCtx      = { canGroupAdmin: false, flpRank: 0, isDev: false };
 let flpRoles    = [];   // group role list [{ id, name, rank }]
 let flpMembers  = [];   // cached member list
+let flpGal      = {};   // patrol-log id -> [image urls] for the in-site lightbox
 
 function fesc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -70,7 +71,8 @@ async function loadPatrols() {
 function renderPatrol(p) {
   const isEvent = p.type === 'EVENT';
   const fn = isEvent ? 'reviewEvent' : 'reviewPatrol';
-  const imgs = (p.images || []).map(u => `<a href="${fesc(u)}" target="_blank" rel="noopener"><img src="${fesc(u)}" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-dim);" loading="lazy" /></a>`).join('');
+  flpGal[p.id] = p.images || [];   // register this log's images for the lightbox
+  const imgs = (p.images || []).map((u, i) => `<img src="${fesc(u)}" onclick="flpLightbox('${p.id}', ${i})" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-dim);cursor:zoom-in;" loading="lazy" />`).join('');
   const rows = [
     ['Submitted by', `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`],
     ['Division', fesc(p.division || 'N/A')],
@@ -91,6 +93,49 @@ function renderPatrol(p) {
       </div>` : `<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">${p.reviewedByName ? 'Reviewed by ' + fesc(p.reviewedByName) : ''}</div>${pointNote}`}
     </div>
   </div>`;
+}
+
+// ── In-site image lightbox (patrol/event log galleries) ───────────────
+let flpLbImgs = [], flpLbIdx = 0;
+function flpLbBuild() {
+  if (document.getElementById('flp-lightbox')) return;
+  const el = document.createElement('div');
+  el.id = 'flp-lightbox';
+  el.style.cssText = 'display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.88);align-items:center;justify-content:center;';
+  const arrow = 'position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:26px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+  el.innerHTML =
+    `<button id="flp-lb-close" title="Close (Esc)" style="position:absolute;top:18px;right:22px;width:40px;height:40px;border-radius:50%;border:none;background:rgba(255,255,255,.12);color:#fff;font-size:20px;cursor:pointer;"><i class="ti ti-x"></i></button>
+     <button id="flp-lb-prev" title="Previous (←)" style="${arrow}left:20px;"><i class="ti ti-chevron-left"></i></button>
+     <img id="flp-lb-img" alt="" style="max-width:88vw;max-height:86vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5);" />
+     <button id="flp-lb-next" title="Next (→)" style="${arrow}right:20px;"><i class="ti ti-chevron-right"></i></button>
+     <div id="flp-lb-count" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;background:rgba(0,0,0,.5);padding:4px 12px;border-radius:20px;"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) flpLbClose(); });
+  document.getElementById('flp-lb-close').onclick = flpLbClose;
+  document.getElementById('flp-lb-prev').onclick  = e => { e.stopPropagation(); flpLbStep(-1); };
+  document.getElementById('flp-lb-next').onclick  = e => { e.stopPropagation(); flpLbStep(1); };
+  document.addEventListener('keydown', e => {
+    if (document.getElementById('flp-lightbox').style.display !== 'flex') return;
+    if (e.key === 'Escape') flpLbClose();
+    else if (e.key === 'ArrowLeft') flpLbStep(-1);
+    else if (e.key === 'ArrowRight') flpLbStep(1);
+  });
+}
+function flpLbRender() {
+  document.getElementById('flp-lb-img').src = flpLbImgs[flpLbIdx];
+  document.getElementById('flp-lb-count').textContent = `${flpLbIdx + 1} / ${flpLbImgs.length}`;
+  const multi = flpLbImgs.length > 1;
+  document.getElementById('flp-lb-prev').style.display = multi ? 'flex' : 'none';
+  document.getElementById('flp-lb-next').style.display = multi ? 'flex' : 'none';
+}
+function flpLbStep(d) { if (!flpLbImgs.length) return; flpLbIdx = (flpLbIdx + d + flpLbImgs.length) % flpLbImgs.length; flpLbRender(); }
+function flpLbClose() { const el = document.getElementById('flp-lightbox'); if (el) el.style.display = 'none'; }
+function flpLightbox(logId, idx) {
+  flpLbImgs = flpGal[logId] || [];
+  if (!flpLbImgs.length) return;
+  flpLbIdx = Math.max(0, Math.min(idx || 0, flpLbImgs.length - 1));
+  flpLbBuild(); flpLbRender();
+  document.getElementById('flp-lightbox').style.display = 'flex';
 }
 
 async function reviewPatrol(id, action) {

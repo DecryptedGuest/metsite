@@ -9,46 +9,106 @@
 //   Ping: <@&...>
 const prisma = require('./db');
 
-// Parse a clock time ("10:33am", "1:34pm", "13:55", "9:42am") → 24h fields.
-function parseClock(str) {
-  const m = String(str || '').trim().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = m[3] ? m[3].toLowerCase() : null;
-  if (ap === 'pm' && h < 12) h += 12;
-  if (ap === 'am' && h === 12) h = 0;
-  if (h > 23 || min > 59) return null;
-  return { minutes: h * 60 + min, label: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` };
+const PATROL_TZ = () => process.env.PATROL_TIMEZONE || process.env.QUOTA_TIMEZONE || 'Europe/London';
+
+// Format a unix-seconds epoch as a short "05 Jul, 14:21" label in the patrol TZ.
+function fmtEpoch(sec) {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+      hour12: false, timeZone: PATROL_TZ(),
+    }).format(new Date(sec * 1000));
+  } catch (e) { return null; }
 }
 
-// Pull the "Shift Started/Ended" time out of the content (24h label).
+// Parse a time value out of arbitrary text. Handles:
+//   - Discord timestamps  <t:1783244460:f>  → exact epoch
+//   - clock times with tolerant separators   4;28  10.33am  13:55  9：42
+// Returns { epoch, minutes, label } (epoch OR minutes is set) or null.
+function parseTimeValue(str) {
+  const s = String(str || '');
+  const dt = s.match(/<t:(\d{6,}):?[a-zA-Z]?>/);
+  if (dt) {
+    const epoch = parseInt(dt[1], 10);
+    return { epoch, minutes: null, label: fmtEpoch(epoch) || `<t:${epoch}>` };
+  }
+  // Accept :  ;  .  and the full-width colon ：  as separators; optional am/pm.
+  const re = /(\d{1,2})\s*[:;.：]\s*(\d{2})\s*(am|pm)?/gi;
+  let m, last = null;
+  while ((m = re.exec(s)) !== null) last = m;
+  if (last) {
+    let h = parseInt(last[1], 10);
+    const min = parseInt(last[2], 10);
+    const ap = last[3] ? last[3].toLowerCase() : null;
+    if (ap === 'pm' && h < 12) h += 12;
+    if (ap === 'am' && h === 12) h = 0;
+    if (h <= 23 && min <= 59) {
+      return { epoch: null, minutes: h * 60 + min, label: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` };
+    }
+  }
+  return null;
+}
+
+// Back-compat: a clock time → { minutes, label } (or null). Delegates to parseTimeValue.
+function parseClock(str) { return parseTimeValue(str); }
+
+// Pull the "Shift Started/Ended" time out of the content. Tolerant of wording,
+// misspellings and separators (only the LINE has to name the shift; the value
+// can be a clock time or a Discord timestamp).
 function shiftTime(content, kind /* 'start' | 'end' */) {
-  const re = new RegExp(`shift\\s+${kind}(?:ed)?\\s*:?\\s*(\\d{1,2}:\\d{2}\\s*(?:am|pm)?)`, 'i');
-  const m = String(content || '').match(re);
-  return m ? parseClock(m[1]) : null;
+  const label = kind === 'start'
+    ? /(shift\s*)?(start(?:ed|ing)?|beg[au]n|clock(?:ed)?\s*in|time\s*on|on\s*duty)/i
+    : /(shift\s*)?(end(?:ed|ing)?|finish(?:ed)?|clock(?:ed)?\s*out|time\s*off|off\s*duty)/i;
+  for (const line of String(content || '').split(/\r?\n/)) {
+    if (!label.test(line)) continue;
+    const t = parseTimeValue(line);
+    if (t) return t;
+  }
+  return null;
 }
 
-// Division value after "Division:", or null if absent/blank.
+// Division value after "Division:" (tolerant of "Div", separators, trailing pings).
 function parseDivision(content) {
-  const m = String(content || '').match(/^\s*division\s*:?\s*(.*)$/im);
+  const m = String(content || '').match(/^\s*div\w*\s*[:;\-]?\s*(.*)$/im);
   if (!m) return null;
-  const v = m[1].replace(/[.\s]+$/, '').trim();
+  const v = m[1].replace(/<[^>]+>/g, '').replace(/[.\s]+$/, '').trim();
   return v || null;
 }
 
+// The log's own stated "Total Time" (fallback only). Handles "2 hours",
+// "3hrs 1min", "1h 30m", or a bare "2:30" clock-style duration → minutes.
+function parseStatedTotal(content) {
+  const m = String(content || '').match(/total\s*time\s*[:;\-]?\s*(.+)/i);
+  if (!m) return null;
+  const v = m[1];
+  let mins = 0, found = false;
+  const h  = v.match(/(\d+(?:\.\d+)?)\s*(?:h\b|hr|hrs|hour|hours)/i);
+  if (h)  { mins += Math.round(parseFloat(h[1]) * 60); found = true; }
+  const mm = v.match(/(\d+)\s*(?:m\b|min|mins|minute|minutes)/i);
+  if (mm) { mins += parseInt(mm[1], 10); found = true; }
+  if (!found) { const c = v.match(/(\d{1,2})\s*[:;.]\s*(\d{2})/); if (c) { mins = parseInt(c[1], 10) * 60 + parseInt(c[2], 10); found = true; } }
+  return found ? mins : null;
+}
+
 // Parse the message content → { division, shiftStart, shiftEnd, totalMinutes }.
-// Total time is COMPUTED from start→end (crossing midnight adds 24h), never the
-// log's own stated total.
+// Total is COMPUTED from start→end (exact when both are Discord timestamps;
+// clock times cross midnight by adding 24h). Falls back to the log's stated
+// "Total Time:" when start/end can't both be resolved, so the site shows a real
+// value instead of dashes.
 function parsePatrolLog(content) {
   const start = shiftTime(content, 'start');
   const end   = shiftTime(content, 'end');
   let totalMinutes = null;
   if (start && end) {
-    let diff = end.minutes - start.minutes;
-    if (diff < 0) diff += 24 * 60;
-    totalMinutes = diff;
+    if (start.epoch != null && end.epoch != null) {
+      totalMinutes = Math.max(0, Math.round((end.epoch - start.epoch) / 60));
+    } else if (start.minutes != null && end.minutes != null) {
+      let diff = end.minutes - start.minutes;
+      if (diff < 0) diff += 24 * 60;
+      totalMinutes = diff;
+    }
   }
+  if (totalMinutes == null) totalMinutes = parseStatedTotal(content);
   return {
     division:     parseDivision(content),
     shiftStart:   start ? start.label : null,
