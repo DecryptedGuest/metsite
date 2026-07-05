@@ -1,0 +1,63 @@
+// server/routes/dev.js — developer-only maintenance tools.
+// Mounted at /api/dev behind requireAuth. Every route is gated to DEVELOPER.
+// Lets developers delete on-site log records (tryouts, tryout logs, patrol/event
+// logs) regardless of division — a catch-all cleanup for anything log-related
+// that lingers on the site.
+const express = require('express');
+const prisma  = require('../lib/db');
+
+const router = express.Router();
+
+// Developer gate for the whole router.
+router.use((req, res, next) => {
+  if (!req.user || req.user.role !== 'DEVELOPER') return res.status(403).json({ error: 'Developers only.' });
+  next();
+});
+
+// DELETE /api/dev/tryouts/:id — remove a tryout (any division). Best-effort
+// removal of its Discord announcement + host DM, and its queued commands.
+router.delete('/tryouts/:id', async (req, res) => {
+  try {
+    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Tryout not found' });
+    // Tidy the Discord side (never blocks the delete).
+    try {
+      const bot = require('../lib/bot');
+      await bot.deleteTryoutAnnouncement(t).catch(() => {});
+    } catch (e) { /* bot not ready */ }
+    // TryoutCommand rows reference the tryout by id (no FK cascade) — clear them.
+    await prisma.tryoutCommand.deleteMany({ where: { tryoutId: t.id } }).catch(() => {});
+    await prisma.tryout.delete({ where: { id: t.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    console.error('[Dev] delete tryout failed:', e.message);
+    res.status(500).json({ error: 'Failed to delete tryout' });
+  }
+});
+
+// DELETE /api/dev/tryout-logs/:id — remove a tryout log (any division).
+router.delete('/tryout-logs/:id', async (req, res) => {
+  try {
+    await prisma.tryoutLog.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    console.error('[Dev] delete tryout log failed:', e.message);
+    res.status(500).json({ error: 'Failed to delete tryout log' });
+  }
+});
+
+// DELETE /api/dev/patrol-logs/:id — remove a patrol/event log.
+router.delete('/patrol-logs/:id', async (req, res) => {
+  try {
+    await prisma.patrolLog.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    console.error('[Dev] delete patrol log failed:', e.message);
+    res.status(500).json({ error: 'Failed to delete patrol log' });
+  }
+});
+
+module.exports = router;

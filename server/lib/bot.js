@@ -561,10 +561,11 @@ async function sendTryoutHostDM(tryout) {
   if (!ready) { console.warn('[Tryout] bot not ready — cannot DM host'); return null; }
   try {
     const user  = await client.users.fetch(tryout.hostDiscordId);
+    const cfg   = require('./tryouts').divisionConfig(tryout.division);
     const embed = new EmbedBuilder()
       .setColor(tryout.privateServerLink ? 0x2ed896 : 0xf5b730)
-      .setTitle('Your MET Tryout is live')
-      .setDescription('Your scheduled Metropolitan Police tryout has started. Pick a co-host, then post the announcement when you\'re ready.')
+      .setTitle(cfg.dmTitle)
+      .setDescription(`Your scheduled ${cfg.eventType} has started. Pick a co-host, then post the announcement when you\'re ready.`)
       .addFields(
         { name: 'Private server link', value: tryout.privateServerLink || 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
         { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
@@ -655,18 +656,19 @@ async function postTryoutAnnouncement(tryout) {
 // cancelled or concluded it flips to a terminal ❌ Cancelled / ✅ Concluded.
 function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
   const status = String(tryout.status || '').toUpperCase();
+  const cfg    = require('./tryouts').divisionConfig(tryout.division);
 
   if (status === 'CANCELLED') {
     return new EmbedBuilder()
       .setColor(0xe74c3c)
-      .setTitle('MET Tryout — Cancelled')
+      .setTitle(`${cfg.eventType} — Cancelled`)
       .setDescription('This tryout has been cancelled and its announcement removed from the channel.')
       .addFields({ name: 'Status', value: 'Cancelled', inline: true });
   }
   if (status === 'COMPLETED') {
     return new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle('MET Tryout — Concluded')
+      .setTitle(`${cfg.eventType} — Concluded`)
       .setDescription('This tryout has concluded and its announcement removed from the channel. Review and post the results on the site.')
       .addFields(
         { name: 'Status', value: 'Concluded', inline: true },
@@ -675,9 +677,9 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
   }
 
   return new EmbedBuilder()
-    .setColor(0x2ed896)
-    .setTitle('Your MET Tryout is live')
-    .setDescription('Your tryout has started and been announced. Run it in-game from the HPC Instructor Panel, then conclude it to log the results.')
+    .setColor(cfg.dmColor || 0x2ed896)
+    .setTitle(cfg.dmTitle)
+    .setDescription(`Your tryout has started and been announced. Run it in-game from the ${cfg.panelName}, then conclude it to log the results.`)
     .addFields(
       { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
@@ -704,7 +706,7 @@ async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
 async function editTryoutHostDM(tryout) {
   if (!ready || !tryout || !tryout.hostDmMessageId || !tryout.hostDiscordId) return false;
   try {
-    const base = process.env.PUBLIC_BASE_URL ? `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/hpc/dashboard` : null;
+    const base = require('./tryouts').reviewUrl(tryout);
     const user = await client.users.fetch(tryout.hostDiscordId);
     const dm   = await user.createDM();
     const msg  = await dm.messages.fetch(tryout.hostDmMessageId);

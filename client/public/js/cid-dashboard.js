@@ -7,6 +7,7 @@
   let CTX = { canApprove: false, isDev: false };
   let liveTimer = null;
   let logFilter = 'PENDING';
+  let cidTryoutsById = {};   // id -> tryout summary, for the clickable detail view
 
   // ── Nav / page switching ──────────────────────────────────────────
   function showPage(name) {
@@ -53,14 +54,18 @@
     tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       const rows = await api('/api/cid/tryouts');
+      cidTryoutsById = {}; rows.forEach(t => { cidTryoutsById[t.id] = t; });
       if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts yet. Schedule one to get started.</div></td></tr>'; return; }
       tb.innerHTML = rows.map(t => {
-        const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" style="color:var(--blue);">Link</a>` : '<span style="color:var(--text-muted);">TBA</span>';
+        const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" style="color:var(--blue);">Link</a>` : '<span style="color:var(--text-muted);">TBA</span>';
         const canEnd = (t.isMine || CTX.isDev) && !['COMPLETED', 'CANCELLED'].includes(t.status);
-        const actions = canEnd
-          ? `<div style="display:flex;gap:6px;justify-content:flex-end;">${t.status === 'LIVE' ? `<button class="btn btn-ghost btn-sm" onclick="cidCompleteTryout('${t.id}')"><i class="ti ti-check"></i> End</button>` : ''}<button class="btn btn-ghost btn-sm" onclick="cidCancelTryout('${t.id}')"><i class="ti ti-x"></i> Cancel</button></div>`
-          : '';
-        return `<tr><td>${fmtWhen(t.scheduledAt)}</td><td>${esc(t.hostName || '—')}</td><td>${esc(t.coHostName || 'N/A')}</td><td>${tryoutStatusBadge(t)}</td><td>${link}</td><td>${actions}</td></tr>`;
+        const stop = 'onclick="event.stopPropagation();';
+        const btns = [];
+        if (canEnd && t.status === 'LIVE') btns.push(`<button class="btn btn-ghost btn-sm" ${stop}cidCompleteTryout('${t.id}')"><i class="ti ti-check"></i> End</button>`);
+        if (canEnd) btns.push(`<button class="btn btn-ghost btn-sm" ${stop}cidCancelTryout('${t.id}')"><i class="ti ti-x"></i> Cancel</button>`);
+        if (CTX.isDev) btns.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" ${stop}cidDeleteTryout('${t.id}')"><i class="ti ti-trash"></i></button>`);
+        const actions = btns.length ? `<div style="display:flex;gap:6px;justify-content:flex-end;">${btns.join('')}</div>` : '';
+        return `<tr style="cursor:pointer;" onclick="cidOpenTryout('${t.id}')"><td>${fmtWhen(t.scheduledAt)}</td><td>${esc(t.hostName || '—')}</td><td>${esc(t.coHostName || 'N/A')}</td><td>${tryoutStatusBadge(t)}</td><td>${link}</td><td>${actions}</td></tr>`;
       }).join('');
     } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
   };
@@ -88,6 +93,37 @@
   window.cidCompleteTryout = async function (id) {
     try { await api('/api/cid/tryouts/' + id + '/complete', { method: 'POST' }); showToast('Tryout ended', 'success'); cidLoadTryouts(); }
     catch (e) { showToast(e.message, 'error'); }
+  };
+  window.cidDeleteTryout = async function (id) {
+    if (!confirm('Permanently delete this tryout? This cannot be undone.')) return;
+    try { await api('/api/dev/tryouts/' + id, { method: 'DELETE' }); showToast('Tryout deleted', 'success'); closeModal('modal-cid-log'); cidLoadTryouts(); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+
+  // Clickable tryout detail — reuses the log modal shell for a consistent look.
+  window.cidOpenTryout = function (id) {
+    const t = cidTryoutsById[id];
+    if (!t) return;
+    openModal('modal-cid-log');
+    document.getElementById('cid-tlog-title').textContent = 'Tryout — ' + (t.hostName || '');
+    const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(t.privateServerLink)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
+    const row = (label, val) => `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${label}</div><div style="font-size:13px;">${val}</div></div>`;
+    document.getElementById('cid-tlog-body').innerHTML =
+      row('Status', tryoutStatusBadge(t)) +
+      row('Host', esc(t.hostName || '—')) +
+      row('Co-Host', esc(t.coHostName || 'N/A')) +
+      row('Scheduled', fmtWhen(t.scheduledAt)) +
+      row('Server lock', esc(t.lockState || '—')) +
+      row('Game link', link) +
+      row('Announcement', t.announcementSent ? 'Posted' : 'Not posted') +
+      (t.notes ? row('Notes', esc(t.notes)) : '') +
+      row('Created', fmtWhen(t.createdAt));
+    const canEnd = (t.isMine || CTX.isDev) && !['COMPLETED', 'CANCELLED'].includes(t.status);
+    const btns = [`<button class="btn btn-ghost" onclick="closeModal('modal-cid-log')">Close</button>`];
+    if (canEnd && t.status === 'LIVE') btns.push(`<button class="btn btn-ghost" onclick="cidCompleteTryout('${t.id}');closeModal('modal-cid-log');"><i class="ti ti-check"></i> End</button>`);
+    if (canEnd) btns.push(`<button class="btn btn-danger" onclick="cidCancelTryout('${t.id}');closeModal('modal-cid-log');"><i class="ti ti-x"></i> Cancel</button>`);
+    if (CTX.isDev) btns.push(`<button class="btn btn-ghost" style="color:var(--red);" onclick="cidDeleteTryout('${t.id}')"><i class="ti ti-trash"></i> Delete</button>`);
+    document.getElementById('cid-tlog-footer').innerHTML = btns.join('');
   };
 
   // ── Live tab ───────────────────────────────────────────────────────
@@ -186,9 +222,15 @@
 
   function logRow(l, review) {
     const first = review ? esc(l.hostName || '—') : fmtWhen(l.concludedAt || l.createdAt);
-    return `<tr><td>${first}</td><td>${l.totalAttendees || 0}</td><td>${l.passedCount || 0}</td><td>${l.failedCount || 0}</td><td>${l.strikeCount || 0}</td><td>${logStatusBadge(l.status)}</td>
-      <td style="text-align:right;"><button class="btn btn-ghost btn-sm" onclick="cidOpenLog('${l.id}',${review})"><i class="ti ti-eye"></i> View</button></td></tr>`;
+    const del = CTX.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="event.stopPropagation();cidDeleteLog('${l.id}',${review})"><i class="ti ti-trash"></i></button>` : '';
+    return `<tr style="cursor:pointer;" onclick="cidOpenLog('${l.id}',${review})"><td>${first}</td><td>${l.totalAttendees || 0}</td><td>${l.passedCount || 0}</td><td>${l.failedCount || 0}</td><td>${l.strikeCount || 0}</td><td>${logStatusBadge(l.status)}</td>
+      <td style="text-align:right;"><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();cidOpenLog('${l.id}',${review})"><i class="ti ti-eye"></i> View</button>${del}</div></td></tr>`;
   }
+  window.cidDeleteLog = async function (id, review) {
+    if (!confirm('Permanently delete this tryout log? This cannot be undone.')) return;
+    try { await api('/api/dev/tryout-logs/' + id, { method: 'DELETE' }); showToast('Log deleted', 'success'); closeModal('modal-cid-log'); review ? cidLoadReviewLogs() : cidLoadMyLogs(); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
 
   // ── Log detail modal ───────────────────────────────────────────────
   window.cidOpenLog = async function (id, review) {
@@ -217,14 +259,15 @@
       const reviewNote = l.reviewNote ? `<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);"><strong>Reviewer:</strong> ${esc(l.reviewNote)} ${l.reviewedByName ? '— ' + esc(l.reviewedByName) : ''}</div>` : '';
       body.innerHTML = counts + `<div class="table-wrap"><table class="data-table"><thead><tr><th>Attendee</th><th>Result</th><th>Strikes</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` + notesField + reviewNote;
 
+      const devDel = CTX.isDev ? `<button class="btn btn-ghost" style="color:var(--red);" onclick="cidDeleteLog('${l.id}',${review})"><i class="ti ti-trash"></i> Delete</button>` : '';
       if (!review && l.status === 'DRAFT') {
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-cid-log')">Close</button><button class="btn btn-primary" onclick="cidSubmitLog('${l.id}')"><i class="ti ti-send"></i> Post for review</button>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-cid-log')">Close</button>${devDel}<button class="btn btn-primary" onclick="cidSubmitLog('${l.id}')"><i class="ti ti-send"></i> Post for review</button>`;
       } else if (review && l.status === 'PENDING' && CTX.canApprove) {
         footer.innerHTML = `<input type="text" class="form-control" id="cid-log-review-note" placeholder="Optional note / reason" style="flex:1;margin-right:8px;" />
-          <button class="btn btn-danger" onclick="cidReviewLog('${l.id}','deny')"><i class="ti ti-x"></i> Deny</button>
+          ${devDel}<button class="btn btn-danger" onclick="cidReviewLog('${l.id}','deny')"><i class="ti ti-x"></i> Deny</button>
           <button class="btn btn-primary" onclick="cidReviewLog('${l.id}','approve')"><i class="ti ti-check"></i> Approve</button>`;
       } else {
-        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-cid-log')">Close</button>`;
+        footer.innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-cid-log')">Close</button>${devDel}`;
       }
     } catch (e) { body.innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   };

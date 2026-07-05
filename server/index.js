@@ -165,6 +165,9 @@ app.use('/api/tryouts', requireAuth, tryoutRoutes);
 // (anonymous openers hold a per-ticket token); staff handling is gated per type
 // inside the router. maybeAuth sets req.user when signed in, else null.
 app.use('/api/support', maybeAuth, require('./routes/support'));
+// Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
+// inside the router.
+app.use('/api/dev', requireAuth, require('./routes/dev'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
 app.use('/api/game', require('./routes/game'));
 

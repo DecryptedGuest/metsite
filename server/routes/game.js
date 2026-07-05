@@ -223,10 +223,10 @@ function hostNotFound(res, host) {
   });
 }
 
-// Absolute review URL for host DMs (null if no base configured → link omitted).
-function reviewUrl() {
-  const base = process.env.PUBLIC_BASE_URL;
-  return base ? `${base.replace(/\/$/, '')}/hpc/dashboard` : null;
+// Absolute review URL for host DMs (division-aware; null if no base configured
+// → link omitted).
+function reviewUrl(tryout) {
+  return require('../lib/tryouts').reviewUrl(tryout);
 }
 
 // The single currently-ongoing (LIVE) tryout in a division, if any.
@@ -260,7 +260,7 @@ async function announceAndDm(tryout, { edit = false } = {}) {
   else announced = await bot.postTryoutAnnouncement(tryout).then(id => !!id).catch(() => false);
   const fresh = (await prisma.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null)) || tryout;
   // DM the host and record the DM message id so it can be edited on lock change.
-  const dmId = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl() }).catch(() => null);
+  const dmId = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl(fresh) }).catch(() => null);
   if (dmId) await prisma.tryout.update({ where: { id: tryout.id }, data: { hostDmMessageId: dmId } }).catch(() => {});
   return { tryoutId: tryout.id, dmed: !!dmId, announced: !!announced };
 }

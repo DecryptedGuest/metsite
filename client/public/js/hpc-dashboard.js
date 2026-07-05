@@ -237,20 +237,27 @@ const TRYOUT_STATUS = {
   SCHEDULED: ['badge-pending', 'Scheduled'], LIVE: ['badge-approved', '<i class="ti ti-broadcast"></i> Live'],
   COMPLETED: ['badge', 'Completed'], CANCELLED: ['badge-denied', 'Cancelled'],
 };
+let hpcTryoutsById = {};   // id -> tryout, for the clickable detail view
 async function loadTryouts() {
   const tbody = document.getElementById('hpc-tryouts-tbody');
   try {
     const rows = await api('/api/hpc/tryouts');
+    hpcTryoutsById = {}; rows.forEach(t => { hpcTryoutsById[t.id] = t; });
     tbody.innerHTML = rows.length ? rows.map(t => {
       const s = TRYOUT_STATUS[t.status] || ['badge', t.status];
       const canManage = t.isMine && ['SCHEDULED', 'LIVE'].includes(t.status);
-      return `<tr>
+      const stop = 'onclick="event.stopPropagation();';
+      const btns = [];
+      if (canManage && t.status === 'LIVE') btns.push(`<button class="btn btn-ghost btn-sm" ${stop}completeTryout('${t.id}')">End</button>`);
+      if (canManage) btns.push(`<button class="btn btn-danger btn-sm" ${stop}cancelTryout('${t.id}')">Cancel</button>`);
+      if (hpcCtx.isDev) btns.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" ${stop}hpcDeleteTryout('${t.id}')"><i class="ti ti-trash"></i></button>`);
+      return `<tr class="row-clickable" style="cursor:pointer;" onclick="openHpcTryout('${t.id}')">
         <td>${formatDateTime(t.scheduledAt)}</td>
         <td>${esc(t.hostName)}</td>
         <td>${esc(t.coHostName || '—')}</td>
         <td><span class="badge ${s[0]}"><span class="badge-dot"></span>${s[1]}</span></td>
-        <td>${t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open</a>` : '—'}</td>
-        <td>${canManage ? `${t.status === 'LIVE' ? `<button class="btn btn-ghost btn-sm" onclick="completeTryout('${t.id}')">End</button>` : ''}<button class="btn btn-danger btn-sm" onclick="cancelTryout('${t.id}')">Cancel</button>` : ''}</td>
+        <td>${t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" class="btn btn-ghost btn-sm">Open</a>` : '—'}</td>
+        <td>${btns.length ? `<div style="display:flex;gap:6px;justify-content:flex-end;">${btns.join('')}</div>` : ''}</td>
       </tr>`;
     }).join('')
       : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts scheduled. Click “Schedule Tryout”.</div></td></tr>`;
@@ -258,6 +265,43 @@ async function loadTryouts() {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
 }
+
+// Clickable tryout detail — reuses the tryout-log modal shell.
+window.openHpcTryout = function (id) {
+  const t = hpcTryoutsById[id];
+  if (!t) return;
+  openModal('modal-tryout-log');
+  document.getElementById('tlog-title').textContent = 'Tryout · ' + (t.hostName || '');
+  const s = TRYOUT_STATUS[t.status] || ['badge', t.status];
+  const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(t.privateServerLink)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
+  const r = (label, val) => `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${label}</div><div style="font-size:13px;">${val}</div></div>`;
+  document.getElementById('tlog-body').innerHTML =
+    r('Status', `<span class="badge ${s[0]}"><span class="badge-dot"></span>${s[1]}</span>`) +
+    r('Host', esc(t.hostName || '—')) +
+    r('Co-Host', esc(t.coHostName || '—')) +
+    r('Scheduled', formatDateTime(t.scheduledAt)) +
+    r('Server lock', esc(t.lockState || '—')) +
+    r('Game link', link) +
+    r('Announcement', t.announcementSent ? 'Posted' : 'Not posted') +
+    (t.notes ? r('Notes', esc(t.notes)) : '') +
+    r('Created', formatDateTime(t.createdAt));
+  const canManage = t.isMine && ['SCHEDULED', 'LIVE'].includes(t.status);
+  const btns = [`<button class="btn btn-ghost" onclick="closeModal('modal-tryout-log')">Close</button>`];
+  if (canManage && t.status === 'LIVE') btns.push(`<button class="btn btn-ghost" onclick="completeTryout('${t.id}');closeModal('modal-tryout-log');">End</button>`);
+  if (canManage) btns.push(`<button class="btn btn-danger" onclick="cancelTryout('${t.id}');closeModal('modal-tryout-log');">Cancel</button>`);
+  if (hpcCtx.isDev) btns.push(`<button class="btn btn-ghost" style="color:var(--red);" onclick="hpcDeleteTryout('${t.id}')"><i class="ti ti-trash"></i> Delete</button>`);
+  document.getElementById('tlog-footer').innerHTML = btns.join('');
+};
+window.hpcDeleteTryout = async function (id) {
+  if (!confirm('Permanently delete this tryout? This cannot be undone.')) return;
+  try { await api('/api/dev/tryouts/' + id, { method: 'DELETE' }); showToast('Tryout deleted', 'success'); closeModal('modal-tryout-log'); loadTryouts(); }
+  catch (e) { showToast(e.message, 'error'); }
+};
+window.hpcDeleteTryoutLog = async function (id) {
+  if (!confirm('Permanently delete this tryout log? This cannot be undone.')) return;
+  try { await api('/api/dev/tryout-logs/' + id, { method: 'DELETE' }); showToast('Log deleted', 'success'); closeModal('modal-tryout-log'); loadMyTryoutLogs(); loadReviewLogs(); }
+  catch (e) { showToast(e.message, 'error'); }
+};
 
 function openScheduleTryout() {
   document.getElementById('tryout-when').value = '';
@@ -318,11 +362,11 @@ async function loadMyTryoutLogs() {
   const tbody = document.getElementById('hpc-mylogs-tbody');
   try {
     const logs = await api('/api/hpc/tryout-logs/mine');
-    tbody.innerHTML = logs.length ? logs.map(l => `<tr>
+    tbody.innerHTML = logs.length ? logs.map(l => `<tr class="row-clickable" style="cursor:pointer;" onclick="openTryoutLog('${l.id}')">
       <td>${l.concludedAt ? formatDateTime(l.concludedAt) : formatDateTime(l.createdAt)}</td>
       <td>${l.totalAttendees}</td><td>${l.passedCount}</td><td>${l.failedCount}</td><td>${l.strikeCount}</td>
       <td>${TLOG_STATUS[l.status] || esc(l.status)}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="openTryoutLog('${l.id}')">${l.status === 'DRAFT' ? '<i class="ti ti-edit"></i> Review &amp; Post' : '<i class="ti ti-eye"></i> View'}</button></td>
+      <td><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openTryoutLog('${l.id}')">${l.status === 'DRAFT' ? '<i class="ti ti-edit"></i> Review &amp; Post' : '<i class="ti ti-eye"></i> View'}</button>${hpcCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="event.stopPropagation();hpcDeleteTryoutLog('${l.id}')"><i class="ti ti-trash"></i></button>` : ''}</div></td>
     </tr>`).join('') : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tryout logs yet. Conclude a tryout in-game and it'll appear here to post.</div></td></tr>`;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
@@ -333,11 +377,11 @@ async function loadReviewLogs() {
   const tbody = document.getElementById('hpc-reviewlogs-tbody');
   try {
     const logs = await api('/api/hpc/tryout-logs/pending?status=' + reviewFilter);
-    tbody.innerHTML = logs.length ? logs.map(l => `<tr>
+    tbody.innerHTML = logs.length ? logs.map(l => `<tr class="row-clickable" style="cursor:pointer;" onclick="openTryoutLog('${l.id}')">
       <td>${esc(l.hostName)}</td>
       <td>${l.totalAttendees}</td><td>${l.passedCount}</td><td>${l.failedCount}</td><td>${l.strikeCount}</td>
       <td>${TLOG_STATUS[l.status] || esc(l.status)}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="openTryoutLog('${l.id}')"><i class="ti ti-clipboard-check"></i> Open</button></td>
+      <td><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openTryoutLog('${l.id}')"><i class="ti ti-clipboard-check"></i> Open</button>${hpcCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="event.stopPropagation();hpcDeleteTryoutLog('${l.id}')"><i class="ti ti-trash"></i></button>` : ''}</div></td>
     </tr>`).join('') : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">Nothing here.</div></td></tr>`;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
@@ -425,6 +469,7 @@ function renderTryoutLog(l) {
        <input type="text" class="form-control" id="tlog-review-note" placeholder="Reason / note" /></div>` : ''}`;
 
   let footer = `<button class="btn btn-ghost" onclick="closeModal('modal-tryout-log')">Close</button>`;
+  if (hpcCtx.isDev) footer += `<button class="btn btn-ghost" style="color:var(--red);" onclick="hpcDeleteTryoutLog('${l.id}')"><i class="ti ti-trash"></i> Delete</button>`;
   if (editable)   footer += `<button class="btn btn-primary" onclick="submitTryoutLog('${l.id}')"><i class="ti ti-send"></i> Post for Approval</button>`;
   if (canApprove) footer += `<button class="btn btn-danger" onclick="reviewTryoutLog('${l.id}','deny')"><i class="ti ti-x"></i> Deny</button>
                              <button class="btn btn-success" onclick="reviewTryoutLog('${l.id}','approve')"><i class="ti ti-check"></i> Approve (+1)</button>`;

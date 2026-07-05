@@ -82,6 +82,7 @@ function renderPatrol(p) {
   ].map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;">${k}</span><span>${v}</span></div>`).join('');
   const pointNote = (isEvent && p.status === 'APPROVED')
     ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '<i class="ti ti-check"></i> +1 point added to the MET database' : '<i class="ti ti-alert-triangle"></i> point not added — member not found on a rank tab / non-numeric cell'}</div>` : '';
+  const devDel = flpCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="flpDeleteLog('${p.id}','${isEvent ? 'EVENT' : 'PATROL'}')"><i class="ti ti-trash"></i> Delete</button>` : '';
   return `<div class="panel glass fade-up" style="margin-bottom:16px;">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot ${isEvent ? 'amber' : 'blue'}"></span>${fesc(p.submitterDisplayName || p.submitterUsername || 'Log')}</div>${PATROL_STATUS[p.status] || ''}</div>
     <div class="profile-section">
@@ -90,7 +91,8 @@ function renderPatrol(p) {
       ${p.status === 'PENDING' ? `<div style="display:flex;gap:8px;margin-top:14px;">
         <button class="btn btn-success btn-sm" onclick="${fn}('${p.id}','approve')"><i class="ti ti-check"></i> Approve</button>
         <button class="btn btn-danger btn-sm" onclick="${fn}('${p.id}','deny')"><i class="ti ti-x"></i> Deny</button>
-      </div>` : `<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">${p.reviewedByName ? 'Reviewed by ' + fesc(p.reviewedByName) : ''}</div>${pointNote}`}
+        ${devDel}
+      </div>` : `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;"><div style="font-size:11px;color:var(--text-muted);">${p.reviewedByName ? 'Reviewed by ' + fesc(p.reviewedByName) : ''}</div>${devDel}</div>${pointNote}`}
     </div>
   </div>`;
 }
@@ -143,6 +145,16 @@ async function reviewPatrol(id, action) {
     const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
     showToast(action === 'approve' ? `Approved${r.reacted ? ' — reacted' : ''}` : `Denied${r.reacted ? ' — reacted' : ''}`, 'success');
     loadPatrols(); loadPatrolBadge();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+// Developer-only: permanently delete a patrol/event log from the site.
+async function flpDeleteLog(id, type) {
+  if (!confirm('Permanently delete this log? This cannot be undone.')) return;
+  try {
+    await api('/api/dev/patrol-logs/' + id, { method: 'DELETE' });
+    showToast('Log deleted', 'success');
+    if (type === 'EVENT') { loadEvents(); loadEventBadge(); } else { loadPatrols(); loadPatrolBadge(); }
   } catch (err) { showToast(err.message, 'error'); }
 }
 

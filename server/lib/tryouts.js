@@ -34,6 +34,11 @@ function divisionConfig(division) {
       pingRoleIds:            namedPings.length ? namedPings : splitIds(process.env.CID_TRYOUT_PING_ROLE_IDS),
       emoji:                  process.env.CID_EMOJI || ':CID:',
       eventType:              'CID Tryout',
+      // Host-DM presentation (CID-specific, so a CID host never sees HPC wording).
+      dashboardSlug:          'cid',
+      panelName:              'CID Tryout Panel',
+      dmTitle:                'Your CID Tryout is live',
+      dmColor:                0xe8842a,
       recruitmentChannelId:   process.env.CID_RECRUITMENT_CHANNEL_ID || null,
       recruitmentPingRoleIds: splitIds(process.env.CID_RECRUITMENT_PING_ROLE_IDS),
       recruitmentInvite:      process.env.CID_RECRUITMENT_INVITE || 'https://discord.gg/PEV6H9suC6',
@@ -47,8 +52,19 @@ function divisionConfig(division) {
     pingRoleIds: [TRYOUT_PING_ROLE()],
     emoji:       HPC_EMOJI(),
     eventType:   'MET Tryout',
+    dashboardSlug: 'hpc',
+    panelName:     'HPC Instructor Panel',
+    dmTitle:       'Your MET Tryout is live',
+    dmColor:       0x2ed896,
     logWebhook:  process.env.HPC_TRYOUT_LOG_WEBHOOK || null,
   };
+}
+
+// The site dashboard URL a host reviews/posts their tryout on (by division).
+function reviewUrl(tryout) {
+  const base = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/$/, '') : null;
+  if (!base) return null;
+  return `${base}/${divisionConfig(tryout && tryout.division).dashboardSlug}/dashboard`;
 }
 
 // The Discord channel a tryout's announcement lives in (by division).
@@ -258,5 +274,5 @@ module.exports = {
   startTryoutWorker, processDueTryouts, fireTryout,
   formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
   isServerLocked, getServerLink, TRYOUT_PING_ROLE,
-  divisionConfig, announceChannelId,
+  divisionConfig, announceChannelId, reviewUrl,
 };
