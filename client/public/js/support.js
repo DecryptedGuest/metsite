@@ -1,0 +1,331 @@
+/* MET Support (/support) — METAdministration intake + Discord-style ticket chat.
+   Rule-based intake (fixed questions per type), realtime via SSE, attachments
+   via the ticket-scoped upload route. */
+(function () {
+  const esc = window.escapeHtml || (s => String(s == null ? '' : s));
+  const fmtTime = d => { try { return window.formatDateTime ? window.formatDateTime(d) : new Date(d).toLocaleString(); } catch (e) { return ''; } };
+
+  let CFG = { types: [], isStaff: false, handleableTypes: [], me: { id: null, name: '' } };
+  const typeByKey = {};
+  let queueStatus = 'active';
+
+  // Per-open-ticket state
+  let cur = null;        // current ticket object
+  let mode = 'chat';     // 'intake' | 'chat'
+  let intakeQs = [];     // remaining intake questions
+  let intakeAnswers = []; // collected [{id,prompt,answer,attachments}]
+  let pending = [];      // pending attachments for the composer
+  let es = null;         // EventSource
+
+  const $ = id => document.getElementById(id);
+
+  // ── Init ────────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      CFG = await api('/api/support/config');
+      CFG.types.forEach(t => { typeByKey[t.key] = t; });
+    } catch (e) { /* not logged in → api() already redirected */ return; }
+    $('sup-user-name').textContent = CFG.me.name || 'You';
+    $('sup-user-fallback').textContent = (CFG.me.name || '?').slice(0, 1).toUpperCase();
+    renderPanels();
+    loadMine();
+    if (CFG.isStaff && CFG.handleableTypes.length) {
+      $('sup-staff-wrap').classList.remove('sup-hidden');
+      wireQueueTabs();
+      loadQueue();
+    }
+    wireComposer();
+    // Deep link: /support?ticket=ID
+    const id = new URLSearchParams(location.search).get('ticket');
+    if (id) openTicket(id);
+  }
+
+  // ── Landing: panels ─────────────────────────────────────────────────
+  function renderPanels() {
+    $('sup-panels').innerHTML = CFG.types.map(t => `
+      <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}">
+        <h3><i class="ti ${esc(t.icon)}"></i> ${esc(t.label)}</h3>
+        <p>${esc(t.blurb)}</p>
+        ${t.restricted ? '<div class="sup-locknote"><i class="ti ti-lock"></i> Reviewed by HICOMM only</div>' : ''}
+        <button class="btn btn-primary btn-sm" onclick="supOpenNew('${t.key}')"><i class="ti ti-plus"></i> ${esc(t.button)}</button>
+      </div>`).join('');
+  }
+
+  function ticketRow(t, staff) {
+    const who = staff ? esc(t.openerName) : esc(t.typeLabel);
+    const claim = t.claimedByName ? ` · claimed by ${esc(t.claimedByName)}` : '';
+    return `<div class="sup-row" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border,#242424);cursor:pointer;" onclick="supOpenTicket('${t.id}')">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:13px;">${esc(t.typeLabel)}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${who}${claim} · ${fmtTime(t.createdAt)}</div>
+      </div>
+      ${statusBadge(t.status)}
+    </div>`;
+  }
+  function statusBadge(s) {
+    const map = { INTAKE: ['badge-pending', 'Intake'], OPEN: ['badge-pending', 'Open'], CLAIMED: ['badge-approved', 'Claimed'], CLOSED: ['badge-denied', 'Closed'] };
+    const [cls, label] = map[s] || ['badge-pending', s];
+    return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
+  }
+
+  async function loadMine() {
+    try {
+      const rows = await api('/api/support/tickets/mine');
+      $('sup-mytickets').innerHTML = rows.length ? rows.map(t => ticketRow(t, false)).join('')
+        : '<div class="table-empty"><div class="table-empty-text">You have no tickets yet. Open one above.</div></div>';
+    } catch (e) { $('sup-mytickets').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
+  }
+
+  function wireQueueTabs() {
+    document.querySelectorAll('#sup-queue-tabs .filter-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('#sup-queue-tabs .filter-tab').forEach(t => t.classList.toggle('active', t === tab));
+        queueStatus = tab.dataset.status; loadQueue();
+      });
+    });
+  }
+  async function loadQueue() {
+    try {
+      const q = queueStatus === 'active' ? '' : '?status=' + encodeURIComponent(queueStatus);
+      const rows = await api('/api/support/tickets/queue' + q);
+      $('sup-queue').innerHTML = rows.length ? rows.map(t => ticketRow(t, true)).join('')
+        : '<div class="table-empty"><div class="table-empty-text">Nothing here.</div></div>';
+    } catch (e) { $('sup-queue').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
+  }
+
+  // ── Open / create a ticket ──────────────────────────────────────────
+  window.supOpenNew = async function (type) {
+    try {
+      const r = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({ type }) });
+      cur = r.ticket;
+      enterTicketView();
+      // Render the greeting, then start the guided intake.
+      const t = await api('/api/support/tickets/' + cur.id);
+      cur = t;
+      renderTicketHeader(t);
+      $('sup-log').innerHTML = (t.messages || []).map(renderMsg).join('');
+      startIntake(r.questions);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
+  window.supOpenTicket = openTicket;
+  async function openTicket(id) {
+    try {
+      const t = await api('/api/support/tickets/' + id);
+      cur = t;
+      enterTicketView();
+      renderTicketHeader(t);
+      renderLog(t);
+      if (t.status === 'INTAKE' && t.isMine) {
+        const qs = (typeByKey[t.type] || {}).questions || [];
+        // Skip questions already answered (resume).
+        const done = new Set((t.intake || []).map(i => i.id));
+        startIntake(qs.filter(q => !done.has(q.id)));
+      } else {
+        mode = 'chat';
+        setComposerEnabled(t);
+        openStream(t.id);
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function enterTicketView() {
+    closeStream();
+    pending = []; renderPending();
+    $('sup-landing').classList.add('sup-hidden');
+    $('sup-ticket').classList.remove('sup-hidden');
+  }
+  window.supBackToLanding = function () {
+    closeStream();
+    $('sup-ticket').classList.add('sup-hidden');
+    $('sup-landing').classList.remove('sup-hidden');
+    cur = null;
+    loadMine(); if (CFG.isStaff) loadQueue();
+  };
+
+  function renderTicketHeader(t) {
+    $('sup-t-title').textContent = t.typeLabel;
+    $('sup-t-sub').textContent = `Opened by ${t.openerName} · ${fmtTime(t.createdAt)}` + (t.claimedByName ? ` · claimed by ${t.claimedByName}` : '');
+    $('sup-t-status').outerHTML = `<span id="sup-t-status">${statusBadge(t.status)}</span>`;
+    // Actions (staff)
+    const acts = [];
+    if (t.canManage && t.status === 'OPEN')   acts.push(`<button class="btn btn-primary btn-sm" onclick="supClaim()"><i class="ti ti-hand-stop"></i> Claim</button>`);
+    if (t.canManage && t.status !== 'CLOSED') acts.push(`<button class="btn btn-ghost btn-sm" onclick="supClose()"><i class="ti ti-lock"></i> Close</button>`);
+    $('sup-t-actions').innerHTML = acts.join('');
+  }
+
+  function renderLog(t) {
+    const parts = [];
+    // Opening record (intake Q/A) as a labelled block, then the message thread.
+    if (Array.isArray(t.intake) && t.intake.length) {
+      parts.push('<div class="sup-hint" style="text-align:center;">— Intake —</div>');
+      for (const q of t.intake) {
+        parts.push(renderMsg({ authorKind: 'BOT', authorName: 'METAdministration', body: q.prompt, createdAt: t.createdAt }));
+        parts.push(renderMsg({ authorKind: 'OPENER', authorName: t.openerName, body: q.answer, attachments: q.attachments, createdAt: t.createdAt }));
+      }
+      parts.push('<div class="sup-hint" style="text-align:center;">— Conversation —</div>');
+    }
+    parts.push(...(t.messages || []).map(renderMsg));
+    $('sup-log').innerHTML = parts.join('');
+    scrollLog();
+  }
+
+  function renderMsg(m) {
+    const kind = (m.authorKind || 'STAFF').toLowerCase();
+    const isBot = kind === 'bot';
+    const av = isBot
+      ? `<div class="sup-av"><img src="/img/logo.png" alt="MET" /></div>`
+      : `<div class="sup-av">${esc((m.authorName || '?').slice(0, 1).toUpperCase())}</div>`;
+    const atts = (m.attachments || []).map(a =>
+      a.kind === 'video'
+        ? `<video src="${esc(a.url)}" controls></video>`
+        : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}" /></a>`
+    ).join('');
+    return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
+      ${av}
+      <div class="sup-body">
+        <div class="sup-meta"><span class="sup-name">${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span></div>
+        ${m.body ? `<div class="sup-text">${esc(m.body)}</div>` : ''}
+        ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function scrollLog() { const l = $('sup-log'); l.scrollTop = l.scrollHeight; }
+
+  // ── Intake flow ─────────────────────────────────────────────────────
+  function startIntake(questions) {
+    mode = 'intake';
+    intakeQs = (questions || []).slice();
+    intakeAnswers = [];
+    setComposerEnabled(cur);
+    askNext();
+  }
+  function askNext() {
+    if (!intakeQs.length) return finishIntake();
+    const q = intakeQs[0];
+    appendBubble({ authorKind: 'BOT', authorName: 'METAdministration', body: q.prompt + (q.optional ? '  (optional — you can skip)' : ''), createdAt: new Date().toISOString() });
+    if (q.kind === 'choice' && q.choices) {
+      $('sup-hint').innerHTML = 'Choose or type: ' + q.choices.map(c => `<button class="btn btn-ghost btn-sm" style="margin:2px;" onclick="supPick('${esc(c)}')">${esc(c)}</button>`).join('');
+    } else if (q.kind === 'evidence') {
+      $('sup-hint').textContent = 'Attach files with the 📎 button, and/or paste links. Then press Send.';
+    } else {
+      $('sup-hint').textContent = q.optional ? 'Optional — type an answer or press Send to skip.' : '';
+    }
+    $('sup-input').focus();
+  }
+  window.supPick = function (val) { $('sup-input').value = val; };
+
+  function submitIntakeStep() {
+    const q = intakeQs[0];
+    const answer = $('sup-input').value.trim();
+    if (!q.optional && !answer && !pending.length) { showToast('Please answer this question.', 'warning'); return; }
+    intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments: pending.slice() });
+    // Echo the opener's answer.
+    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, body: answer, attachments: pending.map(p => ({ ...p })), createdAt: new Date().toISOString() });
+    intakeQs.shift();
+    $('sup-input').value = ''; pending = []; renderPending();
+    $('sup-hint').textContent = '';
+    askNext();
+  }
+  async function finishIntake() {
+    try {
+      const r = await api('/api/support/tickets/' + cur.id + '/submit-intake', { method: 'POST', body: JSON.stringify({ answers: intakeAnswers }) });
+      cur = r.ticket; mode = 'chat';
+      const full = await api('/api/support/tickets/' + cur.id);
+      cur = full; renderTicketHeader(full); renderLog(full);
+      setComposerEnabled(full); openStream(full.id);
+      showToast('Ticket submitted', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function appendBubble(m) { $('sup-log').insertAdjacentHTML('beforeend', renderMsg(m)); scrollLog(); }
+
+  // ── Composer ────────────────────────────────────────────────────────
+  function wireComposer() {
+    $('sup-attach-btn').addEventListener('click', () => $('sup-file').click());
+    $('sup-file').addEventListener('change', onPickFiles);
+    $('sup-send-btn').addEventListener('click', onSend);
+    $('sup-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+    });
+  }
+  function setComposerEnabled(t) {
+    const canOpener = t.isMine && t.status !== 'CLOSED';
+    const canStaff = t.canManage && t.status !== 'CLOSED';
+    const on = mode === 'intake' ? (t.isMine && t.status === 'INTAKE') : (canOpener || canStaff);
+    $('sup-composer').style.display = on ? '' : 'none';
+    if (mode !== 'intake' && !on && t.status === 'CLOSED') { /* closed: composer hidden */ }
+  }
+
+  async function onPickFiles(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!cur) return;
+    for (const f of files) {
+      try {
+        const meta = await supUpload(cur.id, f);
+        pending.push({ mediaId: meta.mediaId, kind: meta.kind, name: meta.name, url: meta.url });
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+    renderPending();
+  }
+  function renderPending() {
+    $('sup-pending').innerHTML = pending.map((p, i) =>
+      `<span class="met-chip chip">${esc(p.name || p.kind)} <a onclick="supRmAtt(${i})" style="cursor:pointer;"><i class="ti ti-x"></i></a></span>`).join('');
+  }
+  window.supRmAtt = function (i) { pending.splice(i, 1); renderPending(); };
+
+  async function supUpload(ticketId, file) {
+    const q = new URLSearchParams({ filename: file.name || 'upload', mimeType: file.type || 'application/octet-stream' });
+    const res = await fetch(`/api/support/tickets/${ticketId}/upload?` + q.toString(), { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Upload failed'); }
+    return res.json();
+  }
+
+  async function onSend() {
+    if (mode === 'intake') return submitIntakeStep();
+    const body = $('sup-input').value.trim();
+    if (!body && !pending.length) return;
+    try {
+      const msg = await api('/api/support/tickets/' + cur.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: pending }) });
+      // SSE will echo it to everyone (incl. us); to feel instant, append now and let SSE dedupe by id.
+      if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
+      $('sup-input').value = ''; pending = []; renderPending();
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  // ── Realtime (SSE) ──────────────────────────────────────────────────
+  function openStream(ticketId) {
+    closeStream();
+    try {
+      es = new EventSource('/api/support/tickets/' + ticketId + '/stream');
+      es.addEventListener('message', ev => {
+        try {
+          const m = JSON.parse(ev.data);
+          if (m && m.id && !document.querySelector(`[data-mid="${m.id}"]`)) appendBubble(m);
+        } catch (e) {}
+      });
+      es.addEventListener('update', async () => {
+        // Status/claim changed — refresh header + composer.
+        try { const t = await api('/api/support/tickets/' + ticketId); cur = t; renderTicketHeader(t); setComposerEnabled(t); } catch (e) {}
+      });
+      es.onerror = () => { /* browser auto-reconnects */ };
+    } catch (e) { /* SSE unsupported → messages still load on refresh */ }
+  }
+  function closeStream() { if (es) { es.close(); es = null; } }
+
+  // ── Staff actions ───────────────────────────────────────────────────
+  window.supClaim = async function () {
+    try { const r = await api('/api/support/tickets/' + cur.id + '/claim', { method: 'POST' }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Claimed', 'success'); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+  window.supClose = async function () {
+    const reason = prompt('Closing note (optional):') || '';
+    try { const r = await api('/api/support/tickets/' + cur.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Ticket closed', 'success'); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

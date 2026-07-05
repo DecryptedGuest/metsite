@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET Support · METAdministration</title>
+  <link rel="icon" href="/img/logo.png" />
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .sup-wrap { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
+    .sup-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+    .sup-panel { display: flex; flex-direction: column; gap: .8rem; padding: 1.2rem; }
+    .sup-panel h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: .5rem; }
+    .sup-panel p { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6; flex: 1; }
+    .sup-panel .btn { align-self: flex-start; }
+    .sup-restricted { opacity: .75; }
+    .sup-locknote { font-size: 11px; color: var(--amber); display: flex; align-items: center; gap: 4px; }
+    .sup-section-title { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 1.6rem 0 .7rem; color: var(--text-primary); }
+    /* Chat */
+    .sup-chat-head { display: flex; align-items: center; gap: 12px; padding: 1rem 1.2rem; }
+    .sup-chat-head .sup-back { cursor: pointer; }
+    .sup-log { display: flex; flex-direction: column; gap: 12px; padding: 1.2rem; max-height: 58vh; overflow-y: auto; }
+    .sup-msg { display: flex; gap: 10px; }
+    .sup-msg .sup-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; background: var(--surface-2, #222); display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 13px; font-weight: 700; }
+    .sup-msg .sup-av img { width: 100%; height: 100%; object-fit: cover; }
+    .sup-msg .sup-body { flex: 1; min-width: 0; }
+    .sup-msg .sup-meta { font-size: 12px; margin-bottom: 2px; }
+    .sup-msg .sup-name { font-weight: 700; }
+    .sup-msg .sup-time { color: var(--text-muted); font-size: 11px; margin-left: 6px; }
+    .sup-msg .sup-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .sup-msg.bot .sup-name { color: var(--blue); }
+    .sup-msg.staff .sup-name { color: var(--green); }
+    .sup-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .sup-atts a, .sup-atts img, .sup-atts video { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--border, #333); }
+    .sup-composer { display: flex; flex-direction: column; gap: 8px; padding: 1rem 1.2rem; border-top: 1px solid var(--border, #2a2a2a); }
+    .sup-composer-row { display: flex; gap: 8px; align-items: flex-end; }
+    .sup-composer textarea { flex: 1; resize: vertical; min-height: 44px; }
+    .sup-pending-atts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .sup-pending-atts .chip { font-size: 11px; }
+    .sup-hint { font-size: 11px; color: var(--text-muted); }
+    .sup-hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
+</div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division">Support</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <a href="/profile" class="btn btn-ghost btn-sm"><i class="ti ti-layout-dashboard"></i> Portal</a>
+    <div class="met-topbar-user">
+      <div class="met-user-avatar-fallback" id="sup-user-fallback">?</div>
+      <span id="sup-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="sup-wrap">
+  <!-- LANDING -->
+  <section id="sup-landing">
+    <div class="page-header fade-up" style="margin-bottom:1rem;">
+      <div>
+        <h1 class="page-title">MET Support</h1>
+        <p class="page-sub">Open a ticket and <strong>METAdministration</strong> will take your details, then hand you to the right team.</p>
+      </div>
+    </div>
+
+    <div class="sup-panels" id="sup-panels"><div class="table-loading"><div class="spinner"></div></div></div>
+
+    <div class="sup-section-title">My Tickets</div>
+    <div class="panel glass"><div id="sup-mytickets"><div class="table-loading"><div class="spinner"></div></div></div></div>
+
+    <div id="sup-staff-wrap" class="sup-hidden">
+      <div class="sup-section-title">Staff Queue</div>
+      <div class="panel glass">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Tickets to handle</div>
+          <div class="filter-tabs" id="sup-queue-tabs">
+            <button class="filter-tab active" data-status="active">Active</button>
+            <button class="filter-tab" data-status="OPEN">Unclaimed</button>
+            <button class="filter-tab" data-status="CLAIMED">Claimed</button>
+            <button class="filter-tab" data-status="CLOSED">Closed</button>
+          </div>
+        </div>
+        <div id="sup-queue"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TICKET / CHAT -->
+  <section id="sup-ticket" class="sup-hidden">
+    <div class="panel glass" style="overflow:hidden;padding:0;">
+      <div class="sup-chat-head">
+        <button class="btn btn-icon btn-ghost sup-back" onclick="supBackToLanding()" title="Back"><i class="ti ti-arrow-left"></i></button>
+        <div style="flex:1;">
+          <div style="font-weight:700;" id="sup-t-title">Ticket</div>
+          <div style="font-size:12px;color:var(--text-muted);" id="sup-t-sub"></div>
+        </div>
+        <span id="sup-t-status" class="badge badge-pending"><span class="badge-dot"></span>—</span>
+        <div id="sup-t-actions" style="display:flex;gap:6px;"></div>
+      </div>
+      <div class="sup-log" id="sup-log"></div>
+      <div class="sup-composer" id="sup-composer">
+        <div class="sup-pending-atts" id="sup-pending"></div>
+        <div class="sup-composer-row">
+          <textarea class="form-control" id="sup-input" placeholder="Type a message…" rows="1"></textarea>
+          <input type="file" id="sup-file" accept="image/*,video/*" multiple class="sup-hidden" />
+          <button class="btn btn-ghost btn-icon" id="sup-attach-btn" title="Attach"><i class="ti ti-paperclip"></i></button>
+          <button class="btn btn-primary" id="sup-send-btn"><i class="ti ti-send"></i></button>
+        </div>
+        <div class="sup-hint" id="sup-hint"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/support.js"></script>
+</body>
+</html>

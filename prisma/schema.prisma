@@ -671,3 +671,48 @@ model TryoutLog {
   @@index([createdAt])
   @@map("tryout_logs")
 }
+
+// ── Support tickets (/support) ───────────────────────────────────────
+// Community-facing help desk. A user opens a ticket of one of four types;
+// "METAdministration" runs a fixed intake, then handling staff claim + chat.
+model SupportTicket {
+  id              String   @id @default(uuid())
+  type            String   // OFFICER_COMPLAINT | DISCIPLINARY_APPEAL | IA_COMPLAINT | GENERAL_SUPPORT
+  status          String   @default("INTAKE") // INTAKE | OPEN | CLAIMED | CLOSED
+  openerId        String
+  openerDiscordId String?
+  openerName      String
+  intake          Json?    // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
+  claimedById     String?
+  claimedByName   String?
+  claimedAt       DateTime?
+  closedById      String?
+  closedByName    String?
+  closeReason     String?
+  closedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  messages SupportMessage[]
+
+  @@index([type])
+  @@index([status])
+  @@index([openerId])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id          String   @id @default(uuid())
+  ticketId    String
+  authorId    String?  // null for BOT / system
+  authorName  String
+  authorKind  String   @default("STAFF") // OPENER | STAFF | BOT
+  body        String?
+  attachments Json?    // [{ mediaId, kind, name }]
+  createdAt   DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("support_messages")
+}

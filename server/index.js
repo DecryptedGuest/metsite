@@ -160,6 +160,9 @@ app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
 app.use('/api/exam',  requireAuth, examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
+// Support help desk (/support) — any logged-in user can open a ticket; handling
+// is gated per ticket type inside the router. NOT behind a division gate.
+app.use('/api/support', requireAuth, require('./routes/support'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
 app.use('/api/game', require('./routes/game'));
 
@@ -670,6 +673,10 @@ app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path
 // Final Examination — any signed-in officer; the page itself gates on
 // eligibility (the HPC final-exam Discord role) via /api/exam/my.
 app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'exam.html')));
+
+// Support help desk — any signed-in user (community members open tickets;
+// staff see a queue for the types they handle). One page serves both.
+app.get('/support', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'support.html')));
 
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
 app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));
