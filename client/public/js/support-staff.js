@@ -296,7 +296,8 @@
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  // ── Realtime ────────────────────────────────────────────────────────
+  // ── Realtime (SSE + polling fallback) ────────────────────────────────
+  let sdPoll = null;
   function openStream(id) {
     closeStream();
     try {
@@ -306,8 +307,22 @@
       });
       sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
     } catch (e) {}
+    // Polling fallback — append any new messages even if SSE is buffered.
+    sdPoll = setInterval(() => sdRefresh(id), 5000);
   }
-  function closeStream() { if (sdES) { sdES.close(); sdES = null; } }
+  function closeStream() {
+    if (sdES) { sdES.close(); sdES = null; }
+    if (sdPoll) { clearInterval(sdPoll); sdPoll = null; }
+  }
+  async function sdRefresh(id) {
+    if (!curT || curT.id !== id) return;
+    let t; try { t = await api('/api/support/tickets/' + id); } catch (e) { return; }
+    (t.messages || []).forEach(m => {
+      if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); }
+    });
+    const l = $('sd-log'); if (l) l.scrollTop = l.scrollHeight;
+    if (t.status !== curT.status) { curT = t; renderToolbar(t); }
+  }
 
   // Close the stream when the modal closes.
   document.addEventListener('click', e => {

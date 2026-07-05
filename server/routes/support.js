@@ -552,12 +552,19 @@ router.get('/tickets/:id/stream', async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
     if (!t || !canSee(req, t)) return res.status(403).end();
-    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.flushHeaders && res.flushHeaders();
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no', // stop nginx/Railway proxy from buffering the stream
+    });
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    // A 2KB comment padding forces some proxies to flush the stream immediately.
+    res.write(':' + ' '.repeat(2048) + '\n\n');
     res.write('event: ready\ndata: {}\n\n');
     support.subscribe(t.id, res, { staff: support.canHandleTicket(req.user, t) });
     // Heartbeat so proxies keep the connection open.
-    const hb = setInterval(() => { try { res.write(': ping\n\n'); } catch (e) {} }, 25000);
+    const hb = setInterval(() => { try { res.write(': ping\n\n'); } catch (e) {} }, 20000);
     res.on('close', () => clearInterval(hb));
   } catch (e) { res.status(500).end(); }
 });

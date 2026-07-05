@@ -612,7 +612,8 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  // ── Realtime (SSE) ──────────────────────────────────────────────────
+  // ── Realtime (SSE + polling fallback) ────────────────────────────────
+  let pollTimer = null;
   function openStream(ticketId) {
     closeStream();
     try {
@@ -625,14 +626,29 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
           else appendBubble(m);
         } catch (e) {}
       });
-      es.addEventListener('update', async () => {
-        // Status/claim changed — refresh header + composer.
-        try { const t = await api('/api/support/tickets/' + ticketId); cur = t; renderTicketHeader(t); setComposerEnabled(t); } catch (e) {}
-      });
+      es.addEventListener('update', () => refreshTicket(ticketId));
       es.onerror = () => { /* browser auto-reconnects */ };
-    } catch (e) { /* SSE unsupported → messages still load on refresh */ }
+    } catch (e) { /* SSE unsupported → the poll below still updates the chat */ }
+    // Polling fallback — guarantees the opener's chat updates even if a proxy
+    // buffers SSE. De-duped by message id, so it never doubles up with SSE.
+    pollTimer = setInterval(() => refreshTicket(ticketId), 5000);
   }
-  function closeStream() { if (es) { es.close(); es = null; } }
+  function closeStream() {
+    if (es) { es.close(); es = null; }
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+  // Pull the ticket and append any messages we don't already show; sync status.
+  async function refreshTicket(ticketId) {
+    if (!cur || cur.id !== ticketId) return;
+    let t;
+    try { t = await api(tok('/api/support/tickets/' + ticketId, ticketId)); } catch (e) { return; }
+    (t.messages || []).forEach(m => {
+      if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) appendBubble(m);
+    });
+    if (t.status !== cur.status || (t.claimedByName || '') !== (cur.claimedByName || '')) {
+      cur = t; renderTicketHeader(t); setComposerEnabled(t);
+    }
+  }
 
   // ── Staff actions ───────────────────────────────────────────────────
   window.supClaim = async function () {
