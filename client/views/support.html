@@ -40,8 +40,19 @@
     .sup-composer { display: flex; flex-direction: column; gap: 8px; padding: 1rem 1.2rem; border-top: 1px solid var(--border, #2a2a2a); }
     .sup-composer-row { display: flex; gap: 8px; align-items: flex-end; }
     .sup-composer textarea { flex: 1; resize: vertical; min-height: 44px; }
-    .sup-pending-atts { display: flex; flex-wrap: wrap; gap: 6px; }
-    .sup-pending-atts .chip { font-size: 11px; }
+    .sup-pending-atts { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sup-att-tile { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 6px; border: 1px solid var(--border, #333); border-radius: 9px; background: rgba(255,255,255,.03); max-width: 240px; }
+    .sup-att-tile.error { border-color: var(--red, #e0503a); }
+    .sup-att-thumb { position: relative; width: 40px; height: 40px; border-radius: 7px; overflow: hidden; flex: 0 0 40px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.05); color: var(--text-muted); font-size: 18px; }
+    .sup-att-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .sup-att-spin { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
+    .sup-att-spin .spinner { width: 18px; height: 18px; }
+    .sup-att-info { min-width: 0; flex: 1; }
+    .sup-att-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sup-att-status { font-size: 10px; color: var(--text-muted); }
+    .sup-att-tile.error .sup-att-status { color: var(--red, #e0503a); }
+    .sup-att-rm { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; display: flex; }
+    .sup-att-rm:hover { color: var(--red, #e0503a); }
     .sup-hint { font-size: 11px; color: var(--text-muted); }
     .sup-hidden { display: none !important; }
     /* Typing indicator */

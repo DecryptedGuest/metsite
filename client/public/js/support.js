@@ -251,16 +251,20 @@
 
   function recordAnswer(q, answer, attachments, identity) {
     intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments, identity: identity || null });
-    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, authorAvatar: MY_AVATAR, body: answer, attachments: (attachments || []).map(p => ({ ...p })), identity: identity || null, createdAt: new Date().toISOString() });
+    // The echoed bubble needs viewable URLs for its attachments.
+    const display = (attachments || []).map(a => ({ ...a, url: `/api/support/tickets/${cur.id}/media/${a.mediaId}` }));
+    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, authorAvatar: MY_AVATAR, body: answer, attachments: display, identity: identity || null, createdAt: new Date().toISOString() });
   }
   function submitIntakeStep() {
     const q = intakeQs[0];
     const answer = $('sup-input').value.trim();
     if (q.kind === 'identity' && answer) return resolveAndConfirm(q, answer);
-    if (!q.optional && !answer && !pending.length) { showToast('Please answer this question.', 'warning'); return; }
-    recordAnswer(q, answer, pending.slice(), null);
+    if (anyUploading()) return showToast('Please wait for uploads to finish.', 'warning');
+    const atts = readyAttachments();
+    if (!q.optional && !answer && !atts.length) { showToast('Please answer this question.', 'warning'); return; }
+    recordAnswer(q, answer, atts, null);
     intakeQs.shift();
-    $('sup-input').value = ''; pending = []; renderPending(); $('sup-hint').textContent = '';
+    $('sup-input').value = ''; clearPending(); $('sup-hint').textContent = '';
     askNext();
   }
 
@@ -390,23 +394,54 @@
     if (mode !== 'intake' && !on && t.status === 'CLOSED') { /* closed: composer hidden */ }
   }
 
-  async function onPickFiles(e) {
+  let attSeq = 0;
+  function fmtSize(n) { n = n || 0; if (n < 1024) return n + ' B'; if (n < 1048576) return (n / 1024).toFixed(0) + ' KB'; return (n / 1048576).toFixed(1) + ' MB'; }
+
+  // Pick files → show each as a preview tile that spins while it uploads, then
+  // flips to "ready" once the server has it.
+  function onPickFiles(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
     if (!cur) return;
     for (const f of files) {
-      try {
-        const meta = await supUpload(cur.id, f);
-        pending.push({ mediaId: meta.mediaId, kind: meta.kind, name: meta.name, url: meta.url });
-      } catch (err) { showToast(err.message, 'error'); }
+      const isImg = /^image\//.test(f.type);
+      const item = { uid: ++attSeq, name: f.name || 'upload', kind: isImg ? 'image' : 'video', size: f.size || 0, status: 'loading', previewUrl: isImg ? URL.createObjectURL(f) : null, mediaId: null, url: null };
+      pending.push(item);
+      renderPending();
+      supUpload(cur.id, f).then(meta => {
+        item.mediaId = meta.mediaId; item.url = meta.url; item.kind = meta.kind; item.status = 'done';
+        renderPending();
+      }).catch(err => {
+        item.status = 'error'; renderPending(); showToast(err.message, 'error');
+      });
     }
-    renderPending();
   }
   function renderPending() {
-    $('sup-pending').innerHTML = pending.map((p, i) =>
-      `<span class="met-chip chip">${esc(p.name || p.kind)} <a onclick="supRmAtt(${i})" style="cursor:pointer;"><i class="ti ti-x"></i></a></span>`).join('');
+    const el = $('sup-pending');
+    if (!pending.length) { el.innerHTML = ''; return; }
+    el.innerHTML = pending.map(p => {
+      const thumb = p.previewUrl
+        ? `<img src="${esc(p.previewUrl)}" alt="" />`
+        : `<i class="ti ti-${p.kind === 'video' ? 'video' : 'file'}"></i>`;
+      const status = p.status === 'loading' ? 'Uploading…' : (p.status === 'error' ? 'Upload failed' : fmtSize(p.size));
+      const spin = p.status === 'loading' ? '<div class="sup-att-spin"><div class="spinner"></div></div>' : '';
+      return `<div class="sup-att-tile ${p.status}">
+        <div class="sup-att-thumb">${thumb}${spin}</div>
+        <div class="sup-att-info"><div class="sup-att-name" title="${esc(p.name)}">${esc(p.name)}</div><div class="sup-att-status">${esc(status)}</div></div>
+        <button class="sup-att-rm" onclick="supRmAtt(${p.uid})" title="Remove"><i class="ti ti-x"></i></button>
+      </div>`;
+    }).join('');
   }
-  window.supRmAtt = function (i) { pending.splice(i, 1); renderPending(); };
+  window.supRmAtt = function (uid) {
+    const i = pending.findIndex(p => p.uid === uid);
+    if (i < 0) return;
+    if (pending[i].previewUrl) { try { URL.revokeObjectURL(pending[i].previewUrl); } catch (e) {} }
+    pending.splice(i, 1); renderPending();
+  };
+  // Only fully-uploaded files go on a message/answer.
+  function readyAttachments() { return pending.filter(p => p.status === 'done').map(p => ({ mediaId: p.mediaId, kind: p.kind, name: p.name })); }
+  function anyUploading() { return pending.some(p => p.status === 'loading'); }
+  function clearPending() { pending.forEach(p => { if (p.previewUrl) { try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} } }); pending = []; renderPending(); }
 
   async function supUpload(ticketId, file) {
     const q = new URLSearchParams({ filename: file.name || 'upload', mimeType: file.type || 'application/octet-stream' });
@@ -417,13 +452,15 @@
 
   async function onSend() {
     if (mode === 'intake') return submitIntakeStep();
+    if (anyUploading()) return showToast('Please wait for uploads to finish.', 'warning');
     const body = $('sup-input').value.trim();
-    if (!body && !pending.length) return;
+    const atts = readyAttachments();
+    if (!body && !atts.length) return;
     try {
-      const msg = await api('/api/support/tickets/' + cur.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: pending }) });
-      // SSE will echo it to everyone (incl. us); to feel instant, append now and let SSE dedupe by id.
+      const msg = await api('/api/support/tickets/' + cur.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts }) });
+      // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
-      $('sup-input').value = ''; pending = []; renderPending();
+      $('sup-input').value = ''; clearPending();
     } catch (e) { showToast(e.message, 'error'); }
   }
 
