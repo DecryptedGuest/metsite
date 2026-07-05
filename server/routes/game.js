@@ -227,6 +227,23 @@ function ongoingTryout() {
   return prisma.tryout.findFirst({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' } });
 }
 
+// Parse the server-lock state from a create/start payload, in the same tolerant
+// shapes as /serverlock (locked/lock booleans, or lockState/state strings like
+// "on"/"off"/"locked"/"unlocked"). Returns 'LOCKED' | 'UNLOCKED', or null when
+// the payload says nothing — so the caller can pick its own default. This lets
+// the FIRST announcement/DM reflect the real lock state instead of defaulting to
+// Locked (isServerLocked treats an unset lockState as Locked).
+function parseLockState(body) {
+  if (typeof body.locked === 'boolean') return body.locked ? 'LOCKED' : 'UNLOCKED';
+  if (typeof body.lock   === 'boolean') return body.lock   ? 'LOCKED' : 'UNLOCKED';
+  const raw = body.locked ?? body.lock ?? body.lockState ?? body.state;
+  if (raw == null || raw === '') return null;
+  const s = String(raw).toLowerCase();
+  if (['on', 'true', 'locked', 'lock', '1', 'yes'].includes(s))       return 'LOCKED';
+  if (['off', 'false', 'unlocked', 'unlock', '0', 'no'].includes(s))  return 'UNLOCKED';
+  return null;
+}
+
 // Take a tryout LIVE-facing: post its announcement + DM the host. Returns
 // { tryoutId, dmed, announced }. Best-effort on the Discord side (never throws).
 async function announceAndDm(tryout, { edit = false } = {}) {
@@ -299,6 +316,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       coHostName:        coHost.username || coHost.name || null,
       scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
       status:            'LIVE',
+      lockState:         parseLockState(body) || 'UNLOCKED', // reflect the real state now (default: open)
       suppressPings:     !!body.suppressPings, // test mode → announce without pinging
       privateServerId:   body.privateServerId ? String(body.privateServerId) : null,
       privateServerLink: body.privateServerLink || null,
@@ -333,6 +351,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       hostRobloxId:    (body.host && body.host.robloxId) ? String(body.host.robloxId) : (t.hostRobloxId || hostUser.robloxId),
       hostRobloxName:  (body.host && body.host.username) || t.hostRobloxName || hostUser.robloxUsername || null,
       coHostName:      coHost.username || coHost.name || t.coHostName,
+      lockState:       parseLockState(body) || t.lockState || 'UNLOCKED', // real state now (default: open)
       suppressPings:   ('suppressPings' in body) ? !!body.suppressPings : t.suppressPings,
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
       serverCreatedAt: t.serverCreatedAt || new Date(),

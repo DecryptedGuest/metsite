@@ -80,6 +80,9 @@ async function fireTryout(t) {
     where: { id: t.id },
     data: {
       status: 'LIVE',
+      // A fresh tryout server is open — default to UNLOCKED so the first DM/
+      // announcement shows the real status (the game corrects it via /serverlock).
+      lockState: t.lockState || 'UNLOCKED',
       privateServerLink: link || null,
       privateServerId: id || null,
       serverCreatedAt: new Date(),
