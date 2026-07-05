@@ -146,8 +146,22 @@ router.post('/serverlock', requireGameSecret, async (req, res) => {
 router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
   try {
     const { createFromGamePayload } = require('../lib/tryoutLogs');
-    const result = await createFromGamePayload(req.body || {});
+    const body   = req.body || {};
+    const result = await createFromGamePayload(body);
     if (!result.ok) return res.status(422).json({ error: result.error });
+
+    // Close out the associated live tryout: mark it COMPLETED, delete its
+    // channel announcement, and flip the host DM to "✅ Concluded". Best-effort.
+    try {
+      const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId });
+      if (t && !['CANCELLED', 'COMPLETED'].includes(t.status)) {
+        const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+        const bot = require('../lib/bot');
+        await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+        await bot.editTryoutHostDM(updated).catch(() => {});
+      }
+    } catch (e) { console.warn('[Game] conclude close-out failed:', e.message); }
+
     res.status(201).json(result);
   } catch (err) {
     console.error('[Game] tryout conclude failed:', err.message);
@@ -343,7 +357,12 @@ router.post('/tryout/cancel', requireGameSecret, async (req, res) => {
     if (['CANCELLED', 'COMPLETED'].includes(t.status)) return res.json({ ok: true, alreadyClosed: true });
 
     const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
-    await require('../lib/bot').cancelTryoutAnnouncement(updated, body.reason).catch(() => {});
+    // Remove the channel announcement and flip the host DM to "❌ Cancelled".
+    try {
+      const bot = require('../lib/bot');
+      await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+      await bot.editTryoutHostDM(updated).catch(() => {});
+    } catch (e) { /* Discord side is best-effort */ }
     res.json({ ok: true, tryoutId: updated.id });
   } catch (err) {
     console.error('[Game] cancel failed:', err.message);

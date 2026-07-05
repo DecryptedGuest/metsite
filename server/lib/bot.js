@@ -633,9 +633,31 @@ async function postTryoutAnnouncement(tryout) {
   }
 }
 
-// The host-DM status embed — a live "Status" field (🔒 Locked / 🔓 Unlocked)
-// so it can be rebuilt identically when we edit the DM on a lock/unlock change.
+// The host-DM status embed — a live "Status" field so it can be rebuilt
+// identically when we edit the DM. While the tryout is running the Status
+// tracks the server lock (🔒 Locked / 🔓 Unlocked); once the tryout is
+// cancelled or concluded it flips to a terminal ❌ Cancelled / ✅ Concluded.
 function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
+  const status = String(tryout.status || '').toUpperCase();
+
+  if (status === 'CANCELLED') {
+    return new EmbedBuilder()
+      .setColor(0xe74c3c)
+      .setTitle('🎓 MET Tryout — Cancelled')
+      .setDescription('This tryout has been cancelled and its announcement removed from the channel.')
+      .addFields({ name: 'Status', value: '❌ Cancelled', inline: true });
+  }
+  if (status === 'COMPLETED') {
+    return new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle('🎓 MET Tryout — Concluded')
+      .setDescription('This tryout has concluded and its announcement removed from the channel. Review and post the results on the site.')
+      .addFields(
+        { name: 'Status', value: '✅ Concluded', inline: true },
+        ...(reviewUrl ? [{ name: 'Review & post results', value: reviewUrl, inline: false }] : []),
+      );
+  }
+
   return new EmbedBuilder()
     .setColor(0x2ed896)
     .setTitle('🎓 Your MET Tryout is live')
@@ -670,7 +692,11 @@ async function editTryoutHostDM(tryout) {
     const user = await client.users.fetch(tryout.hostDiscordId);
     const dm   = await user.createDM();
     const msg  = await dm.messages.fetch(tryout.hostDmMessageId);
-    await msg.edit({ embeds: [tryoutDmEmbed(tryout, { reviewUrl: base })] });
+    const status  = String(tryout.status || '').toUpperCase();
+    const payload = { embeds: [tryoutDmEmbed(tryout, { reviewUrl: base })] };
+    // Once the tryout is finished, strip the co-host/announce action buttons.
+    if (status === 'CANCELLED' || status === 'COMPLETED') payload.components = [];
+    await msg.edit(payload);
     return true;
   } catch (e) {
     console.warn('[Tryout] editTryoutHostDM failed:', e.message);
@@ -678,21 +704,23 @@ async function editTryoutHostDM(tryout) {
   }
 }
 
-// Edit the posted announcement into a "cancelled" notice. Best-effort.
-async function cancelTryoutAnnouncement(tryout, reason) {
+// Delete the posted announcement from the tryouts channel (on cancel/conclude).
+// Clears the stored message id so a later edit can't target a deleted message.
+// Best-effort; no-ops if nothing was ever posted or the message is already gone.
+async function deleteTryoutAnnouncement(tryout) {
   if (!ready || !tryout || !tryout.announcementMsgId) return false;
   const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
   if (!chId) return false;
   try {
     const ch  = await client.channels.fetch(chId);
     const msg = await ch.messages.fetch(tryout.announcementMsgId);
-    await msg.edit({
-      content: `:HPC: College Entrance :HPC:\n~~Metropolitan Police Tryout~~\n\n❌ **This tryout has been cancelled.**${reason ? `\nReason: ${String(reason).slice(0, 300)}` : ''}`,
-      allowedMentions: { parse: [] },
-    });
+    await msg.delete();
+    await require('./db').tryout.update({
+      where: { id: tryout.id }, data: { announcementSent: false, announcementMsgId: null },
+    }).catch(() => {});
     return true;
   } catch (e) {
-    console.warn('[Tryout] cancelTryoutAnnouncement failed:', e.message);
+    console.warn('[Tryout] deleteTryoutAnnouncement failed:', e.message);
     return false;
   }
 }
@@ -890,7 +918,7 @@ module.exports = {
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
-  sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, cancelTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
+  sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   reactToMessage,
   isReady: () => ready,
 };
