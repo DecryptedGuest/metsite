@@ -223,18 +223,38 @@ async function announceAndDm(tryout, { edit = false } = {}) {
   return { tryoutId: tryout.id, dmed: !!dmed, announced: !!announced };
 }
 
-// GET /api/game/tryout/scheduled — upcoming scheduled tryouts for the "Begin
-// Scheduled Tryout" list. Returns { items: [{ id, name, scheduledAt, host }] }.
-// NOTE: Tryout has no name column, so `name` is derived as "<host>'s tryout".
+// GET /api/game/tryout/scheduled — feed for the in-game TryoutTV board.
+// Returns upcoming SCHEDULED + currently LIVE tryouts (not concluded/cancelled).
+// Canonical item shape (timestamps are Unix ms):
+//   { id, scheduledAt, eventType, status, host:{username,robloxId}, locked, attendeeCount }
 router.get('/tryout/scheduled', requireGameSecret, async (req, res) => {
   try {
+    const { isServerLocked } = require('../lib/tryouts');
     const rows = await prisma.tryout.findMany({
-      where: { status: 'SCHEDULED', scheduledAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } },
-      orderBy: { scheduledAt: 'asc' }, take: 25,
+      where: {
+        status: { in: ['SCHEDULED', 'LIVE'] },
+        scheduledAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }, // ignore very old rows
+      },
+      orderBy: { scheduledAt: 'asc' }, take: 50,
     });
-    res.json({ items: rows.map(t => ({
-      id: t.id, name: `${t.hostName}'s tryout`, scheduledAt: t.scheduledAt, host: t.hostName,
-    })) });
+    const items = rows.map(t => {
+      const snap = t.liveSnapshot || {};
+      const attendeeCount = t.status === 'LIVE'
+        ? (snap.totalAttendees != null ? snap.totalAttendees : (Array.isArray(snap.attendees) ? snap.attendees.length : 0))
+        : 0;
+      return {
+        id:            t.id,
+        scheduledAt:   t.scheduledAt ? t.scheduledAt.getTime() : null, // Unix ms
+        eventType:     'MET Tryout',
+        status:        t.status, // SCHEDULED | LIVE
+        host:          { username: t.hostRobloxName || t.hostName || null, robloxId: t.hostRobloxId ? Number(t.hostRobloxId) : null },
+        // Aliases some boards accept:
+        hostRobloxId:  t.hostRobloxId ? Number(t.hostRobloxId) : null,
+        locked:        isServerLocked(t),
+        attendeeCount,
+      };
+    });
+    res.json({ items });
   } catch (err) {
     res.status(500).json({ error: 'Failed to list scheduled tryouts.' });
   }
@@ -256,6 +276,8 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       hostId:            hostUser.id,
       hostDiscordId:     hostUser.discordId,
       hostName:          hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host',
+      hostRobloxId:      (body.host && body.host.robloxId) ? String(body.host.robloxId) : hostUser.robloxId,
+      hostRobloxName:    (body.host && body.host.username) || hostUser.robloxUsername || null,
       coHostName:        coHost.username || coHost.name || null,
       scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
       status:            'LIVE',
@@ -289,6 +311,8 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       hostId:          hostUser.id,
       hostDiscordId:   hostUser.discordId,
       hostName:        hostUser.displayName || hostUser.discordUsername || t.hostName,
+      hostRobloxId:    (body.host && body.host.robloxId) ? String(body.host.robloxId) : (t.hostRobloxId || hostUser.robloxId),
+      hostRobloxName:  (body.host && body.host.username) || t.hostRobloxName || hostUser.robloxUsername || null,
       coHostName:      coHost.username || coHost.name || t.coHostName,
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
       serverCreatedAt: t.serverCreatedAt || new Date(),

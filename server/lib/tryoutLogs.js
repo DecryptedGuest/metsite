@@ -14,6 +14,24 @@ function toResult(v) {
   return 'PENDING';
 }
 
+// Keep an attendee's optional written-quiz result if the game sends one:
+//   { score, outOf, verdict, answers:[{ q, answer, verdict }] }
+function normaliseQuiz(q) {
+  if (!q || typeof q !== 'object') return null;
+  const answers = Array.isArray(q.answers) ? q.answers.slice(0, 40).map(a => ({
+    q: a.q != null ? a.q : (a.question != null ? a.question : null),
+    answer: a.answer != null ? String(a.answer).slice(0, 300) : null,
+    verdict: a.verdict != null ? String(a.verdict).slice(0, 20) : null,
+  })) : [];
+  const out = {
+    score:   Number.isFinite(+q.score) ? +q.score : null,
+    outOf:   Number.isFinite(+q.outOf) ? +q.outOf : (Number.isFinite(+q.total) ? +q.total : null),
+    verdict: q.verdict ? String(q.verdict).slice(0, 20) : null,
+    answers,
+  };
+  return (out.score != null || out.verdict != null || answers.length) ? out : null;
+}
+
 function normaliseAttendees(raw) {
   const list = Array.isArray(raw) ? raw : [];
   return list.map(a => ({
@@ -25,6 +43,7 @@ function normaliseAttendees(raw) {
     result:    toResult(a.result),
     strikes:   Math.max(0, parseInt(a.strikes, 10) || 0),
     note:      a.note ? String(a.note).slice(0, 300) : null,
+    quiz:      normaliseQuiz(a.quiz),
   }));
 }
 

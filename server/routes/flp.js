@@ -28,14 +28,15 @@ router.get('/', (req, res) => res.json({ division: 'flp' }));
 router.get('/context', (req, res) => {
   res.json({
     canGroupAdmin:    userFlpGroupAdmin(req.user),
-    canReviewPatrols: userFlpGroupAdmin(req.user),
+    canReviewPatrols: true, // any FLP member (the route is already FLP-gated)
     flpRank:          myFlpRank(req.user),
     isDev:            req.user.role === 'DEVELOPER',
   });
 });
 
-// ── Patrol logs (Assistant Director+ review; bot reacts ✅/❌) ─────────
-router.get('/patrols', requireFlpGroupAdmin, async (req, res) => {
+// ── Patrol logs — reviewable by ANY FLP rank (the mount already gates to the
+// FLP division); the bot reacts ✅/❌ on the original message. ─────────
+router.get('/patrols', async (req, res) => {
   try {
     const status = ['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status) ? req.query.status : 'PENDING';
     const rows = await prisma.patrolLog.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, take: 200 });
@@ -45,7 +46,7 @@ router.get('/patrols', requireFlpGroupAdmin, async (req, res) => {
   }
 });
 
-router.post('/patrols/:id/:action', requireFlpGroupAdmin, async (req, res) => {
+router.post('/patrols/:id/:action', async (req, res) => {
   const action = req.params.action;
   if (!['approve', 'deny'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
   try {

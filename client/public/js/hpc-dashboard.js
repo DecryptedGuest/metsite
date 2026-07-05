@@ -382,11 +382,18 @@ function renderTryoutLog(l) {
     ? `<input type="number" min="0" max="9" value="${a.strikes || 0}" data-idx="${i}" data-field="strikes" class="form-control" style="width:56px;padding:4px 8px;font-size:12px;" />`
     : String(a.strikes || 0);
 
+  const quizChip = (a) => {
+    if (!a.quiz) return '';
+    const v = (a.quiz.verdict || '').toUpperCase();
+    const col = v === 'PASS' ? 'var(--green)' : v === 'FAIL' ? 'var(--red)' : 'var(--text-secondary)';
+    const score = (a.quiz.score != null && a.quiz.outOf != null) ? `${a.quiz.score}/${a.quiz.outOf}` : (a.quiz.score != null ? a.quiz.score : '');
+    return ` <span class="met-chip" title="Written quiz" style="color:${col};border-color:${col};">📝 ${esc(String(score))}${v ? ' · ' + esc(v) : ''}</span>`;
+  };
   const rows = (l.attendees || []).map((a, i) => `<tr>
     <td>${esc(a.username)}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}</td>
     <td>${resultSelect(a, i)}</td>
     <td>${strikesCell(a, i)}</td>
-    <td>${a.note ? esc(a.note) : '—'}</td>
+    <td>${a.note ? esc(a.note) : ''}${quizChip(a)}${(!a.note && !a.quiz) ? '—' : ''}</td>
   </tr>`).join('') || `<tr><td colspan="4" class="table-empty-text">No attendees recorded.</td></tr>`;
 
   const summary = `<div class="chip-row" style="margin-bottom:14px;">

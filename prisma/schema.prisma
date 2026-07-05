@@ -542,6 +542,8 @@ model Tryout {
   hostId            String    // creator (User.id)
   hostDiscordId     String
   hostName          String
+  hostRobloxId      String?   // the host's Roblox id (for the in-game TryoutTV board)
+  hostRobloxName    String?   // the host's Roblox username
   coHostDiscordId   String?
   coHostName        String?
   scheduledAt       DateTime
