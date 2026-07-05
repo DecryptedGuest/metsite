@@ -276,6 +276,7 @@ function navigateTo(pageId) {
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
     'ticket-review': loadTicketReview,
+    'support-tickets': (typeof loadSupportTickets === 'function' ? loadSupportTickets : null),
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
     'quota-check':   (typeof loadQuotaCheck === 'function' ? loadQuotaCheck : null),
     'ai-review':     (typeof loadAiReview === 'function' ? loadAiReview : null),

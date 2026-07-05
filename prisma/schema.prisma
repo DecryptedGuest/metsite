@@ -679,6 +679,9 @@ model SupportTicket {
   id              String   @id @default(uuid())
   type            String   // OFFICER_COMPLAINT | DISCIPLINARY_APPEAL | IA_COMPLAINT | GENERAL_SUPPORT
   status          String   @default("INTAKE") // INTAKE | OPEN | CLAIMED | CLOSED
+  priority        String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  escalated       Boolean  @default(false)    // flagged up to IA HICOMM
+  escalatedNote   String?
   openerId        String
   openerDiscordId String?
   openerName      String

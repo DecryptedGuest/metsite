@@ -63,8 +63,13 @@ const TYPES = {
 const BOT_NAME   = 'MET Assistant';
 const BOT_AVATAR = '/img/divisions/met.png';
 
+const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+function normPriority(p) { const v = String(p || '').toUpperCase(); return PRIORITIES.includes(v) ? v : 'NORMAL'; }
+
 function typeConfig(type) { return TYPES[String(type || '').toUpperCase()] || null; }
 function isStaff(user)    { return !!user && IA_STAFF.includes(user.role); }
+// IA HICOMM (High Command) — the elevated tier that overlooks everything.
+function isHicomm(user)   { return !!user && ['HICOMM', 'DEVELOPER'].includes(user.role); }
 
 // The "you're now in the queue" message, worded for who actually handles the type.
 function handoffMessage(type) {
@@ -115,23 +120,31 @@ function publicCatalogue() {
 // ── In-process SSE hub ───────────────────────────────────────────────
 // One process on Railway → an in-memory pub/sub is enough for realtime.
 // (Multi-instance would need Redis; noted for later.)
-const _subs = new Map(); // ticketId -> Set(res)
+const _subs = new Map(); // ticketId -> Set({ res, staff })
 
-function subscribe(ticketId, res) {
+// `meta.staff` marks a subscriber as a handling staff member, so staff-only
+// events (internal notes) are never written to an opener's stream.
+function subscribe(ticketId, res, meta) {
   const key = String(ticketId);
   if (!_subs.has(key)) _subs.set(key, new Set());
-  _subs.get(key).add(res);
+  const sub = { res, staff: !!(meta && meta.staff) };
+  _subs.get(key).add(sub);
   res.on('close', () => {
     const set = _subs.get(key);
-    if (set) { set.delete(res); if (!set.size) _subs.delete(key); }
+    if (set) { set.delete(sub); if (!set.size) _subs.delete(key); }
   });
 }
 
-function publish(ticketId, event, data) {
+// opts.staffOnly → only deliver to staff subscribers (used for internal notes).
+function publish(ticketId, event, data, opts) {
   const set = _subs.get(String(ticketId));
   if (!set || !set.size) return;
+  const staffOnly = !!(opts && opts.staffOnly);
   const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of set) { try { res.write(frame); } catch (e) { /* dropped client */ } }
+  for (const sub of set) {
+    if (staffOnly && !sub.staff) continue;
+    try { sub.res.write(frame); } catch (e) { /* dropped client */ }
+  }
 }
 
 // ── Identity resolution (for "which officer / who" intake questions) ──
@@ -207,7 +220,7 @@ async function resolveIdentity(input) {
 }
 
 module.exports = {
-  TYPES, typeConfig, isStaff, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
-  handoffMessage, resolveIdentity, subscribe, publish,
+  TYPES, typeConfig, isStaff, isHicomm, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
+  handoffMessage, resolveIdentity, subscribe, publish, PRIORITIES, normPriority,
   BOT_NAME, BOT_AVATAR, IA_STAFF, IA_HICOMM,
 };

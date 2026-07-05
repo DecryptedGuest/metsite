@@ -23,22 +23,48 @@ function serializeMessage(ticketId, m, avatarMap) {
     body: m.body, attachments: attWithUrls(ticketId, m.attachments), createdAt: m.createdAt,
   };
 }
+// What the viewing staff member may do with this ticket (server-authoritative).
+function ticketCaps(user, t) {
+  const hic = support.isHicomm(user);
+  const handler = support.canHandleTicket(user, t);
+  const claimant = !!(t.claimedById && user && t.claimedById === user.id);
+  const open = t.status !== 'CLOSED';
+  return {
+    isHicomm: hic,
+    canClaim:       handler && open && (!t.claimedById || hic),
+    canRelease:     (claimant || hic) && t.status === 'CLAIMED',
+    canClose:       (claimant || hic) && open,
+    canReply:       handler && open,
+    canInternalNote: handler,
+    canPriority:    (claimant || hic) && open,
+    canReassign:    (claimant || hic) && open,
+    canEscalate:    handler && open && !t.escalated,
+    canDeEscalate:  hic && t.escalated,
+    canDelete:      hic,
+  };
+}
 function serializeTicket(t, { full = false, user = null, avatarMap = null } = {}) {
   const cfg = support.typeConfig(t.type);
+  const staffView = user ? support.canHandleTicket(user, t) : false;
   const base = {
     id: t.id, type: t.type, typeLabel: cfg ? cfg.label : t.type, status: t.status,
+    priority: t.priority || 'NORMAL', escalated: !!t.escalated, escalatedNote: t.escalatedNote || null,
     openerId: t.openerId, openerName: t.openerName,
     openerAvatar: (avatarMap && avatarMap.get(t.openerId)) || null,
     claimedById: t.claimedById, claimedByName: t.claimedByName, claimedAt: t.claimedAt,
     closeReason: t.closeReason, closedAt: t.closedAt, createdAt: t.createdAt,
     isMine: user ? t.openerId === user.id : false,
-    canManage: user ? support.canHandleTicket(user, t) : false,
+    canManage: staffView,
+    caps: user ? ticketCaps(user, t) : null,
   };
   if (!full) return base;
   const intake = (Array.isArray(t.intake) ? t.intake : []).map(q => ({
     id: q.id, prompt: q.prompt, answer: q.answer, identity: q.identity || null, attachments: attWithUrls(t.id, q.attachments),
   }));
-  return { ...base, intake, messages: (t.messages || []).map(m => serializeMessage(t.id, m, avatarMap)) };
+  // Internal staff notes are never shown to the opener / non-handlers.
+  let msgs = t.messages || [];
+  if (!staffView) msgs = msgs.filter(m => (m.authorKind || '') !== 'INTERNAL');
+  return { ...base, intake, messages: msgs.map(m => serializeMessage(t.id, m, avatarMap)) };
 }
 
 // Build a Map(userId -> discordAvatar URL) for a set of user ids (openers/authors).
@@ -103,7 +129,9 @@ router.get('/config', (req, res) => {
   res.json({
     types: support.publicCatalogue(),
     isStaff: support.isStaff(req.user),
+    isHicomm: support.isHicomm(req.user),
     handleableTypes: support.handleableTypes(req.user),
+    priorities: support.PRIORITIES,
     me: { id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null },
   });
 });
@@ -250,10 +278,22 @@ router.get('/tickets/queue', async (req, res) => {
   // You can't handle your own ticket, so keep it out of your staff queue
   // (developers still see everything, for testing).
   if (req.user.role !== 'DEVELOPER') where.openerId = { not: req.user.id };
+
+  // Filters: ?status= / ?mine=1 (claimed by me) / ?unclaimed=1 / ?escalated=1 / ?type=
   if (['INTAKE', 'OPEN', 'CLAIMED', 'CLOSED'].includes(req.query.status)) where.status = req.query.status;
   else where.status = { in: ['OPEN', 'CLAIMED'] }; // default: active work
+  if (req.query.mine === '1') where.claimedById = req.user.id;
+  if (req.query.unclaimed === '1') { where.claimedById = null; where.status = 'OPEN'; }
+  if (req.query.escalated === '1') where.escalated = true;
+  if (types.includes(String(req.query.type))) where.type = String(req.query.type);
+
   try {
-    const rows = await prisma.supportTicket.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+    const rows = await prisma.supportTicket.findMany({ where, take: 300, orderBy: [{ createdAt: 'desc' }] });
+    // Sort escalated + high-priority to the top, then newest first.
+    const rank = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
+    rows.sort((a, b) => (Number(b.escalated) - Number(a.escalated))
+      || ((rank[a.priority] ?? 2) - (rank[b.priority] ?? 2))
+      || (new Date(b.createdAt) - new Date(a.createdAt)));
     res.json(rows.map(t => serializeTicket(t, { user: req.user })));
   } catch (e) { res.status(500).json({ error: 'Failed to load the queue' }); }
 });
@@ -336,13 +376,16 @@ router.post('/tickets/:id/messages', async (req, res) => {
     if (!body && !attachments.length) return res.status(400).json({ error: 'Empty message.' });
 
     const isOpener = t.openerId === req.user.id;
+    // Internal notes: staff-only, hidden from the opener. Only handling staff can post them.
+    const internal = !isOpener && !!(req.body && req.body.internal) && support.canHandleTicket(req.user, t);
+    const authorKind = internal ? 'INTERNAL' : (isOpener ? 'OPENER' : 'STAFF');
     const msg = await prisma.supportMessage.create({ data: {
       ticketId: t.id, authorId: req.user.id, authorName: req.user.displayName || req.user.discordUsername,
-      authorKind: isOpener ? 'OPENER' : 'STAFF', body: body || null, attachments,
+      authorKind, body: body || null, attachments,
     } });
     const out = serializeMessage(t.id, msg);
     out.authorAvatar = req.user.discordAvatar || null; // denormalise the poster's PFP
-    support.publish(t.id, 'message', out);
+    support.publish(t.id, 'message', out, { staffOnly: internal });
     res.status(201).json(out);
   } catch (e) {
     console.error('[Support] message failed:', e.message);
@@ -370,6 +413,98 @@ router.post('/tickets/:id/close', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to close' }); }
 });
 
+// Load a ticket the current user is allowed to HANDLE, else respond + return null.
+async function loadHandlable(req, res) {
+  const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+  if (!t) { res.status(404).json({ error: 'Ticket not found' }); return null; }
+  if (!support.canHandleTicket(req.user, t)) { res.status(403).json({ error: 'You cannot handle this ticket.' }); return null; }
+  return t;
+}
+
+// ── POST /api/support/tickets/:id/release — claimant / HICOMM unclaim ──
+router.post('/tickets/:id/release', async (req, res) => {
+  try {
+    const t = await loadHandlable(req, res); if (!t) return;
+    if (t.claimedById !== req.user.id && !support.isHicomm(req.user)) return res.status(403).json({ error: 'Only the claimant or IA HICOMM can release this.' });
+    if (t.status !== 'CLAIMED') return res.status(400).json({ error: 'This ticket is not claimed.' });
+    const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { status: 'OPEN', claimedById: null, claimedByName: null, claimedAt: null } });
+    const name = req.user.displayName || req.user.discordUsername;
+    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `${name} released this ticket — it's back in the queue.` } });
+    support.publish(t.id, 'message', serializeMessage(t.id, bm));
+    support.publish(t.id, 'update', { status: 'OPEN' });
+    res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
+  } catch (e) { res.status(500).json({ error: 'Failed to release' }); }
+});
+
+// ── POST /api/support/tickets/:id/reassign { toUserId } — claimant / HICOMM ──
+router.post('/tickets/:id/reassign', async (req, res) => {
+  try {
+    const t = await loadHandlable(req, res); if (!t) return;
+    if (t.claimedById !== req.user.id && !support.isHicomm(req.user)) return res.status(403).json({ error: 'Only the claimant or IA HICOMM can reassign.' });
+    if (t.status === 'CLOSED') return res.status(400).json({ error: 'This ticket is closed.' });
+    const to = await prisma.user.findUnique({ where: { id: String((req.body && req.body.toUserId) || '') } });
+    if (!to) return res.status(404).json({ error: 'Staff member not found.' });
+    if (!support.canHandle(to, t.type)) return res.status(400).json({ error: 'That member cannot handle this ticket type.' });
+    const toName = to.displayName || to.discordUsername;
+    const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { status: 'CLAIMED', claimedById: to.id, claimedByName: toName, claimedAt: new Date() } });
+    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `This ticket was reassigned to ${toName}.` } });
+    support.publish(t.id, 'message', serializeMessage(t.id, bm));
+    support.publish(t.id, 'update', { status: 'CLAIMED', claimedByName: toName });
+    res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
+  } catch (e) { res.status(500).json({ error: 'Failed to reassign' }); }
+});
+
+// ── POST /api/support/tickets/:id/priority { priority } — claimant / HICOMM ──
+router.post('/tickets/:id/priority', async (req, res) => {
+  try {
+    const t = await loadHandlable(req, res); if (!t) return;
+    if (t.claimedById !== req.user.id && !support.isHicomm(req.user)) return res.status(403).json({ error: 'Only the claimant or IA HICOMM can set priority.' });
+    const priority = support.normPriority(req.body && req.body.priority);
+    await prisma.supportTicket.update({ where: { id: t.id }, data: { priority } });
+    support.publish(t.id, 'update', { priority });
+    res.json({ ok: true, priority });
+  } catch (e) { res.status(500).json({ error: 'Failed to set priority' }); }
+});
+
+// ── POST /api/support/tickets/:id/escalate { note, off? } — flag up to IA HICOMM ──
+router.post('/tickets/:id/escalate', async (req, res) => {
+  try {
+    const t = await loadHandlable(req, res); if (!t) return;
+    const on = !(req.body && req.body.off);
+    if (!on && !support.isHicomm(req.user)) return res.status(403).json({ error: 'Only IA HICOMM can clear an escalation.' });
+    const note = req.body && req.body.note ? String(req.body.note).slice(0, 500) : null;
+    await prisma.supportTicket.update({ where: { id: t.id }, data: { escalated: on, escalatedNote: on ? note : null } });
+    const name = req.user.displayName || req.user.discordUsername;
+    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'INTERNAL', authorId: req.user.id, authorName: name, body: on ? `Escalated to IA HICOMM${note ? `: ${note}` : ''}.` : 'Escalation cleared.' } });
+    support.publish(t.id, 'message', serializeMessage(t.id, bm), { staffOnly: true });
+    support.publish(t.id, 'update', { escalated: on });
+    res.json({ ok: true, escalated: on });
+  } catch (e) { res.status(500).json({ error: 'Failed to escalate' }); }
+});
+
+// ── DELETE /api/support/tickets/:id — IA HICOMM only (cascades messages) ──
+router.delete('/tickets/:id', async (req, res) => {
+  try {
+    if (!support.isHicomm(req.user)) return res.status(403).json({ error: 'IA HICOMM only.' });
+    await prisma.supportTicket.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
+// ── GET /api/support/staff?type= — handling staff (for the reassign picker) ──
+router.get('/staff', async (req, res) => {
+  try {
+    if (!support.isStaff(req.user)) return res.status(403).json({ error: 'Staff only.' });
+    const cfg = support.typeConfig(String(req.query.type || ''));
+    const roles = cfg ? cfg.roles : support.IA_STAFF;
+    const users = await prisma.user.findMany({ where: { role: { in: roles } }, select: { id: true, displayName: true, discordUsername: true, role: true }, take: 200 });
+    res.json(users.map(u => ({ id: u.id, name: u.displayName || u.discordUsername, role: u.role })));
+  } catch (e) { res.status(500).json({ error: 'Failed to load staff' }); }
+});
+
 // ── GET /api/support/tickets/:id/stream — SSE realtime (messages + status) ──
 router.get('/tickets/:id/stream', async (req, res) => {
   try {
@@ -378,7 +513,7 @@ router.get('/tickets/:id/stream', async (req, res) => {
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.flushHeaders && res.flushHeaders();
     res.write('event: ready\ndata: {}\n\n');
-    support.subscribe(t.id, res);
+    support.subscribe(t.id, res, { staff: support.canHandleTicket(req.user, t) });
     // Heartbeat so proxies keep the connection open.
     const hb = setInterval(() => { try { res.write(': ping\n\n'); } catch (e) {} }, 25000);
     res.on('close', () => clearInterval(hb));
