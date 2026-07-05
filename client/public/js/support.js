@@ -295,11 +295,12 @@
     try {
       const wrap = ev && ev.currentTarget ? ev.currentTarget.parentElement : null;
       if (wrap) {
+        // Keep each button's original label — just disable both, fade the one
+        // that wasn't chosen, and mark the chosen one as selected (with a tick).
         wrap.querySelectorAll('button').forEach(b => { b.disabled = true; b.classList.add('sup-btn-done'); });
         const chosen = ev.currentTarget;
         chosen.classList.remove('sup-btn-done');
         chosen.classList.add('sup-btn-chosen');
-        chosen.innerHTML = yes ? '<i class="ti ti-check"></i> Selected' : '<i class="ti ti-x"></i> Not them';
       }
     } catch (e) { /* non-fatal */ }
     const { q, person } = pendingIdentity; pendingIdentity = null;

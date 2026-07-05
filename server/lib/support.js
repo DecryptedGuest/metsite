@@ -23,9 +23,7 @@ const TYPES = {
     questions: [
       { id: 'officer',  prompt: "Which officer is this about? Enter their Discord username, Roblox username, or a Discord/Roblox ID and I'll look them up.", kind: 'identity' },
       { id: 'what',     prompt: 'What happened? Describe the incident in as much detail as you can.', kind: 'longtext' },
-      { id: 'when',     prompt: 'When did this happen? (date & time, or roughly)', kind: 'text' },
       { id: 'evidence', prompt: 'Attach any evidence — screenshots, clips, or links. Upload files below or paste links.', kind: 'evidence', optional: true },
-      { id: 'outcome',  prompt: 'What outcome are you hoping for?', kind: 'text', optional: true },
     ],
   },
   DISCIPLINARY_APPEAL: {
