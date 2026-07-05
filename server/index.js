@@ -469,13 +469,17 @@ async function computeMyDivisions(user) {
   let cfg = {};
   try { cfg = await getDivisionConfig(); } catch (e) { cfg = {}; }
   const icon = (d) => (cfg[d] && cfg[d].icon) || null;
+  const { displayTier, tierLabel } = require('./lib/ranks');
   return {
     icon,
     // Prefer the live Roblox group icon; fall back to a static meta icon (e.g.
     // the Developer division's committed logo) so DEV shows a crest like the rest.
     mine: mine.map(d => {
       const m = divisionMeta(d.division) || {};
-      return { ...d, ...m, icon: icon(d.division) || m.icon || null };
+      // Map the member's rank (or coarse access tier) → LOW / MIDDLE / HIGH per
+      // the division rank structure, for the profile "Divisions & rank" badge.
+      const rankTier = displayTier(d.division, d.rankName, d.tier);
+      return { ...d, ...m, icon: icon(d.division) || m.icon || null, rankTier, rankTierLabel: tierLabel(rankTier) };
     }),
   };
 }

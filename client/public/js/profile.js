@@ -21,8 +21,17 @@ function chip(label, color) {
   return `<span class="met-chip" ${style}>${dot}${escHtml(label)}</span>`;
 }
 
-function tierBadge(tier) {
-  return tier === 'LEAD'
+// Rank-tier badge for a division membership. Prefers the LOW/MIDDLE/HIGH tier
+// computed server-side from the division rank structure; falls back to the
+// coarse LEAD/MEMBER access tier for older payloads.
+function tierBadge(d) {
+  const label = (d && (d.rankTierLabel || (d.rankTier && ({ LOW: 'Low Rank', MIDDLE: 'Middle Rank', HIGH: 'High Rank' }[d.rankTier])))) || null;
+  const cls = { LOW: 'badge-pending', MIDDLE: 'badge-amber', HIGH: 'badge-approved' };
+  if (label) {
+    return `<span class="badge ${cls[d.rankTier] || 'badge-pending'}"><span class="badge-dot"></span>${label}</span>`;
+  }
+  // Legacy fallback (payload predates rankTier).
+  return d && d.tier === 'LEAD'
     ? '<span class="badge badge-approved"><span class="badge-dot"></span>High Rank</span>'
     : '<span class="badge badge-pending"><span class="badge-dot"></span>Member</span>';
 }
@@ -88,7 +97,7 @@ async function loadProfile() {
           <div class="profile-div-name">${escHtml(d.fullName || d.name)}</div>
           <div class="profile-div-rank">${d.rankName ? escHtml(d.rankName) : ''}</div>
         </div>
-        ${tierBadge(d.tier)}
+        ${tierBadge(d)}
       </a>`;
     }).join('')}</div>`;
   } else {

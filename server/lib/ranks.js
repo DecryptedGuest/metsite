@@ -59,11 +59,24 @@ const RANKS = {
 
 const TIERS = ['LOW', 'MIDDLE', 'HIGH'];
 
+// Human labels for the tiers, for UI ("LOW" → "Low Rank").
+const TIER_LABELS = { LOW: 'Low Rank', MIDDLE: 'Middle Rank', HIGH: 'High Rank' };
+
+// The app uses a few division codes that differ from the RANKS keys
+// (e.g. "SCO19"/"SCO-19" for the firearms division) — normalise them here so
+// rank lookups are forgiving of the calling convention.
+const DIV_ALIAS = { SCO19: 'SCO', 'SCO-19': 'SCO', SCO_19: 'SCO' };
+
 function norm(s) { return String(s || '').trim().toLowerCase(); }
+
+function divisionKey(division) {
+  const d = String(division || '').toUpperCase().trim();
+  return DIV_ALIAS[d] || d;
+}
 
 // Resolve a rank (full name OR short code, case-insensitive) → its entry.
 function rankEntry(division, rank) {
-  const list = RANKS[String(division || '').toUpperCase()];
+  const list = RANKS[divisionKey(division)];
   if (!list) return null;
   const r = norm(rank);
   if (!r) return null;
@@ -76,6 +89,22 @@ function tierForRank(division, rank) {
   return e ? e.tier : null;
 }
 
+// Best-effort display tier for a division membership. Prefers the real rank →
+// tier mapping from the rank structure; falls back to the coarse access tier
+// ('LEAD' → HIGH, anything else → LOW) so the badge always resolves to one of
+// LOW / MIDDLE / HIGH. Returns null only when there's nothing to go on.
+function displayTier(division, rankName, accessTier) {
+  const t = tierForRank(division, rankName);
+  if (t) return t;
+  const a = String(accessTier || '').toUpperCase();
+  if (a === 'LEAD' || a === 'HIGH') return 'HIGH';
+  if (a === 'MIDDLE') return 'MIDDLE';
+  if (a === 'MEMBER' || a === 'LOW') return 'LOW';
+  return null;
+}
+
+function tierLabel(tier) { return TIER_LABELS[String(tier || '').toUpperCase()] || null; }
+
 // The candidate DB sheet-tab titles for a tier, most-specific first. The real
 // tabs are named like "LOW RANK" / "MIDDLE RANK" / "HIGH RANK" — we accept a few
 // spellings so tab lookup is forgiving.
@@ -85,4 +114,4 @@ function tabTitlesForTier(tier) {
   return [`${t} RANK`, `${t} RANKS`, t];
 }
 
-module.exports = { RANKS, TIERS, rankEntry, tierForRank, tabTitlesForTier };
+module.exports = { RANKS, TIERS, TIER_LABELS, rankEntry, tierForRank, displayTier, tierLabel, tabTitlesForTier };
