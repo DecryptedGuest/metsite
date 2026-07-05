@@ -23,6 +23,7 @@ const examRoutes  = require('./routes/exam');
 const tryoutRoutes = require('./routes/tryouts');
 const { requireAuth } = require('./middleware/auth');
 const { requireDivision, requireCidTryout } = require('./middleware/division');
+const { maybeAuth } = require('./middleware/auth');
 const { recordVisit } = require('./middleware/visit');
 const { startBot, startRoleExpiryChecker } = require('./lib/bot');
 const { initCsrf }    = require('./lib/roblox');
@@ -160,9 +161,10 @@ app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
 app.use('/api/exam',  requireAuth, examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
-// Support help desk (/support) — any logged-in user can open a ticket; handling
-// is gated per ticket type inside the router. NOT behind a division gate.
-app.use('/api/support', requireAuth, require('./routes/support'));
+// Support help desk (/support) — login is OPTIONAL. Anyone can open a ticket
+// (anonymous openers hold a per-ticket token); staff handling is gated per type
+// inside the router. maybeAuth sets req.user when signed in, else null.
+app.use('/api/support', maybeAuth, require('./routes/support'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
 app.use('/api/game', require('./routes/game'));
 

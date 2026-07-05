@@ -110,8 +110,27 @@ function requireDeveloper(req, res, next) {
   return res.status(403).json({ error: 'Developer access required' });
 }
 
+// Optional auth: set req.user if a valid session exists, else leave it null and
+// continue (never redirects/rejects). Used by public-but-personalisable areas
+// like /support, where login is optional.
+async function maybeAuth(req, res, next) {
+  const token = req.cookies?.iacms_token;
+  if (!token) { req.user = null; return next(); }
+  let payload;
+  try { payload = jwt.verify(token, process.env.JWT_SECRET); }
+  catch (e) { req.user = null; return next(); }
+  let user = null;
+  try { user = await prisma.user.findUnique({ where: { id: payload.userId } }); }
+  catch (e) { req.user = null; return next(); }
+  if (!user || user.isBlacklisted || user.mustReauth) { req.user = null; return next(); }
+  req.user = user;
+  next();
+  maybeRefreshRoles(user);
+}
+
 module.exports = {
   requireAuth,
+  maybeAuth,
   requireHICOMM,
   requireHICOMMStrict,
   requireDeveloper,

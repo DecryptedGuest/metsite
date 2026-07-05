@@ -4,10 +4,28 @@
 // as Media rows but served through a ticket-scoped, access-checked route so
 // evidence never leaks to people outside the ticket.
 const express = require('express');
+const crypto  = require('crypto');
 const prisma  = require('../lib/db');
 const support = require('../lib/support');
 
 const router = express.Router();
+
+// ── Optional-login identity ──────────────────────────────────────────
+// Login is optional. A logged-in opener is matched by openerId; an anonymous
+// opener holds a per-ticket secret token (localStorage) sent as ?token= /
+// x-support-token / body.token.
+function reqToken(req) { return req.get('x-support-token') || (req.query && req.query.token) || (req.body && req.body.token) || null; }
+function isOpener(req, t) {
+  if (req.user && t.openerId && String(t.openerId) === String(req.user.id)) return true;
+  const tok = reqToken(req);
+  return !!(tok && t.openerToken && String(tok) === String(t.openerToken));
+}
+function isHandler(req, t) { return !!req.user && support.canHandleTicket(req.user, t); }
+// Can the requester SEE this ticket? The opener, or staff who handle the type.
+function canSee(req, t) {
+  if (isOpener(req, t)) return true;
+  return req.user ? support.canHandle(req.user, t.type) : false;
+}
 
 // ── serialisers ──────────────────────────────────────────────────────
 function attWithUrls(ticketId, atts) {
@@ -43,7 +61,7 @@ function ticketCaps(user, t) {
     canDelete:      hic,
   };
 }
-function serializeTicket(t, { full = false, user = null, avatarMap = null } = {}) {
+function serializeTicket(t, { full = false, user = null, avatarMap = null, opener = false } = {}) {
   const cfg = support.typeConfig(t.type);
   const staffView = user ? support.canHandleTicket(user, t) : false;
   const base = {
@@ -53,7 +71,7 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null } = {}
     openerAvatar: (avatarMap && avatarMap.get(t.openerId)) || null,
     claimedById: t.claimedById, claimedByName: t.claimedByName, claimedAt: t.claimedAt,
     closeReason: t.closeReason, closedAt: t.closedAt, createdAt: t.createdAt,
-    isMine: user ? t.openerId === user.id : false,
+    isMine: opener || (user ? t.openerId === user.id : false),
     canManage: staffView,
     caps: user ? ticketCaps(user, t) : null,
   };
@@ -87,6 +105,7 @@ async function subjectRobloxUsername(t) {
   const intake = Array.isArray(t.intake) ? t.intake : [];
   const idq = intake.find(q => q.identity && q.identity.robloxUsername);
   if (idq) return idq.identity.robloxUsername; // the reported person
+  if (!t.openerId) return t.openerName;        // anonymous opener — no linked account
   try {
     const opener = await prisma.user.findUnique({ where: { id: t.openerId }, select: { robloxUsername: true, discordId: true } });
     if (opener && opener.robloxUsername) return opener.robloxUsername;
@@ -128,12 +147,28 @@ async function createIaTicketLog(t, closer) {
 router.get('/config', (req, res) => {
   res.json({
     types: support.publicCatalogue(),
+    loggedIn: !!req.user,
     isStaff: support.isStaff(req.user),
     isHicomm: support.isHicomm(req.user),
     handleableTypes: support.handleableTypes(req.user),
     priorities: support.PRIORITIES,
-    me: { id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null },
+    me: req.user ? { id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null } : null,
   });
+});
+
+// ── GET /api/support/tryouts — upcoming MET (HPC) tryouts, for the help bot ──
+router.get('/tryouts', async (req, res) => {
+  try {
+    const { isServerLocked } = require('../lib/tryouts');
+    const rows = await prisma.tryout.findMany({
+      where: { division: 'HPC', status: { in: ['SCHEDULED', 'LIVE'] }, scheduledAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+      orderBy: { scheduledAt: 'asc' }, take: 10,
+    });
+    res.json(rows.map(t => ({
+      id: t.id, scheduledAt: t.scheduledAt ? t.scheduledAt.getTime() : null, status: t.status,
+      hostName: t.hostRobloxName || t.hostName || null, locked: isServerLocked(t),
+    })));
+  } catch (e) { res.status(500).json({ error: 'Failed to load tryouts' }); }
 });
 
 // ── POST /api/support/tickets { type } — open a ticket, start intake ──
@@ -142,11 +177,15 @@ router.post('/tickets', async (req, res) => {
   const cfg  = support.typeConfig(type);
   if (!cfg) return res.status(400).json({ error: 'Unknown ticket type.' });
   try {
+    // Anonymous openers get a per-ticket token; logged-in openers are matched by id.
+    const token = crypto.randomBytes(24).toString('hex');
+    const anonName = (req.body && req.body.name ? String(req.body.name).slice(0, 60).trim() : '') || 'Guest';
     const t = await prisma.supportTicket.create({
       data: {
-        type, status: 'INTAKE',
-        openerId: req.user.id, openerDiscordId: req.user.discordId,
-        openerName: req.user.displayName || req.user.discordUsername || 'User',
+        type, status: 'INTAKE', openerToken: token,
+        openerId:        req.user ? req.user.id : null,
+        openerDiscordId: req.user ? req.user.discordId : null,
+        openerName:      req.user ? (req.user.displayName || req.user.discordUsername || 'User') : anonName,
       },
     });
     // Assistant greeting (shown at the top of the transcript).
@@ -154,7 +193,7 @@ router.post('/tickets', async (req, res) => {
       ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME,
       body: `Hi — I'm the MET support assistant. I'll take a few details for your **${cfg.label}**, then hand you to the right team. You can answer below.`,
     } });
-    res.status(201).json({ ticket: serializeTicket(t, { user: req.user }), questions: cfg.questions });
+    res.status(201).json({ ticket: serializeTicket(t, { user: req.user, opener: true }), questions: cfg.questions, token });
   } catch (e) {
     console.error('[Support] create ticket failed:', e.message);
     res.status(500).json({ error: 'Failed to open the ticket.' });
@@ -169,7 +208,7 @@ router.post('/tickets/:id/upload', rawUpload, async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
-    if (!support.canView(req.user, t)) return res.status(403).json({ error: 'Not your ticket.' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
     if (t.status === 'CLOSED') return res.status(400).json({ error: 'This ticket is closed.' });
 
     const buf = Buffer.isBuffer(req.body) ? req.body : null;
@@ -196,7 +235,7 @@ router.post('/tickets/:id/upload', rawUpload, async (req, res) => {
 router.get('/tickets/:id/media/:mediaId', async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
-    if (!t || !support.canView(req.user, t)) return res.status(403).end();
+    if (!t || !canSee(req, t)) return res.status(403).end();
     const m = await prisma.media.findUnique({ where: { id: req.params.mediaId }, select: { data: true, mimeType: true } });
     if (!m) return res.status(404).end();
     res.set('Content-Type', m.mimeType);
@@ -215,7 +254,7 @@ router.post('/tickets/:id/submit-intake', async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
-    if (t.openerId !== req.user.id) return res.status(403).json({ error: 'Not your ticket.' });
+    if (!isOpener(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
     if (t.status !== 'INTAKE') return res.status(400).json({ error: 'Intake already completed.' });
 
     const cfg = support.typeConfig(t.type);
@@ -264,6 +303,7 @@ router.post('/tickets/:id/submit-intake', async (req, res) => {
 
 // ── GET /api/support/tickets/mine — the opener's own tickets ──
 router.get('/tickets/mine', async (req, res) => {
+  if (!req.user) return res.json([]); // anonymous openers track their tickets client-side
   try {
     const rows = await prisma.supportTicket.findMany({ where: { openerId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 100 });
     res.json(rows.map(t => serializeTicket(t, { user: req.user })));
@@ -303,9 +343,9 @@ router.get('/tickets/:id', async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id }, include: { messages: { orderBy: { createdAt: 'asc' } } } });
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
-    if (!support.canView(req.user, t)) return res.status(403).json({ error: 'You cannot view this ticket.' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'You cannot view this ticket.' });
     const avatarMap = await avatarsFor([t.openerId, ...(t.messages || []).map(m => m.authorId)]);
-    res.json(serializeTicket(t, { full: true, user: req.user, avatarMap }));
+    res.json(serializeTicket(t, { full: true, user: req.user, avatarMap, opener: isOpener(req, t) }));
   } catch (e) { res.status(500).json({ error: 'Failed to load the ticket' }); }
 });
 
@@ -366,7 +406,7 @@ router.post('/tickets/:id/messages', async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
-    if (!support.canView(req.user, t)) return res.status(403).json({ error: 'Not your ticket.' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
     if (t.status === 'CLOSED') return res.status(400).json({ error: 'This ticket is closed.' });
 
     const body = (req.body && req.body.body != null ? String(req.body.body) : '').slice(0, 4000).trim();
@@ -375,16 +415,18 @@ router.post('/tickets/:id/messages', async (req, res) => {
       .map(x => ({ mediaId: String(x.mediaId), kind: x.kind || 'image', name: (x.name || '').toString().slice(0, 200) })) : [];
     if (!body && !attachments.length) return res.status(400).json({ error: 'Empty message.' });
 
-    const isOpener = t.openerId === req.user.id;
+    const opener = isOpener(req, t);
     // Internal notes: staff-only, hidden from the opener. Only handling staff can post them.
-    const internal = !isOpener && !!(req.body && req.body.internal) && support.canHandleTicket(req.user, t);
-    const authorKind = internal ? 'INTERNAL' : (isOpener ? 'OPENER' : 'STAFF');
+    const internal = !opener && !!(req.body && req.body.internal) && isHandler(req, t);
+    const authorKind = internal ? 'INTERNAL' : (opener ? 'OPENER' : 'STAFF');
     const msg = await prisma.supportMessage.create({ data: {
-      ticketId: t.id, authorId: req.user.id, authorName: req.user.displayName || req.user.discordUsername,
+      ticketId: t.id,
+      authorId:   req.user ? req.user.id : null,
+      authorName: req.user ? (req.user.displayName || req.user.discordUsername) : t.openerName,
       authorKind, body: body || null, attachments,
     } });
     const out = serializeMessage(t.id, msg);
-    out.authorAvatar = req.user.discordAvatar || null; // denormalise the poster's PFP
+    out.authorAvatar = req.user ? (req.user.discordAvatar || null) : null; // poster's PFP
     support.publish(t.id, 'message', out, { staffOnly: internal });
     res.status(201).json(out);
   } catch (e) {
@@ -509,7 +551,7 @@ router.get('/staff', async (req, res) => {
 router.get('/tickets/:id/stream', async (req, res) => {
   try {
     const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
-    if (!t || !support.canView(req.user, t)) return res.status(403).end();
+    if (!t || !canSee(req, t)) return res.status(403).end();
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.flushHeaders && res.flushHeaders();
     res.write('event: ready\ndata: {}\n\n');

@@ -8,12 +8,22 @@
   const BOT_AVATAR = '/img/divisions/met.png';   // MET crest (not the IA logo)
   let MY_AVATAR = null;
   // Render a small subset of markdown (**bold**) after escaping.
-  const mdInline = s => esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  const mdInline = s => esc(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) => `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);">${txt}</a>`);
   let pendingIdentity = null;
 
-  let CFG = { types: [], isStaff: false, handleableTypes: [], me: { id: null, name: '' } };
+  let CFG = { types: [], isStaff: false, handleableTypes: [], me: null };
   const typeByKey = {};
   let queueStatus = 'active';
+
+  // ── Anonymous access: per-ticket tokens kept in localStorage ──────────
+  const LS = 'met_support_tickets';
+  function stored() { try { return JSON.parse(localStorage.getItem(LS)) || []; } catch (e) { return []; } }
+  function saveStored(l) { try { localStorage.setItem(LS, JSON.stringify(l.slice(0, 50))); } catch (e) {} }
+  function remember(id, token) { const l = stored().filter(x => x.id !== id); l.unshift({ id, token, at: Date.now() }); saveStored(l); }
+  function tokenFor(id) { const x = stored().find(x => x.id === id); return x ? x.token : null; }
+  function tok(path, id) { const t = tokenFor(id); return t ? path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(t) : path; }
 
   // Per-open-ticket state
   let cur = null;        // current ticket object
@@ -30,11 +40,22 @@
     try {
       CFG = await api('/api/support/config');
       CFG.types.forEach(t => { typeByKey[t.key] = t; });
-    } catch (e) { /* not logged in → api() already redirected */ return; }
-    MY_AVATAR = CFG.me.avatar || null;
-    $('sup-user-name').textContent = CFG.me.name || 'You';
-    $('sup-user-fallback').textContent = (CFG.me.name || '?').slice(0, 1).toUpperCase();
+    } catch (e) { return; }
+    const me = CFG.me;               // null when browsing as a guest
+    MY_AVATAR = me && me.avatar || null;
+    $('sup-user-name').textContent = me ? me.name : 'Guest';
+    $('sup-user-fallback').textContent = (me ? me.name : 'G').slice(0, 1).toUpperCase();
     if (MY_AVATAR) { const a = $('sup-user-avatar'); if (a) { a.src = MY_AVATAR; a.style.display = ''; $('sup-user-fallback').style.display = 'none'; } }
+    // Guests: swap the sign-out button for a subtle "Log in (optional)" link.
+    if (!me) {
+      const lo = document.querySelector('.met-topbar-right form'); if (lo) lo.style.display = 'none';
+      const right = document.querySelector('.met-topbar-right');
+      if (right && !document.getElementById('sup-login-link')) {
+        const a = document.createElement('a'); a.id = 'sup-login-link'; a.href = '/login'; a.className = 'btn btn-ghost btn-sm';
+        a.innerHTML = '<i class="ti ti-login"></i> Log in';
+        right.appendChild(a);
+      }
+    }
     renderPanels();
     loadMine();
     if (CFG.isStaff && CFG.handleableTypes.length) {
@@ -77,11 +98,17 @@
   }
 
   async function loadMine() {
-    try {
-      const rows = await api('/api/support/tickets/mine');
-      $('sup-mytickets').innerHTML = rows.length ? rows.map(t => ticketRow(t, false)).join('')
-        : '<div class="table-empty"><div class="table-empty-text">You have no tickets yet. Open one above.</div></div>';
-    } catch (e) { $('sup-mytickets').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
+    const el = $('sup-mytickets');
+    el.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    const seen = new Set(); const rows = [];
+    try { (await api('/api/support/tickets/mine') || []).forEach(t => { if (!seen.has(t.id)) { seen.add(t.id); rows.push(t); } }); } catch (e) {}
+    for (const st of stored()) {
+      if (seen.has(st.id)) continue;
+      try { const t = await api(tok('/api/support/tickets/' + st.id, st.id)); seen.add(t.id); rows.push(t); } catch (e) {}
+    }
+    rows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    el.innerHTML = rows.length ? rows.map(t => ticketRow(t, false)).join('')
+      : '<div class="table-empty"><div class="table-empty-text">You have no tickets yet. Pick an option above to get help.</div></div>';
   }
 
   function wireQueueTabs() {
@@ -103,12 +130,15 @@
 
   // ── Open / create a ticket ──────────────────────────────────────────
   window.supOpenNew = async function (type) {
+    const cfg = typeByKey[type] || {};
+    if (cfg.helpBot) return startHelpBot(cfg);   // General Support → help bot first
+    helpMode = false;
     try {
       const r = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({ type }) });
+      if (r.token) remember(r.ticket.id, r.token);
       cur = r.ticket;
       enterTicketView();
-      // Render the greeting, then start the guided intake.
-      const t = await api('/api/support/tickets/' + cur.id);
+      const t = await api(tok('/api/support/tickets/' + cur.id, cur.id));
       cur = t;
       renderTicketHeader(t);
       $('sup-log').innerHTML = (t.messages || []).map(renderMsg).join('');
@@ -118,8 +148,9 @@
 
   window.supOpenTicket = openTicket;
   async function openTicket(id) {
+    helpMode = false;
     try {
-      const t = await api('/api/support/tickets/' + id);
+      const t = await api(tok('/api/support/tickets/' + id, id));
       cur = t;
       enterTicketView();
       renderTicketHeader(t);
@@ -145,6 +176,7 @@
   }
   window.supBackToLanding = function () {
     closeStream();
+    helpMode = false;
     $('sup-ticket').classList.add('sup-hidden');
     $('sup-landing').classList.remove('sup-hidden');
     cur = null;
@@ -201,6 +233,8 @@
       ${discord}</div></div>`;
   }
   function renderMsg(m) {
+    const panel = transitionPanel(m);
+    if (panel) return `<div class="sup-msg-sys"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>${panel}</div>`;
     const kind = (m.authorKind || 'STAFF').toLowerCase();
     const atts = (m.attachments || []).map(a =>
       a.kind === 'video'
@@ -253,7 +287,7 @@
     intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments, identity: identity || null });
     // The echoed bubble needs viewable URLs for its attachments.
     const display = (attachments || []).map(a => ({ ...a, url: `/api/support/tickets/${cur.id}/media/${a.mediaId}` }));
-    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, authorAvatar: MY_AVATAR, body: answer, attachments: display, identity: identity || null, createdAt: new Date().toISOString() });
+    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || "You", authorAvatar: MY_AVATAR, body: answer, attachments: display, identity: identity || null, createdAt: new Date().toISOString() });
   }
   function submitIntakeStep() {
     const q = intakeQs[0];
@@ -270,7 +304,7 @@
 
   // Identity questions: resolve the input, then ask the opener to confirm.
   async function resolveAndConfirm(q, input) {
-    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, authorAvatar: MY_AVATAR, body: input, createdAt: new Date().toISOString() });
+    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || "You", authorAvatar: MY_AVATAR, body: input, createdAt: new Date().toISOString() });
     $('sup-input').value = ''; $('sup-hint').textContent = '';
     setComposerBusy(true);
     appendBotTyping('Looking that up…', async () => {
@@ -350,9 +384,9 @@
 
   async function finishIntake() {
     try {
-      const r = await api('/api/support/tickets/' + cur.id + '/submit-intake', { method: 'POST', body: JSON.stringify({ answers: intakeAnswers }) });
+      const r = await api(tok('/api/support/tickets/' + cur.id + '/submit-intake', cur.id), { method: 'POST', body: JSON.stringify({ answers: intakeAnswers }) });
       cur = r.ticket; mode = 'chat';
-      const full = await api('/api/support/tickets/' + cur.id);
+      const full = await api(tok('/api/support/tickets/' + cur.id, cur.id));
       cur = full; renderTicketHeader(full); renderLog(full);
       setComposerEnabled(full); openStream(full.id);
       showToast('Ticket submitted', 'success');
@@ -375,6 +409,119 @@
   }
   function setComposerBusy(b) {
     ['sup-send-btn', 'sup-input', 'sup-attach-btn'].forEach(idv => { const el = $(idv); if (el) el.disabled = b; });
+  }
+
+  // ── General Support help bot (rule-based knowledge; hands off to IA) ──
+  const CH = 'https://discord.com/channels/1191048287315304470/1458854944793694360';
+  const KB_JOIN = `**How to join the MET**
+Your career starts at Hendon Police College. Pass a tryout and the final exam and you'll become a **Community Support Officer**, then train up to **Police Constable** and can later join specialist divisions (response, investigations, and more).
+
+**You MUST join BOTH Roblox groups first:**
+• [Hendon Police College](https://www.roblox.com/communities/14201396/Hendon-Police-College-SLR)
+• [Metropolitan Police](https://www.roblox.com/communities/17275620/Metropolitan-Police-SLR)
+
+Tryouts are announced in [#public-tryouts](${CH}) — react to the notifications message there to get pinged when one is hosted.`;
+  const KB_REQS = `**Tryout requirements**
+• Roblox account **100+ days old**
+• **Not** in any gang (unless you have gang perms)
+• Member of **both** Roblox groups (Hendon + Metropolitan)
+• Verified, blocky avatar, in uniform, 16+
+
+Come along when a tryout is announced in [#public-tryouts](${CH}).`;
+  let helpMode = false, lastHelpText = '';
+
+  window.startHelpBot = function () {
+    helpMode = true; cur = null; mode = 'chat'; closeStream();
+    enterTicketView();
+    $('sup-t-title').textContent = 'General Support';
+    $('sup-t-sub').textContent = 'Ask me anything — joining, tryouts, and more.';
+    const st = $('sup-t-status'); if (st) st.outerHTML = '<span id="sup-t-status"></span>';
+    $('sup-t-actions').innerHTML = '';
+    $('sup-log').innerHTML = '';
+    appendBubble({ authorKind: 'BOT', authorName: BOT_NAME, body: "Hi! I'm the MET support assistant. What do you need help with?", createdAt: new Date().toISOString() });
+    helpTopics();
+    $('sup-composer').style.display = '';
+    $('sup-hint').textContent = 'Tap an option above, or type your question.';
+    $('sup-input').focus();
+  };
+  window.supHelpTopics = helpTopics;
+  function helpTopics() {
+    const opts = [['join', 'How do I join the MET?'], ['tryout', 'When is the next tryout?'], ['reqs', 'What are the requirements?'], ['human', 'Talk to an investigator']];
+    $('sup-log').insertAdjacentHTML('beforeend',
+      `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 4px 44px;">` +
+      opts.map(([k, l]) => `<button class="btn btn-ghost btn-sm" onclick="supHelp('${k}')">${esc(l)}</button>`).join('') + `</div>`);
+    scrollLog();
+  }
+  window.supHelp = function (topic) {
+    const labels = { join: 'How do I join the MET?', tryout: 'When is the next tryout?', reqs: 'What are the requirements?', human: 'Talk to an investigator' };
+    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || 'You', authorAvatar: MY_AVATAR, body: labels[topic] || topic, createdAt: new Date().toISOString() });
+    if (topic === 'human') return helpHandoff(lastHelpText);
+    if (topic === 'join') return appendBotTyping(KB_JOIN, helpFollowup);
+    if (topic === 'reqs') return appendBotTyping(KB_REQS, helpFollowup);
+    if (topic === 'tryout') return helpTryouts();
+  };
+  function helpFollowup() {
+    $('sup-log').insertAdjacentHTML('beforeend',
+      `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 4px 44px;">
+        <button class="btn btn-ghost btn-sm" onclick="supHelpTopics()">Other questions</button>
+        <button class="btn btn-ghost btn-sm" onclick="supHelp('human')"><i class="ti ti-user"></i> Talk to an investigator</button>
+      </div>`);
+    scrollLog();
+  }
+  async function helpTryouts() {
+    let list = [];
+    try { list = await api('/api/support/tryouts'); } catch (e) {}
+    let body;
+    if (list && list.length) {
+      const lines = list.map(t => `• ${t.status === 'LIVE' ? '**LIVE now**' : new Date(t.scheduledAt).toLocaleString()}${t.hostName ? ' — host ' + t.hostName : ''}`).join('\n');
+      body = `**Upcoming MET tryouts:**\n${lines}\n\nThey're hosted in [#public-tryouts](${CH}) — react to the notifications message to get pinged when one starts.`;
+    } else {
+      body = `There are no scheduled tryouts right now. Keep an eye on [#public-tryouts](${CH}) and react to the notifications message there — you'll be pinged the moment one is hosted.`;
+    }
+    appendBotTyping(body, helpFollowup);
+  }
+  function helpFreeText(text) {
+    lastHelpText = text;
+    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || 'You', authorAvatar: MY_AVATAR, body: text, createdAt: new Date().toISOString() });
+    const t = text.toLowerCase();
+    if (/join|how do i (get|become)|sign ?up|recruit/.test(t)) return appendBotTyping(KB_JOIN, helpFollowup);
+    if (/require|how old|days old|gang|group/.test(t)) return appendBotTyping(KB_REQS, helpFollowup);
+    if (/tryout|try out|when.*(tryout|test)|next test/.test(t)) return helpTryouts();
+    appendBotTyping("I'm not sure I can answer that one. Want me to connect you to an Internal Affairs investigator?", () => {
+      $('sup-log').insertAdjacentHTML('beforeend',
+        `<div style="display:flex;gap:8px;margin:4px 0 4px 44px;">
+          <button class="btn btn-primary btn-sm" onclick="supHelp('human')"><i class="ti ti-user"></i> Yes, connect me</button>
+          <button class="btn btn-ghost btn-sm" onclick="supHelpTopics()">No, other questions</button></div>`);
+      scrollLog();
+    });
+  }
+  async function helpHandoff(freeText) {
+    appendBotTyping('Connecting you to an Internal Affairs investigator…', async () => {
+      try {
+        const r = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({ type: 'GENERAL_SUPPORT' }) });
+        if (r.token) remember(r.ticket.id, r.token);
+        cur = r.ticket; helpMode = false; mode = 'chat';
+        const question = (freeText || '').trim() || 'Requested to speak with an investigator.';
+        await api(tok('/api/support/tickets/' + cur.id + '/submit-intake', cur.id), { method: 'POST', body: JSON.stringify({ answers: [{ id: 'issue', answer: question }] }) });
+        const full = await api(tok('/api/support/tickets/' + cur.id, cur.id));
+        cur = full; renderTicketHeader(full); renderLog(full); setComposerEnabled(full); openStream(full.id);
+      } catch (e) { showToast(e.message, 'error'); helpMode = true; }
+    });
+  }
+
+  // ── System transition panels (transfer to IA, claimed, closed) ───────
+  function sysPanelHtml(logo, icon, title, sub) {
+    const media = logo ? `<img src="${logo}" style="width:34px;height:34px;border-radius:8px;object-fit:cover;" alt="">` : `<i class="ti ${icon}" style="font-size:22px;color:var(--blue);"></i>`;
+    return `<div class="sup-sys">${media}<div><div style="font-weight:700;font-size:13px;">${esc(title)}</div>${sub ? `<div style="font-size:11px;color:var(--text-muted);">${esc(sub)}</div>` : ''}</div></div>`;
+  }
+  function transitionPanel(m) {
+    if ((m.authorKind || '').toLowerCase() !== 'bot') return null;
+    const b = m.body || '';
+    if (/will be with you shortly/i.test(b)) return sysPanelHtml('/img/divisions/ia.png', null, 'Transferred to Internal Affairs', b);
+    if (/claimed this ticket/i.test(b))       return sysPanelHtml('/img/divisions/ia.png', null, 'Claimed by Internal Affairs', b);
+    if (/released this ticket/i.test(b))       return sysPanelHtml(null, 'ti-arrow-back-up', 'Back in the queue', b);
+    if (/was closed/i.test(b))                 return sysPanelHtml(null, 'ti-lock', 'Ticket closed', b);
+    return null;
   }
 
   // ── Composer ────────────────────────────────────────────────────────
@@ -445,19 +592,20 @@
 
   async function supUpload(ticketId, file) {
     const q = new URLSearchParams({ filename: file.name || 'upload', mimeType: file.type || 'application/octet-stream' });
-    const res = await fetch(`/api/support/tickets/${ticketId}/upload?` + q.toString(), { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+    const res = await fetch(tok(`/api/support/tickets/${ticketId}/upload?` + q.toString(), ticketId), { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Upload failed'); }
     return res.json();
   }
 
   async function onSend() {
     if (mode === 'intake') return submitIntakeStep();
+    if (helpMode) { const text = $('sup-input').value.trim(); if (!text) return; $('sup-input').value = ''; return helpFreeText(text); }
     if (anyUploading()) return showToast('Please wait for uploads to finish.', 'warning');
     const body = $('sup-input').value.trim();
     const atts = readyAttachments();
     if (!body && !atts.length) return;
     try {
-      const msg = await api('/api/support/tickets/' + cur.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts }) });
+      const msg = await api(tok('/api/support/tickets/' + cur.id + '/messages', cur.id), { method: 'POST', body: JSON.stringify({ body, attachments: atts }) });
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
       $('sup-input').value = ''; clearPending();
@@ -468,7 +616,7 @@
   function openStream(ticketId) {
     closeStream();
     try {
-      es = new EventSource('/api/support/tickets/' + ticketId + '/stream');
+      es = new EventSource(tok('/api/support/tickets/' + ticketId + '/stream', ticketId));
       es.addEventListener('message', ev => {
         try {
           const m = JSON.parse(ev.data);

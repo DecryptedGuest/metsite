@@ -17,8 +17,8 @@ const IA_HICOMM  = ['HICOMM', 'DEVELOPER'];
 
 const TYPES = {
   OFFICER_COMPLAINT: {
-    key: 'OFFICER_COMPLAINT', label: 'Officer Complaint', button: 'Officer Reports', icon: 'ti-user-exclamation',
-    blurb: 'Have you experienced misconduct, abuse of authority, or disrespect from an officer? Submit a ticket here to initiate a formal review—follow-up actions will be taken to ensure accountability.',
+    key: 'OFFICER_COMPLAINT', label: 'Officer Complaint', button: 'Report an officer', icon: 'ti-user-exclamation',
+    blurb: 'Report an officer for misconduct or abuse of power.',
     roles: IA_STAFF,
     questions: [
       { id: 'officer',  prompt: "Which officer is this about? Enter their Discord username, Roblox username, or a Discord/Roblox ID and I'll look them up.", kind: 'identity' },
@@ -27,8 +27,8 @@ const TYPES = {
     ],
   },
   DISCIPLINARY_APPEAL: {
-    key: 'DISCIPLINARY_APPEAL', label: 'Disciplinary Action Appeal', button: 'Disciplinary Action', icon: 'ti-gavel',
-    blurb: 'Have you been unfairly striked, demoted, exiled, or blacklisted without clear justification? Submit a ticket to request support and a thorough review of your case.',
+    key: 'DISCIPLINARY_APPEAL', label: 'Disciplinary Action Appeal', button: 'Appeal a punishment', icon: 'ti-gavel',
+    blurb: 'Appeal a strike, demotion, exile, or blacklist you think was unfair.',
     roles: IA_STAFF,
     questions: [
       { id: 'action',   prompt: 'What action was taken against you?', kind: 'choice', choices: ['Strike', 'Demotion', 'Exile', 'Blacklist', 'Other'] },
@@ -37,8 +37,8 @@ const TYPES = {
     ],
   },
   IA_COMPLAINT: {
-    key: 'IA_COMPLAINT', label: 'Internal Affairs Complaint', button: 'IA HICOMM Only', icon: 'ti-lock', restricted: true,
-    blurb: 'Have Discord usernames, screenshots, video clips, or clear evidence of internal affairs misusing their power or authority? Submit a ticket below to report it directly to IA-HICOMM and AC+. We take these matters seriously — your case will be reviewed with discretion and action.',
+    key: 'IA_COMPLAINT', label: 'Internal Affairs Complaint', button: 'Report Internal Affairs', icon: 'ti-lock', restricted: true,
+    blurb: 'Report Internal Affairs misusing their power. Seen only by IA HICOMM.',
     roles: IA_HICOMM,
     questions: [
       { id: 'evidence', prompt: 'Please provide your evidence first — files, clips, or links.', kind: 'evidence' },
@@ -49,11 +49,11 @@ const TYPES = {
     ],
   },
   GENERAL_SUPPORT: {
-    key: 'GENERAL_SUPPORT', label: 'General Support', button: 'General Support', icon: 'ti-lifebuoy',
-    blurb: 'Get in touch with an experienced Officer to resolve any issues in the Metropolitan Police Department.',
+    key: 'GENERAL_SUPPORT', label: 'General Support', button: 'Ask a question', icon: 'ti-lifebuoy', helpBot: true,
+    blurb: 'Ask a question or get help — how to join, tryouts, anything.',
     roles: IA_STAFF,
     questions: [
-      { id: 'issue', prompt: 'How can we help? Briefly describe your issue and someone will be with you shortly.', kind: 'longtext', optional: true },
+      { id: 'issue', prompt: 'What do you need help with?', kind: 'longtext', optional: true },
     ],
   },
 };
@@ -113,7 +113,7 @@ function canView(user, ticket) {
 function publicCatalogue() {
   return Object.values(TYPES).map(t => ({
     key: t.key, label: t.label, button: t.button, blurb: t.blurb, icon: t.icon,
-    restricted: !!t.restricted, questions: t.questions,
+    restricted: !!t.restricted, helpBot: !!t.helpBot, questions: t.questions,
   }));
 }
 

@@ -682,7 +682,8 @@ model SupportTicket {
   priority        String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
   escalated       Boolean  @default(false)    // flagged up to IA HICOMM
   escalatedNote   String?
-  openerId        String
+  openerId        String?                      // set when the opener was logged in
+  openerToken     String?                      // secret held by an anonymous opener
   openerDiscordId String?
   openerName      String
   intake          Json?    // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
