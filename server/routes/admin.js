@@ -4,7 +4,7 @@ const prisma  = require('../lib/db');
 const { requireDeveloper } = require('../middleware/auth');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
-  resolveJoinRequest, changeGroupRank, exileFromGroup,
+  resolveJoinRequest, changeGroupRank, exileFromGroup, cookieForDivision,
 } = require('../lib/roblox');
 const {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
@@ -20,6 +20,12 @@ function panelGroupId(req) {
   const gid = groupIdForKey(key);
   if (!gid) { const e = new Error(`Unknown division "${key}"`); e.status = 400; throw e; }
   return gid;
+}
+
+// The bot-account cookie to manage the selected division's group. CID uses its
+// own account (CID_ROBLOX_BOT_COOKIE); everything else uses the default.
+function panelCookie(req) {
+  return cookieForDivision(req.query.division);
 }
 
 const router = express.Router();
@@ -321,7 +327,7 @@ router.get('/group/divisions', (req, res) => {
 // ── GET /api/admin/group/roles ────────────────────────────────────
 router.get('/group/roles', async (req, res) => {
   try {
-    const roles = await listGroupRoles(panelGroupId(req));
+    const roles = await listGroupRoles(panelGroupId(req), panelCookie(req));
     res.json(roles);
   } catch (err) {
     console.error('GET /group/roles error:', err.message);
@@ -333,7 +339,7 @@ router.get('/group/roles', async (req, res) => {
 router.get('/group/members', async (req, res) => {
   try {
     const { pageToken } = req.query;
-    const result = await listGroupMembers(pageToken || null, panelGroupId(req));
+    const result = await listGroupMembers(pageToken || null, panelGroupId(req), panelCookie(req));
     res.json(result);
   } catch (err) {
     console.error('GET /group/members error:', err.message);
@@ -345,7 +351,7 @@ router.get('/group/members', async (req, res) => {
 router.get('/group/pending', async (req, res) => {
   try {
     const { pageToken } = req.query;
-    const result = await listJoinRequests(pageToken || null, panelGroupId(req));
+    const result = await listJoinRequests(pageToken || null, panelGroupId(req), panelCookie(req));
     res.json(result);
   } catch (err) {
     console.error('GET /group/pending error:', err.message);
@@ -356,7 +362,7 @@ router.get('/group/pending', async (req, res) => {
 // ── POST /api/admin/group/pending/:userId/approve ─────────────────
 router.post('/group/pending/:userId/approve', async (req, res) => {
   try {
-    await resolveJoinRequest(req.params.userId, 'approve', panelGroupId(req));
+    await resolveJoinRequest(req.params.userId, 'approve', panelGroupId(req), panelCookie(req));
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to approve join request' });
@@ -366,7 +372,7 @@ router.post('/group/pending/:userId/approve', async (req, res) => {
 // ── POST /api/admin/group/pending/:userId/decline ─────────────────
 router.post('/group/pending/:userId/decline', async (req, res) => {
   try {
-    await resolveJoinRequest(req.params.userId, 'decline', panelGroupId(req));
+    await resolveJoinRequest(req.params.userId, 'decline', panelGroupId(req), panelCookie(req));
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to decline join request' });
@@ -378,7 +384,7 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
   const { roleId } = req.body;
   if (!roleId) return res.status(400).json({ error: 'roleId is required' });
   try {
-    await changeGroupRank(req.params.userId, roleId, panelGroupId(req));
+    await changeGroupRank(req.params.userId, roleId, panelGroupId(req), panelCookie(req));
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to change rank' });
@@ -388,7 +394,7 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
 // ── DELETE /api/admin/group/members/:userId ───────────────────────
 router.delete('/group/members/:userId', async (req, res) => {
   try {
-    await exileFromGroup(req.params.userId, panelGroupId(req));
+    await exileFromGroup(req.params.userId, panelGroupId(req), panelCookie(req));
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to kick member' });

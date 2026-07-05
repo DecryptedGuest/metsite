@@ -148,6 +148,16 @@ async function reviewPatrol(id, action) {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
+// Collapse/expand a group-panel section (Pending Join Requests / Members).
+function flpToggleSection(bodyId, btn) {
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  const icon = btn && btn.querySelector('i');
+  if (icon) icon.className = hidden ? 'ti ti-chevron-down' : 'ti ti-chevron-right';
+}
+
 // Developer-only: permanently delete a patrol/event log from the site.
 async function flpDeleteLog(id, type) {
   if (!confirm('Permanently delete this log? This cannot be undone.')) return;

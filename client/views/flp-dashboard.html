@@ -109,16 +109,20 @@
       </div>
 
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Pending Join Requests <span id="flp-pending-count" style="font-size:11px;color:var(--text-muted);"></span></div></div>
+        <div class="panel-header"><div class="panel-title">
+          <button class="btn btn-icon btn-ghost btn-sm" onclick="flpToggleSection('flp-pending', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+          <span class="panel-dot amber"></span>Pending Join Requests <span id="flp-pending-count" style="font-size:11px;color:var(--text-muted);"></span></div></div>
         <div class="profile-section" id="flp-pending"><div class="table-loading"><div class="spinner"></div></div></div>
       </div>
 
       <div class="panel glass fade-up stagger-2">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Members</div>
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="flpToggleSection('flp-members-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot blue"></span>Members</div>
           <input type="text" class="form-control" id="flp-member-search" placeholder="Search members…" style="width:200px;padding:5px 10px;font-size:12px;" oninput="renderFlpMembers()" />
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap" id="flp-members-body">
           <table class="data-table">
             <thead><tr><th>Member</th><th>Rank</th><th>Change rank</th><th></th></tr></thead>
             <tbody id="flp-members-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>

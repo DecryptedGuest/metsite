@@ -422,9 +422,20 @@ async function getOfficerProfileByRobloxId(robloxUserId) {
 // The bot account must be in the group with permission to manage members.
 
 const ROBLOX_GROUPS = 'https://groups.roblox.com/v1';
-let csrfToken = null; // cached X-CSRF-TOKEN, refreshed automatically on 403
+// X-CSRF-TOKEN is per account/cookie, so cache it keyed by cookie. Different
+// divisions can manage their group with a different bot account (e.g. CID uses
+// CID_ROBLOX_BOT_COOKIE) — each needs its own token.
+const _csrfByCookie = new Map(); // cookie -> token
 
 function robloxCookie() {
+  return process.env.ROBLOX_COOKIE || null;
+}
+
+// The cookie to manage a given division's group. CID uses its own bot account
+// (CID_ROBLOX_BOT_COOKIE) when set; everything else uses the default ROBLOX_COOKIE.
+function cookieForDivision(division) {
+  const d = String(division || '').toUpperCase();
+  if (d === 'CID' && process.env.CID_ROBLOX_BOT_COOKIE) return process.env.CID_ROBLOX_BOT_COOKIE;
   return process.env.ROBLOX_COOKIE || null;
 }
 
@@ -432,17 +443,19 @@ function robloxCookie() {
  * Authenticated fetch against the Roblox web API.
  * Adds the .ROBLOSECURITY cookie + X-CSRF-TOKEN, and transparently refreshes
  * the CSRF token (Roblox returns a fresh one in the 403 response header).
+ * `cookie` overrides the default account (for per-division bot accounts).
  */
-async function robloxAuthFetch(url, options = {}, allowRetry = true) {
-  const cookie = robloxCookie();
-  if (!cookie) throw new Error('ROBLOX_COOKIE is not set');
+async function robloxAuthFetch(url, options = {}, allowRetry = true, cookie) {
+  const ck = cookie || robloxCookie();
+  if (!ck) throw new Error('ROBLOX_COOKIE is not set');
 
   const headers = {
-    Cookie:         `.ROBLOSECURITY=${cookie}`,
+    Cookie:         `.ROBLOSECURITY=${ck}`,
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
-  if (csrfToken) headers['X-CSRF-TOKEN'] = csrfToken;
+  const tok = _csrfByCookie.get(ck);
+  if (tok) headers['X-CSRF-TOKEN'] = tok;
 
   const res = await fetch(url, { ...options, headers });
 
@@ -450,8 +463,8 @@ async function robloxAuthFetch(url, options = {}, allowRetry = true) {
   if (res.status === 403 && allowRetry) {
     const fresh = res.headers.get('x-csrf-token');
     if (fresh) {
-      csrfToken = fresh;
-      return robloxAuthFetch(url, options, false);
+      _csrfByCookie.set(ck, fresh);
+      return robloxAuthFetch(url, options, false, ck);
     }
   }
   return res;
@@ -463,7 +476,7 @@ async function initCsrfReal() {
   try {
     const res = await robloxAuthFetch('https://auth.roblox.com/v2/logout', { method: 'POST' }, false);
     const fresh = res.headers.get('x-csrf-token');
-    if (fresh) csrfToken = fresh;
+    if (fresh) _csrfByCookie.set(robloxCookie(), fresh);
   } catch (e) { /* token will be fetched lazily on first real call */ }
 }
 
@@ -471,14 +484,15 @@ async function initCsrfReal() {
  * Exile (kick) a Roblox user from the configured group.
  * DELETE /groups/{groupId}/users/{userId}. Returns true/false.
  */
-async function exileFromGroup(robloxUserId, gid) {
+async function exileFromGroup(robloxUserId, gid, cookie) {
   const groupId = gid || process.env.ROBLOX_GROUP_ID;
-  if (!groupId || !robloxCookie()) {
+  const ck = cookie || robloxCookie();
+  if (!groupId || !ck) {
     console.warn('Group exile skipped — ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
     return false;
   }
   try {
-    const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, { method: 'DELETE' });
+    const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, { method: 'DELETE' }, true, ck);
     if (res.ok) {
       console.log(`Roblox exile: user ${robloxUserId} removed from group ${groupId}`);
       return true;
@@ -496,11 +510,11 @@ async function exileFromGroup(robloxUserId, gid) {
  * List the group's role definitions (ranks).
  * Returns array of { id, path, name, rank, memberCount }.
  */
-async function listGroupRoles(gid) {
+async function listGroupRoles(gid, cookie) {
   const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
-  const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/roles`, { method: 'GET' });
+  const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/roles`, { method: 'GET' }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} listing roles: ${body.slice(0, 200)}`);
@@ -519,14 +533,14 @@ async function listGroupRoles(gid) {
  * List group members, paginated (100/page).
  * Returns { members: [{ userId, username, displayName, roleId }], nextPageToken }.
  */
-async function listGroupMembers(pageToken = null, gid) {
+async function listGroupMembers(pageToken = null, gid, cookie) {
   const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/users?limit=100&sortOrder=Asc`;
   if (pageToken) url += `&cursor=${encodeURIComponent(pageToken)}`;
 
-  const res = await robloxAuthFetch(url, { method: 'GET' });
+  const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} listing members: ${body.slice(0, 200)}`);
@@ -547,14 +561,14 @@ async function listGroupMembers(pageToken = null, gid) {
  * List pending join requests, paginated (100/page).
  * Returns { requests: [{ userId, username, displayName, requestedAt }], nextPageToken }.
  */
-async function listJoinRequests(pageToken = null, gid) {
+async function listJoinRequests(pageToken = null, gid, cookie) {
   const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests?limit=100&sortOrder=Asc`;
   if (pageToken) url += `&cursor=${encodeURIComponent(pageToken)}`;
 
-  const res = await robloxAuthFetch(url, { method: 'GET' });
+  const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} listing join requests: ${body.slice(0, 200)}`);
@@ -573,12 +587,12 @@ async function listJoinRequests(pageToken = null, gid) {
  * Approve or decline a join request for a Roblox user.
  * action: 'approve' (POST) | 'decline' (DELETE)
  */
-async function resolveJoinRequest(robloxUserId, action, gid) {
+async function resolveJoinRequest(robloxUserId, action, gid, cookie) {
   const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   const url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests/users/${robloxUserId}`;
-  const res = await robloxAuthFetch(url, { method: action === 'approve' ? 'POST' : 'DELETE' });
+  const res = await robloxAuthFetch(url, { method: action === 'approve' ? 'POST' : 'DELETE' }, true, cookie);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`Roblox API ${res.status} on ${action}: ${body.slice(0, 200)}`);
@@ -589,7 +603,7 @@ async function resolveJoinRequest(robloxUserId, action, gid) {
  * Change a group member's rank.
  * PATCH /groups/{groupId}/users/{userId} with { roleId }.
  */
-async function changeGroupRank(robloxUserId, roleId, gid) {
+async function changeGroupRank(robloxUserId, roleId, gid, cookie) {
   const groupId = gid || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
@@ -599,7 +613,7 @@ async function changeGroupRank(robloxUserId, roleId, gid) {
   const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, {
     method: 'PATCH',
     body:   JSON.stringify({ roleId: Number(numericRoleId) }),
-  });
+  }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} changing rank: ${body.slice(0, 200)}`);
@@ -652,4 +666,5 @@ module.exports = {
   listJoinRequests,
   resolveJoinRequest,
   changeGroupRank,
+  cookieForDivision,
 };
