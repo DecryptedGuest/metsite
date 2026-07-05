@@ -54,7 +54,7 @@
       <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}">
         <h3><i class="ti ${esc(t.icon)}"></i> ${esc(t.label)}</h3>
         <p>${esc(t.blurb)}</p>
-        ${t.restricted ? '<div class="sup-locknote"><i class="ti ti-lock"></i> Reviewed by HICOMM only</div>' : ''}
+        ${t.restricted ? '<div class="sup-locknote"><i class="ti ti-lock"></i> Reviewed by IA HICOMM only</div>' : ''}
         <button class="btn btn-primary btn-sm" onclick="supOpenNew('${t.key}')"><i class="ti ti-plus"></i> ${esc(t.button)}</button>
       </div>`).join('');
   }
@@ -179,18 +179,26 @@
     scrollLog();
   }
 
+  function profileClick(m) {
+    const kind = (m.authorKind || '').toLowerCase() === 'bot' ? 'bot' : 'user';
+    return ` style="cursor:pointer;" onclick="supOpenProfile('${kind}','${esc(m.authorId || '')}')" title="View profile"`;
+  }
   function avatarHtml(m) {
     const isBot = (m.authorKind || '').toLowerCase() === 'bot';
-    if (isBot) return `<div class="sup-av"><img src="${BOT_AVATAR}" alt="MET" /></div>`;
-    if (m.authorAvatar) return `<div class="sup-av"><img src="${esc(m.authorAvatar)}" alt="" /></div>`;
-    return `<div class="sup-av">${esc((m.authorName || '?').slice(0, 1).toUpperCase())}</div>`;
+    const inner = isBot ? `<img src="${BOT_AVATAR}" alt="MET" />`
+      : (m.authorAvatar ? `<img src="${esc(m.authorAvatar)}" alt="" />` : esc((m.authorName || '?').slice(0, 1).toUpperCase()));
+    return `<div class="sup-av"${profileClick(m)}>${inner}</div>`;
   }
   function identityCardHtml(p) {
     if (!p) return '';
     const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" alt="" style="width:52px;height:52px;border-radius:9px;object-fit:cover;" />` : '';
-    return `<div class="sup-idcard">${head}<div><div style="font-weight:700;">${esc(p.robloxDisplayName || p.robloxUsername || 'Unknown')}</div>
+    const discord = (p.discordUsername || p.discordId)
+      ? `<div style="font-size:11px;color:var(--text-muted);">Discord: ${p.discordUsername ? '@' + esc(p.discordUsername) + ' ' : ''}${p.discordId ? `(ID ${esc(p.discordId)})` : ''}</div>`
+      : '';
+    const open = p.robloxId ? ` onclick="window.open('https://www.roblox.com/users/${esc(p.robloxId)}/profile','_blank','noopener')" style="cursor:pointer;"` : '';
+    return `<div class="sup-idcard"${open} title="Open Roblox profile">${head}<div><div style="font-weight:700;">${esc(p.robloxDisplayName || p.robloxUsername || 'Unknown')}</div>
       <div style="font-size:12px;color:var(--text-muted);">@${esc(p.robloxUsername || '')} · Roblox ID ${esc(p.robloxId || '')}</div>
-      ${p.discordUsername ? `<div style="font-size:11px;color:var(--text-muted);">Discord: @${esc(p.discordUsername)}</div>` : ''}</div></div>`;
+      ${discord}</div></div>`;
   }
   function renderMsg(m) {
     const kind = (m.authorKind || 'STAFF').toLowerCase();
@@ -202,7 +210,7 @@
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
-        <div class="sup-meta"><span class="sup-name">${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span></div>
+        <div class="sup-meta"><span class="sup-name"${profileClick(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span></div>
         ${m.body ? `<div class="sup-text">${mdInline(m.body)}</div>` : ''}
         ${m.identity ? identityCardHtml(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
@@ -277,18 +285,62 @@
       <div class="sup-meta"><span class="sup-name">${BOT_NAME}</span></div>
       <div class="sup-text">Is this the right person?</div>
       ${identityCardHtml(p)}
-      <div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="supIdConfirm(true)"><i class="ti ti-check"></i> Yes, that's them</button><button class="btn btn-ghost btn-sm" onclick="supIdConfirm(false)"><i class="ti ti-x"></i> No</button></div>
+      <div class="sup-confirm-btns" style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="supIdConfirm(event,true)"><i class="ti ti-check"></i> Yes, that's them</button><button class="btn btn-ghost btn-sm" onclick="supIdConfirm(event,false)"><i class="ti ti-x"></i> No</button></div>
     </div></div>`);
     scrollLog();
   }
-  window.supIdConfirm = function (yes) {
+  window.supIdConfirm = function (ev, yes) {
     if (!pendingIdentity) return;
+    // Grey out both buttons and make the choice obvious — no double-clicks.
+    try {
+      const wrap = ev && ev.currentTarget ? ev.currentTarget.parentElement : null;
+      if (wrap) {
+        wrap.querySelectorAll('button').forEach(b => { b.disabled = true; b.classList.add('sup-btn-done'); });
+        const chosen = ev.currentTarget;
+        chosen.classList.remove('sup-btn-done');
+        chosen.classList.add('sup-btn-chosen');
+        chosen.innerHTML = yes ? '<i class="ti ti-check"></i> Selected' : '<i class="ti ti-x"></i> Not them';
+      }
+    } catch (e) { /* non-fatal */ }
     const { q, person } = pendingIdentity; pendingIdentity = null;
     if (!yes) { appendBotTyping('No problem — enter the correct username or ID.', () => { showQuestionHint(q); $('sup-input').focus(); }); return; }
     const summary = `${person.robloxUsername || person.robloxDisplayName || ''} (Roblox ID ${person.robloxId}${person.discordUsername ? `, Discord @${person.discordUsername}` : ''})`;
     intakeAnswers.push({ id: q.id, prompt: q.prompt, answer: summary, attachments: [], identity: person });
     intakeQs.shift();
     askNext();
+  };
+
+  // ── Clickable profile cards ─────────────────────────────────────────
+  window.supOpenProfile = async function (kind, authorId) {
+    openModal('modal-sup-profile');
+    const body = $('sup-prof-body'), title = $('sup-prof-title');
+    if (kind === 'bot') {
+      title.textContent = BOT_NAME;
+      body.innerHTML = `<img src="/img/metadministrationbanner.png" alt="" style="width:100%;border-radius:10px;margin-bottom:14px;" />
+        <div style="display:flex;gap:12px;align-items:center;"><img src="${BOT_AVATAR}" style="width:56px;height:56px;border-radius:50%;" />
+          <div><div style="font-weight:700;font-size:16px;">${BOT_NAME}</div>
+          <div style="font-size:12px;color:var(--text-muted);">Automated intake · Metropolitan Police Service</div></div></div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-top:12px;line-height:1.6;">I collect the details for your ticket and hand you to the right Internal Affairs team.</p>`;
+      return;
+    }
+    if (!authorId) { body.innerHTML = '<div class="table-empty"><div class="table-empty-text">No profile available.</div></div>'; return; }
+    body.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    try {
+      const p = await api('/api/support/user-profile?userId=' + encodeURIComponent(authorId));
+      title.textContent = p.name || 'Profile';
+      const av = p.avatar ? `<img src="${esc(p.avatar)}" style="width:56px;height:56px;border-radius:50%;" />` : `<div class="sup-av" style="width:56px;height:56px;">${esc((p.name || '?').slice(0, 1).toUpperCase())}</div>`;
+      const roblox = p.robloxUsername ? `<div style="font-size:12px;color:var(--text-muted);">Roblox: <a href="https://www.roblox.com/users/${esc(p.robloxId || '')}/profile" target="_blank" rel="noopener" style="color:var(--blue);">@${esc(p.robloxUsername)}</a>${p.robloxId ? ` (${esc(p.robloxId)})` : ''}</div>` : '';
+      let iaBlock = '';
+      if (p.role) {
+        const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : (d.rank != null ? ' · rank ' + esc(d.rank) : '')}`).join('<br>') || '—';
+        iaBlock = `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#333);">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;">Internal Affairs</div>
+          <div style="font-size:13px;margin-top:5px;"><strong>Site role:</strong> ${esc(p.role)}</div>
+          <div style="font-size:13px;margin-top:5px;"><strong>Divisions:</strong><br>${divs}</div></div>`;
+      }
+      body.innerHTML = `<div style="display:flex;gap:12px;align-items:center;">${av}<div><div style="font-weight:700;font-size:16px;">${esc(p.name)}</div>
+        <div style="font-size:12px;color:var(--text-muted);">Discord: @${esc(p.discordUsername)}${p.discordId ? ` (${esc(p.discordId)})` : ''}</div>${roblox}</div></div>${iaBlock}`;
+    } catch (e) { body.innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   };
 
   async function finishIntake() {

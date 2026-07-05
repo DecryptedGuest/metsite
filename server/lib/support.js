@@ -39,7 +39,7 @@ const TYPES = {
     ],
   },
   IA_COMPLAINT: {
-    key: 'IA_COMPLAINT', label: 'Internal Affairs Complaint', button: 'HICOMM Only', icon: 'ti-lock', restricted: true,
+    key: 'IA_COMPLAINT', label: 'Internal Affairs Complaint', button: 'IA HICOMM Only', icon: 'ti-lock', restricted: true,
     blurb: 'Have Discord usernames, screenshots, video clips, or clear evidence of internal affairs misusing their power or authority? Submit a ticket below to report it directly to IA-HICOMM and AC+. We take these matters seriously — your case will be reviewed with discretion and action.',
     roles: IA_HICOMM,
     questions: [
@@ -150,13 +150,22 @@ async function _buildPerson(robloxId, extra) {
     roblox.getRobloxAvatarHeadshot(String(robloxId)).catch(() => null),
   ]);
   if (!info && !head) return null;
-  return {
+  const out = {
     robloxId: String(robloxId),
     robloxUsername: info ? info.username : null,
     robloxDisplayName: info ? info.displayName : null,
     headshotUrl: head || null,
-    ...extra,
+    ...(extra || {}),
   };
+  // If we don't already know the Discord side, reverse-resolve it via RoVer so
+  // the confirmation card can show the Discord ID next to the username.
+  if (!out.discordId) {
+    try {
+      const matches = await roblox.getDiscordFromRoblox(String(robloxId));
+      if (matches && matches[0] && matches[0].discordId) out.discordId = String(matches[0].discordId);
+    } catch (e) { /* RoVer down → no discord id */ }
+  }
+  return out;
 }
 
 async function resolveIdentity(input) {
@@ -188,8 +197,9 @@ async function resolveIdentity(input) {
         }
       } catch (e) { /* bot/guild lookup unavailable */ }
       if (!person) {
-        const rid = await roblox.getRobloxIdFromUsername(raw).catch(() => null);
-        if (rid) person = await _buildPerson(rid, {});
+        // getRobloxIdFromUsername returns { id, username, displayName } — use .id.
+        const u = await roblox.getRobloxIdFromUsername(raw).catch(() => null);
+        if (u && u.id) person = await _buildPerson(u.id, {});
       }
     }
   } catch (e) { person = null; }

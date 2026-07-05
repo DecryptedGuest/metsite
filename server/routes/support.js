@@ -49,6 +49,55 @@ async function avatarsFor(ids) {
   return new Map(users.map(u => [u.id, u.discordAvatar || null]));
 }
 
+// ── Auto ticket-log on close ─────────────────────────────────────────
+// When a support ticket is closed, mint a normal IA ticket log (PENDING) so IA
+// HICOMM review/approve/deny it exactly like a manually-filed one. All fields
+// are autofilled from the support ticket. Best-effort; never blocks the close.
+const SUPPORT_TO_TICKETTYPE = {
+  OFFICER_COMPLAINT: 'OFFICER_REPORT', DISCIPLINARY_APPEAL: 'APPEAL',
+  IA_COMPLAINT: 'HICOMM', GENERAL_SUPPORT: 'GENERAL_SUPPORT',
+};
+async function subjectRobloxUsername(t) {
+  const intake = Array.isArray(t.intake) ? t.intake : [];
+  const idq = intake.find(q => q.identity && q.identity.robloxUsername);
+  if (idq) return idq.identity.robloxUsername; // the reported person
+  try {
+    const opener = await prisma.user.findUnique({ where: { id: t.openerId }, select: { robloxUsername: true, discordId: true } });
+    if (opener && opener.robloxUsername) return opener.robloxUsername;
+    if (opener && opener.discordId) {
+      const roblox = require('../lib/roblox');
+      const rid = await roblox.getRobloxIdFromDiscord(opener.discordId).catch(() => null);
+      if (rid) { const info = await roblox.getRobloxUserInfo(rid).catch(() => null); if (info) return info.username; }
+    }
+  } catch (e) { /* fall through */ }
+  return t.openerName;
+}
+async function createIaTicketLog(t, closer) {
+  try {
+    const cfg = support.typeConfig(t.type);
+    const ticketType = SUPPORT_TO_TICKETTYPE[t.type] || 'GENERAL_SUPPORT';
+    const robloxUsername = await subjectRobloxUsername(t);
+    const intake = Array.isArray(t.intake) ? t.intake : [];
+    const lines = intake.map(q => `• ${q.prompt}\n   ${q.answer || (q.attachments && q.attachments.length ? `(${q.attachments.length} attachment(s))` : '—')}`);
+    const conclusion = [
+      `Auto-generated from a closed ${cfg ? cfg.label : t.type} support ticket.`,
+      `Closed by: ${closer.displayName || closer.discordUsername}${t.closeReason ? ` — ${t.closeReason}` : ''}`,
+      '', 'Intake:', ...lines,
+    ].join('\n').slice(0, 6000);
+    const base = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/$/, '') : '';
+    const counter = await prisma.ticketCounter.upsert({ where: { id: 1 }, update: { count: { increment: 1 } }, create: { id: 1, count: 1 } });
+    const ticketRef = `TKT-${String(counter.count).padStart(4, '0')}`;
+    await prisma.ticket.create({ data: {
+      ticketRef, userId: closer.id, robloxUsername: robloxUsername || t.openerName,
+      ticketType, submittedAt: new Date().toISOString(), timezone: process.env.QUOTA_TIMEZONE || 'Europe/London',
+      conclusion, transcriptLink: `${base}/support?ticket=${t.id}`, proofImages: [], status: 'PENDING',
+    } });
+    console.log(`[Support] auto-created ticket log ${ticketRef} from closed support ticket ${t.id}`);
+  } catch (e) {
+    console.error('[Support] auto ticket-log failed:', e.message);
+  }
+}
+
 // ── GET /api/support/config — landing catalogue + this user's capabilities ──
 router.get('/config', (req, res) => {
   res.json({
@@ -220,6 +269,30 @@ router.get('/tickets/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load the ticket' }); }
 });
 
+// ── GET /api/support/user-profile?userId=|discordId= — a participant's card ──
+// Basic identity for anyone signed in; IA staff additionally see the person's
+// IA rank (site role) + divisions. Used by the clickable profile cards in chat.
+router.get('/user-profile', async (req, res) => {
+  try {
+    const { userId, discordId } = req.query;
+    let u = null;
+    if (userId) u = await prisma.user.findUnique({ where: { id: String(userId) } });
+    else if (discordId) u = await prisma.user.findUnique({ where: { discordId: String(discordId) } });
+    if (!u) return res.status(404).json({ error: 'Not found' });
+
+    const out = {
+      name: u.displayName || u.discordUsername, discordUsername: u.discordUsername, discordId: u.discordId,
+      avatar: u.discordAvatar || null, robloxUsername: u.robloxUsername || null, robloxId: u.robloxId || null,
+    };
+    if (u.robloxId) { try { out.headshot = await require('../lib/roblox').getRobloxAvatarHeadshot(u.robloxId); } catch (e) {} }
+    if (support.isStaff(req.user)) {
+      out.role = u.role;
+      out.divisions = Array.isArray(u.divisions) ? u.divisions : [];
+    }
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: 'Failed to load profile' }); }
+});
+
 // ── POST /api/support/resolve-identity { input } — look up a person ──
 // Used by identity intake questions so the opener can confirm the right person.
 router.post('/resolve-identity', async (req, res) => {
@@ -291,6 +364,8 @@ router.post('/tickets/:id/close', async (req, res) => {
     const closeMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `This ticket was closed by ${name}.${reason ? ` Reason: ${reason}` : ''}` } });
     support.publish(t.id, 'message', serializeMessage(t.id, closeMsg));
     support.publish(t.id, 'update', { status: 'CLOSED' });
+    // Auto-file an IA ticket log for HICOMM review (fire-and-forget).
+    createIaTicketLog(updated, req.user).catch(() => {});
     res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
   } catch (e) { res.status(500).json({ error: 'Failed to close' }); }
 });

@@ -52,6 +52,11 @@
     @keyframes sup-blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
     /* Resolved-person card */
     .sup-idcard { display: flex; gap: 12px; align-items: center; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border, #333); border-radius: 10px; max-width: 340px; background: rgba(255,255,255,.02); }
+    .sup-idcard:hover { border-color: var(--blue, #4a8fff); }
+    /* Confirmation buttons after a choice is made */
+    .sup-btn-done { opacity: .4; }
+    .sup-btn-chosen { opacity: 1; }
+    .sup-av[onclick]:hover, .sup-name[onclick]:hover { filter: brightness(1.15); text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -135,6 +140,17 @@
       </div>
     </div>
   </section>
+</div>
+
+<!-- PROFILE CARD -->
+<div class="modal-overlay" id="modal-sup-profile">
+  <div class="modal glass-bright" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title" id="sup-prof-title">Profile</div>
+      <button class="modal-close" onclick="closeModal('modal-sup-profile')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="sup-prof-body"></div>
+  </div>
 </div>
 
 <div id="toast-container"></div>
