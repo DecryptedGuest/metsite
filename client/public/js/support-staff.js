@@ -138,6 +138,12 @@
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${t.openerId}','${esc(t.openerName)}')"><i class="ti ti-user"></i> Opener Profile</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdCanned()"><i class="ti ti-message-2-bolt"></i> Quick replies</button>`);
     if (c.canClose)  b.push(`<button class="btn btn-danger btn-sm" onclick="sdClose()"><i class="ti ti-lock"></i> Close</button>`);
+    // Guest ticket-blacklist: block/allow this guest opener's IP + browser.
+    if (t.openerBlacklisted && (c.isHicomm || c.canBlacklist)) {
+      b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--green);" onclick="sdBlacklist(true)" title="Lift the ticket blacklist on this guest"><i class="ti ti-shield-check"></i> Blacklisted — lift</button>`);
+    } else if (c.canBlacklist) {
+      b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdBlacklist(false)" title="Blacklist this guest's IP/browser from opening tickets"><i class="ti ti-ban"></i> Blacklist guest</button>`);
+    }
     if (c.canDelete) b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdDelete()"><i class="ti ti-trash"></i></button>`);
     $('sd-toolbar').innerHTML = b.join(' ');
   }
@@ -223,6 +229,19 @@
   window.sdClose = function () {
     sdReasonPrompt('Close ticket', 'Close reason (optional) — an IA ticket log is auto-filed for HICOMM…', 'Close ticket', async (reason) => {
       try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); await reloadTicket(); refreshQueue(); }
+      catch (e) { showToast(e.message, 'error'); }
+    });
+  };
+  window.sdBlacklist = function (off) {
+    if (off) {
+      if (!confirm('Lift the ticket blacklist on this guest? They will be able to open support tickets again.')) return;
+      api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ off: true }) })
+        .then(() => { showToast('Blacklist lifted', 'success'); reloadTicket(); })
+        .catch(e => showToast(e.message, 'error'));
+      return;
+    }
+    sdReasonPrompt('Blacklist guest', "Reason (optional) — blocks this guest's IP and browser from opening new support tickets…", 'Blacklist', async (reason) => {
+      try { await api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Guest blacklisted', 'success'); await reloadTicket(); }
       catch (e) { showToast(e.message, 'error'); }
     });
   };

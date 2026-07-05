@@ -15,6 +15,27 @@ const router = express.Router();
 // opener holds a per-ticket secret token (localStorage) sent as ?token= /
 // x-support-token / body.token.
 function reqToken(req) { return req.get('x-support-token') || (req.query && req.query.token) || (req.body && req.body.token) || null; }
+
+// ── Guest ticket-blacklist ───────────────────────────────────────────
+// The requester's network identity: IP (via the trusted proxy) + a per-browser
+// fingerprint the client persists in localStorage (x-support-fp).
+function clientNet(req) {
+  return {
+    ip: (req.ip || '').replace(/^::ffff:/, '') || null,
+    fp: (req.get('x-support-fp') || '').slice(0, 128) || null,
+    ua: (req.get('user-agent') || '').slice(0, 400) || null,
+  };
+}
+// Is this requester currently ticket-blacklisted (by IP or browser fingerprint)?
+async function blacklistMatch(req) {
+  const { ip, fp } = clientNet(req);
+  const or = [];
+  if (ip) or.push({ ip });
+  if (fp) or.push({ fingerprint: fp });
+  if (!or.length) return null;
+  try { return await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }); }
+  catch (e) { return null; }
+}
 function isOpener(req, t) {
   if (req.user && t.openerId && String(t.openerId) === String(req.user.id)) return true;
   const tok = reqToken(req);
@@ -59,6 +80,10 @@ function ticketCaps(user, t) {
     canEscalate:    handler && open && !t.escalated,
     canDeEscalate:  hic && t.escalated,
     canDelete:      hic,
+    // Guest openers only (no linked account) with a captured IP/fingerprint can
+    // be ticket-blacklisted. HICOMM can always lift.
+    canBlacklist:   (claimant || hic) && !t.openerId && !!(t.openerIp || t.openerFp),
+    isGuestOpener:  !t.openerId,
   };
 }
 function serializeTicket(t, { full = false, user = null, avatarMap = null, opener = false } = {}) {
@@ -176,16 +201,21 @@ router.post('/tickets', async (req, res) => {
   const type = String((req.body && req.body.type) || '').toUpperCase();
   const cfg  = support.typeConfig(type);
   if (!cfg) return res.status(400).json({ error: 'Unknown ticket type.' });
+  // Refuse blacklisted guests (matched by IP or browser fingerprint).
+  const bl = await blacklistMatch(req);
+  if (bl) return res.status(403).json({ error: 'You have been blacklisted from opening support tickets.' });
   try {
     // Anonymous openers get a per-ticket token; logged-in openers are matched by id.
     const token = crypto.randomBytes(24).toString('hex');
     const anonName = (req.body && req.body.name ? String(req.body.name).slice(0, 60).trim() : '') || 'Guest';
+    const net = clientNet(req);
     const t = await prisma.supportTicket.create({
       data: {
         type, status: 'INTAKE', openerToken: token,
         openerId:        req.user ? req.user.id : null,
         openerDiscordId: req.user ? req.user.discordId : null,
         openerName:      req.user ? (req.user.displayName || req.user.discordUsername || 'User') : anonName,
+        openerIp:        net.ip, openerFp: net.fp, openerUa: net.ua,
       },
     });
     // Assistant greeting (shown at the top of the transcript).
@@ -345,7 +375,16 @@ router.get('/tickets/:id', async (req, res) => {
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
     if (!canSee(req, t)) return res.status(403).json({ error: 'You cannot view this ticket.' });
     const avatarMap = await avatarsFor([t.openerId, ...(t.messages || []).map(m => m.authorId)]);
-    res.json(serializeTicket(t, { full: true, user: req.user, avatarMap, opener: isOpener(req, t) }));
+    const out = serializeTicket(t, { full: true, user: req.user, avatarMap, opener: isOpener(req, t) });
+    // Tell handling staff whether this guest opener is currently blacklisted.
+    if (req.user && support.canHandleTicket(req.user, t) && !t.openerId && (t.openerIp || t.openerFp)) {
+      const or = [];
+      if (t.openerIp) or.push({ ip: t.openerIp });
+      if (t.openerFp) or.push({ fingerprint: t.openerFp });
+      const active = or.length ? await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }).catch(() => null) : null;
+      out.openerBlacklisted = !!active;
+    }
+    res.json(out);
   } catch (e) { res.status(500).json({ error: 'Failed to load the ticket' }); }
 });
 
@@ -534,6 +573,67 @@ router.delete('/tickets/:id', async (req, res) => {
     if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
     res.status(500).json({ error: 'Failed to delete' });
   }
+});
+
+// ── POST /api/support/tickets/:id/blacklist { reason, off? } ──
+// IA (the claimant or IA HICOMM) blacklists a GUEST opener's IP + browser so
+// they can't open new tickets. `off:true` lifts every active entry for that
+// opener (claimant who issued it, or any HICOMM).
+router.post('/tickets/:id/blacklist', async (req, res) => {
+  try {
+    const t = await loadHandlable(req, res); if (!t) return;
+    const claimant = t.claimedById === req.user.id;
+    if (!claimant && !support.isHicomm(req.user)) return res.status(403).json({ error: 'Only the claimant or IA HICOMM can blacklist.' });
+    if (t.openerId) return res.status(400).json({ error: 'This opener is a logged-in member — blacklisting is for guest openers only.' });
+    if (!t.openerIp && !t.openerFp) return res.status(400).json({ error: 'No IP or browser fingerprint was captured for this opener.' });
+
+    const or = [];
+    if (t.openerIp) or.push({ ip: t.openerIp });
+    if (t.openerFp) or.push({ fingerprint: t.openerFp });
+    const name = req.user.displayName || req.user.discordUsername;
+    const off = !!(req.body && req.body.off);
+
+    if (off) {
+      const r = await prisma.supportBlacklist.updateMany({
+        where: { active: true, OR: or },
+        data: { active: false, liftedById: req.user.id, liftedByName: name, liftedAt: new Date() },
+      });
+      const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'INTERNAL', authorId: req.user.id, authorName: name, body: `Ticket blacklist lifted by ${name}${r.count ? '' : ' (no active entry)'}.` } });
+      support.publish(t.id, 'message', serializeMessage(t.id, bm), { staffOnly: true });
+      support.publish(t.id, 'update', { openerBlacklisted: false });
+      return res.json({ ok: true, blacklisted: false });
+    }
+
+    // Don't stack duplicate active entries for the same opener.
+    const existing = await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } });
+    if (!existing) {
+      const reason = req.body && req.body.reason ? String(req.body.reason).slice(0, 500) : null;
+      await prisma.supportBlacklist.create({ data: {
+        ip: t.openerIp || null, fingerprint: t.openerFp || null, ua: t.openerUa || null,
+        ticketId: t.id, openerName: t.openerName, openerDiscordId: t.openerDiscordId || null,
+        reason, issuedById: req.user.id, issuedByName: name,
+      } });
+    }
+    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'INTERNAL', authorId: req.user.id, authorName: name, body: `${t.openerName} was ticket-blacklisted by ${name}${req.body && req.body.reason ? `: ${String(req.body.reason).slice(0, 500)}` : ''}. They can no longer open support tickets from this IP/browser.` } });
+    support.publish(t.id, 'message', serializeMessage(t.id, bm), { staffOnly: true });
+    support.publish(t.id, 'update', { openerBlacklisted: true });
+    res.json({ ok: true, blacklisted: true });
+  } catch (e) {
+    console.error('[Support] blacklist failed:', e.message);
+    res.status(500).json({ error: 'Failed to update blacklist' });
+  }
+});
+
+// ── GET /api/support/blacklist — active entries (IA HICOMM only) ──
+router.get('/blacklist', async (req, res) => {
+  try {
+    if (!support.isHicomm(req.user)) return res.status(403).json({ error: 'IA HICOMM only.' });
+    const rows = await prisma.supportBlacklist.findMany({ where: { active: true }, orderBy: { createdAt: 'desc' }, take: 300 });
+    res.json(rows.map(r => ({
+      id: r.id, ip: r.ip, fingerprint: r.fingerprint, openerName: r.openerName, openerDiscordId: r.openerDiscordId,
+      reason: r.reason, issuedByName: r.issuedByName, ticketId: r.ticketId, createdAt: r.createdAt,
+    })));
+  } catch (e) { res.status(500).json({ error: 'Failed to load blacklist' }); }
 });
 
 // ── GET /api/support/staff?type= — handling staff (for the reassign picker) ──

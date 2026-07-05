@@ -686,6 +686,9 @@ model SupportTicket {
   openerToken     String?                      // secret held by an anonymous opener
   openerDiscordId String?
   openerName      String
+  openerIp        String?                      // captured for guest ticket-blacklisting
+  openerFp        String?                      // per-browser fingerprint (localStorage id)
+  openerUa        String?                      // user-agent snapshot (informational)
   intake          Json?    // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
   claimedById     String?
   claimedByName   String?
@@ -703,6 +706,32 @@ model SupportTicket {
   @@index([status])
   @@index([openerId])
   @@map("support_tickets")
+}
+
+// A ticket blacklist entry, issued by IA against a guest opener's IP and/or
+// browser fingerprint. While an entry is active, that IP/browser is refused
+// when it tries to open a new support ticket.
+model SupportBlacklist {
+  id              String   @id @default(uuid())
+  ip              String?
+  fingerprint     String?  // per-browser localStorage id (x-support-fp)
+  ua              String?  // user-agent snapshot at time of issue
+  ticketId        String?  // the ticket it was issued from
+  openerName      String?
+  openerDiscordId String?
+  reason          String?
+  issuedById      String?
+  issuedByName    String?
+  active          Boolean  @default(true)
+  liftedById      String?
+  liftedByName    String?
+  liftedAt        DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([ip])
+  @@index([fingerprint])
+  @@index([active])
+  @@map("support_blacklist")
 }
 
 model SupportMessage {

@@ -181,9 +181,22 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── API Helper ───────────────────────────────────────────────────
+// A stable per-browser id, persisted in localStorage. Sent on every request so
+// the support desk can ticket-blacklist a guest's browser (alongside their IP).
+function browserFp() {
+  try {
+    let v = localStorage.getItem('met_fp');
+    if (!v) {
+      v = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2) + Date.now().toString(36));
+      localStorage.setItem('met_fp', v);
+    }
+    return v;
+  } catch (e) { return ''; }
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { 'Content-Type': 'application/json', 'x-support-fp': browserFp(), ...options.headers },
     ...options,
   });
 
