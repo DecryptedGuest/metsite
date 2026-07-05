@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET Support · METAdministration</title>
-  <link rel="icon" href="/img/logo.png" />
+  <link rel="icon" href="/img/divisions/met.png" />
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
   <link rel="stylesheet" href="/css/main.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
@@ -44,6 +44,14 @@
     .sup-pending-atts .chip { font-size: 11px; }
     .sup-hint { font-size: 11px; color: var(--text-muted); }
     .sup-hidden { display: none !important; }
+    /* Typing indicator */
+    .sup-typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
+    .sup-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); opacity: .4; animation: sup-blink 1.2s infinite both; }
+    .sup-typing span:nth-child(2) { animation-delay: .2s; }
+    .sup-typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes sup-blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+    /* Resolved-person card */
+    .sup-idcard { display: flex; gap: 12px; align-items: center; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border, #333); border-radius: 10px; max-width: 340px; background: rgba(255,255,255,.02); }
   </style>
 </head>
 <body>
@@ -53,7 +61,7 @@
 
 <div class="met-topbar">
   <div class="met-topbar-left">
-    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <img src="/img/divisions/met.png" class="met-topbar-logo" alt="MET" />
     <div class="met-topbar-title">
       <span class="met-topbar-brand">Metropolitan Police Service</span>
       <span class="met-topbar-division">Support</span>
@@ -62,6 +70,7 @@
   <div class="met-topbar-right">
     <a href="/profile" class="btn btn-ghost btn-sm"><i class="ti ti-layout-dashboard"></i> Portal</a>
     <div class="met-topbar-user">
+      <img id="sup-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;width:26px;height:26px;border-radius:50%;" />
       <div class="met-user-avatar-fallback" id="sup-user-fallback">?</div>
       <span id="sup-user-name">Loading…</span>
     </div>

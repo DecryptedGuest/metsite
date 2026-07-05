@@ -21,7 +21,7 @@ const TYPES = {
     blurb: 'Have you experienced misconduct, abuse of authority, or disrespect from an officer? Submit a ticket here to initiate a formal review—follow-up actions will be taken to ensure accountability.',
     roles: IA_STAFF,
     questions: [
-      { id: 'officer',  prompt: 'Which officer is this about? Give their Discord @, username, or in-game name.', kind: 'text' },
+      { id: 'officer',  prompt: "Which officer is this about? Enter their Discord username, Roblox username, or a Discord/Roblox ID and I'll look them up.", kind: 'identity' },
       { id: 'what',     prompt: 'What happened? Describe the incident in as much detail as you can.', kind: 'longtext' },
       { id: 'when',     prompt: 'When did this happen? (date & time, or roughly)', kind: 'text' },
       { id: 'evidence', prompt: 'Attach any evidence — screenshots, clips, or links. Upload files below or paste links.', kind: 'evidence', optional: true },
@@ -45,7 +45,7 @@ const TYPES = {
     questions: [
       { id: 'evidence', prompt: 'Please provide your evidence first — files, clips, or links.', kind: 'evidence' },
       { id: 'what',     prompt: 'Describe what happened.', kind: 'longtext' },
-      { id: 'who',      prompt: 'Who was involved? (Discord usernames / in-game names)', kind: 'text' },
+      { id: 'who',      prompt: "Who is this about? Enter their Discord username, Roblox username, or a Discord/Roblox ID and I'll look them up.", kind: 'identity' },
       { id: 'when',     prompt: 'When did it occur?', kind: 'text' },
       { id: 'else',     prompt: 'Anything else relevant?', kind: 'longtext', optional: true },
     ],
@@ -60,8 +60,21 @@ const TYPES = {
   },
 };
 
+// The intake bot's presentation (a generic assistant — not a named person). Its
+// avatar is the MET crest (this is a MET site, not IA-branded).
+const BOT_NAME   = 'MET Assistant';
+const BOT_AVATAR = '/img/divisions/met.png';
+
 function typeConfig(type) { return TYPES[String(type || '').toUpperCase()] || null; }
 function isStaff(user)    { return !!user && IA_STAFF.includes(user.role); }
+
+// The "you're now in the queue" message, worded for who actually handles the type.
+function handoffMessage(type) {
+  const cfg = typeConfig(type);
+  const hicommOnly = cfg && cfg.roles.length && cfg.roles.every(r => IA_HICOMM.includes(r));
+  const who = hicommOnly ? 'An Internal Affairs High Command member' : 'An Internal Affairs Investigator';
+  return `Thanks — your details have been recorded and your ticket is now open. ${who} will be with you shortly.`;
+}
 
 // Can this user HANDLE (view as staff / claim / reply) tickets of `type`?
 function canHandle(user, type) {
@@ -69,6 +82,16 @@ function canHandle(user, type) {
   if (user.role === 'DEVELOPER') return true;
   const cfg = typeConfig(type);
   return !!cfg && cfg.roles.includes(user.role);
+}
+
+// Can this user HANDLE this specific ticket? Same as canHandle, but you can
+// never claim/close/handle a ticket you opened yourself (except DEVELOPER, for
+// testing) — you interact with it purely as its opener.
+function canHandleTicket(user, ticket) {
+  if (!user || !ticket) return false;
+  if (user.role === 'DEVELOPER') return true;
+  if (ticket.openerId === user.id) return false;
+  return canHandle(user, ticket.type);
 }
 
 // The ticket types this user can handle (drives the staff queue + landing).
@@ -113,7 +136,70 @@ function publish(ticketId, event, data) {
   for (const res of set) { try { res.write(frame); } catch (e) { /* dropped client */ } }
 }
 
+// ── Identity resolution (for "which officer / who" intake questions) ──
+// Accepts a Discord username, Roblox username, or a Discord/Roblox ID, and
+// resolves it to a Roblox profile (username + headshot) so the opener can
+// confirm they picked the right person. Cached to spare RoVer's rate limit.
+const _idCache = new Map(); // key(lowercased input) -> { at, person }
+const ID_TTL = 10 * 60 * 1000;
+
+async function _buildPerson(robloxId, extra) {
+  const roblox = require('./roblox');
+  const [info, head] = await Promise.all([
+    roblox.getRobloxUserInfo(String(robloxId)).catch(() => null),
+    roblox.getRobloxAvatarHeadshot(String(robloxId)).catch(() => null),
+  ]);
+  if (!info && !head) return null;
+  return {
+    robloxId: String(robloxId),
+    robloxUsername: info ? info.username : null,
+    robloxDisplayName: info ? info.displayName : null,
+    headshotUrl: head || null,
+    ...extra,
+  };
+}
+
+async function resolveIdentity(input) {
+  const raw = String(input || '').trim().replace(/^@/, '');
+  if (!raw) return null;
+  const key = raw.toLowerCase();
+  const cached = _idCache.get(key);
+  if (cached && Date.now() - cached.at < ID_TTL) return cached.person;
+
+  const roblox = require('./roblox');
+  const allDigits = /^\d+$/.test(raw);
+  let person = null;
+  try {
+    if (allDigits && raw.length >= 17) {
+      // Discord snowflake → RoVer → Roblox
+      const rid = await roblox.getRobloxIdFromDiscord(raw).catch(() => null);
+      if (rid) person = await _buildPerson(rid, { discordId: raw });
+    } else if (allDigits) {
+      // Roblox ID
+      person = await _buildPerson(raw, {});
+    } else {
+      // A username — try a Discord guild member first (→ RoVer), then Roblox.
+      try {
+        const { findMemberByUsername } = require('./bot');
+        const m = await findMemberByUsername(raw);
+        if (m) {
+          const rid = await roblox.getRobloxIdFromDiscord(m.id).catch(() => null);
+          if (rid) person = await _buildPerson(rid, { discordId: m.id, discordUsername: m.username });
+        }
+      } catch (e) { /* bot/guild lookup unavailable */ }
+      if (!person) {
+        const rid = await roblox.getRobloxIdFromUsername(raw).catch(() => null);
+        if (rid) person = await _buildPerson(rid, {});
+      }
+    }
+  } catch (e) { person = null; }
+
+  _idCache.set(key, { at: Date.now(), person });
+  return person;
+}
+
 module.exports = {
-  TYPES, typeConfig, isStaff, canHandle, handleableTypes, canView, publicCatalogue,
-  subscribe, publish, IA_STAFF, IA_HICOMM,
+  TYPES, typeConfig, isStaff, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
+  handoffMessage, resolveIdentity, subscribe, publish,
+  BOT_NAME, BOT_AVATAR, IA_STAFF, IA_HICOMM,
 };

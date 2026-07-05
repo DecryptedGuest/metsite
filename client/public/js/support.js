@@ -4,6 +4,12 @@
 (function () {
   const esc = window.escapeHtml || (s => String(s == null ? '' : s));
   const fmtTime = d => { try { return window.formatDateTime ? window.formatDateTime(d) : new Date(d).toLocaleString(); } catch (e) { return ''; } };
+  const BOT_NAME = 'MET Assistant';
+  const BOT_AVATAR = '/img/divisions/met.png';   // MET crest (not the IA logo)
+  let MY_AVATAR = null;
+  // Render a small subset of markdown (**bold**) after escaping.
+  const mdInline = s => esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  let pendingIdentity = null;
 
   let CFG = { types: [], isStaff: false, handleableTypes: [], me: { id: null, name: '' } };
   const typeByKey = {};
@@ -25,8 +31,10 @@
       CFG = await api('/api/support/config');
       CFG.types.forEach(t => { typeByKey[t.key] = t; });
     } catch (e) { /* not logged in → api() already redirected */ return; }
+    MY_AVATAR = CFG.me.avatar || null;
     $('sup-user-name').textContent = CFG.me.name || 'You';
     $('sup-user-fallback').textContent = (CFG.me.name || '?').slice(0, 1).toUpperCase();
+    if (MY_AVATAR) { const a = $('sup-user-avatar'); if (a) { a.src = MY_AVATAR; a.style.display = ''; $('sup-user-fallback').style.display = 'none'; } }
     renderPanels();
     loadMine();
     if (CFG.isStaff && CFG.handleableTypes.length) {
@@ -63,7 +71,7 @@
     </div>`;
   }
   function statusBadge(s) {
-    const map = { INTAKE: ['badge-pending', 'Intake'], OPEN: ['badge-pending', 'Open'], CLAIMED: ['badge-approved', 'Claimed'], CLOSED: ['badge-denied', 'Closed'] };
+    const map = { INTAKE: ['badge-pending', 'Intake'], OPEN: ['badge-pending', 'Unclaimed'], CLAIMED: ['badge-approved', 'Claimed'], CLOSED: ['badge-denied', 'Closed'] };
     const [cls, label] = map[s] || ['badge-pending', s];
     return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
   }
@@ -154,38 +162,49 @@
     $('sup-t-actions').innerHTML = acts.join('');
   }
 
+  // Chronological: greeting first, then the intake Q/A (which happened between
+  // greeting and the "ticket open" summary), then the rest of the thread.
   function renderLog(t) {
+    const msgs = t.messages || [];
     const parts = [];
-    // Opening record (intake Q/A) as a labelled block, then the message thread.
+    if (msgs.length) parts.push(renderMsg(msgs[0])); // assistant greeting
     if (Array.isArray(t.intake) && t.intake.length) {
-      parts.push('<div class="sup-hint" style="text-align:center;">— Intake —</div>');
       for (const q of t.intake) {
-        parts.push(renderMsg({ authorKind: 'BOT', authorName: 'METAdministration', body: q.prompt, createdAt: t.createdAt }));
-        parts.push(renderMsg({ authorKind: 'OPENER', authorName: t.openerName, body: q.answer, attachments: q.attachments, createdAt: t.createdAt }));
+        parts.push(renderMsg({ authorKind: 'BOT', authorName: BOT_NAME, body: q.prompt, createdAt: t.createdAt }));
+        parts.push(renderMsg({ authorKind: 'OPENER', authorName: t.openerName, authorAvatar: t.openerAvatar, body: q.answer, attachments: q.attachments, identity: q.identity, createdAt: t.createdAt }));
       }
-      parts.push('<div class="sup-hint" style="text-align:center;">— Conversation —</div>');
     }
-    parts.push(...(t.messages || []).map(renderMsg));
+    parts.push(...msgs.slice(1).map(renderMsg));
     $('sup-log').innerHTML = parts.join('');
     scrollLog();
   }
 
+  function avatarHtml(m) {
+    const isBot = (m.authorKind || '').toLowerCase() === 'bot';
+    if (isBot) return `<div class="sup-av"><img src="${BOT_AVATAR}" alt="MET" /></div>`;
+    if (m.authorAvatar) return `<div class="sup-av"><img src="${esc(m.authorAvatar)}" alt="" /></div>`;
+    return `<div class="sup-av">${esc((m.authorName || '?').slice(0, 1).toUpperCase())}</div>`;
+  }
+  function identityCardHtml(p) {
+    if (!p) return '';
+    const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" alt="" style="width:52px;height:52px;border-radius:9px;object-fit:cover;" />` : '';
+    return `<div class="sup-idcard">${head}<div><div style="font-weight:700;">${esc(p.robloxDisplayName || p.robloxUsername || 'Unknown')}</div>
+      <div style="font-size:12px;color:var(--text-muted);">@${esc(p.robloxUsername || '')} · Roblox ID ${esc(p.robloxId || '')}</div>
+      ${p.discordUsername ? `<div style="font-size:11px;color:var(--text-muted);">Discord: @${esc(p.discordUsername)}</div>` : ''}</div></div>`;
+  }
   function renderMsg(m) {
     const kind = (m.authorKind || 'STAFF').toLowerCase();
-    const isBot = kind === 'bot';
-    const av = isBot
-      ? `<div class="sup-av"><img src="/img/logo.png" alt="MET" /></div>`
-      : `<div class="sup-av">${esc((m.authorName || '?').slice(0, 1).toUpperCase())}</div>`;
     const atts = (m.attachments || []).map(a =>
       a.kind === 'video'
         ? `<video src="${esc(a.url)}" controls></video>`
         : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}" /></a>`
     ).join('');
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
-      ${av}
+      ${avatarHtml(m)}
       <div class="sup-body">
         <div class="sup-meta"><span class="sup-name">${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span></div>
-        ${m.body ? `<div class="sup-text">${esc(m.body)}</div>` : ''}
+        ${m.body ? `<div class="sup-text">${mdInline(m.body)}</div>` : ''}
+        ${m.identity ? identityCardHtml(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
       </div>
     </div>`;
@@ -201,33 +220,77 @@
     setComposerEnabled(cur);
     askNext();
   }
-  function askNext() {
-    if (!intakeQs.length) return finishIntake();
-    const q = intakeQs[0];
-    appendBubble({ authorKind: 'BOT', authorName: 'METAdministration', body: q.prompt + (q.optional ? '  (optional — you can skip)' : ''), createdAt: new Date().toISOString() });
+  function showQuestionHint(q) {
     if (q.kind === 'choice' && q.choices) {
       $('sup-hint').innerHTML = 'Choose or type: ' + q.choices.map(c => `<button class="btn btn-ghost btn-sm" style="margin:2px;" onclick="supPick('${esc(c)}')">${esc(c)}</button>`).join('');
     } else if (q.kind === 'evidence') {
-      $('sup-hint').textContent = 'Attach files with the 📎 button, and/or paste links. Then press Send.';
+      $('sup-hint').textContent = 'Attach files with the paperclip, and/or paste links. Then press Send.';
+    } else if (q.kind === 'identity') {
+      $('sup-hint').textContent = 'Enter a Discord username, Roblox username, or a Discord/Roblox ID.';
     } else {
       $('sup-hint').textContent = q.optional ? 'Optional — type an answer or press Send to skip.' : '';
     }
-    $('sup-input').focus();
+  }
+  function askNext() {
+    if (!intakeQs.length) return finishIntake();
+    const q = intakeQs[0];
+    setComposerBusy(true);
+    appendBotTyping(q.prompt + (q.optional ? '  (optional — you can skip)' : ''), () => {
+      setComposerBusy(false); showQuestionHint(q); $('sup-input').focus();
+    });
   }
   window.supPick = function (val) { $('sup-input').value = val; };
 
+  function recordAnswer(q, answer, attachments, identity) {
+    intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments, identity: identity || null });
+    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, authorAvatar: MY_AVATAR, body: answer, attachments: (attachments || []).map(p => ({ ...p })), identity: identity || null, createdAt: new Date().toISOString() });
+  }
   function submitIntakeStep() {
     const q = intakeQs[0];
     const answer = $('sup-input').value.trim();
+    if (q.kind === 'identity' && answer) return resolveAndConfirm(q, answer);
     if (!q.optional && !answer && !pending.length) { showToast('Please answer this question.', 'warning'); return; }
-    intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments: pending.slice() });
-    // Echo the opener's answer.
-    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, body: answer, attachments: pending.map(p => ({ ...p })), createdAt: new Date().toISOString() });
+    recordAnswer(q, answer, pending.slice(), null);
     intakeQs.shift();
-    $('sup-input').value = ''; pending = []; renderPending();
-    $('sup-hint').textContent = '';
+    $('sup-input').value = ''; pending = []; renderPending(); $('sup-hint').textContent = '';
     askNext();
   }
+
+  // Identity questions: resolve the input, then ask the opener to confirm.
+  async function resolveAndConfirm(q, input) {
+    appendBubble({ authorKind: 'OPENER', authorName: CFG.me.name, authorAvatar: MY_AVATAR, body: input, createdAt: new Date().toISOString() });
+    $('sup-input').value = ''; $('sup-hint').textContent = '';
+    setComposerBusy(true);
+    appendBotTyping('Looking that up…', async () => {
+      let r; try { r = await api('/api/support/resolve-identity', { method: 'POST', body: JSON.stringify({ input }) }); } catch (e) { r = { ok: false }; }
+      if (!r || !r.ok || !r.person) {
+        appendBotTyping("I couldn't find anyone matching that. Try their Discord username, Roblox username, or a Discord/Roblox ID.", () => { setComposerBusy(false); showQuestionHint(q); $('sup-input').focus(); });
+        return;
+      }
+      pendingIdentity = { q, person: r.person };
+      renderIdentityConfirm(r.person);
+      setComposerBusy(false);
+    });
+  }
+  function renderIdentityConfirm(p) {
+    $('sup-log').insertAdjacentHTML('beforeend', `<div class="sup-msg bot"><div class="sup-av"><img src="${BOT_AVATAR}" alt="MET" /></div><div class="sup-body">
+      <div class="sup-meta"><span class="sup-name">${BOT_NAME}</span></div>
+      <div class="sup-text">Is this the right person?</div>
+      ${identityCardHtml(p)}
+      <div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="supIdConfirm(true)"><i class="ti ti-check"></i> Yes, that's them</button><button class="btn btn-ghost btn-sm" onclick="supIdConfirm(false)"><i class="ti ti-x"></i> No</button></div>
+    </div></div>`);
+    scrollLog();
+  }
+  window.supIdConfirm = function (yes) {
+    if (!pendingIdentity) return;
+    const { q, person } = pendingIdentity; pendingIdentity = null;
+    if (!yes) { appendBotTyping('No problem — enter the correct username or ID.', () => { showQuestionHint(q); $('sup-input').focus(); }); return; }
+    const summary = `${person.robloxUsername || person.robloxDisplayName || ''} (Roblox ID ${person.robloxId}${person.discordUsername ? `, Discord @${person.discordUsername}` : ''})`;
+    intakeAnswers.push({ id: q.id, prompt: q.prompt, answer: summary, attachments: [], identity: person });
+    intakeQs.shift();
+    askNext();
+  };
+
   async function finishIntake() {
     try {
       const r = await api('/api/support/tickets/' + cur.id + '/submit-intake', { method: 'POST', body: JSON.stringify({ answers: intakeAnswers }) });
@@ -240,6 +303,22 @@
   }
 
   function appendBubble(m) { $('sup-log').insertAdjacentHTML('beforeend', renderMsg(m)); scrollLog(); }
+  // A "typing…" bot bubble that reveals `text` after a short, length-scaled delay.
+  function appendBotTyping(text, done, mid) {
+    const id = 'typing-' + Math.random().toString(36).slice(2);
+    const midAttr = mid ? ` data-mid="${esc(mid)}"` : '';
+    $('sup-log').insertAdjacentHTML('beforeend', `<div class="sup-msg bot" id="${id}"${midAttr}><div class="sup-av"><img src="${BOT_AVATAR}" alt="MET" /></div><div class="sup-body"><div class="sup-meta"><span class="sup-name">${BOT_NAME}</span></div><div class="sup-text sup-typing"><span></span><span></span><span></span></div></div></div>`);
+    scrollLog();
+    const delay = Math.min(2000, 650 + (text || '').length * 14);
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) { const tx = el.querySelector('.sup-text'); if (tx) { tx.classList.remove('sup-typing'); tx.innerHTML = mdInline(text); } }
+      scrollLog(); if (done) done();
+    }, delay);
+  }
+  function setComposerBusy(b) {
+    ['sup-send-btn', 'sup-input', 'sup-attach-btn'].forEach(idv => { const el = $(idv); if (el) el.disabled = b; });
+  }
 
   // ── Composer ────────────────────────────────────────────────────────
   function wireComposer() {
@@ -303,7 +382,9 @@
       es.addEventListener('message', ev => {
         try {
           const m = JSON.parse(ev.data);
-          if (m && m.id && !document.querySelector(`[data-mid="${m.id}"]`)) appendBubble(m);
+          if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return;
+          if ((m.authorKind || '').toLowerCase() === 'bot') appendBotTyping(m.body, null, m.id);
+          else appendBubble(m);
         } catch (e) {}
       });
       es.addEventListener('update', async () => {
