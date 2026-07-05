@@ -188,22 +188,20 @@ async function fetchOpenCloudPermRoles(robloxId) {
 }
 
 // Resolve a member's perm chips live from the perms group by their Roblox id.
-// Prefers Open Cloud (all roles — needed for multiple-roles-per-member); falls
-// back to the legacy single-role endpoint when no API key is configured.
-// Best-effort: returns [] on no id / no group / errors.
+// UNIONS every source so ALL of a member's roles show (multiple-roles-per-
+// member): the Open Cloud memberships API (if a key is set) AND the public v2
+// groups/roles endpoint (which returns multiple entries per group for multi-role
+// members). permsFromGroupRoles de-duplicates. Best-effort.
 async function resolveUserPerms(robloxId) {
   if (!robloxId) return [];
   const gid = permsGroupId();
   if (!gid) return [];
-  let roles = [];
+  const all = [];
   if (openCloudKey()) {
-    roles = await fetchOpenCloudPermRoles(robloxId);
+    try { all.push(...await fetchOpenCloudPermRoles(robloxId)); } catch (e) { /* ignore */ }
   }
-  if (!roles.length) {
-    // No key, or Open Cloud returned nothing — legacy public endpoint (one role).
-    try { roles = await getUserGroupRoles(robloxId, gid); } catch (e) { roles = []; }
-  }
-  return permsFromGroupRoles(roles);
+  try { all.push(...await getUserGroupRoles(robloxId, gid)); } catch (e) { /* ignore */ }
+  return permsFromGroupRoles(all);
 }
 
 // ── Standing / disciplinary Discord roles ────────────────────────────
