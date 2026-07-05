@@ -678,7 +678,7 @@ app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join
 
 // Support help desk — any signed-in user (community members open tickets;
 // staff see a queue for the types they handle). One page serves both.
-app.get('/support', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'support.html')));
+app.get('/support', recordVisit, maybeAuth, (req, res) => sendPage(res, path.join(views, 'support.html')));
 
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
 app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));
