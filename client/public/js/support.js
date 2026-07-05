@@ -424,7 +424,7 @@ Tryouts are announced in [#public-tryouts](${CH}) — react to the notifications
   const KB_REQS = `**Tryout requirements**
 • Roblox account **100+ days old**
 • **Not** in any gang (unless you have gang perms)
-• Member of **both** Roblox groups (Hendon + Metropolitan)
+• Member of **both** Roblox groups: [Hendon Police College](https://www.roblox.com/communities/14201396/Hendon-Police-College-SLR) + [Metropolitan Police](https://www.roblox.com/communities/17275620/Metropolitan-Police-SLR)
 • Verified, blocky avatar, in uniform, 16+
 
 Come along when a tryout is announced in [#public-tryouts](${CH}).`;
