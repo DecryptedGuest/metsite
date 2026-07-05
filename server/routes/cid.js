@@ -237,24 +237,28 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
 });
 
 // POST /api/cid/tryout-logs/:id/approve { note? } — Director's Office approves.
-// (No points sheet is wired for CID, so this records approval only.)
+// On approval the host gets +1 "event hosted" on the CID database sheet (the
+// current-day column of their row, on the matching rank-tier tab). Best-effort.
 router.post('/tryout-logs/:id/approve', requireCidLead, async (req, res) => {
   try {
     const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: DIVISION } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
 
+    // Award the host their +1 CID event (never blocks approval).
+    const awarded = await tryoutLogsLib.awardCidEventPoint(log).catch(() => false);
+
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },
       data: {
-        status: 'APPROVED',
+        status: 'APPROVED', pointAwarded: awarded,
         reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
         reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
         reviewedAt: new Date(),
       },
     });
     await sendTryoutLog(updated, { event: 'approved' }).catch(() => null);
-    res.json({ success: true, status: 'APPROVED' });
+    res.json({ success: true, status: 'APPROVED', pointAwarded: awarded });
   } catch (err) {
     console.error('[CID] approve tryout log failed:', err.message);
     res.status(500).json({ error: 'Failed to approve the tryout log' });

@@ -278,6 +278,65 @@ async function awardHpcPoint(log) {
   }
 }
 
+// ── +1 CID "event hosted" on approval ────────────────────────────────
+// Writes +1 to the host's current-day cell in the EVENTS HOSTED/ATTENDED block
+// on the CID database sheet (CID_SHEET_ID). The sheet is split into rank-tier
+// tabs (LOW / MIDDLE / HIGH RANK); rather than assume the host's tier we search
+// every tab for their row and write to whichever one holds it. Reuses the quota
+// sheet helpers (header-driven column detection + tolerant username matching).
+// Best-effort: returns false (no throw) if Sheets isn't configured or no row
+// matches. TODO(verify): confirmed against the MIDDLE RANK tab layout from the
+// screenshot (USERNAME + MON–SUN); verify LOW/HIGH RANK tabs use the same headers.
+async function awardCidEventPoint(log) {
+  try {
+    const q = require('./quota');
+    const sheets = q.getSheetsClient();
+    if (!sheets) return false; // service account not configured — silent no-op
+
+    const spreadsheetId = process.env.CID_SHEET_ID;
+    if (!spreadsheetId) { console.warn('[tryoutLog] CID_SHEET_ID not set — skipping CID event point.'); return false; }
+    const tz = process.env.QUOTA_TIMEZONE || 'Europe/London';
+
+    // All tabs on the sheet (rank-tier tabs). Prefer the host's own tier tab
+    // first (from the ranks config, if we can tell), then fall back to the rest.
+    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
+    let tabs = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
+    const candidates = [log.hostRobloxName, log.hostName].filter(Boolean);
+
+    for (const sheetName of tabs) {
+      const resp = await sheets.spreadsheets.values.get({
+        spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+      }).catch(() => null);
+      if (!resp) continue;
+      const rows = resp.data.values || [];
+      const cols = q.findColumns(rows);
+      if (cols.username == null && cols.discordId == null) continue; // not a member tab
+      const rowIdx = q.findMemberRow(rows, cols, log.hostDiscordId, candidates);
+      if (rowIdx < 0) continue;
+
+      const dayCol = cols.days[q.currentDayIndex(tz)];
+      if (dayCol == null) { console.warn(`[tryoutLog] CID: no day column on "${sheetName}"`); continue; }
+      const cellRaw = (rows[rowIdx][dayCol] || '').toString().trim();
+      if (cellRaw && isNaN(parseFloat(cellRaw))) continue; // non-numeric marker — leave it
+      const newVal = (cellRaw ? parseFloat(cellRaw) : 0) + 1;
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!${q.colLetter(dayCol)}${rowIdx + 1}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[newVal]] },
+      });
+      console.log(`[tryoutLog] +1 CID event → ${log.hostRobloxName || log.hostName} on "${sheetName}" (now ${newVal})`);
+      return true;
+    }
+    console.warn(`[tryoutLog] CID: no sheet row for host ${log.hostRobloxName || log.hostName} across ${tabs.length} tab(s)`);
+    return false;
+  } catch (err) {
+    console.error('[tryoutLog] awardCidEventPoint failed:', err.message);
+    return false;
+  }
+}
+
 // ── Attendance sync to a "recruits" sheet (optional, on approval) ────
 // Appends one row per attendee to HPC_RECRUITS_SHEET_ID:
 //   [concluded date, host, recruit, roblox id, result, strikes, kicked/left]
@@ -333,6 +392,6 @@ async function notifyTryoutApprovers(log) {
 
 module.exports = {
   normaliseAttendees, normaliseEvents, countsFor, resolveHostUser,
-  createFromGamePayload, serialize, awardHpcPoint,
+  createFromGamePayload, serialize, awardHpcPoint, awardCidEventPoint,
   syncAttendanceToSheet, notifyTryoutApprovers,
 };
