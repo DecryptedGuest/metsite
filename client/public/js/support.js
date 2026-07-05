@@ -414,7 +414,7 @@
   // ── General Support help bot (rule-based knowledge; hands off to IA) ──
   const CH = 'https://discord.com/channels/1191048287315304470/1458854944793694360';
   const KB_JOIN = `**How to join the MET**
-Your career starts at Hendon Police College. Pass a tryout and the final exam and you'll become a **Community Support Officer**, then train up to **Police Constable** and can later join specialist divisions (response, investigations, and more).
+Your career starts at Hendon Police College. Pass a tryout and the final exam and you'll become a **Community Support Officer**, then train up to **Constable** and can later join divisions (CID, SCO-19, MI5, and more).
 
 **You MUST join BOTH Roblox groups first:**
 • [Hendon Police College](https://www.roblox.com/communities/14201396/Hendon-Police-College-SLR)
