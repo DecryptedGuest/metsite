@@ -18,7 +18,7 @@
 // empty perms; no env role ids or no captured Discord roles → empty flags.
 
 const fetch = require('node-fetch');
-const { getUserGroupRoles } = require('./roblox');
+const { getUserGroupRoles, getGroupRolesPublic } = require('./roblox');
 
 // The perms group id. Override with PERMS_GROUP_ID if it ever changes.
 function permsGroupId() { return process.env.PERMS_GROUP_ID || '381582724'; }
@@ -173,10 +173,14 @@ async function fetchOpenCloudPermRoles(robloxId) {
       if (Array.isArray(m.roles)) m.roles.forEach(p => p && rolePaths.add(p));
       if (m.role) rolePaths.add(m.role);
     }
-    // Map "groups/{gid}/roles/{roleId}" → the catalog entry (has name/rank/colour).
+    if (!rolePaths.size) return [];
+    // Resolve each "groups/{gid}/roles/{roleId}" to its REAL name + rank via the
+    // live group role list (don't rely on the static catalog's ids matching).
+    const liveRoles = await getGroupRolesPublic(gid);
+    const byId = new Map(liveRoles.map(r => [String(r.id), r]));
     return [...rolePaths]
-      .map(p => PERMS_BY_ID.get(String(p).split('/').pop()))
-      .filter(Boolean);
+      .map(p => byId.get(String(p).split('/').pop()))
+      .filter(Boolean); // [{ id, name, rank }] — permsFromGroupRoles filters + colours by name
   } catch (e) {
     console.error('[permsGroup] Open Cloud membership fetch failed:', e.message);
     return [];

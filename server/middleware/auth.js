@@ -61,6 +61,32 @@ async function requireAuth(req, res, next) {
 
   req.user = user;
   next();
+
+  // Opportunistic, non-blocking role refresh: if this user's roles haven't been
+  // re-checked recently, re-derive them in the background so role changes (e.g.
+  // a removed final-exam role) take effect on their next request — without
+  // waiting for the periodic batch. Guarded per-user to avoid duplicate work.
+  maybeRefreshRoles(user);
+}
+
+const REFRESH_TTL_MS = 3 * 60 * 1000; // don't refresh the same user more than ~every 3 min
+const _refreshing = new Set();
+function maybeRefreshRoles(user) {
+  try {
+    if (!user || user.role === 'DEVELOPER') return;
+    const last = user.lastRoleCheck ? new Date(user.lastRoleCheck).getTime() : 0;
+    if (Date.now() - last < REFRESH_TTL_MS) return;
+    if (_refreshing.has(user.id)) return;
+    _refreshing.add(user.id);
+    (async () => {
+      try {
+        const { getMemberRecord } = require('../lib/bot');
+        const { revalidateUser } = require('../lib/accessControl');
+        await revalidateUser(user, getMemberRecord);
+      } catch (e) { /* best-effort; the periodic batch is the backstop */ }
+      finally { _refreshing.delete(user.id); }
+    })();
+  } catch (e) { /* never let a refresh error affect the request */ }
 }
 
 // HICOMM access: HICOMM, SUPERVISOR, or DEVELOPER

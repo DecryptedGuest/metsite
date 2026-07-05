@@ -261,6 +261,30 @@ async function getUserGroupRoles(robloxUserId, groupId) {
 }
 
 /**
+ * Public (no-auth) list of a group's roles: [{ id, name, rank }]. Uses the
+ * groups.roblox.com v1 endpoint. Returns [] on error. Used to map role ids
+ * (e.g. from the Open Cloud memberships API) to their real names + ranks.
+ */
+const publicRolesCache = new Map(); // groupId → { roles, expires }
+async function getGroupRolesPublic(groupId) {
+  if (!groupId) return [];
+  const key = String(groupId);
+  const hit = publicRolesCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.roles;
+  try {
+    const res = await fetch(`https://groups.roblox.com/v1/groups/${key}/roles`);
+    if (!res.ok) return hit ? hit.roles : [];
+    const data = await res.json();
+    const roles = (data.roles || []).map(r => ({ id: String(r.id), name: r.name, rank: r.rank }));
+    publicRolesCache.set(key, { roles, expires: Date.now() + 60 * 60 * 1000 }); // 1h — ranks rarely change
+    return roles;
+  } catch (err) {
+    console.error('Group public roles error:', err.message);
+    return hit ? hit.roles : [];
+  }
+}
+
+/**
  * Batch-resolve many Roblox user IDs to { id, username, displayName } in one
  * request (public Users API, no auth). Returns a Map keyed by string id.
  * Best-effort: unresolved / errored ids are simply absent from the map.
@@ -614,6 +638,7 @@ module.exports = {
   getRobloxIdFromUsername,
   getRobloxUserInfo,
   getRobloxUsersInfo,
+  getGroupRolesPublic,
   getRobloxAvatarHeadshot,
   getGroupMembership,
   getUserGroupRole,

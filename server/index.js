@@ -577,11 +577,27 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
 // returns for your account in the perms group, and the perm chips derived from
 // them (after the rank 2..99 / non-divider filter). ─────
 app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
+  const fetch = require('node-fetch');
   const { getUserGroupRoles } = require('./lib/roblox');
   const { permsGroupId, openCloudKey, permsFromGroupRoles, isPermRole, fetchOpenCloudPermRoles } = require('./lib/permsGroup');
   const gid = permsGroupId();
   const rid = req.user.robloxId;
   let legacy = [], openCloud = [], error = null;
+
+  // Raw Open Cloud probe so misconfig is visible (status + what the API returns).
+  const rawOpenCloud = { status: null, rolePaths: [], body: null };
+  if (rid && openCloudKey()) {
+    try {
+      const url = `https://apis.roblox.com/cloud/v2/groups/${gid}/memberships?maxPageSize=10&filter=${encodeURIComponent(`user == 'users/${rid}'`)}`;
+      const r = await fetch(url, { headers: { 'x-api-key': openCloudKey() } });
+      rawOpenCloud.status = r.status;
+      const j = await r.json().catch(() => ({}));
+      const ms = j.groupMemberships || j.memberships || [];
+      for (const m of ms) { if (Array.isArray(m.roles)) m.roles.forEach(p => rawOpenCloud.rolePaths.push(p)); if (m.role) rawOpenCloud.rolePaths.push(m.role); }
+      if (r.status >= 400) rawOpenCloud.body = JSON.stringify(j).slice(0, 300);
+    } catch (e) { rawOpenCloud.body = e.message; }
+  }
+
   try { legacy = rid ? await getUserGroupRoles(rid, gid) : []; } catch (e) { error = e.message; }
   try { openCloud = rid && openCloudKey() ? await fetchOpenCloudPermRoles(rid) : []; } catch (e) { error = (error ? error + '; ' : '') + e.message; }
   const chips = permsFromGroupRoles(openCloud.length ? openCloud : legacy);
@@ -590,16 +606,18 @@ app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
     robloxUsername:   req.user.robloxUsername || null,
     permsGroupId:     gid,
     openCloudKeySet:  !!openCloudKey(),
+    rawOpenCloud,     // { status, rolePaths:[...], body } — 200 + rolePaths = working
     source:           openCloud.length ? 'open-cloud (all roles)' : 'legacy (single role)',
     openCloudRoles:   openCloud.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
     legacyRoles:      legacy.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
     derivedPerms:     chips.map(p => p.label),
     error,
-    hint: !rid ? 'No Roblox id stored — log out and back in to link it.'
-      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set — using the legacy endpoint which returns ONLY ONE role. Set an Open Cloud API key to see all your perm roles.'
-      : (!openCloud.length ? 'Open Cloud returned no roles — check the API key has this group\'s membership read scope and the id is in the group.'
+    hint: !rid ? 'No Roblox id stored — log out and back in to link it (needs DISCORD_GUILD_ID + RoVer).'
+      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set — legacy endpoint returns only ONE role. Set an Open Cloud API key.'
+      : (rawOpenCloud.status && rawOpenCloud.status >= 400 ? `Open Cloud returned ${rawOpenCloud.status} — the API key lacks group-membership read scope for this group (or wrong group). Body: ${rawOpenCloud.body || ''}`
+      : (!rawOpenCloud.rolePaths.length ? 'Open Cloud returned 200 but no roles — this Roblox account holds no roles in the perms group (check the id is actually in the group).'
       : (!chips.length ? 'You hold roles but all were filtered (rank <2 / >99 / divider / Member).'
-      : 'Perms resolved OK — they should show on your profile.'))),
+      : 'Perms resolved OK — they should show on your profile.')))),
   });
 });
 

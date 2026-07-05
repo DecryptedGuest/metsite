@@ -40,7 +40,10 @@ async function revalidateUser(user, getMemberRecord) {
   } catch (e) {
     divisions = Array.isArray(user.divisions) ? user.divisions : [];
   }
-  const stamp = { lastRoleCheck: new Date(), divisions };
+  // Also refresh the member's Discord role IDs so role-gated features stay
+  // current WITHOUT a re-login — e.g. removing the final-exam role hides the
+  // exam, losing the British-citizen role hides tryouts, perms flags update.
+  const stamp = { lastRoleCheck: new Date(), divisions, metRoleIds: memberRoles };
 
   if (newRole) {
     if (newRole !== user.role) {
