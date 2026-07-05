@@ -1264,7 +1264,7 @@
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Priority</th><th>Type</th><th>Opener</th><th>Status</th><th>Claimed by</th><th>Age</th><th></th></tr></thead>
+            <thead><tr><th>Priority</th><th>Type</th><th>Opener</th><th>Status</th><th>Claimed by</th><th>Ticket Age</th><th></th></tr></thead>
             <tbody id="sd-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
@@ -1927,6 +1927,21 @@
           <input type="checkbox" id="sd-internal" /> Internal note (staff-only — the opener won't see this)
         </label>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- SUPPORT DESK — reason prompt (escalate / close) -->
+<div class="modal-overlay" id="modal-sd-reason">
+  <div class="modal glass-bright" style="max-width:440px;">
+    <div class="modal-header"><div class="modal-title" id="sd-reason-title">Reason</div>
+      <button class="modal-close" onclick="closeModal('modal-sd-reason')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <textarea class="form-control" id="sd-reason-input" rows="3" placeholder="Reason (optional)…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sd-reason')">Cancel</button>
+      <button class="btn btn-primary" id="sd-reason-confirm" onclick="sdReasonConfirm()">Confirm</button>
     </div>
   </div>
 </div>

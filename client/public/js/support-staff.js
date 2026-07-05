@@ -22,7 +22,7 @@
     'Your appeal has been reviewed — after consideration, the original decision stands.',
     'Your appeal has been upheld and the action has been reversed. Apologies for the inconvenience.',
   ];
-  const PRIO = { URGENT: ['#e0503a', 'Urgent'], HIGH: ['#e8842a', 'High'], NORMAL: ['#6b7280', 'Normal'], LOW: ['#4b5563', 'Low'] };
+  const PRIO = { URGENT: ['#e0503a', 'Urgent Priority'], HIGH: ['#e8842a', 'High Priority'], NORMAL: ['#6b7280', 'Normal Priority'], LOW: ['#4b5563', 'Low Priority'] };
 
   function age(d) {
     const s = Math.max(0, (Date.now() - new Date(d).getTime()) / 1000);
@@ -90,7 +90,7 @@
     return `<tr style="cursor:pointer;" onclick="sdOpen('${t.id}')">
       <td>${priorityBadge(t.priority)}</td>
       <td>${esc2(t.typeLabel)}${flag}</td>
-      <td>${esc2(t.openerName)}</td>
+      <td><span style="cursor:pointer;text-decoration:underline dotted;" onclick="event.stopPropagation();sdProfile('${t.openerId}','${esc2(t.openerName)}')">${esc2(t.openerName)}</span></td>
       <td>${statusBadge(t.status)}</td>
       <td>${t.claimedByName ? esc2(t.claimedByName) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${age(t.createdAt)}</td>
@@ -121,16 +121,21 @@
     const c = t.caps || {};
     const b = [];
     b.push(`${priorityBadge(t.priority)} ${statusBadge(t.status)}${t.escalated ? ' <span class="badge badge-denied"><span class="badge-dot"></span>Escalated</span>' : ''}`);
-    if (c.canClaim)   b.push(`<button class="btn btn-primary btn-sm" onclick="sdAct('claim')"><i class="ti ti-hand-stop"></i> Claim</button>`);
-    if (c.canRelease) b.push(`<button class="btn btn-ghost btn-sm" onclick="sdAct('release')"><i class="ti ti-arrow-back-up"></i> Release</button>`);
-    if (c.canReassign) b.push(`<button class="btn btn-ghost btn-sm" onclick="sdReassign()"><i class="ti ti-user-share"></i> Reassign</button>`);
+    // Claim → for the claimant (or HICOMM) it becomes "Unclaim"; for everyone
+    // else, once claimed, it's greyed out and disabled.
+    if (t.status === 'CLAIMED') {
+      if (c.canRelease) b.push(`<button class="btn btn-ghost btn-sm" onclick="sdAct('release')"><i class="ti ti-hand-off"></i> Unclaim</button>`);
+      else b.push(`<button class="btn btn-sm" disabled style="opacity:.45;cursor:not-allowed;" title="Claimed by ${esc(t.claimedByName || '')}"><i class="ti ti-hand-stop"></i> Claimed</button>`);
+    } else if (c.canClaim) {
+      b.push(`<button class="btn btn-primary btn-sm" onclick="sdAct('claim')"><i class="ti ti-hand-stop"></i> Claim</button>`);
+    }
     if (c.canPriority) {
       const opts = (SDC.priorities || ['LOW', 'NORMAL', 'HIGH', 'URGENT']).map(p => `<option value="${p}"${p === t.priority ? ' selected' : ''}>${(PRIO[p] || [, p])[1]}</option>`).join('');
       b.push(`<select class="form-control" style="width:auto;font-size:12px;padding:4px 8px;" onchange="sdSetPriority(this.value)" title="Priority">${opts}</select>`);
     }
     if (c.canEscalate)   b.push(`<button class="btn btn-ghost btn-sm" onclick="sdEscalate()" title="Flag up to IA HICOMM"><i class="ti ti-flag"></i> Escalate</button>`);
     if (c.canDeEscalate) b.push(`<button class="btn btn-ghost btn-sm" onclick="sdAct('deescalate')"><i class="ti ti-flag-off"></i> Clear flag</button>`);
-    b.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${t.openerId}','${esc(t.openerName)}')"><i class="ti ti-user"></i> Opener</button>`);
+    b.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${t.openerId}','${esc(t.openerName)}')"><i class="ti ti-user"></i> Opener Profile</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdCanned()"><i class="ti ti-message-2-bolt"></i> Quick replies</button>`);
     if (c.canClose)  b.push(`<button class="btn btn-danger btn-sm" onclick="sdClose()"><i class="ti ti-lock"></i> Close</button>`);
     if (c.canDelete) b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdDelete()"><i class="ti ti-trash"></i></button>`);
@@ -193,35 +198,38 @@
     try { await api('/api/support/tickets/' + curT.id + '/priority', { method: 'POST', body: JSON.stringify({ priority: p }) }); showToast('Priority set', 'success'); await reloadTicket(); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
   };
-  window.sdEscalate = async function () {
-    const note = prompt('Escalate to IA HICOMM — reason (optional):');
-    if (note === null) return;
-    try { await api('/api/support/tickets/' + curT.id + '/escalate', { method: 'POST', body: JSON.stringify({ note }) }); showToast('Escalated', 'success'); await reloadTicket(); refreshQueue(); }
-    catch (e) { showToast(e.message, 'error'); }
+  // In-modal reason prompt (no browser prompt()).
+  let sdReasonCb = null;
+  function sdReasonPrompt(title, placeholder, confirmText, cb) {
+    $('sd-reason-title').textContent = title;
+    const ta = $('sd-reason-input'); ta.value = ''; ta.placeholder = placeholder;
+    $('sd-reason-confirm').textContent = confirmText;
+    sdReasonCb = cb;
+    openModal('modal-sd-reason');
+    setTimeout(() => ta.focus(), 50);
+  }
+  window.sdReasonConfirm = function () {
+    const val = $('sd-reason-input').value.trim();
+    const cb = sdReasonCb; sdReasonCb = null;
+    closeModal('modal-sd-reason');
+    if (cb) cb(val);
   };
-  window.sdClose = async function () {
-    const reason = prompt('Close reason (optional) — an IA ticket log is auto-filed for HICOMM:');
-    if (reason === null) return;
-    try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); await reloadTicket(); refreshQueue(); }
-    catch (e) { showToast(e.message, 'error'); }
+  window.sdEscalate = function () {
+    sdReasonPrompt('Escalate to IA HICOMM', 'Reason (optional)…', 'Escalate', async (note) => {
+      try { await api('/api/support/tickets/' + curT.id + '/escalate', { method: 'POST', body: JSON.stringify({ note }) }); showToast('Escalated', 'success'); await reloadTicket(); refreshQueue(); }
+      catch (e) { showToast(e.message, 'error'); }
+    });
+  };
+  window.sdClose = function () {
+    sdReasonPrompt('Close ticket', 'Close reason (optional) — an IA ticket log is auto-filed for HICOMM…', 'Close ticket', async (reason) => {
+      try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); await reloadTicket(); refreshQueue(); }
+      catch (e) { showToast(e.message, 'error'); }
+    });
   };
   window.sdDelete = async function () {
     if (!confirm('Permanently delete this ticket and its messages? This cannot be undone.')) return;
     try { await api('/api/support/tickets/' + curT.id, { method: 'DELETE' }); showToast('Deleted', 'success'); closeModal('modal-sd-ticket'); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
-  };
-  window.sdReassign = async function () {
-    try {
-      const staff = await api('/api/support/staff?type=' + encodeURIComponent(curT.type));
-      const list = staff.filter(s => s.id !== (SDC.me && SDC.me.id));
-      if (!list.length) return showToast('No other staff can handle this type.', 'warning');
-      const menu = list.map((s, i) => `${i + 1}. ${s.name} (${s.role})`).join('\n');
-      const pick = prompt(`Reassign to which staff member?\n${menu}\n\nEnter a number:`);
-      const idx = parseInt(pick, 10) - 1;
-      if (isNaN(idx) || !list[idx]) return;
-      await api('/api/support/tickets/' + curT.id + '/reassign', { method: 'POST', body: JSON.stringify({ toUserId: list[idx].id }) });
-      showToast('Reassigned', 'success'); await reloadTicket(); refreshQueue();
-    } catch (e) { showToast(e.message, 'error'); }
   };
   window.sdCanned = function () {
     $('sd-canned-body').innerHTML = CANNED.map(c => `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;margin-bottom:6px;white-space:normal;height:auto;padding:8px 10px;" onclick="sdUseCanned(${JSON.stringify(c).replace(/"/g, '&quot;')})">${esc(c)}</button>`).join('');
