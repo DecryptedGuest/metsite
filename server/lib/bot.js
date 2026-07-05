@@ -20,10 +20,11 @@ const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || '145587742458
 // forum starter messages + Tickety transcript logs), but must never take the
 // whole bot offline over it — so startBot() logs in WITH it and transparently
 // retries WITHOUT it if the portal rejects it (role assignment etc. keep working).
-// FLP patrol-log channel — the bot reads new logs here (needs Message Content)
-// and reacts ✅/❌ once the site approves/denies them.
-const PATROL_CHANNEL_ID = process.env.PATROL_CHANNEL_ID || null;
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID);
+// Patrol-log + event-log channels — the bot reads new logs here (needs Message
+// Content) and reacts ✅/❌ once the site approves/denies them.
+const PATROL_CHANNEL_ID    = process.env.PATROL_CHANNEL_ID || null;
+const EVENTLOGS_CHANNEL_ID = process.env.EVENTLOGS_CHANNEL_ID || null;
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID);
 
 let ready = false;
 let client;
@@ -580,19 +581,23 @@ async function sendTryoutHostDM(tryout) {
   }
 }
 
-// ── FLP patrol logs ───────────────────────────────────────────────────
-// A new message in PATROL_CHANNEL_ID that looks like a patrol log → capture it
-// for site review. (Pure chat without "shift" is ignored.)
+// ── Patrol + event logs ───────────────────────────────────────────────
+// A new message in PATROL_CHANNEL_ID / EVENTLOGS_CHANNEL_ID that looks like a
+// log → capture it for site review. (Pure chat without "shift" and no image is
+// ignored.)
 async function onPatrolMessage(message) {
   try {
-    if (!PATROL_CHANNEL_ID || String(message.channelId) !== String(PATROL_CHANNEL_ID)) return;
     if (message.author && message.author.bot) return;
-    const content = message.content || '';
-    if (!/shift/i.test(content) && message.attachments.size === 0) return; // not a log
+    const ch = String(message.channelId);
+    let type = null;
+    if (PATROL_CHANNEL_ID && ch === String(PATROL_CHANNEL_ID)) type = 'PATROL';
+    else if (EVENTLOGS_CHANNEL_ID && ch === String(EVENTLOGS_CHANNEL_ID)) type = 'EVENT';
+    if (!type) return;
+    if (!/shift/i.test(message.content || '') && message.attachments.size === 0) return; // not a log
     const { createFromMessage } = require('./patrolLog');
-    await createFromMessage(message);
+    await createFromMessage(message, type);
   } catch (e) {
-    console.error('[Patrol] messageCreate error:', e.message);
+    console.error('[Log] messageCreate error:', e.message);
   }
 }
 

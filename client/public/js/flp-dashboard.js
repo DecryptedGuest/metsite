@@ -19,6 +19,7 @@ function flpNavigate(pageId) {
   if (btn) btn.classList.add('active');
   if (pageId === 'group') loadFlpGroup();
   if (pageId === 'patrols') loadPatrols();
+  if (pageId === 'events') loadEvents();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => flpNavigate(btn.dataset.page)));
 
@@ -28,7 +29,7 @@ async function initFlp() {
     document.querySelectorAll('.group-admin-only').forEach(el => el.style.display = '');
     loadFlpPendingBadge();
   }
-  if (flpCtx.canReviewPatrols) loadPatrolBadge();
+  if (flpCtx.canReviewPatrols) { loadPatrolBadge(); loadEventBadge(); }
 }
 
 // ── Patrol logs ──────────────────────────────────────────────────────
@@ -67,23 +68,27 @@ async function loadPatrols() {
 }
 
 function renderPatrol(p) {
+  const isEvent = p.type === 'EVENT';
+  const fn = isEvent ? 'reviewEvent' : 'reviewPatrol';
   const imgs = (p.images || []).map(u => `<a href="${fesc(u)}" target="_blank" rel="noopener"><img src="${fesc(u)}" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-dim);" loading="lazy" /></a>`).join('');
   const rows = [
     ['Submitted by', `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`],
     ['Division', fesc(p.division || 'N/A')],
-    ['Shift started', fesc(p.shiftStart || '—')],
-    ['Shift ended', fesc(p.shiftEnd || '—')],
+    ['Started', fesc(p.shiftStart || '—')],
+    ['Ended', fesc(p.shiftEnd || '—')],
     ['Total time', fesc(p.totalLabel || '—')],
   ].map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;">${k}</span><span>${v}</span></div>`).join('');
+  const pointNote = (isEvent && p.status === 'APPROVED')
+    ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '✓ +1 point added to the MET database' : '⚠ point not added — member not found on a rank tab / non-numeric cell'}</div>` : '';
   return `<div class="panel glass fade-up" style="margin-bottom:16px;">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>${fesc(p.submitterDisplayName || p.submitterUsername || 'Patrol log')}</div>${PATROL_STATUS[p.status] || ''}</div>
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot ${isEvent ? 'amber' : 'blue'}"></span>${fesc(p.submitterDisplayName || p.submitterUsername || 'Log')}</div>${PATROL_STATUS[p.status] || ''}</div>
     <div class="profile-section">
       ${rows}
       ${imgs ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">${imgs}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">No images attached.</div>'}
       ${p.status === 'PENDING' ? `<div style="display:flex;gap:8px;margin-top:14px;">
-        <button class="btn btn-success btn-sm" onclick="reviewPatrol('${p.id}','approve')"><i class="ti ti-check"></i> Approve</button>
-        <button class="btn btn-danger btn-sm" onclick="reviewPatrol('${p.id}','deny')"><i class="ti ti-x"></i> Deny</button>
-      </div>` : `<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">${p.reviewedByName ? 'Reviewed by ' + fesc(p.reviewedByName) : ''}</div>`}
+        <button class="btn btn-success btn-sm" onclick="${fn}('${p.id}','approve')"><i class="ti ti-check"></i> Approve</button>
+        <button class="btn btn-danger btn-sm" onclick="${fn}('${p.id}','deny')"><i class="ti ti-x"></i> Deny</button>
+      </div>` : `<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">${p.reviewedByName ? 'Reviewed by ' + fesc(p.reviewedByName) : ''}</div>${pointNote}`}
     </div>
   </div>`;
 }
@@ -93,6 +98,44 @@ async function reviewPatrol(id, action) {
     const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
     showToast(action === 'approve' ? `Approved${r.reacted ? ' — reacted ✅' : ''}` : `Denied${r.reacted ? ' — reacted ❌' : ''}`, 'success');
     loadPatrols(); loadPatrolBadge();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ── Event logs (same review flow; approve awards +1 on the MET database) ──
+let eventFilter = 'PENDING';
+
+async function loadEventBadge() {
+  try {
+    const rows = await api('/api/flp/patrols?type=EVENT&status=PENDING');
+    const b = document.getElementById('flp-event-badge');
+    if (b && rows.length) { b.textContent = rows.length; b.style.display = ''; }
+  } catch (e) { /* non-fatal */ }
+}
+
+const _eventTabs = document.getElementById('flp-event-tabs');
+if (_eventTabs) _eventTabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('.filter-tab'); if (!btn) return;
+  _eventTabs.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active'); eventFilter = btn.dataset.filter; loadEvents();
+});
+
+async function loadEvents() {
+  const wrap = document.getElementById('flp-events-wrap');
+  try {
+    const rows = await api('/api/flp/patrols?type=EVENT&status=' + eventFilter);
+    if (!rows.length) { wrap.innerHTML = `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">Nothing here.</div></div></div>`; return; }
+    wrap.innerHTML = rows.map(renderPatrol).join('');
+  } catch (err) {
+    wrap.innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${fesc(err.message)}</div>`;
+  }
+}
+
+async function reviewEvent(id, action) {
+  try {
+    const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
+    const pt = r.point && r.point.ok ? ` · +1 → ${fesc(r.point.tab || '')}` : (action === 'approve' && r.point && !r.point.ok ? ` · point skipped (${fesc(r.point.reason || '')})` : '');
+    showToast((action === 'approve' ? 'Approved ✅' : 'Denied ❌') + pt, 'success');
+    loadEvents(); loadEventBadge();
   } catch (err) { showToast(err.message, 'error'); }
 }
 

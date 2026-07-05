@@ -39,10 +39,11 @@ router.get('/context', (req, res) => {
 router.get('/patrols', async (req, res) => {
   try {
     const status = ['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status) ? req.query.status : 'PENDING';
-    const rows = await prisma.patrolLog.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, take: 200 });
+    const type   = req.query.type === 'EVENT' ? 'EVENT' : 'PATROL';
+    const rows = await prisma.patrolLog.findMany({ where: { status, type }, orderBy: { createdAt: 'desc' }, take: 200 });
     res.json(rows.map(patrolLib.serialize));
   } catch (err) {
-    res.status(500).json({ error: 'Failed to load patrol logs' });
+    res.status(500).json({ error: 'Failed to load logs' });
   }
 });
 
@@ -51,25 +52,32 @@ router.post('/patrols/:id/:action', async (req, res) => {
   if (!['approve', 'deny'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
   try {
     const p = await prisma.patrolLog.findUnique({ where: { id: req.params.id } });
-    if (!p) return res.status(404).json({ error: 'Patrol log not found' });
+    if (!p) return res.status(404).json({ error: 'Log not found' });
     if (p.status !== 'PENDING') return res.status(400).json({ error: 'This log has already been reviewed.' });
 
     const status = action === 'approve' ? 'APPROVED' : 'DENIED';
-    const updated = await prisma.patrolLog.update({
+
+    // Event logs award +1 on the MET database (best-effort; never blocks review).
+    let pointResult = null;
+    if (status === 'APPROVED' && p.type === 'EVENT') {
+      pointResult = await patrolLib.awardMetEventPoint(p).catch(() => ({ ok: false }));
+    }
+
+    await prisma.patrolLog.update({
       where: { id: p.id },
       data: {
         status,
+        pointAwarded: !!(pointResult && pointResult.ok),
         reviewedById: req.user.id,
         reviewedByName: req.user.displayName || req.user.discordUsername,
         reviewedAt: new Date(),
       },
     });
-    // Mark the original Discord message (best-effort).
     const reacted = await bot.reactToMessage(p.channelId, p.messageId, action === 'approve' ? '✅' : '❌').catch(() => false);
-    res.json({ success: true, status, reacted });
+    res.json({ success: true, status, reacted, point: pointResult });
   } catch (err) {
-    console.error('[FLP] patrol review failed:', err.message);
-    res.status(500).json({ error: 'Failed to review patrol log' });
+    console.error('[FLP] log review failed:', err.message);
+    res.status(500).json({ error: 'Failed to review log' });
   }
 });
 

@@ -572,8 +572,10 @@ model Tryout {
 // bot reacts ✅/❌ to the original Discord message.
 model PatrolLog {
   id                   String    @id @default(uuid())
+  type                 String    @default("PATROL") // PATROL | EVENT
   messageId            String    @unique   // Discord message id (react + idempotency)
   channelId            String
+  pointAwarded         Boolean   @default(false) // EVENT logs: whether the MET point was written
   submitterDiscordId   String
   submitterUsername    String?             // discord username
   submitterDisplayName String?             // server nickname, e.g. "DEV | realangeloo"
