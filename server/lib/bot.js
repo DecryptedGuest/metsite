@@ -627,6 +627,10 @@ async function postTryoutAnnouncement(tryout) {
     const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
     const data = { announcementSent: true, announcementMsgId: msg.id };
 
+    // CID: auto-react ✅ so members react toward the 3-reaction start threshold.
+    // TODO(CONFIRM): detect when 3 ✅ is reached and ping/notify the host.
+    if (String(tryout.division).toUpperCase() === 'CID') await msg.react('✅').catch(() => {});
+
     // Optional CID recruitment cross-post (longer format in a second channel).
     const cfg = divisionConfig(tryout.division);
     if (cfg.division === 'CID' && cfg.recruitmentChannelId) {

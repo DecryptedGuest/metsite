@@ -25,10 +25,13 @@ function splitIds(v) { return String(v || '').split(/[\s,]+/).map(s => s.trim())
 function divisionConfig(division) {
   const d = String(division || 'HPC').toUpperCase();
   if (d === 'CID') {
+    // Ping roles: the two named env vars (CID_TRYOUT_PING_ROLE_1/2) take
+    // precedence; fall back to the comma-separated CID_TRYOUT_PING_ROLE_IDS.
+    const namedPings = [process.env.CID_TRYOUT_PING_ROLE_1, process.env.CID_TRYOUT_PING_ROLE_2].filter(Boolean);
     return {
       division:               'CID',
       channelId:              process.env.CID_TRYOUT_CHANNEL_ID || null,
-      pingRoleIds:            splitIds(process.env.CID_TRYOUT_PING_ROLE_IDS),
+      pingRoleIds:            namedPings.length ? namedPings : splitIds(process.env.CID_TRYOUT_PING_ROLE_IDS),
       emoji:                  process.env.CID_EMOJI || ':CID:',
       eventType:              'CID Tryout',
       recruitmentChannelId:   process.env.CID_RECRUITMENT_CHANNEL_ID || null,
@@ -90,26 +93,39 @@ function formatAnnouncement(tryout, opts = {}) {
   return formatHpcAnnouncement(tryout, opts);
 }
 
-// The CID tryout announcement (posted to the CID Discord). STATUS reflects the
-// live :serverlock state and is edited in place on lock/unlock.
+// A Discord dynamic timestamp for the tryout start — renders in each viewer's
+// local timezone: full date/time, plus a relative "in 2 hours".
+function fmtDiscordTs(tryout) {
+  const ms = tryout.scheduledAt ? new Date(tryout.scheduledAt).getTime() : Date.now();
+  const s  = Math.floor(ms / 1000);
+  return `<t:${s}:F> (<t:${s}:R>)`;
+}
+
+// The CID tryout announcement (posted to the CID Discord by the same game-driven
+// flow as HPC). Wording/emoji/structure are kept verbatim to the CID spec.
 function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const cfg    = divisionConfig('CID');
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
   const link   = tryout.privateServerLink || 'TBA';
-  const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const e      = cfg.emoji;
-  const ping   = pingLine(cfg, tryout);
+  const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
   return [
-    `${e} CID Tryout ${e}`,
-    '',
-    '**Notes:** If you are Community Support Officer you will be put into a waiting list until you reach Constable.',
-    `**Starting at:** ${fmtStartAt(tryout)}`,
-    '**Reactions:** 3+',
-    `**Status:** ${status}`,
-    `Game/Profile Link: ${link}`,
+    `${e} CID TRYOUT ${e}`,
     `Host: ${host}`,
     `Co-Host: ${coHost}`,
+    `Starting: ${fmtDiscordTs(tryout)}`,
+    'Reactions: 3+ (3 ✅ needed to start the tryout, including the host)',
+    `Game link: ${link}`,
+    'Information:',
+    "`• CID is the Metropolitan Police Service's (MPS) Criminal Investigations unit. This elite group of individuals are trained for immediate responses to any crime scene.",
+    '- The standard weapon issued to CID is a GlockS.',
+    '- Members who achieve the rank of Detective Inspector+ will be able to host.',
+    '- Tryout will last approximately 30–50 minutes.`',
+    'Notes: If you are a Community Support Officer, let your Instructor know beforehand and they will put you on the waiting list.',
+    'Requirements: CSO+ RANK',
+    'Join CID Today! Together we are unstoppable.',
+    'THIS TRYOUT WILL BE HOSTED IN HENDON POLICE CAMPUS',
     ...(ping ? [ping] : []),
   ].join('\n');
 }
