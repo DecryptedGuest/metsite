@@ -506,14 +506,17 @@ async function loadLive() {
     const s = t.snapshot || {};
     const at = s.attendees || [];
     const lock = ['UNLOCKED', 'UNSLOCKED'].includes(String(t.lockState).toUpperCase());
+    const manage = !!t.canManage;
+    const act = (a, action, label, cls) => `<button class="btn ${cls} btn-sm" style="padding:3px 8px;font-size:11px;" onclick="tryoutCmd('${t.id}','${action}','${a.robloxId || ''}','${esc(a.username || '')}')">${label}</button>`;
     const rows = at.length ? at.map(a => `<tr>
         <td>${a.robloxId ? `<img src="https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(a.robloxId)}&width=48&height=48&format=png" alt="" style="width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;background:#0b1c3a;" onerror="this.style.display='none'"/>` : ''}${esc(a.username || 'Unknown')}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}</td>
         <td>${a.result === 'PASS' ? '<span style="color:var(--green);">Passed</span>' : a.result === 'FAIL' ? '<span style="color:var(--red);">Failed</span>' : '—'}</td>
         <td>${a.strikes || 0}</td>
-      </tr>`).join('') : `<tr><td colspan="3" class="table-empty-text">Waiting for the panel to report attendees…</td></tr>`;
+        ${manage ? `<td><div style="display:flex;gap:4px;flex-wrap:wrap;">${act(a, 'STRIKE', 'Strike', 'btn-ghost')}${act(a, 'PASS', 'Pass', 'btn-success')}${act(a, 'FAIL', 'Fail', 'btn-danger')}${act(a, 'KICK', 'Kick', 'btn-ghost')}</div></td>` : ''}
+      </tr>`).join('') : `<tr><td colspan="${manage ? 4 : 3}" class="table-empty-text">Waiting for the panel to report attendees…</td></tr>`;
     return `<div class="panel glass fade-up" style="margin-bottom:16px;">
       <div class="panel-header">
-        <div class="panel-title"><span class="panel-dot green"></span>${esc(t.hostName)}${t.coHostName ? ' &amp; ' + esc(t.coHostName) : ''}</div>
+        <div class="panel-title"><span class="panel-dot green"></span>${esc(t.hostName)}${t.coHostName ? ' &amp; ' + esc(t.coHostName) : ''}${manage ? ' <span class="badge badge-approved" style="font-size:9px;">You host</span>' : ''}</div>
         <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? '🔓 Unlocked' : '🔒 Locked'}</span>
       </div>
       <div class="profile-section">
@@ -526,13 +529,23 @@ async function loadLive() {
           ${liveStat(s.kickedCount ?? 0, 'Kicked', '')}
         </div>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>Attendee</th><th>Result</th><th>Strikes</th></tr></thead>
+          <thead><tr><th>Attendee</th><th>Result</th><th>Strikes</th>${manage ? '<th>Manage</th>' : ''}</tr></thead>
           <tbody>${rows}</tbody>
         </table></div>
+        ${manage ? '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Actions are sent to the in-game panel and apply on its next sync.</div>' : ''}
         ${s.at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Last update ${formatDateTime(s.at)}</div>` : '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">No live snapshot yet — the in-game panel sends these while the tryout runs.</div>'}
       </div>
     </div>`;
   }).join('');
+}
+
+// Host/co-host: queue a management action for a live tryout (applied in-game).
+async function tryoutCmd(tryoutId, action, targetRobloxId, targetUsername) {
+  if (action === 'KICK' && !confirm(`Kick ${targetUsername || 'this attendee'} from the tryout?`)) return;
+  try {
+    await api(`/api/hpc/tryouts/${tryoutId}/command`, { method: 'POST', body: JSON.stringify({ action, targetRobloxId, targetUsername }) });
+    showToast(`${action[0] + action.slice(1).toLowerCase()} queued — applies on the next in-game sync.`, 'success');
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 initHpc();

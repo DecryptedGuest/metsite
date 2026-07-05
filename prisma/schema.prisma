@@ -567,6 +567,25 @@ model Tryout {
   @@map("tryouts")
 }
 
+// A management action the host/co-host issued from the SITE for a live tryout.
+// The in-game panel polls GET /api/game/tryout/commands, applies each, then acks.
+model TryoutCommand {
+  id             String    @id @default(uuid())
+  tryoutId       String
+  action         String    // STRIKE | UNSTRIKE | PASS | FAIL | KICK | NOTE
+  targetRobloxId String?
+  targetUsername String?
+  detail         String?
+  issuedById     String?
+  issuedByName   String?
+  applied        Boolean   @default(false)
+  appliedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([tryoutId, applied])
+  @@map("tryout_commands")
+}
+
 // An FLP patrol log posted in the patrol-logs channel (PATROL_CHANNEL_ID). The
 // bot captures + parses it, FLP reviews it on the site, and on approve/deny the
 // bot reacts ✅/❌ to the original Discord message.

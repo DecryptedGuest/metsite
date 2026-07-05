@@ -199,8 +199,18 @@ router.get('/tryouts', async (req, res) => {
   }
 });
 
+// Can this user manage (strike/pass/fail/kick) this tryout from the site?
+// Host, co-host, or developer.
+function canManageTryout(user, t) {
+  if (user.role === 'DEVELOPER') return true;
+  if (t.hostId === user.id) return true;
+  if (t.coHostDiscordId && String(t.coHostDiscordId) === String(user.discordId)) return true;
+  return false;
+}
+
 // GET /api/hpc/tryouts/live — live tryouts + their latest in-game overview
-// snapshot, so HICOMM/instructors can watch a running tryout from the site.
+// snapshot, so instructors can watch a running tryout from the site; the host/
+// co-host also get `canManage:true` to drive it from here.
 router.get('/tryouts/live', async (req, res) => {
   try {
     const live = await prisma.tryout.findMany({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' }, take: 20 });
@@ -208,9 +218,40 @@ router.get('/tryouts/live', async (req, res) => {
       id: t.id, hostName: t.hostName, coHostName: t.coHostName,
       lockState: t.lockState, scheduledAt: t.scheduledAt,
       snapshot: t.liveSnapshot || null, // { at, attendees:[...], totalAttendees, passedCount, ... }
+      canManage: canManageTryout(req.user, t),
     })));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load live tryouts' });
+  }
+});
+
+// POST /api/hpc/tryouts/:id/command — host/co-host queue a live action
+// (STRIKE | UNSTRIKE | PASS | FAIL | KICK | NOTE). The in-game panel polls and
+// applies it, so the site can drive the tryout like the in-game panel.
+router.post('/tryouts/:id/command', async (req, res) => {
+  try {
+    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Tryout not found' });
+    if (!canManageTryout(req.user, t)) return res.status(403).json({ error: 'Only the host or co-host can manage this tryout.' });
+    if (t.status !== 'LIVE') return res.status(400).json({ error: 'This tryout is not live.' });
+
+    const { action, targetRobloxId, targetUsername, detail } = req.body || {};
+    const ACTIONS = ['STRIKE', 'UNSTRIKE', 'PASS', 'FAIL', 'KICK', 'NOTE'];
+    const act = String(action || '').toUpperCase();
+    if (!ACTIONS.includes(act)) return res.status(400).json({ error: 'Invalid action' });
+    if (act !== 'NOTE' && !targetRobloxId && !targetUsername) return res.status(400).json({ error: 'A target is required.' });
+
+    const cmd = await prisma.tryoutCommand.create({ data: {
+      tryoutId: t.id, action: act,
+      targetRobloxId: targetRobloxId ? String(targetRobloxId) : null,
+      targetUsername: targetUsername || null,
+      detail: detail ? String(detail).slice(0, 200) : null,
+      issuedById: req.user.id, issuedByName: req.user.displayName || req.user.discordUsername,
+    } });
+    res.status(201).json({ success: true, id: cmd.id });
+  } catch (err) {
+    console.error('[HPC] tryout command failed:', err.message);
+    res.status(500).json({ error: 'Failed to queue command' });
   }
 });
 

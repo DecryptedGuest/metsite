@@ -345,4 +345,38 @@ router.post('/tryout/cancel', requireGameSecret, async (req, res) => {
   }
 });
 
+// ── Site → game live commands ─────────────────────────────────────────
+// The in-game panel polls this for management actions the host/co-host issued
+// from the site (strike/pass/fail/kick), applies each, then acks by id.
+// GET /api/game/tryout/commands?tryoutId=...
+router.get('/tryout/commands', requireGameSecret, async (req, res) => {
+  try {
+    const tryoutId = req.query.tryoutId;
+    if (!tryoutId) return res.status(400).json({ error: 'tryoutId required' });
+    const cmds = await prisma.tryoutCommand.findMany({
+      where: { tryoutId: String(tryoutId), applied: false },
+      orderBy: { createdAt: 'asc' }, take: 100,
+    });
+    res.json({ commands: cmds.map(c => ({
+      id: c.id, action: c.action,
+      targetRobloxId: c.targetRobloxId ? Number(c.targetRobloxId) : null,
+      targetUsername: c.targetUsername, detail: c.detail,
+    })) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load commands' });
+  }
+});
+
+// POST /api/game/tryout/commands/ack  { ids: [...] } — mark applied.
+router.post('/tryout/commands/ack', requireGameSecret, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String) : [];
+    if (!ids.length) return res.json({ ok: true, acked: 0 });
+    const r = await prisma.tryoutCommand.updateMany({ where: { id: { in: ids } }, data: { applied: true, appliedAt: new Date() } });
+    res.json({ ok: true, acked: r.count });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to ack commands' });
+  }
+});
+
 module.exports = router;
