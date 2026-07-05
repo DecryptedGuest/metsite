@@ -85,10 +85,10 @@ function renderQuotaCheck() {
     var ptColor = (exempt || status === "exempt" || status === "loa") ? "var(--purple)" : (m.met ? "var(--green)" : "var(--amber)");
 
     var sel = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' onchange='setQuotaStatus(" + i + ",this.value)'>"
-      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">✅ Pass</option>"
-      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">❌ Fail</option>"
-      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">🟣 Exempt</option>"
-      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">🟠 Leave of Absence</option>"
+      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">Pass</option>"
+      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">Fail</option>"
+      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">Exempt</option>"
+      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">Leave of Absence</option>"
       + "</select>";
     var reason = "<input type='text' class='form-control' style='padding:4px 8px;height:auto;font-size:12px;"
       + (status === "fail" ? "" : "display:none;") + "' id='quota-reason-" + i + "' placeholder='Reason…' value='"
@@ -128,7 +128,7 @@ function populateIotwSelector() {
 
   var opts = "<option value=''>— No Investigator of the Week —</option>";
   quotaMembersCache.forEach(function (m, i) {
-    var star = tops.indexOf(i) >= 0 ? " ⭐" : "";
+    var star = tops.indexOf(i) >= 0 ? " ★" : "";
     opts += "<option value='" + i + "'" + (i === defaultIdx ? " selected" : "") + ">"
       + escapeHtml(m.username) + (m.rank ? " · " + escapeHtml(m.rank) : "")
       + " — " + (Number(m.total) || 0) + " pts" + star + "</option>";
@@ -138,7 +138,7 @@ function populateIotwSelector() {
   if (tie) {
     if (tops.length > 1) {
       tie.style.display = "";
-      tie.textContent = "⚠ Tie for highest (" + max + " pts) between "
+      tie.textContent = "Tie for highest (" + max + " pts) between "
         + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " — pick one.";
     } else {
       tie.style.display = "none";

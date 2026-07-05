@@ -175,7 +175,7 @@ async function loadCurrentUser() {
 
     const roleEl = document.getElementById('user-role-badge');
     if (roleEl) {
-      const labels  = { DEVELOPER: '⚙ Developer', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', IA: 'Internal Affairs' };
+      const labels  = { DEVELOPER: 'Developer', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', IA: 'Internal Affairs' };
       const classes = { DEVELOPER: 'dev', HICOMM: 'hicomm', SUPERVISOR: 'hicomm', IA: 'ia' };
       roleEl.textContent = labels[currentUser.role] || currentUser.role;
       roleEl.className   = `user-role-badge ${classes[currentUser.role] || 'ia'}`;
@@ -526,7 +526,7 @@ async function generateAiDocument() {
       reasonEl.value = d.allegations.map(a => a.code + (a.offense ? ' (' + a.offense + ')' : '')).join(', ');
     if (resEl) {
       resEl.style.display = '';
-      resEl.innerHTML = "✅ Document created &amp; shared with you. <a href='" + escapeHtml(d.url) + "' target='_blank' rel='noopener' style='color:var(--blue);'>Open document</a> — review it, then Submit Case below.";
+      resEl.innerHTML = "<i class='ti ti-circle-check'></i> Document created &amp; shared with you. <a href='" + escapeHtml(d.url) + "' target='_blank' rel='noopener' style='color:var(--blue);'>Open document</a> — review it, then Submit Case below.";
     }
     showToast('Case document generated.', 'success');
   } catch (err) {
@@ -720,7 +720,7 @@ async function importCaseFromDoc() {
     if (resEl) {
       resEl.style.display = '';
       resEl.style.color   = 'var(--green)';
-      resEl.innerHTML = '✓ Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
+      resEl.innerHTML = '<i class="ti ti-check"></i> Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
         + (sus.groupRole ? ' · ' + escapeHtml(sus.groupRole) : '')
         + (d.punishments?.length ? ' · ' + d.punishments.map(p => escapeHtml(p.action)).join(', ') : '')
         + ' — review before submitting.';
@@ -753,14 +753,14 @@ function renderActionChecklist(precheck = null) {
     const isBlacklist = a.name === 'Blacklist';
 
     let badge = '';
-    if (isExile)     badge = `<span class="ac-badge ac-exile">⚡ ${isBlacklist ? 'EXILE + ROLE' : 'EXILE'}</span>`;
+    if (isExile)     badge = `<span class="ac-badge ac-exile"><i class="ti ti-bolt"></i> ${isBlacklist ? 'EXILE + ROLE' : 'EXILE'}</span>`;
     else if (hasRole) badge = `<span class="ac-badge ac-role">AUTO-ROLE</span>`;
     else              badge = `<span class="ac-badge ac-norole">NO ROLE</span>`;
 
     const onRecordBadge = onRecord
-      ? `<span class="ac-badge ac-onrecord">⚠ on record</span>` : '';
+      ? `<span class="ac-badge ac-onrecord"><i class="ti ti-alert-triangle"></i> on record</span>` : '';
     const suggestedBadge = isSuggested
-      ? `<span class="ac-badge ac-suggested">★ Recommended</span>` : '';
+      ? `<span class="ac-badge ac-suggested"><i class="ti ti-star"></i> Recommended</span>` : '';
 
     // Duration only shown when the checkbox is checked; hidden otherwise
     const durationSelect = hasRole ? `
@@ -875,7 +875,7 @@ async function lookupOfficer() {
       : '';
 
     const suggestedNote = data.suggestedAction
-      ? `<span class="officer-suggested-note">⚠ ${escapeHtml(data.warning)} — <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
+      ? `<span class="officer-suggested-note"><i class="ti ti-alert-triangle"></i> ${escapeHtml(data.warning)} — <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
       : '';
 
     resultEl.innerHTML = `
@@ -1023,7 +1023,7 @@ async function loadPoints() {
         const met = d.total >= q.target;
         totalEl.innerHTML = `${d.total} / ${q.target} pts`
           + (met
-              ? ` · <span style="color:var(--green);font-weight:700;">Quota met ✓</span>`
+              ? ` · <span style="color:var(--green);font-weight:700;">Quota met <i class="ti ti-check"></i></span>`
               : ` · <span style="color:var(--amber);font-weight:700;">${d.remaining} to go</span>`);
       } else {
         totalEl.textContent = `Total this week: ${d.total}`;
@@ -1358,10 +1358,10 @@ async function loadAdminUsers() {
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
         <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>
         <td>${u.notifyEnabled && u.hasPush
-            ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span>🔔 On</span>'
+            ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span><i class="ti ti-bell"></i> On</span>'
             : (u.notifyEnabled
-                ? '<span class="badge badge-amber" title="Enabled but no active device subscribed">🔔 No device</span>'
-                : '<span style="font-size:11px;color:var(--text-muted);">🔕 Off</span>')}</td>
+                ? '<span class="badge badge-amber" title="Enabled but no active device subscribed"><i class="ti ti-bell"></i> No device</span>'
+                : '<span style="font-size:11px;color:var(--text-muted);"><i class="ti ti-bell-off"></i> Off</span>')}</td>
         <td><span class="date-cell">${formatDate(u.lastLogin)}</span></td>
         <td><div class="admin-actions">
           ${u.isBlacklisted
@@ -1686,10 +1686,10 @@ function renderDevRecipients() {
   //   Off       → notifications disabled
   const statusHtml = (u) => {
     if (u.notifyEnabled && u.hasPush)
-      return '<span style="color:var(--green);font-size:11px;font-weight:600;white-space:nowrap;">🔔 On</span>';
+      return '<span style="color:var(--green);font-size:11px;font-weight:600;white-space:nowrap;"><i class="ti ti-bell"></i> On</span>';
     if (u.notifyEnabled)
-      return '<span style="color:var(--amber);font-size:11px;font-weight:600;white-space:nowrap;" title="Enabled but no active device">🔔 No device</span>';
-    return '<span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">🔕 Off</span>';
+      return '<span style="color:var(--amber);font-size:11px;font-weight:600;white-space:nowrap;" title="Enabled but no active device"><i class="ti ti-bell"></i> No device</span>';
+    return '<span style="color:var(--text-muted);font-size:11px;white-space:nowrap;"><i class="ti ti-bell-off"></i> Off</span>';
   };
 
   const onCount = devRecipients.filter(u => u.notifyEnabled && u.hasPush).length;
@@ -1788,7 +1788,7 @@ async function loadGroupPanel() {
   } catch (err) {
     groupRolesCache = [];
     const badge = document.getElementById('group-env-badge');
-    if (badge) badge.textContent = `⚠ Roles failed: ${err.message}`;
+    if (badge) badge.textContent = `Roles failed: ${err.message}`;
     console.error('[Group panel] roles error:', err.message);
     // Auto-show debug output so developer can see what's wrong
     runGroupDebug();
@@ -2010,7 +2010,7 @@ function renderGroupMembers() {
         </td>
         <td>
           <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(m._roleName)}</span>
-          ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;">🔒 above bot rank</span>' : ''}
+          ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}
         </td>
         <td>
           ${locked
@@ -2273,7 +2273,7 @@ function openDetail(caseId) {
     <div class="detail-field full">
       <span class="detail-field-label">Group Exile</span>
       <span class="detail-field-value" style="font-size:12px;color:${ea.notes.includes('failed') ? 'var(--status-denied)' : 'var(--status-approved)'};">
-        ${ea.notes.includes('failed') ? '⚠ ' : '✓ '}${escapeHtml(ea.notes)}
+        ${ea.notes.includes('failed') ? '<i class="ti ti-alert-triangle"></i> ' : '<i class="ti ti-check"></i> '}${escapeHtml(ea.notes)}
       </span>
     </div>`).join('')}
   ` : '';

@@ -52,8 +52,8 @@ if (_patrolTabs) _patrolTabs.addEventListener('click', (e) => {
 
 const PATROL_STATUS = {
   PENDING:  '<span class="badge badge-pending"><span class="badge-dot"></span>Pending</span>',
-  APPROVED: '<span class="badge badge-approved"><span class="badge-dot"></span>Approved ✅</span>',
-  DENIED:   '<span class="badge badge-denied"><span class="badge-dot"></span>Denied ❌</span>',
+  APPROVED: '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
+  DENIED:   '<span class="badge badge-denied"><span class="badge-dot"></span>Denied</span>',
 };
 
 async function loadPatrols() {
@@ -79,7 +79,7 @@ function renderPatrol(p) {
     ['Total time', fesc(p.totalLabel || '—')],
   ].map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;">${k}</span><span>${v}</span></div>`).join('');
   const pointNote = (isEvent && p.status === 'APPROVED')
-    ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '✓ +1 point added to the MET database' : '⚠ point not added — member not found on a rank tab / non-numeric cell'}</div>` : '';
+    ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '<i class="ti ti-check"></i> +1 point added to the MET database' : '<i class="ti ti-alert-triangle"></i> point not added — member not found on a rank tab / non-numeric cell'}</div>` : '';
   return `<div class="panel glass fade-up" style="margin-bottom:16px;">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot ${isEvent ? 'amber' : 'blue'}"></span>${fesc(p.submitterDisplayName || p.submitterUsername || 'Log')}</div>${PATROL_STATUS[p.status] || ''}</div>
     <div class="profile-section">
@@ -96,7 +96,7 @@ function renderPatrol(p) {
 async function reviewPatrol(id, action) {
   try {
     const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
-    showToast(action === 'approve' ? `Approved${r.reacted ? ' — reacted ✅' : ''}` : `Denied${r.reacted ? ' — reacted ❌' : ''}`, 'success');
+    showToast(action === 'approve' ? `Approved${r.reacted ? ' — reacted' : ''}` : `Denied${r.reacted ? ' — reacted' : ''}`, 'success');
     loadPatrols(); loadPatrolBadge();
   } catch (err) { showToast(err.message, 'error'); }
 }
@@ -134,7 +134,7 @@ async function reviewEvent(id, action) {
   try {
     const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
     const pt = r.point && r.point.ok ? ` · +1 → ${fesc(r.point.tab || '')}` : (action === 'approve' && r.point && !r.point.ok ? ` · point skipped (${fesc(r.point.reason || '')})` : '');
-    showToast((action === 'approve' ? 'Approved ✅' : 'Denied ❌') + pt, 'success');
+    showToast((action === 'approve' ? 'Approved' : 'Denied') + pt, 'success');
     loadEvents(); loadEventBadge();
   } catch (err) { showToast(err.message, 'error'); }
 }
@@ -169,7 +169,7 @@ async function loadFlpPending() {
         <div style="flex:1;"><strong>${fesc(r.username)}</strong> <span style="color:var(--text-muted);font-size:11px;">#${fesc(r.userId)}</span></div>
         <button class="btn btn-success btn-sm" onclick="flpJoinReq('${r.userId}','approve')"><i class="ti ti-check"></i> Approve</button>
         <button class="btn btn-danger btn-sm" onclick="flpJoinReq('${r.userId}','decline')"><i class="ti ti-x"></i> Decline</button>
-      </div>`).join('') : `<div class="table-empty-text">No pending join requests. 🎉</div>`;
+      </div>`).join('') : `<div class="table-empty-text">No pending join requests.</div>`;
   } catch (err) {
     el.innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${fesc(err.message)}</div>`;
   }

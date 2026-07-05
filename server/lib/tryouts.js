@@ -10,6 +10,11 @@ const prisma = require('./db');
 
 const TRYOUT_PING_ROLE = () => process.env.TRYOUT_PING_ROLE_ID || '1432426322059329567';
 
+// The MET custom guild emoji. Discord only renders a custom emoji from its full
+// token `<:name:id>` — a bare `:HPC:` shows as literal text. Overridable via env
+// in case the emoji is re-uploaded (new id).
+const HPC_EMOJI = () => process.env.TRYOUT_HPC_EMOJI || '<:HPC:1191469403087319120>';
+
 // Is the tryout's game server LOCKED (Adonis :serverlock on / :slock)? The lock
 // state is reported live by the Hendon game; we default to LOCKED. Accepts the
 // legacy SLOCKED/UNSLOCKED values as well as the current LOCKED/UNLOCKED ones.
@@ -32,10 +37,11 @@ function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : tryout.hostName);
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
   const link   = tryout.privateServerLink || 'TBA';
-  const status = isServerLocked(tryout) ? '🔒 SERVER LOCKED' : '🔓 SERVER UNLOCKED';
+  const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
+  const hpc    = HPC_EMOJI();
   return [
-    ':HPC: College Entrance :HPC:',
+    `${hpc} College Entrance ${hpc}`,
     'Metropolitan Police Tryout',
     `HOST: ${host}`,
     `CO-HOST: ${coHost}`,

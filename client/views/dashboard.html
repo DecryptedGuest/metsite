@@ -627,7 +627,7 @@
       <div id="group-debug-output" style="display:none;background:rgba(0,0,0,0.4);border:1px solid var(--border-dim);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <span style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:0.06em;">RAW ROBLOX API DEBUG</span>
-          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'">✕</button>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'"><i class="ti ti-x"></i></button>
         </div>
         <pre id="group-debug-pre" style="font-size:10px;color:var(--text-secondary);overflow:auto;max-height:280px;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
@@ -868,11 +868,11 @@
         <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1.2rem;">
           <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
             <input type="checkbox" id="ns-newCase" style="accent-color:var(--blue);width:16px;height:16px;" />
-            <span style="font-weight:600;font-size:14px;">📁 New cases submitted</span>
+            <span style="font-weight:600;font-size:14px;"><i class="ti ti-folder"></i> New cases submitted</span>
           </label>
           <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
             <input type="checkbox" id="ns-newTicket" style="accent-color:var(--blue);width:16px;height:16px;" />
-            <span style="font-weight:600;font-size:14px;">🎫 New ticket logs submitted</span>
+            <span style="font-weight:600;font-size:14px;"><i class="ti ti-ticket"></i> New ticket logs submitted</span>
           </label>
           <div id="ns-tickettypes" style="margin-left:28px;display:flex;flex-direction:column;gap:.6rem;border-left:2px solid var(--border-dim);padding-left:14px;">
             <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;">Only these ticket types</span>
@@ -926,7 +926,7 @@
           <div id="dn-recipients" style="display:flex;flex-direction:column;gap:.4rem;max-height:340px;overflow:auto;">
             <div class="table-loading"><div class="spinner"></div></div>
           </div>
-          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only users who have enabled notifications and have an active device will receive the message. A 🔔 means they're reachable.</p>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only users who have enabled notifications and have an active device will receive the message. A <i class="ti ti-bell"></i> means they're reachable.</p>
         </div>
       </div>
     </section>
@@ -1052,7 +1052,7 @@
       <!-- User Spotlight -->
       <div class="panel glass fade-up stagger-2">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>⭐ User Spotlight</div>
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> User Spotlight</div>
         </div>
         <div style="padding:1.4rem;display:flex;flex-direction:column;gap:.8rem;">
           <div class="form-group" style="margin:0;">
@@ -1089,7 +1089,7 @@
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-auroraTheme" style="accent-color:#a24bff;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🌌 Aurora UI (site-wide)</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-sparkles"></i> Aurora UI (site-wide)</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Switches the entire site from the Classic theme to the new Aurora theme for <strong>every</strong> user. Turn off to return everyone to Classic. Takes effect immediately.</span>
             </span>
           </label>
@@ -1105,49 +1105,49 @@
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-snow" style="accent-color:#7fd0ff;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">❄️ Snowfall</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-snowflake"></i> Snowfall</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Gentle falling-snow effect across the site for everyone.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-confetti" style="accent-color:#ffcf3f;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎉 Approval Confetti</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-confetti"></i> Approval Confetti</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Bursts confetti whenever a case is approved.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-matrixRain" style="accent-color:#00ff41;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🖥️ Matrix Rain</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-binary"></i> Matrix Rain</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Green falling-code rain overlay across the background.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-partyMode" style="accent-color:#ff5d5d;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎊 Party Mode</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-balloon"></i> Party Mode</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Cycles the background glow through all colours in a rainbow pattern.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-fireworks" style="accent-color:#ff8fd0;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎆 Fireworks</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-sparkles"></i> Fireworks</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Random firework bursts fire automatically every few seconds.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-halloween" style="accent-color:#ff6a00;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎃 Halloween Mode</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-ghost"></i> Halloween Mode</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Shifts the site glow to orange/purple and rains spiders, ghosts, and bats.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-rainbowCursor" style="accent-color:#c77dff;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🌈 Rainbow Cursor</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-rainbow"></i> Rainbow Cursor</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Leaves a trail of rainbow sparkle particles behind everyone's cursor.</span>
             </span>
           </label>
@@ -1290,7 +1290,7 @@
       </div>
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>⭐ Investigator of the Week</div>
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> Investigator of the Week</div>
         </div>
         <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:.7rem;">
           <p style="margin:0;font-size:12px;color:var(--text-secondary);">The selected investigator gets the IOTW role (a reduced quota) when you submit the check. The previous IOTW's role is removed automatically.</p>
@@ -1363,7 +1363,7 @@
   <div class="modal glass-bright">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-file-plus" style="font-size:18px;"></i> Submit New Case</div>
-      <button class="modal-close" onclick="closeModal('modal-submit')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-submit')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div id="next-case-ref-notice" style="display:none;margin-bottom:0.9rem;padding:9px 12px;border-radius:8px;background:rgba(74,143,255,0.1);border:1px solid rgba(74,143,255,0.3);font-size:12px;color:var(--text-secondary);">
@@ -1461,7 +1461,7 @@
   <div class="modal glass-bright" style="max-width:460px;">
     <div class="modal-header">
       <div class="modal-title" style="color:var(--red);"><i class="ti ti-alert-triangle" style="font-size:18px;"></i> Reset All Quota Points</div>
-      <button class="modal-close" onclick="closeModal('modal-quota-reset')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-quota-reset')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;line-height:1.7;color:var(--text-secondary);margin:0 0 0.8rem;">
@@ -1484,7 +1484,7 @@
   <div class="modal glass-bright" style="max-width:560px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-eye" style="font-size:18px;"></i> <span id="embed-preview-title">Administrative Log — Preview</span></div>
-      <button class="modal-close" onclick="closeModal('modal-embed-preview')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-embed-preview')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p id="embed-preview-note" style="font-size:12px;color:var(--text-secondary);margin:0 0 0.9rem;line-height:1.6;"></p>
@@ -1499,7 +1499,7 @@
   <div class="modal glass-bright" style="max-width:560px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-file-description" style="font-size:18px;"></i> <span id="detail-ref">Case Detail</span></div>
-      <button class="modal-close" onclick="closeModal('modal-detail')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-detail')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="detail-body"></div>
     <div class="modal-footer" id="detail-footer"></div>
@@ -1511,7 +1511,7 @@
   <div class="modal glass-bright" style="max-width:420px;">
     <div class="modal-header">
       <div class="modal-title" style="color:var(--red);"><i class="ti ti-ban" style="font-size:18px;"></i> Blacklist User</div>
-      <button class="modal-close" onclick="closeModal('modal-blacklist')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-blacklist')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;">This will block the user from accessing IACMS. They will see a "blacklisted" error on login.</p>
@@ -1532,7 +1532,7 @@
   <div class="modal glass-bright" style="max-width:420px;">
     <div class="modal-header">
       <div class="modal-title" id="dm-action-title" style="color:var(--red);"><i class="ti ti-gavel" style="font-size:18px;"></i> Confirm Action</div>
-      <button class="modal-close" onclick="closeModal('modal-dm-action')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-dm-action')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;" id="dm-action-desc"></p>
@@ -1823,7 +1823,7 @@
   <div class="modal glass-bright" style="max-width:520px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-upload" style="font-size:18px;"></i> Upload Media</div>
-      <button class="modal-close" onclick="closeModal('modal-media-upload')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-media-upload')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" style="display:flex;flex-direction:column;gap:1rem;">
       <div class="proof-dropzone" id="media-dropzone" onclick="document.getElementById('media-file-input').click()" style="cursor:pointer;">
@@ -1856,7 +1856,7 @@
   <div class="modal glass-bright" style="max-width:780px;">
     <div class="modal-header">
       <div class="modal-title" id="media-view-title"><i class="ti ti-photo" style="font-size:18px;"></i> Media</div>
-      <button class="modal-close" onclick="closeModal('modal-media-view')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-media-view')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="media-view-body" style="text-align:center;"></div>
     <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">

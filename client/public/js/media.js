@@ -21,7 +21,7 @@ function fmtBytes(n) {
   return (n / 1048576).toFixed(1) + ' MB';
 }
 function visLabel(v) {
-  return { PUBLIC: '🌐 Public', IA: '🛡️ Internal Affairs+', STAFF: '⭐ Staff only', DEVELOPER: '⚙ Developer' }[v] || v;
+  return { PUBLIC: 'Public', IA: 'Internal Affairs+', STAFF: 'Staff only', DEVELOPER: 'Developer' }[v] || v;
 }
 
 // ── Library (all IA) ──────────────────────────────────────────────

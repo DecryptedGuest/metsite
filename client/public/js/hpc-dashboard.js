@@ -83,7 +83,7 @@ function statusBadge(s) {
 
 function subRow(s) {
   const det = s.highFlags
-    ? `<span style="color:var(--red);font-weight:700;">⚠ ${s.highFlags} high</span>${s.flagCount > s.highFlags ? ` · ${s.flagCount - s.highFlags} more` : ''}`
+    ? `<span style="color:var(--red);font-weight:700;"><i class="ti ti-alert-triangle"></i> ${s.highFlags} high</span>${s.flagCount > s.highFlags ? ` · ${s.flagCount - s.highFlags} more` : ''}`
     : (s.flagCount ? `<span style="color:var(--amber);">${s.flagCount} flag${s.flagCount > 1 ? 's' : ''}</span>` : '<span style="color:var(--green);">Clean</span>');
   const mark = s.status === 'PENDING' ? '' : `${s.score}/${s.maxScore} · ${s.percentage}%`;
   return `<tr>
@@ -234,7 +234,7 @@ async function voidExam(id, who) {
 
 // ── Tryouts ──────────────────────────────────────────────────────────
 const TRYOUT_STATUS = {
-  SCHEDULED: ['badge-pending', 'Scheduled'], LIVE: ['badge-approved', '🔴 Live'],
+  SCHEDULED: ['badge-pending', 'Scheduled'], LIVE: ['badge-approved', '<i class="ti ti-broadcast"></i> Live'],
   COMPLETED: ['badge', 'Completed'], CANCELLED: ['badge-denied', 'Cancelled'],
 };
 async function loadTryouts() {
@@ -387,7 +387,7 @@ function renderTryoutLog(l) {
     const v = (a.quiz.verdict || '').toUpperCase();
     const col = v === 'PASS' ? 'var(--green)' : v === 'FAIL' ? 'var(--red)' : 'var(--text-secondary)';
     const score = (a.quiz.score != null && a.quiz.outOf != null) ? `${a.quiz.score}/${a.quiz.outOf}` : (a.quiz.score != null ? a.quiz.score : '');
-    return ` <span class="met-chip" title="Written quiz" style="color:${col};border-color:${col};">📝 ${esc(String(score))}${v ? ' · ' + esc(v) : ''}</span>`;
+    return ` <span class="met-chip" title="Written quiz" style="color:${col};border-color:${col};"><i class="ti ti-writing"></i> ${esc(String(score))}${v ? ' · ' + esc(v) : ''}</span>`;
   };
   const rows = (l.attendees || []).map((a, i) => `<tr>
     <td>${esc(a.username)}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}</td>
@@ -397,12 +397,12 @@ function renderTryoutLog(l) {
   </tr>`).join('') || `<tr><td colspan="4" class="table-empty-text">No attendees recorded.</td></tr>`;
 
   const summary = `<div class="chip-row" style="margin-bottom:14px;">
-      <span class="met-chip">👥 ${l.totalAttendees} attended</span>
-      <span class="met-chip" style="color:var(--green);border-color:var(--green);">✅ ${l.passedCount} passed</span>
-      <span class="met-chip" style="color:var(--red);border-color:var(--red);">❌ ${l.failedCount} failed</span>
-      <span class="met-chip" style="color:var(--amber);border-color:var(--amber);">⚠️ ${l.strikeCount} strikes</span>
-      <span class="met-chip">🚪 ${l.leftCount} left</span>
-      <span class="met-chip">👢 ${l.kickedCount} kicked</span>
+      <span class="met-chip"><i class="ti ti-users"></i> ${l.totalAttendees} attended</span>
+      <span class="met-chip" style="color:var(--green);border-color:var(--green);"><i class="ti ti-circle-check"></i> ${l.passedCount} passed</span>
+      <span class="met-chip" style="color:var(--red);border-color:var(--red);"><i class="ti ti-circle-x"></i> ${l.failedCount} failed</span>
+      <span class="met-chip" style="color:var(--amber);border-color:var(--amber);"><i class="ti ti-alert-triangle"></i> ${l.strikeCount} strikes</span>
+      <span class="met-chip"><i class="ti ti-door-exit"></i> ${l.leftCount} left</span>
+      <span class="met-chip"><i class="ti ti-user-x"></i> ${l.kickedCount} kicked</span>
       ${l.coHostName ? `<span class="met-chip">Co-host: ${esc(l.coHostName)}</span>` : ''}
     </div>`;
 
@@ -517,7 +517,7 @@ async function loadLive() {
     return `<div class="panel glass fade-up" style="margin-bottom:16px;">
       <div class="panel-header">
         <div class="panel-title"><span class="panel-dot green"></span>${esc(t.hostName)}${t.coHostName ? ' &amp; ' + esc(t.coHostName) : ''}${manage ? ' <span class="badge badge-approved" style="font-size:9px;">You host</span>' : ''}</div>
-        <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? '🔓 Unlocked' : '🔒 Locked'}</span>
+        <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? '<i class="ti ti-lock-open"></i> Unlocked' : '<i class="ti ti-lock"></i> Locked'}</span>
       </div>
       <div class="profile-section">
         <div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;margin-bottom:14px;">

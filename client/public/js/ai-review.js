@@ -75,7 +75,7 @@ function renderAiResults(d) {
           + '<span class="case-ref" style="font-size:11px;">' + escapeHtml(o.code || '—') + '</span>'
           + '<strong style="font-size:13px;color:var(--text-primary);">' + escapeHtml(o.offense || '') + '</strong>'
           + aiClassBadge(o.class) + aiConfidence(o.confidence)
-          + (o.inCatalog === false ? '<span style="font-size:10px;color:#f07070;">⚠ not in catalog</span>' : '')
+          + (o.inCatalog === false ? '<span style="font-size:10px;color:#f07070;"><i class="ti ti-alert-triangle"></i> not in catalog</span>' : '')
           + '</div>'
           + (o.definition ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:5px;">' + escapeHtml(o.definition) + '</div>' : '')
           + (o.reason ? '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;"><strong>Why:</strong> ' + escapeHtml(o.reason) + '</div>' : '')

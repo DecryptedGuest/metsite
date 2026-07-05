@@ -19,13 +19,13 @@ function esc(s) {
 
 async function initExam() {
   let status;
-  try { status = await api('/api/exam/my'); } catch (e) { return showState('⚠️', 'Something went wrong', e.message); }
+  try { status = await api('/api/exam/my'); } catch (e) { return showState('<i class="ti ti-alert-triangle"></i>', 'Something went wrong', e.message); }
 
   if (!status.eligible) {
-    return showState('✅', 'No exam required', 'Your account doesn\'t have the Hendon Police College final-exam role, so there\'s nothing for you to sit here. If you believe this is a mistake, contact HPC staff.');
+    return showState('<i class="ti ti-circle-check"></i>', 'No exam required', 'Your account doesn\'t have the Hendon Police College final-exam role, so there\'s nothing for you to sit here. If you believe this is a mistake, contact HPC staff.');
   }
   if (status.latest && status.latest.status === 'PASSED') {
-    return showState('🎓', 'You passed', `You scored ${status.latest.score}/${status.latest.maxScore} (${status.latest.percentage}%). ${status.latest.markerNote ? 'Marker note: ' + esc(status.latest.markerNote) : ''}`);
+    return showState('<i class="ti ti-school"></i>', 'You passed', `You scored ${status.latest.score}/${status.latest.maxScore} (${status.latest.percentage}%). ${status.latest.markerNote ? 'Marker note: ' + esc(status.latest.markerNote) : ''}`);
   }
   if (status.latest && status.latest.status === 'PENDING') {
     return showState('⏳', 'Awaiting marking', 'Your exam has been submitted and is waiting to be marked by Hendon Police College. You\'ll see your result here and on your dashboard once it\'s done. Please don\'t beg for it to be marked.');
@@ -44,7 +44,7 @@ function showState(icon, title, body) {
 }
 
 async function renderForm(prevFailed) {
-  try { paper = await api('/api/exam/paper'); } catch (e) { return showState('⚠️', 'Could not load the exam', e.message); }
+  try { paper = await api('/api/exam/paper'); } catch (e) { return showState('<i class="ti ti-alert-triangle"></i>', 'Could not load the exam', e.message); }
 
   document.getElementById('exam-loading').style.display = 'none';
   document.getElementById('exam-form').style.display = 'block';
@@ -147,7 +147,7 @@ async function submitExam() {
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Submitting…';
   try {
     await api('/api/exam/submit', { method: 'POST', body: JSON.stringify({ answers, detection }) });
-    showState('📨', 'Exam submitted', 'Your final exam has been submitted to Hendon Police College for marking. You\'ll see your result here and on your dashboard once a marker reviews it.');
+    showState('<i class="ti ti-send"></i>', 'Exam submitted', 'Your final exam has been submitted to Hendon Police College for marking. You\'ll see your result here and on your dashboard once a marker reviews it.');
   } catch (err) {
     btn.disabled = false; btn.innerHTML = '<i class="ti ti-send"></i> Submit Final Exam';
     showToast(err.message, 'error');
