@@ -22,7 +22,7 @@ const hpcRoutes   = require('./routes/hpc');
 const examRoutes  = require('./routes/exam');
 const tryoutRoutes = require('./routes/tryouts');
 const { requireAuth } = require('./middleware/auth');
-const { requireDivision } = require('./middleware/division');
+const { requireDivision, requireCidTryout } = require('./middleware/division');
 const { recordVisit } = require('./middleware/visit');
 const { startBot, startRoleExpiryChecker } = require('./lib/bot');
 const { initCsrf }    = require('./lib/roblox');
@@ -149,7 +149,9 @@ app.use('/api/media',    requireAuth, ia, require('./routes/media'));
 app.use('/auth/debug',  debugRoutes); // TEMPORARY
 
 // New divisions — own routes, own scope, gated to their own division.
-app.use('/api/cid',   requireAuth, requireDivision('CID'),   cidRoutes);
+// CID tryouts use the CID-role gate (applied inside cid.js), not the generic
+// CID-division cache, so CID instructors get in via their CID Discord roles.
+app.use('/api/cid',   requireAuth, cidRoutes);
 app.use('/api/sco19', requireAuth, requireDivision('SCO19'), sco19Routes);
 app.use('/api/flp',   requireAuth, requireDivision('FLP'),   flpRoutes);
 app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
@@ -684,7 +686,12 @@ function mountDivisionPages(slug, division) {
   app.get(`/${slug}/dashboard`, recordVisit, requireAuth, requireDivision(division),
     (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`)));
 }
-mountDivisionPages('cid',   'CID');
+// CID pages: dashboard is gated by CID tryout access (the CID Discord roles),
+// not the generic CID-division cache.
+app.get('/cid',           recordVisit, (req, res) => res.redirect('/'));
+app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/cid/dashboard', recordVisit, requireAuth, requireCidTryout,
+  (req, res) => sendPage(res, path.join(views, 'cid-dashboard.html')));
 mountDivisionPages('sco19', 'SCO19');
 mountDivisionPages('flp',   'FLP');
 mountDivisionPages('hpc',   'HPC');

@@ -619,13 +619,25 @@ async function reactToMessage(channelId, messageId, emoji) {
 // id on the tryout. Returns the message id, or null if it couldn't post.
 async function postTryoutAnnouncement(tryout) {
   if (!ready) return null;
-  const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
-  if (!chId) { console.warn('[Tryout] TRYOUT_ANNOUNCE_CHANNEL_ID not set — cannot announce.'); return null; }
+  const { formatAnnouncement, formatCidRecruitment, announcementAllowedMentions, divisionConfig, announceChannelId } = require('./tryouts');
+  const chId = announceChannelId(tryout);
+  if (!chId) { console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} — cannot announce.`); return null; }
   try {
-    const { formatAnnouncement, announcementAllowedMentions } = require('./tryouts');
     const ch  = await client.channels.fetch(chId);
     const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
-    await require('./db').tryout.update({ where: { id: tryout.id }, data: { announcementSent: true, announcementMsgId: msg.id } }).catch(() => {});
+    const data = { announcementSent: true, announcementMsgId: msg.id };
+
+    // Optional CID recruitment cross-post (longer format in a second channel).
+    const cfg = divisionConfig(tryout.division);
+    if (cfg.division === 'CID' && cfg.recruitmentChannelId) {
+      try {
+        const rch  = await client.channels.fetch(cfg.recruitmentChannelId);
+        const rmsg = await rch.send({ content: formatCidRecruitment(tryout), allowedMentions: announcementAllowedMentions(tryout) });
+        data.recruitmentMsgId = rmsg.id;
+      } catch (e) { console.warn('[Tryout] CID recruitment cross-post failed:', e.message); }
+    }
+
+    await require('./db').tryout.update({ where: { id: tryout.id }, data }).catch(() => {});
     return msg.id;
   } catch (e) {
     console.warn('[Tryout] postTryoutAnnouncement failed:', e.message);
@@ -709,14 +721,24 @@ async function editTryoutHostDM(tryout) {
 // Best-effort; no-ops if nothing was ever posted or the message is already gone.
 async function deleteTryoutAnnouncement(tryout) {
   if (!ready || !tryout || !tryout.announcementMsgId) return false;
-  const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
+  const { divisionConfig, announceChannelId } = require('./tryouts');
+  const chId = announceChannelId(tryout);
   if (!chId) return false;
   try {
     const ch  = await client.channels.fetch(chId);
     const msg = await ch.messages.fetch(tryout.announcementMsgId);
     await msg.delete();
+    // Remove the optional CID recruitment cross-post too, if we posted one.
+    const cfg = divisionConfig(tryout.division);
+    if (tryout.recruitmentMsgId && cfg.recruitmentChannelId) {
+      try {
+        const rch  = await client.channels.fetch(cfg.recruitmentChannelId);
+        const rmsg = await rch.messages.fetch(tryout.recruitmentMsgId);
+        await rmsg.delete();
+      } catch (e) { /* cross-post already gone */ }
+    }
     await require('./db').tryout.update({
-      where: { id: tryout.id }, data: { announcementSent: false, announcementMsgId: null },
+      where: { id: tryout.id }, data: { announcementSent: false, announcementMsgId: null, recruitmentMsgId: null },
     }).catch(() => {});
     return true;
   } catch (e) {
@@ -731,7 +753,7 @@ async function deleteTryoutAnnouncement(tryout) {
 async function editTryoutAnnouncement(tryout) {
   if (!ready) return false;
   if (!tryout || !tryout.announcementMsgId) return false;
-  const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
+  const chId = require('./tryouts').announceChannelId(tryout);
   if (!chId) return false;
   try {
     const { formatAnnouncement, announcementAllowedMentions } = require('./tryouts');

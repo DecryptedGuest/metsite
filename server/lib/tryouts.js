@@ -15,6 +15,59 @@ const TRYOUT_PING_ROLE = () => process.env.TRYOUT_PING_ROLE_ID || '1432426322059
 // in case the emoji is re-uploaded (new id).
 const HPC_EMOJI = () => process.env.TRYOUT_HPC_EMOJI || '<:HPC:1191469403087319120>';
 
+// Split a comma/space-separated list of Discord ids into a clean array.
+function splitIds(v) { return String(v || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean); }
+
+// Per-division tryout config. HPC is the original programme; CID is a parallel
+// programme with its own Discord channel, ping roles, custom emoji and labels.
+// Everything no-ops gracefully until the relevant env vars are set. `division`
+// on a Tryout/TryoutLog row selects which config applies — HPC and CID never mix.
+function divisionConfig(division) {
+  const d = String(division || 'HPC').toUpperCase();
+  if (d === 'CID') {
+    return {
+      division:               'CID',
+      channelId:              process.env.CID_TRYOUT_CHANNEL_ID || null,
+      pingRoleIds:            splitIds(process.env.CID_TRYOUT_PING_ROLE_IDS),
+      emoji:                  process.env.CID_EMOJI || ':CID:',
+      eventType:              'CID Tryout',
+      recruitmentChannelId:   process.env.CID_RECRUITMENT_CHANNEL_ID || null,
+      recruitmentPingRoleIds: splitIds(process.env.CID_RECRUITMENT_PING_ROLE_IDS),
+      recruitmentInvite:      process.env.CID_RECRUITMENT_INVITE || 'https://discord.gg/PEV6H9suC6',
+      recruitmentInfo:        process.env.CID_RECRUITMENT_INFO || null,
+      logWebhook:             process.env.CID_TRYOUT_LOG_WEBHOOK || null,
+    };
+  }
+  return {
+    division:    'HPC',
+    channelId:   process.env.TRYOUT_ANNOUNCE_CHANNEL_ID || null,
+    pingRoleIds: [TRYOUT_PING_ROLE()],
+    emoji:       HPC_EMOJI(),
+    eventType:   'MET Tryout',
+    logWebhook:  process.env.HPC_TRYOUT_LOG_WEBHOOK || null,
+  };
+}
+
+// The Discord channel a tryout's announcement lives in (by division).
+function announceChannelId(tryout) { return divisionConfig(tryout && tryout.division).channelId; }
+
+// Format the scheduled start as HH:MM in the configured timezone (for CID's
+// "Starting at" line). Falls back to the literal placeholder if unparseable.
+function fmtStartAt(tryout) {
+  try {
+    const tz = process.env.TRYOUT_TIMEZONE || process.env.QUOTA_TIMEZONE || 'Europe/London';
+    return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz })
+      .format(new Date(tryout.scheduledAt));
+  } catch (e) { return 'XX:XX'; }
+}
+
+// The ping line for an announcement: role mentions, or plain "(test mode)" when
+// suppressPings is set (so a test announcement pings nobody).
+function pingLine(cfg, tryout) {
+  if (tryout.suppressPings) return 'Ping: (test mode — no ping)';
+  return cfg.pingRoleIds.length ? cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ') : '';
+}
+
 // Is the tryout's game server LOCKED (Adonis :serverlock on / :slock)? The lock
 // state is reported live by the Hendon game; we default to LOCKED. Accepts the
 // legacy SLOCKED/UNSLOCKED values as well as the current LOCKED/UNLOCKED ones.
@@ -29,11 +82,66 @@ function announcementAllowedMentions(tryout) {
   return (tryout && tryout.suppressPings) ? { parse: [] } : { parse: ['roles', 'users', 'everyone'] };
 }
 
+// Dispatch to the right announcement template by division. HPC and CID have
+// different formats; both track the live lock state in a STATUS line so it can
+// be edited in place on :serverlock on/off.
+function formatAnnouncement(tryout, opts = {}) {
+  if (String(tryout && tryout.division).toUpperCase() === 'CID') return formatCidAnnouncement(tryout, opts);
+  return formatHpcAnnouncement(tryout, opts);
+}
+
+// The CID tryout announcement (posted to the CID Discord). STATUS reflects the
+// live :serverlock state and is edited in place on lock/unlock.
+function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
+  const cfg    = divisionConfig('CID');
+  const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
+  const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
+  const link   = tryout.privateServerLink || 'TBA';
+  const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
+  const e      = cfg.emoji;
+  const ping   = pingLine(cfg, tryout);
+  return [
+    `${e} CID Tryout ${e}`,
+    '',
+    '**Notes:** If you are Community Support Officer you will be put into a waiting list until you reach Constable.',
+    `**Starting at:** ${fmtStartAt(tryout)}`,
+    '**Reactions:** 3+',
+    `**Status:** ${status}`,
+    `Game/Profile Link: ${link}`,
+    `Host: ${host}`,
+    `Co-Host: ${coHost}`,
+    ...(ping ? [ping] : []),
+  ].join('\n');
+}
+
+// The longer CID recruitment cross-post (optional — only when
+// CID_RECRUITMENT_CHANNEL_ID is set). The info block is configurable via
+// CID_RECRUITMENT_INFO so the exact wording lives in config, not code.
+function formatCidRecruitment(tryout) {
+  const cfg    = divisionConfig('CID');
+  const host   = tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || '');
+  const coHost = tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A');
+  const ping   = tryout.suppressPings
+    ? '(test mode — no ping)'
+    : (cfg.recruitmentPingRoleIds.length ? cfg.recruitmentPingRoleIds.map(id => `<@&${id}>`).join(' ') : '');
+  return [
+    `#  ${cfg.emoji} CID TRYOUT ${cfg.emoji}`,
+    '',
+    `Host: ${host}`,
+    `Co-Host: ${coHost}`,
+    `[Discord Link](${cfg.recruitmentInvite})`,
+    '**Information:**',
+    cfg.recruitmentInfo || '• CID is the MPS Criminal Investigations unit.',
+    '**Requirements:** CSO or CON rank',
+    ...(ping ? [ping] : []),
+  ].join('\n');
+}
+
 // The Discord announcement text, in the exact MET format. STATUS reflects the
 // live server-lock state (:serverlock on/off) of the Hendon tryout server.
 // When the tryout is in test mode (suppressPings) the Ping line is rendered as
 // plain text with NO role mention.
-function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
+function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : tryout.hostName);
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
   const link   = tryout.privateServerLink || 'TBA';
@@ -130,4 +238,9 @@ function startTryoutWorker() {
   setInterval(processDueTryouts, 30 * 1000);
 }
 
-module.exports = { startTryoutWorker, processDueTryouts, fireTryout, formatAnnouncement, announcementAllowedMentions, isServerLocked, getServerLink, TRYOUT_PING_ROLE };
+module.exports = {
+  startTryoutWorker, processDueTryouts, fireTryout,
+  formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
+  isServerLocked, getServerLink, TRYOUT_PING_ROLE,
+  divisionConfig, announceChannelId,
+};

@@ -47,20 +47,27 @@ function requireGameSecret(req, res, next) {
   return res.status(401).json({ error: 'Bad game secret or signature.' });
 }
 
-// Resolve which tryout the callback refers to:
-//   1. explicit tryoutId, else
-//   2. the LIVE tryout whose privateServerId matches, else
-//   3. the single most-recent LIVE tryout (the common case: one live at a time).
-async function resolveTargetTryout({ tryoutId, privateServerId }) {
+// Which tryout programme this callback targets. The game sends division:"CID"
+// (body) or ?division=CID (query); default HPC. HPC and CID never resolve to
+// each other's rows.
+function normDivision(v) { return String(v || '').toUpperCase() === 'CID' ? 'CID' : 'HPC'; }
+function reqDivision(req) { return normDivision((req.body && req.body.division) || req.query.division); }
+
+// Resolve which tryout the callback refers to, scoped to its division:
+//   1. explicit tryoutId (id is globally unique), else
+//   2. the LIVE tryout in this division whose privateServerId matches, else
+//   3. the most-recent LIVE tryout in this division (one live at a time).
+async function resolveTargetTryout({ tryoutId, privateServerId, division }) {
   if (tryoutId) return prisma.tryout.findUnique({ where: { id: String(tryoutId) } });
+  const div = normDivision(division);
   if (privateServerId) {
     const t = await prisma.tryout.findFirst({
-      where: { status: 'LIVE', privateServerId: String(privateServerId) },
+      where: { status: 'LIVE', division: div, privateServerId: String(privateServerId) },
       orderBy: { serverCreatedAt: 'desc' },
     });
     if (t) return t;
   }
-  return prisma.tryout.findFirst({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' } });
+  return prisma.tryout.findFirst({ where: { status: 'LIVE', division: div }, orderBy: { scheduledAt: 'desc' } });
 }
 
 // GET /api/game/health — public config visibility (booleans only, no secrets),
@@ -109,7 +116,7 @@ router.post('/serverlock', requireGameSecret, async (req, res) => {
       locked = ['on', 'true', 'locked', 'lock', '1', 'yes'].includes(s);
     }
 
-    const target = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId });
+    const target = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
     if (!target) return res.status(404).json({ error: 'No matching live tryout to update.' });
 
     const lockState = locked ? 'LOCKED' : 'UNLOCKED';
@@ -153,7 +160,7 @@ router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
     // Close out the associated live tryout: mark it COMPLETED, delete its
     // channel announcement, and flip the host DM to "✅ Concluded". Best-effort.
     try {
-      const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId });
+      const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
       if (t && !['CANCELLED', 'COMPLETED'].includes(t.status)) {
         const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
         const bot = require('../lib/bot');
@@ -176,7 +183,7 @@ router.post('/tryout/live', requireGameSecret, async (req, res) => {
   try {
     const body = req.body || {};
     const where = body.tryoutId ? { id: String(body.tryoutId) }
-      : (body.privateServerId ? { status: 'LIVE', privateServerId: String(body.privateServerId) } : null);
+      : (body.privateServerId ? { status: 'LIVE', division: normDivision(body.division), privateServerId: String(body.privateServerId) } : null);
     if (!where) return res.status(400).json({ error: 'tryoutId or privateServerId required.' });
     const t = await prisma.tryout.findFirst({ where });
     if (!t) return res.status(404).json({ error: 'No matching live tryout.' });
@@ -222,9 +229,9 @@ function reviewUrl() {
   return base ? `${base.replace(/\/$/, '')}/hpc/dashboard` : null;
 }
 
-// The single currently-ongoing (LIVE) tryout, if any.
-function ongoingTryout() {
-  return prisma.tryout.findFirst({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' } });
+// The single currently-ongoing (LIVE) tryout in a division, if any.
+function ongoingTryout(division) {
+  return prisma.tryout.findFirst({ where: { status: 'LIVE', division: normDivision(division) }, orderBy: { scheduledAt: 'desc' } });
 }
 
 // Parse the server-lock state from a create/start payload, in the same tolerant
@@ -264,10 +271,13 @@ async function announceAndDm(tryout, { edit = false } = {}) {
 //   { id, scheduledAt, eventType, status, host:{username,robloxId}, locked, attendeeCount }
 router.get('/tryout/scheduled', requireGameSecret, async (req, res) => {
   try {
-    const { isServerLocked } = require('../lib/tryouts');
+    const { isServerLocked, divisionConfig } = require('../lib/tryouts');
+    const div = normDivision(req.query.division);
+    const eventType = divisionConfig(div).eventType;
     const rows = await prisma.tryout.findMany({
       where: {
         status: { in: ['SCHEDULED', 'LIVE'] },
+        division: div,
         scheduledAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }, // ignore very old rows
       },
       orderBy: { scheduledAt: 'asc' }, take: 50,
@@ -280,7 +290,7 @@ router.get('/tryout/scheduled', requireGameSecret, async (req, res) => {
       return {
         id:            t.id,
         scheduledAt:   t.scheduledAt ? t.scheduledAt.getTime() : null, // Unix ms
-        eventType:     'MET Tryout',
+        eventType,
         status:        t.status, // SCHEDULED | LIVE
         host:          { username: t.hostRobloxName || t.hostName || null, robloxId: t.hostRobloxId ? Number(t.hostRobloxId) : null },
         // Aliases some boards accept:
@@ -303,11 +313,12 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
     const hostUser = await resolveGameHost(body.host);
     if (!hostUser) return hostNotFound(res, body.host);
 
-    const existing = await ongoingTryout();
+    const existing = await ongoingTryout(body.division);
     if (existing) return res.status(409).json({ error: 'A tryout is already ongoing.', tryoutId: existing.id });
 
     const coHost = body.coHost || {};
     const t = await prisma.tryout.create({ data: {
+      division:          normDivision(body.division),
       hostId:            hostUser.id,
       hostDiscordId:     hostUser.discordId,
       hostName:          hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host',
@@ -345,6 +356,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
     const coHost = body.coHost || {};
     const updated = await prisma.tryout.update({ where: { id: t.id }, data: {
       status:          'LIVE',
+      division:        normDivision(body.division || t.division),
       hostId:          hostUser.id,
       hostDiscordId:   hostUser.discordId,
       hostName:        hostUser.displayName || hostUser.discordUsername || t.hostName,
@@ -370,8 +382,8 @@ router.post('/tryout/cancel', requireGameSecret, async (req, res) => {
     const body = req.body || {};
     let t = null;
     if (body.tryoutId)       t = await prisma.tryout.findUnique({ where: { id: String(body.tryoutId) } });
-    if (!t && body.privateServerId) t = await prisma.tryout.findFirst({ where: { status: 'LIVE', privateServerId: String(body.privateServerId) } });
-    if (!t) t = await ongoingTryout();
+    if (!t && body.privateServerId) t = await prisma.tryout.findFirst({ where: { status: 'LIVE', division: normDivision(body.division), privateServerId: String(body.privateServerId) } });
+    if (!t) t = await ongoingTryout(body.division);
     if (!t) return res.status(404).json({ error: 'No ongoing tryout to cancel.' });
     if (['CANCELLED', 'COMPLETED'].includes(t.status)) return res.json({ ok: true, alreadyClosed: true });
 

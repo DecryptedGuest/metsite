@@ -110,9 +110,61 @@ function requireFlpGroupAdmin(req, res, next) {
   return res.status(403).json({ error: 'FLP Assistant Director or above required.' });
 }
 
+// ── CID tryout access — gated by two CID Discord roles in CID_GUILD_ID ──
+// This REPLACES the Roblox-group-rank gate HPC uses. A user can view/manage the
+// CID tryout dashboard, Live tab and management actions if they hold
+// CID_INSTRUCTORUNIT_ROLE_ID or CID_DIRECTOROFFICE_ROLE_ID in CID_GUILD_ID.
+// The Director's Office role is the LEAD tier (log review / approvals).
+// Membership is read via the bot's cached role-holder lookup (60s TTL), so this
+// never hammers Discord. DEVELOPER always passes.
+function cidGuildId()       { return process.env.CID_GUILD_ID || null; }
+function cidAccessRoleIds() { return [process.env.CID_INSTRUCTORUNIT_ROLE_ID, process.env.CID_DIRECTOROFFICE_ROLE_ID].filter(Boolean); }
+function cidLeadRoleIds()   { return [process.env.CID_DIRECTOROFFICE_ROLE_ID].filter(Boolean); }
+
+async function userHoldsAnyRole(user, guildId, roleIds) {
+  if (!user || !user.discordId || !guildId || !roleIds.length) return false;
+  try {
+    const { getRoleHolders } = require('../lib/bot');
+    const did = String(user.discordId).replace(/\D/g, '');
+    for (const rid of roleIds) {
+      const holders = await getRoleHolders(guildId, rid);
+      if (holders && holders.has(did)) return true;
+    }
+  } catch (e) { /* bot down → deny */ }
+  return false;
+}
+
+async function userHasCidTryout(user) {
+  if (!user) return false;
+  if (user.role === 'DEVELOPER') return true;
+  return userHoldsAnyRole(user, cidGuildId(), cidAccessRoleIds());
+}
+async function userIsCidLead(user) {
+  if (!user) return false;
+  if (user.role === 'DEVELOPER') return true;
+  return userHoldsAnyRole(user, cidGuildId(), cidLeadRoleIds());
+}
+
+function requireCidTryout(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  userHasCidTryout(req.user).then(ok => {
+    if (ok) return next();
+    if (req.originalUrl.startsWith('/api')) return res.status(403).json({ error: 'CID access required' });
+    return res.redirect('/cid/denied');
+  }).catch(() => res.status(403).json({ error: 'CID access required' }));
+}
+function requireCidLead(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  userIsCidLead(req.user).then(ok => {
+    if (ok) return next();
+    return res.status(403).json({ error: 'CID Director\'s Office access required.' });
+  }).catch(() => res.status(403).json({ error: 'CID Director\'s Office access required.' }));
+}
+
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
   userNeedsFinalExam, userHpcTier, requireHpcMarker, requireHpcQuota,
   userFlpGroupAdmin, requireFlpGroupAdmin,
+  userHasCidTryout, userIsCidLead, requireCidTryout, requireCidLead,
 };

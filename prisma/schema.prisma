@@ -548,12 +548,14 @@ model Tryout {
   coHostName        String?
   scheduledAt       DateTime
   status            String    @default("SCHEDULED") // SCHEDULED | LIVE | COMPLETED | CANCELLED
+  division          String    @default("HPC")       // HPC | CID — which tryout programme this belongs to
   lockState         String    @default("LOCKED")    // LOCKED | UNLOCKED (game :serverlock state; legacy: SLOCKED/UNSLOCKED)
   privateServerLink String?
   privateServerId   String?
   serverCreatedAt   DateTime?
   announcementSent  Boolean   @default(false)
   announcementMsgId String?
+  recruitmentMsgId  String?   // optional CID recruitment cross-post message id
   hostDmMessageId   String?
   notes             String?
   suppressPings     Boolean   @default(false) // test mode: announce without pinging the role
@@ -565,6 +567,7 @@ model Tryout {
 
   @@index([scheduledAt])
   @@index([status])
+  @@index([division])
   @@map("tryouts")
 }
 
@@ -574,6 +577,7 @@ model TryoutCommand {
   id             String    @id @default(uuid())
   tryoutId       String
   action         String    // STRIKE | UNSTRIKE | PASS | FAIL | KICK | NOTE
+  division       String    @default("HPC")
   targetRobloxId String?
   targetUsername String?
   detail         String?
@@ -648,6 +652,7 @@ model TryoutLog {
   strikeCount     Int       @default(0)
   notes           String?   // host's write-up added on the site before posting
   status          String    @default("DRAFT") // DRAFT | PENDING | APPROVED | DENIED
+  division        String    @default("HPC")   // HPC | CID
   reviewNote      String?   // HICOMM note on approve/deny
   reviewedById    String?
   reviewedByName  String?
@@ -662,6 +667,7 @@ model TryoutLog {
 
   @@index([hostId])
   @@index([status])
+  @@index([division])
   @@index([createdAt])
   @@map("tryout_logs")
 }

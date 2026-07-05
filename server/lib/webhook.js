@@ -221,11 +221,15 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
 // Post a submitted tryout log to the HPC tryout-logs channel for HICOMM review.
 // Returns the message id, or null if no webhook is configured / it fails.
 async function sendTryoutLog(log, { event = 'submitted' } = {}) {
-  const url = process.env.HPC_TRYOUT_LOG_WEBHOOK;
-  if (!url) { console.warn('No HPC_TRYOUT_LOG_WEBHOOK configured — skipping tryout log post.'); return null; }
+  // Route by division: CID logs to CID_TRYOUT_LOG_WEBHOOK, HPC to
+  // HPC_TRYOUT_LOG_WEBHOOK (CID falls back to the HPC webhook if unset).
+  const isCid = String(log.division || '').toUpperCase() === 'CID';
+  const url = (isCid && process.env.CID_TRYOUT_LOG_WEBHOOK) || process.env.HPC_TRYOUT_LOG_WEBHOOK;
+  if (!url) { console.warn('No tryout-log webhook configured — skipping tryout log post.'); return null; }
+  const footerText = isCid ? 'Criminal Investigation Department · Tryout Log' : 'Hendon Police College · Tryout Log';
 
   const colorFor = { submitted: 0xf5b730, approved: 0x2ed896, denied: 0xf04f5e };
-  const titleFor = { submitted: '📋 Tryout Log — Pending Review', approved: '✅ Tryout Log — Approved', denied: '❌ Tryout Log — Denied' };
+  const titleFor = { submitted: 'Tryout Log — Pending Review', approved: 'Tryout Log — Approved', denied: 'Tryout Log — Denied' };
 
   const embed = {
     color: colorFor[event] || 0x4a8fff,
@@ -242,7 +246,7 @@ async function sendTryoutLog(log, { event = 'submitted' } = {}) {
     description: (event === 'denied' || event === 'approved') && log.reviewNote
       ? `**${event === 'approved' ? 'Note' : 'Reason'}:** ${String(log.reviewNote).slice(0, 1500)}`
       : (log.notes ? `**Host notes:** ${String(log.notes).slice(0, 1500)}` : undefined),
-    footer:    { text: 'Hendon Police College · Tryout Log' },
+    footer:    { text: footerText },
     timestamp: new Date().toISOString(),
   };
 

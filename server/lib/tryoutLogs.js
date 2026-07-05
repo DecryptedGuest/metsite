@@ -4,6 +4,9 @@
 // log, and (later) the host posts it → HICOMM approve/deny → +1 HPC point.
 const prisma = require('./db');
 
+// Division slug for review links (CID logs review on /cid, HPC on /hpc).
+function divSlug(division) { return String(division || '').toUpperCase() === 'CID' ? 'cid' : 'hpc'; }
+
 // ── Attendee / event normalisation ───────────────────────────────────
 // The game sends loosely-shaped data; normalise it and compute counts so the
 // site never trusts the client's own totals.
@@ -140,7 +143,7 @@ async function createFromGamePayload(payload = {}) {
     const existing = await prisma.tryoutLog.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
     if (existing) {
       const base = process.env.PUBLIC_BASE_URL || '';
-      return { ok: true, id: existing.id, reviewUrl: `${base}/hpc/dashboard?tryoutLog=${existing.id}`, existing: true };
+      return { ok: true, id: existing.id, reviewUrl: `${base}/${divSlug(payload.division)}/dashboard?tryoutLog=${existing.id}`, existing: true };
     }
   }
 
@@ -187,6 +190,7 @@ async function createFromGamePayload(payload = {}) {
         concludedAt:    payload.concludedAt ? new Date(payload.concludedAt) : new Date(),
         attendees, events, ...counts,
         status:         'DRAFT',
+        division:       String(payload.division || '').toUpperCase() === 'CID' ? 'CID' : 'HPC',
         gamePayload:    payload,
       },
     });
@@ -196,14 +200,14 @@ async function createFromGamePayload(payload = {}) {
       const existing = await prisma.tryoutLog.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
       if (existing) {
         const base = process.env.PUBLIC_BASE_URL || '';
-        return { ok: true, id: existing.id, reviewUrl: `${base}/hpc/dashboard?tryoutLog=${existing.id}`, existing: true };
+        return { ok: true, id: existing.id, reviewUrl: `${base}/${divSlug(payload.division)}/dashboard?tryoutLog=${existing.id}`, existing: true };
       }
     }
     throw e;
   }
 
   const base = process.env.PUBLIC_BASE_URL || '';
-  return { ok: true, id: log.id, reviewUrl: `${base}/hpc/dashboard?tryoutLog=${log.id}` };
+  return { ok: true, id: log.id, reviewUrl: `${base}/${divSlug(log.division)}/dashboard?tryoutLog=${log.id}` };
 }
 
 // ── Serialisation for the API ────────────────────────────────────────
@@ -217,6 +221,7 @@ function serialize(log, { full = false } = {}) {
     startedAt: log.startedAt, concludedAt: log.concludedAt,
     reviewedByName: log.reviewedByName, reviewedAt: log.reviewedAt, reviewNote: log.reviewNote,
     pointAwarded: log.pointAwarded, createdAt: log.createdAt,
+    division: log.division || 'HPC',
   };
   if (!full) return base;
   return { ...base, attendees: log.attendees || [], events: log.events || [], notes: log.notes };

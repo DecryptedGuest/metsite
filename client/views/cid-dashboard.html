@@ -52,29 +52,143 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Tryouts</div>
+        <button class="nav-item" data-page="tryouts"><i class="ti ti-calendar-event nav-icon"></i><span>Tryouts</span></button>
+        <button class="nav-item" data-page="live"><i class="ti ti-broadcast nav-icon"></i><span>Live</span><span class="nav-badge" id="cid-live-badge" style="display:none;background:var(--green);"></span></button>
+        <button class="nav-item" data-page="tryout-logs"><i class="ti ti-clipboard-list nav-icon"></i><span>My Tryout Logs</span></button>
+        <button class="nav-item approve-only" data-page="review-logs" style="display:none;"><i class="ti ti-clipboard-check nav-icon"></i><span>Review Logs</span><span class="nav-badge pending" id="cid-review-badge" style="display:none;"></span></button>
       </nav>
     </div>
   </aside>
 
   <main class="main-content">
+    <!-- OVERVIEW -->
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Criminal Investigation</h1><p class="page-sub">CID · Overview</p></div>
+        <div><h1 class="page-title">Criminal Investigation</h1><p class="page-sub">CID · Tryouts</p></div>
       </div>
       <div class="panel glass fade-up stagger-1">
-        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
-          <div style="font-size:40px;margin-bottom:1rem;"><i class="ti ti-tools"></i></div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
-          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">CID tools are being built. You have access to this division — check back soon for its features.</div>
+        <div style="padding:1.6rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
+          Welcome to the CID tryout portal. Schedule and run CID entrance tryouts, drive them live from the site,
+          and log the results. Reviewing concluded tryout logs is restricted to the <strong>Director's Office</strong>.
+        </div>
+      </div>
+    </section>
+
+    <!-- TRYOUTS -->
+    <section class="page" id="page-tryouts">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">CID Tryouts</h1><p class="page-sub">Schedule and manage CID entrance tryouts</p></div>
+        <button class="btn btn-primary" onclick="cidOpenSchedule()"><i class="ti ti-calendar-plus"></i> Schedule Tryout</button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Upcoming &amp; Recent</div>
+          <button class="btn btn-ghost btn-sm" onclick="cidLoadTryouts()"><i class="ti ti-refresh"></i> Refresh</button></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>When</th><th>Host</th><th>Co-Host</th><th>Status</th><th>Link</th><th></th></tr></thead>
+            <tbody id="cid-tryouts-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE -->
+    <section class="page" id="page-live">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Live Tryouts</h1><p class="page-sub">Watch and drive running tryouts · updates every few seconds</p></div>
+        <span class="badge badge-pending" id="cid-live-status"><span class="badge-dot"></span>Connecting…</span>
+      </div>
+      <div id="cid-live-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- MY TRYOUT LOGS -->
+    <section class="page" id="page-tryout-logs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">My Tryout Logs</h1><p class="page-sub">Review what happened, then post your concluded tryout for approval</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Your Tryouts</div></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Concluded</th><th>Attendees</th><th>Passed</th><th>Failed</th><th>Strikes</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cid-mylogs-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEW TRYOUT LOGS (Director's Office) -->
+    <section class="page" id="page-review-logs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Review Tryout Logs</h1><p class="page-sub">Director's Office · approve or deny concluded CID tryouts</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Tryout Logs</div>
+          <div class="filter-tabs" id="cid-logfilter-tabs">
+            <button class="filter-tab active" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Host</th><th>Attendees</th><th>Passed</th><th>Failed</th><th>Strikes</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cid-reviewlogs-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
         </div>
       </div>
     </section>
   </main>
 </div>
 
+<!-- SCHEDULE TRYOUT MODAL -->
+<div class="modal-overlay" id="modal-cid-tryout">
+  <div class="modal glass-bright" style="max-width:460px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-calendar-plus" style="font-size:18px;"></i> Schedule CID Tryout</div>
+      <button class="modal-close" onclick="closeModal('modal-cid-tryout')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 1rem;line-height:1.6;">
+        At the scheduled time a private server is provisioned and the bot DMs you the link + details, with buttons
+        to pick a co-host and post the announcement to the CID channel.
+      </p>
+      <div class="form-group"><label class="form-label">Date &amp; time (your local time)</label>
+        <input type="datetime-local" class="form-control" id="cid-tryout-when" /></div>
+      <div class="form-group"><label class="form-label">Server lock (starting state)</label>
+        <select class="form-control" id="cid-tryout-lock">
+          <option value="UNLOCKED">Unlocked (:serverlock off)</option>
+          <option value="LOCKED">Locked (:serverlock on)</option>
+        </select>
+        <span style="display:block;font-size:11px;color:var(--text-muted);margin-top:4px;">Updates live from the game once the tryout is running.</span></div>
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Notes (optional)</label>
+        <input type="text" class="form-control" id="cid-tryout-notes" placeholder="Anything for your own reference" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cid-tryout')">Cancel</button>
+      <button class="btn btn-primary" onclick="cidSubmitSchedule()"><i class="ti ti-calendar-plus"></i> Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- TRYOUT LOG DETAIL — host review/post, or Director's Office approve/deny -->
+<div class="modal-overlay" id="modal-cid-log">
+  <div class="modal glass-bright" style="max-width:760px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-clipboard-list" style="font-size:18px;"></i> <span id="cid-tlog-title">Tryout Log</span></div>
+      <button class="modal-close" onclick="closeModal('modal-cid-log')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="cid-tlog-body"><div class="table-loading"><div class="spinner"></div></div></div>
+    <div class="modal-footer" id="cid-tlog-footer"></div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
 <script src="/js/met-topbar.js"></script>
+<script src="/js/cid-dashboard.js"></script>
 <script>initMetTopbar('CID');</script>
 </body>
 </html>
