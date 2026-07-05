@@ -556,6 +556,7 @@ model Tryout {
   announcementMsgId String?
   hostDmMessageId   String?
   notes             String?
+  suppressPings     Boolean   @default(false) // test mode: announce without pinging the role
   liveSnapshot      Json?     // latest in-game overview while the tryout is live
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

@@ -567,7 +567,7 @@ async function sendTryoutHostDM(tryout) {
       .setDescription('Your scheduled Metropolitan Police tryout has started. Pick a co-host, then post the announcement when you\'re ready.')
       .addFields(
         { name: 'Private server link', value: tryout.privateServerLink || '⚠️ Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
-        { name: 'Server lock', value: require('./tryouts').isServerLocked(tryout) ? '🔒 Locked' : '🔓 Unlocked', inline: true },
+        { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? '🔒 Locked' : '🔓 Unlocked', inline: true },
       );
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
@@ -622,9 +622,9 @@ async function postTryoutAnnouncement(tryout) {
   const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
   if (!chId) { console.warn('[Tryout] TRYOUT_ANNOUNCE_CHANNEL_ID not set — cannot announce.'); return null; }
   try {
-    const { formatAnnouncement } = require('./tryouts');
+    const { formatAnnouncement, announcementAllowedMentions } = require('./tryouts');
     const ch  = await client.channels.fetch(chId);
-    const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
+    const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
     await require('./db').tryout.update({ where: { id: tryout.id }, data: { announcementSent: true, announcementMsgId: msg.id } }).catch(() => {});
     return msg.id;
   } catch (e) {
@@ -633,26 +633,47 @@ async function postTryoutAnnouncement(tryout) {
   }
 }
 
-// DM the host that their tryout was created + announced, with the review link.
-// Used by the in-game "create"/"start scheduled" flows (announcement already
-// posted by us, so this is informational, not the button-driven host DM).
+// The host-DM status embed — a live "Status" field (🔒 Locked / 🔓 Unlocked)
+// so it can be rebuilt identically when we edit the DM on a lock/unlock change.
+function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
+  return new EmbedBuilder()
+    .setColor(0x2ed896)
+    .setTitle('🎓 Your MET Tryout is live')
+    .setDescription('Your tryout has started and been announced. Run it in-game from the HPC Instructor Panel, then conclude it to log the results.')
+    .addFields(
+      { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? '🔒 Locked' : '🔓 Unlocked', inline: true },
+      ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
+      ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
+    );
+}
+
+// DM the host that their tryout was created + announced. Returns the DM message
+// id (so it can be edited in real time when the lock state changes), or null.
 async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
-  if (!ready || !tryout || !tryout.hostDiscordId) return false;
+  if (!ready || !tryout || !tryout.hostDiscordId) return null;
   try {
-    const user  = await client.users.fetch(tryout.hostDiscordId);
-    const embed = new EmbedBuilder()
-      .setColor(0x2ed896)
-      .setTitle('🎓 Your MET Tryout is live')
-      .setDescription('Your tryout has started and been announced. Run it in-game from the HPC Instructor Panel, then conclude it to log the results.')
-      .addFields(
-        { name: 'Server lock', value: require('./tryouts').isServerLocked(tryout) ? '🔒 Locked' : '🔓 Unlocked', inline: true },
-        ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
-        ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
-      );
-    await user.send({ embeds: [embed] });
-    return true;
+    const user = await client.users.fetch(tryout.hostDiscordId);
+    const msg  = await user.send({ embeds: [tryoutDmEmbed(tryout, { reviewUrl })] });
+    return msg.id;
   } catch (e) {
     console.warn('[Tryout] dmTryoutStarted failed:', e.message);
+    return null;
+  }
+}
+
+// Re-render the host's tryout DM in place so its Status field tracks the live
+// lock state. Best-effort; no-ops if we never recorded the DM message id.
+async function editTryoutHostDM(tryout) {
+  if (!ready || !tryout || !tryout.hostDmMessageId || !tryout.hostDiscordId) return false;
+  try {
+    const base = process.env.PUBLIC_BASE_URL ? `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/hpc/dashboard` : null;
+    const user = await client.users.fetch(tryout.hostDiscordId);
+    const dm   = await user.createDM();
+    const msg  = await dm.messages.fetch(tryout.hostDmMessageId);
+    await msg.edit({ embeds: [tryoutDmEmbed(tryout, { reviewUrl: base })] });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] editTryoutHostDM failed:', e.message);
     return false;
   }
 }
@@ -685,10 +706,11 @@ async function editTryoutAnnouncement(tryout) {
   const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
   if (!chId) return false;
   try {
-    const { formatAnnouncement } = require('./tryouts');
+    const { formatAnnouncement, announcementAllowedMentions } = require('./tryouts');
     const ch  = await client.channels.fetch(chId);
     const msg = await ch.messages.fetch(tryout.announcementMsgId);
-    await msg.edit({ content: formatAnnouncement(tryout), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
+    // Editing on lock/unlock must not re-introduce a ping while suppressed.
+    await msg.edit({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
     return true;
   } catch (e) {
     console.warn('[Tryout] editTryoutAnnouncement failed:', e.message);
@@ -868,7 +890,7 @@ module.exports = {
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
-  sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, cancelTryoutAnnouncement, dmTryoutStarted,
+  sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, cancelTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   reactToMessage,
   isReady: () => ready,
 };

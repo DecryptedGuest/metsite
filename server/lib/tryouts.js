@@ -18,13 +18,22 @@ function isServerLocked(tryout) {
   return !(s === 'UNLOCKED' || s === 'UNSLOCKED');
 }
 
+// allowed_mentions for a tryout announcement: no pings at all when the tryout is
+// in test mode (suppressPings), otherwise mention roles/users normally.
+function announcementAllowedMentions(tryout) {
+  return (tryout && tryout.suppressPings) ? { parse: [] } : { parse: ['roles', 'users', 'everyone'] };
+}
+
 // The Discord announcement text, in the exact MET format. STATUS reflects the
 // live server-lock state (:serverlock on/off) of the Hendon tryout server.
+// When the tryout is in test mode (suppressPings) the Ping line is rendered as
+// plain text with NO role mention.
 function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : tryout.hostName);
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
   const link   = tryout.privateServerLink || 'TBA';
   const status = isServerLocked(tryout) ? '🔒 SERVER LOCKED' : '🔓 SERVER UNLOCKED';
+  const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
   return [
     ':HPC: College Entrance :HPC:',
     'Metropolitan Police Tryout',
@@ -33,7 +42,7 @@ function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
     `Link: ${link}`,
     '',
     `STATUS: ${status}`,
-    `Ping: <@&${TRYOUT_PING_ROLE()}>`,
+    ping,
     '**Requirements,**',
     '▫️Must wear blocky avatar.',
     '▫️Must be in Uniform and shoulder to shoulder.',
@@ -112,4 +121,4 @@ function startTryoutWorker() {
   setInterval(processDueTryouts, 30 * 1000);
 }
 
-module.exports = { startTryoutWorker, processDueTryouts, fireTryout, formatAnnouncement, isServerLocked, getServerLink, TRYOUT_PING_ROLE };
+module.exports = { startTryoutWorker, processDueTryouts, fireTryout, formatAnnouncement, announcementAllowedMentions, isServerLocked, getServerLink, TRYOUT_PING_ROLE };

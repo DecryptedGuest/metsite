@@ -115,11 +115,13 @@ router.post('/serverlock', requireGameSecret, async (req, res) => {
     const lockState = locked ? 'LOCKED' : 'UNLOCKED';
     const updated = await prisma.tryout.update({ where: { id: target.id }, data: { lockState } });
 
-    // Re-render the Discord announcement in place (best-effort).
+    // Re-render the Discord announcement + the host DM in place (best-effort),
+    // so both track the live lock state.
     try {
-      const { editTryoutAnnouncement } = require('../lib/bot');
-      if (typeof editTryoutAnnouncement === 'function') await editTryoutAnnouncement(updated);
-    } catch (e) { /* announcement update is best-effort */ }
+      const bot = require('../lib/bot');
+      if (typeof bot.editTryoutAnnouncement === 'function') await bot.editTryoutAnnouncement(updated);
+      if (typeof bot.editTryoutHostDM === 'function') await bot.editTryoutHostDM(updated);
+    } catch (e) { /* status updates are best-effort */ }
 
     res.json({ ok: true, id: updated.id, lockState });
   } catch (err) {
@@ -219,8 +221,10 @@ async function announceAndDm(tryout, { edit = false } = {}) {
   if (edit && tryout.announcementMsgId) announced = await bot.editTryoutAnnouncement(tryout).catch(() => false);
   else announced = await bot.postTryoutAnnouncement(tryout).then(id => !!id).catch(() => false);
   const fresh = (await prisma.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null)) || tryout;
-  const dmed  = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl() }).catch(() => false);
-  return { tryoutId: tryout.id, dmed: !!dmed, announced: !!announced };
+  // DM the host and record the DM message id so it can be edited on lock change.
+  const dmId = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl() }).catch(() => null);
+  if (dmId) await prisma.tryout.update({ where: { id: tryout.id }, data: { hostDmMessageId: dmId } }).catch(() => {});
+  return { tryoutId: tryout.id, dmed: !!dmId, announced: !!announced };
 }
 
 // GET /api/game/tryout/scheduled — feed for the in-game TryoutTV board.
@@ -281,6 +285,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       coHostName:        coHost.username || coHost.name || null,
       scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
       status:            'LIVE',
+      suppressPings:     !!body.suppressPings, // test mode → announce without pinging
       privateServerId:   body.privateServerId ? String(body.privateServerId) : null,
       privateServerLink: body.privateServerLink || null,
       serverCreatedAt:   new Date(),
@@ -314,6 +319,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       hostRobloxId:    (body.host && body.host.robloxId) ? String(body.host.robloxId) : (t.hostRobloxId || hostUser.robloxId),
       hostRobloxName:  (body.host && body.host.username) || t.hostRobloxName || hostUser.robloxUsername || null,
       coHostName:      coHost.username || coHost.name || t.coHostName,
+      suppressPings:   ('suppressPings' in body) ? !!body.suppressPings : t.suppressPings,
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
       serverCreatedAt: t.serverCreatedAt || new Date(),
     } });
