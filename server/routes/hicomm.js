@@ -107,15 +107,34 @@ router.get('/audit', async (req, res) => {
 });
 
 // ── GET /api/hicomm/officer/search?q= — find an officer (type-ahead) ──
-// Intentionally DB-ONLY: every officer who has ever signed in is already in the
-// user table with their Discord + Roblox identity cached, so we never touch
-// Rover here (its rate limits are harsh and a per-keystroke lookup would burn
-// through them). We match across every identity field and rank the results so
-// the right person surfaces first: exact match → starts-with → contains.
+// DB-FIRST: every officer who has signed in is already in the user table with
+// their Discord + Roblox identity cached, so we never touch Rover here (its rate
+// limits are harsh and a per-keystroke lookup would burn through them). We match
+// across every identity field and rank exact → prefix → word-prefix → contains.
+//
+// Roblox usernames go stale (an officer renames on Roblox, so the name we cached
+// at their last login no longer matches) or were never captured. So when a query
+// looks like a full Roblox username and the text search hasn't already found that
+// exact person, we resolve it to a Roblox id via Roblox's OWN batch username API
+// (users.roblox.com — NOT Rover, exact-match, generous limits) and look the
+// officer up by robloxId instead. Result is cached briefly to avoid re-hitting
+// the API on every keystroke, and we backfill the corrected username.
+const _rbxUserCache = new Map(); // lower(username) -> { at, val: {id,username,displayName}|null }
+async function resolveRobloxUsername(name) {
+  const key = name.toLowerCase();
+  const hit = _rbxUserCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.val;
+  let val = null;
+  try { val = await require('../lib/roblox').getRobloxIdFromUsername(name); } catch (e) { val = null; }
+  _rbxUserCache.set(key, { at: Date.now(), val });
+  return val;
+}
+
 router.get('/officer/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.json([]);
   try {
+    const SEL = { id: true, discordUsername: true, displayName: true, robloxUsername: true, robloxId: true, discordAvatar: true, role: true, lastLogin: true };
     const users = await prisma.user.findMany({
       where: { OR: [
         { discordUsername: { contains: q, mode: 'insensitive' } },
@@ -124,26 +143,58 @@ router.get('/officer/search', async (req, res) => {
         { discordId:       { contains: q } },
         { robloxId:        { contains: q } },
       ] },
-      select: { id: true, discordUsername: true, displayName: true, robloxUsername: true, discordAvatar: true, role: true, lastLogin: true },
+      select: SEL,
       take: 40,
     });
 
     const ql = q.toLowerCase();
+    const byId = new Map(users.map(u => [u.id, u]));
+
+    // If the query is a plausible complete Roblox username and we didn't already
+    // match that exact name, resolve it via Roblox's API and look up by robloxId.
+    const looksLikeUsername = /^[A-Za-z0-9_]{3,20}$/.test(q);
+    const haveExact = users.some(u => (u.robloxUsername || '').toLowerCase() === ql);
+    let resolvedRbx = null;
+    if (looksLikeUsername && !haveExact) {
+      resolvedRbx = await resolveRobloxUsername(q);
+      if (resolvedRbx && resolvedRbx.id) {
+        const extra = await prisma.user.findMany({ where: { robloxId: String(resolvedRbx.id) }, select: SEL });
+        for (const u of extra) {
+          byId.set(u.id, u);
+          // Backfill a stale/missing cached username so future searches hit the DB.
+          if ((u.robloxUsername || '').toLowerCase() !== resolvedRbx.username.toLowerCase()) {
+            prisma.user.update({ where: { id: u.id }, data: { robloxUsername: resolvedRbx.username } }).catch(() => {});
+          }
+        }
+      }
+    }
+
+    const all = [...byId.values()];
     const score = (u) => {
       const fields = [u.displayName, u.discordUsername, u.robloxUsername].filter(Boolean).map(s => s.toLowerCase());
+      if (resolvedRbx && String(u.robloxId) === String(resolvedRbx.id)) return 0; // resolved exact Roblox account
       if (fields.some(f => f === ql)) return 0;             // exact identity match
       if (fields.some(f => f.startsWith(ql))) return 1;     // prefix — most likely intent
       if (fields.some(f => f.split(/[\s._-]+/).some(w => w.startsWith(ql)))) return 2; // word-prefix
       return 3;                                             // anywhere-contains
     };
-    users.sort((a, b) => {
+    all.sort((a, b) => {
       const d = score(a) - score(b);
       if (d) return d;
       return new Date(b.lastLogin || 0) - new Date(a.lastLogin || 0); // recently-seen first
     });
 
-    res.json(users.slice(0, 15).map(u => ({ id: u.id, name: u.displayName || u.discordUsername, discordUsername: u.discordUsername,
-      robloxUsername: u.robloxUsername, avatar: u.discordAvatar, role: u.role })));
+    const results = all.slice(0, 15).map(u => ({ id: u.id, name: u.displayName || u.discordUsername, discordUsername: u.discordUsername,
+      robloxUsername: u.robloxUsername, avatar: u.discordAvatar, role: u.role }));
+
+    // Valid Roblox account, but they've never signed into the dashboard → no
+    // site record to open. Tell HICOMM that explicitly instead of "not found".
+    if (!results.length && resolvedRbx && resolvedRbx.id) {
+      return res.json([{ noAccount: true, robloxId: resolvedRbx.id,
+        name: resolvedRbx.displayName || resolvedRbx.username, robloxUsername: resolvedRbx.username }]);
+    }
+
+    res.json(results);
   } catch (e) { res.status(500).json({ error: 'Search failed' }); }
 });
 

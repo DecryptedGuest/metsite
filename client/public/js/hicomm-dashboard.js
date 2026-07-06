@@ -138,11 +138,20 @@
       const q = $('hc-off-search').value.trim();
       if (q.length < 2) { $('hc-off-results').innerHTML = ''; return; }
       let rows; try { rows = await api('/api/hicomm/officer/search?q=' + encodeURIComponent(q)); } catch (e) { return; }
-      $('hc-off-results').innerHTML = rows.map(u => `
+      $('hc-off-results').innerHTML = rows.map(u => {
+        // Resolved on Roblox but never signed into the dashboard → no timeline.
+        if (u.noAccount) return `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px dashed var(--border,#2a2a2a);margin-bottom:6px;opacity:.75;">
+            <div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;"><i class="ti ti-user-question"></i></div>
+            <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--amber);">Roblox only</span></div>
+            <div style="font-size:11px;color:var(--text-muted);">@${esc(u.robloxUsername || '')} · hasn't signed into the dashboard — no site history</div></div>
+          </div>`;
+        return `
         <div onclick="hcOfficer('${u.id}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
           ${u.avatar ? `<img src="${esc(u.avatar)}" style="width:32px;height:32px;border-radius:50%;">` : `<div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;">${esc((u.name || '?').slice(0, 1).toUpperCase())}</div>`}
           <div><div style="font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">@${esc(u.discordUsername || '')}${u.robloxUsername ? ' · ' + esc(u.robloxUsername) : ''} · ${esc(u.role || '')}</div></div>
-        </div>`).join('') || '<div class="table-empty-text">No officers found.</div>';
+        </div>`;
+      }).join('') || '<div class="table-empty-text">No officers found.</div>';
     }, 120);
   };
   window.hcOfficer = async function (id) {
