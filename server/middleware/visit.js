@@ -31,13 +31,20 @@ function recordVisit(req, res, next) {
             where:  { id: payload.userId },
             select: {
               id: true, discordId: true, discordUsername: true,
-              robloxId: true, robloxUsername: true,
+              robloxId: true, robloxUsername: true, lastRealIp: true,
             },
           });
-          if (u) info = {
-            userId: u.id, discordId: u.discordId, discordUsername: u.discordUsername,
-            robloxId: u.robloxId, robloxUsername: u.robloxUsername,
-          };
+          if (u) {
+            info = {
+              userId: u.id, discordId: u.discordId, discordUsername: u.discordUsername,
+              robloxId: u.robloxId, robloxUsername: u.robloxUsername,
+            };
+            // If they're visiting from a new IP, re-classify it (VPN?) and refresh
+            // the account's most-recent real IP — dev-panel only, best-effort.
+            if (ip && ip !== u.lastRealIp) {
+              require('../lib/ipIntel').classifyAndRecord({ userId: u.id, ip }).catch(() => {});
+            }
+          }
         } catch { /* invalid/expired token → anonymous visit */ }
       }
 

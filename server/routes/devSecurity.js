@@ -33,20 +33,27 @@ router.post('/require-passkey', async (req, res) => {
 const ELEVATED = ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'];
 
 // ── Active sessions ───────────────────────────────────────────────────
-// GET /api/dev/security/sessions?userId=&all=1 — active (non-revoked) sessions.
+// GET /api/dev/security/sessions?userId=&history=1 — sessions with IP intel.
+// Devs (and ONLY devs) see the IP, whether it was a VPN, and the account's most
+// recent REAL non-VPN IP. Passing userId (or history=1) returns the full login
+// history for that account — every session, including revoked/expired ones.
 router.get('/sessions', async (req, res) => {
   try {
-    const where = { revokedAt: null, expiresAt: { gt: new Date() } };
+    const history = req.query.history === '1' || !!req.query.userId;
+    const where = history ? {} : { revokedAt: null, expiresAt: { gt: new Date() } };
     if (req.query.userId) where.userId = String(req.query.userId);
+    const now = new Date();
     const rows = await prisma.session.findMany({
-      where, orderBy: { lastSeenAt: 'desc' }, take: 300,
-      include: { user: { select: { id: true, displayName: true, discordUsername: true, discordAvatar: true, role: true } } },
+      where, orderBy: { lastSeenAt: 'desc' }, take: history ? 500 : 300,
+      include: { user: { select: { id: true, displayName: true, discordUsername: true, discordAvatar: true, role: true, lastRealIp: true, lastRealIpAt: true } } },
     });
     res.json(rows.map(s => ({
       id: s.id, userId: s.userId,
-      user: s.user ? { name: s.user.displayName || s.user.discordUsername, role: s.user.role, avatar: s.user.discordAvatar } : null,
-      ip: s.ip, device: s.device, userAgent: s.userAgent,
+      user: s.user ? { name: s.user.displayName || s.user.discordUsername, role: s.user.role, avatar: s.user.discordAvatar,
+        realIp: s.user.lastRealIp || null, realIpAt: s.user.lastRealIpAt || null } : null,
+      ip: s.ip, ipVpn: !!s.ipVpn, ipOrg: s.ipOrg || null, device: s.device, userAgent: s.userAgent,
       createdAt: s.createdAt, lastSeenAt: s.lastSeenAt, stepUpAt: s.stepUpAt,
+      revoked: !!s.revokedAt, expired: s.expiresAt <= now,
       current: s.id === req.sessionId,
     })));
   } catch (e) { res.status(500).json({ error: 'Failed to load sessions' }); }
@@ -222,6 +229,17 @@ router.post('/approvals', async (req, res) => {
       action, params: (req.body && req.body.params) || {}, reason: req.body && req.body.reason ? String(req.body.reason).slice(0, 500) : null,
       requestedById: req.user.id, requestedByName: req.user.displayName || req.user.discordUsername,
     } });
+
+    // Four-eyes needs a SECOND developer — but if this is the only developer on
+    // the site, there's nobody else to approve, so it executes immediately.
+    const devCount = await prisma.user.count({ where: { role: 'DEVELOPER' } }).catch(() => 2);
+    if (devCount <= 1) {
+      await executeApproval(a, req.user);
+      await prisma.pendingApproval.update({ where: { id: a.id }, data: { status: 'APPROVED', resolvedById: req.user.id, resolvedByName: req.user.displayName || req.user.discordUsername, resolvedAt: new Date() } });
+      audit.record({ req, action: 'APPROVAL_AUTO', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Executed ${action} (sole developer — no second approval required)` });
+      return res.status(201).json({ ok: true, id: a.id, executed: true });
+    }
+
     audit.record({ req, action: 'APPROVAL_PROPOSE', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Proposed ${action} (awaiting a second developer)` });
     res.status(201).json({ ok: true, id: a.id });
   } catch (e) { res.status(500).json({ error: 'Failed to propose' }); }
@@ -231,7 +249,11 @@ router.post('/approvals/:id/approve', requireStepUpEnforced, async (req, res) =>
   try {
     const a = await prisma.pendingApproval.findUnique({ where: { id: req.params.id } });
     if (!a || a.status !== 'PENDING') return res.status(404).json({ error: 'Not found or already resolved' });
-    if (a.requestedById === req.user.id) return res.status(403).json({ error: 'A different developer must approve this — you proposed it.' });
+    // A different developer must approve — unless this is the only developer.
+    if (a.requestedById === req.user.id) {
+      const devCount = await prisma.user.count({ where: { role: 'DEVELOPER' } }).catch(() => 2);
+      if (devCount > 1) return res.status(403).json({ error: 'A different developer must approve this — you proposed it.' });
+    }
     await executeApproval(a, req.user);
     await prisma.pendingApproval.update({ where: { id: a.id }, data: { status: 'APPROVED', resolvedById: req.user.id, resolvedByName: req.user.displayName || req.user.discordUsername, resolvedAt: new Date() } });
     audit.record({ req, action: 'APPROVAL_APPROVE', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Approved + executed ${a.action} (proposed by ${a.requestedByName})` });

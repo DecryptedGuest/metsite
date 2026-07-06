@@ -781,10 +781,11 @@ app.get('/api/me/sessions', requireAuth, async (req, res) => {
       orderBy: { lastSeenAt: 'desc' },
     });
     res.json({
+      // IPs are intentionally NOT exposed to users — only devices + activity.
+      // (Developers see IPs in the Dev Security Center.)
       sessions: rows.map(s => ({
         id:        s.id,
         device:    s.device || 'Unknown device',
-        ip:        s.ip || null,
         createdAt: s.createdAt,
         lastSeenAt: s.lastSeenAt,
         current:   s.id === req.sessionId,

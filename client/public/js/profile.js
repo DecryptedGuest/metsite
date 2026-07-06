@@ -245,7 +245,7 @@ async function loadSessions() {
           ${s.current ? '<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>This device</span>' : ''}
         </div>
         <div style="font-size:11px;color:var(--text-muted);">
-          ${s.ip ? escHtml(s.ip) + '  ·  ' : ''}Last active ${formatDateTime(s.lastSeenAt)}
+          Signed in ${formatDateTime(s.createdAt)}  ·  Last active ${formatDateTime(s.lastSeenAt)}
         </div>
       </div>
       ${s.current

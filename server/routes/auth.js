@@ -337,6 +337,12 @@ router.get('/discord/callback', async (req, res) => {
       return res.redirect('/login?error=server_error');
     }
 
+    // Classify the login IP (VPN? datacenter?) and track the account's most
+    // recent real IP — dev-panel only, fire-and-forget so it never blocks login.
+    if (ip) {
+      try { require('../lib/ipIntel').classifyAndRecord({ userId: user.id, sessionId: session.id, ip }); } catch (e) {}
+    }
+
     const jwtToken = jwt.sign(
       { userId: user.id, sid: session.id },
       process.env.JWT_SECRET,

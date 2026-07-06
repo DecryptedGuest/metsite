@@ -23,6 +23,8 @@ model User {
   blacklistReason String?
   mustReauth      Boolean  @default(false)
   lastIp          String?
+  lastRealIp      String?  // most recent non-VPN IP seen for this account (dev panel only)
+  lastRealIpAt    DateTime?
   robloxId        String?
   robloxUsername  String?
   notifyAsked     Boolean  @default(false)
@@ -829,6 +831,8 @@ model Session {
   id         String    @id @default(uuid())
   userId     String
   ip         String?
+  ipVpn      Boolean   @default(false) // was this session's IP flagged as a VPN/proxy/datacenter?
+  ipOrg      String?   // ISP / org / hosting provider behind the IP (dev panel only)
   userAgent  String?
   device     String?
   createdAt  DateTime  @default(now())

@@ -45,22 +45,48 @@
   };
 
   // ── Sessions ──
+  function renderSessionRows(rows, tb) {
+    if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">Nothing to show.</div></td></tr>'; return; }
+    tb.innerHTML = rows.map(s => {
+      const vpnBadge = s.ipVpn ? ' <span class="badge badge-denied" style="font-size:9px;"><span class="badge-dot"></span>VPN</span>' : '';
+      const org = s.ipOrg ? `<div style="color:var(--text-muted);font-size:10px;">${esc(s.ipOrg)}</div>` : '';
+      // When the session IP is a VPN, surface the account's most recent REAL ip.
+      const realIp = (s.user && s.user.realIp && s.user.realIp !== s.ip)
+        ? `<div style="color:var(--green);font-size:10px;" title="Most recent real (non-VPN) IP for this account">real: ${esc(s.user.realIp)}</div>` : '';
+      const stateTag = s.revoked ? ' <span style="color:var(--text-muted);font-size:10px;">(revoked)</span>'
+        : (s.expired ? ' <span style="color:var(--text-muted);font-size:10px;">(expired)</span>' : '');
+      return `<tr>
+        <td>${esc(s.user ? s.user.name : s.userId)}${s.current ? ' <span class="badge badge-approved" style="font-size:9px;">THIS DEVICE</span>' : ''}</td>
+        <td>${esc(s.user ? s.user.role : '')}</td>
+        <td style="font-family:monospace;font-size:12px;">${esc(s.ip || '—')}${vpnBadge}${org}${realIp}</td>
+        <td style="font-size:12px;">${esc(s.device || (s.userAgent || '').slice(0, 40) || '—')}</td>
+        <td style="font-size:12px;">${fmt(s.lastSeenAt)}${stateTag}</td>
+        <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">
+          <button class="btn btn-ghost btn-sm" title="All logins for this account" onclick="secAccountLogins('${s.userId}','${esc((s.user&&s.user.name)||'')}')"><i class="ti ti-history"></i></button>
+          <button class="btn btn-ghost btn-sm" title="Force this officer to sign in again everywhere" onclick="secForceReauth('${s.userId}','${esc((s.user&&s.user.name)||'')}')"><i class="ti ti-logout-2"></i></button>
+          <button class="btn btn-danger btn-sm" ${s.current ? 'disabled title="This is your current session"' : (s.revoked || s.expired ? 'disabled' : '')} onclick="secKill('${s.id}')"><i class="ti ti-plug-off"></i> Kill</button>
+        </td></tr>`;
+    }).join('');
+  }
   window.secLoadSessions = async function () {
     const tb = $('sec-sessions-tbody');
     tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       const rows = await api('/api/dev/security/sessions');
       if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No active sessions.</div></td></tr>'; return; }
-      tb.innerHTML = rows.map(s => `<tr>
-        <td>${esc(s.user ? s.user.name : s.userId)}${s.current ? ' <span class="badge badge-approved" style="font-size:9px;">THIS DEVICE</span>' : ''}</td>
-        <td>${esc(s.user ? s.user.role : '')}</td>
-        <td style="font-family:monospace;font-size:12px;">${esc(s.ip || '—')}</td>
-        <td style="font-size:12px;">${esc(s.device || (s.userAgent || '').slice(0, 40) || '—')}</td>
-        <td style="font-size:12px;">${fmt(s.lastSeenAt)}</td>
-        <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">
-          <button class="btn btn-ghost btn-sm" title="Force this officer to sign in again everywhere" onclick="secForceReauth('${s.userId}','${esc((s.user&&s.user.name)||'')}')"><i class="ti ti-logout-2"></i></button>
-          <button class="btn btn-danger btn-sm" ${s.current ? 'disabled title="This is your current session"' : ''} onclick="secKill('${s.id}')"><i class="ti ti-plug-off"></i> Kill</button>
-        </td></tr>`).join('');
+      renderSessionRows(rows, tb);
+    } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
+  };
+  // Show every login for one account (including revoked/expired) in the sessions
+  // table. Clearing the search box (or re-opening the tab) returns to all sessions.
+  window.secAccountLogins = async function (userId, name) {
+    const tb = $('sec-sessions-tbody');
+    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+    try {
+      const rows = await api('/api/dev/security/sessions?userId=' + encodeURIComponent(userId));
+      showToast(`Showing all logins for ${name || 'this account'} (${rows.length})`, 'info');
+      // Reuse the same renderer path by stashing rows and calling the shared render.
+      renderSessionRows(rows, tb);
     } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
   };
   window.secKill = async function (id) {
@@ -187,7 +213,11 @@
     let params = {};
     if (action === 'LOCKDOWN') params = { on: true };
     if (action === 'BROADCAST') { if (!detail) return showToast('Enter a broadcast message.', 'warning'); params = { title: 'Message from High Command', body: detail, banner: true }; }
-    try { await api('/api/dev/security/approvals', { method: 'POST', body: JSON.stringify({ action, params, reason }) }); showToast('Proposed — awaiting a second developer', 'success'); $('ap-detail').value = ''; $('ap-reason').value = ''; secLoadApprovals(); }
+    try {
+      const r = await api('/api/dev/security/approvals', { method: 'POST', body: JSON.stringify({ action, params, reason }) });
+      showToast(r && r.executed ? 'Executed (you are the only developer)' : 'Proposed — awaiting a second developer', 'success');
+      $('ap-detail').value = ''; $('ap-reason').value = ''; secLoadApprovals();
+    }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.secLoadApprovals = async function () {
