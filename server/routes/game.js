@@ -50,7 +50,7 @@ function requireGameSecret(req, res, next) {
 // Which tryout programme this callback targets. The game sends division:"CID"
 // (body) or ?division=CID (query); default HPC. HPC and CID never resolve to
 // each other's rows.
-function normDivision(v) { return String(v || '').toUpperCase() === 'CID' ? 'CID' : 'HPC'; }
+function normDivision(v) { const d = String(v || '').toUpperCase(); return (d === 'CID' || d === 'SCO19') ? d : 'HPC'; }
 function reqDivision(req) { return normDivision((req.body && req.body.division) || req.query.division); }
 
 // Resolve which tryout the callback refers to, scoped to its division:

@@ -5,7 +5,15 @@
 const prisma = require('./db');
 
 // Division slug for review links (CID logs review on /cid, HPC on /hpc).
-function divSlug(division) { return String(division || '').toUpperCase() === 'CID' ? 'cid' : 'hpc'; }
+// Normalise a tryout division to one of the known tryout programmes.
+function normTryoutDivision(v) {
+  const d = String(v || '').toUpperCase();
+  return (d === 'CID' || d === 'SCO19') ? d : 'HPC';
+}
+function divSlug(division) {
+  const d = normTryoutDivision(division);
+  return d === 'CID' ? 'cid' : (d === 'SCO19' ? 'sco19' : 'hpc');
+}
 
 // ── Attendee / event normalisation ───────────────────────────────────
 // The game sends loosely-shaped data; normalise it and compute counts so the
@@ -202,7 +210,7 @@ async function createFromGamePayload(payload = {}) {
         concludedAt:    payload.concludedAt ? new Date(payload.concludedAt) : new Date(),
         attendees, events, ...counts,
         status:         'DRAFT',
-        division:       String(payload.division || '').toUpperCase() === 'CID' ? 'CID' : 'HPC',
+        division:       normTryoutDivision(payload.division),
         gamePayload:    payload,
       },
     });

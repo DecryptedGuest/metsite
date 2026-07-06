@@ -46,6 +46,21 @@ function divisionConfig(division) {
       logWebhook:             process.env.CID_TRYOUT_LOG_WEBHOOK || null,
     };
   }
+  if (d === 'SCO19') {
+    const namedPings = [process.env.SCO19_TRYOUT_PING_ROLE_1, process.env.SCO19_TRYOUT_PING_ROLE_2].filter(Boolean);
+    return {
+      division:      'SCO19',
+      channelId:     process.env.SCO19_TRYOUT_CHANNEL_ID || null,
+      pingRoleIds:   namedPings.length ? namedPings : splitIds(process.env.SCO19_TRYOUT_PING_ROLE_IDS),
+      emoji:         process.env.SCO19_EMOJI || ':SCO19:',
+      eventType:     'SCO-19 Tryout',
+      dashboardSlug: 'sco19',
+      panelName:     'SCO-19 Firearms Panel',
+      dmTitle:       'Your SCO-19 Tryout is live',
+      dmColor:       0x8b93a1,
+      logWebhook:    process.env.SCO19_TRYOUT_LOG_WEBHOOK || null,
+    };
+  }
   return {
     division:    'HPC',
     channelId:   process.env.TRYOUT_ANNOUNCE_CHANNEL_ID || null,
@@ -105,8 +120,36 @@ function announcementAllowedMentions(tryout) {
 // different formats; both track the live lock state in a STATUS line so it can
 // be edited in place on :serverlock on/off.
 function formatAnnouncement(tryout, opts = {}) {
-  if (String(tryout && tryout.division).toUpperCase() === 'CID') return formatCidAnnouncement(tryout, opts);
+  const d = String(tryout && tryout.division).toUpperCase();
+  if (d === 'CID')   return formatCidAnnouncement(tryout, opts);
+  if (d === 'SCO19') return formatSco19Announcement(tryout, opts);
   return formatHpcAnnouncement(tryout, opts);
+}
+
+// The SCO-19 (Specialist Firearms) tryout announcement.
+function formatSco19Announcement(tryout, { hostMention, coHostText } = {}) {
+  const cfg    = divisionConfig('SCO19');
+  const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
+  const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
+  const link   = tryout.privateServerLink || 'TBA';
+  const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
+  const e      = cfg.emoji;
+  const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
+  return [
+    `${e} SCO-19 FIREARMS TRYOUT ${e}`,
+    `Host: ${host}`,
+    `Co-Host: ${coHost}`,
+    `Starting: ${fmtDiscordTs(tryout)}`,
+    `Game link: ${link}`,
+    `STATUS: ${status}`,
+    'Information:',
+    '`• SCO-19 is the Metropolitan Police Service\'s Specialist Firearms Command — the elite armed response unit.',
+    '- Candidates are tested on discipline, marksmanship and command response.',
+    '- Tryout lasts approximately 30–50 minutes.`',
+    'Requirements: CON+ RANK',
+    'THIS TRYOUT WILL BE HOSTED IN HENDON POLICE CAMPUS',
+    ...(ping ? [ping] : []),
+  ].join('\n');
 }
 
 // A Discord dynamic timestamp for the tryout start — renders in each viewer's
