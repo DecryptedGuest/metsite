@@ -102,7 +102,7 @@
       </div>
       <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:16px;margin-top:16px;">
         <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Host Leaderboard</div></div><div style="padding:16px;">${t.leaderboard.length ? board : '<div class="table-empty-text">No tryouts yet.</div>'}</div></div>
-        <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot"></span>Portal Activity</div></div><div style="padding:12px 16px;">${actLine}</div></div>
+        <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot"></span>MET Activity</div></div><div style="padding:12px 16px;">${actLine}</div></div>
       </div>`;
   }
 

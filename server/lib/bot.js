@@ -702,10 +702,10 @@ async function dmInstallLink(discordId, url) {
     const user  = await client.users.fetch(String(discordId));
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle('Open the MET Portal on your phone')
-      .setDescription('Tap the button on your phone to open the portal **already signed in**, then add it to your home screen. This link is single-use and expires in 5 minutes.');
+      .setTitle('Open the MET Dashboard on your phone')
+      .setDescription('Tap the button on your phone to open the dashboard **already signed in**, then add it to your home screen. This link is single-use and expires in 5 minutes.');
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open MET Portal').setURL(url),
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open MET Dashboard').setURL(url),
     );
     await user.send({ embeds: [embed], components: [row] });
     return true;

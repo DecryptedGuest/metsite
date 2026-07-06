@@ -267,11 +267,11 @@ async function resolveGameHost(host) {
 // logs make the fix obvious (which Roblox id, whether RoVer is even configured).
 function hostNotFound(res, host) {
   const roverConfigured = !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID);
-  const site = process.env.PUBLIC_BASE_URL || 'the MET portal';
+  const site = process.env.PUBLIC_BASE_URL || 'the MET Dashboard';
   const who  = `Roblox user ${(host && host.robloxId) || '?'}${host && host.username ? ` (${host.username})` : ''}`;
   return res.status(422).json({
     error: roverConfigured
-      ? `No portal account is linked to ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
+      ? `No linked account was found for ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
       : `Cannot resolve ${who}: RoVer isn't configured on the server (set ROVER_API_KEY and DISCORD_GUILD_ID). Until then, the host can only be matched if they've signed in on that Roblox account.`,
     robloxId: host && host.robloxId != null ? String(host.robloxId) : null,
     roverConfigured,

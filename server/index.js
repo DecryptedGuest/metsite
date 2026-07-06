@@ -796,7 +796,7 @@ process.on('uncaughtException', (err) => {
 // api/index.js and the platform provides the HTTP layer — no listener needed.
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`\n🛡  MET Portal running on http://localhost:${PORT}`);
+    console.log(`\n🛡  MET Dashboard running on http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
     console.log(`   DB: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}\n`);

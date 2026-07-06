@@ -1,7 +1,7 @@
 {
-  "name": "MET Portal",
-  "short_name": "MET Portal",
-  "description": "Metropolitan Police Service community portal — tryouts, patrols, support and oversight.",
+  "name": "MET Dashboard",
+  "short_name": "MET Dashboard",
+  "description": "Metropolitan Police Service dashboard — tryouts, patrols, support and oversight.",
   "start_url": "/profile?src=pwa",
   "scope": "/",
   "display": "standalone",

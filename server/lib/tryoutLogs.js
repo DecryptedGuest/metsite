@@ -163,12 +163,12 @@ async function createFromGamePayload(payload = {}) {
   const hostUser = await resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId, hostRobloxName: host.username });
   if (!hostUser) {
     const roverConfigured = !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID);
-    const site = process.env.PUBLIC_BASE_URL || 'the MET portal';
+    const site = process.env.PUBLIC_BASE_URL || 'the MET Dashboard';
     const who  = `Roblox user ${host.robloxId || '?'}${host.username ? ` (${host.username})` : ''}`;
     return {
       ok: false,
       error: roverConfigured
-        ? `No portal account is linked to ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
+        ? `No linked account was found for ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
         : `Cannot resolve ${who}: RoVer isn't configured on the server (set ROVER_API_KEY and DISCORD_GUILD_ID).`,
       roverConfigured,
     };

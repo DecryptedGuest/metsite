@@ -48,7 +48,7 @@
     return `<div style="text-align:left;margin-top:10px;">
       <div class="step"><div class="n">1</div><div>Tap the <strong>Share</strong> button <i class="ti ti-share"></i> at the bottom of Safari.</div></div>
       <div class="step"><div class="n">2</div><div>Choose <strong>Add to Home Screen</strong> <i class="ti ti-square-plus"></i>.</div></div>
-      <div class="step" style="border:none;"><div class="n">3</div><div>Tap <strong>Add</strong> — the MET Portal appears on your home screen.</div></div>
+      <div class="step" style="border:none;"><div class="n">3</div><div>Tap <strong>Add</strong> — the MET Dashboard appears on your home screen.</div></div>
     </div>`;
   }
   function stepsAndroid() {
@@ -70,15 +70,15 @@
     // 1) Already installed → done + notifications.
     if (isStandalone) {
       $('app-sub').textContent = 'You\'re all set.';
-      body().innerHTML = `<div class="muted"><i class="ti ti-circle-check" style="color:var(--green);font-size:34px;"></i><br>The MET Portal is installed and you're signed in.</div>${notifButton()}
-        <a href="/profile" class="btn btn-primary big-btn" style="margin-top:16px;"><i class="ti ti-home"></i> Open portal</a>`;
+      body().innerHTML = `<div class="muted"><i class="ti ti-circle-check" style="color:var(--green);font-size:34px;"></i><br>The MET Dashboard is installed and you're signed in.</div>${notifButton()}
+        <a href="/profile" class="btn btn-primary big-btn" style="margin-top:16px;"><i class="ti ti-home"></i> Open dashboard</a>`;
       wireNotif();
       return;
     }
     // 2) Phone that just handed off the session.
     if (params.get('welcome') === '1') {
       $('app-sub').innerHTML = '<i class="ti ti-circle-check" style="color:var(--green);"></i> Signed in on this device.';
-      body().innerHTML = `<div class="muted">Now add the portal to your home screen so it opens like an app and you stay signed in.</div>
+      body().innerHTML = `<div class="muted">Now add the dashboard to your home screen so it opens like an app and you stay signed in.</div>
         ${isIOS ? stepsIOS() : stepsAndroid()}
         <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;">${notifButton()}</div>`;
       wireNotif(); renderInstallCTA();
@@ -87,13 +87,13 @@
       return;
     }
     // 3) Desktop (or any browser) that's logged in → show the handoff QR.
-    $('app-sub').textContent = 'Get the portal on your phone — already signed in.';
+    $('app-sub').textContent = 'Get the dashboard on your phone — already signed in.';
     body().innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     const link = await loadQR();
     if (!link) { body().innerHTML = `<div class="muted">Couldn't create an install link. <a href="/app" style="color:var(--blue);">Try again</a>.</div>`; return; }
     body().innerHTML = `
       <div class="qr-box"><img src="${link.qr}" alt="Install QR" /></div>
-      <div class="muted">Point your phone camera at this code — it opens the MET Portal <strong>already logged in</strong>. Then add it to your home screen.</div>
+      <div class="muted">Point your phone camera at this code — it opens the MET Dashboard <strong>already logged in</strong>. Then add it to your home screen.</div>
       <div class="muted" style="margin-top:6px;font-size:11px;">Single-use · expires in 5 minutes.</div>
 
       <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;text-align:left;">
