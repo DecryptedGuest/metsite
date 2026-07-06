@@ -556,6 +556,17 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 // onInteraction (customIds prefixed "tryout_").
 // ─────────────────────────────────────────────────────────────────
 
+// The action buttons attached to a host's tryout DM: pick a co-host, and
+// post/update the channel announcement. The announce label reflects whether the
+// announcement has already gone out (the game flow auto-announces first).
+function tryoutHostDmButtons(tryout) {
+  const announced = !!tryout.announcementMsgId;
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel(announced ? 'Update Announcement' : 'Send Announcement').setStyle(ButtonStyle.Success),
+  );
+}
+
 // DM the host their tryout details + action buttons. Returns the DM message id.
 async function sendTryoutHostDM(tryout) {
   if (!ready) { console.warn('[Tryout] bot not ready — cannot DM host'); return null; }
@@ -570,11 +581,7 @@ async function sendTryoutHostDM(tryout) {
         { name: 'Private server link', value: tryout.privateServerLink || 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
         { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
       );
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success),
-    );
-    const msg = await user.send({ embeds: [embed], components: [row] });
+    const msg = await user.send({ embeds: [embed], components: [tryoutHostDmButtons(tryout)] });
     return msg.id;
   } catch (e) {
     console.error('[Tryout] sendTryoutHostDM failed:', e.message);
@@ -693,7 +700,9 @@ async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   if (!ready || !tryout || !tryout.hostDiscordId) return null;
   try {
     const user = await client.users.fetch(tryout.hostDiscordId);
-    const msg  = await user.send({ embeds: [tryoutDmEmbed(tryout, { reviewUrl })] });
+    const components = ['CANCELLED', 'COMPLETED'].includes(String(tryout.status || '').toUpperCase())
+      ? [] : [tryoutHostDmButtons(tryout)];
+    const msg  = await user.send({ embeds: [tryoutDmEmbed(tryout, { reviewUrl })], components });
     return msg.id;
   } catch (e) {
     console.warn('[Tryout] dmTryoutStarted failed:', e.message);
@@ -842,20 +851,33 @@ async function handleTryoutComponent(interaction) {
     const picked   = interaction.users.first();
     const coName   = picked ? (picked.globalName || picked.username) : null;
     await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: picked ? picked.id : null, coHostName: coName } }).catch(() => {});
-    return interaction.update({ content: `✅ Co-host set to **${coName}**. You can now send the announcement.`, components: [] });
+    // Reflect the co-host in the already-posted announcement + the host DM.
+    const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
+    if (fresh) {
+      await editTryoutAnnouncement(fresh).catch(() => {});
+      await editTryoutHostDM(fresh).catch(() => {});
+    }
+    return interaction.update({ content: `✅ Co-host set to **${coName}**.`, components: [] });
   }
 
-  // "Send Announcement" → post to the tryout announcement channel.
+  // "Send/Update Announcement" → post to the division's announcement channel,
+  // or edit the existing post in place if one has already gone out.
   if (id.startsWith('tryout_announce_') && interaction.isButton()) {
     const tryoutId = id.slice('tryout_announce_'.length);
     const t = await prisma.tryout.findUnique({ where: { id: tryoutId } });
     if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
-    const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
-    if (!chId) return interaction.reply({ content: '⚠️ No announcement channel configured — set `TRYOUT_ANNOUNCE_CHANNEL_ID`.', flags: 64 });
-
-    const msgId = await postTryoutAnnouncement(t);
+    if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
+      return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
+    }
+    const { announceChannelId } = require('./tryouts');
+    if (!announceChannelId(t)) {
+      return interaction.reply({ content: '⚠️ No announcement channel configured for this division.', flags: 64 });
+    }
+    let msgId, updated = false;
+    if (t.announcementMsgId) { updated = await editTryoutAnnouncement(t); msgId = t.announcementMsgId; }
+    else msgId = await postTryoutAnnouncement(t);
     return interaction.reply({
-      content: msgId ? '📢 Announcement posted!' : 'Failed to post the announcement.',
+      content: msgId ? (updated ? '📢 Announcement updated!' : '📢 Announcement posted!') : 'Failed to post the announcement.',
       flags: 64,
     });
   }
