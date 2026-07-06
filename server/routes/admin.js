@@ -80,6 +80,8 @@ router.patch('/users/:id/role', async (req, res) => {
         notes:       `Role changed to ${role} by Developer`,
       },
     }).catch(() => {}); // ignore if no case to attach to
+    audit.log(req.user, { category: 'ACCESS', action: 'ROLE_CHANGE', target: { type: 'user', id: req.params.id, name: user.displayName || user.discordUsername },
+      summary: `Site role changed to ${role} for ${user.displayName || user.discordUsername}` });
     res.json({ success: true, role: user.role });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update role' });
@@ -93,10 +95,14 @@ router.post('/users/:id/blacklist', async (req, res) => {
     return res.status(400).json({ error: 'Cannot blacklist yourself' });
   }
   try {
-    await prisma.user.update({
+    const u = await prisma.user.update({
       where: { id: req.params.id },
       data:  { isBlacklisted: true, blacklistReason: reason || 'No reason given' },
     });
+    // Kill their live sessions immediately so the blacklist takes effect now.
+    await prisma.session.updateMany({ where: { userId: req.params.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {});
+    audit.log(req.user, { category: 'ACCESS', action: 'BLACKLIST', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
+      summary: `Blacklisted ${u.displayName || u.discordUsername}${reason ? ` — ${reason}` : ''}` });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to blacklist user' });
@@ -106,10 +112,12 @@ router.post('/users/:id/blacklist', async (req, res) => {
 // ── POST /api/admin/users/:id/unblacklist ────────────────────────
 router.post('/users/:id/unblacklist', async (req, res) => {
   try {
-    await prisma.user.update({
+    const u = await prisma.user.update({
       where: { id: req.params.id },
       data:  { isBlacklisted: false, blacklistReason: null },
     });
+    audit.log(req.user, { category: 'ACCESS', action: 'UNBLACKLIST', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
+      summary: `Lifted blacklist on ${u.displayName || u.discordUsername}` });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to unblacklist user' });
