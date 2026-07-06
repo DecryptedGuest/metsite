@@ -736,6 +736,30 @@ model SupportBlacklist {
   @@map("support_blacklist")
 }
 
+// Immutable action trail — every privileged action across the portal, for the
+// MET HICOMM oversight dashboard. Append-only (never updated/deleted in code).
+model AuditLog {
+  id         String   @id @default(uuid())
+  category   String   // GROUP | SUPPORT | TRYOUT | CASE | TICKET | ACCESS | DEV
+  action     String   // RANK_CHANGE | KICK | BLACKLIST | CLOSE | DELETE | APPROVE …
+  actorId    String?
+  actorName  String?
+  actorRole  String?
+  targetType String?
+  targetId   String?
+  targetName String?
+  division   String?
+  summary    String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([category])
+  @@index([actorId])
+  @@index([targetId])
+  @@map("audit_log")
+}
+
 model SupportMessage {
   id          String   @id @default(uuid())
   ticketId    String

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · High Command</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .cc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
+    .cc-stat{padding:16px 18px;border-radius:14px;border:1px solid var(--border,#2a2a2a);background:var(--panel,rgba(255,255,255,.02));}
+    .cc-stat .v{font-size:30px;font-weight:800;line-height:1;}
+    .cc-stat .l{font-size:11px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;letter-spacing:.05em;}
+    .cc-live{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--green);}
+    .cc-live .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:ccpulse 1.6s infinite;}
+    @keyframes ccpulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+    .tl-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,#2a2a2a);}
+    .tl-dot{width:30px;height:30px;border-radius:8px;flex:0 0 30px;display:flex;align-items:center;justify-content:center;font-size:15px;}
+    .flag-card{border-left:3px solid;padding:10px 14px;border-radius:9px;background:var(--panel,rgba(255,255,255,.02));margin-bottom:8px;}
+  </style>
+</head>
+<body>
+<div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/divisions/met.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division" id="met-division-badge">HIGH COMMAND</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo"><img src="/img/divisions/met.png" alt="MET" /></div>
+        <div class="brand-text"><div class="brand-name">MET · High Command</div><div class="brand-sub">Oversight &amp; Intelligence</div></div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Oversight</div>
+        <button class="nav-item active" data-page="command"><i class="ti ti-layout-dashboard nav-icon"></i><span>Command Center</span></button>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
+        <button class="nav-item" data-page="integrity"><i class="ti ti-shield-check nav-icon"></i><span>Integrity</span><span class="nav-badge pending" id="hc-integrity-badge" style="display:none;"></span></button>
+        <div class="nav-section-label">Intelligence</div>
+        <button class="nav-item" data-page="officer"><i class="ti ti-user-search nav-icon"></i><span>Officer 360°</span></button>
+        <button class="nav-item" data-page="audit"><i class="ti ti-history nav-icon"></i><span>Audit Trail</span></button>
+      </nav>
+    </div>
+    <div class="sidebar-foot" style="padding:12px 16px;font-size:11px;color:var(--text-muted);">
+      <span id="hc-rank"></span>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <!-- COMMAND CENTER -->
+    <section class="page active" id="page-command">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Command Center</h1><p class="page-sub">Live portal operations · <span class="cc-live"><span class="dot"></span>live</span></p></div>
+        <button class="btn btn-ghost btn-sm" onclick="hcLoadOverview()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+      <div class="cc-grid fade-up stagger-1" id="hc-counters"></div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-top:16px;" id="hc-cc-cols">
+        <div class="panel glass fade-up stagger-2">
+          <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Live Tryouts</div></div>
+          <div id="hc-live" style="padding:8px 4px;"><div class="table-loading"><div class="spinner"></div></div></div>
+        </div>
+        <div class="panel glass fade-up stagger-3">
+          <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Recent Activity</div></div>
+          <div id="hc-audit-feed" style="padding:4px 14px;max-height:420px;overflow:auto;"><div class="table-loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ANALYTICS -->
+    <section class="page" id="page-analytics">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Analytics</h1><p class="page-sub">Recruitment, performance &amp; activity intelligence</p></div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="hc-an-div" style="width:auto;" onchange="hcLoadAnalytics()">
+            <option value="">All divisions</option><option value="HPC">HPC</option><option value="CID">CID</option><option value="SCO19">SCO-19</option><option value="FLP">FLP</option>
+          </select>
+          <select class="form-control" id="hc-an-days" style="width:auto;" onchange="hcLoadAnalytics()">
+            <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option>
+          </select>
+        </div>
+      </div>
+      <div id="hc-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- INTEGRITY -->
+    <section class="page" id="page-integrity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Integrity Monitor</h1><p class="page-sub">Automated anomaly detection over recent tryout logs</p></div>
+        <select class="form-control" id="hc-int-div" style="width:auto;" onchange="hcLoadIntegrity()">
+          <option value="">All divisions</option><option value="HPC">HPC</option><option value="CID">CID</option><option value="SCO19">SCO-19</option><option value="FLP">FLP</option>
+        </select>
+      </div>
+      <div class="panel glass fade-up stagger-1"><div id="hc-integrity" style="padding:16px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <!-- OFFICER 360 -->
+    <section class="page" id="page-officer">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Officer 360°</h1><p class="page-sub">Every action, tryout, patrol, case and punishment for one person</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:16px;">
+        <div style="padding:14px;display:flex;gap:8px;">
+          <input type="text" class="form-control" id="hc-off-search" placeholder="Search an officer by Discord / Roblox name…" oninput="hcOfficerSearch()" style="flex:1;" />
+        </div>
+        <div id="hc-off-results" style="padding:0 14px 12px;"></div>
+      </div>
+      <div id="hc-off-detail"></div>
+    </section>
+
+    <!-- AUDIT TRAIL -->
+    <section class="page" id="page-audit">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Audit Trail</h1><p class="page-sub">Immutable record of every privileged action</p></div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="hc-audit-cat" style="width:auto;" onchange="hcLoadAudit()">
+            <option value="">All categories</option><option value="GROUP">Group</option><option value="TRYOUT">Tryout</option><option value="TICKET">Ticket</option><option value="SUPPORT">Support</option><option value="CASE">Case</option><option value="DEV">Dev</option>
+          </select>
+          <input type="text" class="form-control" id="hc-audit-q" placeholder="Search…" oninput="hcAuditDebounced()" style="width:200px;" />
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>When</th><th>Category</th><th>Action</th><th>Actor</th><th>Summary</th></tr></thead>
+          <tbody id="hc-audit-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/met-topbar.js"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/hicomm-dashboard.js"></script>
+<script>initMetTopbar('HIGH COMMAND');</script>
+</body>
+</html>

@@ -161,10 +161,24 @@ function requireCidLead(req, res, next) {
   }).catch(() => res.status(403).json({ error: 'CID Director\'s Office access required.' }));
 }
 
+// ── MET HICOMM — portal-wide oversight tier (Deputy Commissioner+ in the MET
+// umbrella group, or DEVELOPER). Resolved from the MET group rank (cached), so
+// it's async like the CID gate. ──
+function requireMetHicomm(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  const { userIsMetHicomm } = require('../lib/metRank');
+  userIsMetHicomm(req.user).then(ok => {
+    if (ok) return next();
+    if (req.originalUrl.startsWith('/api')) return res.status(403).json({ error: 'MET HICOMM access required' });
+    return res.redirect('/hicomm/denied');
+  }).catch(() => res.status(403).json({ error: 'MET HICOMM access required' }));
+}
+
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
   userNeedsFinalExam, userHpcTier, requireHpcMarker, requireHpcQuota,
   userFlpGroupAdmin, requireFlpGroupAdmin,
   userHasCidTryout, userIsCidLead, requireCidTryout, requireCidLead,
+  requireMetHicomm,
 };

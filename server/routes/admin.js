@@ -359,10 +359,14 @@ router.get('/group/pending', async (req, res) => {
   }
 });
 
+const audit = require('../lib/audit');
+
 // ── POST /api/admin/group/pending/:userId/approve ─────────────────
 router.post('/group/pending/:userId/approve', async (req, res) => {
   try {
     await resolveJoinRequest(req.params.userId, 'approve', panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'JOIN_APPROVE', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Approved join request for Roblox user ${req.params.userId} (${req.query.division || 'MET'})` });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to approve join request' });
@@ -373,6 +377,8 @@ router.post('/group/pending/:userId/approve', async (req, res) => {
 router.post('/group/pending/:userId/decline', async (req, res) => {
   try {
     await resolveJoinRequest(req.params.userId, 'decline', panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'JOIN_DECLINE', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Declined join request for Roblox user ${req.params.userId} (${req.query.division || 'MET'})` });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to decline join request' });
@@ -385,6 +391,9 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
   if (!roleId) return res.status(400).json({ error: 'roleId is required' });
   try {
     await changeGroupRank(req.params.userId, roleId, panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'RANK_CHANGE', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Changed rank of Roblox user ${req.params.userId} → role ${roleId} (${req.query.division || 'MET'})`,
+      meta: { roleId } });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to change rank' });
@@ -395,6 +404,8 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
 router.delete('/group/members/:userId', async (req, res) => {
   try {
     await exileFromGroup(req.params.userId, panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'KICK', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Kicked Roblox user ${req.params.userId} from ${req.query.division || 'MET'} group` });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to kick member' });

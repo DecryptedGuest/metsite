@@ -5,6 +5,7 @@
 // that lingers on the site.
 const express = require('express');
 const prisma  = require('../lib/db');
+const audit   = require('../lib/audit');
 
 const router = express.Router();
 
@@ -28,6 +29,8 @@ router.delete('/tryouts/:id', async (req, res) => {
     // TryoutCommand rows reference the tryout by id (no FK cascade) — clear them.
     await prisma.tryoutCommand.deleteMany({ where: { tryoutId: t.id } }).catch(() => {});
     await prisma.tryout.delete({ where: { id: t.id } });
+    audit.log(req.user, { category: 'DEV', action: 'DELETE', division: t.division,
+      target: { type: 'tryout', id: t.id, name: t.hostName }, summary: `Deleted ${t.division} tryout hosted by ${t.hostName}` });
     res.json({ ok: true });
   } catch (e) {
     if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
@@ -40,6 +43,7 @@ router.delete('/tryouts/:id', async (req, res) => {
 router.delete('/tryout-logs/:id', async (req, res) => {
   try {
     await prisma.tryoutLog.delete({ where: { id: req.params.id } });
+    audit.log(req.user, { category: 'DEV', action: 'DELETE', target: { type: 'tryout_log', id: req.params.id }, summary: `Deleted tryout log ${req.params.id}` });
     res.json({ ok: true });
   } catch (e) {
     if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });
@@ -52,6 +56,7 @@ router.delete('/tryout-logs/:id', async (req, res) => {
 router.delete('/patrol-logs/:id', async (req, res) => {
   try {
     await prisma.patrolLog.delete({ where: { id: req.params.id } });
+    audit.log(req.user, { category: 'DEV', action: 'DELETE', target: { type: 'patrol_log', id: req.params.id }, summary: `Deleted patrol/event log ${req.params.id}` });
     res.json({ ok: true });
   } catch (e) {
     if (e.code === 'P2025') return res.status(404).json({ error: 'Not found' });

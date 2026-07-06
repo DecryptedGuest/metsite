@@ -123,8 +123,23 @@ router.patch('/group/members/:userId/rank', requireFlpGroupAdmin, async (req, re
 });
 
 router.delete('/group/members/:userId', requireFlpGroupAdmin, async (req, res) => {
-  try { await exileFromGroup(req.params.userId, flpGroupId()); res.json({ success: true }); }
+  try {
+    await exileFromGroup(req.params.userId, flpGroupId());
+    require('../lib/audit').log(req.user, { category: 'GROUP', action: 'KICK', division: 'FLP',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Kicked Roblox user ${req.params.userId} from FLP group` });
+    res.json({ success: true });
+  }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/flp/analytics?days= — FLP patrol/event activity for the dashboard. ──
+router.get('/analytics', async (req, res) => {
+  try {
+    const analytics = require('../lib/analytics');
+    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const activity = await analytics.activityAnalytics(days);
+    res.json({ division: 'FLP', days, activity });
+  } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
 });
 
 module.exports = router;

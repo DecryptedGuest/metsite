@@ -450,4 +450,17 @@ router.post('/tryout-logs/:id/deny', requireTryoutApprover, async (req, res) => 
   }
 });
 
+// ── GET /api/hpc/analytics?days= — HPC tryout analytics for the dashboard. ──
+router.get('/analytics', async (req, res) => {
+  try {
+    const analytics = require('../lib/analytics');
+    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const [tryouts, funnel] = await Promise.all([
+      analytics.tryoutAnalytics('HPC', days),
+      analytics.recruitmentFunnel('HPC', days),
+    ]);
+    res.json({ division: 'HPC', days, tryouts, funnel });
+  } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
+});
+
 module.exports = router;

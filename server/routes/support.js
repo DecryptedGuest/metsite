@@ -490,6 +490,7 @@ router.post('/tickets/:id/close', async (req, res) => {
     support.publish(t.id, 'update', { status: 'CLOSED' });
     // Auto-file an IA ticket log for HICOMM review (fire-and-forget).
     createIaTicketLog(updated, req.user).catch(() => {});
+    require('../lib/audit').log(req.user, { category: 'TICKET', action: 'CLOSE', target: { type: 'support_ticket', id: t.id, name: t.type }, summary: `Closed ${t.type} ticket${reason ? ` — ${reason}` : ''}` });
     res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
   } catch (e) { res.status(500).json({ error: 'Failed to close' }); }
 });
@@ -617,6 +618,7 @@ router.post('/tickets/:id/blacklist', async (req, res) => {
     const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'INTERNAL', authorId: req.user.id, authorName: name, body: `${t.openerName} was ticket-blacklisted by ${name}${req.body && req.body.reason ? `: ${String(req.body.reason).slice(0, 500)}` : ''}. They can no longer open support tickets from this IP/browser.` } });
     support.publish(t.id, 'message', serializeMessage(t.id, bm), { staffOnly: true });
     support.publish(t.id, 'update', { openerBlacklisted: true });
+    require('../lib/audit').log(req.user, { category: 'SUPPORT', action: 'BLACKLIST', target: { type: 'support_guest', id: t.id, name: t.openerName }, summary: `Ticket-blacklisted guest ${t.openerName}` });
     res.json({ ok: true, blacklisted: true });
   } catch (e) {
     console.error('[Support] blacklist failed:', e.message);

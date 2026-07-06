@@ -22,7 +22,7 @@ const hpcRoutes   = require('./routes/hpc');
 const examRoutes  = require('./routes/exam');
 const tryoutRoutes = require('./routes/tryouts');
 const { requireAuth } = require('./middleware/auth');
-const { requireDivision, requireCidTryout } = require('./middleware/division');
+const { requireDivision, requireCidTryout, requireMetHicomm } = require('./middleware/division');
 const { maybeAuth } = require('./middleware/auth');
 const { recordVisit } = require('./middleware/visit');
 const { startBot, startRoleExpiryChecker } = require('./lib/bot');
@@ -168,6 +168,8 @@ app.use('/api/support', maybeAuth, require('./routes/support'));
 // Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
 // inside the router.
 app.use('/api/dev', requireAuth, require('./routes/dev'));
+// MET HICOMM oversight — Command Center, analytics, audit trail, officer 360°.
+app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
 app.use('/api/game', require('./routes/game'));
 
@@ -468,6 +470,15 @@ async function computeMyDivisions(user) {
     const { userHpcTier } = require('./middleware/division');
     mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
   }
+  // MET HICOMM — the portal-wide oversight tier (Deputy Commissioner+ in the MET
+  // group, or DEVELOPER). Shown as its own division card + switcher entry.
+  try {
+    const { userIsMetHicomm } = require('./lib/metRank');
+    if (await userIsMetHicomm(user) && !mine.some(d => d.division === 'METHICOMM')) {
+      mine.push({ division: 'METHICOMM', tier: 'LEAD', rankName: 'High Command',
+        name: 'MET HICOMM', slug: 'hicomm', fullName: 'MET High Command', color: '#f5c518', icon: '/img/divisions/met.png' });
+    }
+  } catch (e) { /* metRank/Roblox unavailable → no HICOMM card */ }
   // Group icons (best-effort; empty when Roblox is unreachable / ids unset).
   let cfg = {};
   try { cfg = await getDivisionConfig(); } catch (e) { cfg = {}; }
@@ -482,7 +493,7 @@ async function computeMyDivisions(user) {
       // Map the member's rank (or coarse access tier) → LOW / MIDDLE / HIGH per
       // the division rank structure, for the profile "Divisions & rank" badge.
       const rankTier = displayTier(d.division, d.rankName, d.tier);
-      return { ...d, ...m, icon: icon(d.division) || m.icon || null, rankTier, rankTierLabel: tierLabel(rankTier) };
+      return { ...d, ...m, icon: icon(d.division) || m.icon || d.icon || null, rankTier, rankTierLabel: tierLabel(rankTier) };
     }),
   };
 }
@@ -711,6 +722,12 @@ app.get('/cid/dashboard', recordVisit, requireAuth, requireCidTryout,
 mountDivisionPages('sco19', 'SCO19');
 mountDivisionPages('flp',   'FLP');
 mountDivisionPages('hpc',   'HPC');
+
+// ── MET HICOMM — portal-wide oversight dashboard (Deputy Commissioner+). ──
+app.get('/hicomm',           recordVisit, (req, res) => res.redirect('/hicomm/dashboard'));
+app.get('/hicomm/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
+  (req, res) => sendPage(res, path.join(views, 'hicomm-dashboard.html')));
 
 // ── Developer division — the developer tools, moved out of the IA section into
 // their own division. Developers only. Reuses the IA dashboard view, which
