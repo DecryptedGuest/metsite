@@ -929,7 +929,7 @@ app.get('/dev',        recordVisit, (req, res) => res.redirect('/dev/dashboard')
 app.get('/dev/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
 app.get('/dev/dashboard', recordVisit, requireAuth, (req, res) => {
   if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
-  return sendPage(res, path.join(views, 'dashboard.html'));
+  return sendPage(res, path.join(views, 'dev-dashboard.html'));
 });
 // Dev Security Center — its own page, DEV-branded, decoupled from IA.
 app.get('/dev/security', recordVisit, requireAuth, (req, res) => {
