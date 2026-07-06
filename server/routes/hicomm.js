@@ -12,9 +12,13 @@ const router = express.Router();
 
 // ── GET /api/hicomm/context — capabilities for the UI ──
 router.get('/context', async (req, res) => {
-  let metRank = null;
-  try { const r = await require('../lib/metRank').metRole(req.user.robloxId); if (r) metRank = { name: r.name, rank: r.rank }; } catch (e) {}
-  res.json({ isDev: req.user.role === 'DEVELOPER', metRank, name: req.user.displayName || req.user.discordUsername });
+  let metRank = null, minRank = null;
+  try {
+    const m = require('../lib/metRank');
+    const r = await m.metRole(req.user.robloxId); if (r) metRank = { name: r.name, rank: r.rank };
+    minRank = await m.hicommMinRank();
+  } catch (e) {}
+  res.json({ isDev: req.user.role === 'DEVELOPER', metRank, minRank, name: req.user.displayName || req.user.discordUsername });
 });
 
 // ── GET /api/hicomm/overview — live Command Center snapshot ──

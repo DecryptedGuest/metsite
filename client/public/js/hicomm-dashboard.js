@@ -191,7 +191,13 @@
   // ── Init ──
   async function init() {
     wireNav();
-    try { const c = await api('/api/hicomm/context'); if (c.metRank) $('hc-rank').textContent = `${c.metRank.name}`; } catch (e) {}
+    try {
+      const c = await api('/api/hicomm/context');
+      const parts = [];
+      if (c.metRank) parts.push(`${c.metRank.name} (rank ${c.metRank.rank})`);
+      if (c.minRank != null) parts.push(`HICOMM ≥ ${c.minRank}`);
+      $('hc-rank').textContent = parts.join(' · ');
+    } catch (e) {}
     hcLoadIntegrity();  // warm the badge
     startCC();
   }
