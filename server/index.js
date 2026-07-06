@@ -211,9 +211,15 @@ app.use('/auth',        authRoutes);
 // IA — unchanged route logic, gated to users with IA division access.
 const ia = requireDivision('IA');
 app.use('/api/cases',   requireAuth, ia, caseRoutes);
+const { requireStepUp } = require('./middleware/stepup');
 app.use('/api/admin',   requireAuth, ia,
   (req, res, next) => (/^\/discord\//.test(req.path) && req.method !== 'GET') ? moderationLimiter(req, res, next) : next(),
+  // Passkey step-up on Discord moderation — no-op for users without passkeys.
+  (req, res, next) => (/^\/discord\//.test(req.path) && req.method !== 'GET') ? requireStepUp(req, res, next) : next(),
   adminRoutes);
+
+// Passkeys / WebAuthn 2FA — available to any signed-in user.
+app.use('/api/webauthn', requireAuth, require('./routes/webauthn'));
 app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);

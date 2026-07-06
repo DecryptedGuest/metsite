@@ -69,6 +69,8 @@ async function loadProfile() {
   loadTryouts();
   // ── Active sign-ins / devices ──
   loadSessions();
+  // ── Passkeys / 2FA ──
+  loadPasskeys();
 
   // ── Divisions & rank ──
   const divEl = document.getElementById('p-divisions');
@@ -243,6 +245,72 @@ async function revokeOtherSessions() {
     showToast(`Signed out ${r.count} other session${r.count === 1 ? '' : 's'}.`, 'success');
     loadSessions();
   } catch (e) { showToast(e.message || 'Could not sign out other sessions.', 'error'); }
+}
+
+// ── Passkeys / 2FA ───────────────────────────────────────────────
+async function loadPasskeys() {
+  const panel = document.getElementById('p-passkeys-panel');
+  const el = document.getElementById('p-passkeys');
+  if (!el) return;
+  // Hide the whole panel on browsers with no WebAuthn support.
+  if (!(window.MetPasskeys && window.MetPasskeys.supported())) {
+    if (panel) panel.style.display = 'none';
+    return;
+  }
+  let data;
+  try { data = await api('/api/webauthn/passkeys'); } catch (e) { el.innerHTML = '<div class="table-empty-text">Could not load passkeys.</div>'; return; }
+  const list = data.passkeys || [];
+  if (!list.length) {
+    el.innerHTML = '<div class="table-empty-text">No passkeys yet. Add one to enable step-up verification.</div>';
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
+      <i class="ti ti-fingerprint" style="font-size:20px;color:var(--text-muted);"></i>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">${escHtml(p.name || 'Passkey')}${p.backedUp ? ' <span class="badge badge-approved" style="margin-left:6px;"><span class="badge-dot"></span>Synced</span>' : ''}</div>
+        <div style="font-size:11px;color:var(--text-muted);">Added ${formatDate(p.createdAt)}${p.lastUsedAt ? '  ·  Last used ' + formatDate(p.lastUsedAt) : ''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="deletePasskey('${p.id}')"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+
+async function addPasskey() {
+  const btn = document.getElementById('p-passkey-add');
+  const name = prompt('Name this passkey (e.g. "MacBook Touch ID"):', 'My passkey');
+  if (name === null) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Waiting…'; }
+  try {
+    await window.MetPasskeys.registerPasskey(name.trim() || 'Passkey');
+    showToast('Passkey added.', 'success');
+    loadPasskeys();
+  } catch (e) {
+    showToast(e.message || 'Could not add passkey.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-fingerprint"></i> Add passkey'; }
+  }
+}
+
+async function deletePasskey(id) {
+  if (!confirm('Remove this passkey? You won’t be able to use it for verification anymore.')) return;
+  try {
+    await api('/api/webauthn/passkeys/' + encodeURIComponent(id), { method: 'DELETE' });
+    showToast('Passkey removed.', 'success');
+    loadPasskeys();
+  } catch (e) { showToast(e.message || 'Could not remove passkey.', 'error'); }
+}
+
+// Run a passkey step-up if the last action returned STEP_UP_REQUIRED. Returns
+// true if verification succeeded. Callers retry the action afterwards.
+async function ensureStepUp() {
+  if (!(window.MetPasskeys && window.MetPasskeys.supported())) return false;
+  try {
+    await window.MetPasskeys.stepUp();
+    return true;
+  } catch (e) {
+    showToast(e.message || 'Passkey verification failed.', 'error');
+    return false;
+  }
 }
 
 function punishmentColor(type) {

@@ -194,6 +194,20 @@ async function api(path, options = {}) {
     ...options,
   });
 
+  // Passkey step-up: the action needs a fresh passkey verification. Run the
+  // ceremony, then retry the original request once — transparent to callers.
+  if (res.status === 401 && !options.__steppedUp && window.MetPasskeys && window.MetPasskeys.supported()) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body.code === 'STEP_UP_REQUIRED') {
+      try {
+        await window.MetPasskeys.stepUp();
+        return api(path, { ...options, __steppedUp: true });
+      } catch (e) {
+        throw new Error(e.message || 'Passkey verification is required for this action.');
+      }
+    }
+  }
+
   // A lost/expired session (401) sends the user back to login. A 403 is a
   // PERMISSION response, not a lost session — only a blacklist 403 should bounce
   // them out. Any other 403 (viewing or acting on a resource they can't, e.g. a

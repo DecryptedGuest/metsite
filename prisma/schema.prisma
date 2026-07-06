@@ -32,6 +32,10 @@ model User {
   createdAt       DateTime @default(now())
   lastLogin       DateTime @default(now())
 
+  // In-flight WebAuthn challenge (registration or step-up authentication). Held
+  // between the two ceremony round-trips; cleared once consumed.
+  webauthnChallenge String?
+
   // Cached result of resolving this user's Discord roles against the
   // per-division role env vars, e.g. [{"division":"CID","rank":"LEAD"}].
   // Refreshed at login and by the same background revalidator that
@@ -46,6 +50,7 @@ model User {
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
   sessions           Session[]
+  passkeys           Passkey[]
 
   cases              Case[]
   caseActions        CaseAction[]
@@ -577,11 +582,34 @@ model Session {
   lastSeenAt DateTime  @default(now())
   expiresAt  DateTime
   revokedAt  DateTime?
+  stepUpAt   DateTime? // last successful passkey step-up on this session
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("sessions")
+}
+
+// WebAuthn passkey / security key registered by a user, for passwordless
+// step-up ("2FA"). Stores the credential id + public key + signature counter
+// per the WebAuthn spec so authentication assertions can be verified.
+model Passkey {
+  id           String    @id @default(uuid())
+  userId       String
+  credentialId String    @unique   // base64url credential ID
+  publicKey    Bytes                // COSE public key
+  counter      BigInt    @default(0)
+  transports   String?              // JSON array e.g. ["internal","hybrid"]
+  deviceType   String?              // singleDevice | multiDevice
+  backedUp     Boolean   @default(false)
+  name         String?              // user-facing label ("MacBook Touch ID")
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkeys")
 }
 
 // Immutable audit trail of security-sensitive actions across the whole portal
