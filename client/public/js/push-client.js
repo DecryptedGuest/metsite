@@ -6,6 +6,11 @@
     return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
   }
 
+  // CSRF token (double-submit cookie) for state-changing requests.
+  function csrf() {
+    return (document.cookie.match(/csrf_token=([^;]+)/) || [])[1] || '';
+  }
+
   function urlBase64ToUint8Array(base64String) {
     var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     var base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -37,7 +42,7 @@
     }
     await fetch('/api/push/subscribe', {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
       body:    JSON.stringify(sub.toJSON()),
     });
   }
@@ -69,7 +74,7 @@
       if (sub) {
         await fetch('/api/push/unsubscribe', {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
           body:    JSON.stringify({ endpoint: sub.endpoint }),
         });
         await sub.unsubscribe();
@@ -93,7 +98,7 @@
         var sub = await reg.pushManager.getSubscription();
         if (sub) {
           await fetch('/api/push/subscribe', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
             body: JSON.stringify(sub.toJSON()),
           });
         }

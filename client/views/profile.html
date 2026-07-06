@@ -101,6 +101,17 @@
       </table>
     </div>
   </div>
+
+  <!-- Active sign-ins / device management -->
+  <div class="panel glass fade-up stagger-3" id="p-sessions-panel">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot blue"></span>Active Sessions</div>
+      <button id="p-sessions-signout-others" class="btn btn-ghost btn-sm" style="display:none;" onclick="revokeOtherSessions()">
+        <i class="ti ti-logout-2"></i> Sign out everywhere else
+      </button>
+    </div>
+    <div class="profile-section" id="p-sessions"><div class="table-loading"><div class="spinner"></div></div></div>
+  </div>
 </div>
 
 <div id="toast-container"></div>

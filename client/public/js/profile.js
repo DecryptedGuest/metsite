@@ -67,6 +67,8 @@ async function loadProfile() {
   loadExamStatus();
   // ── Upcoming / live tryouts (British citizens) ──
   loadTryouts();
+  // ── Active sign-ins / devices ──
+  loadSessions();
 
   // ── Divisions & rank ──
   const divEl = document.getElementById('p-divisions');
@@ -193,6 +195,54 @@ async function loadTryouts() {
     </div>`).join('');
 
   el.innerHTML = (liveHtml + upHtml) || '<div class="table-empty-text">No tryouts right now.</div>';
+}
+
+// ── Active sessions / device management ──────────────────────────
+async function loadSessions() {
+  let data;
+  try { data = await api('/api/me/sessions'); } catch (e) { return; }
+  const el = document.getElementById('p-sessions');
+  const sessions = data.sessions || [];
+  if (!sessions.length) {
+    el.innerHTML = '<div class="table-empty-text">No active sessions.</div>';
+    return;
+  }
+  document.getElementById('p-sessions-signout-others').style.display =
+    sessions.filter(s => !s.current).length ? '' : 'none';
+
+  el.innerHTML = sessions.map(s => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
+      <i class="ti ti-device-desktop" style="font-size:20px;color:var(--text-muted);"></i>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">
+          ${escHtml(s.device)}
+          ${s.current ? '<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>This device</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);">
+          ${s.ip ? escHtml(s.ip) + '  ·  ' : ''}Last active ${formatDateTime(s.lastSeenAt)}
+        </div>
+      </div>
+      ${s.current
+        ? ''
+        : `<button class="btn btn-ghost btn-sm" onclick="revokeSession('${s.id}')"><i class="ti ti-x"></i> Sign out</button>`}
+    </div>`).join('');
+}
+
+async function revokeSession(id) {
+  try {
+    const r = await api('/api/me/sessions/' + encodeURIComponent(id) + '/revoke', { method: 'POST' });
+    if (r && r.wasCurrent) { window.location.href = '/login'; return; }
+    showToast('Session signed out.', 'success');
+    loadSessions();
+  } catch (e) { showToast(e.message || 'Could not sign out that session.', 'error'); }
+}
+
+async function revokeOtherSessions() {
+  try {
+    const r = await api('/api/me/sessions/revoke-others', { method: 'POST' });
+    showToast(`Signed out ${r.count} other session${r.count === 1 ? '' : 's'}.`, 'success');
+    loadSessions();
+  } catch (e) { showToast(e.message || 'Could not sign out other sessions.', 'error'); }
 }
 
 function punishmentColor(type) {

@@ -45,6 +45,7 @@ model User {
 
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
+  sessions           Session[]
 
   cases              Case[]
   caseActions        CaseAction[]
@@ -561,4 +562,44 @@ model Tryout {
   @@index([scheduledAt])
   @@index([status])
   @@map("tryouts")
+}
+
+// Server-side login sessions — one per sign-in. The JWT carries this row's id
+// (jti); requireAuth checks it exists and isn't revoked, giving instant
+// revocation ("sign out everywhere") and an Active Sessions panel.
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  ip         String?
+  userAgent  String?
+  device     String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Immutable audit trail of security-sensitive actions across the whole portal
+// (exam marking, tryouts, access/role changes, session revocations, etc.).
+model AuditLog {
+  id            String   @id @default(uuid())
+  action        String   // e.g. EXAM_MARK | TRYOUT_SCHEDULE | SESSION_REVOKE | ACCESS_GRANT
+  category      String   // e.g. exam | tryout | auth | admin | moderation
+  actorId       String?  // User.id who performed it
+  actorName     String?
+  targetType    String?  // e.g. user | exam | tryout
+  targetId      String?
+  summary       String?
+  metadata      Json?
+  ip            String?
+  createdAt     DateTime @default(now())
+
+  @@index([category])
+  @@index([createdAt])
+  @@map("audit_log")
 }

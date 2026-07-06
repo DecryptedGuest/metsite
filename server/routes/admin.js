@@ -392,6 +392,13 @@ async function logModeration(req, { action, targetDiscordId, targetUsername, rea
       },
     });
   } catch (e) { console.error('[Moderation] audit log write failed:', e.message); }
+  // Mirror into the unified portal audit trail (best-effort).
+  try {
+    require('../lib/audit').record({
+      req, action: `MOD_${action}`, category: 'moderation', targetType: 'discord_user', targetId: targetDiscordId,
+      summary: `${action} ${targetUsername || targetDiscordId}${reason ? ` — ${reason}` : ''}${durationMinutes ? ` (${durationMinutes}m)` : ''}`,
+    });
+  } catch (e) { /* non-fatal */ }
 }
 
 function isValidDiscordId(id) { return /^\d{15,25}$/.test(String(id || '').trim()); }
@@ -493,6 +500,25 @@ router.delete('/discord/timeout/:discordId', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to remove timeout' });
+  }
+});
+
+// ── GET /api/admin/audit ─────────────────────────────────────────
+// Unified security audit trail (logins, session revocations, exam marking,
+// tryouts, moderation, access changes). Newest first, optional ?category= and
+// ?limit= filters. Developer-only (whole router is requireDeveloper).
+router.get('/audit', async (req, res) => {
+  try {
+    const category = req.query.category ? String(req.query.category) : undefined;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+    const rows = await prisma.auditLog.findMany({
+      where: category ? { category } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    res.json({ entries: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load audit log' });
   }
 });
 

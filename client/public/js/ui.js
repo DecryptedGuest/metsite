@@ -181,9 +181,16 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── API Helper ───────────────────────────────────────────────────
+// Read the CSRF token the server set as a readable cookie, so it can be echoed
+// back on every state-changing request (double-submit-cookie protection).
+function getCsrfToken() {
+  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken(), ...options.headers },
     ...options,
   });
 

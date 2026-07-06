@@ -86,6 +86,13 @@ router.post('/submit', async (req, res) => {
         status:          'PENDING',
       },
     });
+    try {
+      require('../lib/audit').record({
+        req, action: 'EXAM_SUBMIT', category: 'exam', targetType: 'submission', targetId: sub.id,
+        summary: `Submitted the HPC final exam${flags && flags.length ? ` (${flags.length} integrity flag(s))` : ''}`,
+        metadata: { flags },
+      });
+    } catch (e) { /* non-fatal */ }
     res.status(201).json({ success: true, id: sub.id });
   } catch (err) {
     console.error('[Exam] submit failed:', err.message);
