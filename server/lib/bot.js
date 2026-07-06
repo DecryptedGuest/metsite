@@ -694,6 +694,27 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
     );
 }
 
+// DM a user their one-time "open on your phone" install link (with a tap button).
+// Returns true if delivered. Best-effort.
+async function dmInstallLink(discordId, url) {
+  if (!ready || !discordId || !url) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle('Open the MET Portal on your phone')
+      .setDescription('Tap the button on your phone to open the portal **already signed in**, then add it to your home screen. This link is single-use and expires in 5 minutes.');
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open MET Portal').setURL(url),
+    );
+    await user.send({ embeds: [embed], components: [row] });
+    return true;
+  } catch (e) {
+    console.warn('[App] dmInstallLink failed:', e.message);
+    return false;
+  }
+}
+
 // DM the host that their tryout was created + announced. Returns the DM message
 // id (so it can be edited in real time when the lock state changes), or null.
 async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
@@ -1047,7 +1068,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
-  postTryoutSummary, dmTryoutLogReady,
+  postTryoutSummary, dmTryoutLogReady, dmInstallLink,
   reactToMessage,
   isReady: () => ready,
 };

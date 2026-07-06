@@ -87,18 +87,36 @@
       return;
     }
     // 3) Desktop (or any browser) that's logged in → show the handoff QR.
-    $('app-sub').textContent = 'Scan to install on your phone — already signed in.';
+    $('app-sub').textContent = 'Get the portal on your phone — already signed in.';
     body().innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     const link = await loadQR();
     if (!link) { body().innerHTML = `<div class="muted">Couldn't create an install link. <a href="/app" style="color:var(--blue);">Try again</a>.</div>`; return; }
     body().innerHTML = `
       <div class="qr-box"><img src="${link.qr}" alt="Install QR" /></div>
-      <div class="muted">Open your phone camera and point it at this code. It opens the MET Portal <strong>already logged in</strong> — then add it to your home screen.</div>
-      <div class="muted" style="margin-top:6px;font-size:11px;">This code is single-use and expires in 5 minutes.</div>
-      <button class="btn btn-ghost btn-sm" id="qr-refresh" style="margin-top:10px;"><i class="ti ti-refresh"></i> New code</button>
+      <div class="muted">Point your phone camera at this code — it opens the MET Portal <strong>already logged in</strong>. Then add it to your home screen.</div>
+      <div class="muted" style="margin-top:6px;font-size:11px;">Single-use · expires in 5 minutes.</div>
+
+      <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;text-align:left;">
+        <div class="muted" style="text-align:center;margin-bottom:10px;">No camera? Get the same link another way:</div>
+        <button class="btn btn-primary big-btn" id="dm-btn"><i class="ti ti-brand-discord"></i> Send the link to my Discord</button>
+        <button class="btn btn-ghost big-btn" id="copy-btn"><i class="ti ti-copy"></i> Copy link</button>
+        <div class="muted" style="margin-top:8px;font-size:11px;text-align:center;">Open the copied link on your phone's browser to sign in there.</div>
+        <button class="btn btn-ghost btn-sm" id="qr-refresh" style="margin-top:10px;display:block;margin-left:auto;margin-right:auto;"><i class="ti ti-refresh"></i> New link</button>
+      </div>
       <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;">${notifButton()}</div>`;
     wireNotif();
     const rb = $('qr-refresh'); if (rb) rb.addEventListener('click', render);
+    const cb = $('copy-btn');
+    if (cb) cb.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(link.url); showToast('Link copied — open it on your phone', 'success'); }
+      catch (e) { window.prompt('Copy this link and open it on your phone:', link.url); }
+    });
+    const db = $('dm-btn');
+    if (db) db.addEventListener('click', async () => {
+      db.disabled = true; db.innerHTML = '<i class="ti ti-loader"></i> Sending…';
+      try { await api('/api/app/link/dm', { method: 'POST' }); showToast('Sent! Check your Discord DMs and tap the link on your phone.', 'success'); db.innerHTML = '<i class="ti ti-check"></i> Sent to Discord'; }
+      catch (e) { showToast(e.message, 'error'); db.disabled = false; db.innerHTML = '<i class="ti ti-brand-discord"></i> Send the link to my Discord'; }
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render); else render();
