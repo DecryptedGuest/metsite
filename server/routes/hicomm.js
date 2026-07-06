@@ -106,7 +106,12 @@ router.get('/audit', async (req, res) => {
   }
 });
 
-// ── GET /api/hicomm/officer/search?q= — find an officer ──
+// ── GET /api/hicomm/officer/search?q= — find an officer (type-ahead) ──
+// Intentionally DB-ONLY: every officer who has ever signed in is already in the
+// user table with their Discord + Roblox identity cached, so we never touch
+// Rover here (its rate limits are harsh and a per-keystroke lookup would burn
+// through them). We match across every identity field and rank the results so
+// the right person surfaces first: exact match → starts-with → contains.
 router.get('/officer/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.json([]);
@@ -116,11 +121,28 @@ router.get('/officer/search', async (req, res) => {
         { discordUsername: { contains: q, mode: 'insensitive' } },
         { displayName:     { contains: q, mode: 'insensitive' } },
         { robloxUsername:  { contains: q, mode: 'insensitive' } },
+        { discordId:       { contains: q } },
+        { robloxId:        { contains: q } },
       ] },
-      select: { id: true, discordUsername: true, displayName: true, robloxUsername: true, discordAvatar: true, role: true },
-      take: 15,
+      select: { id: true, discordUsername: true, displayName: true, robloxUsername: true, discordAvatar: true, role: true, lastLogin: true },
+      take: 40,
     });
-    res.json(users.map(u => ({ id: u.id, name: u.displayName || u.discordUsername, discordUsername: u.discordUsername,
+
+    const ql = q.toLowerCase();
+    const score = (u) => {
+      const fields = [u.displayName, u.discordUsername, u.robloxUsername].filter(Boolean).map(s => s.toLowerCase());
+      if (fields.some(f => f === ql)) return 0;             // exact identity match
+      if (fields.some(f => f.startsWith(ql))) return 1;     // prefix — most likely intent
+      if (fields.some(f => f.split(/[\s._-]+/).some(w => w.startsWith(ql)))) return 2; // word-prefix
+      return 3;                                             // anywhere-contains
+    };
+    users.sort((a, b) => {
+      const d = score(a) - score(b);
+      if (d) return d;
+      return new Date(b.lastLogin || 0) - new Date(a.lastLogin || 0); // recently-seen first
+    });
+
+    res.json(users.slice(0, 15).map(u => ({ id: u.id, name: u.displayName || u.discordUsername, discordUsername: u.discordUsername,
       robloxUsername: u.robloxUsername, avatar: u.discordAvatar, role: u.role })));
   } catch (e) { res.status(500).json({ error: 'Search failed' }); }
 });
@@ -147,12 +169,12 @@ router.get('/officer/:id/timeline', async (req, res) => {
     ]);
 
     const events = [];
-    for (const c of cases) events.push({ at: c.createdAt, kind: 'case', icon: 'ti-gavel', color: '#e0503a', title: `Case ${c.caseRef} — ${c.action}`, detail: c.reason, status: c.status });
-    for (const p of punishments) events.push({ at: p.issuedAt, kind: 'punishment', icon: 'ti-alert-triangle', color: '#e8842a', title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, detail: p.reason, status: p.active ? 'ACTIVE' : 'ENDED' });
-    for (const l of hosted) events.push({ at: l.createdAt, kind: 'tryout', icon: 'ti-clipboard-check', color: '#3b82f6', title: `Hosted ${l.division} tryout`, detail: `${l.totalAttendees} attended · ${l.passedCount} passed`, status: l.status });
-    for (const p of patrols) events.push({ at: p.createdAt, kind: 'patrol', icon: 'ti-shield', color: '#14b8a6', title: p.type === 'EVENT' ? 'Event log' : 'Patrol log', detail: p.totalMinutes != null ? `${p.totalMinutes} min` : '', status: p.status });
-    for (const t of tickets) events.push({ at: t.createdAt, kind: 'ticket', icon: 'ti-lifebuoy', color: '#8b93a1', title: `Support ticket (${t.type})`, detail: '', status: t.status });
-    for (const a of auditRows) events.push({ at: a.createdAt, kind: 'audit', icon: 'ti-history', color: '#6b7280', title: a.summary || `${a.category}/${a.action}`, detail: a.actorId === u.id ? `by them` : `on them — by ${a.actorName}`, status: a.action });
+    for (const c of cases) events.push({ at: c.createdAt, kind: 'case', refId: c.id, icon: 'ti-gavel', color: '#e0503a', title: `Case ${c.caseRef} — ${c.action}`, detail: c.reason, status: c.status });
+    for (const p of punishments) events.push({ at: p.issuedAt, kind: 'punishment', refId: p.id, icon: 'ti-alert-triangle', color: '#e8842a', title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, detail: p.reason, status: p.active ? 'ACTIVE' : 'ENDED' });
+    for (const l of hosted) events.push({ at: l.createdAt, kind: 'tryout', refId: l.id, icon: 'ti-clipboard-check', color: '#3b82f6', title: `Hosted ${l.division} tryout`, detail: `${l.totalAttendees} attended · ${l.passedCount} passed`, status: l.status });
+    for (const p of patrols) events.push({ at: p.createdAt, kind: 'patrol', refId: p.id, icon: 'ti-shield', color: '#14b8a6', title: p.type === 'EVENT' ? 'Event log' : 'Patrol log', detail: p.totalMinutes != null ? `${p.totalMinutes} min` : '', status: p.status });
+    for (const t of tickets) events.push({ at: t.createdAt, kind: 'ticket', refId: t.id, icon: 'ti-lifebuoy', color: '#8b93a1', title: `Support ticket (${t.type})`, detail: '', status: t.status });
+    for (const a of auditRows) events.push({ at: a.createdAt, kind: 'audit', refId: a.id, icon: 'ti-history', color: '#6b7280', title: a.summary || `${a.category}/${a.action}`, detail: a.actorId === u.id ? `by them` : `on them — by ${a.actorName}`, status: a.action });
 
     events.sort((a, b) => new Date(b.at) - new Date(a.at));
 
@@ -166,6 +188,98 @@ router.get('/officer/:id/timeline', async (req, res) => {
   } catch (e) {
     console.error('[HICOMM] timeline failed:', e.message);
     res.status(500).json({ error: 'Failed to load timeline' });
+  }
+});
+
+// ── GET /api/hicomm/entity/:kind/:id — full detail behind a timeline event ──
+// Lets HICOMM click any point on the 360° timeline and see the actual record
+// (the ticket + its conversation, the IA case, the tryout log, the patrol log,
+// the punishment, or the audit entry). Read-only; the view is audited.
+router.get('/entity/:kind/:id', async (req, res) => {
+  const kind = String(req.params.kind || '').toLowerCase();
+  const id   = req.params.id;
+  try {
+    let out = null;
+
+    if (kind === 'ticket') {
+      const t = await prisma.supportTicket.findUnique({ where: { id }, include: { messages: { orderBy: { createdAt: 'asc' } } } });
+      if (!t) return res.status(404).json({ error: 'Ticket not found' });
+      out = { kind, title: `Support ticket · ${t.type}`, status: t.status,
+        fields: [
+          ['Type', t.type], ['Priority', t.priority], ['Opened by', t.openerName],
+          ['Claimed by', t.claimedByName || '—'], ['Escalated', t.escalated ? 'Yes' : 'No'],
+          ['Closed by', t.closedByName || '—'], ['Close reason', t.closeReason || '—'],
+          ['Opened', t.createdAt], ['Closed', t.closedAt || '—'],
+        ],
+        intake: Array.isArray(t.intake) ? t.intake.map(q => ({ prompt: q.prompt, answer: q.answer })) : [],
+        messages: (t.messages || []).map(m => ({ author: m.authorName, kind: m.authorKind, body: m.body || '', at: m.createdAt })),
+      };
+    } else if (kind === 'case') {
+      const c = await prisma.case.findUnique({ where: { id }, include: { caseActions: { orderBy: { timestamp: 'asc' } }, casePunishments: true } }).catch(() => null);
+      if (!c) return res.status(404).json({ error: 'Case not found' });
+      out = { kind, title: `IA Case ${c.caseRef}`, status: c.status, link: c.caseLink || null,
+        fields: [
+          ['Action', c.action], ['Suspect', c.robloxUsername || c.suspectRobloxDisplayName || '—'],
+          ['Investigator', c.investigatorDiscordUsername || c.investigatorRobloxUsername || '—'],
+          ['Reason', c.reason], ['Notes', c.notes], ['Punishments', c.punishmentsSummary || '—'],
+          ['Opened', c.createdAt], ['Updated', c.updatedAt],
+        ],
+        messages: (c.caseActions || []).map(a => ({ author: a.performedBy, kind: a.actionType, body: a.notes || '', at: a.timestamp })),
+      };
+    } else if (kind === 'tryout') {
+      const l = await prisma.tryoutLog.findUnique({ where: { id } });
+      if (!l) return res.status(404).json({ error: 'Tryout log not found' });
+      out = { kind, title: `${l.division} tryout log`, status: l.status,
+        link: `/${l.division.toLowerCase() === 'sco19' ? 'sco19' : l.division.toLowerCase()}/dashboard?tryoutLog=${l.id}`,
+        fields: [
+          ['Host', l.hostName], ['Co-host', l.coHostName || '—'],
+          ['Attended', l.totalAttendees], ['Passed', l.passedCount], ['Failed', l.failedCount],
+          ['Strikes', l.strikeCount], ['Concluded', l.concludedAt || l.createdAt],
+          ['Review note', l.reviewNote || '—'], ['Reviewed by', l.reviewedByName || '—'],
+        ],
+        attendees: Array.isArray(l.attendees) ? l.attendees.map(a => ({ username: a.username, result: a.result, strikes: a.strikes || 0 })) : [],
+      };
+    } else if (kind === 'patrol') {
+      const p = await prisma.patrolLog.findUnique({ where: { id } });
+      if (!p) return res.status(404).json({ error: 'Patrol log not found' });
+      out = { kind, title: p.type === 'EVENT' ? 'Event log' : 'Patrol log', status: p.status,
+        fields: [
+          ['Type', p.type], ['Division', p.division || 'N/A'],
+          ['Shift', `${p.shiftStart || '?'} → ${p.shiftEnd || '?'}`],
+          ['Duration', p.totalMinutes != null ? `${p.totalMinutes} min` : '—'],
+          ['Submitted by', p.submitterDisplayName || p.submitterUsername || '—'],
+          ['Reviewed by', p.reviewedByName || '—'], ['Logged', p.createdAt],
+        ],
+        raw: p.rawContent || '', images: Array.isArray(p.images) ? p.images : [],
+      };
+    } else if (kind === 'punishment') {
+      const p = await prisma.metPunishment.findUnique({ where: { id } });
+      if (!p) return res.status(404).json({ error: 'Punishment not found' });
+      out = { kind, title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, status: p.active ? 'ACTIVE' : 'ENDED',
+        fields: [
+          ['Type', p.type], ['Reason', p.reason || '—'], ['Issued by', p.issuedBy || '—'],
+          ['Case ref', p.caseRef || '—'], ['Issued', p.issuedAt], ['Expires', p.expiresAt || '—'],
+        ],
+      };
+    } else if (kind === 'audit') {
+      const a = await prisma.auditLog.findUnique({ where: { id } });
+      if (!a) return res.status(404).json({ error: 'Audit entry not found' });
+      out = { kind, title: a.summary || `${a.category}/${a.action}`, status: a.action,
+        fields: [
+          ['Category', a.category], ['Action', a.action], ['Actor', a.actorName || 'System'],
+          ['Target', a.targetName || '—'], ['Division', a.division || '—'], ['When', a.createdAt],
+        ],
+        metadata: a.metadata && typeof a.metadata === 'object' ? a.metadata : null,
+      };
+    } else {
+      return res.status(400).json({ error: 'Unknown entity kind' });
+    }
+
+    require('../lib/audit').log(req.user, { category: 'ACCESS', action: 'VIEW_ENTITY', target: { type: kind, id }, summary: `Viewed ${kind} from officer timeline` });
+    res.json(out);
+  } catch (e) {
+    console.error('[HICOMM] entity detail failed:', e.message);
+    res.status(500).json({ error: 'Failed to load detail' });
   }
 });
 

@@ -153,6 +153,18 @@
   </main>
 </div>
 
+<!-- TIMELINE ENTITY DETAIL — the actual ticket / case / log behind a timeline point -->
+<div class="modal-overlay" id="modal-hc-entity">
+  <div class="modal glass-bright" style="max-width:760px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-search" style="font-size:18px;"></i> <span id="hc-entity-title">Detail</span></div>
+      <button class="modal-close" onclick="closeModal('modal-hc-entity')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="hc-entity-body"><div class="table-loading"><div class="spinner"></div></div></div>
+    <div class="modal-footer" id="hc-entity-footer"></div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
 <script src="/js/charts.js"></script>

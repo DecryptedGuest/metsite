@@ -143,7 +143,7 @@
           ${u.avatar ? `<img src="${esc(u.avatar)}" style="width:32px;height:32px;border-radius:50%;">` : `<div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;">${esc((u.name || '?').slice(0, 1).toUpperCase())}</div>`}
           <div><div style="font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">@${esc(u.discordUsername || '')}${u.robloxUsername ? ' · ' + esc(u.robloxUsername) : ''} · ${esc(u.role || '')}</div></div>
         </div>`).join('') || '<div class="table-empty-text">No officers found.</div>';
-    }, 250);
+    }, 120);
   };
   window.hcOfficer = async function (id) {
     const wrap = $('hc-off-detail');
@@ -168,12 +168,72 @@
         ${chip(d.counts.cases, 'IA Cases', 'var(--red)')}${chip(d.counts.punishments, 'Punishments', 'var(--amber)')}${chip(d.counts.tickets, 'Tickets', 'var(--text-primary)')}
       </div>
       <div class="panel glass fade-up"><div class="panel-header"><div class="panel-title"><span class="panel-dot"></span>Full Timeline</div></div>
-        <div style="padding:8px 18px;max-height:520px;overflow:auto;">${d.events.length ? d.events.map(e => `
-          <div class="tl-item"><div class="tl-dot" style="background:${e.color}22;color:${e.color};"><i class="ti ${e.icon}"></i></div>
+        <div style="padding:8px 18px;max-height:520px;overflow:auto;">${d.events.length ? d.events.map(e => {
+          const clickable = e.refId && e.kind;
+          const openAttr = clickable ? `onclick="hcOpenEntity('${e.kind}','${e.refId}')" style="cursor:pointer;" title="Open ${esc(e.kind)}"` : '';
+          const chevron = clickable ? '<i class="ti ti-chevron-right" style="color:var(--text-muted);align-self:center;"></i>' : '';
+          return `
+          <div class="tl-item" ${openAttr}><div class="tl-dot" style="background:${e.color}22;color:${e.color};"><i class="ti ${e.icon}"></i></div>
           <div style="flex:1;"><div style="font-size:13px;font-weight:600;">${esc(e.title)} ${e.status ? `<span class="badge badge-pending" style="font-size:9px;">${esc(e.status)}</span>` : ''}</div>
           ${e.detail ? `<div style="font-size:12px;color:var(--text-secondary);">${esc(e.detail)}</div>` : ''}
-          <div style="font-size:11px;color:var(--text-muted);">${fmtWhen(e.at)}</div></div></div>`).join('') : '<div class="table-empty-text">No recorded history.</div>'}</div>
+          <div style="font-size:11px;color:var(--text-muted);">${fmtWhen(e.at)}</div></div>${chevron}</div>`;
+        }).join('') : '<div class="table-empty-text">No recorded history.</div>'}</div>
       </div>`;
+  };
+
+  // Open the actual record behind a timeline point (ticket + its conversation,
+  // IA case, tryout/patrol log, punishment, or audit entry).
+  window.hcOpenEntity = async function (kind, id) {
+    openModal('modal-hc-entity');
+    const body = $('hc-entity-body'), footer = $('hc-entity-footer'), titleEl = $('hc-entity-title');
+    titleEl.textContent = 'Detail';
+    body.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>'; footer.innerHTML = '';
+    let d; try { d = await api(`/api/hicomm/entity/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`); }
+    catch (e) { body.innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; return; }
+    titleEl.textContent = d.title || 'Detail';
+
+    const fmtVal = (v) => {
+      if (v == null || v === '') return '—';
+      if (v instanceof Object) return esc(JSON.stringify(v));
+      // ISO-ish date → friendly
+      if (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v)) return esc(fmtWhen(v));
+      return esc(String(v));
+    };
+    const rows = (d.fields || []).map(([k, v]) =>
+      `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${esc(k)}</div><div style="font-size:13px;flex:1;">${fmtVal(v)}</div></div>`).join('');
+
+    let extra = '';
+    if (d.status) extra += `<div style="margin-bottom:12px;"><span class="badge badge-pending"><span class="badge-dot"></span>${esc(d.status)}</span></div>`;
+    // Ticket intake answers
+    if (Array.isArray(d.intake) && d.intake.length) {
+      extra += `<div style="margin-top:14px;font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;">Intake</div>` +
+        d.intake.map(q => `<div style="margin-top:8px;font-size:13px;"><div style="color:var(--text-secondary);">${esc(q.prompt || '')}</div><div>${esc(q.answer || '—')}</div></div>`).join('');
+    }
+    // Conversation / case actions
+    if (Array.isArray(d.messages) && d.messages.length) {
+      extra += `<div style="margin-top:16px;font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;">${kind === 'ticket' ? 'Conversation' : 'Activity'}</div>` +
+        `<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto;">` +
+        d.messages.map(m => `<div style="border:1px solid var(--border,#2a2a2a);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:11px;color:var(--text-muted);">${esc(m.author || '—')}${m.kind ? ' · ' + esc(m.kind) : ''} · ${esc(fmtWhen(m.at))}</div>
+          <div style="font-size:13px;margin-top:3px;white-space:pre-wrap;">${esc(m.body || '')}</div></div>`).join('') + `</div>`;
+    }
+    // Tryout attendees
+    if (Array.isArray(d.attendees) && d.attendees.length) {
+      extra += `<div class="table-wrap" style="margin-top:14px;"><table class="data-table"><thead><tr><th>Attendee</th><th>Result</th><th>Strikes</th></tr></thead><tbody>` +
+        d.attendees.map(a => `<tr><td>${esc(a.username || 'Unknown')}</td><td>${esc(a.result || 'PENDING')}</td><td>${a.strikes || 0}</td></tr>`).join('') + `</tbody></table></div>`;
+    }
+    // Patrol raw content + images
+    if (d.raw) extra += `<div style="margin-top:14px;font-size:12px;white-space:pre-wrap;background:var(--surface,#161616);border-radius:8px;padding:10px;">${esc(d.raw)}</div>`;
+    if (Array.isArray(d.images) && d.images.length) {
+      extra += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">` +
+        d.images.map(src => `<a href="${esc(src)}" target="_blank" rel="noopener"><img src="${esc(src)}" style="max-width:120px;max-height:120px;border-radius:8px;"></a>`).join('') + `</div>`;
+    }
+    // Audit metadata
+    if (d.metadata) extra += `<div style="margin-top:14px;font-size:12px;color:var(--text-muted);">Metadata</div><pre style="font-size:11px;background:var(--surface,#161616);border-radius:8px;padding:10px;overflow:auto;">${esc(JSON.stringify(d.metadata, null, 2))}</pre>`;
+
+    body.innerHTML = extra + `<div>${rows}</div>`;
+    const link = d.link ? `<a class="btn btn-primary" href="${esc(d.link)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Open full record</a>` : '';
+    footer.innerHTML = `<button class="btn btn-ghost" onclick="closeModal('modal-hc-entity')">Close</button>${link}`;
   };
 
   window.hcForceReauth = async function (id, name) {
