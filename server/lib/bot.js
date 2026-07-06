@@ -597,11 +597,17 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 function tryoutHostDmButtons(tryout) {
   const announced = !!tryout.announcementMsgId;
   const joinable  = !!tryout.joinable;
-  return new ActionRowBuilder().addComponents(
+  const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel(announced ? 'Update Announcement' : 'Send Announcement').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`tryout_join_${tryout.id}`).setLabel(joinable ? 'Remove Join Link' : 'Post Join Link').setStyle(joinable ? ButtonStyle.Danger : ButtonStyle.Primary),
   );
+  // No manual "Update Announcement" — once posted, the announcement updates
+  // itself automatically on any change (co-host, lock state, join link). We only
+  // offer a one-time "Send Announcement" when it hasn't gone out yet.
+  if (!announced) {
+    row.addComponents(new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success));
+  }
+  row.addComponents(new ButtonBuilder().setCustomId(`tryout_join_${tryout.id}`).setLabel(joinable ? 'Remove Join Link' : 'Post Join Link').setStyle(joinable ? ButtonStyle.Danger : ButtonStyle.Primary));
+  return row;
 }
 
 // DM the host their tryout details + action buttons. Returns the DM message id.
@@ -766,6 +772,25 @@ async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   } catch (e) {
     console.warn('[Tryout] dmTryoutStarted failed:', e.message);
     return null;
+  }
+}
+
+// DM the host that their tryout was auto-cancelled for inactivity (they left the
+// server and didn't return within the absence window). Best-effort.
+async function dmTryoutAutoCancelled(tryout, minutes) {
+  if (!ready || !tryout || !tryout.hostDiscordId) return false;
+  try {
+    const cfg  = require('./tryouts').divisionConfig(tryout.division);
+    const user = await client.users.fetch(tryout.hostDiscordId);
+    const embed = new EmbedBuilder()
+      .setColor(0xe74c3c)
+      .setTitle(`${cfg.eventType} — auto-cancelled`)
+      .setDescription(`Your tryout was automatically cancelled because you left the server for more than ${minutes} minutes without returning. Its announcement has been removed. Start a new tryout in-game whenever you're ready.`);
+    await user.send({ embeds: [embed] });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] dmTryoutAutoCancelled failed:', e.message);
+    return false;
   }
 }
 
@@ -973,8 +998,9 @@ async function handleTryoutComponent(interaction) {
     });
   }
 
-  // "Send/Update Announcement" → post to the division's announcement channel,
-  // or edit the existing post in place if one has already gone out.
+  // "Send Announcement" → post to the division's announcement channel (one-time).
+  // After this, the post updates itself automatically on any change — there's no
+  // manual "update" button. Refresh the host DM so the send button drops off.
   if (id.startsWith('tryout_announce_') && interaction.isButton()) {
     const tryoutId = id.slice('tryout_announce_'.length);
     const t = await prisma.tryout.findUnique({ where: { id: tryoutId } });
@@ -989,8 +1015,15 @@ async function handleTryoutComponent(interaction) {
     let msgId, updated = false;
     if (t.announcementMsgId) { updated = await editTryoutAnnouncement(t); msgId = t.announcementMsgId; }
     else msgId = await postTryoutAnnouncement(t);
+    // Re-render the host DM so its buttons reflect the now-announced state.
+    if (msgId) {
+      const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
+      if (fresh) await editTryoutHostDM(fresh).catch(() => {});
+    }
     return interaction.reply({
-      content: msgId ? (updated ? '📢 Announcement updated!' : '📢 Announcement posted!') : 'Failed to post the announcement.',
+      content: msgId
+        ? (updated ? '📢 Announcement updated!' : '📢 Announcement posted! It will now update itself automatically whenever anything changes.')
+        : 'Failed to post the announcement.',
       flags: 64,
     });
   }
@@ -1131,7 +1164,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
-  postTryoutSummary, dmTryoutLogReady, dmInstallLink,
+  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink,
   reactToMessage,
   isReady: () => ready,
 };

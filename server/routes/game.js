@@ -70,6 +70,33 @@ async function resolveTargetTryout({ tryoutId, privateServerId, division }) {
   return prisma.tryout.findFirst({ where: { status: 'LIVE', division: div }, orderBy: { scheduledAt: 'desc' } });
 }
 
+// Is the host present in a roster the game sent? Returns true/false, or null when
+// there's no roster to judge from. Accepts players/roster/inGamePlayers as an
+// array of ids or objects with robloxId/userId/id.
+function hostInRoster(t, body) {
+  const rid  = t && t.hostRobloxId ? String(t.hostRobloxId) : null;
+  const list = body.players || body.roster || body.inGamePlayers;
+  if (!rid || !Array.isArray(list)) return null;
+  return list.some(p => {
+    const id = (p && typeof p === 'object') ? (p.robloxId ?? p.userId ?? p.id) : p;
+    return id != null && String(id) === rid;
+  });
+}
+
+// Record that the host is currently in their tryout server, refreshing the
+// abandon-timeout clock. Presence is taken from, in order: an explicit
+// body.hostPresent boolean; else a roster check for the host's Roblox id; else —
+// since these callbacks come from the host's own in-game panel — assumed present.
+async function touchHostPresence(t, body = {}) {
+  if (!t) return;
+  let present;
+  if (typeof body.hostPresent === 'boolean') present = body.hostPresent;
+  else { const r = hostInRoster(t, body); present = (r === null) ? true : r; }
+  if (present) {
+    await prisma.tryout.update({ where: { id: t.id }, data: { hostLastSeenAt: new Date() } }).catch(() => {});
+  }
+}
+
 // GET /api/game/health — public config visibility (booleans only, no secrets),
 // so you can confirm from a browser what's set up server-side. Optionally pass
 // ?robloxId=<id> WITH the secret (header/x-game-secret or ?secret=) to check
@@ -121,6 +148,7 @@ router.post('/serverlock', requireGameSecret, async (req, res) => {
 
     const lockState = locked ? 'LOCKED' : 'UNLOCKED';
     const updated = await prisma.tryout.update({ where: { id: target.id }, data: { lockState } });
+    await touchHostPresence(updated, body); // a lock change means the host is active
 
     // Re-render the Discord announcement + the host DM in place (best-effort),
     // so both track the live lock state.
@@ -248,9 +276,28 @@ router.post('/tryout/live', requireGameSecret, async (req, res) => {
       where: { id: t.id },
       data: { liveSnapshot: { at: new Date().toISOString(), attendees, ...countsFor(attendees) } },
     }).catch(() => {}); // liveSnapshot column is optional; ignore if absent
+    await touchHostPresence(t, body);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to store live snapshot.' });
+  }
+});
+
+// POST /api/game/tryout/heartbeat — a lightweight "the host is still here" ping.
+// The in-game panel calls this periodically while the host is in the tryout
+// server. If these stop (host leaves and doesn't return) the tryout is
+// auto-cancelled after TRYOUT_HOST_ABSENCE_MINUTES (default 20). Send
+// { tryoutId?|privateServerId?, hostPresent? } — hostPresent:false lets the game
+// report the host has left immediately (starts the clock without waiting).
+router.post('/tryout/heartbeat', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
+    if (!t) return res.status(404).json({ ok: false, error: 'No matching live tryout.' });
+    await touchHostPresence(t, body);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Heartbeat failed.' });
   }
 });
 
@@ -421,6 +468,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       accessCode:        body.accessCode ? String(body.accessCode) : null,
       privateServerLink: body.privateServerLink || null,
       serverCreatedAt:   new Date(),
+      hostLastSeenAt:    new Date(),
       inGamePlayers:     normInGamePlayers(body.inGamePlayers),
     } });
     res.status(201).json(await announceAndDm(t));
@@ -458,6 +506,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
       accessCode:      body.accessCode ? String(body.accessCode) : t.accessCode,
       serverCreatedAt: t.serverCreatedAt || new Date(),
+      hostLastSeenAt:  new Date(),
       inGamePlayers:   normInGamePlayers(body.inGamePlayers) || t.inGamePlayers || undefined,
     } });
     res.json(await announceAndDm(updated, { edit: true }));

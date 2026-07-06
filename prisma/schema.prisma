@@ -560,6 +560,7 @@ model Tryout {
   privateServerId   String?
   accessCode        String?   // reserved-server access code (for the Join launch-link flow)
   joinable          Boolean   @default(false) // host toggled "Allow players to join"
+  hostLastSeenAt    DateTime? // last time the host was present in the tryout server (for the abandon-timeout auto-cancel)
   serverCreatedAt   DateTime?
   announcementSent  Boolean   @default(false)
   announcementMsgId String?

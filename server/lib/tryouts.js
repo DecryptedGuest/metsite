@@ -322,6 +322,40 @@ async function fireTryout(t) {
   return updated;
 }
 
+// How long a host can be away from their tryout server before it auto-cancels.
+function hostAbsenceMs() {
+  const m = parseInt(process.env.TRYOUT_HOST_ABSENCE_MINUTES, 10);
+  return (Number.isFinite(m) && m > 0 ? m : 20) * 60 * 1000;
+}
+
+// Auto-cancel LIVE tryouts the host has walked away from: if we haven't seen the
+// host in their server for longer than the absence window (and they haven't
+// started a new one — a new tryout refreshes hostLastSeenAt), cancel it, pull the
+// announcement, and DM the host why. hostLastSeenAt is refreshed by every live
+// snapshot / serverlock / heartbeat from the host's in-game panel.
+async function checkAbandonedTryouts() {
+  try {
+    const cutoff = new Date(Date.now() - hostAbsenceMs());
+    const live = await prisma.tryout.findMany({ where: { status: 'LIVE' }, take: 50 });
+    for (const t of live) {
+      const lastSeen = t.hostLastSeenAt || t.serverCreatedAt || t.updatedAt || t.createdAt;
+      if (!lastSeen || new Date(lastSeen) > cutoff) continue;
+      try {
+        const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+        const bot = require('./bot');
+        await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+        await bot.editTryoutHostDM(updated).catch(() => {});
+        if (typeof bot.dmTryoutAutoCancelled === 'function') {
+          await bot.dmTryoutAutoCancelled(updated, Math.round(hostAbsenceMs() / 60000)).catch(() => {});
+        }
+        console.log(`[Tryout] auto-cancelled ${t.id} — host absent > ${Math.round(hostAbsenceMs() / 60000)} min`);
+      } catch (e) { console.warn('[Tryout] auto-cancel failed for', t.id, e.message); }
+    }
+  } catch (e) {
+    console.error('[Tryout] checkAbandonedTryouts error:', e.message);
+  }
+}
+
 async function processDueTryouts() {
   try {
     const due = await prisma.tryout.findMany({
@@ -339,13 +373,14 @@ async function processDueTryouts() {
 }
 
 function startTryoutWorker() {
-  // Check shortly after boot, then every 30s.
+  // Check shortly after boot, then every 30s: fire due tryouts + auto-cancel
+  // abandoned ones (host gone too long).
   setTimeout(processDueTryouts, 20 * 1000);
-  setInterval(processDueTryouts, 30 * 1000);
+  setInterval(() => { processDueTryouts(); checkAbandonedTryouts(); }, 30 * 1000);
 }
 
 module.exports = {
-  startTryoutWorker, processDueTryouts, fireTryout,
+  startTryoutWorker, processDueTryouts, checkAbandonedTryouts, fireTryout,
   formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
   isServerLocked, getServerLink, TRYOUT_PING_ROLE,
   divisionConfig, announceChannelId, reviewUrl,
