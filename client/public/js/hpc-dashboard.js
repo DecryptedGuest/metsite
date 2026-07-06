@@ -175,6 +175,21 @@ function aiColor(p) {
   return 'var(--green)';
 }
 
+// Escape the answer, then wrap every AI-flagged sentence in a highlight mark.
+function highlightAi(text, sentences) {
+  let html = esc(text || '');
+  (sentences || []).forEach(s => {
+    const t = String(s || '').trim();
+    if (t.length < 8) return;
+    const needle = esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      html = html.replace(new RegExp(needle, 'i'),
+        m => `<mark style="background:rgba(224,80,58,0.28);color:inherit;border-radius:2px;padding:0 1px;">${m}</mark>`);
+    } catch (e) { /* skip bad regex */ }
+  });
+  return html;
+}
+
 // Render the AI-detector panel inside the mark modal. `scan` may be null (never
 // run), a { configured:false } notice, or a full multi-provider result.
 window.renderAiScan = function (scan) {
@@ -193,12 +208,18 @@ window.renderAiScan = function (scan) {
     return;
   }
   const providerChips = (scan.providers || []).map(p => `<span class="met-chip" style="font-size:10px;">${esc(p)}</span>`).join(' ');
+  const answers = (hpcCurrent && hpcCurrent.answers) || {};
   const perAnswer = (scan.perAnswer || []).map(a => {
     const provs = (a.providers || []).map(pr => `<span style="font-size:10px;color:${aiColor(pr.aiProbability)};" ${pr.error ? `title="${esc(pr.error)}"` : ''}>${esc(pr.name)}: ${pr.aiProbability == null ? '—' : pr.aiProbability + '%'}</span>`).join(' · ');
     const prompt = a.prompt || '';
-    return `<div style="padding:5px 0;border-bottom:1px solid var(--border-dim);">
+    const answerText = answers[a.qid] || '';
+    const highlighted = highlightAi(answerText, a.aiSentences);
+    const frac = (a.aiFraction != null && a.aiFraction > 0)
+      ? ` · <span style="color:${aiColor(a.aiFraction)};">${a.aiFraction}% of text flagged</span>` : '';
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--border-dim);">
       <div style="font-size:11px;color:var(--text-muted);">${esc(prompt.slice(0, 80))}${prompt.length > 80 ? '…' : ''}</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px;"><span style="font-weight:700;color:${aiColor(a.overall)};">${a.overall == null ? '—' : a.overall + '% AI'}</span><span style="font-size:10px;color:var(--text-muted);">${provs}</span></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:3px 0;"><span style="font-weight:700;color:${aiColor(a.overall)};">${a.overall == null ? '—' : a.overall + '% AI'}</span>${frac}<span style="font-size:10px;color:var(--text-muted);">${provs}</span></div>
+      <div style="font-size:12px;color:var(--text-secondary);background:rgba(255,255,255,0.03);border-radius:6px;padding:6px 9px;white-space:pre-wrap;line-height:1.5;">${highlighted || '<em>(blank)</em>'}</div>
     </div>`;
   }).join('') || '<div style="font-size:12px;color:var(--text-muted);">No answers were long enough to scan reliably.</div>';
 
