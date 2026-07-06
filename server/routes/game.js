@@ -371,6 +371,28 @@ router.get('/tryout/scheduled', requireGameSecret, async (req, res) => {
   }
 });
 
+// GET /api/game/tryout/joincode?tryoutId=<id> — the in-game router asks for the
+// reserved server's access code when a player arrives via the launch link. We
+// only hand it out while the host has joining ON and the server is live +
+// unlocked; otherwise { ok:false } so the router turns the player away.
+router.get('/tryout/joincode', requireGameSecret, async (req, res) => {
+  try {
+    const tryoutId = req.query.tryoutId;
+    if (!tryoutId) return res.status(400).json({ ok: false, error: 'tryoutId required' });
+    const t = await prisma.tryout.findUnique({ where: { id: String(tryoutId) } });
+    if (!t) return res.status(404).json({ ok: false });
+
+    const isLive   = String(t.status || '').toUpperCase() === 'LIVE';
+    const unlocked = !require('../lib/tryouts').isServerLocked(t);
+    if (!t.joinable || !isLive || !unlocked || !t.accessCode) return res.json({ ok: false });
+
+    res.json({ ok: true, accessCode: t.accessCode, division: normDivision(t.division), privateServerId: t.privateServerId || null });
+  } catch (err) {
+    console.error('[Game] joincode failed:', err.message);
+    res.status(500).json({ ok: false });
+  }
+});
+
 // POST /api/game/tryout/create — start an unscheduled tryout instantly.
 // body: { host:{robloxId,username,discordId?}, coHost?, privateServerId?, startedAt? }
 router.post('/tryout/create', requireGameSecret, async (req, res) => {
@@ -396,6 +418,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       lockState:         parseLockState(body) || 'UNLOCKED', // reflect the real state now (default: open)
       suppressPings:     !!body.suppressPings, // test mode → announce without pinging
       privateServerId:   body.privateServerId ? String(body.privateServerId) : null,
+      accessCode:        body.accessCode ? String(body.accessCode) : null,
       privateServerLink: body.privateServerLink || null,
       serverCreatedAt:   new Date(),
       inGamePlayers:     normInGamePlayers(body.inGamePlayers),
@@ -433,6 +456,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       lockState:       parseLockState(body) || t.lockState || 'UNLOCKED', // real state now (default: open)
       suppressPings:   ('suppressPings' in body) ? !!body.suppressPings : t.suppressPings,
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
+      accessCode:      body.accessCode ? String(body.accessCode) : t.accessCode,
       serverCreatedAt: t.serverCreatedAt || new Date(),
       inGamePlayers:   normInGamePlayers(body.inGamePlayers) || t.inGamePlayers || undefined,
     } });

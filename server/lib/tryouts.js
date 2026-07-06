@@ -85,6 +85,23 @@ function reviewUrl(tryout) {
 // The Discord channel a tryout's announcement lives in (by division).
 function announceChannelId(tryout) { return divisionConfig(tryout && tryout.division).channelId; }
 
+// The Roblox place the tryout launch link points at (same place for every
+// division — the game's own router reads launchData and teleports the player
+// into the reserved server after calling /joincode). Configurable via env.
+function tryoutPlaceId() {
+  return process.env.TRYOUT_JOIN_PLACE_ID || process.env.TRYOUT_PLACE_ID || process.env.HENDON_PLACE_ID || null;
+}
+
+// The public "Join this tryout" launch link, or null when joining is off / no
+// place id is configured. launchData carries { t: tryoutId, d: division } so the
+// in-game router knows what to ask /joincode for.
+function tryoutJoinUrl(tryout) {
+  const pid = tryoutPlaceId();
+  if (!pid || !tryout || !tryout.joinable) return null;
+  const launch = encodeURIComponent(JSON.stringify({ t: tryout.id, d: divisionConfig(tryout.division).division }));
+  return `https://www.roblox.com/games/start?placeId=${pid}&launchData=${launch}`;
+}
+
 // Format the scheduled start as HH:MM in the configured timezone (for CID's
 // "Starting at" line). Falls back to the literal placeholder if unparseable.
 function fmtStartAt(tryout) {
@@ -135,12 +152,14 @@ function formatSco19Announcement(tryout, { hostMention, coHostText } = {}) {
   const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const e      = cfg.emoji;
   const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
+  const join   = tryoutJoinUrl(tryout);
   return [
     `${e} SCO-19 FIREARMS TRYOUT ${e}`,
     `Host: ${host}`,
     `Co-Host: ${coHost}`,
     `Starting: ${fmtDiscordTs(tryout)}`,
     `Game link: ${link}`,
+    ...(join ? [`🔗 Join the tryout: ${join}`] : []),
     `STATUS: ${status}`,
     'Information:',
     '`• SCO-19 is the Metropolitan Police Service\'s Specialist Firearms Command — the elite armed response unit.',
@@ -169,6 +188,7 @@ function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const link   = tryout.privateServerLink || 'TBA';
   const e      = cfg.emoji;
   const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
+  const join   = tryoutJoinUrl(tryout);
   return [
     `${e} CID TRYOUT ${e}`,
     `Host: ${host}`,
@@ -176,6 +196,7 @@ function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
     `Starting: ${fmtDiscordTs(tryout)}`,
     'Reactions: 3+ (3 ✅ needed to start the tryout, including the host)',
     `Game link: ${link}`,
+    ...(join ? [`🔗 Join the tryout: ${join}`] : []),
     'Information:',
     "`• CID is the Metropolitan Police Service's (MPS) Criminal Investigations unit. This elite group of individuals are trained for immediate responses to any crime scene.",
     '- The standard weapon issued to CID is a GlockS.',
@@ -223,12 +244,14 @@ function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
   const hpc    = HPC_EMOJI();
+  const join   = tryoutJoinUrl(tryout);
   return [
     `${hpc} College Entrance ${hpc}`,
     'Metropolitan Police Tryout',
     `HOST: ${host}`,
     `CO-HOST: ${coHost}`,
     `Link: ${link}`,
+    ...(join ? [`🔗 Join the tryout: ${join}`] : []),
     '',
     `STATUS: ${status}`,
     ping,
@@ -326,4 +349,5 @@ module.exports = {
   formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
   isServerLocked, getServerLink, TRYOUT_PING_ROLE,
   divisionConfig, announceChannelId, reviewUrl,
+  tryoutJoinUrl, tryoutPlaceId,
 };

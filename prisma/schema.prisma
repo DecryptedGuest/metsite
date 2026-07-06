@@ -558,6 +558,8 @@ model Tryout {
   lockState         String    @default("LOCKED")    // LOCKED | UNLOCKED (game :serverlock state; legacy: SLOCKED/UNSLOCKED)
   privateServerLink String?
   privateServerId   String?
+  accessCode        String?   // reserved-server access code (for the Join launch-link flow)
+  joinable          Boolean   @default(false) // host toggled "Allow players to join"
   serverCreatedAt   DateTime?
   announcementSent  Boolean   @default(false)
   announcementMsgId String?

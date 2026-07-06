@@ -561,9 +561,11 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 // announcement has already gone out (the game flow auto-announces first).
 function tryoutHostDmButtons(tryout) {
   const announced = !!tryout.announcementMsgId;
+  const joinable  = !!tryout.joinable;
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel(announced ? 'Update Announcement' : 'Send Announcement').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`tryout_join_${tryout.id}`).setLabel(joinable ? 'Stop new joins' : 'Allow players to join').setStyle(joinable ? ButtonStyle.Danger : ButtonStyle.Primary),
   );
 }
 
@@ -689,6 +691,7 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
     .setDescription(`Your tryout has started and been announced. Run it in-game from the ${cfg.panelName}, then conclude it to log the results.`)
     .addFields(
       { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
+      { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the announcement link' : '🔴 Closed', inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
       ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
     );
@@ -771,8 +774,9 @@ async function editTryoutHostDM(tryout) {
     const msg  = await dm.messages.fetch(tryout.hostDmMessageId);
     const status  = String(tryout.status || '').toUpperCase();
     const payload = { embeds: [tryoutDmEmbed(tryout, { reviewUrl: base })] };
-    // Once the tryout is finished, strip the co-host/announce action buttons.
-    if (status === 'CANCELLED' || status === 'COMPLETED') payload.components = [];
+    // Once the tryout is finished, strip the action buttons; while it's running,
+    // re-render them so labels stay current (e.g. the "Allow joining" toggle).
+    payload.components = (status === 'CANCELLED' || status === 'COMPLETED') ? [] : [tryoutHostDmButtons(tryout)];
     await msg.edit(payload);
     return true;
   } catch (e) {
@@ -908,6 +912,30 @@ async function handleTryoutComponent(interaction) {
       await editTryoutHostDM(fresh).catch(() => {});
     }
     return interaction.update({ content: `✅ Co-host set to **${coName}**.`, components: [] });
+  }
+
+  // "Allow players to join" / "Stop new joins" → toggle the joinable flag, then
+  // re-render the announcement (adds/removes the Join launch link) and the host
+  // DM (flips the button label + Joining field).
+  if (id.startsWith('tryout_join_') && interaction.isButton()) {
+    const tryoutId = id.slice('tryout_join_'.length);
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId } });
+    if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
+      return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
+    }
+    const joinable = !t.joinable;
+    const updated  = await prisma.tryout.update({ where: { id: t.id }, data: { joinable } });
+    if (updated.announcementMsgId) await editTryoutAnnouncement(updated).catch(() => {});
+    await editTryoutHostDM(updated).catch(() => {});
+    const hasLink = !!require('./tryouts').tryoutJoinUrl(updated);
+    return interaction.reply({
+      content: joinable
+        ? (hasLink ? '✅ Joining is **open** — the Join link is now in the announcement.'
+                   : '✅ Joining is **open**. (No place id configured, so no launch link was added — set `TRYOUT_JOIN_PLACE_ID`.)')
+        : '🛑 Joining is **closed** — new joins are stopped and the Join link removed.',
+      flags: 64,
+    });
   }
 
   // "Send/Update Announcement" → post to the division's announcement channel,
