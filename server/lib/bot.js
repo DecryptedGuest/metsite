@@ -600,7 +600,7 @@ function tryoutHostDmButtons(tryout) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel(announced ? 'Update Announcement' : 'Send Announcement').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`tryout_join_${tryout.id}`).setLabel(joinable ? 'Stop new joins' : 'Allow players to join').setStyle(joinable ? ButtonStyle.Danger : ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`tryout_join_${tryout.id}`).setLabel(joinable ? 'Remove Join Link' : 'Post Join Link').setStyle(joinable ? ButtonStyle.Danger : ButtonStyle.Primary),
   );
 }
 
