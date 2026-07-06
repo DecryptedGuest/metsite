@@ -7,6 +7,7 @@
 
   const NAV = [
     { label: 'My Profile', icon: 'ti-user', url: '/profile' },
+    { label: 'Install on phone / Get the app', icon: 'ti-device-mobile', url: '/app' },
     { label: 'Support Desk', icon: 'ti-lifebuoy', url: '/support' },
     { label: 'MET High Command', icon: 'ti-shield-star', url: '/hicomm/dashboard' },
     { label: 'HPC Dashboard', icon: 'ti-school', url: '/hpc/dashboard' },

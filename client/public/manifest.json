@@ -1,0 +1,17 @@
+{
+  "name": "MET Portal",
+  "short_name": "MET Portal",
+  "description": "Metropolitan Police Service community portal — tryouts, patrols, support and oversight.",
+  "start_url": "/profile?src=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b0f1a",
+  "theme_color": "#0b0f1a",
+  "categories": ["productivity", "government"],
+  "icons": [
+    { "src": "/img/divisions/met.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/img/divisions/met.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/img/divisions/met.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

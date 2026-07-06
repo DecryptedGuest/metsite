@@ -170,6 +170,8 @@ app.use('/api/support', maybeAuth, require('./routes/support'));
 app.use('/api/dev', requireAuth, require('./routes/dev'));
 // MET HICOMM oversight — Command Center, analytics, audit trail, officer 360°.
 app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm'));
+// "Install on your phone" QR handoff — mint one-time session-transfer tokens.
+app.use('/api/app', requireAuth, require('./routes/app'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
 app.use('/api/game', require('./routes/game'));
 
@@ -728,6 +730,30 @@ app.get('/hicomm',           recordVisit, (req, res) => res.redirect('/hicomm/da
 app.get('/hicomm/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
 app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
   (req, res) => sendPage(res, path.join(views, 'hicomm-dashboard.html')));
+
+// ── PWA install + phone handoff ──
+// /app — the install page (QR to hand off to a phone, install + notification opt-in).
+app.get('/app', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'app.html')));
+// /m/:token — a phone opened the QR: consume the one-time token and transfer the
+// session to this device (sets the same JWT cookie as a normal login).
+app.get('/m/:token', recordVisit, async (req, res) => {
+  try {
+    const jwt = require('jsonwebtoken');
+    const row = await dbPrisma.mobileLoginToken.findUnique({ where: { token: String(req.params.token) } });
+    if (!row || row.usedAt || row.expiresAt < new Date()) return res.redirect('/login?error=link_expired');
+    await dbPrisma.mobileLoginToken.update({ where: { id: row.id }, data: { usedAt: new Date() } });
+    const user = await dbPrisma.user.findUnique({ where: { id: row.userId } });
+    if (!user || user.isBlacklisted || user.mustReauth) return res.redirect('/login');
+    const jwtToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('iacms_token', jwtToken, {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    return res.redirect('/app?welcome=1');
+  } catch (e) {
+    console.error('[App] handoff failed:', e.message);
+    return res.redirect('/login');
+  }
+});
 
 // ── Developer division — the developer tools, moved out of the IA section into
 // their own division. Developers only. Reuses the IA dashboard view, which

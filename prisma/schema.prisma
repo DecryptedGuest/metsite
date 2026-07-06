@@ -760,6 +760,21 @@ model AuditLog {
   @@map("audit_log")
 }
 
+// One-time, short-lived token for the "install on your phone" QR handoff: a
+// signed-in user mints one, the phone opens /m/<token>, and we transfer the
+// session to that device (single use, ~5 min TTL).
+model MobileLoginToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([userId])
+  @@map("mobile_login_tokens")
+}
+
 model SupportMessage {
   id          String   @id @default(uuid())
   ticketId    String
