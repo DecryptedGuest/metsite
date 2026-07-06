@@ -21,6 +21,29 @@ function flpNavigate(pageId) {
   if (pageId === 'group') loadFlpGroup();
   if (pageId === 'patrols') loadPatrols();
   if (pageId === 'events') loadEvents();
+  if (pageId === 'analytics') loadFlpAnalytics();
+}
+
+// ── Analytics tab (patrol/event/ticket activity) ──
+async function loadFlpAnalytics() {
+  const wrap = document.getElementById('flp-analytics');
+  if (!wrap || !window.MetCharts) return;
+  wrap.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  const days = (document.getElementById('flp-an-days') || {}).value || 30;
+  let d; try { d = await api('/api/flp/analytics?days=' + days); } catch (e) { wrap.innerHTML = `<div class="table-empty"><div class="table-empty-text">${fesc(e.message)}</div></div>`; return; }
+  const C = window.MetCharts, act = d.activity, labels = act.series.map(s => s.day.slice(5));
+  const line = C.lineChart([
+    { name: 'Patrols', color: '#14b8a6', points: act.series.map(s => s.patrols) },
+    { name: 'Events', color: '#e8842a', points: act.series.map(s => s.events) },
+    { name: 'Tickets', color: '#8b5cf6', points: act.series.map(s => s.tickets) },
+  ], labels);
+  const tot = act.series.reduce((a, s) => ({ p: a.p + s.patrols, e: a.e + s.events, t: a.t + s.tickets }), { p: 0, e: 0, t: 0 });
+  const card = (v, l, c) => `<div style="padding:14px 16px;border-radius:12px;border:1px solid var(--border,#2a2a2a);"><div style="font-size:26px;font-weight:800;color:${c};">${v}</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;">${l}</div></div>`;
+  wrap.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;" class="fade-up">
+      ${card(tot.p, 'Patrols (' + d.days + 'd)', 'var(--green)')}${card(tot.e, 'Event Logs', 'var(--amber)')}${card(tot.t, 'Support Tickets', '#8b5cf6')}
+    </div>
+    <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Activity Trend</div></div><div style="padding:12px 16px;">${line}</div></div>`;
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => flpNavigate(btn.dataset.page)));
 

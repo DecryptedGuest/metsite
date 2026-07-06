@@ -55,6 +55,7 @@
         <div class="nav-section-label">Logs</div>
         <button class="nav-item" data-page="patrols"><i class="ti ti-clipboard-check nav-icon"></i><span>Patrol Logs</span><span class="nav-badge pending" id="flp-patrol-badge" style="display:none;"></span></button>
         <button class="nav-item" data-page="events"><i class="ti ti-calendar-star nav-icon"></i><span>Event Logs</span><span class="nav-badge pending" id="flp-event-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
         <div class="nav-section-label group-admin-only" style="display:none;">High Command</div>
         <button class="nav-item group-admin-only" data-page="group" style="display:none;"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-badge pending" id="flp-pending-badge" style="display:none;"></span></button>
       </nav>
@@ -130,12 +131,24 @@
         </div>
       </div>
     </section>
+
+    <section class="page" id="page-analytics">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">FLP Analytics</h1><p class="page-sub">Patrol &amp; event activity across the frontline</p></div>
+        <select class="form-control" id="flp-an-days" style="width:auto;" onchange="loadFlpAnalytics()">
+          <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option>
+        </select>
+      </div>
+      <div id="flp-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
   </main>
 </div>
 
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
+<script src="/js/charts.js"></script>
 <script src="/js/met-topbar.js"></script>
+<script src="/js/command-palette.js"></script>
 <script src="/js/flp-dashboard.js"></script>
 <script>initMetTopbar('FLP');</script>
 </body>

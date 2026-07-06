@@ -13,6 +13,7 @@ function navigateTo(pageId) {
   if (btn) btn.classList.add('active');
   if (pageId === 'mark') loadSubmissions();
   if (pageId === 'results') loadResults();
+  if (pageId === 'analytics') loadHpcAnalytics();
   if (pageId === 'tryouts') loadTryouts();
   if (pageId === 'tryout-logs') loadMyTryoutLogs();
   if (pageId === 'review-logs') loadReviewLogs();
@@ -20,6 +21,33 @@ function navigateTo(pageId) {
   if (pageId === 'live') startLivePolling(); else stopLivePolling();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => navigateTo(btn.dataset.page)));
+
+// ── Analytics tab (tryout performance + recruitment funnel) ──
+async function loadHpcAnalytics() {
+  const wrap = document.getElementById('hpc-analytics');
+  if (!wrap || !window.MetCharts) return;
+  wrap.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  const days = (document.getElementById('hpc-an-days') || {}).value || 30;
+  let d; try { d = await api('/api/hpc/analytics?days=' + days); } catch (e) { wrap.innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; return; }
+  const C = window.MetCharts, t = d.tryouts, labels = t.series.map(s => s.day.slice(5));
+  const line = C.lineChart([
+    { name: 'Attendees', color: '#3b82f6', points: t.series.map(s => s.attendees) },
+    { name: 'Passed', color: '#22c55e', points: t.series.map(s => s.passed) },
+    { name: 'Failed', color: '#e0503a', points: t.series.map(s => s.failed) },
+  ], labels);
+  const board = C.barList(t.leaderboard.map(h => ({ label: h.hostName || 'Host', sub: `${h.tryouts} tryouts · ${h.passRate}% pass`, value: h.attendees, color: '#3b82f6' })));
+  wrap.innerHTML = `
+    <div class="cc-grid fade-up" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;">
+      ${statCard(t.totals.tryouts, 'Tryouts (' + d.days + 'd)')}${statCard(t.totals.attendees, 'Candidates')}
+      ${statCard(t.totals.passed, 'Passed', 'var(--green)')}${statCard(t.totals.failed, 'Failed', 'var(--red)')}${statCard(t.totals.passRate + '%', 'Pass Rate', 'var(--amber)')}
+    </div>
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;">
+      <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Tryout Performance</div></div><div style="padding:12px 16px;">${line}</div></div>
+      <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Recruitment Funnel</div></div><div style="padding:20px 16px;">${C.funnel(d.funnel.stages)}<div style="text-align:center;margin-top:14px;">${C.gauge(d.funnel.conversion, 'conversion', '#22c55e')}</div></div></div>
+    </div>
+    <div class="panel glass" style="margin-top:16px;"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Host Leaderboard</div></div><div style="padding:16px;">${t.leaderboard.length ? board : '<div class="table-empty-text">No tryouts in this period.</div>'}</div></div>`;
+}
+function statCard(v, l, c) { return `<div style="padding:14px 16px;border-radius:12px;border:1px solid var(--border,#2a2a2a);"><div style="font-size:26px;font-weight:800;${c ? 'color:' + c + ';' : ''}">${v}</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;">${l}</div></div>`; }
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

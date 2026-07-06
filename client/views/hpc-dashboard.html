@@ -56,6 +56,7 @@
         <button class="nav-item" data-page="results"><i class="ti ti-list-check nav-icon"></i><span>Final Exams</span></button>
         <button class="nav-item marker-only" data-page="mark" style="display:none;"><i class="ti ti-checkbox nav-icon"></i><span>Mark Final Exams</span><span class="nav-badge pending" id="hpc-pending-badge" style="display:none;"></span></button>
         <div class="nav-section-label">Tryouts</div>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
         <button class="nav-item" data-page="tryouts"><i class="ti ti-calendar-event nav-icon"></i><span>Tryouts</span></button>
         <button class="nav-item" data-page="live"><i class="ti ti-broadcast nav-icon"></i><span>Live</span><span class="nav-badge" id="hpc-live-badge" style="display:none;background:var(--green);"></span></button>
         <button class="nav-item" data-page="tryout-logs"><i class="ti ti-clipboard-list nav-icon"></i><span>My Tryout Logs</span></button>
@@ -112,6 +113,16 @@
     </section>
 
     <!-- TRYOUTS (Junior Instructor+ schedule; all HPC view) -->
+    <section class="page" id="page-analytics">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">HPC Analytics</h1><p class="page-sub">Tryout performance &amp; recruitment intelligence</p></div>
+        <select class="form-control" id="hpc-an-days" style="width:auto;" onchange="loadHpcAnalytics()">
+          <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option>
+        </select>
+      </div>
+      <div id="hpc-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
     <section class="page" id="page-tryouts">
       <div class="page-header fade-up">
         <div><h1 class="page-title">MET Tryouts</h1><p class="page-sub">Schedule and manage college entrance tryouts</p></div>
@@ -297,7 +308,9 @@
 
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
+<script src="/js/charts.js"></script>
 <script src="/js/met-topbar.js"></script>
+<script src="/js/command-palette.js"></script>
 <script src="/js/hpc-dashboard.js"></script>
 <script>initMetTopbar('HPC');</script>
 </body>
