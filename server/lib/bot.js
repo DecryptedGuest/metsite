@@ -456,6 +456,41 @@ async function setExclusiveRoleHolder(guildId, roleId, discordId) {
 }
 
 // Roblox username → Discord member by scanning server nicknames (reverse RoVer fallback).
+// Full MET-server profile for a Discord member: their nickname, the Roblox
+// username + rank parsed from that nick, and every role NAME they hold (not just
+// ids). Reads the primary guild (DISCORD_GUILD_ID = the MET server) unless an
+// explicit guildId is passed. Returns null if the bot is down or they're not in
+// the server. Used by the officer 360 to show MET details for anyone — even
+// members who never signed into the dashboard.
+async function getMetMemberProfile(discordUserId, guildId) {
+  if (!ready || !discordUserId) return null;
+  const gId = targetGuildId(guildId);
+  if (!gId) return null;
+  try {
+    const guild  = await guild_(gId);
+    const member = await guild.members.fetch(String(discordUserId));
+    const parsed = parseRankNick(member.displayName || member.user.username);
+    const roles  = [...member.roles.cache.values()]
+      .filter(r => r.name && r.name !== '@everyone')
+      .sort((a, b) => b.position - a.position)
+      .map(r => ({ id: r.id, name: r.name, color: r.hexColor && r.hexColor !== '#000000' ? r.hexColor : null }));
+    return {
+      inServer:    true,
+      discordId:   member.user.id,
+      username:    member.user.username,
+      nick:        member.displayName || member.user.username,
+      avatar:      member.user.displayAvatarURL({ size: 128, extension: 'png' }),
+      robloxName:  parsed.robloxUsername || null,
+      rank:        parsed.rank || null,
+      roles,
+      joinedAt:    member.joinedAt ? member.joinedAt.toISOString() : null,
+      timedOutUntil: member.communicationDisabledUntil ? member.communicationDisabledUntil.toISOString() : null,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 async function findMemberByRobloxNick(robloxUsername) {
   const target = String(robloxUsername || '').trim().toLowerCase();
   if (!target) return null;
@@ -1092,7 +1127,7 @@ async function timeoutMember(discordUserId, { durationMinutes, reason, guildId }
 module.exports = {
   startBot, assignRole, removeRole, getMemberDisplayName, lookupMember, getMemberRecord,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
-  getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
+  getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,

@@ -229,6 +229,33 @@ async function getUserGroupRole(robloxUserId, groupId) {
   return roles.reduce((a, b) => (Number(b.rank) > Number(a.rank) ? b : a));
 }
 
+// Every group a Roblox user is in, with the rank they hold in each. Public v2
+// endpoint (no auth). Returns [{ group:{id,name,memberCount}, role:{id,name,rank} }]
+// sorted by rank (highest first). Cached ~15 min. Empty on error / no groups.
+const userGroupsCache = new Map(); // robloxUserId → { groups, expires }
+async function getUserGroups(robloxUserId) {
+  if (!robloxUserId) return [];
+  const hit = userGroupsCache.get(String(robloxUserId));
+  if (hit && Date.now() < hit.expires) return hit.groups;
+  try {
+    const res = await fetch(`https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`);
+    if (!res.ok) return hit ? hit.groups : [];
+    const data = await res.json();
+    const groups = (data.data || [])
+      .filter(x => x && x.group && x.role)
+      .map(x => ({
+        group: { id: String(x.group.id), name: x.group.name, memberCount: x.group.memberCount },
+        role:  { id: x.role.id, name: x.role.name, rank: x.role.rank },
+      }))
+      .sort((a, b) => Number(b.role.rank) - Number(a.role.rank));
+    userGroupsCache.set(String(robloxUserId), { groups, expires: Date.now() + 15 * 60 * 1000 });
+    return groups;
+  } catch (err) {
+    console.error('User groups lookup error:', err.message);
+    return hit ? hit.groups : [];
+  }
+}
+
 // Get ALL of a user's roles in a SPECIFIC group. Roblox now lets a member hold
 // more than one role in a single group; the public v2 endpoint surfaces that as
 // multiple `{ group, role }` entries for the same group id, so we collect every
@@ -657,6 +684,7 @@ module.exports = {
   getGroupMembership,
   getUserGroupRole,
   getUserGroupRoles,
+  getUserGroups,
   getOfficerProfile,
   getOfficerProfileByRobloxId,
   exileFromGroup,

@@ -186,16 +186,116 @@ router.get('/officer/search', async (req, res) => {
 
     const results = all.slice(0, 15).map(u => ({ id: u.id, name: u.displayName || u.discordUsername, discordUsername: u.discordUsername,
       robloxUsername: u.robloxUsername, avatar: u.discordAvatar, role: u.role }));
+    if (results.length) return res.json(results);
 
-    // Valid Roblox account, but they've never signed into the dashboard → no
-    // site record to open. Tell HICOMM that explicitly instead of "not found".
-    if (!results.length && resolvedRbx && resolvedRbx.id) {
+    // No site user matched. Fall back to the MET Discord server via the bot, so
+    // HICOMM can still pull up anyone who's in the server but never used the site
+    // (their nickname carries their rank + Roblox name; we enrich on open). Only
+    // on queries of 3+ chars — a guild member fetch is heavier than a DB read.
+    if (q.length >= 3) try {
+      const bot = require('../lib/bot');
+      const members = await bot.searchGuildMembers(q, 8).catch(() => []);
+      const discordOnly = (members || []).filter(m => !m.isBot).map(m => {
+        const parsed = bot.parseRankNick(m.displayName || m.username);
+        return { discordOnly: true, discordId: m.id, name: m.displayName || m.username,
+          robloxUsername: parsed.robloxUsername || null, roleCount: (m.roleIds || []).length, avatar: m.avatar };
+      });
+      if (discordOnly.length) return res.json(discordOnly);
+    } catch (e) { /* bot down → fall through */ }
+
+    // Last resort: a valid Roblox account that isn't in the DB or the server.
+    if (resolvedRbx && resolvedRbx.id) {
       return res.json([{ noAccount: true, robloxId: resolvedRbx.id,
         name: resolvedRbx.displayName || resolvedRbx.username, robloxUsername: resolvedRbx.username }]);
     }
 
-    res.json(results);
+    res.json([]);
   } catch (e) { res.status(500).json({ error: 'Search failed' }); }
+});
+
+// Aggregate a MET profile from the live sources (Discord server + Roblox), for
+// the officer 360 — works for anyone, whether or not they're a site user.
+// Prefers zero-Rover paths: the nickname's Roblox name resolves via Roblox's own
+// username API, and group ranks come from the public Roblox groups API.
+async function buildMetProfile({ discordId, robloxId, robloxUsername }) {
+  const bot    = require('../lib/bot');
+  const roblox = require('../lib/roblox');
+
+  let discord = null;
+  if (discordId) discord = await bot.getMetMemberProfile(discordId).catch(() => null);
+
+  let rid   = robloxId ? String(robloxId) : null;
+  let rname = robloxUsername || (discord && discord.robloxName) || null;
+  if (!rid && rname) {
+    const r = await roblox.getRobloxIdFromUsername(rname).catch(() => null);
+    if (r) { rid = r.id; rname = r.username; }
+  }
+
+  let info = null, groups = [], metRank = null;
+  if (rid) {
+    [info, groups] = await Promise.all([
+      roblox.getRobloxUserInfo(rid).catch(() => null),
+      roblox.getUserGroups(rid).catch(() => []),
+    ]);
+    try { metRank = await require('../lib/metRank').metRole(rid); } catch (e) {}
+  }
+
+  return {
+    discord,
+    roblox: rid ? { id: rid, username: (info && info.username) || rname, displayName: info && info.displayName } : null,
+    robloxGroups: groups,
+    metRank: metRank ? { name: metRank.name, rank: metRank.rank } : null,
+  };
+}
+
+// ── GET /api/hicomm/officer/:id/met — enrich a SITE user's 360 with their live
+// MET Discord roles + Roblox group ranks. ──
+router.get('/officer/:id/met', async (req, res) => {
+  try {
+    const u = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!u) return res.status(404).json({ error: 'Officer not found' });
+    const profile = await buildMetProfile({ discordId: u.discordId, robloxId: u.robloxId, robloxUsername: u.robloxUsername });
+    res.json(profile);
+  } catch (e) {
+    console.error('[HICOMM] officer met enrich failed:', e.message);
+    res.status(500).json({ error: 'Failed to load MET details' });
+  }
+});
+
+// ── GET /api/hicomm/subject?discordId=|robloxId=|robloxUsername= — a MET profile
+// for someone who ISN'T (necessarily) a site user. Also reports whether a site
+// account exists, so the UI can offer to open the full 360. Audited. ──
+router.get('/subject', async (req, res) => {
+  try {
+    const discordId      = req.query.discordId ? String(req.query.discordId) : null;
+    let   robloxId       = req.query.robloxId ? String(req.query.robloxId) : null;
+    const robloxUsername = req.query.robloxUsername ? String(req.query.robloxUsername) : null;
+    if (!discordId && !robloxId && !robloxUsername) return res.status(400).json({ error: 'A subject identifier is required.' });
+
+    const profile = await buildMetProfile({ discordId, robloxId, robloxUsername });
+    if (!robloxId && profile.roblox) robloxId = profile.roblox.id;
+
+    // Is this person already a site user? (so the UI can deep-link the full 360)
+    const or = [];
+    if (discordId) or.push({ discordId });
+    if (robloxId)  or.push({ robloxId: String(robloxId) });
+    const siteUser = or.length ? await prisma.user.findFirst({ where: { OR: or }, select: { id: true, displayName: true, discordUsername: true, role: true } }).catch(() => null) : null;
+
+    const subject = {
+      name: (profile.discord && profile.discord.nick) || (profile.roblox && (profile.roblox.username)) || robloxUsername || 'Unknown',
+      avatar: profile.discord && profile.discord.avatar,
+      discordId: discordId || (profile.discord && profile.discord.discordId) || null,
+      robloxId: robloxId || null,
+      robloxUsername: profile.roblox && profile.roblox.username,
+      siteUserId: siteUser ? siteUser.id : null,
+      siteRole: siteUser ? siteUser.role : null,
+    };
+    require('../lib/audit').log(req.user, { category: 'ACCESS', action: 'LOOKUP', target: { type: 'subject', id: subject.discordId || subject.robloxId || robloxUsername, name: subject.name }, summary: `Looked up MET profile for ${subject.name}` });
+    res.json({ subject, ...profile });
+  } catch (e) {
+    console.error('[HICOMM] subject lookup failed:', e.message);
+    res.status(500).json({ error: 'Failed to load subject' });
+  }
 });
 
 // ── GET /api/hicomm/officer/:id/timeline — unified 360° history ──

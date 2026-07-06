@@ -138,17 +138,27 @@
       const q = $('hc-off-search').value.trim();
       if (q.length < 2) { $('hc-off-results').innerHTML = ''; return; }
       let rows; try { rows = await api('/api/hicomm/officer/search?q=' + encodeURIComponent(q)); } catch (e) { return; }
+      const avatarBox = (u) => u.avatar
+        ? `<img src="${esc(u.avatar)}" style="width:32px;height:32px;border-radius:50%;">`
+        : `<div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;">${esc((u.name || '?').slice(0, 1).toUpperCase())}</div>`;
       $('hc-off-results').innerHTML = rows.map(u => {
-        // Resolved on Roblox but never signed into the dashboard → no timeline.
+        // Found in the MET Discord server but not a site user → open a live profile.
+        if (u.discordOnly) return `
+        <div onclick="hcOpenSubject('discord','${esc(u.discordId)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
+          ${avatarBox(u)}
+          <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--blue);">MET server</span></div>
+          <div style="font-size:11px;color:var(--text-muted);">${u.robloxUsername ? 'Roblox: ' + esc(u.robloxUsername) + ' · ' : ''}${u.roleCount || 0} roles · not a site user</div></div>
+        </div>`;
+        // Resolved on Roblox only → open a live Roblox/groups profile.
         if (u.noAccount) return `
-          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px dashed var(--border,#2a2a2a);margin-bottom:6px;opacity:.75;">
-            <div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;"><i class="ti ti-user-question"></i></div>
-            <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--amber);">Roblox only</span></div>
-            <div style="font-size:11px;color:var(--text-muted);">@${esc(u.robloxUsername || '')} · hasn't signed into the dashboard — no site history</div></div>
-          </div>`;
+        <div onclick="hcOpenSubject('roblox','${esc(u.robloxId)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px dashed var(--border,#2a2a2a);margin-bottom:6px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;"><i class="ti ti-brand-roblox"></i></div>
+          <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--amber);">Roblox only</span></div>
+          <div style="font-size:11px;color:var(--text-muted);">@${esc(u.robloxUsername || '')} · not a site user — view groups &amp; MET rank</div></div>
+        </div>`;
         return `
         <div onclick="hcOfficer('${u.id}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
-          ${u.avatar ? `<img src="${esc(u.avatar)}" style="width:32px;height:32px;border-radius:50%;">` : `<div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;">${esc((u.name || '?').slice(0, 1).toUpperCase())}</div>`}
+          ${avatarBox(u)}
           <div><div style="font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">@${esc(u.discordUsername || '')}${u.robloxUsername ? ' · ' + esc(u.robloxUsername) : ''} · ${esc(u.role || '')}</div></div>
         </div>`;
       }).join('') || '<div class="table-empty-text">No officers found.</div>';
@@ -172,6 +182,7 @@
         </div>
       </div></div>
       <div id="hc-viewas"></div>
+      <div id="hc-met-profile"></div>
       <div class="cc-grid fade-up" style="margin-bottom:16px;">
         ${chip(d.counts.hosted, 'Tryouts Hosted', 'var(--blue)')}${chip(d.counts.patrols, 'Patrol Logs', 'var(--green)')}
         ${chip(d.counts.cases, 'IA Cases', 'var(--red)')}${chip(d.counts.punishments, 'Punishments', 'var(--amber)')}${chip(d.counts.tickets, 'Tickets', 'var(--text-primary)')}
@@ -188,6 +199,62 @@
           <div style="font-size:11px;color:var(--text-muted);">${fmtWhen(e.at)}</div></div>${chevron}</div>`;
         }).join('') : '<div class="table-empty-text">No recorded history.</div>'}</div>
       </div>`;
+
+    // Lazily enrich with live MET Discord roles + Roblox groups (never blocks the
+    // timeline; the bot / Roblox calls can be a touch slow).
+    api(`/api/hicomm/officer/${id}/met`).then(p => {
+      const box = $('hc-met-profile');
+      if (box) box.innerHTML = renderMetProfile(p);
+    }).catch(() => {});
+  };
+
+  // Render the MET Discord roles + Roblox groups + MET rank card (shared by the
+  // site-user 360 and the live subject lookup).
+  function renderMetProfile(p) {
+    if (!p) return '';
+    const d = p.discord, groups = p.robloxGroups || [];
+    const roleChips = (d && d.roles && d.roles.length)
+      ? d.roles.map(r => `<span class="met-chip" style="${r.color ? 'border-color:' + esc(r.color) + ';color:' + esc(r.color) + ';' : ''}">${esc(r.name)}</span>`).join(' ')
+      : '<span style="color:var(--text-muted);font-size:12px;">No MET server roles found.</span>';
+    const metRank = p.metRank ? `<span class="met-chip" style="border-color:var(--blue);color:var(--blue);">MET: ${esc(p.metRank.name)} (rank ${esc(String(p.metRank.rank))})</span>` : '';
+    const groupRows = groups.length
+      ? groups.map(g => `<tr><td>${esc(g.group.name)}</td><td style="color:var(--text-secondary);">${esc(g.role.name)}</td><td style="text-align:right;color:var(--text-muted);">${esc(String(g.role.rank))}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="table-empty-text" style="padding:10px;">No Roblox groups found (or Roblox not linked).</td></tr>';
+    const dnote = d && d.inServer
+      ? `In MET server${d.joinedAt ? ' · joined ' + fmtWhen(d.joinedAt) : ''}${d.timedOutUntil ? ' · <span style="color:var(--amber);">timed out</span>' : ''}`
+      : 'Not in the MET Discord server.';
+    return `<div class="panel glass fade-up" style="margin-bottom:16px;">
+      <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>MET details (live)</div>
+        <span style="font-size:11px;color:var(--text-muted);">${dnote}</span></div>
+      <div style="padding:14px 18px;">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">MET Discord roles</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${metRank} ${roleChips}</div>
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin:16px 0 6px;">Roblox groups &amp; ranks</div>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>Group</th><th>Rank</th><th style="text-align:right;">#</th></tr></thead><tbody>${groupRows}</tbody></table></div>
+      </div></div>`;
+  }
+
+  // Open a live profile for someone who ISN'T a site user (found via the MET
+  // Discord server or resolved on Roblox). Shows their MET roles + Roblox groups,
+  // and offers to open the full 360 if a site account turns out to exist.
+  window.hcOpenSubject = async function (kind, id) {
+    const wrap = $('hc-off-detail');
+    wrap.innerHTML = '<div class="panel glass"><div class="table-loading"><div class="spinner"></div></div></div>';
+    const qs = kind === 'discord' ? 'discordId=' + encodeURIComponent(id) : 'robloxId=' + encodeURIComponent(id);
+    let p; try { p = await api('/api/hicomm/subject?' + qs); } catch (e) { wrap.innerHTML = `<div class="panel glass"><div class="table-empty-text">${esc(e.message)}</div></div>`; return; }
+    const s = p.subject || {};
+    const openFull = s.siteUserId
+      ? `<button class="btn btn-primary btn-sm" onclick="hcOfficer('${s.siteUserId}')"><i class="ti ti-history"></i> Open full 360</button>`
+      : '<span style="font-size:11px;color:var(--text-muted);">No dashboard account — no site history.</span>';
+    wrap.innerHTML = `
+      <div class="panel glass fade-up" style="margin-bottom:16px;"><div style="padding:18px;display:flex;gap:16px;align-items:center;">
+        ${s.avatar ? `<img src="${esc(s.avatar)}" style="width:64px;height:64px;border-radius:50%;">` : `<div style="width:64px;height:64px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:24px;">${esc((s.name || '?').slice(0,1).toUpperCase())}</div>`}
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">${esc(s.name)}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${s.robloxUsername ? 'Roblox: ' + esc(s.robloxUsername) : ''}${s.discordId ? ' · Discord id ' + esc(s.discordId) : ''}</div>
+        <div style="font-size:11px;color:var(--amber);margin-top:4px;">Live lookup — pulled from the MET server + Roblox, not the site.</div></div>
+        <div>${openFull}</div>
+      </div></div>
+      ${renderMetProfile(p)}`;
   };
 
   // Open the actual record behind a timeline point (ticket + its conversation,
