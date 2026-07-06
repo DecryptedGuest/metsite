@@ -710,6 +710,35 @@ async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   }
 }
 
+// DM the host that their concluded tryout has a DRAFT log waiting on the site,
+// with a button that deep-links straight to it. Best-effort; returns the DM id.
+async function dmTryoutLogReady(log) {
+  if (!ready || !log || !log.hostDiscordId) return null;
+  try {
+    const cfg  = require('./tryouts').divisionConfig(log.division);
+    const base = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/$/, '') : null;
+    const url  = base ? `${base}/${cfg.dashboardSlug}/dashboard?tryoutLog=${log.id}` : null;
+    const user = await client.users.fetch(log.hostDiscordId);
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle(`${cfg.eventType} — log ready to review`)
+      .setDescription('Your tryout concluded and a draft log has been queued on the site. Review the attendees, make any edits, then post it for approval.')
+      .addFields(
+        { name: 'Attendees', value: String(log.totalAttendees ?? 0), inline: true },
+        { name: '✅ Passed',  value: String(log.passedCount ?? 0), inline: true },
+        { name: '❌ Failed',  value: String(log.failedCount ?? 0), inline: true },
+      );
+    const components = url ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Review & post log').setURL(url),
+    )] : [];
+    const msg = await user.send({ embeds: [embed], components });
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] dmTryoutLogReady failed:', e.message);
+    return null;
+  }
+}
+
 // Re-render the host's tryout DM in place so its Status field tracks the live
 // lock state. Best-effort; no-ops if we never recorded the DM message id.
 async function editTryoutHostDM(tryout) {
@@ -1018,7 +1047,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
-  postTryoutSummary,
+  postTryoutSummary, dmTryoutLogReady,
   reactToMessage,
   isReady: () => ready,
 };

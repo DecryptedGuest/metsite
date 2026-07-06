@@ -157,17 +157,27 @@ router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
     const result = await createFromGamePayload(body);
     if (!result.ok) return res.status(422).json({ error: result.error });
 
+    const bot = require('../lib/bot');
+
     // Close out the associated live tryout: mark it COMPLETED, delete its
     // channel announcement, and flip the host DM to "✅ Concluded". Best-effort.
     try {
       const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
       if (t && !['CANCELLED', 'COMPLETED'].includes(t.status)) {
         const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
-        const bot = require('../lib/bot');
         await bot.deleteTryoutAnnouncement(updated).catch(() => {});
         await bot.editTryoutHostDM(updated).catch(() => {});
       }
     } catch (e) { console.warn('[Game] conclude close-out failed:', e.message); }
+
+    // Prompt the host to review + post the freshly-queued draft log (a fresh DM
+    // with a deep-link button). Only on first creation, never on retries.
+    if (!result.existing && result.id) {
+      try {
+        const log = await prisma.tryoutLog.findUnique({ where: { id: result.id } });
+        if (log) await bot.dmTryoutLogReady(log).catch(() => {});
+      } catch (e) { /* best-effort */ }
+    }
 
     res.status(201).json(result);
   } catch (err) {
