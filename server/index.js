@@ -616,6 +616,15 @@ app.get('/api/me/points', requireAuth, async (req, res) => {
   }
 });
 
+// ── Live updates (Server-Sent Events) ───────────────────────────
+// Opens a long-lived stream the browser subscribes to for instant in-page
+// updates (exam marked, tryout live, new sign-in). No-op on serverless where
+// connections can't be held; Web Push is the durable fallback.
+app.get('/api/events', requireAuth, (req, res) => {
+  req.socket.setTimeout(0);
+  require('./lib/events').subscribe(req.user.id, res);
+});
+
 // ── Active sessions (device management) ─────────────────────────
 // Lists the user's live sign-ins and lets them revoke any one, or all the
 // others ("sign out everywhere else"). Powered by the server-side Session

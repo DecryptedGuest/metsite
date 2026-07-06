@@ -133,6 +133,14 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
       metadata: { score: total, maxScore, percentage, status: updated.status },
     });
 
+    // Live in-page notification to the cadet (best-effort).
+    try {
+      require('../lib/events').publishToUser(s.userId, 'exam_marked', {
+        status: updated.status, score: total, maxScore, percentage,
+        message: `Your final exam has been marked: ${percentage}% — ${passed ? 'PASSED' : 'FAILED'}.`,
+      });
+    } catch (e) { /* non-fatal */ }
+
     res.json({ success: true, status: updated.status, score: total, maxScore, percentage, posted: !!msgId });
   } catch (err) {
     console.error('[HPC] mark failed:', err.message);
