@@ -53,6 +53,7 @@
         <button class="nav-item" data-page="alerts"><i class="ti ti-alert-triangle nav-icon"></i><span>Alerts</span><span class="nav-badge pending" id="sec-alert-badge" style="display:none;"></span></button>
         <button class="nav-item" data-page="broadcast"><i class="ti ti-broadcast nav-icon"></i><span>Broadcast</span></button>
         <button class="nav-item" data-page="lockdown"><i class="ti ti-lock-square nav-icon"></i><span>Break-glass</span></button>
+        <button class="nav-item" data-page="approvals"><i class="ti ti-checks nav-icon"></i><span>Approvals</span><span class="nav-badge pending" id="sec-approvals-badge" style="display:none;"></span></button>
         <button class="nav-item" data-page="passkeys"><i class="ti ti-fingerprint nav-icon"></i><span>2FA Compliance</span></button>
       </nav>
     </div>
@@ -117,6 +118,25 @@
         <button class="btn btn-danger" id="sec-lockdown-btn" onclick="secToggleLockdown()" style="min-width:220px;"><i class="ti ti-lock"></i> …</button>
         <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site — including the login page — is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
       </div></div>
+    </section>
+
+    <section class="page" id="page-approvals">
+      <div class="page-header fade-up"><div><h1 class="page-title">Four-Eyes Approvals</h1><p class="page-sub">High-stakes actions need a second developer to approve</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadApprovals()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up" style="margin-bottom:16px;max-width:620px;"><div style="padding:16px 18px;">
+        <div style="font-weight:700;margin-bottom:10px;">Propose an action</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select class="form-control" id="ap-action" style="width:auto;">
+            <option value="LOCKDOWN">Engage lockdown</option>
+            <option value="BROADCAST">Broadcast a message</option>
+          </select>
+          <input class="form-control" id="ap-detail" placeholder="Message (for broadcast)" style="flex:1;min-width:180px;" />
+          <input class="form-control" id="ap-reason" placeholder="Reason" style="flex:1;min-width:140px;" />
+          <button class="btn btn-primary" onclick="secPropose()"><i class="ti ti-plus"></i> Propose</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Another developer must approve before it runs.</div>
+      </div></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-approvals" style="padding:14px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
     </section>
 
     <section class="page" id="page-passkeys">

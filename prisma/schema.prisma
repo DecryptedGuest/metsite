@@ -784,6 +784,25 @@ model MobileLoginToken {
   @@map("mobile_login_tokens")
 }
 
+// Four-eyes: a high-stakes action one developer proposes and a DIFFERENT
+// developer must approve before it executes.
+model PendingApproval {
+  id              String    @id @default(uuid())
+  action          String    // LOCKDOWN | FORCE_REAUTH | BROADCAST
+  params          Json?
+  reason          String?
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  requestedById   String?
+  requestedByName String?
+  resolvedById    String?
+  resolvedByName  String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([status])
+  @@map("pending_approvals")
+}
+
 model SupportMessage {
   id          String   @id @default(uuid())
   ticketId    String

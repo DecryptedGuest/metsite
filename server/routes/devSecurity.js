@@ -189,6 +189,66 @@ router.get('/audit/export', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Export failed' }); }
 });
 
+// ── Four-eyes approvals ───────────────────────────────────────────────
+// A dev PROPOSES a high-stakes action; a DIFFERENT dev must approve it before
+// it runs. Supported actions: LOCKDOWN {on}, FORCE_REAUTH {userId,name?},
+// BROADCAST {title,body,url?,banner?}.
+const FOUR_EYES_ACTIONS = ['LOCKDOWN', 'FORCE_REAUTH', 'BROADCAST'];
+
+async function executeApproval(a, approver) {
+  const p = a.params || {};
+  if (a.action === 'LOCKDOWN') {
+    await siteConfig.set('sitePrivate', p.on ? 'true' : 'false');
+  } else if (a.action === 'FORCE_REAUTH') {
+    await prisma.session.updateMany({ where: { userId: String(p.userId), revokedAt: null }, data: { revokedAt: new Date() } });
+  } else if (a.action === 'BROADCAST') {
+    try { const { sendCustomNotification } = require('../lib/push'); await sendCustomNotification({ all: true, title: p.title || 'Message from High Command', body: p.body || '', url: p.url || '/profile' }); } catch (e) {}
+    if (p.banner) await siteConfig.set('bannerText', `${p.title || 'High Command'} — ${p.body || ''}`);
+  }
+}
+
+router.get('/approvals', async (req, res) => {
+  try {
+    const rows = await prisma.pendingApproval.findMany({ where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 100 });
+    res.json(rows.map(a => ({ id: a.id, action: a.action, params: a.params, reason: a.reason, requestedById: a.requestedById, requestedByName: a.requestedByName, createdAt: a.createdAt, mine: a.requestedById === req.user.id })));
+  } catch (e) { res.status(500).json({ error: 'Failed to load approvals' }); }
+});
+
+router.post('/approvals', async (req, res) => {
+  try {
+    const action = String((req.body && req.body.action) || '').toUpperCase();
+    if (!FOUR_EYES_ACTIONS.includes(action)) return res.status(400).json({ error: 'Unknown action' });
+    const a = await prisma.pendingApproval.create({ data: {
+      action, params: (req.body && req.body.params) || {}, reason: req.body && req.body.reason ? String(req.body.reason).slice(0, 500) : null,
+      requestedById: req.user.id, requestedByName: req.user.displayName || req.user.discordUsername,
+    } });
+    audit.record({ req, action: 'APPROVAL_PROPOSE', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Proposed ${action} (awaiting a second developer)` });
+    res.status(201).json({ ok: true, id: a.id });
+  } catch (e) { res.status(500).json({ error: 'Failed to propose' }); }
+});
+
+router.post('/approvals/:id/approve', requireStepUpEnforced, async (req, res) => {
+  try {
+    const a = await prisma.pendingApproval.findUnique({ where: { id: req.params.id } });
+    if (!a || a.status !== 'PENDING') return res.status(404).json({ error: 'Not found or already resolved' });
+    if (a.requestedById === req.user.id) return res.status(403).json({ error: 'A different developer must approve this — you proposed it.' });
+    await executeApproval(a, req.user);
+    await prisma.pendingApproval.update({ where: { id: a.id }, data: { status: 'APPROVED', resolvedById: req.user.id, resolvedByName: req.user.displayName || req.user.discordUsername, resolvedAt: new Date() } });
+    audit.record({ req, action: 'APPROVAL_APPROVE', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Approved + executed ${a.action} (proposed by ${a.requestedByName})` });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Failed to approve' }); }
+});
+
+router.post('/approvals/:id/reject', async (req, res) => {
+  try {
+    const a = await prisma.pendingApproval.findUnique({ where: { id: req.params.id } });
+    if (!a || a.status !== 'PENDING') return res.status(404).json({ error: 'Not found' });
+    await prisma.pendingApproval.update({ where: { id: a.id }, data: { status: 'REJECTED', resolvedById: req.user.id, resolvedByName: req.user.displayName || req.user.discordUsername, resolvedAt: new Date() } });
+    audit.record({ req, action: 'APPROVAL_REJECT', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Rejected ${a.action} (proposed by ${a.requestedByName})` });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Failed to reject' }); }
+});
+
 // ── Passkey compliance ────────────────────────────────────────────────
 // GET /api/dev/security/passkey-compliance — which elevated staff have a
 // passkey enrolled (2FA readiness board).

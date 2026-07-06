@@ -14,6 +14,7 @@
     if (name === 'integrity') { /* on-demand via button */ }
     if (name === 'alerts') secLoadAlerts();
     if (name === 'lockdown') secLoadLockdown();
+    if (name === 'approvals') secLoadApprovals();
     if (name === 'passkeys') secLoadCompliance();
     if (name === 'overview') secLoadOverview();
   }
@@ -178,6 +179,41 @@
         <div style="font-size:12px;color:var(--text-muted);">${r.ok} of ${r.checked} rows verified${r.unhashed ? ` · ${r.unhashed} legacy (unhashed)` : ''}.</div>
         ${clean ? '' : `<div style="margin-top:8px;font-size:12px;color:var(--red);">${r.tampered.slice(0, 8).map(t => esc(t.action + ' — ' + (t.summary || t.id))).join('<br>')}</div>`}`;
     } catch (e) { el.innerHTML = `<span style="color:var(--red);">${esc(e.message)}</span>`; }
+  };
+
+  // ── Four-eyes approvals ──
+  window.secPropose = async function () {
+    const action = $('ap-action').value, detail = $('ap-detail').value.trim(), reason = $('ap-reason').value.trim();
+    let params = {};
+    if (action === 'LOCKDOWN') params = { on: true };
+    if (action === 'BROADCAST') { if (!detail) return showToast('Enter a broadcast message.', 'warning'); params = { title: 'Message from High Command', body: detail, banner: true }; }
+    try { await api('/api/dev/security/approvals', { method: 'POST', body: JSON.stringify({ action, params, reason }) }); showToast('Proposed — awaiting a second developer', 'success'); $('ap-detail').value = ''; $('ap-reason').value = ''; secLoadApprovals(); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+  window.secLoadApprovals = async function () {
+    const box = $('sec-approvals');
+    box.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    try {
+      const rows = await api('/api/dev/security/approvals');
+      const b = $('sec-approvals-badge'); if (b) { b.style.display = rows.length ? 'inline-flex' : 'none'; b.textContent = rows.length; }
+      box.innerHTML = rows.length ? rows.map(a => `
+        <div style="display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--border,#2a2a2a);">
+          <div style="flex:1;"><div style="font-weight:700;font-size:14px;">${esc(a.action)}${a.params && a.params.body ? ' — ' + esc(a.params.body) : ''}</div>
+            <div style="font-size:12px;color:var(--text-muted);">by ${esc(a.requestedByName || '')}${a.reason ? ' · ' + esc(a.reason) : ''} · ${fmt(a.createdAt)}</div></div>
+          ${a.mine ? '<span class="badge badge-pending"><span class="badge-dot"></span>Your proposal — needs another dev</span>'
+            : `<button class="btn btn-primary btn-sm" onclick="secApprove('${a.id}')"><i class="ti ti-check"></i> Approve</button>
+               <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="secReject('${a.id}')"><i class="ti ti-x"></i></button>`}
+        </div>`).join('') : '<div class="table-empty-text">No pending approvals.</div>';
+    } catch (e) { box.innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
+  };
+  window.secApprove = async function (id) {
+    if (!confirm('Approve and execute this action now?')) return;
+    try { await api('/api/dev/security/approvals/' + id + '/approve', { method: 'POST' }); showToast('Approved & executed', 'success'); secLoadApprovals(); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+  window.secReject = async function (id) {
+    try { await api('/api/dev/security/approvals/' + id + '/reject', { method: 'POST' }); showToast('Rejected', 'success'); secLoadApprovals(); }
+    catch (e) { showToast(e.message, 'error'); }
   };
 
   secLoadOverview();
