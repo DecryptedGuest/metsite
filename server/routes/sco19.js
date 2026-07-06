@@ -31,7 +31,8 @@ function tryoutSummary(t) {
     id: t.id, hostName: t.hostName, hostDiscordId: t.hostDiscordId,
     coHostName: t.coHostName, coHostDiscordId: t.coHostDiscordId,
     scheduledAt: t.scheduledAt, status: t.status, lockState: t.lockState,
-    privateServerLink: t.privateServerLink, announcementSent: t.announcementSent,
+    privateServerLink: t.privateServerLink, joinUrl: require('../lib/tryouts').tryoutJoinUrl(t),
+    announcementSent: t.announcementSent,
     notes: t.notes, createdAt: t.createdAt,
   };
 }

@@ -57,7 +57,8 @@
       sco19TryoutsById = {}; rows.forEach(t => { sco19TryoutsById[t.id] = t; });
       if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts yet. Schedule one to get started.</div></td></tr>'; return; }
       tb.innerHTML = rows.map(t => {
-        const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" style="color:var(--blue);">Link</a>` : '<span style="color:var(--text-muted);">TBA</span>';
+        const linkUrl = t.privateServerLink || t.joinUrl;
+        const link = linkUrl ? `<a href="${esc(linkUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" style="color:var(--blue);">Link</a>` : '<span style="color:var(--text-muted);">TBA</span>';
         const canEnd = (t.isMine || CTX.isDev) && !['COMPLETED', 'CANCELLED'].includes(t.status);
         const stop = 'onclick="event.stopPropagation();';
         const btns = [];
@@ -106,7 +107,8 @@
     if (!t) return;
     openModal('modal-sco19-log');
     document.getElementById('sco19-tlog-title').textContent = 'Tryout — ' + (t.hostName || '');
-    const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(t.privateServerLink)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
+    const linkUrl = t.privateServerLink || t.joinUrl;
+    const link = linkUrl ? `<a href="${esc(linkUrl)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(linkUrl)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
     const row = (label, val) => `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${label}</div><div style="font-size:13px;">${val}</div></div>`;
     document.getElementById('sco19-tlog-body').innerHTML =
       row('Status', tryoutStatusBadge(t)) +

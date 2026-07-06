@@ -301,7 +301,8 @@ window.openHpcTryout = function (id) {
   openModal('modal-tryout-log');
   document.getElementById('tlog-title').textContent = 'Tryout · ' + (t.hostName || '');
   const s = TRYOUT_STATUS[t.status] || ['badge', t.status];
-  const link = t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(t.privateServerLink)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
+  const linkUrl = t.privateServerLink || t.joinUrl;
+  const link = linkUrl ? `<a href="${esc(linkUrl)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(linkUrl)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
   const r = (label, val) => `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${label}</div><div style="font-size:13px;">${val}</div></div>`;
   document.getElementById('tlog-body').innerHTML =
     r('Status', `<span class="badge ${s[0]}"><span class="badge-dot"></span>${s[1]}</span>`) +

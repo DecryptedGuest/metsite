@@ -148,18 +148,16 @@ function formatSco19Announcement(tryout, { hostMention, coHostText } = {}) {
   const cfg    = divisionConfig('SCO19');
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
-  const link   = tryout.privateServerLink || 'TBA';
+  const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
   const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const e      = cfg.emoji;
   const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
-  const join   = tryoutJoinUrl(tryout);
   return [
     `${e} SCO-19 FIREARMS TRYOUT ${e}`,
     `Host: ${host}`,
     `Co-Host: ${coHost}`,
     `Starting: ${fmtDiscordTs(tryout)}`,
     `Game link: ${link}`,
-    ...(join ? [`🔗 Join the tryout: ${join}`] : []),
     `STATUS: ${status}`,
     'Information:',
     '`• SCO-19 is the Metropolitan Police Service\'s Specialist Firearms Command — the elite armed response unit.',
@@ -185,10 +183,9 @@ function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const cfg    = divisionConfig('CID');
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
-  const link   = tryout.privateServerLink || 'TBA';
+  const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
   const e      = cfg.emoji;
   const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
-  const join   = tryoutJoinUrl(tryout);
   return [
     `${e} CID TRYOUT ${e}`,
     `Host: ${host}`,
@@ -196,7 +193,6 @@ function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
     `Starting: ${fmtDiscordTs(tryout)}`,
     'Reactions: 3+ (3 ✅ needed to start the tryout, including the host)',
     `Game link: ${link}`,
-    ...(join ? [`🔗 Join the tryout: ${join}`] : []),
     'Information:',
     "`• CID is the Metropolitan Police Service's (MPS) Criminal Investigations unit. This elite group of individuals are trained for immediate responses to any crime scene.",
     '- The standard weapon issued to CID is a GlockS.',
@@ -240,18 +236,16 @@ function formatCidRecruitment(tryout) {
 function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : tryout.hostName);
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
-  const link   = tryout.privateServerLink || 'TBA';
+  const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
   const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
   const hpc    = HPC_EMOJI();
-  const join   = tryoutJoinUrl(tryout);
   return [
     `${hpc} College Entrance ${hpc}`,
     'Metropolitan Police Tryout',
     `HOST: ${host}`,
     `CO-HOST: ${coHost}`,
     `Link: ${link}`,
-    ...(join ? [`🔗 Join the tryout: ${join}`] : []),
     '',
     `STATUS: ${status}`,
     ping,
