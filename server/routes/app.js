@@ -1,6 +1,6 @@
 // server/routes/app.js — "install on your phone" QR handoff.
 // Mounted at /api/app behind requireAuth. A signed-in user mints a one-time,
-// short-lived token; scanning its QR on a phone opens /m/<token> (see index.js),
+// short-lived token; scanning its QR on a phone opens /mobile/<token> (index.js),
 // which transfers the session to that device and prompts the PWA install.
 const express = require('express');
 const crypto  = require('crypto');
@@ -22,7 +22,7 @@ router.post('/link', async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
     await prisma.mobileLoginToken.create({ data: { token, userId: req.user.id, expiresAt } });
-    const url = `${baseUrl(req)}/m/${token}`;
+    const url = `${baseUrl(req)}/mobile/${token}`;
     const qr  = await QRCode.toDataURL(url, { width: 320, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b0f1a', light: '#ffffff' } });
     res.json({ url, qr, expiresIn: 300 });
   } catch (e) {
@@ -38,7 +38,7 @@ router.post('/link/dm', async (req, res) => {
     if (!req.user.discordId) return res.status(400).json({ error: 'No Discord account linked.' });
     const token = crypto.randomBytes(32).toString('hex');
     await prisma.mobileLoginToken.create({ data: { token, userId: req.user.id, expiresAt: new Date(Date.now() + 5 * 60 * 1000) } });
-    const url = `${baseUrl(req)}/m/${token}`;
+    const url = `${baseUrl(req)}/mobile/${token}`;
     const ok = await require('../lib/bot').dmInstallLink(req.user.discordId, url).catch(() => false);
     if (!ok) return res.status(502).json({ error: "Couldn't DM you — check your Discord privacy settings allow DMs from server members." });
     res.json({ ok: true });

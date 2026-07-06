@@ -734,9 +734,10 @@ app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
 // ── PWA install + phone handoff ──
 // /app — the install page (QR to hand off to a phone, install + notification opt-in).
 app.get('/app', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'app.html')));
-// /m/:token — a phone opened the QR: consume the one-time token and transfer the
-// session to this device (sets the same JWT cookie as a normal login).
-app.get('/m/:token', recordVisit, async (req, res) => {
+// /mobile/:token — a phone opened the handoff link: consume the one-time token
+// and transfer the session to this device (sets the same JWT cookie as a normal
+// login). NOTE: must not be "/m/:token" — that path is the media-embed route.
+app.get('/mobile/:token', recordVisit, async (req, res) => {
   try {
     const jwt = require('jsonwebtoken');
     const row = await dbPrisma.mobileLoginToken.findUnique({ where: { token: String(req.params.token) } });
