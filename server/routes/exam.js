@@ -42,6 +42,42 @@ router.get('/my', async (req, res) => {
   }
 });
 
+// GET /api/exam/lookup?roblox=&discord= — identity confirmation before the exam.
+// Resolves the typed Roblox username (public Roblox API → avatar + display name)
+// and the typed Discord username (via the bot, best-effort), and always returns
+// the signed-in account so the cadet can cross-check "is this you?".
+router.get('/lookup', async (req, res) => {
+  const roblox  = String(req.query.roblox || '').trim();
+  const discord = String(req.query.discord || '').trim();
+  const out = { roblox: null, discord: null,
+    me: { discordId: req.user.discordId, discordUsername: req.user.discordUsername,
+      displayName: req.user.displayName, avatar: req.user.discordAvatar, robloxUsername: req.user.robloxUsername } };
+
+  if (roblox) {
+    try {
+      const rlib = require('../lib/roblox');
+      const r = await rlib.getRobloxIdFromUsername(roblox);
+      if (r && r.id) {
+        let avatar = null;
+        try { avatar = await rlib.getRobloxAvatarHeadshot(r.id); } catch (e) {}
+        out.roblox = { found: true, id: r.id, username: r.username, displayName: r.displayName, avatar };
+      } else out.roblox = { found: false };
+    } catch (e) { out.roblox = { found: false, error: 'lookup failed' }; }
+  }
+
+  if (discord) {
+    try {
+      const bot = require('../lib/bot');
+      const list = await bot.searchGuildMembers(discord, 1).catch(() => []);
+      const m = (list && list[0]) || null;
+      if (m) out.discord = { found: true, id: m.id, username: m.username, displayName: m.displayName, avatar: m.avatar || null, inServer: true };
+      else out.discord = { found: false };
+    } catch (e) { out.discord = { found: false }; }
+  }
+
+  res.json(out);
+});
+
 // GET /api/exam/paper — the questions (gated; never includes an answer key).
 router.get('/paper', (req, res) => {
   if (!mayViewPaper(req.user)) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
