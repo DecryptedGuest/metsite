@@ -511,6 +511,9 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     })),
     // Whether the MET bot has ever written a profile for this member yet.
     botLinked: !!metProfile,
+    // Mobile app download link (advertised to desktop users). null = show the
+    // promo as "coming soon" until MOBILE_APP_URL is set.
+    mobileAppUrl: process.env.MOBILE_APP_URL || null,
   });
 });
 

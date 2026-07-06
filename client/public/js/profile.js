@@ -60,6 +60,9 @@ async function loadProfile() {
 
   if (!data.botLinked) document.getElementById('bot-notice').style.display = 'flex';
 
+  // ── Mobile-app promo (desktop only) ──
+  showAppPromo(data.mobileAppUrl);
+
   // ── Final exam (eligible cadets only) ──
   loadExamStatus();
   // ── Upcoming / live tryouts (British citizens) ──
@@ -80,13 +83,6 @@ async function loadProfile() {
   } else {
     divEl.innerHTML = `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
-
-  // ── MET server roles ──
-  const rolesEl = document.getElementById('p-roles');
-  const roles = (data.roles || []).slice().sort((a, b) => (b.position || 0) - (a.position || 0));
-  rolesEl.innerHTML = roles.length
-    ? roles.map(r => chip(r.name, r.color)).join('')
-    : `<span class="chip-empty">No MET-server roles synced yet.</span>`;
 
   // ── Perms ──
   const permsEl = document.getElementById('p-perms');
@@ -137,6 +133,35 @@ async function loadExamStatus() {
       ${!passed && s.canRetake ? `<div style="margin-top:12px;"><a href="/exam" class="btn btn-primary btn-sm"><i class="ti ti-refresh"></i> Retake Exam</a></div>` : ''}`;
   }
   el.innerHTML = html;
+}
+
+// Show the "get the mobile app" promo only on desktop/PC (not phones/tablets),
+// and only if the user hasn't dismissed it.
+function isDesktop() {
+  const ua = navigator.userAgent || '';
+  const mobileUA = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|Kindle|Opera Mini/i.test(ua);
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  return !mobileUA && !coarse && window.innerWidth >= 900;
+}
+function showAppPromo(url) {
+  if (!isDesktop()) return;
+  if (localStorage.getItem('met_app_promo_dismissed') === '1') return;
+  const el = document.getElementById('app-promo');
+  if (!el) return;
+  const link = document.getElementById('app-promo-link');
+  if (url) { link.href = url; }
+  else {
+    link.textContent = 'Coming soon';
+    link.removeAttribute('href');
+    link.classList.add('btn-ghost'); link.classList.remove('btn-primary');
+    link.style.pointerEvents = 'none';
+  }
+  el.style.display = 'flex';
+}
+function dismissAppPromo() {
+  localStorage.setItem('met_app_promo_dismissed', '1');
+  const el = document.getElementById('app-promo');
+  if (el) el.style.display = 'none';
 }
 
 async function loadTryouts() {

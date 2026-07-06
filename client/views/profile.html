@@ -51,7 +51,20 @@
 
   <div id="bot-notice" class="glass profile-notice" style="display:none;">
     <i class="ti ti-robot"></i>
-    <span>The MET bot hasn't linked this profile yet, so MET-server roles, perms and punishment history aren't available. Division ranks below are live.</span>
+    <span>The MET bot hasn't linked this profile yet, so perms and punishment history aren't available. Division ranks below are live.</span>
+  </div>
+
+  <!-- Get the mobile app (desktop users only) -->
+  <div id="app-promo" class="glass app-promo fade-up" style="display:none;">
+    <div class="app-promo-icon"><i class="ti ti-device-mobile"></i></div>
+    <div class="app-promo-body">
+      <div class="app-promo-title">Get the MET mobile app</div>
+      <div class="app-promo-sub">Manage your quota, tryouts and exams on the go — faster, with push notifications.</div>
+    </div>
+    <div class="app-promo-actions">
+      <a id="app-promo-link" href="#" target="_blank" rel="noopener" class="btn btn-primary btn-sm"><i class="ti ti-download"></i> Download</a>
+      <button class="btn btn-icon btn-ghost" title="Dismiss" onclick="dismissAppPromo()"><i class="ti ti-x"></i></button>
+    </div>
   </div>
 
   <!-- Final exam (only shown to eligible cadets) -->
@@ -70,12 +83,6 @@
   <div class="panel glass fade-up stagger-1">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Divisions &amp; Rank</div></div>
     <div class="profile-section" id="p-divisions"><div class="table-loading"><div class="spinner"></div></div></div>
-  </div>
-
-  <!-- MET server roles -->
-  <div class="panel glass fade-up stagger-2">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot purple"></span>MET Server Roles</div></div>
-    <div class="profile-section"><div class="chip-row" id="p-roles"></div></div>
   </div>
 
   <!-- Perms -->
