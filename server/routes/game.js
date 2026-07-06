@@ -176,6 +176,51 @@ router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
   }
 });
 
+// POST /api/game/tryout/summary — a compact post-tryout summary, fired once
+// right after a tryout concludes. Best-effort game-side (any 2xx is fine): we
+// store it on the tryout row (if resolvable) and post a summary card to the
+// events-log channel.
+//   { division, tryoutId, host:{robloxId,username}, coHost|null,
+//     attendees, passed, failed, strikes, kicked, left, durationSecs }
+router.post('/tryout/summary', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const num  = (v) => (Number.isFinite(+v) ? +v : 0);
+    const person = (p) => (p && (p.username || p.robloxId))
+      ? { username: p.username ? String(p.username).slice(0, 60) : null, robloxId: p.robloxId != null ? String(p.robloxId) : null }
+      : null;
+    const summary = {
+      division:     normDivision(body.division),
+      host:         person(body.host),
+      coHost:       person(body.coHost),
+      attendees:    num(body.attendees),
+      passed:       num(body.passed),
+      failed:       num(body.failed),
+      strikes:      num(body.strikes),
+      kicked:       num(body.kicked),
+      left:         num(body.left),
+      durationSecs: num(body.durationSecs),
+      at:           new Date().toISOString(),
+    };
+
+    // Store on the tryout row (best-effort; ignore if we can't resolve it).
+    try {
+      const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
+      if (t) await prisma.tryout.update({ where: { id: t.id }, data: { summary } }).catch(() => {});
+    } catch (e) { /* not fatal */ }
+
+    // Post the summary card to Discord (best-effort).
+    try { await require('../lib/bot').postTryoutSummary(summary).catch(() => {}); }
+    catch (e) { /* bot not ready */ }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Game] tryout summary failed:', err.message);
+    // Best-effort game-side — still return 200 so the game doesn't retry-loop.
+    res.json({ ok: true });
+  }
+});
+
 // POST /api/game/tryout/live — optional live snapshot while a tryout is running,
 // so the site can mirror the in-game overview. Stored on the linked Tryout's
 // row as a transient JSON blob (best-effort; requires a live tryout to attach to).
@@ -227,6 +272,17 @@ function hostNotFound(res, host) {
 // → link omitted).
 function reviewUrl(tryout) {
   return require('../lib/tryouts').reviewUrl(tryout);
+}
+
+// Normalise the in-server roster the game sends on create/start, for the
+// co-host picker: [{ username, robloxId }]. Capped + cleaned.
+function normInGamePlayers(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = raw.slice(0, 100).map(p => ({
+    username: p && (p.username || p.name) ? String(p.username || p.name).slice(0, 60) : null,
+    robloxId: p && p.robloxId != null ? String(p.robloxId) : null,
+  })).filter(p => p.username || p.robloxId);
+  return out.length ? out : null;
 }
 
 // The single currently-ongoing (LIVE) tryout in a division, if any.
@@ -332,6 +388,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       privateServerId:   body.privateServerId ? String(body.privateServerId) : null,
       privateServerLink: body.privateServerLink || null,
       serverCreatedAt:   new Date(),
+      inGamePlayers:     normInGamePlayers(body.inGamePlayers),
     } });
     res.status(201).json(await announceAndDm(t));
   } catch (err) {
@@ -367,6 +424,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       suppressPings:   ('suppressPings' in body) ? !!body.suppressPings : t.suppressPings,
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
       serverCreatedAt: t.serverCreatedAt || new Date(),
+      inGamePlayers:   normInGamePlayers(body.inGamePlayers) || t.inGamePlayers || undefined,
     } });
     res.json(await announceAndDm(updated, { edit: true }));
   } catch (err) {

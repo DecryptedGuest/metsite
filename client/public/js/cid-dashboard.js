@@ -173,6 +173,9 @@
     const rid = a.robloxId ? `data-rid="${esc(a.robloxId)}"` : '';
     const resColor = a.result === 'PASS' ? 'var(--green)' : (a.result === 'FAIL' ? 'var(--red)' : 'var(--text-muted)');
     const quiz = a.quiz ? `<span class="met-chip" title="Written quiz" style="margin-left:6px;"><i class="ti ti-writing"></i> ${a.quiz.score != null ? esc(a.quiz.score) + (a.quiz.outOf != null ? '/' + esc(a.quiz.outOf) : '') : esc(a.quiz.verdict || 'quiz')}</span>` : '';
+    const copy = (a.quiz && a.quiz.copyFlag) ? `<span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' — matched ' + esc(a.quiz.copyWith) : ''}" style="margin-left:6px;color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>` : '';
+    const flag = a.flagged ? `<span class="met-chip" title="Movement watch flag" style="margin-left:6px;color:var(--amber);border-color:var(--amber);"><i class="ti ti-flag"></i></span>` : '';
+    const pts  = (a.pts != null) ? `<span class="met-chip" style="margin-left:6px;font-size:10px;" title="Points">${esc(String(a.pts))} pts</span>` : '';
     const status = a.kicked ? '<span style="color:var(--red);">Kicked</span>' : (a.leftAt ? '<span style="color:var(--text-muted);">Left</span>' : '');
     const btns = t.canManage ? `<div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;">
         ${cmdBtn(t.id, a, 'PASS',  'ti-check',  'Pass')}
@@ -180,7 +183,7 @@
         ${cmdBtn(t.id, a, 'STRIKE','ti-alert-triangle','Strike')}
         ${cmdBtn(t.id, a, 'KICK',  'ti-user-x', 'Kick')}
       </div>` : '';
-    return `<tr ${rid}><td>${uname} ${status} ${quiz}</td><td style="color:${resColor};font-weight:600;">${esc(a.result || 'PENDING')}</td><td>${a.strikes || 0}</td><td>${btns}</td></tr>`;
+    return `<tr ${rid}><td>${uname} ${status} ${quiz}${copy}${flag}${pts}</td><td style="color:${resColor};font-weight:600;">${esc(a.result || 'PENDING')}</td><td>${a.strikes || 0}</td><td>${btns}</td></tr>`;
   }
   function cmdBtn(tid, a, action, icon, label) {
     const rid = a.robloxId ? String(a.robloxId) : '';
@@ -244,9 +247,11 @@
       const att = Array.isArray(l.attendees) ? l.attendees : [];
       const rows = att.length ? att.map(a => {
         const quiz = a.quiz ? `<span class="met-chip" style="margin-left:6px;"><i class="ti ti-writing"></i> ${a.quiz.score != null ? esc(a.quiz.score) + (a.quiz.outOf != null ? '/' + esc(a.quiz.outOf) : '') : esc(a.quiz.verdict || 'quiz')}</span>` : '';
+        const copy = (a.quiz && a.quiz.copyFlag) ? `<span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' — matched ' + esc(a.quiz.copyWith) : ''}" style="margin-left:6px;color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>` : '';
+        const flag = a.flagged ? `<span class="met-chip" title="Movement watch flag" style="margin-left:6px;color:var(--amber);border-color:var(--amber);"><i class="ti ti-flag"></i></span>` : '';
         const rc = a.result === 'PASS' ? 'var(--green)' : (a.result === 'FAIL' ? 'var(--red)' : 'var(--text-muted)');
         const st = a.kicked ? 'Kicked' : (a.leftAt ? 'Left' : '');
-        return `<tr><td>${esc(a.username || 'Unknown')} ${quiz}</td><td style="color:${rc};font-weight:600;">${esc(a.result || 'PENDING')}</td><td>${a.strikes || 0}</td><td style="color:var(--text-muted);">${st}</td></tr>`;
+        return `<tr><td>${esc(a.username || 'Unknown')} ${quiz}${copy}${flag}</td><td style="color:${rc};font-weight:600;">${esc(a.result || 'PENDING')}</td><td>${a.strikes || 0}</td><td style="color:var(--text-muted);">${st}</td></tr>`;
       }).join('') : '<tr><td colspan="4" class="table-empty"><div class="table-empty-text">No attendees.</div></td></tr>';
       const counts = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
         <span class="met-chip"><i class="ti ti-users"></i> ${l.totalAttendees || 0} attended</span>

@@ -426,6 +426,12 @@ function renderTryoutLog(l) {
     ? `<input type="number" min="0" max="9" value="${a.strikes || 0}" data-idx="${i}" data-field="strikes" class="form-control" style="width:56px;padding:4px 8px;font-size:12px;" />`
     : String(a.strikes || 0);
 
+  const copyChip = (a) => (a.quiz && a.quiz.copyFlag)
+    ? ` <span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' — matched ' + esc(a.quiz.copyWith) : ''}" style="color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>`
+    : '';
+  const flagChip = (a) => a.flagged
+    ? ` <span class="met-chip" title="Movement watch flag" style="color:var(--amber);border-color:var(--amber);"><i class="ti ti-flag"></i> flagged</span>`
+    : '';
   const quizChip = (a) => {
     if (!a.quiz) return '';
     const v = (a.quiz.verdict || '').toUpperCase();
@@ -434,10 +440,10 @@ function renderTryoutLog(l) {
     return ` <span class="met-chip" title="Written quiz" style="color:${col};border-color:${col};"><i class="ti ti-writing"></i> ${esc(String(score))}${v ? ' · ' + esc(v) : ''}</span>`;
   };
   const rows = (l.attendees || []).map((a, i) => `<tr>
-    <td>${esc(a.username)}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}</td>
+    <td>${esc(a.username)}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}${flagChip(a)}</td>
     <td>${resultSelect(a, i)}</td>
     <td>${strikesCell(a, i)}</td>
-    <td>${a.note ? esc(a.note) : ''}${quizChip(a)}${(!a.note && !a.quiz) ? '—' : ''}</td>
+    <td>${a.note ? esc(a.note) : ''}${quizChip(a)}${copyChip(a)}${(!a.note && !a.quiz) ? '—' : ''}</td>
   </tr>`).join('') || `<tr><td colspan="4" class="table-empty-text">No attendees recorded.</td></tr>`;
 
   const summary = `<div class="chip-row" style="margin-bottom:14px;">
@@ -553,8 +559,11 @@ async function loadLive() {
     const lock = ['UNLOCKED', 'UNSLOCKED'].includes(String(t.lockState).toUpperCase());
     const manage = !!t.canManage;
     const act = (a, action, label, cls) => `<button class="btn ${cls} btn-sm" style="padding:3px 8px;font-size:11px;" onclick="tryoutCmd('${t.id}','${action}','${a.robloxId || ''}','${esc(a.username || '')}')">${label}</button>`;
+    const liveFlag = (a) => a.flagged ? ' <span class="badge badge-pending" style="font-size:9px;color:var(--amber);" title="Movement watch flag"><i class="ti ti-flag"></i> FLAG</span>' : '';
+    const liveCopy = (a) => (a.quiz && a.quiz.copyFlag) ? ' <span class="badge badge-denied" style="font-size:9px;" title="Possible answer copying"><i class="ti ti-alert-triangle"></i> COPY?</span>' : '';
+    const livePts  = (a) => (a.pts != null) ? ` <span class="met-chip" style="font-size:10px;" title="Points">${esc(String(a.pts))} pts</span>` : '';
     const rows = at.length ? at.map(a => `<tr>
-        <td>${a.robloxId ? `<img src="https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(a.robloxId)}&width=48&height=48&format=png" alt="" style="width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;background:#0b1c3a;" onerror="this.style.display='none'"/>` : ''}${esc(a.username || 'Unknown')}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}</td>
+        <td>${a.robloxId ? `<img src="https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(a.robloxId)}&width=48&height=48&format=png" alt="" style="width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;background:#0b1c3a;" onerror="this.style.display='none'"/>` : ''}${esc(a.username || 'Unknown')}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}${liveFlag(a)}${liveCopy(a)}${livePts(a)}</td>
         <td>${a.result === 'PASS' ? '<span style="color:var(--green);">Passed</span>' : a.result === 'FAIL' ? '<span style="color:var(--red);">Failed</span>' : '—'}</td>
         <td>${a.strikes || 0}</td>
         ${manage ? `<td><div style="display:flex;gap:4px;flex-wrap:wrap;">${act(a, 'STRIKE', 'Strike', 'btn-ghost')}${act(a, 'PASS', 'Pass', 'btn-success')}${act(a, 'FAIL', 'Fail', 'btn-danger')}${act(a, 'KICK', 'Kick', 'btn-ghost')}</div></td>` : ''}

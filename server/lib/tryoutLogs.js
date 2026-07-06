@@ -30,24 +30,36 @@ function normaliseQuiz(q) {
     score:   Number.isFinite(+q.score) ? +q.score : null,
     outOf:   Number.isFinite(+q.outOf) ? +q.outOf : (Number.isFinite(+q.total) ? +q.total : null),
     verdict: q.verdict ? String(q.verdict).slice(0, 20) : null,
+    // Possible answer-copying flags (in-game anti-cheat). copyWith names the
+    // other attendee(s) the answers matched.
+    copyFlag: q.copyFlag != null ? !!q.copyFlag : undefined,
+    copyWith: q.copyWith != null ? String(q.copyWith).slice(0, 200) : undefined,
     answers,
   };
-  return (out.score != null || out.verdict != null || answers.length) ? out : null;
+  if (out.copyFlag === undefined) delete out.copyFlag;
+  if (out.copyWith === undefined) delete out.copyWith;
+  return (out.score != null || out.verdict != null || out.copyFlag || answers.length) ? out : null;
 }
 
 function normaliseAttendees(raw) {
   const list = Array.isArray(raw) ? raw : [];
-  return list.map(a => ({
-    robloxId:  a.robloxId != null ? String(a.robloxId) : null,
-    username:  a.username || a.name || 'Unknown',
-    joinedAt:  a.joinedAt || a.joined || null,
-    leftAt:    a.leftAt || a.left || null,
-    kicked:    !!a.kicked,
-    result:    toResult(a.result),
-    strikes:   Math.max(0, parseInt(a.strikes, 10) || 0),
-    note:      a.note ? String(a.note).slice(0, 300) : null,
-    quiz:      normaliseQuiz(a.quiz),
-  }));
+  return list.map(a => {
+    const out = {
+      robloxId:  a.robloxId != null ? String(a.robloxId) : null,
+      username:  a.username || a.name || 'Unknown',
+      joinedAt:  a.joinedAt || a.joined || null,
+      leftAt:    a.leftAt || a.left || null,
+      kicked:    !!a.kicked,
+      result:    toResult(a.result),
+      strikes:   Math.max(0, parseInt(a.strikes, 10) || 0),
+      note:      a.note ? String(a.note).slice(0, 300) : null,
+      quiz:      normaliseQuiz(a.quiz),
+    };
+    // Optional live-feed extras: movement-watch flag + accumulated points.
+    if (a.flagged != null) out.flagged = !!a.flagged;
+    if (a.pts != null && Number.isFinite(+a.pts)) out.pts = +a.pts;
+    return out;
+  });
 }
 
 function normaliseEvents(raw) {

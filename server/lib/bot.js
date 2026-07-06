@@ -774,6 +774,55 @@ async function editTryoutAnnouncement(tryout) {
   }
 }
 
+// The channel a post-tryout summary card is posted to (by division). Prefers a
+// dedicated summary channel, then the events-log channel, then the announce
+// channel. All optional — returns null (→ no post) if none is configured.
+function tryoutSummaryChannelId(division) {
+  const d = String(division || '').toUpperCase();
+  if (d === 'CID') {
+    return process.env.CID_TRYOUT_SUMMARY_CHANNEL_ID || process.env.TRYOUT_SUMMARY_CHANNEL_ID
+      || EVENTLOGS_CHANNEL_ID || process.env.CID_TRYOUT_CHANNEL_ID || null;
+  }
+  return process.env.TRYOUT_SUMMARY_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || process.env.TRYOUT_ANNOUNCE_CHANNEL_ID || null;
+}
+
+// Post a compact post-tryout summary card to the events-log channel. Best-effort
+// (fired once after a tryout concludes). Returns the message id, or null.
+async function postTryoutSummary(summary) {
+  if (!ready || !summary) return null;
+  const div  = String(summary.division || 'HPC').toUpperCase();
+  const chId = tryoutSummaryChannelId(div);
+  if (!chId) return null;
+  try {
+    const cfg    = require('./tryouts').divisionConfig(div);
+    const host   = summary.host || {};
+    const coHost = summary.coHost || null;
+    const n      = (v) => (Number.isFinite(+v) ? +v : 0);
+    const fmtDur = (s) => { s = Math.max(0, Math.round(+s || 0)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return (h ? `${h}h ` : '') + `${m}m`; };
+    const embed = new EmbedBuilder()
+      .setColor(cfg.dmColor || 0x3b82f6)
+      .setTitle(`${cfg.eventType} — Summary`)
+      .addFields(
+        { name: 'Host',      value: host.username ? String(host.username) : '—', inline: true },
+        { name: 'Co-Host',   value: coHost && coHost.username ? String(coHost.username) : 'N/A', inline: true },
+        { name: 'Duration',  value: fmtDur(summary.durationSecs), inline: true },
+        { name: 'Attendees', value: String(n(summary.attendees)), inline: true },
+        { name: '✅ Passed', value: String(n(summary.passed)), inline: true },
+        { name: '❌ Failed', value: String(n(summary.failed)), inline: true },
+        { name: '⚠ Strikes', value: String(n(summary.strikes)), inline: true },
+        { name: '👢 Kicked', value: String(n(summary.kicked)), inline: true },
+        { name: '🚪 Left',   value: String(n(summary.left)), inline: true },
+      )
+      .setTimestamp(new Date());
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.send({ embeds: [embed] });
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] postTryoutSummary failed:', e.message);
+    return null;
+  }
+}
+
 async function handleTryoutComponent(interaction) {
   const prisma = require('./db');
   const id = interaction.customId || '';
@@ -947,6 +996,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
+  postTryoutSummary,
   reactToMessage,
   isReady: () => ready,
 };

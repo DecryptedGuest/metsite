@@ -560,6 +560,8 @@ model Tryout {
   notes             String?
   suppressPings     Boolean   @default(false) // test mode: announce without pinging the role
   liveSnapshot      Json?     // latest in-game overview while the tryout is live
+  inGamePlayers     Json?     // in-server roster at create/start, for the co-host picker
+  summary           Json?     // post-tryout summary card (counts + duration)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
