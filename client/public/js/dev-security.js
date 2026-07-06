@@ -10,6 +10,8 @@
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === name));
     document.querySelectorAll('.main-content .page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
     if (name === 'sessions') secLoadSessions();
+    if (name === 'presence') secLoadPresence();
+    if (name === 'integrity') { /* on-demand via button */ }
     if (name === 'alerts') secLoadAlerts();
     if (name === 'lockdown') secLoadLockdown();
     if (name === 'passkeys') secLoadCompliance();
@@ -127,6 +129,36 @@
         <td>${r.compliant ? '<span class="badge badge-approved"><span class="badge-dot"></span>Enrolled</span>' : '<span class="badge badge-denied"><span class="badge-dot"></span>No passkey</span>'}</td></tr>`).join('')}
       </tbody></table></div>`;
     } catch (e) { $('sec-compliance').innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
+  };
+
+  // ── Live presence ──
+  window.secLoadPresence = async function () {
+    const box = $('sec-presence');
+    box.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    try {
+      const r = await api('/api/dev/security/presence');
+      const b = $('sec-presence-badge'); if (b) { b.style.display = r.online.length ? 'inline-flex' : 'none'; b.textContent = r.online.length; }
+      box.innerHTML = r.online.length ? `<div style="display:flex;flex-wrap:wrap;gap:12px;">${r.online.map(u => `
+        <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--border,#2a2a2a);border-radius:11px;padding:10px 14px;min-width:210px;">
+          <div style="position:relative;">${u.avatar ? `<img src="${esc(u.avatar)}" style="width:36px;height:36px;border-radius:50%;">` : `<div style="width:36px;height:36px;border-radius:50%;background:#222;"></div>`}
+            <span style="position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--panel-solid,#151821);"></span></div>
+          <div><div style="font-size:13px;font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(u.role || '')} · ${esc(u.ip || '')}</div></div>
+        </div>`).join('')}</div>` : '<div class="table-empty-text">Nobody is active right now.</div>';
+    } catch (e) { box.innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
+  };
+
+  // ── Audit integrity ──
+  window.secVerifyAudit = async function () {
+    const el = $('sec-verify-result');
+    el.innerHTML = '<div class="spinner" style="display:inline-block;"></div> Verifying…';
+    try {
+      const r = await api('/api/dev/security/audit/verify');
+      const clean = r.tampered.length === 0;
+      el.innerHTML = `<div style="font-size:15px;font-weight:700;color:${clean ? 'var(--green)' : 'var(--red)'};margin-bottom:8px;">
+        <i class="ti ${clean ? 'ti-shield-check' : 'ti-shield-x'}"></i> ${clean ? 'Intact — no tampering detected' : `${r.tampered.length} row(s) FAILED verification`}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${r.ok} of ${r.checked} rows verified${r.unhashed ? ` · ${r.unhashed} legacy (unhashed)` : ''}.</div>
+        ${clean ? '' : `<div style="margin-top:8px;font-size:12px;color:var(--red);">${r.tampered.slice(0, 8).map(t => esc(t.action + ' — ' + (t.summary || t.id))).join('<br>')}</div>`}`;
+    } catch (e) { el.innerHTML = `<span style="color:var(--red);">${esc(e.message)}</span>`; }
   };
 
   secLoadOverview();

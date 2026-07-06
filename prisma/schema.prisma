@@ -759,6 +759,7 @@ model AuditLog {
   summary    String?
   metadata   Json?
   ip         String?
+  hash       String?  // per-row HMAC over the row's fields — tamper-evidence
   createdAt  DateTime @default(now())
 
   @@index([createdAt])

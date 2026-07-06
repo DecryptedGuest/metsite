@@ -7,6 +7,21 @@
 // Best-effort: a failed audit write is logged and swallowed, never thrown into
 // the caller (an audit failure must not break the action it records).
 const prisma = require('./db');
+const crypto = require('crypto');
+
+function auditSecret() { return process.env.AUDIT_HMAC_SECRET || process.env.JWT_SECRET || 'met-audit-fallback'; }
+
+// A per-row tamper-evidence HMAC over the immutable fields. Editing any field in
+// the DB without the secret invalidates the hash, which the verify pass detects.
+function rowHash(r) {
+  const canonical = [
+    r.id, r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+    r.category, r.action, r.actorId || '', r.actorName || '', r.actorRole || '',
+    r.targetType || '', r.targetId || '', r.targetName || '', r.division || '',
+    r.summary || '', r.ip || '', JSON.stringify(r.metadata == null ? null : r.metadata),
+  ].join('␟');
+  return crypto.createHmac('sha256', auditSecret()).update(canonical).digest('hex');
+}
 
 function clientIp(req) {
   if (!req) return null;
@@ -17,10 +32,26 @@ function clientIp(req) {
   return (req.headers && (req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.ip || null;
 }
 
-// Internal writer — takes a fully-normalised row.
+// Internal writer — stamps id + createdAt in code (so the hash covers them),
+// computes the tamper-evidence HMAC, then persists.
 async function write(data) {
-  try { await prisma.auditLog.create({ data }); }
-  catch (e) { console.warn('[Audit] write failed:', e.message); }
+  try {
+    const row = { id: crypto.randomUUID(), createdAt: new Date(), ...data };
+    row.hash = rowHash(row);
+    await prisma.auditLog.create({ data: row });
+  } catch (e) { console.warn('[Audit] write failed:', e.message); }
+}
+
+// Verify the whole trail: recompute each row's HMAC and report mismatches.
+async function verify(limit = 5000) {
+  const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: limit });
+  let ok = 0; const tampered = [];
+  for (const r of rows) {
+    if (!r.hash) continue; // legacy rows written before hashing — not counted
+    if (rowHash(r) === r.hash) ok++;
+    else tampered.push({ id: r.id, action: r.action, createdAt: r.createdAt, summary: r.summary });
+  }
+  return { checked: rows.length, ok, tampered, unhashed: rows.filter(r => !r.hash).length };
 }
 
 // Security-trail style: record({ req, action, category, targetType, targetId, summary, metadata, ip? })
@@ -70,4 +101,4 @@ function serialize(a) {
   };
 }
 
-module.exports = { record, log, serialize, write, clientIp };
+module.exports = { record, log, serialize, write, clientIp, verify, rowHash };

@@ -120,6 +120,54 @@ router.get('/alerts', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load alerts' }); }
 });
 
+// ── Live presence ─────────────────────────────────────────────────────
+// GET /api/dev/security/presence — who's online now (active session seen in the
+// last 5 minutes), deduped per user.
+router.get('/presence', async (req, res) => {
+  try {
+    const since = new Date(Date.now() - 5 * 60 * 1000);
+    const rows = await prisma.session.findMany({
+      where: { revokedAt: null, lastSeenAt: { gte: since } },
+      orderBy: { lastSeenAt: 'desc' }, take: 500,
+      include: { user: { select: { id: true, displayName: true, discordUsername: true, discordAvatar: true, role: true } } },
+    });
+    const byUser = new Map();
+    for (const s of rows) {
+      if (!s.user) continue;
+      const cur = byUser.get(s.user.id);
+      if (!cur || new Date(s.lastSeenAt) > new Date(cur.lastSeenAt)) {
+        byUser.set(s.user.id, { id: s.user.id, name: s.user.displayName || s.user.discordUsername, role: s.user.role, avatar: s.user.discordAvatar, lastSeenAt: s.lastSeenAt, ip: s.ip, device: s.device });
+      }
+    }
+    res.json({ online: [...byUser.values()] });
+  } catch (e) { res.status(500).json({ error: 'Failed to load presence' }); }
+});
+
+// ── Audit integrity ───────────────────────────────────────────────────
+// GET /api/dev/security/audit/verify — recompute every row's HMAC.
+router.get('/audit/verify', async (req, res) => {
+  try { res.json(await audit.verify()); }
+  catch (e) { res.status(500).json({ error: 'Verify failed' }); }
+});
+
+// GET /api/dev/security/audit/export?format=csv|json — download the trail.
+router.get('/audit/export', async (req, res) => {
+  try {
+    const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20000 });
+    audit.record({ req, action: 'AUDIT_EXPORT', category: 'SECURITY', targetType: 'audit', summary: `Exported ${rows.length} audit rows` });
+    if (String(req.query.format) === 'csv') {
+      const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+      const cols = ['createdAt', 'category', 'action', 'actorName', 'actorRole', 'targetType', 'targetId', 'targetName', 'summary', 'ip', 'hash'];
+      const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => esc(r[c])).join(','))).join('\n');
+      res.set('Content-Type', 'text/csv');
+      res.set('Content-Disposition', 'attachment; filename="met-audit-log.csv"');
+      return res.send(csv);
+    }
+    res.set('Content-Disposition', 'attachment; filename="met-audit-log.json"');
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Export failed' }); }
+});
+
 // ── Passkey compliance ────────────────────────────────────────────────
 // GET /api/dev/security/passkey-compliance — which elevated staff have a
 // passkey enrolled (2FA readiness board).

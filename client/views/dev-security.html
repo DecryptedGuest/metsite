@@ -47,7 +47,9 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Security</div>
         <button class="nav-item active" data-page="overview"><i class="ti ti-shield-lock nav-icon"></i><span>Overview</span></button>
+        <button class="nav-item" data-page="presence"><i class="ti ti-users nav-icon"></i><span>Live Presence</span><span class="nav-badge" id="sec-presence-badge" style="display:none;background:var(--green);"></span></button>
         <button class="nav-item" data-page="sessions"><i class="ti ti-devices nav-icon"></i><span>Sessions</span></button>
+        <button class="nav-item" data-page="integrity"><i class="ti ti-fingerprint-scan nav-icon"></i><span>Audit Integrity</span></button>
         <button class="nav-item" data-page="alerts"><i class="ti ti-alert-triangle nav-icon"></i><span>Alerts</span><span class="nav-badge pending" id="sec-alert-badge" style="display:none;"></span></button>
         <button class="nav-item" data-page="broadcast"><i class="ti ti-broadcast nav-icon"></i><span>Broadcast</span></button>
         <button class="nav-item" data-page="lockdown"><i class="ti ti-lock-square nav-icon"></i><span>Break-glass</span></button>
@@ -71,6 +73,22 @@
         <thead><tr><th>Officer</th><th>Role</th><th>IP</th><th>Device</th><th>Last seen</th><th></th></tr></thead>
         <tbody id="sec-sessions-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
       </table></div></div>
+    </section>
+
+    <section class="page" id="page-presence">
+      <div class="page-header fade-up"><div><h1 class="page-title">Live Presence</h1><p class="page-sub">Officers active in the last 5 minutes</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadPresence()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-presence" style="padding:14px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-integrity">
+      <div class="page-header fade-up"><div><h1 class="page-title">Audit Integrity</h1><p class="page-sub">Verify the audit trail hasn't been tampered with · export it</p></div></div>
+      <div class="panel glass fade-up stagger-1" style="max-width:620px;"><div style="padding:20px;">
+        <div id="sec-verify-result" style="font-size:14px;margin-bottom:16px;color:var(--text-muted);">Every audit row is signed with a per-row HMAC. Verify recomputes them and flags any that were altered in the database.</div>
+        <button class="btn btn-primary" onclick="secVerifyAudit()"><i class="ti ti-shield-check"></i> Verify integrity</button>
+        <a class="btn btn-ghost" href="/api/dev/security/audit/export?format=csv" style="margin-left:8px;"><i class="ti ti-download"></i> Export CSV</a>
+        <a class="btn btn-ghost" href="/api/dev/security/audit/export?format=json"><i class="ti ti-download"></i> JSON</a>
+      </div></div>
     </section>
 
     <section class="page" id="page-alerts">
