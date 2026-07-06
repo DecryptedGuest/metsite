@@ -169,6 +169,44 @@ router.get('/officer/:id/timeline', async (req, res) => {
   }
 });
 
+// ── View-as: a read-only preview of exactly what an officer can access ──
+// No session switching (safe) — just resolves their role, divisions/tiers,
+// standing and which dashboards they can reach. Audited.
+router.get('/officer/:id/access-preview', async (req, res) => {
+  try {
+    const u = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!u) return res.status(404).json({ error: 'Officer not found' });
+    const divisions = Array.isArray(u.divisions) ? u.divisions : [];
+    const IA = ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'];
+    const pages = [];
+    if (u.role === 'DEVELOPER') pages.push('Developer panel', 'Security Center');
+    if (IA.includes(u.role)) pages.push('IA dashboard');
+    for (const d of divisions) { const slug = { CID: 'CID', SCO19: 'SCO-19', FLP: 'FLP', HPC: 'HPC', IA: 'IA' }[d.division] || d.division; pages.push(`${slug} dashboard${d.tier === 'LEAD' ? ' (lead)' : ''}`); }
+    pages.push('Profile', 'Support');
+    let metHicomm = false;
+    try { metHicomm = await require('../lib/metRank').userIsMetHicomm(u); } catch (e) {}
+    if (metHicomm) pages.push('MET High Command');
+    require('../lib/audit').log(req.user, { category: 'SECURITY', action: 'VIEW_AS', target: { type: 'user', id: u.id, name: u.displayName || u.discordUsername }, summary: `Viewed access preview for ${u.displayName || u.discordUsername}` });
+    res.json({
+      officer: { id: u.id, name: u.displayName || u.discordUsername, role: u.role, avatar: u.discordAvatar },
+      role: u.role, metHicomm, divisions,
+      standing: { blacklisted: !!u.isBlacklisted, mustReauth: !!u.mustReauth, reason: u.blacklistReason || null },
+      pages: [...new Set(pages)],
+    });
+  } catch (e) { res.status(500).json({ error: 'Failed to load access preview' }); }
+});
+
+// ── Act from the timeline: force an officer to re-authenticate everywhere ──
+router.post('/officer/:id/force-reauth', async (req, res) => {
+  try {
+    const u = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, displayName: true, discordUsername: true } });
+    if (!u) return res.status(404).json({ error: 'Officer not found' });
+    const r = await prisma.session.updateMany({ where: { userId: u.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    require('../lib/audit').log(req.user, { category: 'SECURITY', action: 'FORCE_REAUTH', target: { type: 'user', id: u.id, name: u.displayName || u.discordUsername }, summary: `Forced re-auth for ${u.displayName || u.discordUsername} (${r.count} session(s))` });
+    res.json({ ok: true, killed: r.count });
+  } catch (e) { res.status(500).json({ error: 'Failed to force re-auth' }); }
+});
+
 function normDiv(v) {
   const d = String(v || '').toUpperCase();
   return ['CID', 'SCO19', 'FLP', 'HPC'].includes(d) ? d : null;

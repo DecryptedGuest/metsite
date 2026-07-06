@@ -157,7 +157,12 @@
         <div style="flex:1;"><div style="font-size:20px;font-weight:800;">${esc(o.name)}</div>
         <div style="font-size:12px;color:var(--text-muted);">@${esc(o.discordUsername || '')}${o.robloxUsername ? ' · Roblox: ' + esc(o.robloxUsername) : ''} · ${esc(o.role || '')}</div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Joined ${fmtWhen(o.joinedAt)}${o.lastLogin ? ' · last seen ' + ago(o.lastLogin) : ''}</div></div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="hcViewAs('${o.id}')"><i class="ti ti-eye-search"></i> View access</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="hcForceReauth('${o.id}','${esc(o.name)}')"><i class="ti ti-logout-2"></i> Force re-auth</button>
+        </div>
       </div></div>
+      <div id="hc-viewas"></div>
       <div class="cc-grid fade-up" style="margin-bottom:16px;">
         ${chip(d.counts.hosted, 'Tryouts Hosted', 'var(--blue)')}${chip(d.counts.patrols, 'Patrol Logs', 'var(--green)')}
         ${chip(d.counts.cases, 'IA Cases', 'var(--red)')}${chip(d.counts.punishments, 'Punishments', 'var(--amber)')}${chip(d.counts.tickets, 'Tickets', 'var(--text-primary)')}
@@ -169,6 +174,27 @@
           ${e.detail ? `<div style="font-size:12px;color:var(--text-secondary);">${esc(e.detail)}</div>` : ''}
           <div style="font-size:11px;color:var(--text-muted);">${fmtWhen(e.at)}</div></div></div>`).join('') : '<div class="table-empty-text">No recorded history.</div>'}</div>
       </div>`;
+  };
+
+  window.hcForceReauth = async function (id, name) {
+    if (!confirm(`Force ${name || 'this officer'} to sign in again on every device?`)) return;
+    try { const r = await api(`/api/hicomm/officer/${id}/force-reauth`, { method: 'POST' }); showToast(`Done — ${r.killed} session(s) killed`, 'success'); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+  window.hcViewAs = async function (id) {
+    const box = $('hc-viewas');
+    box.innerHTML = '<div class="panel glass" style="margin-bottom:16px;"><div class="table-loading"><div class="spinner"></div></div></div>';
+    let p; try { p = await api(`/api/hicomm/officer/${id}/access-preview`); } catch (e) { box.innerHTML = `<div class="panel glass" style="margin-bottom:16px;"><div class="table-empty-text" style="padding:14px;">${esc(e.message)}</div></div>`; return; }
+    const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}${d.tier === 'LEAD' ? ' (lead)' : ''}`).join('<br>') || '—';
+    const standing = p.standing.blacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : (p.standing.mustReauth ? '<span class="badge badge-pending"><span class="badge-dot"></span>Must re-auth</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Good standing</span>');
+    box.innerHTML = `<div class="panel glass fade-up" style="margin-bottom:16px;border-left:3px solid var(--blue);"><div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Viewing as ${esc(p.officer.name)} — read only</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hc-viewas').innerHTML=''"><i class="ti ti-x"></i></button></div>
+      <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;">
+        <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Site role</div>${esc(p.role)}${p.metHicomm ? ' · MET HICOMM' : ''}</div>
+        <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Standing</div>${standing}</div>
+        <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Divisions &amp; rank</div>${divs}</div>
+        <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Can access</div>${p.pages.map(x => `<div>• ${esc(x)}</div>`).join('')}</div>
+      </div></div>`;
   };
 
   // ── Audit trail ──
