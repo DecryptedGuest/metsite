@@ -64,8 +64,8 @@ async function initMetTopbar(currentDivision) {
       const btn = document.createElement('button');
       btn.id = 'met-cmdk-btn';
       btn.className = 'btn btn-ghost btn-sm';
-      btn.title = 'Command palette';
-      btn.innerHTML = `<i class="ti ti-search"></i> <span class="cmdk-kbd" style="opacity:.7;font-size:11px;">${isMac ? '⌘' : 'Ctrl'}K</span>`;
+      btn.title = 'Search (' + (isMac ? '⌘K' : 'Ctrl + K') + ')';
+      btn.innerHTML = `<i class="ti ti-search"></i> <span style="margin:0 2px;">Search</span> <span class="cmdk-kbd" style="opacity:.6;font-size:11px;">${isMac ? '⌘K' : 'Ctrl + K'}</span>`;
       btn.addEventListener('click', function () { window.openCommandPalette(); });
       right.insertBefore(btn, right.firstChild);
     }
