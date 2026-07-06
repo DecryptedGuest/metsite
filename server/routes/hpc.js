@@ -42,7 +42,7 @@ function summariseSubmission(s, full) {
     createdAt: s.createdAt,
   };
   if (!full) return base;
-  return { ...base, answers: s.answers, detection: s.detection, flags: s.flags, scores: s.scores, markerNote: s.markerNote };
+  return { ...base, answers: s.answers, detection: s.detection, flags: s.flags, scores: s.scores, markerNote: s.markerNote, aiScan: s.aiScan || null };
 }
 
 // GET /api/hpc/exam/results — read-only list of ALL exams + marks/status for
@@ -103,6 +103,45 @@ router.get('/exam/submissions/:id', requireHpcMarker, async (req, res) => {
     res.json({ paper: hpcExam.publicPaper(), submission: summariseSubmission(s, true) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load submission' });
+  }
+});
+
+// POST /api/hpc/exam/submissions/:id/ai-scan — run the free-text answers through
+// every configured AI detector and store the aggregated result on the exam.
+// Only scans substantive written answers (paragraph/short), never the
+// multiple-choice / username / agreement fields. Marker-gated.
+router.post('/exam/submissions/:id/ai-scan', requireHpcMarker, async (req, res) => {
+  try {
+    const s = await prisma.hpcExamSubmission.findUnique({ where: { id: req.params.id } });
+    if (!s) return res.status(404).json({ error: 'Submission not found' });
+
+    const answers = s.answers || {};
+    const items = hpcExam.QUESTIONS
+      .filter(q => q.type === 'paragraph' || q.type === 'short')
+      .filter(q => !['roblox_username', 'discord_username'].includes(q.id))
+      .map(q => ({ qid: q.id, prompt: q.prompt, text: String(answers[q.id] || '') }))
+      .filter(it => it.text.trim());
+
+    const aiDetect = require('../lib/aiDetect');
+    const scan = await aiDetect.scanAnswers(items);
+    const record = {
+      at: new Date().toISOString(),
+      scannedById: req.user.id,
+      scannedByName: req.user.displayName || req.user.discordUsername,
+      ...scan,
+    };
+    await prisma.hpcExamSubmission.update({ where: { id: s.id }, data: { aiScan: record } }).catch(() => {});
+
+    audit.record({
+      req, action: 'EXAM_AI_SCAN', category: 'exam', targetType: 'submission', targetId: s.id,
+      summary: `AI-scanned ${s.discordUsername || s.robloxUsername || 'a cadet'}'s final exam — overall ${scan.overall == null ? 'n/a' : scan.overall + '%'} across ${scan.providers.length} detector(s)`,
+      metadata: { overall: scan.overall, providers: scan.providers },
+    });
+
+    res.json(record);
+  } catch (err) {
+    console.error('[HPC] exam AI scan failed:', err.message);
+    res.status(500).json({ error: 'Failed to run AI scan' });
   }
 });
 

@@ -521,6 +521,7 @@ model HpcExamSubmission {
   answers         Json      // { [questionId]: answerString }
   detection       Json?     // raw anti-cheat telemetry from the exam page
   flags           Json?     // computed [{ severity, code, label, detail }]
+  aiScan          Json?     // AI-detector results { at, scannedByName, providers, overall, perAnswer }
   status          String    @default("PENDING") // PENDING | PASSED | FAILED
   scores          Json?     // { [questionId]: pointsAwarded } (set at marking)
   score           Int?      // total awarded

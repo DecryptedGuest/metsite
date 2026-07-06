@@ -139,6 +139,9 @@ async function openMark(id) {
       </div>`
       : `<div style="font-size:12px;color:var(--green);margin-bottom:1rem;"><i class="ti ti-shield-check"></i> No cheating/AI signals detected.</div>`;
 
+    // AI-detector scan panel.
+    renderAiScan(submission.aiScan);
+
     // Per-question answer + score input.
     const marked = submission.status !== 'PENDING';
     document.getElementById('mark-questions').innerHTML = paper.questions.map((q, i) => {
@@ -164,6 +167,69 @@ async function openMark(id) {
     showToast(err.message, 'error');
   }
 }
+
+function aiColor(p) {
+  if (p == null) return 'var(--text-muted)';
+  if (p >= 60) return 'var(--red)';
+  if (p >= 30) return 'var(--amber)';
+  return 'var(--green)';
+}
+
+// Render the AI-detector panel inside the mark modal. `scan` may be null (never
+// run), a { configured:false } notice, or a full multi-provider result.
+window.renderAiScan = function (scan) {
+  const el = document.getElementById('mark-aiscan');
+  if (!el) return;
+  const btn = `<button class="btn btn-ghost btn-sm" id="ai-scan-btn" onclick="runAiScan()"><i class="ti ti-robot"></i> ${scan ? 'Re-scan for AI' : 'Scan for AI'}</button>`;
+
+  if (!scan) {
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;">${btn}
+      <span style="font-size:12px;color:var(--text-muted);">Run the written answers through the configured AI detectors.</span></div>`;
+    return;
+  }
+  if (scan.configured === false) {
+    el.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;gap:10px;">${btn}<span style="font-size:12px;color:var(--amber);">${esc(scan.message || 'No AI detectors configured.')}</span></div></div>`;
+    return;
+  }
+  const providerChips = (scan.providers || []).map(p => `<span class="met-chip" style="font-size:10px;">${esc(p)}</span>`).join(' ');
+  const perAnswer = (scan.perAnswer || []).map(a => {
+    const provs = (a.providers || []).map(pr => `<span style="font-size:10px;color:${aiColor(pr.aiProbability)};" ${pr.error ? `title="${esc(pr.error)}"` : ''}>${esc(pr.name)}: ${pr.aiProbability == null ? '—' : pr.aiProbability + '%'}</span>`).join(' · ');
+    const prompt = a.prompt || '';
+    return `<div style="padding:5px 0;border-bottom:1px solid var(--border-dim);">
+      <div style="font-size:11px;color:var(--text-muted);">${esc(prompt.slice(0, 80))}${prompt.length > 80 ? '…' : ''}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px;"><span style="font-weight:700;color:${aiColor(a.overall)};">${a.overall == null ? '—' : a.overall + '% AI'}</span><span style="font-size:10px;color:var(--text-muted);">${provs}</span></div>
+    </div>`;
+  }).join('') || '<div style="font-size:12px;color:var(--text-muted);">No answers were long enough to scan reliably.</div>';
+
+  el.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+      <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;"><i class="ti ti-robot"></i> AI detection</div>${btn}</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <div style="font-size:22px;font-weight:800;color:${aiColor(scan.overall)};">${scan.overall == null ? '—' : scan.overall + '%'}</div>
+      <div style="font-size:11px;color:var(--text-muted);">overall AI likelihood · ${(scan.providers || []).length} detector(s): ${providerChips}</div>
+    </div>
+    ${scan.message ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${esc(scan.message)}</div>` : ''}
+    <div>${perAnswer}</div>
+    ${scan.scannedByName ? `<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">Scanned by ${esc(scan.scannedByName)}${scan.at ? ' · ' + formatDateTime(scan.at) : ''}</div>` : ''}
+  </div>`;
+};
+
+window.runAiScan = async function () {
+  if (!hpcCurrent) return;
+  const btn = document.getElementById('ai-scan-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Scanning…'; }
+  try {
+    const scan = await api('/api/hpc/exam/submissions/' + hpcCurrent.id + '/ai-scan', { method: 'POST' });
+    hpcCurrent.aiScan = scan;
+    renderAiScan(scan);
+    if (scan.configured === false) showToast(scan.message || 'No AI detectors configured.', 'warning');
+    else showToast('AI scan complete' + (scan.overall != null ? ` — ${scan.overall}% overall` : ''), 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+    renderAiScan(hpcCurrent.aiScan || null);
+  }
+};
 
 function recalcMark() {
   let total = 0;
