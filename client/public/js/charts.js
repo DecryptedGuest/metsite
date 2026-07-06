@@ -17,16 +17,55 @@
       return `<line x1="${pad.l}" y1="${gy}" x2="${w - pad.r}" y2="${gy}" stroke="var(--border,#2a2a2a)" stroke-width="1" opacity="0.5"/>`
         + `<text x="${pad.l - 6}" y="${gy + 3}" text-anchor="end" font-size="9" fill="var(--text-muted,#888)">${nfmt(Math.round(max * f))}</text>`;
     }).join('');
-    const paths = series.map(s => {
+    // Line + area, with a draw-in animation (pathLength=1 → stroke-dashoffset).
+    const paths = series.map((s, si) => {
       const d = s.points.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
       const area = `${d} L${x(s.points.length - 1).toFixed(1)},${pad.t + ih} L${x(0).toFixed(1)},${pad.t + ih} Z`;
-      return `<path d="${area}" fill="${s.color}" opacity="0.08"/><path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      return `<path d="${area}" fill="${s.color}" style="opacity:0;animation:mcFade .7s ease ${0.15 * si + 0.25}s forwards;"/>`
+        + `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;animation:mcDraw .9s ease ${0.15 * si}s forwards;"/>`;
+    }).join('');
+    // Point dots (fade in after the line draws).
+    const dots = series.map(s => s.points.map((v, i) =>
+      `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.4" fill="${s.color}" style="opacity:0;animation:mcFade .4s ease .7s forwards;"/>`).join('')).join('');
+    // Invisible hover bands → tooltip showing every series value at that x.
+    const bandW = n > 1 ? iw / (n - 1) : iw;
+    const bands = labels.map((l, i) => {
+      const payload = [esc(l)].concat(series.map(s => `${esc(s.name)}␟${s.color}␟${nfmt(s.points[i])}`)).join('␞');
+      const bx = Math.max(pad.l, x(i) - bandW / 2);
+      return `<rect x="${bx.toFixed(1)}" y="${pad.t}" width="${bandW.toFixed(1)}" height="${ih}" fill="transparent" data-p="${payload}" onmousemove="MetCharts._tip(event,this.getAttribute('data-p'))" onmouseleave="MetCharts._tipHide()"></rect>`;
     }).join('');
     const xticks = labels.map((l, i) => (i % Math.ceil(n / 6) === 0 || i === n - 1)
       ? `<text x="${x(i)}" y="${h - 6}" text-anchor="middle" font-size="9" fill="var(--text-muted,#888)">${esc(l)}</text>` : '').join('');
     const legend = series.length > 1 ? `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font-size:11px;">${series.map(s => `<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};display:inline-block;"></span>${esc(s.name)}</span>`).join('')}</div>` : '';
-    return `<div><svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;">${grid}${paths}${xticks}</svg>${legend}</div>`;
+    return `<div><style>@keyframes mcDraw{to{stroke-dashoffset:0}}@keyframes mcFade{to{opacity:1}}</style>`
+      + `<svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;">${grid}${paths}${dots}${bands}${xticks}</svg>${legend}</div>`;
   }
+
+  // ── Interactive tooltip (shared) ──
+  function _tipEl() {
+    let el = document.getElementById('mc-tip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'mc-tip';
+      el.style.cssText = 'position:fixed;z-index:12000;pointer-events:none;background:var(--panel-solid,#151821);border:1px solid var(--border,#2a2a2a);border-radius:9px;padding:8px 11px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);display:none;white-space:nowrap;';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function _tip(evt, payload) {
+    const el = _tipEl();
+    const parts = String(payload).split('␞');
+    const label = parts.shift();
+    el.innerHTML = `<div style="font-weight:700;margin-bottom:5px;">${label}</div>` + parts.map(p => {
+      const seg = p.split('␟');
+      return `<div style="display:flex;align-items:center;gap:7px;line-height:1.6;"><span style="width:9px;height:9px;border-radius:2px;background:${seg[1]};display:inline-block;"></span>${seg[0]}: <strong>${seg[2]}</strong></div>`;
+    }).join('');
+    el.style.display = 'block';
+    const px = evt.clientX + 14, py = evt.clientY + 14;
+    el.style.left = Math.min(px, window.innerWidth - el.offsetWidth - 12) + 'px';
+    el.style.top = Math.min(py, window.innerHeight - el.offsetHeight - 12) + 'px';
+  }
+  function _tipHide() { const el = document.getElementById('mc-tip'); if (el) el.style.display = 'none'; }
 
   // Horizontal bar list. rows: [{ label, value, sub?, color? }]
   function barList(rows, opts = {}) {
@@ -69,5 +108,5 @@
       </svg></div>`;
   }
 
-  window.MetCharts = { lineChart, barList, funnel, gauge, nfmt };
+  window.MetCharts = { lineChart, barList, funnel, gauge, nfmt, _tip, _tipHide };
 })();

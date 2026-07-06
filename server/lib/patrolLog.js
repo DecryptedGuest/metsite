@@ -43,7 +43,10 @@ function parseTimeValue(str) {
     if (ap === 'pm' && h < 12) h += 12;
     if (ap === 'am' && h === 12) h = 0;
     if (h <= 23 && min <= 59) {
-      return { epoch: null, minutes: h * 60 + min, label: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` };
+      // `hour` + `hadMeridiem` let the caller resolve the 12:xx (noon vs
+      // midnight) ambiguity when no am/pm was written.
+      return { epoch: null, minutes: h * 60 + min, hour: h, hadMeridiem: !!ap,
+        label: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` };
     }
   }
   return null;
@@ -103,8 +106,14 @@ function parsePatrolLog(content) {
     if (start.epoch != null && end.epoch != null) {
       totalMinutes = Math.max(0, Math.round((end.epoch - start.epoch) / 60));
     } else if (start.minutes != null && end.minutes != null) {
-      let diff = end.minutes - start.minutes;
-      if (diff < 0) diff += 24 * 60;
+      const cross = (endMin, startMin) => ((endMin - startMin) % 1440 + 1440) % 1440;
+      let diff = cross(end.minutes, start.minutes);
+      // 12:xx ambiguity: a bare "12:01" after a late start almost always means
+      // 00:01 (just past midnight), not 12:01 noon — e.g. 23:29 → 12:01 is 32
+      // minutes, not 12h32m. Try the midnight reading and prefer the shorter,
+      // more plausible shift length. Same for a bare "12:xx" start.
+      if (end.hour === 12 && !end.hadMeridiem) { const alt = cross(end.minutes - 720, start.minutes); if (alt < diff) diff = alt; }
+      if (start.hour === 12 && !start.hadMeridiem) { const alt = cross(end.minutes, start.minutes - 720); if (alt < diff && alt > 0) diff = alt; }
       totalMinutes = diff;
     }
   }
@@ -232,14 +241,28 @@ async function awardMetEventPoint(log) {
 }
 
 function serialize(p) {
+  // Re-derive times from the raw content on every read, so parser improvements
+  // apply retroactively to logs captured earlier (and correct any stale/wrong
+  // stored value). Falls back to the stored value when re-parsing yields nothing.
+  let shiftStart = p.shiftStart || null, shiftEnd = p.shiftEnd || null;
+  let totalMinutes = p.totalMinutes, division = p.division;
+  if (p.rawContent) {
+    try {
+      const re = parsePatrolLog(p.rawContent);
+      if (re.shiftStart) shiftStart = re.shiftStart;
+      if (re.shiftEnd)   shiftEnd   = re.shiftEnd;
+      if (re.totalMinutes != null) totalMinutes = re.totalMinutes;
+      if (re.division)   division   = re.division;
+    } catch (e) { /* keep stored values */ }
+  }
   return {
     id: p.id, type: p.type || 'PATROL', messageId: p.messageId, channelId: p.channelId,
     pointAwarded: !!p.pointAwarded,
     submitterDiscordId: p.submitterDiscordId,
     submitterUsername: p.submitterUsername, submitterDisplayName: p.submitterDisplayName,
-    division: p.division || 'N/A',
-    shiftStart: p.shiftStart || null, shiftEnd: p.shiftEnd || null,
-    totalMinutes: p.totalMinutes, totalLabel: formatTotal(p.totalMinutes),
+    division: division || 'N/A',
+    shiftStart: shiftStart, shiftEnd: shiftEnd,
+    totalMinutes: totalMinutes, totalLabel: formatTotal(totalMinutes),
     images: Array.isArray(p.images) ? p.images : [],
     status: p.status, reviewedByName: p.reviewedByName, reviewedAt: p.reviewedAt,
     createdAt: p.createdAt,
