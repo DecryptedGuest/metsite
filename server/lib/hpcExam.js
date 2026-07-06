@@ -70,6 +70,44 @@ function publicPaper() {
 // so markers get plain-English warnings. Best-effort (a determined cheat can
 // tamper with client signals), but catches the common cases: pasting answers,
 // tab-switching to Google, instant AI paste, devtools, etc.
+// Heuristic AI-writing detector for free-text answers. Returns { score, reasons }.
+// Deliberately conservative for short in-character police answers to avoid
+// punishing genuinely tidy writers — a flag needs multiple independent tells.
+function aiWritingSignals(text) {
+  const reasons = [];
+  let score = 0;
+  const t = String(text);
+  const lower = t.toLowerCase();
+
+  // 1) Phrases strongly associated with LLM output / essay register.
+  const tells = [
+    /\bas an ai\b/, /\blanguage model\b/, /\bit(?:'|’| i)s important to (?:note|remember|understand)\b/,
+    /\bfurthermore\b/, /\bmoreover\b/, /\bin conclusion\b/, /\bit is worth noting\b/,
+    /\bensure(?:s|d)? the safety and well-?being\b/, /\bde-?escalat/, /\bmaintain(?:ing)? (?:composure|professionalism)\b/,
+    /\bfirstly\b[\s\S]*\bsecondly\b/, /\bin accordance with (?:established )?protocol/,
+  ];
+  const hit = tells.filter(re => re.test(lower));
+  if (hit.length >= 2) { score += 2; reasons.push(`${hit.length} essay/LLM-style phrases`); }
+  else if (hit.length === 1) { score += 1; reasons.push('an essay/LLM-style phrase'); }
+
+  // 2) Typographic tells not produced by plain textarea typing: em-dashes,
+  //    curly quotes — usually copied from a word processor or AI output.
+  if (/[—]/.test(t)) { score += 1; reasons.push('em-dashes (—)'); }
+  if (/[‘’“”]/.test(t)) { score += 1; reasons.push('curly quotes'); }
+
+  // 3) Low burstiness: AI produces uniform sentence lengths; humans vary a lot.
+  const sentences = t.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
+  if (sentences.length >= 3) {
+    const lens = sentences.map(s => s.split(/\s+/).length);
+    const mean = lens.reduce((a, b) => a + b, 0) / lens.length;
+    const variance = lens.reduce((a, b) => a + (b - mean) * (b - mean), 0) / lens.length;
+    const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
+    if (mean >= 10 && cv < 0.25) { score += 1; reasons.push('uniform sentence lengths (low burstiness)'); }
+  }
+
+  return { score, reasons };
+}
+
 function computeFlags(answers, detection) {
   const flags = [];
   const d = detection || {};
@@ -82,7 +120,8 @@ function computeFlags(answers, detection) {
     if (q.type !== 'paragraph' && q.type !== 'short') continue;
     const pq = per[q.id] || {};
     const ans = (answers && answers[q.id]) || '';
-    const len = String(ans).trim().length;
+    const text = String(ans).trim();
+    const len = text.length;
     if ((pq.pastedChars || 0) > 0) {
       add('high', 'paste', `Pasted into "${q.id}"`, `${pq.pastedChars} characters pasted (${pq.pasteCount || 1} paste${(pq.pasteCount || 1) > 1 ? 's' : ''}).`);
     } else if (len >= 25 && (pq.keystrokes || 0) < len * 0.5) {
@@ -91,6 +130,33 @@ function computeFlags(answers, detection) {
     // Very fast, long, "written" answer → possible pre-written/AI paste.
     if (len >= 60 && (pq.activeMs || 0) > 0 && (pq.activeMs || 0) < 4000) {
       add('medium', 'fast_answer', `"${q.id}" written very fast`, `${len} chars in ${(pq.activeMs / 1000).toFixed(1)}s of focus.`);
+    }
+
+    // AI-writing heuristics on the answer text itself (works even if the cadet
+    // retyped an AI answer by hand, which the paste/keystroke checks miss).
+    if (q.type === 'paragraph' && len >= 40) {
+      const ai = aiWritingSignals(text);
+      if (ai.score >= 3) {
+        add('high', 'ai_writing', `"${q.id}" reads as AI-generated`, `AI-writing signals: ${ai.reasons.join('; ')}.`);
+      } else if (ai.score === 2) {
+        add('medium', 'ai_writing', `"${q.id}" may be AI-assisted`, `Possible AI-writing signals: ${ai.reasons.join('; ')}.`);
+      }
+    }
+
+    // Keystroke-cadence biometrics: superhuman sustained speed, or an
+    // unnaturally uniform rhythm (bot / macro / paste-and-edit). Uses optional
+    // per-question cadence telemetry when the exam page provides it.
+    if (len >= 40) {
+      const active = pq.activeMs || 0;
+      if (active >= 1000 && (pq.pastedChars || 0) === 0) {
+        const cps = len / (active / 1000);
+        if (cps > 13) add('high', 'superhuman_typing', `"${q.id}" typed impossibly fast`, `${cps.toFixed(1)} chars/sec sustained over ${len} chars — beyond human typing.`);
+      }
+      // Coefficient of variation of inter-keystroke gaps: human typing is bursty
+      // (cv typically > 0.5); a near-constant rhythm suggests automation.
+      if (typeof pq.cadenceCv === 'number' && (pq.keystrokes || 0) >= 30 && pq.cadenceCv < 0.18) {
+        add('medium', 'robotic_cadence', `"${q.id}" typed with robotic rhythm`, `Keystroke timing was near-uniform (cv ${pq.cadenceCv.toFixed(2)}), unusual for natural typing.`);
+      }
     }
   }
 

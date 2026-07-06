@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",
+    "@simplewebauthn/server": "^10.0.1",
     "cookie-parser": "^1.4.6",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.1",

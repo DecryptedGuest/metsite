@@ -32,6 +32,10 @@ model User {
   createdAt       DateTime @default(now())
   lastLogin       DateTime @default(now())
 
+  // In-flight WebAuthn challenge (registration or step-up authentication). Held
+  // between the two ceremony round-trips; cleared once consumed.
+  webauthnChallenge String?
+
   // Cached result of resolving this user's Discord roles against the
   // per-division role env vars, e.g. [{"division":"CID","rank":"LEAD"}].
   // Refreshed at login and by the same background revalidator that
@@ -46,6 +50,8 @@ model User {
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
   tryoutLogs         TryoutLog[]
+  sessions           Session[]
+  passkeys           Passkey[]
 
   cases              Case[]
   caseActions        CaseAction[]
@@ -736,12 +742,13 @@ model SupportBlacklist {
   @@map("support_blacklist")
 }
 
-// Immutable action trail — every privileged action across the portal, for the
-// MET HICOMM oversight dashboard. Append-only (never updated/deleted in code).
+// Immutable action trail — every privileged / security-sensitive action across
+// the site, for the MET HICOMM + Dev oversight dashboards. Append-only. This is
+// the unified model (merges the HICOMM oversight trail with the security trail).
 model AuditLog {
   id         String   @id @default(uuid())
-  category   String   // GROUP | SUPPORT | TRYOUT | CASE | TICKET | ACCESS | DEV
-  action     String   // RANK_CHANGE | KICK | BLACKLIST | CLOSE | DELETE | APPROVE …
+  category   String   // GROUP | SUPPORT | TRYOUT | CASE | TICKET | ACCESS | DEV | exam | auth | admin | moderation | SECURITY
+  action     String   // RANK_CHANGE | KICK | BLACKLIST | CLOSE | DELETE | APPROVE | SESSION_REVOKE …
   actorId    String?
   actorName  String?
   actorRole  String?
@@ -750,7 +757,8 @@ model AuditLog {
   targetName String?
   division   String?
   summary    String?
-  meta       Json?
+  metadata   Json?
+  ip         String?
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
@@ -789,4 +797,47 @@ model SupportMessage {
 
   @@index([ticketId])
   @@map("support_messages")
+}
+
+// Server-side login sessions — one per sign-in. The JWT carries this row's id
+// (jti); requireAuth checks it exists and isn't revoked, giving instant
+// revocation ("sign out everywhere") and an Active Sessions panel.
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  ip         String?
+  userAgent  String?
+  device     String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  stepUpAt   DateTime? // last successful passkey step-up on this session
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// WebAuthn passkey / security key registered by a user, for passwordless
+// step-up ("2FA"). Stores the credential id + public key + signature counter
+// per the WebAuthn spec so authentication assertions can be verified.
+model Passkey {
+  id           String    @id @default(uuid())
+  userId       String
+  credentialId String    @unique   // base64url credential ID
+  publicKey    Bytes                // COSE public key
+  counter      BigInt    @default(0)
+  transports   String?              // JSON array e.g. ["internal","hybrid"]
+  deviceType   String?              // singleDevice | multiDevice
+  backedUp     Boolean   @default(false)
+  name         String?              // user-facing label ("MacBook Touch ID")
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkeys")
 }

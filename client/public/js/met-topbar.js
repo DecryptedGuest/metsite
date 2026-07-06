@@ -56,6 +56,21 @@ async function initMetTopbar(currentDivision) {
     }
   } catch (e) { /* non-fatal */ }
 
+  // Inject a discoverable ⌘K / Ctrl-K command-palette trigger into the topbar.
+  try {
+    const right = document.querySelector('.met-topbar-right');
+    if (right && !document.getElementById('met-cmdk-btn') && typeof window.openCommandPalette === 'function') {
+      const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+      const btn = document.createElement('button');
+      btn.id = 'met-cmdk-btn';
+      btn.className = 'btn btn-ghost btn-sm';
+      btn.title = 'Command palette';
+      btn.innerHTML = `<i class="ti ti-search"></i> <span class="cmdk-kbd" style="opacity:.7;font-size:11px;">${isMac ? '⌘' : 'Ctrl'}K</span>`;
+      btn.addEventListener('click', function () { window.openCommandPalette(); });
+      right.insertBefore(btn, right.firstChild);
+    }
+  } catch (e) { /* cosmetic */ }
+
   const switcher = document.getElementById('met-switcher');
   const switcherBtn = document.getElementById('met-switcher-btn');
   if (switcher && switcherBtn) {

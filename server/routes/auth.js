@@ -19,6 +19,29 @@ function getDeveloperDiscordId() { return process.env.DEVELOPER_DISCORD_ID || '1
 // Investigator tiers → IA, Guest/Member → no access.)
 const { roleFromIaGroupRank, resolveDivisionsForUser } = require('../lib/roleResolver');
 
+// Turn a raw User-Agent string into a short human label ("Chrome on Windows")
+// for the Active Sessions panel and new-device alerts. Best-effort only.
+function describeDevice(ua = '') {
+  const s = String(ua);
+  let browser = 'Browser';
+  if (/Edg\//.test(s))                       browser = 'Edge';
+  else if (/OPR\/|Opera/.test(s))            browser = 'Opera';
+  else if (/Chrome\//.test(s) && !/Chromium/.test(s)) browser = 'Chrome';
+  else if (/Chromium/.test(s))               browser = 'Chromium';
+  else if (/Firefox\//.test(s))              browser = 'Firefox';
+  else if (/Safari\//.test(s))               browser = 'Safari';
+
+  let os = 'Unknown OS';
+  if (/Windows NT/.test(s))                  os = 'Windows';
+  else if (/iPhone|iPad|iPod/.test(s))       os = 'iOS';
+  else if (/Android/.test(s))                os = 'Android';
+  else if (/Mac OS X/.test(s))               os = 'macOS';
+  else if (/Linux/.test(s))                  os = 'Linux';
+
+  if (browser === 'Browser' && os === 'Unknown OS') return 'Unknown device';
+  return `${browser} on ${os}`;
+}
+
 // Build the OAuth callback URL so the user stays on the domain they came from
 // (e.g. https://metia.uk/...). PUBLIC_BASE_URL forces a fixed base if set.
 function buildRedirectUri(req) {
@@ -286,19 +309,61 @@ router.get('/discord/callback', async (req, res) => {
       console.warn('[Auth] IP/Roblox enrich skipped:', enrichErr.message);
     }
 
-    // ── Step 6: Issue JWT cookie ──────────────────────────────────
+    // ── Step 6: Create a server-side session + issue JWT cookie ───
+    const { getClientIp } = require('../middleware/visit');
+    const ip = getClientIp(req);
+    const ua = (req.headers['user-agent'] || '').slice(0, 400);
+    const device = describeDevice(ua);
+    const SESSION_DAYS = 7;
+    const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+
+    // New-device / new-IP detection (before creating this session).
+    let isNewDevice = false;
+    try {
+      const priorCount = await prisma.session.count({ where: { userId: user.id } });
+      if (priorCount > 0) {
+        const seen = await prisma.session.findFirst({
+          where: { userId: user.id, OR: [{ ip: ip || undefined }, { device }] },
+        });
+        isNewDevice = !seen;
+      }
+    } catch (e) { /* non-fatal */ }
+
+    let session;
+    try {
+      session = await prisma.session.create({ data: { userId: user.id, ip, userAgent: ua, device, expiresAt } });
+    } catch (e) {
+      console.error('[Auth] session create failed:', e.message);
+      return res.redirect('/login?error=server_error');
+    }
+
     const jwtToken = jwt.sign(
-      { userId: user.id },
+      { userId: user.id, sid: session.id },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: `${SESSION_DAYS}d` }
     );
 
     res.cookie('iacms_token', jwtToken, {
       httpOnly: true,
       secure:   process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge:   7 * 24 * 60 * 60 * 1000,
+      maxAge:   SESSION_DAYS * 24 * 60 * 60 * 1000,
     });
+
+    // Alert on a new device via push (best-effort, non-blocking).
+    if (isNewDevice) {
+      try {
+        const { sendToUser } = require('../lib/push');
+        if (typeof sendToUser === 'function') {
+          sendToUser(user.id, {
+            title: 'New sign-in to your MET account',
+            body: `A new sign-in from ${device}${ip ? ' (' + ip + ')' : ''}. If this wasn't you, revoke it in your dashboard.`,
+            url: '/dashboard',
+          }).catch(() => {});
+        }
+      } catch (e) { /* push optional */ }
+    }
+    try { await require('../lib/audit').record({ req, action: 'LOGIN', category: 'auth', targetType: 'session', targetId: session.id, summary: `Signed in from ${device}`, ip }); } catch (e) {}
 
     console.log('[Auth] Login complete, redirecting to dashboard');
     res.redirect('/dashboard');
@@ -310,7 +375,21 @@ router.get('/discord/callback', async (req, res) => {
 });
 
 // ── POST /auth/logout ─────────────────────────────────────────────
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
+  // Revoke the server-side session so the token can never be replayed, even if
+  // it was copied elsewhere. Best-effort — always clear the cookie regardless.
+  try {
+    const token = req.cookies?.iacms_token;
+    if (token) {
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      if (payload?.sid) {
+        await prisma.session.update({
+          where: { id: payload.sid },
+          data:  { revokedAt: new Date() },
+        }).catch(() => {});
+      }
+    }
+  } catch (e) { /* token invalid/expired — nothing to revoke */ }
   res.clearCookie('iacms_token');
   res.redirect('/login');
 });

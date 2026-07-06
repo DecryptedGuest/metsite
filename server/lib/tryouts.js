@@ -236,6 +236,14 @@ async function fireTryout(t) {
   });
   console.log(`[Tryout] ${t.id} is now LIVE (link: ${link ? 'yes' : 'none'})`);
 
+  // Live in-page broadcast so eligible viewers see the tryout appear instantly.
+  try {
+    require('./events').broadcast('tryout_live', {
+      id: updated.id, hostName: updated.hostName,
+      message: `A MET tryout hosted by ${updated.hostName} is now live!`,
+    });
+  } catch (e) { /* non-fatal */ }
+
   // DM the host with the details + action buttons (best-effort).
   try {
     const { sendTryoutHostDM } = require('./bot');

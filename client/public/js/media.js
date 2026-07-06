@@ -199,7 +199,7 @@ async function submitMediaUpload() {
     if (created && created.id && meta.poster) {
       try {
         await fetch('/api/media/' + created.id + '/poster', {
-          method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: meta.poster, credentials: 'same-origin',
+          method: 'POST', headers: { 'Content-Type': 'image/jpeg', 'X-CSRF-Token': (document.cookie.match(/csrf_token=([^;]+)/) || [])[1] || '' }, body: meta.poster, credentials: 'same-origin',
         });
       } catch (e) {}
     }

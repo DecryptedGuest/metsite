@@ -55,7 +55,8 @@ async function renderForm(prevFailed) {
 
   const box = document.getElementById('exam-questions');
   box.innerHTML = paper.questions.map((q, i) => {
-    perQuestion[q.id] = { keystrokes: 0, pasteCount: 0, pastedChars: 0, activeMs: 0, corrections: 0, focusStart: 0 };
+    perQuestion[q.id] = { keystrokes: 0, pasteCount: 0, pastedChars: 0, activeMs: 0, corrections: 0, focusStart: 0,
+      gapN: 0, gapSum: 0, gapSqSum: 0, lastKeyT: 0 };
     const req = q.required ? '<span class="req">*</span>' : '';
     const pts = `<span class="exam-q-points">${q.points} pts</span>`;
     let field;
@@ -87,7 +88,17 @@ function wireDetection() {
 
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Backspace' || e.key === 'Delete') pq.corrections++;
-      else if (e.key.length === 1) pq.keystrokes++;
+      else if (e.key.length === 1) {
+        pq.keystrokes++;
+        // Inter-keystroke cadence: accumulate gaps under 3s (ignore think-pauses)
+        // so the server can measure typing-rhythm variance (biometric signal).
+        const now = Date.now();
+        if (pq.lastKeyT) {
+          const gap = now - pq.lastKeyT;
+          if (gap > 0 && gap < 3000) { pq.gapN++; pq.gapSum += gap; pq.gapSqSum += gap * gap; }
+        }
+        pq.lastKeyT = now;
+      }
     });
 
     // Detect paste (allowed, but recorded so markers see it).
@@ -138,8 +149,17 @@ async function submitExam() {
 
   if (!confirm('Submit your final exam? You cannot change your answers after submitting.')) return;
 
-  // Flush any in-progress focus timer.
-  Object.values(perQuestion).forEach(pq => { if (pq.focusStart) { pq.activeMs += Date.now() - pq.focusStart; pq.focusStart = 0; } });
+  // Flush any in-progress focus timer + finalise keystroke-cadence variance.
+  Object.values(perQuestion).forEach(pq => {
+    if (pq.focusStart) { pq.activeMs += Date.now() - pq.focusStart; pq.focusStart = 0; }
+    if (pq.gapN >= 5) {
+      const mean = pq.gapSum / pq.gapN;
+      const varc = Math.max(0, (pq.gapSqSum / pq.gapN) - mean * mean);
+      pq.cadenceCv = mean > 0 ? Math.sqrt(varc) / mean : null;
+    }
+    // Drop the raw accumulators — the server only needs cadenceCv.
+    delete pq.gapN; delete pq.gapSum; delete pq.gapSqSum; delete pq.lastKeyT;
+  });
   detection.totalMs = Date.now() - detection.startedAt;
   detection.perQuestion = perQuestion;
 

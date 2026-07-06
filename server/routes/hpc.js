@@ -8,6 +8,7 @@ const prisma  = require('../lib/db');
 const hpcExam = require('../lib/hpcExam');
 const { sendHpcExamResult } = require('../lib/webhook');
 const { requireHpcMarker, requireHpcQuota, userHpcTier } = require('../middleware/division');
+const audit = require('../lib/audit');
 
 const router = express.Router();
 
@@ -150,6 +151,20 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
     }).catch(() => null);
     if (msgId) await prisma.hpcExamSubmission.update({ where: { id: s.id }, data: { resultMessageId: msgId } }).catch(() => {});
 
+    audit.record({
+      req, action: 'EXAM_MARK', category: 'exam', targetType: 'submission', targetId: s.id,
+      summary: `Marked ${s.discordUsername || s.robloxUsername || 'a cadet'}'s final exam: ${total}/${maxScore} (${percentage}%) — ${updated.status}`,
+      metadata: { score: total, maxScore, percentage, status: updated.status },
+    });
+
+    // Live in-page notification to the cadet (best-effort).
+    try {
+      require('../lib/events').publishToUser(s.userId, 'exam_marked', {
+        status: updated.status, score: total, maxScore, percentage,
+        message: `Your final exam has been marked: ${percentage}% — ${passed ? 'PASSED' : 'FAILED'}.`,
+      });
+    } catch (e) { /* non-fatal */ }
+
     res.json({ success: true, status: updated.status, score: total, maxScore, percentage, posted: !!msgId });
   } catch (err) {
     console.error('[HPC] mark failed:', err.message);
@@ -273,6 +288,11 @@ router.post('/tryouts', async (req, res) => {
         notes: notes ? String(notes).slice(0, 500) : null,
       },
     });
+    audit.record({
+      req, action: 'TRYOUT_SCHEDULE', category: 'tryout', targetType: 'tryout', targetId: t.id,
+      summary: `Scheduled a MET tryout for ${when.toISOString()}`,
+      metadata: { scheduledAt: when.toISOString(), lockState: t.lockState },
+    });
     res.status(201).json(tryoutSummary(t));
   } catch (err) {
     console.error('[HPC] schedule tryout failed:', err.message);
@@ -290,6 +310,7 @@ router.post('/tryouts/:id/cancel', async (req, res) => {
     }
     if (['COMPLETED', 'CANCELLED'].includes(t.status)) return res.status(400).json({ error: 'This tryout is already finished.' });
     await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+    audit.record({ req, action: 'TRYOUT_CANCEL', category: 'tryout', targetType: 'tryout', targetId: t.id, summary: 'Cancelled a MET tryout' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to cancel tryout' });

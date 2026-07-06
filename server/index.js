@@ -31,8 +31,61 @@ const { initCsrf }    = require('./lib/roblox');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Secrets hygiene — validate JWT_SECRET at boot ────────────────
+// A missing/weak signing secret silently undermines every session token, so
+// fail fast in production and warn loudly in development rather than booting
+// with an insecure default.
+(function validateJwtSecret() {
+  const s = process.env.JWT_SECRET || '';
+  if (!s) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[FATAL] JWT_SECRET is not set. Refusing to start in production.');
+      process.exit(1);
+    }
+    console.warn('[Security] JWT_SECRET is not set — using an insecure state. Set it before deploying.');
+  } else if (s.length < 32) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[FATAL] JWT_SECRET is too short (${s.length} chars). Use at least 32 random characters.`);
+      process.exit(1);
+    }
+    console.warn(`[Security] JWT_SECRET is weak (${s.length} chars). Use at least 32 random characters.`);
+  }
+})();
+
 // Behind Railway's proxy — trust X-Forwarded-For so client IPs resolve correctly
 app.set('trust proxy', 1);
+
+// ── Security headers (CSP + hardening) ───────────────────────────
+// Set before any route so every response carries them. CSP keeps
+// 'unsafe-inline' for script-src because the app relies on inline <script>
+// blocks and inline onclick handlers; jsdelivr is allowed for the Tabler icon
+// font + html2canvas. Everything else is locked to 'self'.
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+    "font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self'",
+    "media-src 'self' blob: data:",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // camera=(self) is permitted for the exam webcam-proctoring feature; all
+  // other powerful features are denied.
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), payment=(), camera=(self)');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 // Canonical domain redirect — keep the URL bar on the custom domain (e.g. metia.uk).
 // Only redirects browser page navigations; API/asset/health requests pass through.
@@ -80,6 +133,10 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true, limit: process.env.BODY_LIMIT || '256mb' }));
 app.use(cookieParser());
+
+// CSRF: hand every visitor a token cookie their JS can echo back on mutations.
+const { issueCsrfToken, requireCsrf } = require('./middleware/csrf');
+app.use(issueCsrfToken);
 
 // ── Site-private gate (developer-controlled) ─────────────────────
 // When sitePrivate is on, nobody but a logged-in DEVELOPER can reach the
@@ -132,6 +189,27 @@ app.use(express.static(path.join(__dirname, '../client/public')));
 app.use('/auth', rateLimit({ windowMs: 15 * 60 * 1000, max: 50 }));
 app.use('/api',  rateLimit({ windowMs: 1  * 60 * 1000, max: 120 }));
 
+// CSRF enforcement on all state-changing /api requests. /auth is exempt (the
+// OAuth callback is a top-level GET redirect from Discord and can't carry our
+// header; logout only clears a cookie). Safe methods pass through untouched.
+app.use('/api', requireCsrf);
+
+// ── Abuse-focused per-route rate limiters ────────────────────────
+// The blanket /api limiter (120/min) covers ordinary traffic; these are much
+// tighter caps on the few endpoints where abuse is costly or high-impact.
+const examSubmitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 5,
+  message: { error: 'Too many exam submissions. Please wait before trying again.' },
+});
+const moderationLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, max: 20,
+  message: { error: 'Too many moderation actions in a short time. Please slow down.' },
+});
+const tryoutWriteLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, max: 15,
+  message: { error: 'Too many tryout actions. Please wait a moment.' },
+});
+
 // ── Routes ───────────────────────────────────────────────────────
 // Shared across the whole portal.
 app.use('/auth',        authRoutes);
@@ -139,7 +217,15 @@ app.use('/auth',        authRoutes);
 // IA — unchanged route logic, gated to users with IA division access.
 const ia = requireDivision('IA');
 app.use('/api/cases',   requireAuth, ia, caseRoutes);
-app.use('/api/admin',   requireAuth, ia, adminRoutes);
+const { requireStepUp } = require('./middleware/stepup');
+app.use('/api/admin',   requireAuth, ia,
+  (req, res, next) => (/^\/discord\//.test(req.path) && req.method !== 'GET') ? moderationLimiter(req, res, next) : next(),
+  // Passkey step-up on Discord moderation — no-op for users without passkeys.
+  (req, res, next) => (/^\/discord\//.test(req.path) && req.method !== 'GET') ? requireStepUp(req, res, next) : next(),
+  adminRoutes);
+
+// Passkeys / WebAuthn 2FA — available to any signed-in user.
+app.use('/api/webauthn', requireAuth, require('./routes/webauthn'));
 app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
@@ -155,10 +241,14 @@ app.use('/auth/debug',  debugRoutes); // TEMPORARY
 app.use('/api/cid',   requireAuth, cidRoutes);
 app.use('/api/sco19', requireAuth, requireDivision('SCO19'), sco19Routes);
 app.use('/api/flp',   requireAuth, requireDivision('FLP'),   flpRoutes);
-app.use('/api/hpc',   requireAuth, requireDivision('HPC'),   hpcRoutes);
+app.use('/api/hpc',   requireAuth, requireDivision('HPC'),
+  (req, res, next) => (req.method === 'POST' && /^\/tryouts/.test(req.path)) ? tryoutWriteLimiter(req, res, next) : next(),
+  hpcRoutes);
 // Final Examination — MET-wide (cadet eligibility is a Discord role, not HPC
 // division membership), so it is NOT behind the HPC division gate.
-app.use('/api/exam',  requireAuth, examRoutes);
+app.use('/api/exam',  requireAuth,
+  (req, res, next) => (req.method === 'POST' && /^\/submit/.test(req.path)) ? examSubmitLimiter(req, res, next) : next(),
+  examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
 // Support help desk (/support) — login is OPTIONAL. Anyone can open a ticket
@@ -596,6 +686,9 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     })),
     // Whether the MET bot has ever written a profile for this member yet.
     botLinked: !!metProfile,
+    // Mobile app download link (advertised to desktop users). null = show the
+    // promo as "coming soon" until MOBILE_APP_URL is set.
+    mobileAppUrl: process.env.MOBILE_APP_URL || null,
   });
 });
 
@@ -660,6 +753,75 @@ app.get('/api/me/points', requireAuth, async (req, res) => {
     res.json({ configured: true, ...result });
   } catch (err) {
     res.json({ configured: false, error: err.message });
+  }
+});
+
+// ── Live updates (Server-Sent Events) ───────────────────────────
+// Opens a long-lived stream the browser subscribes to for instant in-page
+// updates (exam marked, tryout live, new sign-in). No-op on serverless where
+// connections can't be held; Web Push is the durable fallback.
+app.get('/api/events', requireAuth, (req, res) => {
+  req.socket.setTimeout(0);
+  require('./lib/events').subscribe(req.user.id, res);
+});
+
+// ── Active sessions (device management) ─────────────────────────
+// Lists the user's live sign-ins and lets them revoke any one, or all the
+// others ("sign out everywhere else"). Powered by the server-side Session
+// model that requireAuth validates on every request.
+app.get('/api/me/sessions', requireAuth, async (req, res) => {
+  try {
+    const now = new Date();
+    const rows = await dbPrisma.session.findMany({
+      where: { userId: req.user.id, revokedAt: null, expiresAt: { gt: now } },
+      orderBy: { lastSeenAt: 'desc' },
+    });
+    res.json({
+      sessions: rows.map(s => ({
+        id:        s.id,
+        device:    s.device || 'Unknown device',
+        ip:        s.ip || null,
+        createdAt: s.createdAt,
+        lastSeenAt: s.lastSeenAt,
+        current:   s.id === req.sessionId,
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Could not load sessions.' });
+  }
+});
+
+app.post('/api/me/sessions/:id/revoke', requireAuth, async (req, res) => {
+  try {
+    const target = await dbPrisma.session.findUnique({ where: { id: req.params.id } });
+    if (!target || target.userId !== req.user.id) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    if (target.revokedAt) return res.json({ ok: true, alreadyRevoked: true });
+    await dbPrisma.session.update({ where: { id: target.id }, data: { revokedAt: new Date() } });
+    require('./lib/audit').record({
+      req, action: 'SESSION_REVOKE', category: 'auth', targetType: 'session', targetId: target.id,
+      summary: target.id === req.sessionId ? 'Revoked current session' : `Revoked session on ${target.device || 'a device'}`,
+    });
+    res.json({ ok: true, wasCurrent: target.id === req.sessionId });
+  } catch (e) {
+    res.status(500).json({ error: 'Could not revoke session.' });
+  }
+});
+
+app.post('/api/me/sessions/revoke-others', requireAuth, async (req, res) => {
+  try {
+    const result = await dbPrisma.session.updateMany({
+      where: { userId: req.user.id, revokedAt: null, id: { not: req.sessionId || '' } },
+      data:  { revokedAt: new Date() },
+    });
+    require('./lib/audit').record({
+      req, action: 'SESSION_REVOKE_OTHERS', category: 'auth', targetType: 'user', targetId: req.user.id,
+      summary: `Signed out ${result.count} other session(s)`,
+    });
+    res.json({ ok: true, count: result.count });
+  } catch (e) {
+    res.status(500).json({ error: 'Could not sign out other sessions.' });
   }
 });
 

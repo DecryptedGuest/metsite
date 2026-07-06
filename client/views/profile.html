@@ -56,7 +56,20 @@
 
   <div id="bot-notice" class="glass profile-notice" style="display:none;">
     <i class="ti ti-robot"></i>
-    <span>The MET bot hasn't linked this profile yet, so MET-server roles, perms and punishment history aren't available. Division ranks below are live.</span>
+    <span>The MET bot hasn't linked this profile yet, so perms and punishment history aren't available. Division ranks below are live.</span>
+  </div>
+
+  <!-- Get the mobile app (desktop users only) -->
+  <div id="app-promo" class="glass app-promo fade-up" style="display:none;">
+    <div class="app-promo-icon"><i class="ti ti-device-mobile"></i></div>
+    <div class="app-promo-body">
+      <div class="app-promo-title">Get the MET mobile app</div>
+      <div class="app-promo-sub">Manage your quota, tryouts and exams on the go — faster, with push notifications.</div>
+    </div>
+    <div class="app-promo-actions">
+      <a id="app-promo-link" href="#" target="_blank" rel="noopener" class="btn btn-primary btn-sm"><i class="ti ti-download"></i> Download</a>
+      <button class="btn btn-icon btn-ghost" title="Dismiss" onclick="dismissAppPromo()"><i class="ti ti-x"></i></button>
+    </div>
   </div>
 
   <!-- Final exam (only shown to eligible cadets) -->
@@ -83,12 +96,6 @@
     <div class="profile-section" id="p-divisions"><div class="table-loading"><div class="spinner"></div></div></div>
   </div>
 
-  <!-- MET server roles -->
-  <div class="panel glass fade-up stagger-2">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot purple"></span>MET Server Roles</div></div>
-    <div class="profile-section"><div class="chip-row" id="p-roles"></div></div>
-  </div>
-
   <!-- Perms -->
   <div class="panel glass fade-up stagger-2">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Permissions</div></div>
@@ -105,11 +112,42 @@
       </table>
     </div>
   </div>
+
+  <!-- Active sign-ins / device management -->
+  <div class="panel glass fade-up stagger-3" id="p-sessions-panel">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot blue"></span>Active Sessions</div>
+      <button id="p-sessions-signout-others" class="btn btn-ghost btn-sm" style="display:none;" onclick="revokeOtherSessions()">
+        <i class="ti ti-logout-2"></i> Sign out everywhere else
+      </button>
+    </div>
+    <div class="profile-section" id="p-sessions"><div class="table-loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Passkeys / 2FA -->
+  <div class="panel glass fade-up stagger-3" id="p-passkeys-panel">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot green"></span>Passkeys &amp; 2FA</div>
+      <button id="p-passkey-add" class="btn btn-primary btn-sm" onclick="addPasskey()">
+        <i class="ti ti-fingerprint"></i> Add passkey
+      </button>
+    </div>
+    <div class="profile-section">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">
+        Add a passkey (Face ID, Touch ID, Windows Hello or a security key) for passwordless step-up
+        verification. Once you have a passkey, sensitive actions ask you to confirm with it.
+      </p>
+      <div id="p-passkeys"><div class="table-loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
 </div>
 
 <div id="toast-container"></div>
 <script src="/js/ui.js"></script>
 <script src="/js/met-topbar.js"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/events-client.js"></script>
+<script src="/js/passkeys.js"></script>
 <script src="/js/profile.js"></script>
 <script>initMetTopbar('');</script>
 </body>

@@ -69,10 +69,17 @@ async function loadProfile() {
 
   if (!data.botLinked) document.getElementById('bot-notice').style.display = 'flex';
 
+  // ── Mobile-app promo (desktop only) ──
+  showAppPromo(data.mobileAppUrl);
+
   // ── Final exam (eligible cadets only) ──
   loadExamStatus();
   // ── Upcoming / live tryouts (British citizens) ──
   loadTryouts();
+  // ── Active sign-ins / devices ──
+  loadSessions();
+  // ── Passkeys / 2FA ──
+  loadPasskeys();
 
   // ── Standing / disciplinary flags ──
   const flags = data.flags || [];
@@ -103,17 +110,6 @@ async function loadProfile() {
   } else {
     divEl.innerHTML = `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
-
-  // ── MET server roles ── (division role chips first, then synced Discord roles)
-  const rolesEl = document.getElementById('p-roles');
-  const divChips = (data.divisions || []).map(d =>
-    chip(`${d.name}${d.rankName ? ' · ' + d.rankName : ''}`, d.color));
-  const roles = (data.roles || []).slice().sort((a, b) => (b.position || 0) - (a.position || 0));
-  const roleChips = roles.map(r => chip(r.name, r.color));
-  const allRoleChips = divChips.concat(roleChips);
-  rolesEl.innerHTML = allRoleChips.length
-    ? allRoleChips.join('')
-    : `<span class="chip-empty">No MET-server roles synced yet.</span>`;
 
   // ── Perms ──
   const permsEl = document.getElementById('p-perms');
@@ -167,6 +163,35 @@ async function loadExamStatus() {
   el.innerHTML = html;
 }
 
+// Show the "get the mobile app" promo only on desktop/PC (not phones/tablets),
+// and only if the user hasn't dismissed it.
+function isDesktop() {
+  const ua = navigator.userAgent || '';
+  const mobileUA = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|Kindle|Opera Mini/i.test(ua);
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  return !mobileUA && !coarse && window.innerWidth >= 900;
+}
+function showAppPromo(url) {
+  if (!isDesktop()) return;
+  if (localStorage.getItem('met_app_promo_dismissed') === '1') return;
+  const el = document.getElementById('app-promo');
+  if (!el) return;
+  const link = document.getElementById('app-promo-link');
+  if (url) { link.href = url; }
+  else {
+    link.textContent = 'Coming soon';
+    link.removeAttribute('href');
+    link.classList.add('btn-ghost'); link.classList.remove('btn-primary');
+    link.style.pointerEvents = 'none';
+  }
+  el.style.display = 'flex';
+}
+function dismissAppPromo() {
+  localStorage.setItem('met_app_promo_dismissed', '1');
+  const el = document.getElementById('app-promo');
+  if (el) el.style.display = 'none';
+}
+
 async function loadTryouts() {
   let data;
   try { data = await api('/api/tryouts/upcoming'); } catch (e) { return; }
@@ -196,6 +221,120 @@ async function loadTryouts() {
     </div>`).join('');
 
   el.innerHTML = (liveHtml + upHtml) || '<div class="table-empty-text">No tryouts right now.</div>';
+}
+
+// ── Active sessions / device management ──────────────────────────
+async function loadSessions() {
+  let data;
+  try { data = await api('/api/me/sessions'); } catch (e) { return; }
+  const el = document.getElementById('p-sessions');
+  const sessions = data.sessions || [];
+  if (!sessions.length) {
+    el.innerHTML = '<div class="table-empty-text">No active sessions.</div>';
+    return;
+  }
+  document.getElementById('p-sessions-signout-others').style.display =
+    sessions.filter(s => !s.current).length ? '' : 'none';
+
+  el.innerHTML = sessions.map(s => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
+      <i class="ti ti-device-desktop" style="font-size:20px;color:var(--text-muted);"></i>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">
+          ${escHtml(s.device)}
+          ${s.current ? '<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>This device</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);">
+          ${s.ip ? escHtml(s.ip) + '  ·  ' : ''}Last active ${formatDateTime(s.lastSeenAt)}
+        </div>
+      </div>
+      ${s.current
+        ? ''
+        : `<button class="btn btn-ghost btn-sm" onclick="revokeSession('${s.id}')"><i class="ti ti-x"></i> Sign out</button>`}
+    </div>`).join('');
+}
+
+async function revokeSession(id) {
+  try {
+    const r = await api('/api/me/sessions/' + encodeURIComponent(id) + '/revoke', { method: 'POST' });
+    if (r && r.wasCurrent) { window.location.href = '/login'; return; }
+    showToast('Session signed out.', 'success');
+    loadSessions();
+  } catch (e) { showToast(e.message || 'Could not sign out that session.', 'error'); }
+}
+
+async function revokeOtherSessions() {
+  try {
+    const r = await api('/api/me/sessions/revoke-others', { method: 'POST' });
+    showToast(`Signed out ${r.count} other session${r.count === 1 ? '' : 's'}.`, 'success');
+    loadSessions();
+  } catch (e) { showToast(e.message || 'Could not sign out other sessions.', 'error'); }
+}
+
+// ── Passkeys / 2FA ───────────────────────────────────────────────
+async function loadPasskeys() {
+  const panel = document.getElementById('p-passkeys-panel');
+  const el = document.getElementById('p-passkeys');
+  if (!el) return;
+  // Hide the whole panel on browsers with no WebAuthn support.
+  if (!(window.MetPasskeys && window.MetPasskeys.supported())) {
+    if (panel) panel.style.display = 'none';
+    return;
+  }
+  let data;
+  try { data = await api('/api/webauthn/passkeys'); } catch (e) { el.innerHTML = '<div class="table-empty-text">Could not load passkeys.</div>'; return; }
+  const list = data.passkeys || [];
+  if (!list.length) {
+    el.innerHTML = '<div class="table-empty-text">No passkeys yet. Add one to enable step-up verification.</div>';
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
+      <i class="ti ti-fingerprint" style="font-size:20px;color:var(--text-muted);"></i>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">${escHtml(p.name || 'Passkey')}${p.backedUp ? ' <span class="badge badge-approved" style="margin-left:6px;"><span class="badge-dot"></span>Synced</span>' : ''}</div>
+        <div style="font-size:11px;color:var(--text-muted);">Added ${formatDate(p.createdAt)}${p.lastUsedAt ? '  ·  Last used ' + formatDate(p.lastUsedAt) : ''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="deletePasskey('${p.id}')"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+
+async function addPasskey() {
+  const btn = document.getElementById('p-passkey-add');
+  const name = prompt('Name this passkey (e.g. "MacBook Touch ID"):', 'My passkey');
+  if (name === null) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Waiting…'; }
+  try {
+    await window.MetPasskeys.registerPasskey(name.trim() || 'Passkey');
+    showToast('Passkey added.', 'success');
+    loadPasskeys();
+  } catch (e) {
+    showToast(e.message || 'Could not add passkey.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-fingerprint"></i> Add passkey'; }
+  }
+}
+
+async function deletePasskey(id) {
+  if (!confirm('Remove this passkey? You won’t be able to use it for verification anymore.')) return;
+  try {
+    await api('/api/webauthn/passkeys/' + encodeURIComponent(id), { method: 'DELETE' });
+    showToast('Passkey removed.', 'success');
+    loadPasskeys();
+  } catch (e) { showToast(e.message || 'Could not remove passkey.', 'error'); }
+}
+
+// Run a passkey step-up if the last action returned STEP_UP_REQUIRED. Returns
+// true if verification succeeded. Callers retry the action afterwards.
+async function ensureStepUp() {
+  if (!(window.MetPasskeys && window.MetPasskeys.supported())) return false;
+  try {
+    await window.MetPasskeys.stepUp();
+    return true;
+  } catch (e) {
+    showToast(e.message || 'Passkey verification failed.', 'error');
+    return false;
+  }
 }
 
 function punishmentColor(type) {

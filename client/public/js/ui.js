@@ -194,11 +194,32 @@ function browserFp() {
   } catch (e) { return ''; }
 }
 
+// Read the CSRF token the server set as a readable cookie, so it can be echoed
+// back on every state-changing request (double-submit-cookie protection).
+function getCsrfToken() {
+  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', 'x-support-fp': browserFp(), ...options.headers },
+    headers: { 'Content-Type': 'application/json', 'x-support-fp': browserFp(), 'X-CSRF-Token': getCsrfToken(), ...options.headers },
     ...options,
   });
+
+  // Passkey step-up: the action needs a fresh passkey verification. Run the
+  // ceremony, then retry the original request once — transparent to callers.
+  if (res.status === 401 && !options.__steppedUp && window.MetPasskeys && window.MetPasskeys.supported()) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body.code === 'STEP_UP_REQUIRED') {
+      try {
+        await window.MetPasskeys.stepUp();
+        return api(path, { ...options, __steppedUp: true });
+      } catch (e) {
+        throw new Error(e.message || 'Passkey verification is required for this action.');
+      }
+    }
+  }
 
   // A lost/expired session (401) sends the user back to login. A 403 is a
   // PERMISSION response, not a lost session — only a blacklist 403 should bounce
@@ -467,3 +488,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(saved);
 });
+
+// ── Global fetch hardening ───────────────────────────────────────────
+// Ensure EVERY same-origin state-changing request carries the CSRF token +
+// browser fingerprint, even raw fetch() calls that don't go through api()
+// (file uploads, push subscribe, etc.). api() already sets them; this is the
+// backstop so nothing is silently rejected by the CSRF gate.
+(function () {
+  if (window.__metFetchWrapped || typeof window.fetch !== 'function') return;
+  window.__metFetchWrapped = true;
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      init = init || {};
+      const method = String(init.method || (input && typeof input === 'object' && input.method) || 'GET').toUpperCase();
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const sameOrigin = url.startsWith('/') || (location && url.startsWith(location.origin));
+      if (sameOrigin && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+        const h = new Headers(init.headers || (input && typeof input === 'object' ? input.headers : undefined) || {});
+        if (!h.has('X-CSRF-Token')) { const t = getCsrfToken(); if (t) h.set('X-CSRF-Token', t); }
+        if (!h.has('x-support-fp')) { const f = browserFp(); if (f) h.set('x-support-fp', f); }
+        init = Object.assign({}, init, { headers: h });
+      }
+    } catch (e) { /* never break fetch */ }
+    return _fetch(input, init);
+  };
+})();

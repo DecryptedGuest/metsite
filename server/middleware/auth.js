@@ -59,6 +59,38 @@ async function requireAuth(req, res, next) {
       : res.redirect('/login?error=access_revoked');
   }
 
+  // 3) Server-side session check — gives instant revocation ("sign out
+  //    everywhere") and powers the Active Sessions panel. Tokens issued before
+  //    this feature (no `sid`) are treated as stale → re-login. A transient DB
+  //    error here must NOT log the user out (same reasoning as the user load).
+  if (payload.sid) {
+    let session;
+    try {
+      session = await prisma.session.findUnique({ where: { id: payload.sid } });
+    } catch (dbErr) {
+      console.error('[Auth] session lookup failed (transient):', dbErr.message);
+      return isApi
+        ? res.status(503).json({ error: 'Server busy — please retry.' })
+        : res.status(503).send('Server busy — please refresh in a moment.');
+    }
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      res.clearCookie('iacms_token');
+      return isApi
+        ? res.status(401).json({ error: 'Your session has ended. Please sign in again.' })
+        : res.redirect('/login?error=access_revoked');
+    }
+    req.sessionId = session.id;
+    // Throttled lastSeen bump (~5 min) — never block the request on it.
+    if (Date.now() - new Date(session.lastSeenAt).getTime() > 5 * 60 * 1000) {
+      prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(() => {});
+    }
+  } else {
+    res.clearCookie('iacms_token');
+    return isApi
+      ? res.status(401).json({ error: 'Please sign in again.' })
+      : res.redirect('/login?error=access_revoked');
+  }
+
   req.user = user;
   next();
 

@@ -97,7 +97,7 @@
       try {
         fetch("/api/security/capture", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": (document.cookie.match(/csrf_token=([^;]+)/) || [])[1] || "" },
           credentials: "same-origin",
           keepalive: true,
           body: JSON.stringify(payload),
