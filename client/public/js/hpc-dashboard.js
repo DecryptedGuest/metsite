@@ -225,11 +225,8 @@ window.renderAiScan = function (scan) {
 
   el.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-      <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;"><i class="ti ti-robot"></i> AI detection</div>${btn}</div>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-      <div style="font-size:22px;font-weight:800;color:${aiColor(scan.overall)};">${scan.overall == null ? '—' : scan.overall + '%'}</div>
-      <div style="font-size:11px;color:var(--text-muted);">overall AI likelihood · ${(scan.providers || []).length} detector(s): ${providerChips}</div>
-    </div>
+      <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;"><i class="ti ti-robot"></i> AI detection — per answer</div>${btn}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">${(scan.providers || []).length} detector(s): ${providerChips}</div>
     ${scan.message ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${esc(scan.message)}</div>` : ''}
     <div>${perAnswer}</div>
     ${scan.scannedByName ? `<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">Scanned by ${esc(scan.scannedByName)}${scan.at ? ' · ' + formatDateTime(scan.at) : ''}</div>` : ''}
@@ -245,7 +242,7 @@ window.runAiScan = async function () {
     hpcCurrent.aiScan = scan;
     renderAiScan(scan);
     if (scan.configured === false) showToast(scan.message || 'No AI detectors configured.', 'warning');
-    else showToast('AI scan complete' + (scan.overall != null ? ` — ${scan.overall}% overall` : ''), 'success');
+    else showToast('AI scan complete', 'success');
   } catch (e) {
     showToast(e.message, 'error');
     renderAiScan(hpcCurrent.aiScan || null);

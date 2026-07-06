@@ -12,6 +12,8 @@ let paper = null;
 let ME = null;                 // signed-in user (for the per-account draft key)
 let identity = { confirmed: false, roblox: '', discord: '', details: null };
 let pendingLookup = null;      // the looked-up Roblox details awaiting "yes it's me"
+let agreementStatement = null; // the Q15 agreement text (with a (USERNAME) placeholder)
+let globalsWired = false;      // attach document-level detection listeners only once
 const perQuestion = {};       // qid -> { keystrokes, pasteCount, pastedChars, activeMs, corrections, focusStart }
 const detection = {
   startedAt: Date.now(),
@@ -90,6 +92,10 @@ async function renderForm(prevFailed) {
   // Identity card (roblox_username + discord_username handled here, not inline).
   renderIdentityCard(draft);
 
+  // Capture the agreement statement (for the Copy button).
+  const agQ = paper.questions.find(q => q.type === 'agreement');
+  agreementStatement = agQ ? (agQ.statement || agQ.prompt) : null;
+
   // The remaining questions.
   const box = document.getElementById('exam-questions');
   box.innerHTML = paper.questions.filter(q => !ID_QIDS.includes(q.id)).map((q, idx) => {
@@ -99,7 +105,15 @@ async function renderForm(prevFailed) {
     if (q.type === 'choice') {
       field = q.options.map(opt => `
         <label class="exam-choice"><input type="radio" name="${q.id}" value="${esc(opt)}" /> ${esc(opt)}</label>`).join('');
-    } else if (q.type === 'paragraph' || q.type === 'agreement') {
+    } else if (q.type === 'agreement') {
+      // Copying the statement is necessary here, so it's exempt from the copy
+      // flag. The Copy button fills (USERNAME) with the cadet's Roblox name.
+      field = `<div id="agreement-block">
+        <div id="agreement-statement" style="font-size:13px;color:var(--text-secondary);background:rgba(255,255,255,0.03);border:1px solid var(--border-dim);border-radius:6px;padding:10px 12px;line-height:1.6;">${esc(agreementStatement || '')}</div>
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="copyAgreement()"><i class="ti ti-copy"></i> Copy statement (with your username)</button>
+        <textarea class="form-control exam-input" data-qid="${q.id}" rows="3" style="margin-top:8px;" placeholder="Paste the statement here…"></textarea>
+      </div>`;
+    } else if (q.type === 'paragraph') {
       field = `<textarea class="form-control exam-input" data-qid="${q.id}" rows="3" placeholder="${q.minSentences ? q.minSentences + '+ sentences required' : 'Your answer…'}"></textarea>`;
     } else {
       field = `<input type="text" class="form-control exam-input" data-qid="${q.id}" placeholder="Your answer…" />`;
@@ -239,6 +253,39 @@ function wireAutosave() {
   form.addEventListener('change', scheduleSave); // radios
 }
 
+// Copy the agreement statement with (USERNAME) → the cadet's Roblox username and
+// no surrounding quotation marks, ready to paste into the Q15 box.
+window.copyAgreement = async function () {
+  const uname = (identity && identity.roblox)
+    || (document.getElementById('id-roblox') && document.getElementById('id-roblox').value.trim()) || '';
+  if (!uname) return showToast('Confirm your Roblox username first (the identity card at the top).', 'warning');
+  const text = String(agreementStatement || '').replace(/\(USERNAME\)/gi, uname).replace(/[“”"]/g, '').trim();
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Agreement copied — paste it into the box below.', 'success');
+  } catch (e) {
+    // Clipboard blocked → drop it straight into the answer box instead.
+    const ta = document.querySelector('.exam-input[data-qid="agreement"]');
+    if (ta) { ta.value = text; scheduleSave(); }
+    showToast('Filled the agreement box for you.', 'success');
+  }
+};
+
+// True when the current selection / focus is inside the Q15 agreement block —
+// copying there is necessary, so it must not count toward the copy flag.
+function isInAgreement() {
+  const block = document.getElementById('agreement-block');
+  if (!block) return false;
+  const active = document.activeElement;
+  if (active && block.contains(active)) return true;
+  const sel = window.getSelection && window.getSelection();
+  if (sel && sel.anchorNode) {
+    const node = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentNode;
+    if (node && block.contains(node)) return true;
+  }
+  return false;
+}
+
 // ── Anti-cheat wiring ────────────────────────────────────────────────
 function wireDetection() {
   document.querySelectorAll('.exam-input').forEach(el => {
@@ -269,15 +316,19 @@ function wireDetection() {
     });
   });
 
-  // Global signals.
+  // Global signals — attach exactly once (renderForm can run again on Restart).
+  if (globalsWired) return;
+  globalsWired = true;
+
   window.addEventListener('blur', () => { detection.blurCount++; detection._blurStart = Date.now(); });
   window.addEventListener('focus', () => { if (detection._blurStart) { detection.blurMs += Date.now() - detection._blurStart; detection._blurStart = 0; } });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { detection.blurCount++; detection._blurStart = Date.now(); }
     else if (detection._blurStart) { detection.blurMs += Date.now() - detection._blurStart; detection._blurStart = 0; }
   });
-  document.addEventListener('copy', () => { detection.copyCount++; });
-  document.addEventListener('cut', () => { detection.cutCount++; });
+  // Copying the Q15 agreement is necessary → ignore it; count everything else.
+  document.addEventListener('copy', () => { if (!isInAgreement()) detection.copyCount++; });
+  document.addEventListener('cut', () => { if (!isInAgreement()) detection.cutCount++; });
   document.addEventListener('contextmenu', () => { detection.contextMenuCount++; });
 
   setInterval(() => {

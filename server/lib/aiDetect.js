@@ -61,29 +61,74 @@ async function zerogpt(text) {
   const j = await postJson('https://api.zerogpt.com/api/detect/detectText', { body: { input_text: text } });
   const d = (j && j.data) ? j.data : j;
   if (!d) return { aiProbability: null, aiSentences: [] };
-  const pct = toPct(d.fakePercentage != null ? d.fakePercentage : d.is_gpt_generated);
+  let pct = null;
+  if (d.fakePercentage != null) pct = toPct(d.fakePercentage);
+  else if (d.is_gpt_generated != null) pct = toPct(d.is_gpt_generated);
+  else if (d.aiWords != null && d.textWords) pct = toPct(Number(d.aiWords) / Number(d.textWords)); // derive from word counts
+  else pct = pickAiScore(d);
   const aiSentences = Array.isArray(d.h) ? d.h
-    : (Array.isArray(d.highlightSentences) ? d.highlightSentences : []);
+    : (Array.isArray(d.highlightSentences) ? d.highlightSentences
+      : (Array.isArray(d.sentences) ? d.sentences.filter(s => typeof s === 'string') : []));
   return { aiProbability: pct, aiSentences: aiSentences.filter(Boolean) };
 }
 
-// Local heuristic — no network. Flags sentences with tell-tale AI phrasing and
-// scores overall AI-likelihood from phrase density, low burstiness (uniform
-// sentence lengths) and absence of contractions.
-const AI_PHRASES = /\b(furthermore|moreover|additionally|however,|it is important to note|it is worth noting|in conclusion|overall,|firstly|secondly|in today'?s (world|society)|delve into|navigat(e|ing) the|a testament to|plays? a (crucial|vital|key|significant|pivotal) role|ensure that|it is essential|utili[sz]e|facilitate|leverage|robust|seamless|comprehensive|in summary|to summari[sz]e)\b/i;
+// Local heuristic — no network. Tuned for the formal "police-report" register
+// ChatGPT produces: it scores the DENSITY of formal/LLM phrasing plus structural
+// tells (em-dashes, triadic "A, B, and C" lists, repetitive sentence openers,
+// long uniform sentences, no contractions). Density — not a single hit — drives
+// the score, so a genuinely tidy human answer with one such phrase stays low
+// while stacked AI prose climbs high.
+const AI_PHRASE_RES = [
+  /\bfurthermore\b/, /\bmoreover\b/, /\badditionally\b/, /\bin conclusion\b/, /\bin summary\b/, /\bto summari[sz]e\b/,
+  /\bit is (important|worth|essential|crucial) to (note|remember|understand|mention)\b/, /\bdelve into\b/,
+  /\bsituational awareness\b/, /\bde-?escalat/, /\bin accordance with\b/, /\bproportionate\b/,
+  /\bnecessary,? (and )?proportionate\b/, /\breasonable in the circumstances\b/, /\bprotect(ing)? life\b/,
+  /\bmembers of the public\b/, /\brequest (urgent )?backup\b/, /\bcontrol room\b/, /\bpost-?incident\b/,
+  /\bpreserve (evidence|the scene)\b/, /\buse[- ]of[- ]force\b/, /\bforce policy\b/, /\blawful (commands|instructions|justification|orders)\b/,
+  /\bimmediate threat\b/, /\bmedical (assistance|attention)\b/, /\bassess (the )?(situation|threat|level of threat|risk)\b/,
+  /\b(if|where) it is safe to do so\b/, /\bidentify myself as a\b/, /\bnotify (dispatch|control|other officers|the control room)\b/,
+  /\bfollowing (department|departmental|standard) (procedures|policy|protocol)\b/,
+  /\bmaintain(ing)? (cover|composure|situational awareness|professionalism)\b/, /\bmy (first )?priority\b/, /\bseek cover\b/,
+  /\bprioriti[sz]e\b/, /\bensure (the )?(safety|scene|well-?being)\b/, /\bwhere appropriate\b/, /\bthreat to (life|the public)\b/,
+  /\btake appropriate action\b/, /\bin an attempt to\b/, /\bprovide (accurate )?information\b/, /\bin line with (my|the) training\b/,
+];
 function heuristicDetect(text) {
-  const sentences = splitSentences(text);
-  const words = String(text).split(/\s+/).filter(Boolean);
-  const lens = sentences.map(s => s.split(/\s+/).filter(Boolean).length);
-  const flagged = sentences.filter(s => AI_PHRASES.test(s));
-  const mean = lens.reduce((a, b) => a + b, 0) / (lens.length || 1);
-  const variance = lens.reduce((a, b) => a + (b - mean) ** 2, 0) / (lens.length || 1);
-  const burstiness = mean ? Math.sqrt(variance) / mean : 1; // lower = more uniform = more AI-like
-  const contractions = (text.match(/\b\w+['’](s|re|ve|ll|d|t|m)\b/gi) || []).length;
+  const t = String(text || '');
+  const sentences = splitSentences(t);
+  const words = t.split(/\s+/).filter(Boolean);
+  const wc = words.length;
+  if (wc < 12) return { aiProbability: null, aiSentences: [] }; // too short to judge
 
-  let score = Math.min(55, flagged.length * 20);
-  if (sentences.length >= 3 && burstiness < 0.35) score += 25;
-  if (contractions === 0 && words.length > 40) score += 12;
+  const flagged = [];
+  let phraseHits = 0;
+  for (const s of sentences) {
+    const hits = AI_PHRASE_RES.reduce((n, re) => n + (re.test(s.toLowerCase()) ? 1 : 0), 0);
+    phraseHits += hits;
+    if (hits >= 1) flagged.push(s);
+  }
+
+  let score = Math.min(48, (phraseHits / (wc / 100)) * 10); // density: hits per 100 words
+  if (/[—–]/.test(t)) score += 12;   // em/en dashes — from a word processor / AI
+  if (/[“”‘’]/.test(t)) score += 6;  // curly quotes
+
+  const triads = (t.match(/\b[\w'-]+,\s+[\w'-]+,\s+and\s+[\w'-]+/gi) || []).length;
+  if (triads >= 1) score += Math.min(16, triads * 8);
+
+  if (sentences.length >= 3) {
+    const openers = {};
+    sentences.forEach(s => { const k = s.split(/\s+/).slice(0, 2).join(' ').toLowerCase(); openers[k] = (openers[k] || 0) + 1; });
+    if (Math.max(0, ...Object.values(openers)) >= 3) score += 10; // repetitive "I would…" openers
+    const lens = sentences.map(s => s.split(/\s+/).filter(Boolean).length);
+    const mean = lens.reduce((a, b) => a + b, 0) / lens.length;
+    const variance = lens.reduce((a, b) => a + (b - mean) ** 2, 0) / lens.length;
+    const cv = mean ? Math.sqrt(variance) / mean : 1;
+    if (mean >= 16) score += 8;  // long formal sentences
+    if (cv < 0.4) score += 10;   // uniform lengths (low burstiness)
+  }
+
+  const contractions = (t.match(/\b\w+['’](s|re|ve|ll|d|t|m)\b/gi) || []).length;
+  if (wc > 45 && contractions === 0) score += 8;
+
   return { aiProbability: Math.max(0, Math.min(100, Math.round(score))), aiSentences: flagged };
 }
 
@@ -197,11 +242,9 @@ async function scanAnswers(items) {
       providers: r.providers.map(p => ({ name: p.name, aiProbability: p.aiProbability, error: p.error })),
     });
   }
-  let wsum = 0, w = 0;
-  for (const a of perAnswer) if (a.overall != null) { wsum += a.overall * a.chars; w += a.chars; }
-  const overall = w ? Math.round(wsum / w) : null;
+  // No whole-exam "overall" — markers judge each answer on its own merits.
   const skipped = items.length - scannable.length;
-  return { configured: true, providers: providerNames, overall, perAnswer,
+  return { configured: true, providers: providerNames, perAnswer,
     message: skipped ? `${skipped} answer(s) too short to scan reliably (skipped).` : null };
 }
 
