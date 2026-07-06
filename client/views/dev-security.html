@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · Dev Security</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .sec-stat{padding:14px 16px;border-radius:13px;border:1px solid var(--border,#2a2a2a);background:var(--panel,rgba(255,255,255,.02));}
+    .sec-stat .v{font-size:26px;font-weight:800;line-height:1;} .sec-stat .l{font-size:11px;color:var(--text-muted);margin-top:5px;text-transform:uppercase;letter-spacing:.05em;}
+    .dev-accent{color:#f5c518;}
+  </style>
+</head>
+<body>
+<div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/divisions/dev.svg" class="met-topbar-logo" alt="DEV" onerror="this.src='/img/divisions/dev.png'" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Developer</span>
+      <span class="met-topbar-division dev-accent" id="met-division-badge">SECURITY</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo"><img src="/img/divisions/dev.svg" alt="DEV" onerror="this.src='/img/divisions/dev.png'" /></div>
+        <div class="brand-text"><div class="brand-name">MET · DEV</div><div class="brand-sub">Security Center</div></div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Security</div>
+        <button class="nav-item active" data-page="overview"><i class="ti ti-shield-lock nav-icon"></i><span>Overview</span></button>
+        <button class="nav-item" data-page="sessions"><i class="ti ti-devices nav-icon"></i><span>Sessions</span></button>
+        <button class="nav-item" data-page="alerts"><i class="ti ti-alert-triangle nav-icon"></i><span>Alerts</span><span class="nav-badge pending" id="sec-alert-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="broadcast"><i class="ti ti-broadcast nav-icon"></i><span>Broadcast</span></button>
+        <button class="nav-item" data-page="lockdown"><i class="ti ti-lock-square nav-icon"></i><span>Break-glass</span></button>
+        <button class="nav-item" data-page="passkeys"><i class="ti ti-fingerprint nav-icon"></i><span>2FA Compliance</span></button>
+      </nav>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <section class="page active" id="page-overview">
+      <div class="page-header fade-up"><div><h1 class="page-title">Security Center</h1><p class="page-sub">Developer · portal-wide security command</p></div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;" id="sec-stats"></div>
+      <div class="panel glass fade-up stagger-1" style="margin-top:16px;"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Recent security events</div></div>
+        <div id="sec-overview-feed" style="padding:6px 16px;max-height:360px;overflow:auto;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-sessions">
+      <div class="page-header fade-up"><div><h1 class="page-title">Active Sessions</h1><p class="page-sub">Every signed-in device · revoke any instantly</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadSessions()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up stagger-1"><div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Officer</th><th>Role</th><th>IP</th><th>Device</th><th>Last seen</th><th></th></tr></thead>
+        <tbody id="sec-sessions-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="page" id="page-alerts">
+      <div class="page-header fade-up"><div><h1 class="page-title">Security Alerts</h1><p class="page-sub">Sensitive actions, access changes &amp; anomalies (7 days)</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadAlerts()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div id="sec-multi-ip"></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-alerts-feed" style="padding:6px 16px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-broadcast">
+      <div class="page-header fade-up"><div><h1 class="page-title">Global Broadcast</h1><p class="page-sub">Push a message from High Command to everyone</p></div></div>
+      <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:18px;">
+        <div class="form-group"><label class="form-label">Title</label><input class="form-control" id="bc-title" value="Message from High Command" /></div>
+        <div class="form-group"><label class="form-label">Message</label><textarea class="form-control" id="bc-body" rows="3" placeholder="What everyone needs to know…"></textarea></div>
+        <div class="form-group"><label class="form-label">Link (optional)</label><input class="form-control" id="bc-url" placeholder="/profile" /></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;"><input type="checkbox" id="bc-banner" checked /> Also show a site-wide banner</label>
+        <button class="btn btn-primary" onclick="secBroadcast()"><i class="ti ti-send"></i> Send broadcast</button>
+        <button class="btn btn-ghost" onclick="secClearBanner()" style="margin-left:8px;"><i class="ti ti-eraser"></i> Clear banner</button>
+      </div></div>
+    </section>
+
+    <section class="page" id="page-lockdown">
+      <div class="page-header fade-up"><div><h1 class="page-title">Break-glass Lockdown</h1><p class="page-sub">Instantly block everyone but developers</p></div></div>
+      <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:22px;text-align:center;">
+        <div id="sec-lockdown-state" style="font-size:15px;margin-bottom:18px;">Loading…</div>
+        <button class="btn btn-danger" id="sec-lockdown-btn" onclick="secToggleLockdown()" style="min-width:220px;"><i class="ti ti-lock"></i> …</button>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site — including the login page — is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
+      </div></div>
+    </section>
+
+    <section class="page" id="page-passkeys">
+      <div class="page-header fade-up"><div><h1 class="page-title">2FA Compliance</h1><p class="page-sub">Which staff have a passkey enrolled</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadCompliance()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-compliance" style="padding:8px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+  </main>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/met-topbar.js"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/dev-security.js"></script>
+<script>initMetTopbar('SECURITY');</script>
+</body>
+</html>

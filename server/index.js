@@ -255,6 +255,10 @@ app.use('/api/tryouts', requireAuth, tryoutRoutes);
 // (anonymous openers hold a per-ticket token); staff handling is gated per type
 // inside the router. maybeAuth sets req.user when signed in, else null.
 app.use('/api/support', maybeAuth, require('./routes/support'));
+// Developer Security Center — active-session command, break-glass lockdown,
+// global broadcast, security alerts, passkey compliance. Mounted before
+// /api/dev so its paths win. DEVELOPER only.
+app.use('/api/dev/security', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devSecurity'));
 // Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
 // inside the router.
 app.use('/api/dev', requireAuth, require('./routes/dev'));
@@ -926,6 +930,11 @@ app.get('/dev/denied', recordVisit, (req, res) => sendPage(res, path.join(views,
 app.get('/dev/dashboard', recordVisit, requireAuth, (req, res) => {
   if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
   return sendPage(res, path.join(views, 'dashboard.html'));
+});
+// Dev Security Center — its own page, DEV-branded, decoupled from IA.
+app.get('/dev/security', recordVisit, requireAuth, (req, res) => {
+  if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
+  return sendPage(res, path.join(views, 'dev-security.html'));
 });
 
 // ── 404 / Error ──────────────────────────────────────────────────

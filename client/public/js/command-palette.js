@@ -15,6 +15,8 @@
     { label: 'SCO-19 Dashboard', icon: 'ti-target', url: '/sco19/dashboard' },
     { label: 'FLP Dashboard', icon: 'ti-shield', url: '/flp/dashboard' },
     { label: 'IA Dashboard', icon: 'ti-scale', url: '/ia/dashboard' },
+    { label: 'Dev Panel', icon: 'ti-code', url: '/dev/dashboard' },
+    { label: 'Dev · Security Center', icon: 'ti-shield-lock', url: '/dev/security' },
     { label: 'Toggle theme', icon: 'ti-moon', action: () => {
         const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', cur); try { localStorage.setItem('iacms_theme', cur); } catch (e) {}
