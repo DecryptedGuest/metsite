@@ -118,8 +118,27 @@
     catch (e) { showToast(e.message, 'error'); }
   };
 
+  // ── Passkey enforcement toggle ──
+  let enforceOn = false, iHavePasskey = false;
+  async function secLoadEnforce() {
+    try { const r = await api('/api/dev/security/require-passkey'); enforceOn = r.on; iHavePasskey = r.youHavePasskey; renderEnforce(); } catch (e) {}
+  }
+  function renderEnforce() {
+    const b = $('sec-enforce-btn'); if (!b) return;
+    b.className = enforceOn ? 'btn btn-danger' : 'btn btn-ghost';
+    b.innerHTML = enforceOn ? '<i class="ti ti-shield-lock"></i> Enforcing — turn off' : '<i class="ti ti-shield"></i> Enable enforcement';
+  }
+  window.secToggleEnforce = async function () {
+    const next = !enforceOn;
+    if (next && !iHavePasskey) return showToast('Add a passkey to your own account first (Profile → Passkeys & 2FA), or you would lock yourself out.', 'warning');
+    if (next && !confirm('Require all HICOMM/Supervisors/Developers to have a passkey for sensitive actions?')) return;
+    try { const r = await api('/api/dev/security/require-passkey', { method: 'POST', body: JSON.stringify({ on: next }) }); enforceOn = r.on; renderEnforce(); showToast(enforceOn ? 'Passkey enforcement enabled' : 'Enforcement disabled', 'success'); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+
   // ── Compliance ──
   window.secLoadCompliance = async function () {
+    secLoadEnforce();
     $('sec-compliance').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const c = await api('/api/dev/security/passkey-compliance');

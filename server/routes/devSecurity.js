@@ -6,8 +6,29 @@ const express = require('express');
 const prisma  = require('../lib/db');
 const audit   = require('../lib/audit');
 const siteConfig = require('../lib/siteConfig');
+const { requireStepUpEnforced } = require('../middleware/stepup');
 
 const router = express.Router();
+
+// GET/POST /api/dev/security/require-passkey — the "elevated staff must have a
+// passkey" enforcement toggle. To turn it ON you must already have a passkey
+// yourself (so you can't lock yourself out of your own controls).
+router.get('/require-passkey', async (req, res) => {
+  const mine = await prisma.passkey.count({ where: { userId: req.user.id } }).catch(() => 0);
+  res.json({ on: siteConfig.isOn('requirePasskeyElevated'), youHavePasskey: mine > 0 });
+});
+router.post('/require-passkey', async (req, res) => {
+  try {
+    const on = !!(req.body && req.body.on);
+    if (on) {
+      const mine = await prisma.passkey.count({ where: { userId: req.user.id } });
+      if (mine === 0) return res.status(400).json({ error: 'Add a passkey to your own account first (profile → Passkeys & 2FA), or you would lock yourself out.' });
+    }
+    await siteConfig.set('requirePasskeyElevated', on ? 'true' : 'false');
+    audit.record({ req, action: on ? 'PASSKEY_ENFORCE_ON' : 'PASSKEY_ENFORCE_OFF', category: 'SECURITY', targetType: 'site', summary: on ? 'Enabled passkey enforcement for elevated staff' : 'Disabled passkey enforcement' });
+    res.json({ ok: true, on });
+  } catch (e) { res.status(500).json({ error: 'Failed to update' }); }
+});
 
 const ELEVATED = ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'];
 
@@ -32,7 +53,7 @@ router.get('/sessions', async (req, res) => {
 });
 
 // POST /api/dev/security/sessions/:id/revoke — kill one session immediately.
-router.post('/sessions/:id/revoke', async (req, res) => {
+router.post('/sessions/:id/revoke', requireStepUpEnforced, async (req, res) => {
   try {
     const s = await prisma.session.findUnique({ where: { id: req.params.id }, include: { user: { select: { displayName: true, discordUsername: true } } } });
     if (!s) return res.status(404).json({ error: 'Session not found' });
@@ -45,7 +66,7 @@ router.post('/sessions/:id/revoke', async (req, res) => {
 
 // POST /api/dev/security/users/:id/force-reauth — revoke ALL of a user's
 // sessions and require a fresh sign-in.
-router.post('/users/:id/force-reauth', async (req, res) => {
+router.post('/users/:id/force-reauth', requireStepUpEnforced, async (req, res) => {
   try {
     const u = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, displayName: true, discordUsername: true } });
     if (!u) return res.status(404).json({ error: 'User not found' });
@@ -59,7 +80,7 @@ router.post('/users/:id/force-reauth', async (req, res) => {
 // ── Break-glass lockdown ──────────────────────────────────────────────
 // GET/POST /api/dev/security/lockdown — sitePrivate blocks everyone but devs.
 router.get('/lockdown', (req, res) => res.json({ on: siteConfig.isOn('sitePrivate') }));
-router.post('/lockdown', async (req, res) => {
+router.post('/lockdown', requireStepUpEnforced, async (req, res) => {
   try {
     const on = !!(req.body && req.body.on);
     await siteConfig.set('sitePrivate', on ? 'true' : 'false');
@@ -72,7 +93,7 @@ router.post('/lockdown', async (req, res) => {
 // ── Global broadcast ──────────────────────────────────────────────────
 // POST /api/dev/security/broadcast { title, body, url?, banner? } — push to all
 // subscribed devices and (optionally) raise a site-wide banner.
-router.post('/broadcast', async (req, res) => {
+router.post('/broadcast', requireStepUpEnforced, async (req, res) => {
   try {
     const title = String((req.body && req.body.title) || 'Message from High Command').slice(0, 100);
     const body  = String((req.body && req.body.body) || '').slice(0, 300);
