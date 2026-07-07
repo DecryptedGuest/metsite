@@ -217,9 +217,10 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
     if (log.hostId !== req.user.id) return res.status(403).json({ error: 'Only the host can submit this log.' });
     if (log.status !== 'DRAFT') return res.status(400).json({ error: 'This log has already been submitted.' });
 
-    const { notes, attendees } = req.body || {};
+    const { notes, attendees, proof } = req.body || {};
     const data = { status: 'PENDING' };
     if (typeof notes === 'string') data.notes = notes.slice(0, 3000);
+    if (typeof proof === 'string') data.proof = proof.slice(0, 500);
     if (Array.isArray(attendees)) {
       const clean = tryoutLogsLib.normaliseAttendees(attendees);
       Object.assign(data, { attendees: clean, ...tryoutLogsLib.countsFor(clean) });

@@ -81,10 +81,20 @@ function userHpcTier(user, kind) {
   return hpcRankAtLeast(e.rankName, e.rank, kind);
 }
 
+// Final-exam marking + HPC tryout-log review are gated on the HPC group rank:
+// rank HPC_REVIEW_MIN_RANK (default 247) and above, or DEVELOPER.
+function hpcReviewMinRank() { const n = parseInt(process.env.HPC_REVIEW_MIN_RANK, 10); return Number.isFinite(n) ? n : 247; }
+function userHpcReviewer(user) {
+  if (!user) return false;
+  if (user.role === 'DEVELOPER') return true;
+  const e = userDivisions(user).find(d => d.division === 'HPC');
+  return !!(e && Number(e.rank) >= hpcReviewMinRank());
+}
+
 function requireHpcMarker(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  if (userHpcTier(req.user, 'marker')) return next();
-  return res.status(403).json({ error: 'HPC marker access required (Database Manager and above).' });
+  if (userHpcReviewer(req.user)) return next();
+  return res.status(403).json({ error: `HPC group rank ${hpcReviewMinRank()}+ required to mark final exams.` });
 }
 
 function requireHpcQuota(req, res, next) {
@@ -177,7 +187,7 @@ function requireMetHicomm(req, res, next) {
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
-  userNeedsFinalExam, userHpcTier, requireHpcMarker, requireHpcQuota,
+  userNeedsFinalExam, userHpcTier, userHpcReviewer, requireHpcMarker, requireHpcQuota,
   userFlpGroupAdmin, requireFlpGroupAdmin,
   userHasCidTryout, userIsCidLead, requireCidTryout, requireCidLead,
   requireMetHicomm,

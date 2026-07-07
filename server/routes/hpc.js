@@ -7,7 +7,7 @@ const express = require('express');
 const prisma  = require('../lib/db');
 const hpcExam = require('../lib/hpcExam');
 const { sendHpcExamResult } = require('../lib/webhook');
-const { requireHpcMarker, requireHpcQuota, userHpcTier } = require('../middleware/division');
+const { requireHpcMarker, requireHpcQuota, userHpcTier, userHpcReviewer } = require('../middleware/division');
 const audit = require('../lib/audit');
 
 const router = express.Router();
@@ -15,9 +15,9 @@ const router = express.Router();
 // GET /api/hpc/context — what the current HPC member can do (drives the UI).
 router.get('/context', (req, res) => {
   res.json({
-    canMark:    userHpcTier(req.user, 'marker'),
+    canMark:    userHpcReviewer(req.user),
     canQuota:   userHpcTier(req.user, 'quota'),
-    canApprove: userHpcTier(req.user, 'quota') || ['HICOMM', 'DEVELOPER'].includes(req.user.role),
+    canApprove: userHpcReviewer(req.user) || ['HICOMM', 'DEVELOPER'].includes(req.user.role),
     isDev:      req.user.role === 'DEVELOPER',
   });
 });
@@ -76,7 +76,7 @@ router.get('/exam/results/:id', async (req, res) => {
       markerNote: s.markerNote, markedByName: s.markedByName, markedAt: s.markedAt,
       createdAt: s.createdAt,
       // Whether the viewer can open the full marked paper (answers + AI flags).
-      canMark: userHpcTier(req.user, 'marker'),
+      canMark: userHpcReviewer(req.user),
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load exam' });
@@ -381,7 +381,7 @@ const { sendTryoutLog } = require('../lib/webhook');
 // Who can approve/deny tryout logs: Assistant Director+ (HPC quota tier), or a
 // site HICOMM / developer.
 function canApproveTryouts(user) {
-  return userHpcTier(user, 'quota') || ['HICOMM', 'DEVELOPER'].includes(user.role);
+  return userHpcReviewer(user) || ['HICOMM', 'DEVELOPER'].includes(user.role);
 }
 function requireTryoutApprover(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
@@ -439,9 +439,10 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
     if (log.hostId !== req.user.id) return res.status(403).json({ error: 'Only the host can submit this log.' });
     if (log.status !== 'DRAFT') return res.status(400).json({ error: 'This log has already been submitted.' });
 
-    const { notes, attendees } = req.body || {};
+    const { notes, attendees, proof } = req.body || {};
     const data = { status: 'PENDING' };
     if (typeof notes === 'string') data.notes = notes.slice(0, 3000);
+    if (typeof proof === 'string') data.proof = proof.slice(0, 500);
     if (Array.isArray(attendees)) {
       const clean = tryoutLogsLib.normaliseAttendees(attendees);
       Object.assign(data, { attendees: clean, ...tryoutLogsLib.countsFor(clean) });

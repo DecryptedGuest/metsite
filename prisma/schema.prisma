@@ -643,7 +643,7 @@ model TryoutLog {
   id              String    @id @default(uuid())
   gameSessionId   String?   @unique // idempotency key from the game (one log per tryout session)
   tryoutId        String?   // optional link to the scheduled Tryout
-  hostId          String    // host (User.id)
+  hostId          String?   // host (User.id) — null when the in-game host has no linked site account
   hostDiscordId   String?
   hostName        String
   hostRobloxId    String?
@@ -673,11 +673,12 @@ model TryoutLog {
   reviewedAt      DateTime?
   pointAwarded    Boolean   @default(false) // whether the +1 HPC point was written
   logMessageId    String?   // Discord message id of the posted tryout log
+  proof           String?   // proof link/notes (the "Proof:" line), added by the host on review
   gamePayload     Json?     // raw snapshot from the game (audit)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  host User @relation(fields: [hostId], references: [id])
+  host User? @relation(fields: [hostId], references: [id])
 
   @@index([hostId])
   @@index([status])

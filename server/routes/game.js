@@ -198,12 +198,19 @@ router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
       }
     } catch (e) { console.warn('[Game] conclude close-out failed:', e.message); }
 
-    // Prompt the host to review + post the freshly-queued draft log (a fresh DM
-    // with a deep-link button). Only on first creation, never on retries.
+    // On first creation: a linked host gets a DM to review + post their DRAFT;
+    // a host-less log (already PENDING) is posted straight to the review channel
+    // so HPC/CID can act on it without waiting for anyone to sign in.
     if (!result.existing && result.id) {
       try {
         const log = await prisma.tryoutLog.findUnique({ where: { id: result.id } });
-        if (log) await bot.dmTryoutLogReady(log).catch(() => {});
+        if (log && result.status === 'PENDING') {
+          const { sendTryoutLog } = require('../lib/webhook');
+          const msgId = await sendTryoutLog(log, { event: 'submitted' }).catch(() => null);
+          if (msgId) await prisma.tryoutLog.update({ where: { id: log.id }, data: { logMessageId: msgId } }).catch(() => {});
+        } else if (log) {
+          await bot.dmTryoutLogReady(log).catch(() => {});
+        }
       } catch (e) { /* best-effort */ }
     }
 

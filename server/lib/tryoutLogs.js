@@ -168,30 +168,25 @@ async function createFromGamePayload(payload = {}) {
   }
 
   const host = payload.host || {};
+  // Resolve the host to a linked site user IF we can — but a concluded tryout
+  // must ALWAYS produce a log. An unresolved host just yields a host-less log
+  // that goes straight to the reviewer queue (PENDING) instead of failing.
   const hostUser = await resolveHostUser({ hostDiscordId: host.discordId, hostRobloxId: host.robloxId, hostRobloxName: host.username });
-  if (!hostUser) {
-    const roverConfigured = !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID);
-    const site = process.env.PUBLIC_BASE_URL || 'the MET Dashboard';
-    const who  = `Roblox user ${host.robloxId || '?'}${host.username ? ` (${host.username})` : ''}`;
-    return {
-      ok: false,
-      error: roverConfigured
-        ? `No linked account was found for ${who}. That person must sign in at ${site} with the Discord account RoVer-verified to that Roblox account, then retry.`
-        : `Cannot resolve ${who}: RoVer isn't configured on the server (set ROVER_API_KEY and DISCORD_GUILD_ID).`,
-      roverConfigured,
-    };
-  }
 
-  // Auto-fill identities from Roblox/RoVer so the game can send ids only.
-  let hostRobloxName = host.username || hostUser.robloxUsername || null;
-  if (!hostRobloxName && (host.robloxId || hostUser.robloxId)) {
-    try { const { getRobloxUserInfo } = require('./roblox'); const u = await getRobloxUserInfo(String(host.robloxId || hostUser.robloxId)); if (u) hostRobloxName = u.username; }
+  // Auto-fill the host's Roblox name from Roblox even when unlinked.
+  let hostRobloxName = host.username || (hostUser && hostUser.robloxUsername) || null;
+  const anyRobloxId = host.robloxId || (hostUser && hostUser.robloxId);
+  if (!hostRobloxName && anyRobloxId) {
+    try { const { getRobloxUserInfo } = require('./roblox'); const u = await getRobloxUserInfo(String(anyRobloxId)); if (u) hostRobloxName = u.username; }
     catch (e) { /* ok */ }
   }
   const coHost    = await resolveCoHost(payload.coHost);
   const attendees = await enrichAttendeeNames(normaliseAttendees(payload.attendees));
   const events    = normaliseEvents(payload.events);
   const counts    = countsFor(attendees);
+  // Linked host → DRAFT (they review + post). No linked host → nobody can review
+  // a draft, so send it straight to the division's review queue.
+  const status = hostUser ? 'DRAFT' : 'PENDING';
 
   let log;
   try {
@@ -199,17 +194,17 @@ async function createFromGamePayload(payload = {}) {
       data: {
         gameSessionId:  sessionId ? String(sessionId) : null,
         tryoutId:       payload.tryoutId || null,
-        hostId:         hostUser.id,
-        hostDiscordId:  hostUser.discordId,
-        hostName:       hostUser.displayName || hostUser.discordUsername || hostRobloxName || 'Host',
-        hostRobloxId:   host.robloxId ? String(host.robloxId) : hostUser.robloxId,
+        hostId:         hostUser ? hostUser.id : null,
+        hostDiscordId:  hostUser ? hostUser.discordId : (host.discordId ? String(host.discordId) : null),
+        hostName:       (hostUser && (hostUser.displayName || hostUser.discordUsername)) || hostRobloxName || 'Host',
+        hostRobloxId:   host.robloxId ? String(host.robloxId) : ((hostUser && hostUser.robloxId) || null),
         hostRobloxName,
         coHostName:     coHost.name,
         coHostRobloxId: coHost.robloxId,
         startedAt:      payload.startedAt ? new Date(payload.startedAt) : null,
         concludedAt:    payload.concludedAt ? new Date(payload.concludedAt) : new Date(),
         attendees, events, ...counts,
-        status:         'DRAFT',
+        status,
         division:       normTryoutDivision(payload.division),
         gamePayload:    payload,
       },
@@ -227,7 +222,8 @@ async function createFromGamePayload(payload = {}) {
   }
 
   const base = process.env.PUBLIC_BASE_URL || '';
-  return { ok: true, id: log.id, reviewUrl: `${base}/${divSlug(log.division)}/dashboard?tryoutLog=${log.id}` };
+  return { ok: true, id: log.id, status: log.status, hostLinked: !!hostUser,
+    reviewUrl: `${base}/${divSlug(log.division)}/dashboard?tryoutLog=${log.id}` };
 }
 
 // ── Serialisation for the API ────────────────────────────────────────
@@ -244,7 +240,7 @@ function serialize(log, { full = false } = {}) {
     division: log.division || 'HPC',
   };
   if (!full) return base;
-  return { ...base, attendees: log.attendees || [], events: log.events || [], notes: log.notes };
+  return { ...base, attendees: log.attendees || [], events: log.events || [], notes: log.notes, proof: log.proof || null, hostRobloxName: log.hostRobloxName || null };
 }
 
 // ── +1 HPC point on approval ─────────────────────────────────────────

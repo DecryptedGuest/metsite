@@ -183,9 +183,6 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
  * posted message id, or null if no webhook is configured / it failed.
  */
 async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, score, maxScore, percentage, passed, note }) {
-  const url = process.env.FINAL_EXAM_WEBHOOK || process.env.HPC_RESULTS_WEBHOOK_URL;
-  if (!url) { console.warn('No FINAL_EXAM_WEBHOOK configured — skipping exam result post.'); return null; }
-
   const embed = {
     color: passed ? 0x2ed896 : 0xf04f5e,
     title: `Final Exam Result — ${passed ? 'PASS ✅' : 'FAIL ❌'}`,
@@ -199,23 +196,36 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
     footer:    { text: 'Hendon Police College · Final Examination' },
     timestamp: new Date().toISOString(),
   };
-
   const body = { embeds: [embed] };
   if (discordId) body.content = `<@${discordId}>`;
 
-  try {
-    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
-    });
-    if (!res.ok) { console.error(`HPC exam webhook failed [${res.status}]:`, await res.text()); return null; }
-    const msg = await res.json().catch(() => ({}));
-    return msg.id || null;
-  } catch (err) {
-    console.error('HPC exam webhook error:', err.message);
-    return null;
+  // Primary: the results webhook. Fallback: post via the bot to a channel id
+  // (FINAL_EXAM_CHANNEL_ID) so results still deliver if the webhook is unset/broken.
+  const url = process.env.FINAL_EXAM_WEBHOOK || process.env.HPC_RESULTS_WEBHOOK_URL;
+  if (url) {
+    try {
+      const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (res.ok) { const msg = await res.json().catch(() => ({})); return msg.id || 'sent'; }
+      console.error(`HPC exam webhook failed [${res.status}]:`, await res.text().catch(() => ''));
+    } catch (err) { console.error('HPC exam webhook error:', err.message); }
+  } else {
+    console.warn('No FINAL_EXAM_WEBHOOK / HPC_RESULTS_WEBHOOK_URL configured.');
   }
+
+  const chId = process.env.FINAL_EXAM_CHANNEL_ID;
+  if (chId) {
+    try {
+      const bot = require('./bot');
+      if (typeof bot.postChannelMessage === 'function') {
+        const id = await bot.postChannelMessage(chId, body);
+        if (id) return id;
+      }
+    } catch (e) { console.error('HPC exam channel fallback error:', e.message); }
+  }
+  console.warn('[Exam] result was NOT delivered — set FINAL_EXAM_WEBHOOK or FINAL_EXAM_CHANNEL_ID.');
+  return null;
 }
 
 // Post a submitted tryout log to the HPC tryout-logs channel for HICOMM review.
@@ -225,43 +235,72 @@ async function sendTryoutLog(log, { event = 'submitted' } = {}) {
   // HPC_TRYOUT_LOG_WEBHOOK (CID falls back to the HPC webhook if unset).
   const isCid = String(log.division || '').toUpperCase() === 'CID';
   const url = (isCid && process.env.CID_TRYOUT_LOG_WEBHOOK) || process.env.HPC_TRYOUT_LOG_WEBHOOK;
-  if (!url) { console.warn('No tryout-log webhook configured — skipping tryout log post.'); return null; }
+  const chId = (isCid && process.env.CID_TRYOUT_LOG_CHANNEL_ID) || process.env.HPC_TRYOUT_LOG_CHANNEL_ID;
+  if (!url && !chId) { console.warn('No tryout-log webhook or channel configured — skipping tryout log post.'); return null; }
   const footerText = isCid ? 'Criminal Investigation Department · Tryout Log' : 'Hendon Police College · Tryout Log';
 
   const colorFor = { submitted: 0xf5b730, approved: 0x2ed896, denied: 0xf04f5e };
   const titleFor = { submitted: 'Tryout Log — Pending Review', approved: 'Tryout Log — Approved', denied: 'Tryout Log — Denied' };
 
+  // Build the CID / HPC log body in the exact requested format from the
+  // per-attendee results (roblox usernames).
+  const A       = Array.isArray(log.attendees) ? log.attendees : [];
+  const names   = A.map(a => a && a.username).filter(Boolean);
+  const passed  = A.filter(a => a && a.result === 'PASS').map(a => a.username).filter(Boolean);
+  const failed  = A.filter(a => a && a.result === 'FAIL').map(a => a.username).filter(Boolean);
+  const hostName = log.hostRobloxName || log.hostName || 'Unknown';
+  const coHost   = log.coHostName || 'N/A';
+  const proof    = log.proof ? String(log.proof).slice(0, 500) : '';
+
+  const lines = isCid
+    ? [
+        `**Host:** ${hostName}`,
+        `**Co-Host:** ${coHost}`,
+        `**Attendees:** ${names.join(' - ') || 'N/A'}`,
+        `**Failed:** ${failed.join(', ') || 'None'}`,
+        `**Passed:** ${passed.join(', ') || 'None'}`,
+        `**Proof:** ${proof}`,
+      ]
+    : [
+        `**User:** ${hostName}`,
+        `**Co-Host:** ${coHost}`,
+        `**Tryout Passer:** ${passed.join(', ') || 'None'}`,
+        `**Proof:** ${proof}`,
+      ];
+  if ((event === 'approved' || event === 'denied') && log.reviewNote) {
+    lines.push('', `**${event === 'approved' ? 'Note' : 'Reason'}:** ${String(log.reviewNote).slice(0, 1000)}`);
+  }
+
   const embed = {
     color: colorFor[event] || 0x4a8fff,
     title: titleFor[event] || 'Tryout Log',
-    fields: [
-      { name: 'Host',     value: log.hostDiscordId ? `<@${log.hostDiscordId}>` : (log.hostName || 'Unknown'), inline: true },
-      ...(log.coHostName ? [{ name: 'Co-host', value: String(log.coHostName), inline: true }] : []),
-      { name: 'Attendees', value: String(log.totalAttendees ?? 0), inline: true },
-      { name: 'Passed',   value: String(log.passedCount ?? 0), inline: true },
-      { name: 'Failed',   value: String(log.failedCount ?? 0), inline: true },
-      { name: 'Strikes',  value: String(log.strikeCount ?? 0), inline: true },
-      { name: 'Left / Kicked', value: `${log.leftCount ?? 0} / ${log.kickedCount ?? 0}`, inline: true },
-    ],
-    description: (event === 'denied' || event === 'approved') && log.reviewNote
-      ? `**${event === 'approved' ? 'Note' : 'Reason'}:** ${String(log.reviewNote).slice(0, 1500)}`
-      : (log.notes ? `**Host notes:** ${String(log.notes).slice(0, 1500)}` : undefined),
+    description: lines.join('\n'),
     footer:    { text: footerText },
     timestamp: new Date().toISOString(),
   };
+  // If the proof is an image/link, surface it as the embed image too.
+  if (/^https?:\/\/\S+\.(png|jpe?g|gif|webp)(\?\S*)?$/i.test(proof)) embed.image = { url: proof };
 
-  try {
-    const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
-    });
-    if (!res.ok) { console.error(`Tryout log webhook failed [${res.status}]:`, await res.text()); return null; }
-    const msg = await res.json().catch(() => ({}));
-    return msg.id || null;
-  } catch (err) {
-    console.error('Tryout log webhook error:', err.message);
-    return null;
+  // Primary: webhook. Fallback: post via the bot to the log channel id.
+  if (url) {
+    try {
+      const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [embed] }),
+      });
+      if (res.ok) { const msg = await res.json().catch(() => ({})); return msg.id || 'sent'; }
+      console.error(`Tryout log webhook failed [${res.status}]:`, await res.text().catch(() => ''));
+    } catch (err) { console.error('Tryout log webhook error:', err.message); }
   }
+  if (chId) {
+    try {
+      const bot = require('./bot');
+      if (typeof bot.postChannelMessage === 'function') {
+        const id = await bot.postChannelMessage(chId, { embeds: [embed] });
+        if (id) return id;
+      }
+    } catch (e) { console.error('Tryout log channel fallback error:', e.message); }
+  }
+  return null;
 }
 
 module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog };

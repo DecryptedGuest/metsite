@@ -135,7 +135,9 @@ function subRow(s) {
     <td>${det}</td>
     <td>${statusBadge(s.status)}${mark ? ` <span class="text-muted" style="font-size:11px;">${mark}</span>` : ''}</td>
     <td>${formatDate(s.createdAt)}</td>
-    <td><button class="btn btn-ghost btn-sm" onclick="openMark('${s.id}')">${s.status === 'PENDING' ? 'Mark' : 'Review'}</button></td>
+    <td>${s.status === 'PENDING'
+      ? `<button class="btn btn-primary btn-sm" onclick="openMark('${s.id}')"><i class="ti ti-checkbox"></i> Mark exam</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="openMark('${s.id}')"><i class="ti ti-eye"></i> Review</button>`}</td>
   </tr>`;
 }
 

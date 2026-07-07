@@ -652,6 +652,20 @@ async function onPatrolMessage(message) {
   }
 }
 
+// Post a message (content and/or embeds) to a channel by id. Returns the message
+// id, or null. Used as a delivery fallback when a webhook isn't configured.
+async function postChannelMessage(channelId, payload) {
+  if (!ready || !channelId || !payload) return null;
+  try {
+    const ch = await client.channels.fetch(String(channelId));
+    const msg = await ch.send(payload);
+    return msg.id;
+  } catch (e) {
+    console.warn('[Bot] postChannelMessage failed:', e.message);
+    return null;
+  }
+}
+
 // React to a message with an emoji (used to mark a patrol log ✅ approved / ❌ denied).
 async function reactToMessage(channelId, messageId, emoji) {
   if (!ready) return false;
@@ -1165,6 +1179,6 @@ module.exports = {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink,
-  reactToMessage,
+  reactToMessage, postChannelMessage,
   isReady: () => ready,
 };
