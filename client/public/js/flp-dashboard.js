@@ -88,7 +88,7 @@ async function initFlp() {
 }
 
 // ── Patrol logs ──────────────────────────────────────────────────────
-let patrolFilter = 'PENDING';
+let patrolFilter = 'ALL';
 
 async function loadPatrolBadge() {
   try {
@@ -224,7 +224,7 @@ async function flpDeleteLog(id, type) {
 }
 
 // ── Event logs (same review flow; approve awards +1 on the MET database) ──
-let eventFilter = 'PENDING';
+let eventFilter = 'ALL';
 
 async function loadEventBadge() {
   try {

@@ -38,9 +38,11 @@ router.get('/context', (req, res) => {
 // FLP division); the bot reacts ✅/❌ on the original message. ─────────
 router.get('/patrols', async (req, res) => {
   try {
-    const status = ['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status) ? req.query.status : 'PENDING';
     const type   = req.query.type === 'EVENT' ? 'EVENT' : 'PATROL';
-    const rows = await prisma.patrolLog.findMany({ where: { status, type }, orderBy: { createdAt: 'desc' }, take: 200 });
+    const where  = { type };
+    // A specific status filters; "ALL" (or anything else) returns every status.
+    if (['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status)) where.status = req.query.status;
+    const rows = await prisma.patrolLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
     res.json(rows.map(patrolLib.serialize));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load logs' });

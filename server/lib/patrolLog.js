@@ -185,9 +185,56 @@ function imageUrls(message) {
 
 // Create a PENDING log (PATROL or EVENT) from a discord.js message
 // (idempotent on messageId). Returns the row, or null on error / duplicate.
+// If the Discord message already carries a tick/cross reaction from a reviewer,
+// derive the verdict from it so the log isn't left PENDING. A ✅ → APPROVED,
+// a ❌ → DENIED (approval wins if both are present). By default ANY such
+// reaction is honoured (only staff react in a log channel); set
+// FLP_REVIEWER_ROLE_IDS (and/or METHICOMM_ROLE_ID) to require the reactor to
+// hold one of those roles — the bot's own reaction (a site verdict) always
+// counts. Returns { status, by } or null.
+const APPROVE_EMOJI = new Set(['✅', '☑️', '✔️']);
+const DENY_EMOJI    = new Set(['❌', '✖️', '⛔', '🚫']);
+async function reviewFromReactions(message) {
+  try {
+    const cache = message && message.reactions && message.reactions.cache;
+    if (!cache || cache.size === 0) return null;
+    let approve = null, deny = null;
+    for (const r of cache.values()) {
+      const n = r.emoji && r.emoji.name;
+      if (APPROVE_EMOJI.has(n)) approve = r; else if (DENY_EMOJI.has(n)) deny = r;
+    }
+    if (!approve && !deny) return null;
+
+    const roleIds = String(process.env.FLP_REVIEWER_ROLE_IDS || '')
+      .split(',').map(s => s.trim()).filter(Boolean)
+      .concat(process.env.METHICOMM_ROLE_ID ? [String(process.env.METHICOMM_ROLE_ID)] : []);
+
+    async function reviewer(reaction) {
+      if (!reaction) return null;
+      if (!roleIds.length) return { name: 'Reviewed in Discord' }; // no restriction → honour presence
+      try {
+        const users = await reaction.users.fetch();
+        for (const u of users.values()) {
+          if (u.bot) return { name: 'MET Bot' }; // bot reaction = a site verdict
+          const member = message.guild ? await message.guild.members.fetch(u.id).catch(() => null) : null;
+          if (member && member.roles.cache.some(rr => roleIds.includes(String(rr.id)))) return { name: member.displayName || u.username };
+        }
+      } catch (e) { /* couldn't resolve reactors */ }
+      return null;
+    }
+
+    const a = await reviewer(approve);
+    if (a) return { status: 'APPROVED', by: a.name };
+    const d = await reviewer(deny);
+    if (d) return { status: 'DENIED', by: d.name };
+    return null;
+  } catch (e) { return null; }
+}
+
 // opts.status: 'APPROVED' writes the log straight in as approved (used by the
 // historical backfill — no review queue, no sheet point award), stamped as
-// imported. Default (live ingestion) creates it PENDING for review.
+// imported. Default (live ingestion) creates it PENDING for review. A tick/cross
+// reaction already on the message overrides both (→ APPROVED / DENIED).
 async function createFromMessage(message, type = 'PATROL', opts = {}) {
   try {
     const existing = await prisma.patrolLog.findUnique({ where: { messageId: String(message.id) } }).catch(() => null);
@@ -195,7 +242,12 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
 
     const parsed  = parsePatrolLog(message.content || '');
     const display = (message.member && message.member.displayName) || message.author.globalName || message.author.username;
-    const approved = opts.status === 'APPROVED';
+    // A tick/cross reaction already on the message decides the verdict; else the
+    // caller's opts.status (backfill = APPROVED); else PENDING for live review.
+    const verdict = await reviewFromReactions(message);
+    const status = (verdict && verdict.status) || (opts.status === 'APPROVED' ? 'APPROVED' : 'PENDING');
+    const reviewed = status === 'APPROVED' || status === 'DENIED';
+    const reviewedByName = verdict ? verdict.by : (status === 'APPROVED' ? (opts.reviewedByName || 'Imported') : null);
     // The shift's date: an explicit date written in the log if present, else the
     // date the message was sent (Discord createdAt). For a shift that crossed
     // midnight this is the message-sent day (the shift started the night before).
@@ -217,8 +269,8 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
         crossedMidnight:      !!parsed.crossedMidnight,
         images:               imageUrls(message),
         rawContent:           (message.content || '').slice(0, 4000),
-        status:               approved ? 'APPROVED' : 'PENDING',
-        ...(approved ? { reviewedByName: opts.reviewedByName || 'Imported', reviewedAt: message.createdAt || new Date() } : {}),
+        status:               status,
+        ...(reviewed ? { reviewedByName, reviewedAt: message.createdAt || new Date() } : {}),
       },
     });
   } catch (err) {
