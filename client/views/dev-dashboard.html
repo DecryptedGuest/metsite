@@ -153,6 +153,9 @@
         <button class="nav-item dev-only" data-page="media-admin" style="display:none;">
           <i class="ti ti-folder-cog nav-icon"></i><span>Media Admin</span><span class="nav-tag">DEV</span>
         </button>
+        <button class="nav-item dev-only" data-page="imports" style="display:none;">
+          <i class="ti ti-database-import nav-icon"></i><span>Imports</span><span class="nav-tag">DEV</span>
+        </button>
       </nav>
     </div>
 
@@ -1004,6 +1007,41 @@
             <thead><tr><th>Preview</th><th>Title / File</th><th>Uploader</th><th>Type</th><th>Size</th><th>Views</th><th>Visibility</th><th>Uploaded</th><th>Actions</th></tr></thead>
             <tbody id="media-admin-tbody"><tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMPORTS (DEVELOPER ONLY) -->
+    <section class="page" id="page-imports">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Imports</h1><p class="page-sub">Developer &middot; Backfill logs and sync external data</p></div>
+      </div>
+
+      <!-- Patrol / event log backfill -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Patrol &amp; Event Log Import</div></div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Imports <strong>every</strong> patrol and event log from the configured channels (even the oldest),
+            reusing the live parser and skipping misc messages. Idempotent — safe to run repeatedly; it only adds
+            what's missing. Historical logs are written straight in as <strong>Approved</strong> (no review queue,
+            no sheet points). Runs in the background; final counts are written to the Audit Trail.
+          </p>
+          <button class="btn btn-primary" id="imp-patrol-btn" onclick="runPatrolBackfill()"><i class="ti ti-download"></i> Import patrol &amp; event logs</button>
+          <div id="imp-patrol-result" style="margin-top:0.9rem;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- IA cases + tickets sync -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>IA Cases &amp; Tickets Sync</div></div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Pulls cases and tickets (pending and resolved) from the live IA database (<code>IA_DATABASE_URL</code>)
+            into this dashboard. Idempotent — keyed on case/ticket reference. Requires <code>IA_DATABASE_URL</code> to be set.
+          </p>
+          <button class="btn btn-primary" id="imp-ia-btn" onclick="runIaSync()"><i class="ti ti-refresh"></i> Sync IA cases &amp; tickets</button>
+          <div id="imp-ia-result" style="margin-top:0.9rem;font-size:13px;"></div>
         </div>
       </div>
     </section>

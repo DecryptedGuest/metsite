@@ -289,6 +289,35 @@ function navigateTo(pageId) {
   if (loaders[pageId]) return loaders[pageId]();
 }
 
+// ── Developer Imports tab ──────────────────────────────────────────
+async function runPatrolBackfill() {
+  const btn = document.getElementById('imp-patrol-btn');
+  const out = document.getElementById('imp-patrol-result');
+  if (!(await uiConfirm('Import every patrol & event log from the channels? Runs in the background and adds any missing logs as approved.'))) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Starting…'; }
+  if (out) out.innerHTML = '';
+  try {
+    const r = await api('/api/dev/patrol-backfill', { method: 'POST' });
+    if (out) out.innerHTML = `<span style="color:var(--green);"><i class="ti ti-check"></i> ${escapeHtml(r.message || 'Import started.')}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-download"></i> Import patrol &amp; event logs'; } }
+}
+
+async function runIaSync() {
+  const btn = document.getElementById('imp-ia-btn');
+  const out = document.getElementById('imp-ia-result');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Syncing…'; }
+  if (out) out.innerHTML = '';
+  try {
+    const r = await api('/api/dev/ia-sync', { method: 'POST' });
+    const fmt = (lbl, x) => x ? `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}` : `${lbl}: —`;
+    if (out) out.innerHTML = `<span style="color:var(--green);"><i class="ti ti-check"></i> Synced. ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Sync IA cases &amp; tickets'; } }
+}
+
 // ── Open a case/ticket from a clicked notification ─────────────────
 // Navigates to the right page, waits for its list to load, then opens the
 // item — or tells the user it's no longer pending if it has been reviewed.
