@@ -589,12 +589,13 @@ router.post('/tryout/commands/ack', requireGameSecret, async (req, res) => {
 // and tolerant of the different shapes each log type sends — we normalise into a
 // GameLog row. MET HICOMM view these on the site. Idempotency isn't enforced
 // (logs are append-only, high volume), but we cap batch size to avoid abuse.
+const { deriveTarget } = require('../lib/gameLog');
 function normaliseGameLog(ev) {
   ev = (ev && typeof ev === 'object') ? ev : {}; // tolerate null / primitives in a batch
   const src = String(ev.source || ev.type || ev.kind || '').toUpperCase();
   const source = ['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src) ? src : 'ADONIS';
   const s = (v) => (v == null ? null : String(v).slice(0, 1000));
-  return {
+  const row = {
     source,
     actor:   s(ev.actor ?? ev.player ?? ev.admin ?? ev.username ?? ev.from ?? ev.user),
     actorId: s(ev.actorId ?? ev.playerId ?? ev.userId ?? ev.adminId),
@@ -603,6 +604,10 @@ function normaliseGameLog(ev) {
     message: s(ev.message ?? ev.reason ?? ev.text ?? ev.chat ?? ev.content),
     place:   s(ev.place ?? ev.placeName ?? ev.server ?? ev.jobId),
   };
+  // Adonis logs rarely carry an explicit target — derive it from the command
+  // line so it's stored (and searchable) rather than left blank.
+  if (!row.target) row.target = deriveTarget(row);
+  return row;
 }
 
 router.post('/log', requireGameSecret, async (req, res) => {

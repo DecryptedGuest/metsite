@@ -122,9 +122,10 @@ router.get('/game-logs', async (req, res) => {
     ];
     if (req.query.before) where.createdAt = { lt: new Date(req.query.before) };
     const rows = await prisma.gameLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 150 });
+    const { deriveTarget } = require('../lib/gameLog');
     res.json(rows.map(r => ({
       id: r.id, source: r.source, actor: r.actor, actorId: r.actorId,
-      target: r.target, action: r.action, message: r.message, place: r.place,
+      target: deriveTarget(r), action: r.action, message: r.message, place: r.place,
       createdAt: r.createdAt,
     })));
   } catch (e) {
