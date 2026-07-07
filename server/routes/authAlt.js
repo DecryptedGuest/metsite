@@ -160,7 +160,10 @@ router.post('/qr/approve', requireAuth, async (req, res) => {
 router.post('/passkey/options', async (req, res) => {
   try {
     const { rpID } = rpInfo(req);
-    const options = await generateAuthenticationOptions({ rpID, allowCredentials: [], userVerification: 'preferred' });
+    // Omit allowCredentials entirely → the browser offers any discoverable
+    // passkey registered for this domain (username-less login). An empty array
+    // can be read as "no credentials allowed" and suppress the prompt.
+    const options = await generateAuthenticationOptions({ rpID, userVerification: 'preferred' });
     const token = jwt.sign({ ch: options.challenge }, process.env.JWT_SECRET, { expiresIn: '5m' });
     res.cookie('pk_login', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 5 * 60 * 1000 });
     res.json(options);

@@ -55,14 +55,30 @@ const PORT = process.env.PORT || 3000;
 // Behind Railway's proxy — trust X-Forwarded-For so client IPs resolve correctly
 app.set('trust proxy', 1);
 
-// Canonical host: 301 www.<domain> → the apex (e.g. www.slrmet.com → slrmet.com)
-// so the root is the single canonical address. Only touches hosts beginning
-// with "www." — the Railway domain and apex are left alone (keeps game/webhook
-// callbacks working). Safe with Cloudflare DNS-only (no proxy needed).
+// Canonical host: keep the browser on a single domain (e.g. slrmet.com) so the
+// URL bar, cookies and WebAuthn RP id stay consistent. Two redirects:
+//   • www.<domain> → the apex.
+//   • any other host (e.g. the raw *.up.railway.app URL) → CANONICAL_HOST.
+// The canonical host comes from CANONICAL_HOST, else the host in PUBLIC_BASE_URL,
+// so it stays OFF until you point the site at a real domain (no accidental
+// breakage in dev/before cutover). ONLY real browser page-loads are redirected
+// (GET + Accept: text/html); /api and /auth are never touched, so game/webhook
+// callbacks, OAuth callbacks and Railway health checks keep working on any host.
+const CANONICAL_HOST = (() => {
+  if (process.env.CANONICAL_HOST) return process.env.CANONICAL_HOST.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (process.env.PUBLIC_BASE_URL) { try { return new URL(process.env.PUBLIC_BASE_URL).host; } catch (e) {} }
+  return null;
+})();
 app.use((req, res, next) => {
   const host = req.headers.host || '';
   if (/^www\./i.test(host)) {
     return res.redirect(301, `https://${host.replace(/^www\./i, '')}${req.originalUrl}`);
+  }
+  if (CANONICAL_HOST && host && host !== CANONICAL_HOST
+      && req.method === 'GET'
+      && (req.headers.accept || '').includes('text/html')
+      && !req.path.startsWith('/api') && !req.path.startsWith('/auth')) {
+    return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
   }
   next();
 });

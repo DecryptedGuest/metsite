@@ -111,7 +111,11 @@
     try {
       const options = await api('/api/login/passkey/options', { method: 'POST' });
       options.challenge = b64urlToBuf(options.challenge);
-      if (options.allowCredentials) options.allowCredentials = options.allowCredentials.map(c => ({ ...c, id: b64urlToBuf(c.id) }));
+      if (Array.isArray(options.allowCredentials) && options.allowCredentials.length) {
+        options.allowCredentials = options.allowCredentials.map(c => ({ ...c, id: b64urlToBuf(c.id) }));
+      } else {
+        delete options.allowCredentials; // discoverable: let the browser offer any saved passkey
+      }
       const cred = await navigator.credentials.get({ publicKey: options });
       const response = {
         id: cred.id, rawId: bufToB64url(cred.rawId), type: cred.type,
@@ -127,7 +131,10 @@
       location.replace('/dashboard');
     } catch (e) {
       const st = document.getElementById('alt-pk-status');
-      const msg = (e && e.name === 'NotAllowedError') ? 'Passkey prompt was cancelled.' : (e.message || 'Passkey sign-in failed.');
+      let msg;
+      if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) msg = 'No passkey was used. If you saved a passkey on a different site address, re-add one here — passkeys only work on the exact domain they were created on.';
+      else if (e && e.name === 'SecurityError') msg = "This site's address doesn't match the passkey. Make sure you're on the main domain and try again.";
+      else msg = e.message || 'Passkey sign-in failed.';
       if (st) { st.textContent = msg; st.style.color = 'var(--red,#e0503a)'; }
       toast(msg, 'error');
     }
