@@ -101,6 +101,36 @@ async function initMetTopbar(currentDivision) {
     }
   } catch (e) { /* non-fatal */ }
 
+  // Inject a "Menu" dropdown of the site's top-level pages into the topbar,
+  // alongside Search / Switch Division. Reuses the switcher's markup + CSS.
+  try {
+    const right = document.querySelector('.met-topbar-right');
+    const switcher = document.getElementById('met-switcher');
+    if (right && !document.getElementById('met-pages')) {
+      const PAGES = [
+        { href: '/dashboard', icon: 'ti-user',          label: 'My Profile' },
+        { href: '/support',   icon: 'ti-lifebuoy',       label: 'Support' },
+        { href: '/loa',       icon: 'ti-calendar-off',   label: 'Leave of Absence' },
+        { href: '/exam',      icon: 'ti-writing',        label: 'Final Exam' },
+        { href: '/app',       icon: 'ti-device-mobile',  label: 'Mobile App' },
+      ];
+      const here = location.pathname.replace(/\/$/, '');
+      const wrap = document.createElement('div');
+      wrap.className = 'met-switcher';
+      wrap.id = 'met-pages';
+      wrap.innerHTML =
+        '<button class="btn btn-ghost btn-sm" id="met-pages-btn"><i class="ti ti-menu-2"></i> Menu</button>' +
+        '<div class="met-switcher-menu">' +
+        PAGES.map(p => `<a href="${p.href}" class="met-switcher-item${here === p.href ? ' current' : ''}"><span><i class="ti ${p.icon}"></i> ${p.label}</span></a>`).join('') +
+        '</div>';
+      // Place it just before the division switcher (after the Search button).
+      if (switcher) right.insertBefore(wrap, switcher); else right.appendChild(wrap);
+      const pBtn = wrap.querySelector('#met-pages-btn');
+      pBtn.addEventListener('click', (e) => { e.stopPropagation(); wrap.classList.toggle('open'); });
+      document.addEventListener('click', () => wrap.classList.remove('open'));
+    }
+  } catch (e) { /* cosmetic */ }
+
   // Inject a discoverable ⌘K / Ctrl-K command-palette trigger into the topbar.
   try {
     const right = document.querySelector('.met-topbar-right');
