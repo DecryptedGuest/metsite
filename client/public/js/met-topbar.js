@@ -9,7 +9,52 @@ function metInitials(name) {
   return (name || '?').trim().slice(0, 1).toUpperCase();
 }
 
+// ── Tab title + favicon, matched to the current division ─────────────
+// Title: "MET Dashboard" (misc) or "MET Dashboard - CID" (a division). Favicon:
+// the division's icon (else the MET icon), rounded on a canvas so it looks neat
+// in the browser tab. Falls back to the raw image if canvas is unavailable.
+const CHROME_ICON = { CID: 'cid', SCO19: 'sco19', HPC: 'hpc', FLP: 'flp', IA: 'ia', DEVELOPER: 'dev', 'HIGH COMMAND': 'met', SECURITY: 'met' };
+const CHROME_TITLE = { CID: 'CID', SCO19: 'SCO-19', HPC: 'HPC', FLP: 'FLP', IA: 'Internal Affairs', DEVELOPER: 'Developer', 'HIGH COMMAND': 'High Command', SECURITY: 'Security' };
+
+function metApplyFavicon(href, isData) {
+  let link = document.querySelector('link[rel="icon"]');
+  if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+  if (isData) link.type = 'image/png';
+  link.href = href;
+}
+
+function metRoundedFavicon(src) {
+  try {
+    const img = new Image();
+    img.onload = function () {
+      try {
+        const S = 64, r = 14;
+        const c = document.createElement('canvas'); c.width = S; c.height = S;
+        const ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(r, 0); ctx.arcTo(S, 0, S, S, r); ctx.arcTo(S, S, 0, S, r);
+        ctx.arcTo(0, S, 0, 0, r); ctx.arcTo(0, 0, S, 0, r); ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(img, 0, 0, S, S);
+        metApplyFavicon(c.toDataURL('image/png'), true);
+      } catch (e) { metApplyFavicon(src, false); } // canvas tainted/unsupported → raw
+    };
+    img.onerror = function () { metApplyFavicon(src, false); };
+    img.src = src;
+  } catch (e) { metApplyFavicon(src, false); }
+}
+
+function setSiteChrome(division) {
+  const label = CHROME_TITLE[division] || '';
+  document.title = 'MET Dashboard' + (label ? ' - ' + label : '');
+  const key = CHROME_ICON[division] || 'met';
+  const ext = key === 'dev' ? 'svg' : 'png';
+  metRoundedFavicon('/img/divisions/' + key + '.' + ext);
+}
+if (typeof window !== 'undefined') window.setSiteChrome = setSiteChrome;
+
 async function initMetTopbar(currentDivision) {
+  setSiteChrome(currentDivision);
   const badge = document.getElementById('met-division-badge');
   // Leave the badge's markup as-is on pages with no specific division (e.g. the
   // profile page sets its own label in HTML).
