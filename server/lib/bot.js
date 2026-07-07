@@ -740,14 +740,16 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
       );
   }
 
+  const joinUrl = require('./tryouts').tryoutJoinUrl(tryout);
   return new EmbedBuilder()
     .setColor(cfg.dmColor || 0x2ed896)
     .setTitle(cfg.dmTitle)
     .setDescription(`Your tryout has started and been announced. Run it in-game from the ${cfg.panelName}, then conclude it to log the results.`)
     .addFields(
       { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
-      { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the announcement link' : '🔴 Closed', inline: true },
+      { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the link below' : '🔴 Closed', inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
+      ...(joinUrl ? [{ name: '🔗 Join link', value: joinUrl, inline: false }] : []),
       ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
     );
 }
