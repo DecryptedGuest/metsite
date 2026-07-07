@@ -285,100 +285,93 @@ router.get('/discord/callback', async (req, res) => {
       const { getRobloxIdFromDiscord, getRobloxUserInfo } = require('../lib/roblox');
       const ip = getClientIp(req);
 
-      let rbxId = null, rbxName = null;
-      try {
-        // Force a fresh RoVer lookup on every login so a stale/missing Roblox
-        // link gets corrected — otherwise the DB-first path reuses the old value
-        // and "log out + back in" can't fix a wrong/absent link.
-        rbxId = await getRobloxIdFromDiscord(discordUser.id, { fresh: true });
-        if (rbxId) {
-          const info = await getRobloxUserInfo(rbxId);
-          rbxName = info?.username || null;
+      // DB-FIRST to stay off RoVer's rate limit: if this account already has a
+      // stored Roblox link, reuse it and DON'T call RoVer. Only hit RoVer when
+      // the link is missing (first sign-in, or a previously-unlinked user).
+      let rbxId = user.robloxId || null, rbxName = user.robloxUsername || null;
+      if (!rbxId) {
+        try {
+          rbxId = await getRobloxIdFromDiscord(discordUser.id, { fresh: true });
+          if (rbxId) { const info = await getRobloxUserInfo(rbxId); rbxName = info?.username || null; }
+        } catch (rvErr) {
+          console.warn('[Auth] RoVer link lookup failed (non-blocking):', rvErr.message);
         }
-      } catch (rvErr) {
-        console.warn('[Auth] RoVer link lookup failed (non-blocking):', rvErr.message);
       }
 
       await prisma.user.update({
         where: { id: user.id },
-        data:  { lastIp: ip, robloxId: rbxId, robloxUsername: rbxName },
+        data:  { lastIp: ip, ...(rbxId ? { robloxId: rbxId, robloxUsername: rbxName } : {}) },
       });
-      console.log('[Auth] Stored IP + Roblox link:', ip, '|', rbxName || 'unlinked');
+      console.log('[Auth] Stored IP + Roblox link:', ip, '|', rbxName || 'unlinked', rbxId && user.robloxId ? '(cached)' : '(fresh)');
     } catch (enrichErr) {
       // Old schema (columns missing) or transient error — non-fatal
       console.warn('[Auth] IP/Roblox enrich skipped:', enrichErr.message);
     }
 
-    // ── Step 6: Create a server-side session + issue JWT cookie ───
-    const { getClientIp } = require('../middleware/visit');
-    const ip = getClientIp(req);
-    const ua = (req.headers['user-agent'] || '').slice(0, 400);
-    const device = describeDevice(ua);
-    const SESSION_DAYS = 7;
-    const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-
-    // New-device / new-IP detection (before creating this session).
-    let isNewDevice = false;
-    try {
-      const priorCount = await prisma.session.count({ where: { userId: user.id } });
-      if (priorCount > 0) {
-        const seen = await prisma.session.findFirst({
-          where: { userId: user.id, OR: [{ ip: ip || undefined }, { device }] },
-        });
-        isNewDevice = !seen;
-      }
-    } catch (e) { /* non-fatal */ }
-
-    let session;
-    try {
-      session = await prisma.session.create({ data: { userId: user.id, ip, userAgent: ua, device, expiresAt } });
-    } catch (e) {
-      console.error('[Auth] session create failed:', e.message);
-      return res.redirect('/login?error=server_error');
-    }
-
-    // Classify the login IP (VPN? datacenter?) and track the account's most
-    // recent real IP — dev-panel only, fire-and-forget so it never blocks login.
-    if (ip) {
-      try { require('../lib/ipIntel').classifyAndRecord({ userId: user.id, sessionId: session.id, ip }); } catch (e) {}
-    }
-
-    const jwtToken = jwt.sign(
-      { userId: user.id, sid: session.id },
-      process.env.JWT_SECRET,
-      { expiresIn: `${SESSION_DAYS}d` }
-    );
-
-    res.cookie('iacms_token', jwtToken, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge:   SESSION_DAYS * 24 * 60 * 60 * 1000,
-    });
-
-    // Alert on a new device via push (best-effort, non-blocking).
-    if (isNewDevice) {
-      try {
-        const { sendToUser } = require('../lib/push');
-        if (typeof sendToUser === 'function') {
-          sendToUser(user.id, {
-            title: 'New sign-in to your MET account',
-            body: `A new sign-in from ${device}${ip ? ' (' + ip + ')' : ''}. If this wasn't you, revoke it in your dashboard.`,
-            url: '/dashboard',
-          }).catch(() => {});
-        }
-      } catch (e) { /* push optional */ }
-    }
-    try { await require('../lib/audit').record({ req, action: 'LOGIN', category: 'auth', targetType: 'session', targetId: session.id, summary: `Signed in from ${device}`, ip }); } catch (e) {}
-
-    console.log('[Auth] Login complete, redirecting to dashboard');
-    res.redirect('/dashboard');
+    // ── Step 6: Create the server-side session + cookie, then redirect ──
+    return establishSession(req, res, user);
 
   } catch (err) {
     console.error('[Auth] Unhandled error in OAuth callback:', err.stack || err.message);
     res.redirect('/login?error=server_error');
   }
 });
+
+// Shared session creation used by BOTH the Discord and Roblox sign-in flows:
+// makes the server-side session + JWT cookie, does new-device detection + IP
+// classification, audits the login, and redirects to the dashboard.
+async function establishSession(req, res, user) {
+  const { getClientIp } = require('../middleware/visit');
+  const ip = getClientIp(req);
+  const ua = (req.headers['user-agent'] || '').slice(0, 400);
+  const device = describeDevice(ua);
+  const SESSION_DAYS = 7;
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+
+  let isNewDevice = false;
+  try {
+    const priorCount = await prisma.session.count({ where: { userId: user.id } });
+    if (priorCount > 0) {
+      const seen = await prisma.session.findFirst({ where: { userId: user.id, OR: [{ ip: ip || undefined }, { device }] } });
+      isNewDevice = !seen;
+    }
+  } catch (e) { /* non-fatal */ }
+
+  let session;
+  try {
+    session = await prisma.session.create({ data: { userId: user.id, ip, userAgent: ua, device, expiresAt } });
+  } catch (e) {
+    console.error('[Auth] session create failed:', e.message);
+    return res.redirect('/login?error=server_error');
+  }
+
+  if (ip) {
+    try { require('../lib/ipIntel').classifyAndRecord({ userId: user.id, sessionId: session.id, ip }); } catch (e) {}
+  }
+
+  const jwtToken = jwt.sign({ userId: user.id, sid: session.id }, process.env.JWT_SECRET, { expiresIn: `${SESSION_DAYS}d` });
+  res.cookie('iacms_token', jwtToken, {
+    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
+    maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
+  });
+
+  if (isNewDevice) {
+    try {
+      const { sendToUser } = require('../lib/push');
+      if (typeof sendToUser === 'function') {
+        sendToUser(user.id, {
+          title: 'New sign-in to your MET account',
+          body: `A new sign-in from ${device}${ip ? ' (' + ip + ')' : ''}. If this wasn't you, revoke it in your dashboard.`,
+          url: '/dashboard',
+        }).catch(() => {});
+      }
+    } catch (e) { /* push optional */ }
+  }
+  try { await require('../lib/audit').record({ req, action: 'LOGIN', category: 'auth', targetType: 'session', targetId: session.id, summary: `Signed in from ${device}`, ip }); } catch (e) {}
+
+  console.log('[Auth] Login complete, redirecting to dashboard');
+  res.redirect('/dashboard');
+}
 
 // ── POST /auth/logout ─────────────────────────────────────────────
 router.post('/logout', async (req, res) => {
@@ -398,6 +391,155 @@ router.post('/logout', async (req, res) => {
   } catch (e) { /* token invalid/expired — nothing to revoke */ }
   res.clearCookie('iacms_token');
   res.redirect('/login');
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Sign in with Roblox (Roblox OAuth 2.0 / OIDC). Resolves the user's Discord
+// automatically — first from a stored account (robloxId already on file → NO
+// RoVer call), else via RoVer's roblox-to-discord reverse lookup. Roblox's own
+// OAuth is not RoVer, so we read its userinfo freely; the RoVer reverse lookup
+// (the rate-limited bit) is skipped whenever we already know the account.
+// ─────────────────────────────────────────────────────────────────
+const crypto = require('crypto');
+const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function robloxRedirectUri(req) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, '') + '/auth/roblox/callback';
+  const host = req.get('host');
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0];
+  return `${proto}://${host}/auth/roblox/callback`;
+}
+
+// GET /auth/roblox — kick off the Roblox OAuth flow (PKCE + state in a cookie).
+router.get('/roblox', (req, res) => {
+  const clientId = process.env.ROBLOX_OAUTH_CLIENT_ID;
+  if (!clientId) return res.redirect('/login?error=roblox_not_configured');
+  const verifier  = b64url(crypto.randomBytes(32));
+  const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+  const state     = b64url(crypto.randomBytes(16));
+  const stateToken = jwt.sign({ state, verifier }, process.env.JWT_SECRET, { expiresIn: '10m' });
+  res.cookie('roblox_oauth', stateToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 10 * 60 * 1000 });
+  const params = new URLSearchParams({
+    client_id:             clientId,
+    redirect_uri:          robloxRedirectUri(req),
+    scope:                 'openid profile',
+    response_type:         'code',
+    state,
+    code_challenge:        challenge,
+    code_challenge_method: 'S256',
+  });
+  res.redirect(`https://apis.roblox.com/oauth/v1/authorize?${params}`);
+});
+
+// GET /auth/roblox/callback — exchange the code, resolve Discord, sign in.
+router.get('/roblox/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error || !code) return res.redirect('/login?error=oauth_cancelled');
+
+  let saved;
+  try { saved = jwt.verify(req.cookies?.roblox_oauth || '', process.env.JWT_SECRET); } catch (e) { return res.redirect('/login?error=oauth_state'); }
+  res.clearCookie('roblox_oauth');
+  if (!saved || saved.state !== state) return res.redirect('/login?error=oauth_state');
+
+  try {
+    // Exchange the code (confidential client + PKCE verifier).
+    const tokenRes = await fetch('https://apis.roblox.com/oauth/v1/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id:     process.env.ROBLOX_OAUTH_CLIENT_ID,
+        client_secret: process.env.ROBLOX_OAUTH_CLIENT_SECRET || '',
+        grant_type:    'authorization_code',
+        code,
+        redirect_uri:  robloxRedirectUri(req),
+        code_verifier: saved.verifier,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) { console.error('[Auth] Roblox token exchange failed:', JSON.stringify(tokenData)); return res.redirect('/login?error=token_failed'); }
+
+    // Roblox userinfo (its own API — free, not RoVer).
+    const uiRes = await fetch('https://apis.roblox.com/oauth/v1/userinfo', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    const ui = await uiRes.json();
+    const robloxId = ui.sub ? String(ui.sub) : null;
+    if (!robloxId) { console.error('[Auth] Roblox userinfo missing sub:', JSON.stringify(ui)); return res.redirect('/login?error=user_fetch_failed'); }
+    const robloxUsername = ui.preferred_username || ui.name || null;
+    console.log('[Auth] Roblox sign-in:', robloxUsername, '| id:', robloxId);
+
+    // Resolve Discord: DB-first (already-linked account → no RoVer), else RoVer
+    // roblox-to-discord reverse lookup.
+    let user = await prisma.user.findFirst({ where: { robloxId } }).catch(() => null);
+    let discordId = user ? user.discordId : null;
+    let memberRoles = [];
+    if (!discordId) {
+      try {
+        const { getDiscordFromRoblox } = require('../lib/roblox');
+        const members = await getDiscordFromRoblox(robloxId);
+        if (members && members.length) { discordId = String(members[0].discordId); memberRoles = members[0].roleIds || []; }
+      } catch (e) { console.warn('[Auth] RoVer reverse lookup failed:', e.message); }
+    }
+    if (!discordId) return res.redirect('/login?error=roblox_unlinked');
+
+    const isDeveloper = discordId === getDeveloperDiscordId();
+    const grant = await prisma.accessGrant.findUnique({ where: { discordId } }).catch(() => null);
+
+    // Guild roles + Discord display via the bot (roleIds from RoVer if we got them).
+    let discordUsername = user && user.discordUsername;
+    let displayName = user && user.displayName;
+    try {
+      const { getMemberRecord } = require('../lib/bot');
+      const rec = await getMemberRecord(discordId);
+      if (rec) {
+        if (rec.inDiscord === false && !isDeveloper && !grant) return res.redirect('/denied?reason=not_in_server');
+        if (!memberRoles.length && Array.isArray(rec.roleIds)) memberRoles = rec.roleIds;
+        discordUsername = discordUsername || rec.username;
+        displayName = displayName || rec.displayName;
+      }
+    } catch (e) { /* bot down → proceed with what we have */ }
+
+    // System role: IA group rank (using the Roblox id we already have — no RoVer),
+    // then a Discord-role fallback.
+    let systemRole = isDeveloper ? 'DEVELOPER' : (grant ? grant.role : null);
+    if (!systemRole && !isDeveloper) {
+      try {
+        const { getUserGroupRole } = require('../lib/roblox');
+        const groupRole = await getUserGroupRole(robloxId, process.env.IA_GROUP_ID || '407296071');
+        if (groupRole) systemRole = roleFromIaGroupRank(groupRole.name, groupRole.rank);
+      } catch (e) { /* non-blocking */ }
+      if (!systemRole) {
+        if (memberRoles.includes(getRoleHICOMM()))          systemRole = 'HICOMM';
+        else if (memberRoles.includes(getRoleSUPERVISOR())) systemRole = 'SUPERVISOR';
+        else if (memberRoles.includes(getRoleIA()))         systemRole = 'IA';
+      }
+    }
+
+    // Divisions — pass robloxId so this never re-hits RoVer.
+    const divisions = await resolveDivisionsForUser({ discordId, siteRole: systemRole, robloxId });
+    if (!isDeveloper && !grant && !systemRole && divisions.length === 0) return res.redirect('/denied?reason=no_role');
+    if (!isDeveloper && siteConfig.isOn('loginLockdown')) return res.redirect('/denied?reason=lockdown');
+
+    user = await prisma.user.upsert({
+      where: { discordId },
+      update: {
+        robloxId, robloxUsername,
+        ...(discordUsername ? { discordUsername } : {}),
+        ...(displayName ? { displayName } : {}),
+        ...(systemRole ? { role: systemRole } : {}),
+        divisions, metRoleIds: memberRoles, mustReauth: false, lastLogin: new Date(),
+      },
+      create: {
+        discordId,
+        discordUsername: discordUsername || `roblox_${robloxId}`,
+        displayName: displayName || robloxUsername || `Roblox ${robloxId}`,
+        robloxId, robloxUsername,
+        ...(systemRole ? { role: systemRole } : {}),
+        divisions, metRoleIds: memberRoles,
+      },
+    });
+
+    return establishSession(req, res, user);
+  } catch (err) {
+    console.error('[Auth] Roblox callback error:', err.stack || err.message);
+    res.redirect('/login?error=server_error');
+  }
 });
 
 // Exposed so the debug endpoint can show the EXACT redirect_uri the app sends
