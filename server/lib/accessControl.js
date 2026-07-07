@@ -73,6 +73,41 @@ async function revalidateUser(user, getMemberRecord) {
   return 'inconclusive-skip';
 }
 
+// ── Blocking freshness check for rank-locked gates ───────────────────
+// When a user hits a rank-locked route (a division, a lead tier, HPC marker…)
+// and their cached role/divisions are older than GATE_REVALIDATE_TTL_MS, re-
+// derive them LIVE before the gate decides — so a member removed from a
+// division (or demoted) loses access on THIS request, not a later one, and
+// their stored role/divisions/metRoleIds (and thus perms) are corrected.
+// Best-effort: on a bot/API failure or an inconclusive lookup it returns the
+// user unchanged (fail-open — never a false revoke, matching revalidateUser).
+// Concurrent gated requests for the same user share one in-flight re-check.
+const GATE_TTL_MS = () => { const n = parseInt(process.env.GATE_REVALIDATE_TTL_MS, 10); return Number.isFinite(n) ? n : 60 * 1000; };
+const _gateInflight = new Map(); // userId → Promise
+
+async function ensureFreshUser(user) {
+  try {
+    if (!user || user.role === 'DEVELOPER') return user;
+    const last = user.lastRoleCheck ? new Date(user.lastRoleCheck).getTime() : 0;
+    if (Date.now() - last < GATE_TTL_MS()) return user;
+
+    if (!_gateInflight.has(user.id)) {
+      _gateInflight.set(user.id, (async () => {
+        try {
+          const { getMemberRecord } = require('./bot');
+          await revalidateUser(user, getMemberRecord);
+        } catch (e) { /* fail-open */ }
+        finally { _gateInflight.delete(user.id); }
+      })());
+    }
+    await _gateInflight.get(user.id);
+    const fresh = await prisma.user.findUnique({ where: { id: user.id } }).catch(() => null);
+    return fresh || user;
+  } catch (e) {
+    return user;
+  }
+}
+
 // Walk all non-developer users that haven't been checked recently, a few at a
 // time, with a small delay to stay friendly to the Discord / RoVer APIs.
 async function revalidateBatch() {
@@ -110,4 +145,4 @@ function startAccessRevalidator() {
   setInterval(revalidateBatch, 3 * 60 * 1000);
 }
 
-module.exports = { startAccessRevalidator, revalidateUser, revalidateBatch };
+module.exports = { startAccessRevalidator, revalidateUser, revalidateBatch, ensureFreshUser };

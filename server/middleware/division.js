@@ -52,11 +52,28 @@ function userIsDivisionLead(user, division) {
   return divisionTier(userDivisions(user), division) === 'LEAD';
 }
 
+// Rank-locked gate freshness: re-derive the user's role/divisions LIVE when
+// their cache is stale, then block if that just revoked their access. Ensures a
+// member removed from a division (or demoted) is denied on THIS request rather
+// than keeping access until a background refresh. Returns true if the request
+// was denied (a response has been sent). Fail-open on bot/API errors.
+async function gateRevokedAfterRefresh(req, res) {
+  try { req.user = await require('../lib/accessControl').ensureFreshUser(req.user); }
+  catch (e) { return false; }
+  if (req.user && (req.user.isBlacklisted || req.user.mustReauth)) {
+    if (req.originalUrl.startsWith('/api')) res.status(401).json({ error: 'Your access has changed. Please sign in again.' });
+    else res.redirect('/login?error=access_revoked');
+    return true;
+  }
+  return false;
+}
+
 // requireDivision('CID') — 403/redirect-to-denied unless the user has any
 // tier (MEMBER or LEAD) in that division. DEVELOPER always passes.
 function requireDivision(division) {
-  return function (req, res, next) {
+  return async function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    if (req.user.role !== 'DEVELOPER' && await gateRevokedAfterRefresh(req, res)) return;
     if (req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user)) return next();
     if (userHasDivision(req.user, division)) return next();
 
@@ -68,8 +85,9 @@ function requireDivision(division) {
 
 // requireDivisionLead('SCO19') — division access AND tier === 'LEAD'.
 function requireDivisionLead(division) {
-  return function (req, res, next) {
+  return async function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    if (req.user.role !== 'DEVELOPER' && await gateRevokedAfterRefresh(req, res)) return;
     if (req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user)) return next();
     if (userIsDivisionLead(req.user, division)) return next();
 
@@ -127,14 +145,16 @@ function userHpcReviewer(user) {
   return !!(e && Number(e.rank) >= hpcReviewMinRank());
 }
 
-function requireHpcMarker(req, res, next) {
+async function requireHpcMarker(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.user.role !== 'DEVELOPER' && await gateRevokedAfterRefresh(req, res)) return;
   if (userHpcReviewer(req.user)) return next();
   return res.status(403).json({ error: `HPC group rank ${hpcReviewMinRank()}+ required to mark final exams.` });
 }
 
-function requireHpcQuota(req, res, next) {
+async function requireHpcQuota(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.user.role !== 'DEVELOPER' && await gateRevokedAfterRefresh(req, res)) return;
   if (userHpcTier(req.user, 'quota')) return next();
   return res.status(403).json({ error: 'HPC quota access required (Assistant Director and above).' });
 }
@@ -150,8 +170,9 @@ function userFlpGroupAdmin(user) {
   return !!(e && Number(e.rank) >= threshold);
 }
 
-function requireFlpGroupAdmin(req, res, next) {
+async function requireFlpGroupAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.user.role !== 'DEVELOPER' && await gateRevokedAfterRefresh(req, res)) return;
   if (userFlpGroupAdmin(req.user)) return next();
   return res.status(403).json({ error: 'FLP Assistant Director or above required.' });
 }
