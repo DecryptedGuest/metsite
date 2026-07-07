@@ -129,7 +129,7 @@ async function initMetTopbar(currentDivision) {
         '</div>';
       if (switcherEl) right.insertBefore(wrap, switcherEl); else right.appendChild(wrap);
       const pBtn = wrap.querySelector('#met-pages-btn');
-      pBtn.addEventListener('click', (e) => { e.stopPropagation(); wrap.classList.toggle('open'); });
+      pBtn.addEventListener('click', (e) => { e.stopPropagation(); closeOtherDropdowns(wrap); wrap.classList.toggle('open'); });
       document.addEventListener('click', () => wrap.classList.remove('open'));
       if (PAGES.some(p => p.href === HERE)) markHere(pBtn);
 
@@ -163,8 +163,15 @@ async function initMetTopbar(currentDivision) {
     if (currentDivision) markHere(switcherBtn);
     switcherBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      closeOtherDropdowns(switcher);
       switcher.classList.toggle('open');
     });
     document.addEventListener('click', () => switcher.classList.remove('open'));
   }
+}
+
+// Close every topbar dropdown except the one passed in, so only one of the
+// Menu / Switch Division selectors is open at a time.
+function closeOtherDropdowns(except) {
+  document.querySelectorAll('.met-switcher.open').forEach(s => { if (s !== except) s.classList.remove('open'); });
 }
