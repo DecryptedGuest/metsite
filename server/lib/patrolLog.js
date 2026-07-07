@@ -70,6 +70,29 @@ function shiftTime(content, kind /* 'start' | 'end' */) {
   return null;
 }
 
+// Parse an EXPLICIT date written in the log (not the shift times). Handles:
+//   - "Date: 05/07/2025", "Date - 5.7.25", or a bare DD/MM/YYYY (UK day-first)
+//   - a Discord date timestamp <t:epoch:D> / <t:epoch:d>
+// Returns a Date, or null when no explicit date is present (caller then falls
+// back to the message-sent date).
+function parseLogDate(content) {
+  const s = String(content || '');
+  let m = s.match(/date\s*[:\-]?\s*([0-3]?\d)\s*[\/\-.]\s*([01]?\d)\s*[\/\-.]\s*(\d{2,4})/i)
+       || s.match(/\b([0-3]?\d)\s*[\/\-.]\s*([01]?\d)\s*[\/\-.]\s*(\d{2,4})\b/);
+  if (m) {
+    let d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2100) {
+      const dt = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0)); // noon UTC → no TZ day-shift
+      if (!isNaN(dt.getTime())) return dt;
+    }
+  }
+  // Discord DATE timestamps only (D/d); not :t/:T/:f/:F which are shift times.
+  const dt = s.match(/<t:(\d{6,}):[Dd]>/);
+  if (dt) { const d = new Date(parseInt(dt[1], 10) * 1000); if (!isNaN(d.getTime())) return d; }
+  return null;
+}
+
 // Division value after "Division:" (tolerant of "Div", separators, trailing pings).
 function parseDivision(content) {
   const m = String(content || '').match(/^\s*div\w*\s*[:;\-]?\s*(.*)$/im);
@@ -118,11 +141,26 @@ function parsePatrolLog(content) {
     }
   }
   if (totalMinutes == null) totalMinutes = parseStatedTotal(content);
+
+  // Did the shift run past midnight? For clock times: ended earlier in the day
+  // than it started. For Discord timestamps: start and end fall on different
+  // calendar days (in the patrol timezone).
+  let crossedMidnight = false;
+  if (start && end) {
+    if (start.epoch != null && end.epoch != null) {
+      const dayOf = (sec) => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: PATROL_TZ(), year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(sec * 1000)); } catch (e) { return String(Math.floor(sec / 86400)); } };
+      crossedMidnight = dayOf(start.epoch) !== dayOf(end.epoch);
+    } else if (start.minutes != null && end.minutes != null) {
+      crossedMidnight = end.minutes < start.minutes;
+    }
+  }
+
   return {
     division:     parseDivision(content),
     shiftStart:   start ? start.label : null,
     shiftEnd:     end ? end.label : null,
     totalMinutes,
+    crossedMidnight,
   };
 }
 
@@ -158,6 +196,10 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
     const parsed  = parsePatrolLog(message.content || '');
     const display = (message.member && message.member.displayName) || message.author.globalName || message.author.username;
     const approved = opts.status === 'APPROVED';
+    // The shift's date: an explicit date written in the log if present, else the
+    // date the message was sent (Discord createdAt). For a shift that crossed
+    // midnight this is the message-sent day (the shift started the night before).
+    const logDate = parseLogDate(message.content || '') || message.createdAt || new Date();
 
     return await prisma.patrolLog.create({
       data: {
@@ -171,6 +213,8 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
         shiftStart:           parsed.shiftStart,
         shiftEnd:             parsed.shiftEnd,
         totalMinutes:         parsed.totalMinutes,
+        logDate:              logDate,
+        crossedMidnight:      !!parsed.crossedMidnight,
         images:               imageUrls(message),
         rawContent:           (message.content || '').slice(0, 4000),
         status:               approved ? 'APPROVED' : 'PENDING',
@@ -251,6 +295,10 @@ function serialize(p) {
   // stored value). Falls back to the stored value when re-parsing yields nothing.
   let shiftStart = p.shiftStart || null, shiftEnd = p.shiftEnd || null;
   let totalMinutes = p.totalMinutes, division = p.division;
+  let crossedMidnight = !!p.crossedMidnight;
+  // The log's date: stored logDate (explicit-in-log or message-sent), else fall
+  // back to the row's createdAt so older rows still show something.
+  let logDate = p.logDate || p.createdAt || null;
   if (p.rawContent) {
     try {
       const re = parsePatrolLog(p.rawContent);
@@ -258,8 +306,15 @@ function serialize(p) {
       if (re.shiftEnd)   shiftEnd   = re.shiftEnd;
       if (re.totalMinutes != null) totalMinutes = re.totalMinutes;
       if (re.division)   division   = re.division;
+      crossedMidnight = !!re.crossedMidnight;
+      // An explicit date in the log always wins over the stored/message date.
+      const explicit = parseLogDate(p.rawContent);
+      if (explicit) logDate = explicit;
     } catch (e) { /* keep stored values */ }
   }
+  const dateLabel = logDate ? (() => { try {
+    return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: PATROL_TZ() }).format(new Date(logDate));
+  } catch (e) { return null; } })() : null;
   return {
     id: p.id, type: p.type || 'PATROL', messageId: p.messageId, channelId: p.channelId,
     pointAwarded: !!p.pointAwarded,
@@ -268,6 +323,7 @@ function serialize(p) {
     division: division || 'N/A',
     shiftStart: shiftStart, shiftEnd: shiftEnd,
     totalMinutes: totalMinutes, totalLabel: formatTotal(totalMinutes),
+    logDate: logDate, dateLabel, crossedMidnight,
     images: Array.isArray(p.images) ? p.images : [],
     status: p.status, reviewedByName: p.reviewedByName, reviewedAt: p.reviewedAt,
     createdAt: p.createdAt,

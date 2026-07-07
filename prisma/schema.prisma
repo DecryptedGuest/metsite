@@ -622,6 +622,8 @@ model PatrolLog {
   shiftStart           String? // 24h "HH:MM" as stated on the log
   shiftEnd             String? // 24h "HH:MM"
   totalMinutes         Int? // computed from start→end
+  logDate              DateTime? // the shift's date: parsed from the log if present, else the message-sent date
+  crossedMidnight      Boolean  @default(false) // shift ran past 00:00 (started the previous night)
   images               Json? // attachment image URLs
   rawContent           String?
   status               String    @default("PENDING") // PENDING | APPROVED | DENIED

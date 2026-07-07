@@ -98,6 +98,7 @@ function renderPatrol(p) {
   const rows = [
     ['Submitted by', `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`],
     ['Division', fesc(p.division || 'N/A')],
+    ['Date', `${fesc(p.dateLabel || '—')}${p.crossedMidnight ? ' <span style="color:var(--amber);font-size:11px;"><i class="ti ti-moon"></i> crossed midnight — started the night before</span>' : ''}`],
     ['Started', fesc(p.shiftStart || '—')],
     ['Ended', fesc(p.shiftEnd || '—')],
     ['Total time', fesc(p.totalLabel || '—')],
