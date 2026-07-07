@@ -114,6 +114,21 @@ async function loadProfile() {
     divEl.innerHTML = `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
 
+  // ── Rank history — promotion/demotion timeline ──
+  const rh = data.rankHistory || [];
+  if (rh.length) {
+    document.getElementById('p-rankhistory-panel').style.display = '';
+    document.getElementById('p-rankhistory').innerHTML = `<div class="rank-timeline">${rh.map(r => {
+      const change = r.fromRank && r.toRank ? `${escHtml(r.fromRank)} → <strong>${escHtml(r.toRank)}</strong>`
+        : r.toRank ? `<strong>${escHtml(r.toRank)}</strong>` : '<span style="color:var(--text-muted);">Rank change</span>';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-dim);">
+        <div><div style="font-size:13px;">${change}${r.group ? ` <span style="font-size:10px;color:var(--text-muted);">(${escHtml(r.group)})</span>` : ''}</div>
+        ${r.reason ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(r.reason)}</div>` : ''}</div>
+        <div style="text-align:right;white-space:nowrap;font-size:11px;color:var(--text-muted);">${formatDate(r.createdAt)}${r.byName ? `<br>by ${escHtml(r.byName)}` : ''}</div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
   // ── Perms — only shown if the member holds a paid-permission role ──
   const perms = data.perms || [];
   const permsPanel = document.getElementById('p-perms-panel');

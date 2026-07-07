@@ -24,7 +24,11 @@ const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || '145587742458
 // Content) and reacts ✅/❌ once the site approves/denies them.
 const PATROL_CHANNEL_ID    = process.env.PATROL_CHANNEL_ID || null;
 const EVENTLOGS_CHANNEL_ID = process.env.EVENTLOGS_CHANNEL_ID || null;
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID);
+// Promotions/demotions channel → RankHistory; infractions/strikes → punishment
+// history. Both are ingested the same way patrol logs are (needs Message Content).
+const PROMOTIONS_CHANNEL_ID  = process.env.PROMOTIONS_CHANNEL_ID  || null;
+const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || null;
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || PROMOTIONS_CHANNEL_ID || INFRACTIONS_CHANNEL_ID);
 
 let ready = false;
 let client;
@@ -640,6 +644,17 @@ async function onPatrolMessage(message) {
   try {
     if (message.author && message.author.bot) return;
     const ch = String(message.channelId);
+
+    // Promotions/demotions → RankHistory; infractions/strikes → punishment log.
+    if (PROMOTIONS_CHANNEL_ID && ch === String(PROMOTIONS_CHANNEL_ID)) {
+      await require('./discordIngest').ingestPromotion(message);
+      return;
+    }
+    if (INFRACTIONS_CHANNEL_ID && ch === String(INFRACTIONS_CHANNEL_ID)) {
+      await require('./discordIngest').ingestInfraction(message);
+      return;
+    }
+
     let type = null;
     if (PATROL_CHANNEL_ID && ch === String(PATROL_CHANNEL_ID)) type = 'PATROL';
     else if (EVENTLOGS_CHANNEL_ID && ch === String(EVENTLOGS_CHANNEL_ID)) type = 'EVENT';

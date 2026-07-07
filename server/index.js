@@ -661,6 +661,14 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   } catch (e) { inGuildLive = null; }
   const hasMetRoles = Array.isArray(req.user.metRoleIds) && req.user.metRoleIds.length > 0;
   const linked = !!metProfile || !!metRankInfo || inGuildLive === true || hasMetRoles;
+
+  // Promotion/demotion timeline (ingested from the Discord promotions channel).
+  let rankHistory = [];
+  try {
+    const or = [{ userId: req.user.id }, { discordId: req.user.discordId }];
+    if (req.user.robloxId) or.push({ robloxId: String(req.user.robloxId) });
+    rankHistory = await dbPrisma.rankHistory.findMany({ where: { OR: or }, orderBy: { createdAt: 'desc' }, take: 20 });
+  } catch (e) { rankHistory = []; }
   try {
     botPunishments = await dbPrisma.metPunishment.findMany({
       where: { discordId: req.user.discordId },
@@ -718,6 +726,11 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     punishments: punishments.map(p => ({
       id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
       caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt,
+    })),
+    // Promotion / demotion history (newest first).
+    rankHistory: rankHistory.map(r => ({
+      id: r.id, group: r.group, fromRank: r.fromRank, toRank: r.toRank,
+      reason: r.reason, byName: r.byName, createdAt: r.createdAt,
     })),
     // Whether we can see this member in the MET server (profile row, live guild
     // membership, resolved MET rank, or roles captured at login).
