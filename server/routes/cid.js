@@ -132,6 +132,20 @@ router.post('/tryouts', async (req, res) => {
   }
 });
 
+// GET /api/cid/analytics?days= — CID tryout analytics for the dashboard.
+router.get('/analytics', async (req, res) => {
+  try {
+    const analytics = require('../lib/analytics');
+    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const [tryouts, funnel, integrity] = await Promise.all([
+      analytics.tryoutAnalytics('CID', days),
+      analytics.recruitmentFunnel('CID', days),
+      analytics.integrityFlags('CID', Math.max(days, 45)),
+    ]);
+    res.json({ division: 'CID', days, tryouts, funnel, integrity });
+  } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
+});
+
 // POST /api/cid/tryouts/:id/cancel — host (or developer) cancels a tryout.
 router.post('/tryouts/:id/cancel', async (req, res) => {
   try {

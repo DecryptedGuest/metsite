@@ -17,6 +17,7 @@
     if (name === 'tryouts')      sco19LoadTryouts();
     if (name === 'tryout-logs')  sco19LoadMyLogs();
     if (name === 'review-logs')  sco19LoadReviewLogs();
+    if (name === 'analytics' && window.DivisionAnalytics) DivisionAnalytics.render({ apiPath: '/api/sco19/analytics', mountId: 'sco19-analytics', days: 30 });
   }
   function wireNav() {
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
@@ -313,6 +314,7 @@
       }
     } catch (e) { /* context fails → basic access only */ }
     sco19LoadTryouts();
+    if (window.DivisionAnalytics) DivisionAnalytics.kpis({ apiPath: '/api/sco19/analytics', mountId: 'sco19-kpis', days: 30 });
     const q = new URLSearchParams(location.search).get('tryoutLog');
     if (q) { showPage('tryout-logs'); sco19OpenLog(q, false); }
   }

@@ -17,6 +17,7 @@
     if (name === 'tryouts')      cidLoadTryouts();
     if (name === 'tryout-logs')  cidLoadMyLogs();
     if (name === 'review-logs')  cidLoadReviewLogs();
+    if (name === 'analytics' && window.DivisionAnalytics) DivisionAnalytics.render({ apiPath: '/api/cid/analytics', mountId: 'cid-analytics', days: 30 });
   }
   function wireNav() {
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => {
@@ -313,6 +314,7 @@
       }
     } catch (e) { /* context fails → basic access only */ }
     cidLoadTryouts();
+    if (window.DivisionAnalytics) DivisionAnalytics.kpis({ apiPath: '/api/cid/analytics', mountId: 'cid-kpis', days: 30 });
     const q = new URLSearchParams(location.search).get('tryoutLog');
     if (q) { showPage('tryout-logs'); cidOpenLog(q, false); }
   }

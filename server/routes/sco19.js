@@ -131,6 +131,20 @@ router.post('/tryouts', async (req, res) => {
   }
 });
 
+// GET /api/sco19/analytics?days= — SCO-19 tryout analytics for the dashboard.
+router.get('/analytics', async (req, res) => {
+  try {
+    const analytics = require('../lib/analytics');
+    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const [tryouts, funnel, integrity] = await Promise.all([
+      analytics.tryoutAnalytics('SCO19', days),
+      analytics.recruitmentFunnel('SCO19', days),
+      analytics.integrityFlags('SCO19', Math.max(days, 45)),
+    ]);
+    res.json({ division: 'SCO19', days, tryouts, funnel, integrity });
+  } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
+});
+
 // POST /api/sco19/tryouts/:id/cancel — host (or developer) cancels a tryout.
 router.post('/tryouts/:id/cancel', async (req, res) => {
   try {
