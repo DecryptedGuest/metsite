@@ -126,7 +126,8 @@ router.get('/review', async (req, res) => {
       where = { scope: 'DIVISION', division: { in: divs } };
     }
     const rows = await prisma.loaRequest.findMany({
-      where: { ...where, ...(req.query.status ? { status: String(req.query.status).toUpperCase() } : {}) },
+      // Never surface the reviewer's own requests in their review queue.
+      where: { ...where, userId: { not: req.user.id }, ...(req.query.status ? { status: String(req.query.status).toUpperCase() } : {}) },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], take: 100,
     });
     res.json(rows.map(serialize));
@@ -141,6 +142,9 @@ router.post('/:id/decision', async (req, res) => {
   try {
     const r = await prisma.loaRequest.findUnique({ where: { id: req.params.id } });
     if (!r) return res.status(404).json({ error: 'Request not found' });
+    // Segregation of duties: a reviewer must not decide their own request, even
+    // if they lead the scope. They can withdraw it via /cancel instead.
+    if (r.userId === req.user.id) return res.status(403).json({ error: 'You cannot review your own LOA request.' });
     if (!canReview(req.user, r)) return res.status(403).json({ error: 'You cannot review this LOA request.' });
     if (r.status !== 'PENDING') return res.status(400).json({ error: 'This request has already been decided.' });
     const action = String((req.body && req.body.action) || '').toLowerCase();

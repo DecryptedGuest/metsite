@@ -6,6 +6,20 @@
 // formats can be tuned later; the goal is to capture the events into the site.
 const prisma = require('./db');
 
+// In-process guard against duplicate messageCreate delivery (gateway RESUME can
+// replay buffered events). The bot runs single-instance in the web process, so a
+// bounded Set closes the check-then-create race that the DB alone can't (adding a
+// UNIQUE index on met_punishments.caseRef could fail `db push` at boot if legacy
+// rows collide, so we dedupe here instead). Returns true if already handled.
+const _seen = new Set();
+function alreadyHandled(messageId) {
+  const id = String(messageId);
+  if (_seen.has(id)) return true;
+  _seen.add(id);
+  if (_seen.size > 5000) { for (const k of _seen) { _seen.delete(k); if (_seen.size <= 4000) break; } }
+  return false;
+}
+
 // First user mention in a message → { id, display } or null.
 function firstMention(message) {
   try {
@@ -34,6 +48,7 @@ function namedMember(content) {
 async function ingestPromotion(message) {
   try {
     const messageId = String(message.id);
+    if (alreadyHandled(messageId)) return null;
     const existing = await prisma.rankHistory.findUnique({ where: { messageId } }).catch(() => null);
     if (existing) return existing;
 
@@ -82,6 +97,7 @@ function infractionType(content) {
 async function ingestInfraction(message) {
   try {
     const messageId = String(message.id);
+    if (alreadyHandled(messageId)) return null;
     const caseRef = `discord:${messageId}`;
     const existing = await prisma.metPunishment.findFirst({ where: { caseRef } }).catch(() => null);
     if (existing) return existing;

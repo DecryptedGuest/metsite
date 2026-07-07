@@ -60,14 +60,20 @@ async function acceptPassedCadetIntoMet(s, req) {
     if (!found) return { ok: false, reason: 'no pending join request' };
 
     await rlib.resolveJoinRequest(robloxId, 'approve', gid, cookie);
-    if (csoRoleId) await rlib.changeGroupRank(robloxId, csoRoleId, gid, cookie).catch(() => {});
+    // Approve lands them at the default rank; only claim a CSO rank change in the
+    // audit trail if changeGroupRank actually succeeded (it's best-effort — the
+    // member may not have propagated yet, or the role id may be unresolved).
+    let ranked = false;
+    if (csoRoleId) ranked = await rlib.changeGroupRank(robloxId, csoRoleId, gid, cookie).then(() => true).catch(() => false);
 
     audit.log(req && req.user, {
-      category: 'GROUP', action: 'RANK_CHANGE', division: 'MET',
+      category: 'GROUP', action: ranked ? 'RANK_CHANGE' : 'GROUP_JOIN_APPROVED', division: 'MET',
       target: { type: 'roblox_user', id: robloxId, name: s.robloxUsername },
-      summary: `Accepted ${s.robloxUsername || robloxId} into the MET group as Community Support Officer (passed final exam)`,
+      summary: ranked
+        ? `Accepted ${s.robloxUsername || robloxId} into the MET group as Community Support Officer (passed final exam)`
+        : `Approved ${s.robloxUsername || robloxId}'s MET group join request (passed final exam) — CSO rank not applied`,
     });
-    return { ok: true, robloxId, csoRoleId };
+    return { ok: true, ranked, robloxId, csoRoleId };
   } catch (e) {
     console.warn('[HPC] acceptPassedCadetIntoMet failed:', e.message);
     return { ok: false, reason: e.message };

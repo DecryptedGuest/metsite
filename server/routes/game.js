@@ -589,7 +589,8 @@ router.post('/tryout/commands/ack', requireGameSecret, async (req, res) => {
 // and tolerant of the different shapes each log type sends — we normalise into a
 // GameLog row. MET HICOMM view these on the site. Idempotency isn't enforced
 // (logs are append-only, high volume), but we cap batch size to avoid abuse.
-function normaliseGameLog(ev = {}) {
+function normaliseGameLog(ev) {
+  ev = (ev && typeof ev === 'object') ? ev : {}; // tolerate null / primitives in a batch
   const src = String(ev.source || ev.type || ev.kind || '').toUpperCase();
   const source = ['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src) ? src : 'ADONIS';
   const s = (v) => (v == null ? null : String(v).slice(0, 1000));
