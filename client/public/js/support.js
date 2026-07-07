@@ -656,7 +656,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     catch (e) { showToast(e.message, 'error'); }
   };
   window.supClose = async function () {
-    const reason = prompt('Closing note (optional):') || '';
+    const reason = (await uiPrompt('Closing note (optional):', { title: 'Close ticket', confirmText: 'Close ticket', placeholder: 'Optional note for the record' })) || '';
     try { const r = await api('/api/support/tickets/' + cur.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Ticket closed', 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };

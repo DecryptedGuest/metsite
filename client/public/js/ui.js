@@ -111,6 +111,70 @@ function closeModal(id) {
   document.body.style.overflow = '';
 }
 
+// ── On-site confirm / prompt (replaces the browser's confirm()/prompt()) ──
+// Returns a Promise: uiConfirm → boolean, uiPrompt → string|null. Styled with
+// the site's modal chrome. Enter = confirm, Escape = cancel; clicking the
+// backdrop cancels.
+function _uiDialog(kind, message, opts) {
+  opts = opts || {};
+  return new Promise(function (resolve) {
+    const title       = opts.title || (kind === 'prompt' ? 'Enter a value' : 'Please confirm');
+    const confirmText = opts.confirmText || (kind === 'prompt' ? 'OK' : 'Confirm');
+    const cancelText  = opts.cancelText || 'Cancel';
+    const danger      = !!opts.danger;
+    const icon        = opts.icon || (danger ? 'ti-alert-triangle' : (kind === 'prompt' ? 'ti-pencil' : 'ti-help-circle'));
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay open';
+    overlay.style.zIndex = '4000';
+    const inputHtml = kind === 'prompt'
+      ? `<${opts.multiline ? 'textarea rows="3"' : 'input type="text"'} class="form-control" id="_ui-prompt-input" placeholder="${escapeHtml(opts.placeholder || '')}" style="margin-top:12px;width:100%;">${opts.multiline ? escapeHtml(opts.value || '') + '</textarea>' : ''}`
+      : '';
+    const inputVal = (kind === 'prompt' && !opts.multiline && opts.value) ? ` value="${escapeHtml(opts.value)}"` : '';
+    overlay.innerHTML =
+      `<div class="modal glass-bright" style="max-width:440px;">
+         <div class="modal-header">
+           <div class="modal-title"><i class="ti ${icon}" style="font-size:18px;${danger ? 'color:var(--red);' : ''}"></i> ${escapeHtml(title)}</div>
+         </div>
+         <div class="modal-body">
+           <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;white-space:pre-line;">${escapeHtml(message || '')}</div>
+           ${kind === 'prompt' && !opts.multiline ? `<input type="text" class="form-control" id="_ui-prompt-input" placeholder="${escapeHtml(opts.placeholder || '')}"${inputVal} style="margin-top:12px;width:100%;">` : (kind === 'prompt' ? inputHtml : '')}
+         </div>
+         <div class="modal-footer">
+           <button class="btn btn-ghost" data-act="cancel">${escapeHtml(cancelText)}</button>
+           <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="ok">${escapeHtml(confirmText)}</button>
+         </div>
+       </div>`;
+    document.body.appendChild(overlay);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const input = overlay.querySelector('#_ui-prompt-input');
+    function done(val) {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      if (!document.querySelector('.modal-overlay.open')) document.body.style.overflow = prevOverflow || '';
+      resolve(val);
+    }
+    const okVal   = () => kind === 'prompt' ? (input ? input.value : '') : true;
+    const cancelV = () => kind === 'prompt' ? null : false;
+
+    overlay.querySelector('[data-act="ok"]').addEventListener('click', () => done(okVal()));
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(cancelV()));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(cancelV()); });
+    function onKey(e) {
+      if (e.key === 'Escape') done(cancelV());
+      else if (e.key === 'Enter' && !(opts.multiline && e.target === input)) { e.preventDefault(); done(okVal()); }
+    }
+    document.addEventListener('keydown', onKey);
+    setTimeout(() => { (input || overlay.querySelector('[data-act="ok"]')).focus(); if (input) input.select && input.select(); }, 30);
+  });
+}
+function uiConfirm(message, opts) { return _uiDialog('confirm', message, opts); }
+function uiPrompt(message, opts)  { return _uiDialog('prompt', message, opts); }
+window.uiConfirm = uiConfirm;
+window.uiPrompt  = uiPrompt;
+
 // ── Administrative Log / Notice embed preview ─────────────────────
 function fmtPunishmentLines(punishments) {
   if (!Array.isArray(punishments) || !punishments.length) return '• —';

@@ -281,7 +281,7 @@ async function submitMark() {
   const scores = {};
   document.querySelectorAll('.hpc-score').forEach(el => { scores[el.dataset.qid] = Math.max(0, Math.min(Number(el.max), Number(el.value) || 0)); });
   const note = document.getElementById('mark-note').value.trim();
-  if (!confirm('Submit this result? It will be posted to the results channel and shown to the cadet.')) return;
+  if (!(await uiConfirm('Submit this result? It will be posted to the results channel and shown to the cadet.'))) return;
   const btn = document.getElementById('mark-submit-btn');
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Submitting…';
   try {
@@ -352,7 +352,7 @@ async function openExamResult(id) {
 
 // Developer-only: permanently void an exam so the cadet can retake it fresh.
 async function voidExam(id, who) {
-  if (!confirm(`Void ${who}'s final exam? This deletes it entirely — they'll be treated as if they never took it and can sit it again. This can't be undone.`)) return;
+  if (!(await uiConfirm(`Void ${who}'s final exam? This deletes it entirely — they'll be treated as if they never took it and can sit it again. This can't be undone.`))) return;
   try {
     await api('/api/hpc/exam/submissions/' + id, { method: 'DELETE' });
     showToast('Exam voided — the cadet can retake it.', 'success');
@@ -425,12 +425,12 @@ window.openHpcTryout = function (id) {
   document.getElementById('tlog-footer').innerHTML = btns.join('');
 };
 window.hpcDeleteTryout = async function (id) {
-  if (!confirm('Permanently delete this tryout? This cannot be undone.')) return;
+  if (!(await uiConfirm('Permanently delete this tryout? This cannot be undone.'))) return;
   try { await api('/api/dev/tryouts/' + id, { method: 'DELETE' }); showToast('Tryout deleted', 'success'); closeModal('modal-tryout-log'); loadTryouts(); }
   catch (e) { showToast(e.message, 'error'); }
 };
 window.hpcDeleteTryoutLog = async function (id) {
-  if (!confirm('Permanently delete this tryout log? This cannot be undone.')) return;
+  if (!(await uiConfirm('Permanently delete this tryout log? This cannot be undone.'))) return;
   try { await api('/api/dev/tryout-logs/' + id, { method: 'DELETE' }); showToast('Log deleted', 'success'); closeModal('modal-tryout-log'); loadMyTryoutLogs(); loadReviewLogs(); }
   catch (e) { showToast(e.message, 'error'); }
 };
@@ -461,12 +461,12 @@ async function submitTryout() {
 }
 
 async function cancelTryout(id) {
-  if (!confirm('Cancel this tryout?')) return;
+  if (!(await uiConfirm('Cancel this tryout?'))) return;
   try { await api(`/api/hpc/tryouts/${id}/cancel`, { method: 'POST' }); showToast('Tryout cancelled.', 'success'); loadTryouts(); }
   catch (err) { showToast(err.message, 'error'); }
 }
 async function completeTryout(id) {
-  if (!confirm('Mark this tryout as finished?')) return;
+  if (!(await uiConfirm('Mark this tryout as finished?'))) return;
   try { await api(`/api/hpc/tryouts/${id}/complete`, { method: 'POST' }); showToast('Tryout ended.', 'success'); loadTryouts(); }
   catch (err) { showToast(err.message, 'error'); }
 }
@@ -627,7 +627,7 @@ function collectAttendeeEdits() {
 }
 
 async function submitTryoutLog(id) {
-  if (!confirm('Post this tryout log for HICOMM approval? You won\'t be able to edit it after.')) return;
+  if (!(await uiConfirm('Post this tryout log for HICOMM approval? You won\'t be able to edit it after.'))) return;
   try {
     await api(`/api/hpc/tryout-logs/${id}/submit`, { method: 'POST', body: JSON.stringify({
       notes: (document.getElementById('tlog-notes') || {}).value || '',
@@ -730,7 +730,7 @@ async function loadLive() {
 
 // Host/co-host: queue a management action for a live tryout (applied in-game).
 async function tryoutCmd(tryoutId, action, targetRobloxId, targetUsername) {
-  if (action === 'KICK' && !confirm(`Kick ${targetUsername || 'this attendee'} from the tryout?`)) return;
+  if (action === 'KICK' && !(await uiConfirm(`Kick ${targetUsername || 'this attendee'} from the tryout?`))) return;
   try {
     await api(`/api/hpc/tryouts/${tryoutId}/command`, { method: 'POST', body: JSON.stringify({ action, targetRobloxId, targetUsername }) });
     showToast(`${action[0] + action.slice(1).toLowerCase()} queued — applies on the next in-game sync.`, 'success');

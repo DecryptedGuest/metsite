@@ -371,9 +371,9 @@ function copyDeepLink(path) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(
       function () { showToast('Link copied.', 'success'); },
-      function () { prompt('Copy this link:', url); });
+      function () { uiPrompt('Copy this link:', { title: 'Copy link', value: url, confirmText: 'Done' }); });
   } else {
-    prompt('Copy this link:', url);
+    uiPrompt('Copy this link:', { title: 'Copy link', value: url, confirmText: 'Done' });
   }
 }
 
@@ -1309,7 +1309,7 @@ async function addAccessGrant() {
 }
 
 async function revokeAccessGrant(id) {
-  if (!confirm('Revoke this user\'s authorised access? They will be logged out immediately and can only return if they hold the required Discord roles.')) return;
+  if (!(await uiConfirm('Revoke this user\'s authorised access? They will be logged out immediately and can only return if they hold the required Discord roles.'))) return;
   try {
     await api(`/api/admin/access-grants/${id}`, { method: 'DELETE' });
     showToast('Access revoked.', 'info');
@@ -1728,7 +1728,7 @@ async function sendDevNotification() {
 }
 
 async function deleteCase(caseId) {
-  if (!confirm('Permanently delete this case? This cannot be undone.')) return;
+  if (!(await uiConfirm('Permanently delete this case? This cannot be undone.'))) return;
   try {
     await api(`/api/admin/cases/${caseId}`, { method: 'DELETE' });
     closeModal('modal-detail');
@@ -2054,7 +2054,7 @@ async function changeGroupRankUI(userId, username) {
 }
 
 async function kickGroupMember(userId, username) {
-  if (!confirm(`Kick ${username} from the Roblox group?`)) return;
+  if (!(await uiConfirm(`Kick ${username} from the Roblox group?`))) return;
   try {
     await api(`/api/admin/group/members/${userId}` + gq(), { method: 'DELETE' });
     showToast(`${username} kicked from group.`, 'success');

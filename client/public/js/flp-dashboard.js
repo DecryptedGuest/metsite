@@ -182,7 +182,7 @@ function flpToggleSection(bodyId, btn) {
 
 // Developer-only: permanently delete a patrol/event log from the site.
 async function flpDeleteLog(id, type) {
-  if (!confirm('Permanently delete this log? This cannot be undone.')) return;
+  if (!(await uiConfirm('Permanently delete this log? This cannot be undone.'))) return;
   try {
     await api('/api/dev/patrol-logs/' + id, { method: 'DELETE' });
     showToast('Log deleted', 'success');
@@ -328,7 +328,7 @@ async function flpSetRank(userId, username) {
 }
 
 async function flpKick(userId, username) {
-  if (!confirm(`Kick ${username} from the FLP group?`)) return;
+  if (!(await uiConfirm(`Kick ${username} from the FLP group?`))) return;
   try {
     await api(`/api/flp/group/members/${userId}`, { method: 'DELETE' });
     showToast(`${username} kicked.`, 'success');

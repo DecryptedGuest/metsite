@@ -214,7 +214,7 @@ async function submitMediaUpload() {
 }
 
 async function deleteMedia(id, fromViewer) {
-  if (!confirm('Delete this media permanently? The link will stop working.')) return;
+  if (!(await uiConfirm('Delete this media permanently? The link will stop working.'))) return;
   try {
     await api('/api/media/' + id, { method: 'DELETE' });
     showToast('Deleted.', 'success');

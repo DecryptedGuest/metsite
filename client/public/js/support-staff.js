@@ -232,9 +232,9 @@
       catch (e) { showToast(e.message, 'error'); }
     });
   };
-  window.sdBlacklist = function (off) {
+  window.sdBlacklist = async function (off) {
     if (off) {
-      if (!confirm('Lift the ticket blacklist on this guest? They will be able to open support tickets again.')) return;
+      if (!(await uiConfirm('Lift the ticket blacklist on this guest? They will be able to open support tickets again.'))) return;
       api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ off: true }) })
         .then(() => { showToast('Blacklist lifted', 'success'); reloadTicket(); })
         .catch(e => showToast(e.message, 'error'));
@@ -246,7 +246,7 @@
     });
   };
   window.sdDelete = async function () {
-    if (!confirm('Permanently delete this ticket and its messages? This cannot be undone.')) return;
+    if (!(await uiConfirm('Permanently delete this ticket and its messages? This cannot be undone.'))) return;
     try { await api('/api/support/tickets/' + curT.id, { method: 'DELETE' }); showToast('Deleted', 'success'); closeModal('modal-sd-ticket'); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
   };

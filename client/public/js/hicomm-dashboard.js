@@ -313,7 +313,7 @@
   };
 
   window.hcForceReauth = async function (id, name) {
-    if (!confirm(`Force ${name || 'this officer'} to sign in again on every device?`)) return;
+    if (!(await uiConfirm(`Force ${name || 'this officer'} to sign in again on every device?`))) return;
     try { const r = await api(`/api/hicomm/officer/${id}/force-reauth`, { method: 'POST' }); showToast(`Done — ${r.killed} session(s) killed`, 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };

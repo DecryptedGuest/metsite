@@ -90,12 +90,12 @@
     } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
   };
   window.secKill = async function (id) {
-    if (!confirm('Kill this session? The device is signed out immediately.')) return;
+    if (!(await uiConfirm('Kill this session? The device is signed out immediately.'))) return;
     try { await api('/api/dev/security/sessions/' + id + '/revoke', { method: 'POST' }); showToast('Session killed', 'success'); secLoadSessions(); }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.secForceReauth = async function (userId, name) {
-    if (!confirm(`Force ${name || 'this officer'} to sign in again on every device?`)) return;
+    if (!(await uiConfirm(`Force ${name || 'this officer'} to sign in again on every device?`))) return;
     try { const r = await api('/api/dev/security/users/' + userId + '/force-reauth', { method: 'POST' }); showToast(`Done — ${r.killed} session(s) killed`, 'success'); secLoadSessions(); }
     catch (e) { showToast(e.message, 'error'); }
   };
@@ -140,7 +140,7 @@
   }
   window.secToggleLockdown = async function () {
     const next = !lockOn;
-    if (next && !confirm('Engage site lockdown? Everyone except developers will be locked out immediately.')) return;
+    if (next && !(await uiConfirm('Engage site lockdown? Everyone except developers will be locked out immediately.'))) return;
     try { const r = await api('/api/dev/security/lockdown', { method: 'POST', body: JSON.stringify({ on: next }) }); lockOn = r.on; renderLock(); showToast(lockOn ? 'Lockdown engaged' : 'Lockdown lifted', lockOn ? 'warning' : 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };
@@ -158,7 +158,7 @@
   window.secToggleEnforce = async function () {
     const next = !enforceOn;
     if (next && !iHavePasskey) return showToast('Add a passkey to your own account first (Profile → Passkeys & 2FA), or you would lock yourself out.', 'warning');
-    if (next && !confirm('Require all HICOMM/Supervisors/Developers to have a passkey for sensitive actions?')) return;
+    if (next && !(await uiConfirm('Require all HICOMM/Supervisors/Developers to have a passkey for sensitive actions?'))) return;
     try { const r = await api('/api/dev/security/require-passkey', { method: 'POST', body: JSON.stringify({ on: next }) }); enforceOn = r.on; renderEnforce(); showToast(enforceOn ? 'Passkey enforcement enabled' : 'Enforcement disabled', 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };
@@ -237,7 +237,7 @@
     } catch (e) { box.innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
   window.secApprove = async function (id) {
-    if (!confirm('Approve and execute this action now?')) return;
+    if (!(await uiConfirm('Approve and execute this action now?'))) return;
     try { await api('/api/dev/security/approvals/' + id + '/approve', { method: 'POST' }); showToast('Approved & executed', 'success'); secLoadApprovals(); }
     catch (e) { showToast(e.message, 'error'); }
   };

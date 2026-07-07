@@ -238,7 +238,7 @@ async function decideTicket(ticketId,decision){
   }catch(err){showToast(err.message||("Failed to "+decision+" ticket."),"error");}
 }
 async function deleteTicket(ticketId){
-  if(!confirm("Permanently delete this ticket log? This cannot be undone."))return;
+  if(!(await uiConfirm("Permanently delete this ticket log? This cannot be undone.")))return;
   try{
     await api("/api/admin/tickets/"+ticketId,{method:"DELETE"});
     closeModal("modal-ticket-detail");

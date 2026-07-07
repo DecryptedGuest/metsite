@@ -301,7 +301,7 @@ async function loadPasskeys() {
 
 async function addPasskey() {
   const btn = document.getElementById('p-passkey-add');
-  const name = prompt('Name this passkey (e.g. "MacBook Touch ID"):', 'My passkey');
+  const name = await uiPrompt('Name this passkey (e.g. "MacBook Touch ID"):', { title: 'Add a passkey', value: 'My passkey', confirmText: 'Add', placeholder: 'Passkey name' });
   if (name === null) return;
   if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Waiting…'; }
   try {
@@ -316,7 +316,7 @@ async function addPasskey() {
 }
 
 async function deletePasskey(id) {
-  if (!confirm('Remove this passkey? You won’t be able to use it for verification anymore.')) return;
+  if (!(await uiConfirm('Remove this passkey? You won’t be able to use it for verification anymore.'))) return;
   try {
     await api('/api/webauthn/passkeys/' + encodeURIComponent(id), { method: 'DELETE' });
     showToast('Passkey removed.', 'success');

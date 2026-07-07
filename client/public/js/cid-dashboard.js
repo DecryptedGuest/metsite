@@ -87,7 +87,7 @@
     } catch (e) { showToast(e.message, 'error'); }
   };
   window.cidCancelTryout = async function (id) {
-    if (!confirm('Cancel this tryout? Its announcement will be removed.')) return;
+    if (!(await uiConfirm('Cancel this tryout? Its announcement will be removed.'))) return;
     try { await api('/api/cid/tryouts/' + id + '/cancel', { method: 'POST' }); showToast('Tryout cancelled', 'success'); cidLoadTryouts(); }
     catch (e) { showToast(e.message, 'error'); }
   };
@@ -96,7 +96,7 @@
     catch (e) { showToast(e.message, 'error'); }
   };
   window.cidDeleteTryout = async function (id) {
-    if (!confirm('Permanently delete this tryout? This cannot be undone.')) return;
+    if (!(await uiConfirm('Permanently delete this tryout? This cannot be undone.'))) return;
     try { await api('/api/dev/tryouts/' + id, { method: 'DELETE' }); showToast('Tryout deleted', 'success'); closeModal('modal-cid-log'); cidLoadTryouts(); }
     catch (e) { showToast(e.message, 'error'); }
   };
@@ -232,7 +232,7 @@
       <td style="text-align:right;"><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();cidOpenLog('${l.id}',${review})"><i class="ti ti-eye"></i> View</button>${del}</div></td></tr>`;
   }
   window.cidDeleteLog = async function (id, review) {
-    if (!confirm('Permanently delete this tryout log? This cannot be undone.')) return;
+    if (!(await uiConfirm('Permanently delete this tryout log? This cannot be undone.'))) return;
     try { await api('/api/dev/tryout-logs/' + id, { method: 'DELETE' }); showToast('Log deleted', 'success'); closeModal('modal-cid-log'); review ? cidLoadReviewLogs() : cidLoadMyLogs(); }
     catch (e) { showToast(e.message, 'error'); }
   };

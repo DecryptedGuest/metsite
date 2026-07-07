@@ -224,8 +224,8 @@ function applyConfirmedIdentity() {
 }
 
 // ── Restart ───────────────────────────────────────────────────────────
-window.restartExam = function () {
-  if (!confirm('Restart the exam?\n\nThis clears ALL your saved answers and your confirmed identity. This cannot be undone.')) return;
+window.restartExam = async function () {
+  if (!(await uiConfirm('Restart the exam?\n\nThis clears ALL your saved answers and your confirmed identity. This cannot be undone.', { title: 'Restart the exam?', confirmText: 'Restart', danger: true }))) return;
   clearDraft();
   identity = { confirmed: false, roblox: '', discord: '', details: null };
   pendingLookup = null;
@@ -358,7 +358,7 @@ async function submitExam() {
   const missing = paper.questions.filter(q => q.required && !answers[q.id]);
   if (missing.length) return showToast(`Please answer all required questions (${missing.length} remaining).`, 'warning');
 
-  if (!confirm('Submit your final exam? You cannot change your answers after submitting.')) return;
+  if (!(await uiConfirm('Submit your final exam? You cannot change your answers after submitting.'))) return;
 
   // Flush any in-progress focus timer + finalise keystroke-cadence variance.
   Object.values(perQuestion).forEach(pq => {
