@@ -5,14 +5,15 @@
 const express = require('express');
 const prisma  = require('../lib/db');
 const hpcExam = require('../lib/hpcExam');
-const { userNeedsFinalExam, userHpcTier } = require('../middleware/division');
+const { userHasFinalExamRole, userHpcTier } = require('../middleware/division');
 
 const router = express.Router();
 
-// Who may even see the paper: eligible cadets, HPC instructors (to review), and
-// developers. Everyone else is kept out — leaking the exam is a blacklist offence.
-function mayViewPaper(user) {
-  return user.role === 'DEVELOPER' || userNeedsFinalExam(user) || userHpcTier(user, 'instructor');
+// Who may even see the paper: eligible cadets (hold the final-exam role), HPC
+// instructors (to review), and developers. Everyone else is kept out — leaking
+// the exam is a blacklist offence.
+async function mayViewPaper(user) {
+  return user.role === 'DEVELOPER' || userHpcTier(user, 'instructor') || await userHasFinalExamRole(user);
 }
 
 function summariseOwn(s) {
@@ -27,7 +28,7 @@ function summariseOwn(s) {
 // GET /api/exam/my — the cadet's eligibility + latest attempt status.
 router.get('/my', async (req, res) => {
   try {
-    const eligible = req.user.role === 'DEVELOPER' || userNeedsFinalExam(req.user);
+    const eligible = req.user.role === 'DEVELOPER' || await userHasFinalExamRole(req.user);
     const latest = await prisma.hpcExamSubmission.findFirst({
       where: { userId: req.user.id },
       orderBy: { createdAt: 'desc' },
@@ -79,14 +80,14 @@ router.get('/lookup', async (req, res) => {
 });
 
 // GET /api/exam/paper — the questions (gated; never includes an answer key).
-router.get('/paper', (req, res) => {
-  if (!mayViewPaper(req.user)) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
+router.get('/paper', async (req, res) => {
+  if (!(await mayViewPaper(req.user))) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
   res.json(hpcExam.publicPaper());
 });
 
 // POST /api/exam/submit — submit answers + anti-cheat telemetry.
 router.post('/submit', async (req, res) => {
-  const eligible = req.user.role === 'DEVELOPER' || userNeedsFinalExam(req.user);
+  const eligible = req.user.role === 'DEVELOPER' || await userHasFinalExamRole(req.user);
   if (!eligible) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
 
   const { answers, detection } = req.body || {};

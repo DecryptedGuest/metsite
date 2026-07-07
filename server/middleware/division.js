@@ -67,10 +67,31 @@ function requireDivisionLead(division) {
 // ── HPC-specific tiers (Junior Instructor / Database Manager / Assistant Dir) ──
 function hpcEntry(user) { return userDivisions(user).find(d => d.division === 'HPC'); }
 
-// A cadet who holds the HPC final-exam Discord role must sit the exam.
+// A cadet who holds the HPC final-exam Discord role must sit the exam. Fast,
+// synchronous check against the roles snapshotted at login.
 function userNeedsFinalExam(user) {
   const ids = Array.isArray(user.metRoleIds) ? user.metRoleIds : [];
   return ids.includes(hpcExamRoleId());
+}
+
+// Authoritative check: does the user CURRENTLY hold the final-exam role in the
+// MET server? Uses the login snapshot as a fast path, then a live bot lookup —
+// so it's correct even when the role lives in a guild other than the portal's
+// primary DISCORD_GUILD_ID, or when the snapshot is stale (role added/removed
+// after login). MET_GUILD_ID overrides which server the role is read from.
+async function userHasFinalExamRole(user) {
+  if (!user) return false;
+  const roleId = hpcExamRoleId();
+  if (!roleId) return false;
+  if (userNeedsFinalExam(user)) return true; // fast path (login snapshot)
+  try {
+    const { getRoleHolders } = require('../lib/bot');
+    const guildId = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
+    if (!guildId || !user.discordId) return false;
+    const holders = await getRoleHolders(guildId, roleId);
+    const did = String(user.discordId).replace(/\D/g, '');
+    return !!(holders && holders.has(did));
+  } catch (e) { return false; }
 }
 
 // kind: 'instructor' | 'marker' | 'quota'. DEVELOPER always passes.
@@ -187,7 +208,7 @@ function requireMetHicomm(req, res, next) {
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
-  userNeedsFinalExam, userHpcTier, userHpcReviewer, requireHpcMarker, requireHpcQuota,
+  userNeedsFinalExam, userHasFinalExamRole, userHpcTier, userHpcReviewer, requireHpcMarker, requireHpcQuota,
   userFlpGroupAdmin, requireFlpGroupAdmin,
   userHasCidTryout, userIsCidLead, requireCidTryout, requireCidLead,
   requireMetHicomm,
