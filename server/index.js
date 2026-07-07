@@ -55,6 +55,18 @@ const PORT = process.env.PORT || 3000;
 // Behind Railway's proxy — trust X-Forwarded-For so client IPs resolve correctly
 app.set('trust proxy', 1);
 
+// Canonical host: 301 www.<domain> → the apex (e.g. www.slrmet.com → slrmet.com)
+// so the root is the single canonical address. Only touches hosts beginning
+// with "www." — the Railway domain and apex are left alone (keeps game/webhook
+// callbacks working). Safe with Cloudflare DNS-only (no proxy needed).
+app.use((req, res, next) => {
+  const host = req.headers.host || '';
+  if (/^www\./i.test(host)) {
+    return res.redirect(301, `https://${host.replace(/^www\./i, '')}${req.originalUrl}`);
+  }
+  next();
+});
+
 // ── Security headers (CSP + hardening) ───────────────────────────
 // Set before any route so every response carries them. CSP keeps
 // 'unsafe-inline' for script-src because the app relies on inline <script>
