@@ -57,7 +57,7 @@
     $('hc-audit-feed').innerHTML = d.audit.length ? d.audit.map(auditRow).join('') : '<div class="table-empty"><div class="table-empty-text">No recorded actions yet.</div></div>';
   };
 
-  const CAT_ICON = { GROUP: ['ti-users-group', '#3b82f6'], SUPPORT: ['ti-lifebuoy', '#8b93a1'], TRYOUT: ['ti-clipboard-check', '#22c55e'], CASE: ['ti-gavel', '#e0503a'], TICKET: ['ti-ticket', '#8b5cf6'], ACCESS: ['ti-key', '#e8842a'], DEV: ['ti-code', '#f5c518'] };
+  const CAT_ICON = { GROUP: ['ti-users-group', '#3b82f6'], SUPPORT: ['ti-lifebuoy', '#8b93a1'], TRYOUT: ['ti-clipboard-check', '#22c55e'], CASE: ['ti-gavel', '#e0503a'], TICKET: ['ti-ticket', '#8b5cf6'], ACCESS: ['ti-key', '#e8842a'], SECURITY: ['ti-shield-lock', '#ef4444'], DEV: ['ti-code', '#f5c518'] };
   function auditRow(a) {
     const [ic, col] = CAT_ICON[a.category] || ['ti-point', '#888'];
     return `<div class="tl-item">
@@ -373,6 +373,17 @@
   };
   let glT = null;
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'hc-gl-q') { clearTimeout(glT); glT = setTimeout(hcLoadGameLogs, 250); } });
+
+  // ── Roster sync ──
+  window.hcSyncRoster = async function () {
+    const selEl = document.getElementById('group-division-select');
+    const division = (selEl && selEl.value) ? selEl.value.toUpperCase() : 'MET';
+    showToast('Syncing roster…', 'info');
+    try {
+      const r = await api('/api/hicomm/roster/sync', { method: 'POST', body: JSON.stringify({ division }) });
+      showToast(`Roster synced to Discord (${r.total} members).`, 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+  };
 
   // ── Init ──
   async function init() {

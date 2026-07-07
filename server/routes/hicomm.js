@@ -90,7 +90,7 @@ router.get('/audit', async (req, res) => {
   try {
     const where = {};
     const cat = String(req.query.category || '').toUpperCase();
-    if (['GROUP', 'SUPPORT', 'TRYOUT', 'CASE', 'TICKET', 'ACCESS', 'DEV'].includes(cat)) where.category = cat;
+    if (['GROUP', 'SUPPORT', 'TRYOUT', 'CASE', 'TICKET', 'ACCESS', 'SECURITY', 'DEV'].includes(cat)) where.category = cat;
     const q = String(req.query.q || '').trim();
     if (q) where.OR = [
       { actorName: { contains: q, mode: 'insensitive' } },
@@ -130,6 +130,21 @@ router.get('/game-logs', async (req, res) => {
   } catch (e) {
     console.error('[HICOMM] game-logs failed:', e.message);
     res.status(500).json({ error: 'Failed to load game logs' });
+  }
+});
+
+// ── POST /api/hicomm/roster/sync — build + post/edit the Discord roster ──
+router.post('/roster/sync', async (req, res) => {
+  try {
+    const division = String((req.body && req.body.division) || 'MET').toUpperCase();
+    const result = await require('../lib/roster').syncRoster(division);
+    if (!result.ok) return res.status(400).json({ error: result.reason || 'Roster sync failed' });
+    audit.log(req.user, { category: 'GROUP', action: 'ROSTER_SYNC', division,
+      summary: `Synced the ${division} roster to Discord (${result.total} members)` });
+    res.json(result);
+  } catch (e) {
+    console.error('[HICOMM] roster sync failed:', e.message);
+    res.status(500).json({ error: 'Failed to sync roster' });
   }
 });
 
