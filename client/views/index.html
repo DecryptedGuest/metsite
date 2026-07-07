@@ -87,7 +87,10 @@
       roblox_not_configured: 'Roblox sign-in isn\'t set up yet. Use Discord for now.',
       roblox_unlinked:   'Your Roblox account isn\'t linked to Discord (via RoVer). Sign in with Discord, or verify with RoVer first.',
     };
-    document.getElementById('error-text').textContent = messages[err] || 'An error occurred.';
+    let msg = messages[err] || 'An error occurred.';
+    const detail = params.get('detail');
+    if (detail) msg += ` (${detail})`;
+    document.getElementById('error-text').textContent = msg;
     document.getElementById('error-banner').style.display = 'flex';
   } else {
     // Already signed in? Go straight to the dashboard.

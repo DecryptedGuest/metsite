@@ -56,6 +56,14 @@ function buildRedirectUri(req) {
   return process.env.DISCORD_REDIRECT_URI;
 }
 
+// Redirect to the login page with a server_error AND a short, sanitised reason
+// (message only, truncated) so a failed sign-in shows what actually broke
+// instead of a bare "server error" — invaluable when you can't tail the logs.
+function serverErr(res, e) {
+  const detail = encodeURIComponent(String((e && e.message) || 'unknown').slice(0, 160));
+  return res.redirect('/login?error=server_error&detail=' + detail);
+}
+
 // ── GET /auth/discord ─────────────────────────────────────────────
 router.get('/discord', (req, res) => {
   const params = new URLSearchParams({
@@ -275,7 +283,7 @@ router.get('/discord/callback', async (req, res) => {
         console.log('[Auth] Fallback DB upsert succeeded, userId:', user.id);
       } catch (dbErr2) {
         console.error('[Auth] Fallback DB upsert also failed:', dbErr2.message);
-        return res.redirect('/login?error=server_error');
+        return serverErr(res, dbErr2);
       }
     }
 
@@ -313,7 +321,7 @@ router.get('/discord/callback', async (req, res) => {
 
   } catch (err) {
     console.error('[Auth] Unhandled error in OAuth callback:', err.stack || err.message);
-    res.redirect('/login?error=server_error');
+    serverErr(res, err);
   }
 });
 
@@ -342,7 +350,7 @@ async function establishSession(req, res, user) {
     session = await prisma.session.create({ data: { userId: user.id, ip, userAgent: ua, device, expiresAt } });
   } catch (e) {
     console.error('[Auth] session create failed:', e.message);
-    return res.redirect('/login?error=server_error');
+    return serverErr(res, e);
   }
 
   if (ip) {
@@ -538,7 +546,7 @@ router.get('/roblox/callback', async (req, res) => {
     return establishSession(req, res, user);
   } catch (err) {
     console.error('[Auth] Roblox callback error:', err.stack || err.message);
-    res.redirect('/login?error=server_error');
+    serverErr(res, err);
   }
 });
 
