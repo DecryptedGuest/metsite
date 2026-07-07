@@ -288,9 +288,36 @@ function navigateTo(pageId) {
     'send-notif':    loadDevNotifSender,
     media:           (typeof loadMedia === 'function' ? loadMedia : null),
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
+    gamelogs:        loadDevGameLogs,
   };
   if (loaders[pageId]) return loaders[pageId]();
 }
+
+// ── Game Logs (in-game Adonis / join / leave / chat feed) ──────────
+const DEV_GL_ICON = { ADONIS: ['ti-shield-bolt', '#f59e0b'], JOIN: ['ti-login', '#2ed896'], LEAVE: ['ti-logout', '#8b93a1'], CHAT: ['ti-message', '#3b82f6'] };
+async function loadDevGameLogs() {
+  const srcEl = document.getElementById('dev-gl-source');
+  const qEl   = document.getElementById('dev-gl-q');
+  const tb    = document.getElementById('dev-gl-tbody');
+  if (!tb) return;
+  const src = srcEl ? srcEl.value : '';
+  const q   = qEl ? qEl.value.trim() : '';
+  tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  let rows;
+  try { rows = await api(`/api/dev/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); }
+  catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${escapeHtml(e.message)}</td></tr>`; return; }
+  tb.innerHTML = rows.length ? rows.map(g => {
+    const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
+    return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
+      <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
+      <td>${escapeHtml(g.actor || '—')}</td>
+      <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '—'}</td>
+      <td>${escapeHtml(g.target || '—')}</td>
+      <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>';
+}
+let _devGlT = null;
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
 
 // ── Developer Imports tab ──────────────────────────────────────────
 async function runPatrolBackfill() {

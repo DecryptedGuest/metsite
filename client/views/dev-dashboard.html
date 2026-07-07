@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · Developer</title>
 <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
-  <link rel="stylesheet" href="/css/main.css?v=72" />
-  <link rel="stylesheet" href="/css/dashboard.css?v=72" />
-  <link rel="stylesheet" href="/css/aurora.css?v=72" />
+  <link rel="stylesheet" href="/css/main.css?v=73" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=73" />
+  <link rel="stylesheet" href="/css/aurora.css?v=73" />
   <link rel="stylesheet" href="/css/met-portal.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
 </head>
@@ -137,6 +137,9 @@
         </button>
         <button class="nav-item dev-only" data-page="discord-mod" style="display:none;">
           <i class="ti ti-gavel nav-icon"></i><span>Discord Moderation</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="gamelogs" style="display:none;">
+          <i class="ti ti-device-gamepad-2 nav-icon"></i><span>Game Logs</span><span class="nav-tag">DEV</span>
         </button>
         <button class="nav-item dev-only" data-page="visits" style="display:none;">
           <i class="ti ti-world-search nav-icon"></i><span>Visits</span><span class="nav-tag">DEV</span>
@@ -1043,6 +1046,33 @@
           <button class="btn btn-primary" id="imp-ia-btn" onclick="runIaSync()"><i class="ti ti-refresh"></i> Sync IA cases &amp; tickets</button>
           <div id="imp-ia-result" style="margin-top:0.9rem;font-size:13px;"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- GAME LOGS (Adonis / join / leave / chat from the training game) -->
+    <section class="page" id="page-gamelogs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Game Logs</h1><p class="page-sub">Developer &middot; Training game · Adonis, joins, leaves and chat</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Live Feed</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select class="form-control" id="dev-gl-source" onchange="loadDevGameLogs()" style="height:30px;font-size:12px;width:130px;">
+              <option value="">All types</option>
+              <option value="ADONIS">Adonis</option>
+              <option value="JOIN">Joins</option>
+              <option value="LEAVE">Leaves</option>
+              <option value="CHAT">Chat</option>
+            </select>
+            <input type="text" class="form-control" id="dev-gl-q" placeholder="Search…" style="height:30px;font-size:12px;width:160px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadDevGameLogs()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>When</th><th>Type</th><th>Actor</th><th>Action</th><th>Target</th><th>Message</th></tr></thead>
+          <tbody id="dev-gl-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div>
       </div>
     </section>
 
@@ -1997,21 +2027,21 @@
   </div>
 </div>
 
-<script src="/js/guard.js?v=72"></script>
+<script src="/js/guard.js?v=73"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="/js/ui.js?v=72"></script>
-<script src="/js/dashboard.js?v=72"></script>
-<script src="/js/tickets.js?v=72"></script>
-<script src="/js/support-staff.js?v=72"></script>
-<script src="/js/security.js?v=72"></script>
-<script src="/js/records.js?v=72"></script>
-<script src="/js/quota-check.js?v=72"></script>
-<script src="/js/ai-review.js?v=72"></script>
-<script src="/js/media.js?v=72"></script>
+<script src="/js/ui.js?v=73"></script>
+<script src="/js/dashboard.js?v=73"></script>
+<script src="/js/tickets.js?v=73"></script>
+<script src="/js/support-staff.js?v=73"></script>
+<script src="/js/security.js?v=73"></script>
+<script src="/js/records.js?v=73"></script>
+<script src="/js/quota-check.js?v=73"></script>
+<script src="/js/ai-review.js?v=73"></script>
+<script src="/js/media.js?v=73"></script>
 <script src="/js/passkeys.js"></script>
 <script src="/js/discord-moderation.js"></script>
-<script src="/js/push-client.js?v=72"></script>
-<script src="/js/site-effects.js?v=72"></script>
+<script src="/js/push-client.js?v=73"></script>
+<script src="/js/site-effects.js?v=73"></script>
 <script src="/js/met-topbar.js"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>

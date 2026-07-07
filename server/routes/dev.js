@@ -100,6 +100,34 @@ router.delete('/tryout-logs/:id', async (req, res) => {
   }
 });
 
+// GET /api/dev/game-logs?source=&q=&before= — in-game log feed (Adonis / join /
+// leave / chat) ingested from the training game. Same data the MET HICOMM feed
+// shows; exposed here so developers can read it from the dev panel too.
+router.get('/game-logs', async (req, res) => {
+  try {
+    const where = {};
+    const src = String(req.query.source || '').toUpperCase();
+    if (['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src)) where.source = src;
+    const q = String(req.query.q || '').trim();
+    if (q) where.OR = [
+      { actor:   { contains: q, mode: 'insensitive' } },
+      { target:  { contains: q, mode: 'insensitive' } },
+      { message: { contains: q, mode: 'insensitive' } },
+      { action:  { contains: q, mode: 'insensitive' } },
+    ];
+    if (req.query.before) where.createdAt = { lt: new Date(req.query.before) };
+    const rows = await prisma.gameLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 150 });
+    res.json(rows.map(r => ({
+      id: r.id, source: r.source, actor: r.actor, actorId: r.actorId,
+      target: r.target, action: r.action, message: r.message, place: r.place,
+      createdAt: r.createdAt,
+    })));
+  } catch (e) {
+    console.error('[Dev] game-logs failed:', e.message);
+    res.status(500).json({ error: 'Failed to load game logs' });
+  }
+});
+
 // POST /api/dev/patrols/void-all?type=PATROL|EVENT — clear the pending queue by
 // marking every PENDING log of that type APPROVED. This is an on-site bulk
 // action only: it does NOT react in Discord and does NOT award MET event points
