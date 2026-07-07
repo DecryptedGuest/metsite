@@ -647,7 +647,7 @@
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
         <div class="panel-header">
           <div class="panel-title">
-            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('pending-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('pending-body', this)" title="Collapse/expand"><i class="ti ti-chevron-right"></i></button>
             <span class="panel-dot amber pulse-anim"></span>Pending Join Requests
             <span id="pending-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
           </div>
@@ -656,7 +656,7 @@
             <button class="btn btn-ghost btn-sm" onclick="loadPendingRequests()"><i class="ti ti-refresh"></i> Refresh</button>
           </div>
         </div>
-        <div id="pending-body">
+        <div id="pending-body" style="display:none;">
           <div id="pending-requests-container" style="padding:0.5rem 0;">
             <div class="table-loading"><div class="spinner"></div></div>
           </div>

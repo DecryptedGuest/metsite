@@ -80,9 +80,21 @@ async function initFlp() {
   try { flpCtx = await api('/api/flp/context'); } catch (e) { flpCtx = { canGroupAdmin: false }; }
   if (flpCtx.canGroupAdmin) {
     document.querySelectorAll('.group-admin-only').forEach(el => el.style.display = '');
-    loadFlpPendingBadge();
   }
+  if (flpCtx.isDev) document.querySelectorAll('.flp-dev-only').forEach(el => el.style.display = '');
   if (flpCtx.canReviewPatrols) { loadPatrolBadge(); loadEventBadge(); }
+}
+
+// Developer-only: clear the pending queue — mark every pending log of this type
+// approved on the site (no Discord reaction, no MET points awarded).
+async function flpVoidAllPending(type) {
+  const label = type === 'EVENT' ? 'event' : 'patrol';
+  if (!(await uiConfirm(`Void ALL pending ${label} logs? They'll be marked approved on the site without reacting in Discord${type === 'EVENT' ? ' and without awarding points' : ''}.`))) return;
+  try {
+    const r = await api('/api/dev/patrols/void-all?type=' + type, { method: 'POST' });
+    showToast(`Voided ${r.count} pending ${label} log${r.count === 1 ? '' : 's'}.`, 'success');
+    if (type === 'EVENT') { loadEvents(); loadEventBadge(); } else { loadPatrols(); loadPatrolBadge(); }
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 // ── Patrol logs ──────────────────────────────────────────────────────
@@ -259,15 +271,6 @@ async function reviewEvent(id, action) {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-async function loadFlpPendingBadge() {
-  try {
-    const data = await api('/api/flp/group/pending');
-    const n = (data.requests || []).length;
-    const b = document.getElementById('flp-pending-badge');
-    if (b && n) { b.textContent = n; b.style.display = ''; }
-  } catch (e) { /* non-fatal */ }
-}
-
 // ── Group panel ──────────────────────────────────────────────────────
 async function loadFlpGroup() {
   try { flpRoles = await api('/api/flp/group/roles'); } catch (e) { flpRoles = []; }
@@ -299,7 +302,7 @@ async function flpJoinReq(userId, action) {
   try {
     await api(`/api/flp/group/pending/${userId}/${action}`, { method: 'POST' });
     showToast(action === 'approve' ? 'Approved.' : 'Declined.', 'success');
-    loadFlpPending(); loadFlpPendingBadge();
+    loadFlpPending();
   } catch (err) { showToast(err.message, 'error'); }
 }
 
@@ -319,26 +322,39 @@ async function loadFlpMembers() {
   }
 }
 
-// Rank <select> options: only ranks strictly below the viewer's ceiling.
+// The managing bot account (METAdministration). Its live rank in the FLP group
+// is the hard ceiling — Roblox rejects managing anyone at the bot's rank or above.
+const MET_ADMIN_USER_ID = '11077193582';
+function flpBotRank() {
+  const bot = (flpMembers || []).find(m => String(m.userId) === MET_ADMIN_USER_ID);
+  return bot && bot.roleRank != null ? Number(bot.roleRank) : Infinity;
+}
+
+// Rank <select> options: only ranks strictly below the viewer's ceiling AND below
+// the bot's rank (the bot can't grant a rank at/above its own).
 function rankOptions(currentRoleId) {
-  const ceil = flpCeiling();
+  const cap = Math.min(flpCeiling(), flpBotRank());
   return (flpRoles || [])
-    .filter(r => r.rank > 0 && r.rank < ceil)
+    .filter(r => r.rank > 0 && r.rank < cap)
     .map(r => `<option value="${r.id}" ${String(r.id) === String(currentRoleId) ? 'selected' : ''}>${fesc(r.name)}</option>`).join('');
 }
 
 function renderFlpMembers() {
   const tbody = document.getElementById('flp-members-tbody');
   const q = (document.getElementById('flp-member-search')?.value || '').toLowerCase().trim();
-  const list = q ? flpMembers.filter(m => (m.username || '').toLowerCase().includes(q) || String(m.userId).includes(q)) : flpMembers;
+  let list = q ? flpMembers.filter(m => (m.username || '').toLowerCase().includes(q) || String(m.userId).includes(q)) : flpMembers.slice();
+  list = list.slice().sort((a, b) => (Number(b.roleRank) || 0) - (Number(a.roleRank) || 0)); // highest rank first
   if (!list.length) { tbody.innerHTML = `<tr><td colspan="4" class="table-empty"><div class="table-empty-text">No members.</div></td></tr>`; return; }
   const ceil = flpCeiling();
+  const botRank = flpBotRank();
   tbody.innerHTML = list.slice(0, 300).map(m => {
-    const canManage = Number(m.roleRank) < ceil; // can't touch peers/superiors
+    const rank = Number(m.roleRank) || 0;
+    const botLocked = rank >= botRank;             // bot can't manage its own rank or above → grey out
+    const canManage = !botLocked && rank < ceil;   // and you can't touch your own peers/superiors
     const opts = rankOptions(m.roleId);
-    return `<tr>
+    return `<tr style="${botLocked ? 'opacity:0.4;' : ''}">
       <td>${fesc(m.username)} <span style="color:var(--text-muted);font-size:11px;">#${fesc(m.userId)}</span></td>
-      <td>${fesc(m.roleName || '—')}</td>
+      <td>${fesc(m.roleName || '—')}${botLocked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}</td>
       <td>${canManage && opts ? `<select class="form-control" id="flp-rank-${fesc(m.userId)}" style="width:auto;padding:4px 8px;font-size:12px;">${opts}</select>
              <button class="btn btn-ghost btn-sm" onclick="flpSetRank('${m.userId}','${fesc(m.username)}')">Set</button>`
            : `<span style="color:var(--text-muted);font-size:11px;">—</span>`}</td>

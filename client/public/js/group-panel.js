@@ -6,7 +6,8 @@
 // dashboard is unaffected. Exposes the handful of window.* handlers the
 // #page-group markup calls, plus window.loadGroupPanel() as the entry point.
 (function () {
-  const BOT_RANK_NAME = 'Deputy Assistant Commissioner'; // members at/above this rank are locked
+  const BOT_RANK_NAME = 'Deputy Assistant Commissioner'; // fallback if the bot account isn't in the member list
+  const MET_ADMIN_USER_ID = '11077193582'; // METAdministration — its live rank is the real ceiling
 
   let currentDivision = '';
   let rolesCache = null;
@@ -25,6 +26,10 @@
   const errBox = (msg) => `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--red);">${esc(msg)}</p>`;
 
   function botRankThreshold() {
+    // The bot account's OWN live rank in this group is the true ceiling — Roblox
+    // rejects managing anyone at the bot's rank or above.
+    const bot = membersCache.find(x => String(x.userId) === MET_ADMIN_USER_ID);
+    if (bot && bot.roleRank != null) return bot.roleRank;
     const r = (rolesCache || []).find(x => (x.name || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
     if (r) return r.rank;
     const m = membersCache.find(x => (x.roleName || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());

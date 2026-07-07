@@ -100,6 +100,31 @@ router.delete('/tryout-logs/:id', async (req, res) => {
   }
 });
 
+// POST /api/dev/patrols/void-all?type=PATROL|EVENT — clear the pending queue by
+// marking every PENDING log of that type APPROVED. This is an on-site bulk
+// action only: it does NOT react in Discord and does NOT award MET event points
+// (that would spam the sheet for a big import). Use to dismiss a backlog.
+router.post('/patrols/void-all', async (req, res) => {
+  const type = req.query.type === 'EVENT' ? 'EVENT' : 'PATROL';
+  try {
+    const result = await prisma.patrolLog.updateMany({
+      where: { type, status: 'PENDING' },
+      data: {
+        status: 'APPROVED',
+        reviewedById: req.user.id,
+        reviewedByName: `${req.user.displayName || req.user.discordUsername || 'Developer'} (void)`,
+        reviewedAt: new Date(),
+      },
+    });
+    audit.log(req.user, { category: 'DEV', action: 'VOID_PENDING',
+      summary: `Voided ${result.count} pending ${type} log(s) → approved (no reaction, no points)` });
+    res.json({ ok: true, type, count: result.count });
+  } catch (e) {
+    console.error('[Dev] void-all pending failed:', e.message);
+    res.status(500).json({ error: 'Failed to void pending logs' });
+  }
+});
+
 // DELETE /api/dev/patrol-logs/:id — remove a patrol/event log.
 router.delete('/patrol-logs/:id', async (req, res) => {
   try {

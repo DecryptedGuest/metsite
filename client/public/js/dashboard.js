@@ -46,6 +46,9 @@ let groupMembersCache   = [];
 let pendingCache        = [];
 // Bot account's rank — members at this rank or above cannot be managed by the bot
 const BOT_RANK_NAME     = 'Deputy Assistant Commissioner';
+// The managing bot account (METAdministration). Its live rank in each group is
+// the real ceiling: Roblox rejects managing anyone at the bot's rank or above.
+const MET_ADMIN_USER_ID = '11077193582';
 
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1970,7 +1973,10 @@ async function loadGroupMembers() {
 // Derived from the live member list / roles so it works even if the role list
 // failed to load.
 function botRankValue() {
-  // Prefer the roles list; fall back to scanning members for the named rank.
+  // Prefer the bot account's OWN live rank in this group (the true ceiling).
+  const bot = groupMembersCache.find(x => String(x.userId) === MET_ADMIN_USER_ID);
+  if (bot && bot.roleRank != null) return bot.roleRank;
+  // Fall back to the named rank (roles list, then members).
   const r = (groupRolesCache || []).find(x => (x.name || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
   if (r) return r.rank;
   const m = groupMembersCache.find(x => (x.roleName || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());

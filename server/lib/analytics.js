@@ -87,12 +87,19 @@ async function recruitmentFunnel(division, days = 30) {
 // isn't meaningful — these are MET-wide signals).
 async function activityAnalytics(days = 30) {
   const since = new Date(Date.now() - days * DAY);
+  // Bucket patrol/event logs by the SHIFT's own date (logDate), not the import
+  // time — a bulk import all lands on one day otherwise. Pull a wide window and
+  // filter by the effective date so a log whose logDate is outside the window is
+  // dropped even if it was imported recently.
   const [patrols, tickets] = await Promise.all([
-    prisma.patrolLog.findMany({ where: { createdAt: { gte: since } }, select: { type: true, createdAt: true }, take: 8000 }),
+    prisma.patrolLog.findMany({
+      where: { OR: [{ logDate: { gte: since } }, { logDate: null, createdAt: { gte: since } }] },
+      select: { type: true, createdAt: true, logDate: true }, take: 8000,
+    }),
     prisma.supportTicket.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true, status: true }, take: 8000 }),
   ]);
   const byDay = new Map(emptyDays(days).map(d => [d.day, { day: d.day, patrols: 0, events: 0, tickets: 0 }]));
-  for (const p of patrols) { const b = byDay.get(dayKey(p.createdAt)); if (b) { if (p.type === 'EVENT') b.events++; else b.patrols++; } }
+  for (const p of patrols) { const b = byDay.get(dayKey(p.logDate || p.createdAt)); if (b) { if (p.type === 'EVENT') b.events++; else b.patrols++; } }
   for (const t of tickets) { const b = byDay.get(dayKey(t.createdAt)); if (b) b.tickets++; }
   return { days, series: [...byDay.values()] };
 }
