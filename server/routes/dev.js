@@ -28,6 +28,9 @@ router.delete('/tryouts/:id', async (req, res) => {
     } catch (e) { /* bot not ready */ }
     // TryoutCommand rows reference the tryout by id (no FK cascade) — clear them.
     await prisma.tryoutCommand.deleteMany({ where: { tryoutId: t.id } }).catch(() => {});
+    // Purge any analytics tied to this tryout: the concluded TryoutLog(s) linked
+    // back to it feed every dashboard stat, so a deleted tryout must leave none.
+    await prisma.tryoutLog.deleteMany({ where: { tryoutId: t.id } }).catch(() => {});
     await prisma.tryout.delete({ where: { id: t.id } });
     audit.log(req.user, { category: 'DEV', action: 'DELETE', division: t.division,
       target: { type: 'tryout', id: t.id, name: t.hostName }, summary: `Deleted ${t.division} tryout hosted by ${t.hostName}` });
