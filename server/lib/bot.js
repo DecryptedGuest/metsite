@@ -700,7 +700,8 @@ async function backfillLogChannel(channelId, type, opts = {}) {
       scanned++;
       before = msg.id; // page further back through history
       if (!looksLikeLog(msg)) { skipped++; continue; }
-      try { const row = await createFromMessage(msg, type); if (row) imported++; else skipped++; }
+      // Historical logs go straight in as APPROVED (no review queue, no points).
+      try { const row = await createFromMessage(msg, type, { status: 'APPROVED' }); if (row) imported++; else skipped++; }
       catch (e) { skipped++; }
     }
     pages++;

@@ -147,13 +147,17 @@ function imageUrls(message) {
 
 // Create a PENDING log (PATROL or EVENT) from a discord.js message
 // (idempotent on messageId). Returns the row, or null on error / duplicate.
-async function createFromMessage(message, type = 'PATROL') {
+// opts.status: 'APPROVED' writes the log straight in as approved (used by the
+// historical backfill — no review queue, no sheet point award), stamped as
+// imported. Default (live ingestion) creates it PENDING for review.
+async function createFromMessage(message, type = 'PATROL', opts = {}) {
   try {
     const existing = await prisma.patrolLog.findUnique({ where: { messageId: String(message.id) } }).catch(() => null);
     if (existing) return existing;
 
     const parsed  = parsePatrolLog(message.content || '');
     const display = (message.member && message.member.displayName) || message.author.globalName || message.author.username;
+    const approved = opts.status === 'APPROVED';
 
     return await prisma.patrolLog.create({
       data: {
@@ -169,7 +173,8 @@ async function createFromMessage(message, type = 'PATROL') {
         totalMinutes:         parsed.totalMinutes,
         images:               imageUrls(message),
         rawContent:           (message.content || '').slice(0, 4000),
-        status:               'PENDING',
+        status:               approved ? 'APPROVED' : 'PENDING',
+        ...(approved ? { reviewedByName: opts.reviewedByName || 'Imported', reviewedAt: message.createdAt || new Date() } : {}),
       },
     });
   } catch (err) {
