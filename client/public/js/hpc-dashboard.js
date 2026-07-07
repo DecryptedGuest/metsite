@@ -54,6 +54,21 @@ function esc(s) {
 }
 const SEV_COLOR = { high: 'var(--red)', medium: 'var(--amber)', low: 'var(--text-muted)' };
 
+// Turn any internal question id in flag text (e.g. "revolver") into the
+// marker-facing question number (Q9), using the loaded paper's question order.
+// Handles both the quoted form ("revolver") and a bare id. Safe no-op when the
+// text already uses question numbers.
+function qNumberize(text) {
+  if (!text || !hpcPaper || !Array.isArray(hpcPaper.questions)) return text || '';
+  let out = String(text);
+  hpcPaper.questions.forEach((q, i) => {
+    const label = 'Q' + (i + 1);
+    out = out.split('"' + q.id + '"').join(label);
+    out = out.replace(new RegExp('\\b' + q.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), label);
+  });
+  return out;
+}
+
 async function initHpc() {
   try { hpcCtx = await api('/api/hpc/context'); } catch (e) { hpcCtx = { canMark: false, canQuota: false, canApprove: false }; }
   if (hpcCtx.canMark) document.querySelectorAll('.marker-only').forEach(el => el.style.display = '');
@@ -130,12 +145,14 @@ async function openMark(id) {
     hpcPaper = paper; hpcCurrent = submission;
     document.getElementById('mark-title').textContent = `${submission.discordUsername || submission.discordId}${submission.robloxUsername ? ' · ' + submission.robloxUsername : ''}`;
 
-    // Flags panel.
+    // Flags panel. Rewrite any internal question ids (e.g. "revolver") in the
+    // stored flag text to the marker-friendly question number (Q9) — covers old
+    // submissions whose flags were saved before ids were switched to numbers.
     const flags = submission.flags || [];
     document.getElementById('mark-flags').innerHTML = flags.length ? `
       <div style="border:1px solid rgba(200,40,60,0.3);background:rgba(180,20,40,0.06);border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1rem;">
         <div style="font-size:12px;font-weight:700;color:var(--red);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px;"><i class="ti ti-alert-triangle"></i> Cheating / AI detection (${flags.length})</div>
-        ${flags.map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:3px 0;"><span style="color:${SEV_COLOR[f.severity] || 'var(--text-muted)'};font-weight:600;">● ${esc(f.label)}</span>${f.detail ? ' — ' + esc(f.detail) : ''}</div>`).join('')}
+        ${flags.map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:3px 0;"><span style="color:${SEV_COLOR[f.severity] || 'var(--text-muted)'};font-weight:600;">● ${esc(qNumberize(f.label))}</span>${f.detail ? ' — ' + esc(qNumberize(f.detail)) : ''}</div>`).join('')}
       </div>`
       : `<div style="font-size:12px;color:var(--green);margin-bottom:1rem;"><i class="ti ti-shield-check"></i> No cheating/AI signals detected.</div>`;
 
