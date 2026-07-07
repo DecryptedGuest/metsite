@@ -2,6 +2,7 @@
 const express = require('express');
 const prisma  = require('../lib/db');
 const { requireDeveloper } = require('../middleware/auth');
+const { userIsMetHicommCached } = require('../middleware/division');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
   resolveJoinRequest, changeGroupRank, exileFromGroup, cookieForDivision,
@@ -30,8 +31,18 @@ function panelCookie(req) {
 
 const router = express.Router();
 
-// All routes require DEVELOPER role
-router.use(requireDeveloper);
+// The Group Panel (/group/*) is shared with MET HICOMM — they can manage every
+// Roblox group (ranks, join requests, exile) just like developers. Everything
+// else in this router (user management, Discord moderation, blacklists, site
+// control) stays DEVELOPER-only. req.path here is mount-relative (e.g.
+// '/group/roles'), matching the outer /api/admin gate that already admits HICOMM.
+router.use((req, res, next) => {
+  if (/^\/group(\/|$)/.test(req.path)) {
+    if (req.user && (req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user))) return next();
+    return res.status(403).json({ error: 'Developer or MET HICOMM access required' });
+  }
+  return requireDeveloper(req, res, next);
+});
 
 // ── GET /api/admin/users ──────────────────────────────────────────
 router.get('/users', async (req, res) => {

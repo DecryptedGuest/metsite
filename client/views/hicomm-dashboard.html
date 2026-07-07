@@ -64,6 +64,8 @@
         <div class="nav-section-label">Intelligence</div>
         <button class="nav-item" data-page="officer"><i class="ti ti-user-search nav-icon"></i><span>Officer 360°</span></button>
         <button class="nav-item" data-page="audit"><i class="ti ti-history nav-icon"></i><span>Audit Trail</span></button>
+        <div class="nav-section-label">Groups</div>
+        <button class="nav-item" data-page="group"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
       </nav>
     </div>
     <div class="sidebar-foot" style="padding:12px 16px;font-size:11px;color:var(--text-muted);">
@@ -150,6 +152,63 @@
         </table></div>
       </div>
     </section>
+
+    <!-- GROUP PANEL (shared with developers) -->
+    <section class="page" id="page-group">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Group Management</h1><p class="page-sub">High Command · Roblox Group Control</p></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+          <i class="ti ti-apps"></i> Division group
+          <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
+            <option value="">Default group</option>
+          </select>
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
+        <button class="btn btn-ghost btn-sm" onclick="runGroupDebug()"><i class="ti ti-bug"></i> Debug API</button>
+        <span id="group-env-badge" style="font-size:10px;color:var(--text-muted);"></span>
+      </div>
+      <div id="group-debug-output" style="display:none;background:rgba(0,0,0,0.4);border:1px solid var(--border-dim);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:0.06em;">RAW ROBLOX API DEBUG</span>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'"><i class="ti ti-x"></i></button>
+        </div>
+        <pre id="group-debug-pre" style="font-size:10px;color:var(--text-secondary);overflow:auto;max-height:280px;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('pending-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot amber pulse-anim"></span>Pending Join Requests
+            <span id="pending-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="pending-search" oninput="renderPendingRequests()" placeholder="Search user…" style="height:30px;font-size:12px;width:170px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadPendingRequests()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div id="pending-body"><div id="pending-requests-container" style="padding:0.5rem 0;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+      </div>
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('members-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot blue"></span>Group Members
+            <span id="members-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="members-search" oninput="renderGroupMembers()" placeholder="Search user…" style="height:30px;font-size:12px;width:150px;" />
+            <select class="form-control" id="members-rank-filter" onchange="renderGroupMembers()" style="height:30px;font-size:12px;width:180px;"><option value="">All ranks</option></select>
+            <button class="btn btn-ghost btn-sm" onclick="loadGroupMembers()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div id="members-body"><div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Roblox User</th><th>Current Rank</th><th>Change Rank</th><th>Actions</th></tr></thead>
+          <tbody id="group-members-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div></div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -170,6 +229,7 @@
 <script src="/js/charts.js"></script>
 <script src="/js/met-topbar.js"></script>
 <script src="/js/command-palette.js"></script>
+<script src="/js/group-panel.js"></script>
 <script src="/js/hicomm-dashboard.js"></script>
 <script>initMetTopbar('HIGH COMMAND');</script>
 </body>

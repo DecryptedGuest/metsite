@@ -20,6 +20,7 @@
     if (name === 'analytics') hcLoadAnalytics();
     if (name === 'integrity') hcLoadIntegrity();
     if (name === 'audit') hcLoadAudit();
+    if (name === 'group' && typeof loadGroupPanel === 'function') loadGroupPanel();
   }
   function wireNav() {
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.addEventListener('click', () => showPage(b.dataset.page)));
