@@ -3,7 +3,8 @@
 // Handles: role assignment after case approval, member lookup.
 
 const { Client, GatewayIntentBits, Partials, SlashCommandBuilder,
-        EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder } = require('discord.js');
+        EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder,
+        GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel } = require('discord.js');
 
 // The bulk-import feature needs to read forum starter messages, and the ticket
 // transcript import needs to read Tickety's log embeds + "View Transcript"
@@ -1126,6 +1127,52 @@ function memberSummary(member) {
 
 async function guild_(guildId) { return client.guilds.fetch(guildId); }
 
+// Which guild a tryout's Scheduled Event lives in: CID tryouts → CID server;
+// everything else (HPC/MET, SCO-19) → the MET server.
+function tryoutGuildId(division) {
+  if (String(division || '').toUpperCase() === 'CID') return process.env.CID_GUILD_ID || null;
+  return process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+}
+
+// Create a native Discord Scheduled Event for a tryout (best-effort). External
+// events REQUIRE an end time + a location. Returns the event id, or null.
+async function createTryoutScheduledEvent(tryout, guildId) {
+  if (!ready || !guildId || !tryout) return null;
+  try {
+    const cfg   = require('./tryouts').divisionConfig(tryout.division);
+    const guild = await guild_(guildId);
+    const start = new Date(tryout.scheduledAt);
+    if (isNaN(start) || start.getTime() <= Date.now()) return null; // must be future
+    const end   = new Date(start.getTime() + 60 * 60 * 1000);
+    const ev = await guild.scheduledEvents.create({
+      name: cfg.eventType,
+      scheduledStartTime: start,
+      scheduledEndTime: end,
+      privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
+      entityType: GuildScheduledEventEntityType.External,
+      entityMetadata: { location: process.env.TRYOUT_EVENT_LOCATION || 'Hendon Police Campus' },
+      description: `${cfg.eventType} hosted by ${tryout.hostName}`,
+    });
+    return ev.id;
+  } catch (e) {
+    console.warn('[Tryout] createTryoutScheduledEvent failed:', e.message);
+    return null;
+  }
+}
+
+// Delete a tryout's Scheduled Event (best-effort) on cancel/complete.
+async function deleteTryoutScheduledEvent(tryout, guildId) {
+  if (!ready || !guildId || !tryout || !tryout.scheduledEventId) return false;
+  try {
+    const guild = await guild_(guildId);
+    await guild.scheduledEvents.delete(tryout.scheduledEventId);
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] deleteTryoutScheduledEvent failed:', e.message);
+    return false;
+  }
+}
+
 // List (optionally filtered by username/ID substring) currently-banned users.
 // Discord has no server-side ban search, so this fetches the full ban list
 // (fine for a single-server community) and filters in memory.
@@ -1215,5 +1262,6 @@ module.exports = {
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink,
   reactToMessage, postChannelMessage, editChannelMessage,
+  createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   isReady: () => ready,
 };

@@ -118,6 +118,12 @@ router.post('/tryouts', async (req, res) => {
         notes: notes ? String(notes).slice(0, 500) : null,
       },
     });
+    // Create a native Discord Scheduled Event in the MET server (best-effort).
+    try {
+      const bot = require('../lib/bot');
+      const evId = await bot.createTryoutScheduledEvent(t, bot.tryoutGuildId(t.division));
+      if (evId) { t.scheduledEventId = evId; await prisma.tryout.update({ where: { id: t.id }, data: { scheduledEventId: evId } }).catch(() => {}); }
+    } catch (e) { /* best-effort */ }
     res.status(201).json(tryoutSummary(t));
   } catch (err) {
     console.error('[SCO19] schedule tryout failed:', err.message);
@@ -139,6 +145,7 @@ router.post('/tryouts/:id/cancel', async (req, res) => {
     try {
       const bot = require('../lib/bot');
       await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+      await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
       await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* best-effort */ }
     res.json({ success: true });
@@ -159,6 +166,7 @@ router.post('/tryouts/:id/complete', async (req, res) => {
     try {
       const bot = require('../lib/bot');
       await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+      await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
       await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* best-effort */ }
     res.json({ success: true });

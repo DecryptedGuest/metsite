@@ -346,6 +346,7 @@ async function checkAbandonedTryouts() {
         const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
         const bot = require('./bot');
         await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+        await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
         await bot.editTryoutHostDM(updated).catch(() => {});
         if (typeof bot.dmTryoutAutoCancelled === 'function') {
           await bot.dmTryoutAutoCancelled(updated, Math.round(hostAbsenceMs() / 60000)).catch(() => {});
