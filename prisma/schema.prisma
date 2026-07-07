@@ -1,7 +1,7 @@
 // prisma/schema.prisma
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" covers local + Railway; the rhel targets are the Prisma query
   // engines Vercel's serverless (AWS Lambda) runtime needs. Harmless elsewhere.
   binaryTargets = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
@@ -13,26 +13,26 @@ datasource db {
 }
 
 model User {
-  id              String   @id @default(uuid())
-  discordId       String   @unique
+  id              String    @id @default(uuid())
+  discordId       String    @unique
   discordUsername String
   displayName     String?
   discordAvatar   String?
-  role            Role     @default(IA)
-  isBlacklisted   Boolean  @default(false)
+  role            Role      @default(IA)
+  isBlacklisted   Boolean   @default(false)
   blacklistReason String?
-  mustReauth      Boolean  @default(false)
+  mustReauth      Boolean   @default(false)
   lastIp          String?
-  lastRealIp      String?  // most recent non-VPN IP seen for this account (dev panel only)
+  lastRealIp      String? // most recent non-VPN IP seen for this account (dev panel only)
   lastRealIpAt    DateTime?
   robloxId        String?
   robloxUsername  String?
-  notifyAsked     Boolean  @default(false)
-  notifyEnabled   Boolean  @default(false)
+  notifyAsked     Boolean   @default(false)
+  notifyEnabled   Boolean   @default(false)
   notifyPrefs     Json?
   lastRoleCheck   DateTime?
-  createdAt       DateTime @default(now())
-  lastLogin       DateTime @default(now())
+  createdAt       DateTime  @default(now())
+  lastLogin       DateTime  @default(now())
 
   // In-flight WebAuthn challenge (registration or step-up authentication). Held
   // between the two ceremony round-trips; cleared once consumed.
@@ -43,11 +43,11 @@ model User {
   // Refreshed at login and by the same background revalidator that
   // refreshes `role`, so the division middleware never has to hit Discord
   // on the request path.
-  divisions       Json?
+  divisions Json?
 
   // The user's MET-server Discord role IDs, captured at login. Used to decide
   // things gated on a specific Discord role (e.g. the HPC final-exam role).
-  metRoleIds      Json?
+  metRoleIds Json?
 
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
@@ -57,13 +57,13 @@ model User {
 
   cases              Case[]
   caseActions        CaseAction[]
-  tickets             Ticket[]
-  pushSubscriptions   PushSubscription[]
-  media               Media[]
-  cidCases            CidCase[]
-  sco19Deployments    Sco19Deployment[]
-  flpShiftLogs        FlpShiftLog[]
-  hpcTrainingRecords  HpcTrainingRecord[]
+  tickets            Ticket[]
+  pushSubscriptions  PushSubscription[]
+  media              Media[]
+  cidCases           CidCase[]
+  sco19Deployments   Sco19Deployment[]
+  flpShiftLogs       FlpShiftLog[]
+  hpcTrainingRecords HpcTrainingRecord[]
 
   @@map("users")
 }
@@ -109,16 +109,16 @@ model CaptureLog {
 }
 
 model Case {
-  id               String     @id @default(uuid())
-  caseRef          String     @unique
-  userId           String
-  officerDiscordId String?
-  robloxUserId     String?
-  robloxUsername   String?
-  action           String
-  actions          Json?
-  reason           String
-  notes            String     @default("N/A")
+  id                          String     @id @default(uuid())
+  caseRef                     String     @unique
+  userId                      String
+  officerDiscordId            String?
+  robloxUserId                String?
+  robloxUsername              String?
+  action                      String
+  actions                     Json?
+  reason                      String
+  notes                       String     @default("N/A")
   caseLink                    String?
   investigatorRobloxId        String?
   investigatorRobloxUsername  String?
@@ -128,9 +128,9 @@ model Case {
   logMessageId                String?
   reviewNote                  String?
   reviewChanges               Json?
-  status           CaseStatus @default(PENDING)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  status                      CaseStatus @default(PENDING)
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
 
   user            User             @relation(fields: [userId], references: [id])
   caseActions     CaseAction[]
@@ -230,14 +230,14 @@ model Media {
   mimeType   String
   size       Int
   data       Bytes
-  kind       String   // 'image' | 'video'
+  kind       String // 'image' | 'video'
   visibility String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
   uploaderId String
   views      Int      @default(0)
-  width      Int?     // pixel dimensions (for video/image OG embeds)
+  width      Int? // pixel dimensions (for video/image OG embeds)
   height     Int?
-  poster     Bytes?   // JPEG poster frame for videos (used as the embed thumbnail)
-  posterMime String?  // e.g. 'image/jpeg'; presence signals a poster exists
+  poster     Bytes? // JPEG poster frame for videos (used as the embed thumbnail)
+  posterMime String? // e.g. 'image/jpeg'; presence signals a poster exists
   createdAt  DateTime @default(now())
 
   uploader User @relation(fields: [uploaderId], references: [id])
@@ -251,8 +251,8 @@ model Media {
 // so points are never lost to a transient webhook/RoVer failure or a spam burst.
 model QuotaAward {
   id             String   @id @default(uuid())
-  refType        String   // 'case' | 'ticket'
-  refId          String   // case/ticket id — one award per ref (idempotent)
+  refType        String // 'case' | 'ticket'
+  refId          String // case/ticket id — one award per ref (idempotent)
   discordId      String?
   robloxUsername String?
   points         Int
@@ -344,17 +344,17 @@ enum CidCaseStatus {
 }
 
 model CidCase {
-  id             String        @id @default(uuid())
-  caseRef        String        @unique
-  title          String
-  summary        String
+  id                 String        @id @default(uuid())
+  caseRef            String        @unique
+  title              String
+  summary            String
   leadInvestigatorId String
-  assignedIds    Json?         // array of userIds assigned to the case
-  status         CidCaseStatus @default(OPEN)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  assignedIds        Json? // array of userIds assigned to the case
+  status             CidCaseStatus @default(OPEN)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  leadInvestigator User          @relation(fields: [leadInvestigatorId], references: [id])
+  leadInvestigator User           @relation(fields: [leadInvestigatorId], references: [id])
   entries          CidCaseEntry[]
 
   @@map("cid_cases")
@@ -365,7 +365,7 @@ model CidCaseEntry {
   id        String   @id @default(uuid())
   caseId    String
   authorId  String
-  kind       String  // 'note' | 'evidence'
+  kind      String // 'note' | 'evidence'
   body      String
   createdAt DateTime @default(now())
 
@@ -382,17 +382,17 @@ enum Sco19DeploymentStatus {
 }
 
 model Sco19Deployment {
-  id             String                 @id @default(uuid())
-  deploymentRef  String                 @unique
-  officerId      String
-  callsign       String
-  incidentType   String
-  authorisation  String                 // authorising officer / firearms authority reference
-  summary        String
-  status         Sco19DeploymentStatus  @default(PENDING_REVIEW)
-  signedOffById  String?
-  signedOffAt    DateTime?
-  createdAt      DateTime               @default(now())
+  id            String                @id @default(uuid())
+  deploymentRef String                @unique
+  officerId     String
+  callsign      String
+  incidentType  String
+  authorisation String // authorising officer / firearms authority reference
+  summary       String
+  status        Sco19DeploymentStatus @default(PENDING_REVIEW)
+  signedOffById String?
+  signedOffAt   DateTime?
+  createdAt     DateTime              @default(now())
 
   officer User @relation(fields: [officerId], references: [id])
 
@@ -425,15 +425,15 @@ enum HpcCadetStatus {
 }
 
 model HpcTrainingRecord {
-  id              String         @id @default(uuid())
-  cadetId         String
-  courseName      String
-  status          HpcCadetStatus @default(ENROLLED)
-  instructorId    String?
-  instructorNote  String?
-  signedOffAt     DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id             String         @id @default(uuid())
+  cadetId        String
+  courseName     String
+  status         HpcCadetStatus @default(ENROLLED)
+  instructorId   String?
+  instructorNote String?
+  signedOffAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   cadet User @relation(fields: [cadetId], references: [id])
 
@@ -455,7 +455,7 @@ model MetMemberProfile {
   id              String   @id @default(uuid())
   discordId       String   @unique
   discordUsername String?
-  metNickname     String?          // the member's nickname in the MET server
+  metNickname     String? // the member's nickname in the MET server
   robloxId        String?
   robloxUsername  String?
   // MET-server Discord roles: [{ id, name, color, position, icon }]
@@ -472,12 +472,12 @@ model MetMemberProfile {
 // A member's disciplinary history in the MET server (written by the bot).
 model MetPunishment {
   id         String    @id @default(uuid())
-  discordId  String                       // the punished member
-  type       String                       // WARNING | STRIKE | SUSPENSION | BAN | DEMOTION | ...
+  discordId  String // the punished member
+  type       String // WARNING | STRIKE | SUSPENSION | BAN | DEMOTION | ...
   reason     String?
-  issuedById String?                       // moderator discord id
-  issuedBy   String?                       // moderator display name
-  caseRef    String?                       // optional external reference
+  issuedById String? // moderator discord id
+  issuedBy   String? // moderator display name
+  caseRef    String? // optional external reference
   active     Boolean   @default(true)
   issuedAt   DateTime  @default(now())
   expiresAt  DateTime?
@@ -494,13 +494,13 @@ model MetPunishment {
 // show "who did what, when" without needing Discord audit-log read access.
 model DiscordModerationLog {
   id              String   @id @default(uuid())
-  action          String   // BAN | UNBAN | KICK | TIMEOUT | UNTIMEOUT
+  action          String // BAN | UNBAN | KICK | TIMEOUT | UNTIMEOUT
   targetDiscordId String
   targetUsername  String?
   reason          String?
-  durationMinutes Int?     // for TIMEOUT only
-  performedById   String   // the developer's User.id
-  performedBy     String   // the developer's display name, snapshotted
+  durationMinutes Int? // for TIMEOUT only
+  performedById   String // the developer's User.id
+  performedBy     String // the developer's display name, snapshotted
   createdAt       DateTime @default(now())
 
   @@index([targetDiscordId])
@@ -518,20 +518,20 @@ model HpcExamSubmission {
   discordId       String
   discordUsername String?
   robloxUsername  String?
-  answers         Json      // { [questionId]: answerString }
-  detection       Json?     // raw anti-cheat telemetry from the exam page
-  flags           Json?     // computed [{ severity, code, label, detail }]
-  aiScan          Json?     // AI-detector results { at, scannedByName, providers, overall, perAnswer }
+  answers         Json // { [questionId]: answerString }
+  detection       Json? // raw anti-cheat telemetry from the exam page
+  flags           Json? // computed [{ severity, code, label, detail }]
+  aiScan          Json? // AI-detector results { at, scannedByName, providers, overall, perAnswer }
   status          String    @default("PENDING") // PENDING | PASSED | FAILED
-  scores          Json?     // { [questionId]: pointsAwarded } (set at marking)
-  score           Int?      // total awarded
-  maxScore        Int       // total possible at submit time
-  percentage      Int?      // computed at marking
+  scores          Json? // { [questionId]: pointsAwarded } (set at marking)
+  score           Int? // total awarded
+  maxScore        Int // total possible at submit time
+  percentage      Int? // computed at marking
   markerNote      String?
   markedById      String?
   markedByName    String?
   markedAt        DateTime?
-  resultMessageId String?   // Discord message id of the posted result
+  resultMessageId String? // Discord message id of the posted result
   createdAt       DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
@@ -548,32 +548,33 @@ model HpcExamSubmission {
 // citizens can see upcoming/live tryouts and join the live one from the site.
 model Tryout {
   id                String    @id @default(uuid())
-  hostId            String    // creator (User.id)
+  hostId            String // creator (User.id)
   hostDiscordId     String
   hostName          String
-  hostRobloxId      String?   // the host's Roblox id (for the in-game TryoutTV board)
-  hostRobloxName    String?   // the host's Roblox username
+  hostRobloxId      String? // the host's Roblox id (for the in-game TryoutTV board)
+  hostRobloxName    String? // the host's Roblox username
   coHostDiscordId   String?
   coHostName        String?
   scheduledAt       DateTime
   status            String    @default("SCHEDULED") // SCHEDULED | LIVE | COMPLETED | CANCELLED
-  division          String    @default("HPC")       // HPC | CID — which tryout programme this belongs to
-  lockState         String    @default("LOCKED")    // LOCKED | UNLOCKED (game :serverlock state; legacy: SLOCKED/UNSLOCKED)
+  division          String    @default("HPC") // HPC | CID — which tryout programme this belongs to
+  lockState         String    @default("LOCKED") // LOCKED | UNLOCKED (game :serverlock state; legacy: SLOCKED/UNSLOCKED)
   privateServerLink String?
   privateServerId   String?
-  accessCode        String?   // reserved-server access code (for the Join launch-link flow)
+  accessCode        String? // reserved-server access code (for the Join launch-link flow)
   joinable          Boolean   @default(false) // host toggled "Allow players to join"
   hostLastSeenAt    DateTime? // last time the host was present in the tryout server (for the abandon-timeout auto-cancel)
   serverCreatedAt   DateTime?
   announcementSent  Boolean   @default(false)
   announcementMsgId String?
-  recruitmentMsgId  String?   // optional CID recruitment cross-post message id
+  scheduledEventId  String? // native Discord Scheduled Event id (deleted on cancel/complete)
+  recruitmentMsgId  String? // optional CID recruitment cross-post message id
   hostDmMessageId   String?
   notes             String?
   suppressPings     Boolean   @default(false) // test mode: announce without pinging the role
-  liveSnapshot      Json?     // latest in-game overview while the tryout is live
-  inGamePlayers     Json?     // in-server roster at create/start, for the co-host picker
-  summary           Json?     // post-tryout summary card (counts + duration)
+  liveSnapshot      Json? // latest in-game overview while the tryout is live
+  inGamePlayers     Json? // in-server roster at create/start, for the co-host picker
+  summary           Json? // post-tryout summary card (counts + duration)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -590,7 +591,7 @@ model Tryout {
 model TryoutCommand {
   id             String    @id @default(uuid())
   tryoutId       String
-  action         String    // STRIKE | UNSTRIKE | PASS | FAIL | KICK | NOTE
+  action         String // STRIKE | UNSTRIKE | PASS | FAIL | KICK | NOTE
   division       String    @default("HPC")
   targetRobloxId String?
   targetUsername String?
@@ -611,17 +612,17 @@ model TryoutCommand {
 model PatrolLog {
   id                   String    @id @default(uuid())
   type                 String    @default("PATROL") // PATROL | EVENT
-  messageId            String    @unique   // Discord message id (react + idempotency)
+  messageId            String    @unique // Discord message id (react + idempotency)
   channelId            String
   pointAwarded         Boolean   @default(false) // EVENT logs: whether the MET point was written
   submitterDiscordId   String
-  submitterUsername    String?             // discord username
-  submitterDisplayName String?             // server nickname, e.g. "DEV | realangeloo"
-  division             String?             // parsed; shown as "N/A" when absent
-  shiftStart           String?             // 24h "HH:MM" as stated on the log
-  shiftEnd             String?             // 24h "HH:MM"
-  totalMinutes         Int?                // computed from start→end
-  images               Json?               // attachment image URLs
+  submitterUsername    String? // discord username
+  submitterDisplayName String? // server nickname, e.g. "DEV | realangeloo"
+  division             String? // parsed; shown as "N/A" when absent
+  shiftStart           String? // 24h "HH:MM" as stated on the log
+  shiftEnd             String? // 24h "HH:MM"
+  totalMinutes         Int? // computed from start→end
+  images               Json? // attachment image URLs
   rawContent           String?
   status               String    @default("PENDING") // PENDING | APPROVED | DENIED
   reviewedById         String?
@@ -640,43 +641,43 @@ model PatrolLog {
 // site (DRAFT → PENDING); HPC HICOMM approve/deny it; on approval the host is
 // awarded 1 point on the HPC database.
 model TryoutLog {
-  id              String    @id @default(uuid())
-  gameSessionId   String?   @unique // idempotency key from the game (one log per tryout session)
-  tryoutId        String?   // optional link to the scheduled Tryout
-  hostId          String?   // host (User.id) — null when the in-game host has no linked site account
-  hostDiscordId   String?
-  hostName        String
-  hostRobloxId    String?
-  hostRobloxName  String?
-  coHostName      String?
-  coHostRobloxId  String?
-  startedAt       DateTime?
-  concludedAt     DateTime? // when the host confirmed conclusion in-game
+  id             String    @id @default(uuid())
+  gameSessionId  String?   @unique // idempotency key from the game (one log per tryout session)
+  tryoutId       String? // optional link to the scheduled Tryout
+  hostId         String? // host (User.id) — null when the in-game host has no linked site account
+  hostDiscordId  String?
+  hostName       String
+  hostRobloxId   String?
+  hostRobloxName String?
+  coHostName     String?
+  coHostRobloxId String?
+  startedAt      DateTime?
+  concludedAt    DateTime? // when the host confirmed conclusion in-game
   // Per-attendee rows: [{ robloxId, username, joinedAt, leftAt, kicked,
   //   result: 'PASS'|'FAIL'|'PENDING', strikes: int, note }]
-  attendees       Json?
+  attendees      Json?
   // Chronological event feed: [{ at, type: 'JOIN'|'LEAVE'|'KICK'|'STRIKE'|'PASS'|'FAIL'|'NOTE', username, by, detail }]
-  events          Json?
+  events         Json?
   // Denormalised counts for quick listing.
-  totalAttendees  Int       @default(0)
-  passedCount     Int       @default(0)
-  failedCount     Int       @default(0)
-  leftCount       Int       @default(0)
-  kickedCount     Int       @default(0)
-  strikeCount     Int       @default(0)
-  notes           String?   // host's write-up added on the site before posting
-  status          String    @default("DRAFT") // DRAFT | PENDING | APPROVED | DENIED
-  division        String    @default("HPC")   // HPC | CID
-  reviewNote      String?   // HICOMM note on approve/deny
-  reviewedById    String?
-  reviewedByName  String?
-  reviewedAt      DateTime?
-  pointAwarded    Boolean   @default(false) // whether the +1 HPC point was written
-  logMessageId    String?   // Discord message id of the posted tryout log
-  proof           String?   // proof link/notes (the "Proof:" line), added by the host on review
-  gamePayload     Json?     // raw snapshot from the game (audit)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  totalAttendees Int       @default(0)
+  passedCount    Int       @default(0)
+  failedCount    Int       @default(0)
+  leftCount      Int       @default(0)
+  kickedCount    Int       @default(0)
+  strikeCount    Int       @default(0)
+  notes          String? // host's write-up added on the site before posting
+  status         String    @default("DRAFT") // DRAFT | PENDING | APPROVED | DENIED
+  division       String    @default("HPC") // HPC | CID
+  reviewNote     String? // HICOMM note on approve/deny
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+  pointAwarded   Boolean   @default(false) // whether the +1 HPC point was written
+  logMessageId   String? // Discord message id of the posted tryout log
+  proof          String? // proof link/notes (the "Proof:" line), added by the host on review
+  gamePayload    Json? // raw snapshot from the game (audit)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   host User? @relation(fields: [hostId], references: [id])
 
@@ -691,20 +692,20 @@ model TryoutLog {
 // Community-facing help desk. A user opens a ticket of one of four types;
 // "METAdministration" runs a fixed intake, then handling staff claim + chat.
 model SupportTicket {
-  id              String   @id @default(uuid())
-  type            String   // OFFICER_COMPLAINT | DISCIPLINARY_APPEAL | IA_COMPLAINT | GENERAL_SUPPORT
-  status          String   @default("INTAKE") // INTAKE | OPEN | CLAIMED | CLOSED
-  priority        String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
-  escalated       Boolean  @default(false)    // flagged up to IA HICOMM
+  id              String    @id @default(uuid())
+  type            String // OFFICER_COMPLAINT | DISCIPLINARY_APPEAL | IA_COMPLAINT | GENERAL_SUPPORT
+  status          String    @default("INTAKE") // INTAKE | OPEN | CLAIMED | CLOSED
+  priority        String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  escalated       Boolean   @default(false) // flagged up to IA HICOMM
   escalatedNote   String?
-  openerId        String?                      // set when the opener was logged in
-  openerToken     String?                      // secret held by an anonymous opener
+  openerId        String? // set when the opener was logged in
+  openerToken     String? // secret held by an anonymous opener
   openerDiscordId String?
   openerName      String
-  openerIp        String?                      // captured for guest ticket-blacklisting
-  openerFp        String?                      // per-browser fingerprint (localStorage id)
-  openerUa        String?                      // user-agent snapshot (informational)
-  intake          Json?    // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
+  openerIp        String? // captured for guest ticket-blacklisting
+  openerFp        String? // per-browser fingerprint (localStorage id)
+  openerUa        String? // user-agent snapshot (informational)
+  intake          Json? // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
   claimedById     String?
   claimedByName   String?
   claimedAt       DateTime?
@@ -712,8 +713,8 @@ model SupportTicket {
   closedByName    String?
   closeReason     String?
   closedAt        DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   messages SupportMessage[]
 
@@ -727,21 +728,21 @@ model SupportTicket {
 // browser fingerprint. While an entry is active, that IP/browser is refused
 // when it tries to open a new support ticket.
 model SupportBlacklist {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   ip              String?
-  fingerprint     String?  // per-browser localStorage id (x-support-fp)
-  ua              String?  // user-agent snapshot at time of issue
-  ticketId        String?  // the ticket it was issued from
+  fingerprint     String? // per-browser localStorage id (x-support-fp)
+  ua              String? // user-agent snapshot at time of issue
+  ticketId        String? // the ticket it was issued from
   openerName      String?
   openerDiscordId String?
   reason          String?
   issuedById      String?
   issuedByName    String?
-  active          Boolean  @default(true)
+  active          Boolean   @default(true)
   liftedById      String?
   liftedByName    String?
   liftedAt        DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@index([ip])
   @@index([fingerprint])
@@ -754,8 +755,8 @@ model SupportBlacklist {
 // the unified model (merges the HICOMM oversight trail with the security trail).
 model AuditLog {
   id         String   @id @default(uuid())
-  category   String   // GROUP | SUPPORT | TRYOUT | CASE | TICKET | ACCESS | DEV | exam | auth | admin | moderation | SECURITY
-  action     String   // RANK_CHANGE | KICK | BLACKLIST | CLOSE | DELETE | APPROVE | SESSION_REVOKE …
+  category   String // GROUP | SUPPORT | TRYOUT | CASE | TICKET | ACCESS | DEV | exam | auth | admin | moderation | SECURITY
+  action     String // RANK_CHANGE | KICK | BLACKLIST | CLOSE | DELETE | APPROVE | SESSION_REVOKE …
   actorId    String?
   actorName  String?
   actorRole  String?
@@ -766,7 +767,7 @@ model AuditLog {
   summary    String?
   metadata   Json?
   ip         String?
-  hash       String?  // per-row HMAC over the row's fields — tamper-evidence
+  hash       String? // per-row HMAC over the row's fields — tamper-evidence
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
@@ -774,6 +775,79 @@ model AuditLog {
   @@index([actorId])
   @@index([targetId])
   @@map("audit_log")
+}
+
+// ── In-game log ingest (training/tryout game) ────────────────────────
+// Adonis admin logs, join/leave and chat logs POSTed from the Roblox training
+// game (see /api/game/log). Append-only; viewable by MET HICOMM on the site.
+model GameLog {
+  id        String   @id @default(uuid())
+  source    String // ADONIS | JOIN | LEAVE | CHAT
+  actor     String? // who did it (Roblox username/id)
+  actorId   String? // Roblox user id, when the game sends it
+  target    String? // who it was done to (for admin actions)
+  action    String? // e.g. Kick | Ban | Warn (Adonis command), null for join/leave/chat
+  message   String? // chat text / admin reason / free text
+  place     String? // place/server label the game sends
+  raw       Json? // full original payload for audit
+  createdAt DateTime @default(now())
+
+  @@index([source])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("game_logs")
+}
+
+// ── Leave of Absence requests ────────────────────────────────────────
+// Any MET member requests an LOA for a division or MET-wide; it forwards to the
+// divisional HICOMM (division scope) or MET HICOMM (MET scope) for review.
+model LoaRequest {
+  id           String    @id @default(uuid())
+  userId       String // requester (User.id)
+  userName     String? // snapshot for listing
+  scope        String    @default("DIVISION") // MET | DIVISION
+  division     String? // set when scope=DIVISION
+  reason       String?
+  startAt      DateTime
+  endAt        DateTime
+  status       String    @default("PENDING") // PENDING | APPROVED | DENIED | CANCELLED
+  forwardedTo  String? // human label of the reviewing tier (e.g. "CID HICOMM")
+  reviewerId   String?
+  reviewerName String?
+  reviewNote   String?
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([division])
+  @@map("loa_requests")
+}
+
+// ── Rank change history ──────────────────────────────────────────────
+// Promotions/demotions ingested from the Discord promotions channel (or written
+// by site actions). Feeds each member's rank timeline + the roster.
+model RankHistory {
+  id         String   @id @default(uuid())
+  userId     String? // resolved site user, when known
+  robloxId   String?
+  discordId  String?
+  memberName String? // who was promoted/demoted (display)
+  group      String   @default("MET") // MET | CID | SCO19 | FLP | HPC
+  fromRank   String?
+  toRank     String?
+  reason     String?
+  byName     String? // who issued it
+  source     String   @default("DISCORD") // DISCORD | MANUAL | SYNC
+  messageId  String?  @unique // idempotency for Discord-ingested rows
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([robloxId])
+  @@index([discordId])
+  @@index([createdAt])
+  @@map("rank_history")
 }
 
 // One-time, short-lived token for the "install on your phone" QR handoff: a
@@ -795,7 +869,7 @@ model MobileLoginToken {
 // developer must approve before it executes.
 model PendingApproval {
   id              String    @id @default(uuid())
-  action          String    // LOCKDOWN | FORCE_REAUTH | BROADCAST
+  action          String // LOCKDOWN | FORCE_REAUTH | BROADCAST
   params          Json?
   reason          String?
   status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
@@ -813,11 +887,11 @@ model PendingApproval {
 model SupportMessage {
   id          String   @id @default(uuid())
   ticketId    String
-  authorId    String?  // null for BOT / system
+  authorId    String? // null for BOT / system
   authorName  String
   authorKind  String   @default("STAFF") // OPENER | STAFF | BOT
   body        String?
-  attachments Json?    // [{ mediaId, kind, name }]
+  attachments Json? // [{ mediaId, kind, name }]
   createdAt   DateTime @default(now())
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -834,7 +908,7 @@ model Session {
   userId     String
   ip         String?
   ipVpn      Boolean   @default(false) // was this session's IP flagged as a VPN/proxy/datacenter?
-  ipOrg      String?   // ISP / org / hosting provider behind the IP (dev panel only)
+  ipOrg      String? // ISP / org / hosting provider behind the IP (dev panel only)
   userAgent  String?
   device     String?
   createdAt  DateTime  @default(now())
@@ -855,13 +929,13 @@ model Session {
 model Passkey {
   id           String    @id @default(uuid())
   userId       String
-  credentialId String    @unique   // base64url credential ID
-  publicKey    Bytes                // COSE public key
+  credentialId String    @unique // base64url credential ID
+  publicKey    Bytes // COSE public key
   counter      BigInt    @default(0)
-  transports   String?              // JSON array e.g. ["internal","hybrid"]
-  deviceType   String?              // singleDevice | multiDevice
+  transports   String? // JSON array e.g. ["internal","hybrid"]
+  deviceType   String? // singleDevice | multiDevice
   backedUp     Boolean   @default(false)
-  name         String?              // user-facing label ("MacBook Touch ID")
+  name         String? // user-facing label ("MacBook Touch ID")
   createdAt    DateTime  @default(now())
   lastUsedAt   DateTime?
 
