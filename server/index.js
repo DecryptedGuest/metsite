@@ -640,6 +640,27 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   try {
     metProfile = await dbPrisma.metMemberProfile.findUnique({ where: { discordId: req.user.discordId } });
   } catch (e) { metProfile = null; }
+
+  // The member's live MET-group role ({ id, name, rank }) — this is the rank name
+  // shown on the profile in place of the internal site role. Best-effort.
+  let metRankInfo = null;
+  try {
+    const { metRole } = require('./lib/metRank');
+    metRankInfo = await metRole(req.user.robloxId);
+  } catch (e) { metRankInfo = null; }
+
+  // "Linked" = can we actually see this member in the MET server right now? The
+  // external MET bot's MetMemberProfile row is one signal, but a member who's in
+  // the server (roles captured at login, or a live guild lookup, or a resolved
+  // MET rank) is just as linked — so we don't nag people who are plainly members.
+  let inGuildLive = null;
+  try {
+    const { getMemberRecord } = require('./lib/bot');
+    const rec = await getMemberRecord(req.user.discordId);
+    inGuildLive = rec ? rec.inDiscord : null;
+  } catch (e) { inGuildLive = null; }
+  const hasMetRoles = Array.isArray(req.user.metRoleIds) && req.user.metRoleIds.length > 0;
+  const linked = !!metProfile || !!metRankInfo || inGuildLive === true || hasMetRoles;
   try {
     botPunishments = await dbPrisma.metPunishment.findMany({
       where: { discordId: req.user.discordId },
@@ -688,6 +709,9 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     },
     divisions: mine,
     metNickname: metProfile ? metProfile.metNickname : null,
+    // The member's MET-group rank name (shown as their role on the profile).
+    metRankName: metRankInfo ? metRankInfo.name : null,
+    metRank: metRankInfo ? metRankInfo.rank : null,
     roles: (metProfile && Array.isArray(metProfile.roles)) ? metProfile.roles : [],
     perms,
     flags,
@@ -695,8 +719,9 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
       id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
       caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt,
     })),
-    // Whether the MET bot has ever written a profile for this member yet.
-    botLinked: !!metProfile,
+    // Whether we can see this member in the MET server (profile row, live guild
+    // membership, resolved MET rank, or roles captured at login).
+    botLinked: linked,
     // Mobile app download link (advertised to desktop users). null = show the
     // promo as "coming soon" until MOBILE_APP_URL is set.
     mobileAppUrl: process.env.MOBILE_APP_URL || null,

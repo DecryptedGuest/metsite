@@ -55,7 +55,10 @@ async function loadProfile() {
   if (u.robloxUsername)  sub.push('Roblox: ' + u.robloxUsername);
   document.getElementById('p-sub').textContent = sub.join('  ·  ');
 
-  const roleLabel = { IA: 'Internal Affairs', HICOMM: 'IA High Command', SUPERVISOR: 'IA Supervisor', DEVELOPER: 'Developer' }[u.role] || u.role || '';
+  // The role chip shows the member's MET-group rank name; only if they have no
+  // MET rank do we fall back to the internal site role label.
+  const siteRoleLabel = { IA: 'Internal Affairs', HICOMM: 'IA High Command', SUPERVISOR: 'IA Supervisor', DEVELOPER: 'Developer' }[u.role] || u.role || '';
+  const roleLabel = data.metRankName || siteRoleLabel;
   document.getElementById('p-meta').innerHTML = roleLabel ? `<span class="met-chip">${escHtml(roleLabel)}</span>` : '';
 
   const avatarImg = document.getElementById('p-avatar');
