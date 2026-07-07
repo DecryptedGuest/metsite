@@ -198,13 +198,14 @@ function showAppPromo(url) {
   const el = document.getElementById('app-promo');
   if (!el) return;
   const link = document.getElementById('app-promo-link');
+  // Always give a way to get it: an external store URL if set, else the on-site
+  // "open on your phone" handoff page (/app). Rendered as a little arrow.
   if (url) { link.href = url; }
-  else {
-    link.textContent = 'Coming soon';
-    link.removeAttribute('href');
-    link.classList.add('btn-ghost'); link.classList.remove('btn-primary');
-    link.style.pointerEvents = 'none';
-  }
+  else { link.href = '/app'; link.removeAttribute('target'); }
+  link.classList.add('btn-primary'); link.classList.remove('btn-ghost');
+  link.style.pointerEvents = '';
+  link.setAttribute('aria-label', 'Get the mobile app');
+  link.innerHTML = '<i class="ti ti-arrow-right"></i>';
   el.style.display = 'flex';
 }
 function dismissAppPromo() {
