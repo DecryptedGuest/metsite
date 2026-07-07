@@ -13,11 +13,15 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     .sup-wrap { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
-    .sup-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
-    .sup-panel { display: flex; flex-direction: column; gap: .8rem; padding: 1.2rem; }
-    .sup-panel h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: .5rem; }
-    .sup-panel p { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6; flex: 1; }
-    .sup-panel .btn { align-self: flex-start; }
+    .sup-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.3rem; }
+    .sup-panel { display: flex; flex-direction: column; gap: 1rem; padding: 1.8rem; transition: border-color .15s ease, transform .15s ease; }
+    .sup-panel:hover { transform: translateY(-2px); border-color: var(--blue, #4a8fff); }
+    .sup-panel h3 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: .6rem; }
+    .sup-panel h3 i { font-size: 24px; }
+    .sup-panel p { margin: 0; font-size: 14.5px; color: var(--text-secondary); line-height: 1.65; flex: 1; }
+    /* Big, unmissable "open ticket" button — full-width, larger text (overrides btn-sm). */
+    .sup-panel .btn { align-self: stretch; justify-content: center; margin-top: .4rem; padding: .95rem 1.4rem; font-size: 15.5px; font-weight: 700; border-radius: 12px; }
+    .sup-panel .btn i { font-size: 18px; }
     .sup-restricted { opacity: .75; }
     .sup-locknote { font-size: 11px; color: var(--amber); display: flex; align-items: center; gap: 4px; }
     .sup-section-title { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 1.6rem 0 .7rem; color: var(--text-primary); }
