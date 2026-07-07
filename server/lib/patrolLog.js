@@ -231,32 +231,43 @@ async function reviewFromReactions(message) {
   } catch (e) { return null; }
 }
 
-// opts.status: 'APPROVED' writes the log straight in as approved (used by the
-// historical backfill — no review queue, no sheet point award), stamped as
-// imported. Default (live ingestion) creates it PENDING for review. A tick/cross
-// reaction already on the message overrides both (→ APPROVED / DENIED).
+// Status comes from the message's tick/cross reaction: ✅ → APPROVED, ❌ →
+// DENIED, none → PENDING. opts.reconcile updates an already-imported row's
+// status/date from the message (so re-running the backfill corrects statuses),
+// but never clobbers a manual site review.
+const IMPORT_REVIEWERS = new Set(['Imported', 'Reviewed in Discord', 'MET Bot']);
+
 async function createFromMessage(message, type = 'PATROL', opts = {}) {
   try {
-    const existing = await prisma.patrolLog.findUnique({ where: { messageId: String(message.id) } }).catch(() => null);
-    if (existing) return existing;
+    const messageId = String(message.id);
+    const existing = await prisma.patrolLog.findUnique({ where: { messageId } }).catch(() => null);
 
     const parsed  = parsePatrolLog(message.content || '');
-    const display = (message.member && message.member.displayName) || message.author.globalName || message.author.username;
-    // A tick/cross reaction already on the message decides the verdict; else the
-    // caller's opts.status (backfill = APPROVED); else PENDING for live review.
-    const verdict = await reviewFromReactions(message);
-    const status = (verdict && verdict.status) || (opts.status === 'APPROVED' ? 'APPROVED' : 'PENDING');
-    const reviewed = status === 'APPROVED' || status === 'DENIED';
-    const reviewedByName = verdict ? verdict.by : (status === 'APPROVED' ? (opts.reviewedByName || 'Imported') : null);
-    // The shift's date: an explicit date written in the log if present, else the
-    // date the message was sent (Discord createdAt). For a shift that crossed
-    // midnight this is the message-sent day (the shift started the night before).
+    const verdict = await reviewFromReactions(message);       // { status, by } | null
+    const status  = verdict ? verdict.status : 'PENDING';     // tick/cross/none
+    const reviewed = status !== 'PENDING';
+    // The shift's date: an explicit date in the log if present, else the message-
+    // sent date. For a shift past midnight this is the message-sent day.
     const logDate = parseLogDate(message.content || '') || message.createdAt || new Date();
 
+    if (existing) {
+      if (!opts.reconcile) return existing;
+      // Only reconcile import-created rows — never overwrite a real site review.
+      const humanReviewed = existing.reviewedByName && !IMPORT_REVIEWERS.has(existing.reviewedByName);
+      const data = { logDate, crossedMidnight: !!parsed.crossedMidnight };
+      if (!humanReviewed) {
+        data.status = status;
+        data.reviewedByName = reviewed ? verdict.by : null;
+        data.reviewedAt = reviewed ? (message.createdAt || new Date()) : null;
+      }
+      return await prisma.patrolLog.update({ where: { id: existing.id }, data }).catch(() => existing);
+    }
+
+    const display = (message.member && message.member.displayName) || message.author.globalName || message.author.username;
     return await prisma.patrolLog.create({
       data: {
         type:                 type === 'EVENT' ? 'EVENT' : 'PATROL',
-        messageId:            String(message.id),
+        messageId,
         channelId:            String(message.channelId),
         submitterDiscordId:   String(message.author.id),
         submitterUsername:    message.author.username || null,
@@ -270,7 +281,7 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
         images:               imageUrls(message),
         rawContent:           (message.content || '').slice(0, 4000),
         status:               status,
-        ...(reviewed ? { reviewedByName, reviewedAt: message.createdAt || new Date() } : {}),
+        ...(reviewed ? { reviewedByName: verdict.by, reviewedAt: message.createdAt || new Date() } : {}),
       },
     });
   } catch (err) {

@@ -660,7 +660,7 @@ async function onPatrolMessage(message) {
     if (PATROL_CHANNEL_ID && ch === String(PATROL_CHANNEL_ID)) type = 'PATROL';
     else if (EVENTLOGS_CHANNEL_ID && ch === String(EVENTLOGS_CHANNEL_ID)) type = 'EVENT';
     if (!type) return;
-    if (!looksLikeLog(message)) return; // skip misc chatter — only actual logs
+    if (!looksLikeLog(message, type)) return; // skip misc chatter — only actual logs
     const { createFromMessage } = require('./patrolLog');
     await createFromMessage(message, type);
   } catch (e) {
@@ -668,12 +668,17 @@ async function onPatrolMessage(message) {
   }
 }
 
-// The single "is this a patrol/event log (vs misc chatter)?" test, shared by
-// live ingestion and the historical backfill so both behave identically: a
-// non-bot message that mentions a shift OR carries an attachment (proof).
-function looksLikeLog(message) {
+// The "is this a log (vs misc chatter)?" test, shared by live ingestion and the
+// backfill. PATROL logs mention a shift or carry proof. EVENT logs vary a lot
+// (no reliable keyword), so any non-bot message with real content or an
+// attachment in the event channel counts — that's why event logs were being
+// dropped before.
+function looksLikeLog(message, type) {
   if (message.author && message.author.bot) return false;
-  return /shift/i.test(message.content || '') || (message.attachments && message.attachments.size > 0);
+  const hasAttach = message.attachments && message.attachments.size > 0;
+  const content = (message.content || '').trim();
+  if (type === 'EVENT') return hasAttach || content.length > 0;
+  return /shift/i.test(content) || hasAttach;
 }
 
 // Backfill: walk a log channel's ENTIRE history (oldest included) and ingest
@@ -692,18 +697,27 @@ async function backfillLogChannel(channelId, type, opts = {}) {
 
   let before = null, scanned = 0, imported = 0, skipped = 0, pages = 0;
   while (scanned < max) {
-    let batch;
-    try { batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }); }
-    catch (e) { console.warn('[Backfill] fetch failed:', e.message); break; }
-    if (!batch || batch.size === 0) break;
+    // Fetch a page, retrying transient errors so one blip doesn't end the run.
+    let batch = null;
+    for (let attempt = 0; attempt < 3 && !batch; attempt++) {
+      try { batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }); }
+      catch (e) { console.warn(`[Backfill] fetch retry ${attempt + 1}:`, e.message); await new Promise(r => setTimeout(r, 800 * (attempt + 1))); }
+    }
+    if (!batch) { console.warn('[Backfill] giving up after fetch errors at', before); break; }
+    if (batch.size === 0) break;
+
+    // Page strictly backward by the OLDEST (smallest snowflake) id in the batch,
+    // regardless of the collection's iteration order.
+    let oldest = null;
     for (const msg of batch.values()) {
       scanned++;
-      before = msg.id; // page further back through history
-      if (!looksLikeLog(msg)) { skipped++; continue; }
-      // Historical logs go straight in as APPROVED (no review queue, no points).
-      try { const row = await createFromMessage(msg, type, { status: 'APPROVED' }); if (row) imported++; else skipped++; }
+      if (oldest === null || BigInt(msg.id) < BigInt(oldest)) oldest = msg.id;
+      if (!looksLikeLog(msg, type)) { skipped++; continue; }
+      // Reconcile so a re-run also corrects the status/date of earlier imports.
+      try { const row = await createFromMessage(msg, type, { reconcile: true }); if (row) imported++; else skipped++; }
       catch (e) { skipped++; }
     }
+    before = oldest;
     pages++;
     if (batch.size < 100) break; // reached the start of the channel
     await new Promise(r => setTimeout(r, 350)); // gentle pacing

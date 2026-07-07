@@ -42,7 +42,13 @@ router.get('/patrols', async (req, res) => {
     const where  = { type };
     // A specific status filters; "ALL" (or anything else) returns every status.
     if (['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status)) where.status = req.query.status;
-    const rows = await prisma.patrolLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+    // Order by the shift's own date (newest first), not the import time — so a
+    // bulk import shows in real chronological order. Falls back to createdAt.
+    const rows = await prisma.patrolLog.findMany({
+      where,
+      orderBy: [{ logDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: 2000,
+    });
     res.json(rows.map(patrolLib.serialize));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load logs' });
