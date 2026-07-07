@@ -325,10 +325,19 @@ router.get('/discord/callback', async (req, res) => {
   }
 });
 
-// Shared session creation used by BOTH the Discord and Roblox sign-in flows:
-// makes the server-side session + JWT cookie, does new-device detection + IP
-// classification, audits the login, and redirects to the dashboard.
+// establishSession = createSession + redirect (used by the Discord/Roblox
+// callbacks, which are full-page navigations). createSession sets the session
+// cookie and does new-device/IP/audit WITHOUT redirecting, so XHR flows (the
+// "try another way" options) can set the cookie then return JSON. createSession
+// THROWS on session-create failure so each caller handles it its own way.
 async function establishSession(req, res, user) {
+  try { await createSession(req, res, user); }
+  catch (e) { return serverErr(res, e); }
+  console.log('[Auth] Login complete, redirecting to dashboard');
+  res.redirect('/dashboard');
+}
+
+async function createSession(req, res, user) {
   const { getClientIp } = require('../middleware/visit');
   const ip = getClientIp(req);
   const ua = (req.headers['user-agent'] || '').slice(0, 400);
@@ -350,7 +359,7 @@ async function establishSession(req, res, user) {
     session = await prisma.session.create({ data: { userId: user.id, ip, userAgent: ua, device, expiresAt } });
   } catch (e) {
     console.error('[Auth] session create failed:', e.message);
-    return serverErr(res, e);
+    throw e;
   }
 
   if (ip) {
@@ -376,9 +385,7 @@ async function establishSession(req, res, user) {
     } catch (e) { /* push optional */ }
   }
   try { await require('../lib/audit').record({ req, action: 'LOGIN', category: 'auth', targetType: 'session', targetId: session.id, summary: `Signed in from ${device}`, ip }); } catch (e) {}
-
-  console.log('[Auth] Login complete, redirecting to dashboard');
-  res.redirect('/dashboard');
+  return session;
 }
 
 // ── POST /auth/logout ─────────────────────────────────────────────
@@ -553,5 +560,10 @@ router.get('/roblox/callback', async (req, res) => {
 // Exposed so the debug endpoint can show the EXACT redirect_uri the app sends
 // to Discord (must be registered verbatim in the Discord Developer Portal).
 router.buildRedirectUri = buildRedirectUri;
+// Shared with the alternative sign-in router (routes/authAlt.js) so those flows
+// end in the same session-creation path as Discord/Roblox. createSession sets
+// the cookie without redirecting (for XHR flows); it throws on failure.
+router.establishSession = establishSession;
+router.createSession = createSession;
 
 module.exports = router;

@@ -226,6 +226,9 @@ const tryoutWriteLimiter = rateLimit({
 // ── Routes ───────────────────────────────────────────────────────
 // Shared across the whole portal.
 app.use('/auth',        authRoutes);
+// "Try another way" passwordless sign-in (Discord DM code, QR approval,
+// passkey). Logged-out; POSTs are CSRF-protected (the login page holds a token).
+app.use('/api/login',   require('./routes/authAlt'));
 
 // IA — unchanged route logic, gated to users with IA division access.
 const ia = requireDivision('IA');
@@ -922,6 +925,11 @@ app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path
 
 // Leave of Absence — any signed-in member requests; reviewers see a queue.
 app.get('/loa', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'loa.html')));
+
+// QR sign-in approval — opened by scanning a QR from a logged-out browser; the
+// (already logged-in) device approves the browser's sign-in. requireAuth so
+// only a signed-in device can approve.
+app.get('/link/approve', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'link-approve.html')));
 
 // Final Examination — any signed-in officer; the page itself gates on
 // eligibility (the HPC final-exam Discord role) via /api/exam/my.

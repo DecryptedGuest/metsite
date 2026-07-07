@@ -777,6 +777,26 @@ model AuditLog {
   @@map("audit_log")
 }
 
+// ── Alternative sign-in challenges ("try another way") ───────────────
+// Backs the passwordless login options: a 6-digit code DM'd via the bot, and a
+// QR approved from a logged-in device. Short-lived + single-use.
+model LoginChallenge {
+  id        String   @id @default(uuid())
+  method    String   // CODE | QR
+  code      String?  // 6-digit code (CODE method)
+  discordId String?  // DM target (CODE method)
+  userId    String?  // resolved account (CODE: at request; QR: at approval)
+  status    String   @default("PENDING") // PENDING | APPROVED | CONSUMED
+  attempts  Int      @default(0)
+  ip        String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([status])
+  @@index([expiresAt])
+  @@map("login_challenges")
+}
+
 // ── In-game log ingest (training/tryout game) ────────────────────────
 // Adonis admin logs, join/leave and chat logs POSTed from the Roblox training
 // game (see /api/game/log). Append-only; viewable by MET HICOMM on the site.

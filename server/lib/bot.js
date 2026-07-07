@@ -825,6 +825,24 @@ async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   }
 }
 
+// DM a one-time 6-digit sign-in code to a user. Returns true if delivered.
+// Used by the "get a code in Discord" login option. Best-effort.
+async function dmLoginCode(discordId, code) {
+  if (!ready || !discordId || !code) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle('Your MET sign-in code')
+      .setDescription(`Enter this code on the sign-in page to log in:\n\n## \`${code}\`\n\nIt expires in 10 minutes and can only be used once. If you didn't request this, ignore this message — nobody can sign in without it.`);
+    await user.send({ embeds: [embed] });
+    return true;
+  } catch (e) {
+    console.warn('[Auth] dmLoginCode failed:', e.message);
+    return false;
+  }
+}
+
 // DM the host that their tryout was auto-cancelled for inactivity (they left the
 // server and didn't return within the absence window). Best-effort.
 async function dmTryoutAutoCancelled(tryout, minutes) {
@@ -1260,7 +1278,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
-  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink,
+  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmLoginCode,
   reactToMessage, postChannelMessage, editChannelMessage,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   isReady: () => ready,
