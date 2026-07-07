@@ -660,12 +660,63 @@ async function onPatrolMessage(message) {
     if (PATROL_CHANNEL_ID && ch === String(PATROL_CHANNEL_ID)) type = 'PATROL';
     else if (EVENTLOGS_CHANNEL_ID && ch === String(EVENTLOGS_CHANNEL_ID)) type = 'EVENT';
     if (!type) return;
-    if (!/shift/i.test(message.content || '') && message.attachments.size === 0) return; // not a log
+    if (!looksLikeLog(message)) return; // skip misc chatter — only actual logs
     const { createFromMessage } = require('./patrolLog');
     await createFromMessage(message, type);
   } catch (e) {
     console.error('[Log] messageCreate error:', e.message);
   }
+}
+
+// The single "is this a patrol/event log (vs misc chatter)?" test, shared by
+// live ingestion and the historical backfill so both behave identically: a
+// non-bot message that mentions a shift OR carries an attachment (proof).
+function looksLikeLog(message) {
+  if (message.author && message.author.bot) return false;
+  return /shift/i.test(message.content || '') || (message.attachments && message.attachments.size > 0);
+}
+
+// Backfill: walk a log channel's ENTIRE history (oldest included) and ingest
+// every patrol/event log through the same createFromMessage path. Idempotent
+// (createFromMessage keys on messageId), so it's safe to run repeatedly and
+// picks up only what's missing. Best-effort + paced to respect rate limits.
+async function backfillLogChannel(channelId, type, opts = {}) {
+  if (!ready) return { ok: false, reason: 'bot not ready' };
+  if (!channelId) return { ok: false, reason: 'channel not configured' };
+  const max = opts.max || 1000000;
+  const { createFromMessage } = require('./patrolLog');
+  let channel;
+  try { channel = await client.channels.fetch(String(channelId)); }
+  catch (e) { return { ok: false, reason: 'channel fetch failed: ' + e.message }; }
+  if (!channel || typeof channel.messages?.fetch !== 'function') return { ok: false, reason: 'not a text channel' };
+
+  let before = null, scanned = 0, imported = 0, skipped = 0, pages = 0;
+  while (scanned < max) {
+    let batch;
+    try { batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }); }
+    catch (e) { console.warn('[Backfill] fetch failed:', e.message); break; }
+    if (!batch || batch.size === 0) break;
+    for (const msg of batch.values()) {
+      scanned++;
+      before = msg.id; // page further back through history
+      if (!looksLikeLog(msg)) { skipped++; continue; }
+      try { const row = await createFromMessage(msg, type); if (row) imported++; else skipped++; }
+      catch (e) { skipped++; }
+    }
+    pages++;
+    if (batch.size < 100) break; // reached the start of the channel
+    await new Promise(r => setTimeout(r, 350)); // gentle pacing
+  }
+  console.log(`[Backfill] ${type} ${channelId}: scanned ${scanned}, imported ${imported}, skipped ${skipped} (${pages} pages)`);
+  return { ok: true, type, scanned, imported, skipped, pages };
+}
+
+// Backfill both configured log channels (patrol + event).
+async function backfillPatrolLogs(opts = {}) {
+  const out = {};
+  if (PATROL_CHANNEL_ID)    out.patrol = await backfillLogChannel(PATROL_CHANNEL_ID, 'PATROL', opts);
+  if (EVENTLOGS_CHANNEL_ID) out.event  = await backfillLogChannel(EVENTLOGS_CHANNEL_ID, 'EVENT', opts);
+  return out;
 }
 
 // Post a message (content and/or embeds) to a channel by id. Returns the message
@@ -1281,5 +1332,6 @@ module.exports = {
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmLoginCode,
   reactToMessage, postChannelMessage, editChannelMessage,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
+  backfillLogChannel, backfillPatrolLogs,
   isReady: () => ready,
 };

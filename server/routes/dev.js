@@ -15,6 +15,36 @@ router.use((req, res, next) => {
   next();
 });
 
+// POST /api/dev/patrol-backfill — import EVERY historical patrol/event log from
+// the configured channels (even very old ones), reusing the live ingest logic
+// and skipping misc chatter. Idempotent. Runs in the background (large channels
+// take a while); watch the logs / the review queue fills as it goes. ?wait=1
+// awaits and returns the counts (only for smaller channels).
+let _backfillRunning = false;
+router.post('/patrol-backfill', async (req, res) => {
+  const bot = require('../lib/bot');
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  if (_backfillRunning) return res.status(409).json({ error: 'A backfill is already running.' });
+
+  const run = async () => {
+    _backfillRunning = true;
+    try {
+      const result = await bot.backfillPatrolLogs();
+      const sum = Object.values(result).map(r => `${r.type}: +${r.imported}/${r.scanned}`).join(', ') || 'nothing (no channels configured)';
+      audit.log(req.user, { category: 'DEV', action: 'PATROL_BACKFILL', summary: `Backfilled patrol/event logs — ${sum}` });
+      console.log('[Backfill] complete:', JSON.stringify(result));
+      return result;
+    } finally { _backfillRunning = false; }
+  };
+
+  if (req.query.wait) {
+    try { return res.json({ ok: true, result: await run() }); }
+    catch (e) { return res.status(500).json({ error: 'Backfill failed: ' + e.message }); }
+  }
+  run().catch(e => console.error('[Backfill] failed:', e.message));
+  res.json({ ok: true, started: true, message: 'Backfill started — logs will import in the background. Refresh the review queue to watch them appear.' });
+});
+
 // POST /api/dev/ia-sync — pull cases + tickets from the live IA database
 // (IA_DATABASE_URL) into the MET database. Idempotent; safe to run repeatedly.
 router.post('/ia-sync', async (req, res) => {
