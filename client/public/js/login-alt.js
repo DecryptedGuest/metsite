@@ -25,7 +25,12 @@
   let qrTimer = null;
   function stopQr() { if (qrTimer) { clearInterval(qrTimer); qrTimer = null; } }
 
-  function show(html) { stopQr(); panel.innerHTML = html; panel.style.display = ''; }
+  // In-flight passkey ceremony. Aborting it lets the user leave/retry without the
+  // browser throwing "a request is already pending" on the next attempt.
+  let pkCtrl = null;
+  function pkAbort() { if (pkCtrl) { try { pkCtrl.abort(); } catch (e) {} pkCtrl = null; } }
+
+  function show(html) { stopQr(); pkAbort(); panel.innerHTML = html; panel.style.display = ''; }
   const backBtn = `<button class="alt-back" data-nav="menu"><i class="ti ti-arrow-left"></i> Back</button>`;
 
   function menu() {
@@ -102,41 +107,66 @@
   }
 
   // ── 3. Passkey ──
-  async function passkey() {
+  function pkStatus(msg, isErr) {
+    const st = document.getElementById('alt-pk-status');
+    if (st) { st.textContent = msg; st.style.color = isErr ? 'var(--red,#e0503a)' : ''; }
+  }
+  function passkey() {
+    pkAbort(); // cancel any ceremony left pending from a previous visit to this view
     if (!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.get)) {
       show(`${backBtn}<div class="alt-title"><i class="ti ti-fingerprint"></i> Passkey</div><p class="alt-desc">This device or browser doesn't support passkeys. Try another method.</p>`);
       return;
     }
-    show(`${backBtn}<div class="alt-title"><i class="ti ti-fingerprint"></i> Use a passkey</div><p class="alt-desc" id="alt-pk-status">Follow your device's prompt to choose a saved passkey…</p>`);
-    try {
-      const options = await api('/api/login/passkey/options', { method: 'POST' });
-      options.challenge = b64urlToBuf(options.challenge);
-      if (Array.isArray(options.allowCredentials) && options.allowCredentials.length) {
-        options.allowCredentials = options.allowCredentials.map(c => ({ ...c, id: b64urlToBuf(c.id) }));
-      } else {
-        delete options.allowCredentials; // discoverable: let the browser offer any saved passkey
+    show(`${backBtn}<div class="alt-title"><i class="ti ti-fingerprint"></i> Use a passkey</div>
+      <p class="alt-desc" id="alt-pk-status">Follow your device's prompt to choose a saved passkey…</p>
+      <button class="btn btn-primary btn-discord-full" id="alt-pk-go" style="margin-top:6px;"><i class="ti ti-fingerprint"></i> Use passkey</button>`);
+    const goBtn = document.getElementById('alt-pk-go');
+    goBtn.addEventListener('click', attempt);
+    attempt(); // auto-start; the button re-runs it after a cancel/failure
+
+    async function attempt() {
+      pkAbort();
+      const ctrl = new AbortController();
+      pkCtrl = ctrl;
+      goBtn.disabled = true; goBtn.innerHTML = '<i class="ti ti-loader-2"></i> Waiting for your device…';
+      pkStatus("Follow your device's prompt to choose a saved passkey…", false);
+      try {
+        const options = await api('/api/login/passkey/options', { method: 'POST' });
+        options.challenge = b64urlToBuf(options.challenge);
+        if (Array.isArray(options.allowCredentials) && options.allowCredentials.length) {
+          options.allowCredentials = options.allowCredentials.map(c => ({ ...c, id: b64urlToBuf(c.id) }));
+        } else {
+          delete options.allowCredentials; // discoverable: let the browser offer any saved passkey
+        }
+        const cred = await navigator.credentials.get({ publicKey: options, signal: ctrl.signal });
+        if (ctrl.signal.aborted) return; // user navigated away mid-ceremony
+        const response = {
+          id: cred.id, rawId: bufToB64url(cred.rawId), type: cred.type,
+          response: {
+            authenticatorData: bufToB64url(cred.response.authenticatorData),
+            clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+            signature: bufToB64url(cred.response.signature),
+            userHandle: cred.response.userHandle ? bufToB64url(cred.response.userHandle) : null,
+          },
+          clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+        };
+        pkStatus('Passkey accepted — signing you in…', false);
+        await api('/api/login/passkey/verify', { method: 'POST', body: JSON.stringify({ response }) });
+        pkCtrl = null;
+        location.replace('/dashboard');
+      } catch (e) {
+        pkCtrl = null;
+        // A deliberate abort (navigating away / retrying) isn't an error to show.
+        if (e && e.name === 'AbortError') return;
+        let msg;
+        if (e && e.name === 'NotAllowedError') msg = 'No passkey was used — the prompt was dismissed or timed out. Tap "Use passkey" to try again. If you saved your passkey on a different site address, re-add one here.';
+        else if (e && e.name === 'SecurityError') msg = "This site's address doesn't match the passkey. Make sure you're on the main domain and try again.";
+        else if (e && e.name === 'InvalidStateError') msg = 'That passkey isn\'t registered to an account here. Sign in another way, then add a passkey from your profile.';
+        else msg = e.message || 'Passkey sign-in failed.';
+        pkStatus(msg, true);
+        toast(msg, 'error');
+        if (goBtn) { goBtn.disabled = false; goBtn.innerHTML = '<i class="ti ti-refresh"></i> Try again'; }
       }
-      const cred = await navigator.credentials.get({ publicKey: options });
-      const response = {
-        id: cred.id, rawId: bufToB64url(cred.rawId), type: cred.type,
-        response: {
-          authenticatorData: bufToB64url(cred.response.authenticatorData),
-          clientDataJSON: bufToB64url(cred.response.clientDataJSON),
-          signature: bufToB64url(cred.response.signature),
-          userHandle: cred.response.userHandle ? bufToB64url(cred.response.userHandle) : null,
-        },
-        clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
-      };
-      await api('/api/login/passkey/verify', { method: 'POST', body: JSON.stringify({ response }) });
-      location.replace('/dashboard');
-    } catch (e) {
-      const st = document.getElementById('alt-pk-status');
-      let msg;
-      if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) msg = 'No passkey was used. If you saved a passkey on a different site address, re-add one here — passkeys only work on the exact domain they were created on.';
-      else if (e && e.name === 'SecurityError') msg = "This site's address doesn't match the passkey. Make sure you're on the main domain and try again.";
-      else msg = e.message || 'Passkey sign-in failed.';
-      if (st) { st.textContent = msg; st.style.color = 'var(--red,#e0503a)'; }
-      toast(msg, 'error');
     }
   }
 
@@ -144,6 +174,6 @@
   panel.addEventListener('click', (e) => { const b = e.target.closest('[data-nav]'); if (b) { e.preventDefault(); (NAV[b.dataset.nav] || menu)(); } });
   trigger.addEventListener('click', () => {
     if (panel.style.display === 'none') { menu(); trigger.textContent = 'Hide other ways'; }
-    else { stopQr(); panel.style.display = 'none'; trigger.textContent = 'Try another way'; }
+    else { stopQr(); pkAbort(); panel.style.display = 'none'; trigger.textContent = 'Try another way'; }
   });
 })();
