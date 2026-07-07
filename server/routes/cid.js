@@ -170,7 +170,7 @@ router.post('/tryouts/:id/complete', async (req, res) => {
 
 // ── Tryout logs (conclude → host reviews/posts → Director's Office approves) ──
 const tryoutLogsLib = require('../lib/tryoutLogs');
-const { sendTryoutLog } = require('../lib/webhook');
+const { sendTryoutLog, editTryoutLog } = require('../lib/webhook');
 
 // GET /api/cid/tryout-logs/context — what the UI should show for this user.
 router.get('/tryout-logs/context', async (req, res) => {
@@ -259,7 +259,7 @@ router.post('/tryout-logs/:id/approve', requireCidLead, async (req, res) => {
         reviewedAt: new Date(),
       },
     });
-    await sendTryoutLog(updated, { event: 'approved' }).catch(() => null);
+    await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
     res.json({ success: true, status: 'APPROVED', pointAwarded: awarded });
   } catch (err) {
     console.error('[CID] approve tryout log failed:', err.message);
@@ -283,7 +283,7 @@ router.post('/tryout-logs/:id/deny', requireCidLead, async (req, res) => {
         reviewedAt: new Date(),
       },
     });
-    await sendTryoutLog(updated, { event: 'denied' }).catch(() => null);
+    await editTryoutLog(updated, { event: 'denied' }).catch(() => null);
     res.json({ success: true, status: 'DENIED' });
   } catch (err) {
     console.error('[CID] deny tryout log failed:', err.message);

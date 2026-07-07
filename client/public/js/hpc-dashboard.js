@@ -644,7 +644,10 @@ async function reviewTryoutLog(id, action) {
   if (action === 'deny' && !note.trim()) return showToast('Add a reason to deny.', 'warning');
   try {
     const r = await api(`/api/hpc/tryout-logs/${id}/${action}`, { method: 'POST', body: JSON.stringify({ note }) });
-    showToast(action === 'approve' ? `Approved${r.pointAwarded ? ' · +1 point awarded' : ' (point award skipped — check HPC sheet config)'}` : 'Tryout log denied.', 'success');
+    if (action === 'approve') {
+      if (r.pointAwarded) showToast('Approved · +1 point awarded', 'success');
+      else showToast('Approved — point NOT awarded: ' + (r.pointDetail || 'check the HPC sheet config.'), r.pointReason === 'host_not_on_sheet' ? 'warning' : 'error');
+    } else showToast('Tryout log denied.', 'success');
     closeModal('modal-tryout-log');
     loadReviewLogs(); loadReviewBadge();
   } catch (err) { showToast(err.message, 'error'); }

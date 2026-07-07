@@ -247,14 +247,17 @@ function serialize(log, { full = false } = {}) {
 // Writes +1 to the host's current-day cell on the HPC database sheet, reusing
 // the quota sheet helpers. Best-effort: returns false (no throw) if Google
 // Sheets isn't configured or the host row can't be found.
+// Returns { ok, reason, detail } so the approver is told exactly why a point was
+// skipped (sheet not configured vs. host not on the sheet vs. date column, etc.).
 async function awardHpcPoint(log) {
+  const who = log.hostRobloxName || log.hostName || 'the host';
   try {
     const q = require('./quota');
     const sheets = q.getSheetsClient();
-    if (!sheets) return false; // sheets not configured — silent no-op
+    if (!sheets) return { ok: false, reason: 'sheets_not_configured', detail: 'Google Sheets credentials are not configured on the server.' };
 
     const spreadsheetId = process.env.HPC_SHEET_ID;
-    if (!spreadsheetId) { console.warn('[tryoutLog] HPC_SHEET_ID not set — skipping point award.'); return false; }
+    if (!spreadsheetId) { console.warn('[tryoutLog] HPC_SHEET_ID not set — skipping point award.'); return { ok: false, reason: 'no_sheet_id', detail: 'HPC_SHEET_ID is not set.' }; }
     const tz = process.env.QUOTA_TIMEZONE || 'Europe/London';
 
     let sheetName = process.env.HPC_SHEET_NAME;
@@ -271,13 +274,13 @@ async function awardHpcPoint(log) {
 
     const candidates = [log.hostRobloxName, log.hostName].filter(Boolean);
     const rowIdx = q.findMemberRow(rows, cols, log.hostDiscordId, candidates);
-    if (rowIdx < 0) { console.warn(`[tryoutLog] no HPC row for host ${log.hostRobloxName || log.hostName}`); return false; }
+    if (rowIdx < 0) { console.warn(`[tryoutLog] no HPC row for host ${who}`); return { ok: false, reason: 'host_not_on_sheet', detail: `"${who}" was not found on the "${sheetName}" tab. Add their row (or check the username matches).` }; }
 
     const dayCol = cols.days[q.currentDayIndex(tz)];
-    if (dayCol == null) { console.warn('[tryoutLog] HPC day column not found for today'); return false; }
+    if (dayCol == null) { console.warn('[tryoutLog] HPC day column not found for today'); return { ok: false, reason: 'no_day_column', detail: 'Today\'s date column was not found on the sheet — check the header row / date format.' }; }
 
     const cellRaw = (rows[rowIdx][dayCol] || '').toString().trim();
-    if (cellRaw && isNaN(parseFloat(cellRaw))) return false; // non-numeric (e.g. QE) — leave it
+    if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: 'cell_locked', detail: `Today's cell already holds a non-numeric value ("${cellRaw}") — left untouched.` };
     const newVal = (cellRaw ? parseFloat(cellRaw) : 0) + 1;
 
     await sheets.spreadsheets.values.update({
@@ -286,11 +289,11 @@ async function awardHpcPoint(log) {
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[newVal]] },
     });
-    console.log(`[tryoutLog] +1 HPC point → ${log.hostRobloxName || log.hostName} (now ${newVal})`);
-    return true;
+    console.log(`[tryoutLog] +1 HPC point → ${who} (now ${newVal})`);
+    return { ok: true, reason: null, detail: `+1 point written to ${who} (now ${newVal}).` };
   } catch (err) {
     console.error('[tryoutLog] awardHpcPoint failed:', err.message);
-    return false;
+    return { ok: false, reason: 'error', detail: `Sheet error: ${err.message}` };
   }
 }
 

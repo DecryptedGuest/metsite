@@ -228,22 +228,21 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
   return null;
 }
 
-// Post a submitted tryout log to the HPC tryout-logs channel for HICOMM review.
-// Returns the message id, or null if no webhook is configured / it fails.
-async function sendTryoutLog(log, { event = 'submitted' } = {}) {
-  // Route by division: CID logs to CID_TRYOUT_LOG_WEBHOOK, HPC to
-  // HPC_TRYOUT_LOG_WEBHOOK (CID falls back to the HPC webhook if unset).
+// Route + embed for a tryout log. CID → CID_TRYOUT_LOG_*, HPC/SCO19 → HPC_*.
+function tryoutLogRoute(log) {
   const isCid = String(log.division || '').toUpperCase() === 'CID';
-  const url = (isCid && process.env.CID_TRYOUT_LOG_WEBHOOK) || process.env.HPC_TRYOUT_LOG_WEBHOOK;
-  const chId = (isCid && process.env.CID_TRYOUT_LOG_CHANNEL_ID) || process.env.HPC_TRYOUT_LOG_CHANNEL_ID;
-  if (!url && !chId) { console.warn('No tryout-log webhook or channel configured — skipping tryout log post.'); return null; }
+  return {
+    isCid,
+    url:  (isCid && process.env.CID_TRYOUT_LOG_WEBHOOK) || process.env.HPC_TRYOUT_LOG_WEBHOOK || null,
+    chId: (isCid && process.env.CID_TRYOUT_LOG_CHANNEL_ID) || process.env.HPC_TRYOUT_LOG_CHANNEL_ID || null,
+  };
+}
+function buildTryoutLogEmbed(log, event) {
+  const isCid = String(log.division || '').toUpperCase() === 'CID';
   const footerText = isCid ? 'Criminal Investigation Department · Tryout Log' : 'Hendon Police College · Tryout Log';
-
   const colorFor = { submitted: 0xf5b730, approved: 0x2ed896, denied: 0xf04f5e };
   const titleFor = { submitted: 'Tryout Log — Pending Review', approved: 'Tryout Log — Approved', denied: 'Tryout Log — Denied' };
 
-  // Build the CID / HPC log body in the exact requested format from the
-  // per-attendee results (roblox usernames).
   const A       = Array.isArray(log.attendees) ? log.attendees : [];
   const names   = A.map(a => a && a.username).filter(Boolean);
   const passed  = A.filter(a => a && a.result === 'PASS').map(a => a.username).filter(Boolean);
@@ -253,20 +252,9 @@ async function sendTryoutLog(log, { event = 'submitted' } = {}) {
   const proof    = log.proof ? String(log.proof).slice(0, 500) : '';
 
   const lines = isCid
-    ? [
-        `**Host:** ${hostName}`,
-        `**Co-Host:** ${coHost}`,
-        `**Attendees:** ${names.join(' - ') || 'N/A'}`,
-        `**Failed:** ${failed.join(', ') || 'None'}`,
-        `**Passed:** ${passed.join(', ') || 'None'}`,
-        `**Proof:** ${proof}`,
-      ]
-    : [
-        `**User:** ${hostName}`,
-        `**Co-Host:** ${coHost}`,
-        `**Tryout Passer:** ${passed.join(', ') || 'None'}`,
-        `**Proof:** ${proof}`,
-      ];
+    ? [`**Host:** ${hostName}`, `**Co-Host:** ${coHost}`, `**Attendees:** ${names.join(' - ') || 'N/A'}`,
+       `**Failed:** ${failed.join(', ') || 'None'}`, `**Passed:** ${passed.join(', ') || 'None'}`, `**Proof:** ${proof}`]
+    : [`**User:** ${hostName}`, `**Co-Host:** ${coHost}`, `**Tryout Passer:** ${passed.join(', ') || 'None'}`, `**Proof:** ${proof}`];
   if ((event === 'approved' || event === 'denied') && log.reviewNote) {
     lines.push('', `**${event === 'approved' ? 'Note' : 'Reason'}:** ${String(log.reviewNote).slice(0, 1000)}`);
   }
@@ -278,10 +266,16 @@ async function sendTryoutLog(log, { event = 'submitted' } = {}) {
     footer:    { text: footerText },
     timestamp: new Date().toISOString(),
   };
-  // If the proof is an image/link, surface it as the embed image too.
   if (/^https?:\/\/\S+\.(png|jpe?g|gif|webp)(\?\S*)?$/i.test(proof)) embed.image = { url: proof };
+  return embed;
+}
 
-  // Primary: webhook. Fallback: post via the bot to the log channel id.
+// Post a tryout log for review. Returns the message id, or null.
+async function sendTryoutLog(log, { event = 'submitted' } = {}) {
+  const { url, chId } = tryoutLogRoute(log);
+  if (!url && !chId) { console.warn('No tryout-log webhook or channel configured — skipping tryout log post.'); return null; }
+  const embed = buildTryoutLogEmbed(log, event);
+
   if (url) {
     try {
       const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
@@ -303,4 +297,35 @@ async function sendTryoutLog(log, { event = 'submitted' } = {}) {
   return null;
 }
 
-module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog };
+// EDIT the existing posted tryout log in place (used on approve/deny so the
+// pending message updates rather than a second message being posted). Falls back
+// to posting a fresh message if there's nothing to edit or the edit fails.
+async function editTryoutLog(log, { event = 'submitted' } = {}) {
+  if (!log.logMessageId) return sendTryoutLog(log, { event });
+  const { url, chId } = tryoutLogRoute(log);
+  const embed = buildTryoutLogEmbed(log, event);
+
+  if (url) {
+    const base = url.split('?')[0].replace(/\/+$/, '');
+    try {
+      const res = await fetch(`${base}/messages/${log.logMessageId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [embed] }),
+      });
+      if (res.ok) return log.logMessageId;
+      console.error(`Tryout log webhook edit failed [${res.status}]:`, await res.text().catch(() => ''));
+    } catch (err) { console.error('Tryout log webhook edit error:', err.message); }
+  }
+  if (chId) {
+    try {
+      const bot = require('./bot');
+      if (typeof bot.editChannelMessage === 'function') {
+        const ok = await bot.editChannelMessage(chId, log.logMessageId, { embeds: [embed] });
+        if (ok) return log.logMessageId;
+      }
+    } catch (e) { console.error('Tryout log channel edit error:', e.message); }
+  }
+  // Couldn't edit → post a fresh one so the outcome is still visible.
+  return sendTryoutLog(log, { event });
+}
+
+module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog };

@@ -169,7 +169,7 @@ router.post('/tryouts/:id/complete', async (req, res) => {
 
 // ── Tryout logs (conclude → host reviews/posts → Command approves) ──
 const tryoutLogsLib = require('../lib/tryoutLogs');
-const { sendTryoutLog } = require('../lib/webhook');
+const { sendTryoutLog, editTryoutLog } = require('../lib/webhook');
 
 // GET /api/sco19/tryout-logs/context — what the UI should show for this user.
 router.get('/tryout-logs/context', (req, res) => {
@@ -251,7 +251,7 @@ router.post('/tryout-logs/:id/approve', requireLead, async (req, res) => {
         reviewedAt: new Date(),
       },
     });
-    await sendTryoutLog(updated, { event: 'approved' }).catch(() => null);
+    await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
     res.json({ success: true, status: 'APPROVED' });
   } catch (err) {
     console.error('[SCO19] approve tryout log failed:', err.message);
@@ -275,7 +275,7 @@ router.post('/tryout-logs/:id/deny', requireLead, async (req, res) => {
         reviewedAt: new Date(),
       },
     });
-    await sendTryoutLog(updated, { event: 'denied' }).catch(() => null);
+    await editTryoutLog(updated, { event: 'denied' }).catch(() => null);
     res.json({ success: true, status: 'DENIED' });
   } catch (err) {
     console.error('[SCO19] deny tryout log failed:', err.message);

@@ -376,7 +376,7 @@ router.post('/tryouts/:id/complete', async (req, res) => {
 // Host reviews + posts the log the in-game panel created; HPC HICOMM (quota
 // tier / site HICOMM / developer) approve or deny; approval awards +1 point.
 const tryoutLogsLib = require('../lib/tryoutLogs');
-const { sendTryoutLog } = require('../lib/webhook');
+const { sendTryoutLog, editTryoutLog } = require('../lib/webhook');
 
 // Who can approve/deny tryout logs: Assistant Director+ (HPC quota tier), or a
 // site HICOMM / developer.
@@ -467,21 +467,21 @@ router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) 
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
 
     // Award the host their +1 HPC point (best-effort; never blocks approval).
-    const awarded = await tryoutLogsLib.awardHpcPoint(log).catch(() => false);
+    const award = await tryoutLogsLib.awardHpcPoint(log).catch(() => ({ ok: false, reason: 'error', detail: 'Unexpected error.' }));
     // Optionally sync each attendee's pass/fail to the recruits sheet.
     tryoutLogsLib.syncAttendanceToSheet(log).catch(() => {});
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },
       data: {
-        status: 'APPROVED', pointAwarded: awarded,
+        status: 'APPROVED', pointAwarded: award.ok,
         reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
         reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
         reviewedAt: new Date(),
       },
     });
-    await sendTryoutLog(updated, { event: 'approved' }).catch(() => null);
-    res.json({ success: true, status: 'APPROVED', pointAwarded: awarded });
+    await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
+    res.json({ success: true, status: 'APPROVED', pointAwarded: award.ok, pointReason: award.reason, pointDetail: award.detail });
   } catch (err) {
     console.error('[HPC] approve tryout log failed:', err.message);
     res.status(500).json({ error: 'Failed to approve the tryout log' });
@@ -504,7 +504,7 @@ router.post('/tryout-logs/:id/deny', requireTryoutApprover, async (req, res) => 
         reviewedAt: new Date(),
       },
     });
-    await sendTryoutLog(updated, { event: 'denied' }).catch(() => null);
+    await editTryoutLog(updated, { event: 'denied' }).catch(() => null);
     res.json({ success: true, status: 'DENIED' });
   } catch (err) {
     console.error('[HPC] deny tryout log failed:', err.message);

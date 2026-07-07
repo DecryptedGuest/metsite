@@ -666,6 +666,20 @@ async function postChannelMessage(channelId, payload) {
   }
 }
 
+// Edit a message the bot posted to a channel (by ids). Returns true on success.
+async function editChannelMessage(channelId, messageId, payload) {
+  if (!ready || !channelId || !messageId || !payload) return false;
+  try {
+    const ch  = await client.channels.fetch(String(channelId));
+    const msg = await ch.messages.fetch(String(messageId));
+    await msg.edit(payload);
+    return true;
+  } catch (e) {
+    console.warn('[Bot] editChannelMessage failed:', e.message);
+    return false;
+  }
+}
+
 // React to a message with an emoji (used to mark a patrol log ✅ approved / ❌ denied).
 async function reactToMessage(channelId, messageId, emoji) {
   if (!ready) return false;
@@ -1181,6 +1195,6 @@ module.exports = {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink,
-  reactToMessage, postChannelMessage,
+  reactToMessage, postChannelMessage, editChannelMessage,
   isReady: () => ready,
 };
