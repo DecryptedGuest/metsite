@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · Leave of Absence</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
+</div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division">Leave of Absence</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <a href="/dashboard" class="btn btn-ghost btn-sm"><i class="ti ti-arrow-left"></i> Dashboard</a>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="profile-wrap">
+  <div class="page-header fade-up"><div><h1 class="page-title">Leave of Absence</h1><p class="page-sub">Request time off — it's forwarded to your High Command for review</p></div></div>
+
+  <!-- Request form -->
+  <div class="panel glass fade-up stagger-1">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Request an LOA</div></div>
+    <div class="profile-section">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group"><label class="form-label">Scope</label>
+          <select class="form-control" id="loa-scope"></select></div>
+        <div class="form-group"><label class="form-label">&nbsp;</label>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5;" id="loa-forward-hint">Forwarded to your High Command.</div></div>
+        <div class="form-group"><label class="form-label">Start date</label>
+          <input type="date" class="form-control" id="loa-start" /></div>
+        <div class="form-group"><label class="form-label">End date</label>
+          <input type="date" class="form-control" id="loa-end" /></div>
+      </div>
+      <div class="form-group"><label class="form-label">Reason</label>
+        <textarea class="form-control" id="loa-reason" rows="3" placeholder="Why do you need time off?"></textarea></div>
+      <button class="btn btn-primary" onclick="submitLoa()"><i class="ti ti-send"></i> Submit request</button>
+    </div>
+  </div>
+
+  <!-- My requests -->
+  <div class="panel glass fade-up stagger-2">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>My Requests</div></div>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Scope</th><th>Dates</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+      <tbody id="loa-mine-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+    </table></div>
+  </div>
+
+  <!-- Review queue (reviewers only) -->
+  <div class="panel glass fade-up stagger-3" id="loa-review-panel" style="display:none;">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Review Queue</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadLoaReview()"><i class="ti ti-refresh"></i> Refresh</button></div>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Member</th><th>Scope</th><th>Dates</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+      <tbody id="loa-review-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+    </table></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js"></script>
+<script src="/js/met-topbar.js"></script>
+<script src="/js/loa.js"></script>
+</body>
+</html>

@@ -251,6 +251,9 @@ app.use('/api/exam',  requireAuth,
   examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
+// Leave of Absence requests — any authed MET member; forwarding + review gated
+// inside the router (MET HICOMM for MET scope, divisional leads for divisions).
+app.use('/api/loa', requireAuth, require('./routes/loa'));
 // Support help desk (/support) — login is OPTIONAL. Anyone can open a ticket
 // (anonymous openers hold a per-ticket token); staff handling is gated per type
 // inside the router. maybeAuth sets req.user when signed in, else null.
@@ -903,6 +906,9 @@ app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'po
 // (The profile page IS the dashboard; served at both paths.)
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
+
+// Leave of Absence — any signed-in member requests; reviewers see a queue.
+app.get('/loa', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'loa.html')));
 
 // Final Examination — any signed-in officer; the page itself gates on
 // eligibility (the HPC final-exam Discord role) via /api/exam/my.
