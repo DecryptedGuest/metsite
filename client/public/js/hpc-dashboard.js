@@ -436,16 +436,22 @@ window.hpcDeleteTryoutLog = async function (id) {
 };
 
 function openScheduleTryout() {
-  document.getElementById('tryout-when').value = '';
-  document.getElementById('tryout-lock').value = 'LOCKED';
+  // Default the date to today; leave the time unset (host still picks it).
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  document.getElementById('tryout-date').value = today;
+  document.getElementById('tryout-time').value = '';
+  document.getElementById('tryout-lock').value = 'UNLOCKED';
   document.getElementById('tryout-notes').value = '';
   openModal('modal-tryout');
 }
 
 async function submitTryout() {
-  const when = document.getElementById('tryout-when').value;
-  if (!when) return showToast('Pick a date and time.', 'warning');
-  const scheduledAt = new Date(when).toISOString();
+  const date = document.getElementById('tryout-date').value;
+  const time = document.getElementById('tryout-time').value;
+  if (!date) return showToast('Pick a date.', 'warning');
+  if (!time) return showToast('Pick a time.', 'warning');
+  const scheduledAt = new Date(`${date}T${time}`).toISOString();
   try {
     await api('/api/hpc/tryouts', { method: 'POST', body: JSON.stringify({
       scheduledAt,

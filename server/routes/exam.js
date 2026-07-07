@@ -26,9 +26,14 @@ function summariseOwn(s) {
 }
 
 // GET /api/exam/my — the cadet's eligibility + latest attempt status.
+// Eligibility here is purely "do they actually hold the final-exam role" — this
+// drives whether the Final Examination panel shows on the profile, so it must
+// reflect the real requirement and NOT force-show for developers/HPC. Devs and
+// HPC instructors can still preview the paper by opening /exam directly
+// (mayViewPaper lets them through).
 router.get('/my', async (req, res) => {
   try {
-    const eligible = req.user.role === 'DEVELOPER' || await userHasFinalExamRole(req.user);
+    const eligible = await userHasFinalExamRole(req.user);
     const latest = await prisma.hpcExamSubmission.findFirst({
       where: { userId: req.user.id },
       orderBy: { createdAt: 'desc' },

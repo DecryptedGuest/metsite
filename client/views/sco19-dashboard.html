@@ -156,7 +156,10 @@
         to pick a co-host and post the announcement to the SCO-19 channel.
       </p>
       <div class="form-group"><label class="form-label">Date &amp; time (your local time)</label>
-        <input type="datetime-local" class="form-control" id="sco19-tryout-when" /></div>
+        <div style="display:flex;gap:8px;">
+          <input type="date" class="form-control" id="sco19-tryout-date" style="flex:1;" />
+          <input type="time" class="form-control" id="sco19-tryout-time" style="flex:1;" />
+        </div></div>
       <div class="form-group"><label class="form-label">Server lock (starting state)</label>
         <select class="form-control" id="sco19-tryout-lock">
           <option value="UNLOCKED">Unlocked (:serverlock off)</option>

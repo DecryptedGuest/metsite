@@ -72,6 +72,9 @@ function divisionConfig(division) {
     dmTitle:       'Your MET Tryout is live',
     dmColor:       0x2ed896,
     logWebhook:  process.env.HPC_TRYOUT_LOG_WEBHOOK || null,
+    // HPC runs its tryouts from a Discord stage — hosts are prompted to join it,
+    // and its link is included in the announcement. CID/SCO-19 have no VC step.
+    stageUrl:    process.env.HPC_TRYOUT_STAGE_URL || 'https://discord.com/channels/1191048287315304470/1486839548146356386',
   };
 }
 
@@ -240,12 +243,17 @@ function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
   const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
   const hpc    = HPC_EMOJI();
+  const stage  = divisionConfig('HPC').stageUrl;
+  // The Public Tryout stage is only surfaced once the join link is actually
+  // posted (i.e. joining is open) — no point sending attendees to the VC early.
+  const stageLine = (stage && link !== 'TBA') ? [`Public Tryout Stage: ${stage}`] : [];
   return [
     `${hpc} College Entrance ${hpc}`,
     'Metropolitan Police Tryout',
     `HOST: ${host}`,
     `CO-HOST: ${coHost}`,
     `Link: ${link}`,
+    ...stageLine,
     '',
     `STATUS: ${status}`,
     ping,

@@ -254,13 +254,13 @@ router.get('/tryouts', async (req, res) => {
   }
 });
 
-// Can this user manage (strike/pass/fail/kick) this tryout from the site?
-// Host, co-host, or developer.
+// Can this user manage (strike/pass/fail/kick/cancel/complete) this tryout from
+// the site? ONLY the host (or co-host), HPC HICOMM (rank 247+), MET HICOMM, or a
+// developer — NOT other HPC members.
 function canManageTryout(user, t) {
-  if (user.role === 'DEVELOPER') return true;
-  if (t.hostId === user.id) return true;
+  if (t.hostId && t.hostId === user.id) return true;
   if (t.coHostDiscordId && String(t.coHostDiscordId) === String(user.discordId)) return true;
-  return false;
+  return canApproveTryouts(user); // HPC HICOMM (rank 247+) / MET HICOMM / developer
 }
 
 // GET /api/hpc/tryouts/live — live tryouts + their latest in-game overview
@@ -345,8 +345,8 @@ router.post('/tryouts/:id/cancel', async (req, res) => {
   try {
     const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
-    if (t.hostId !== req.user.id && req.user.role !== 'DEVELOPER') {
-      return res.status(403).json({ error: 'Only the host can cancel this tryout.' });
+    if (!canManageTryout(req.user, t)) {
+      return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can cancel this tryout.' });
     }
     if (['COMPLETED', 'CANCELLED'].includes(t.status)) return res.status(400).json({ error: 'This tryout is already finished.' });
     await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
@@ -362,8 +362,8 @@ router.post('/tryouts/:id/complete', async (req, res) => {
   try {
     const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
-    if (t.hostId !== req.user.id && req.user.role !== 'DEVELOPER') {
-      return res.status(403).json({ error: 'Only the host can end this tryout.' });
+    if (!canManageTryout(req.user, t)) {
+      return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can end this tryout.' });
     }
     await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
     res.json({ success: true });

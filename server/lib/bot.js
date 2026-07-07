@@ -755,6 +755,9 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
   }
 
   const joinUrl = require('./tryouts').tryoutJoinUrl(tryout);
+  // HPC hosts run their tryouts from the Public Tryout stage — prompt them to
+  // join it. CID/SCO-19 have no VC step, so cfg.stageUrl is undefined for them.
+  const stageUrl = cfg.stageUrl;
   return new EmbedBuilder()
     .setColor(cfg.dmColor || 0x2ed896)
     .setTitle(cfg.dmTitle)
@@ -764,6 +767,7 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
       { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the link below' : '🔴 Closed', inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
       ...(joinUrl ? [{ name: '🔗 Join link', value: joinUrl, inline: false }] : []),
+      ...(stageUrl ? [{ name: '🎙️ Public Tryout stage', value: `Join the stage to run your tryout: ${stageUrl}`, inline: false }] : []),
       ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
     );
 }

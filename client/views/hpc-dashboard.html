@@ -264,11 +264,14 @@
         to pick a co-host and post the announcement.
       </p>
       <div class="form-group"><label class="form-label">Date &amp; time (your local time)</label>
-        <input type="datetime-local" class="form-control" id="tryout-when" /></div>
+        <div style="display:flex;gap:8px;">
+          <input type="date" class="form-control" id="tryout-date" style="flex:1;" />
+          <input type="time" class="form-control" id="tryout-time" style="flex:1;" placeholder="--:--" />
+        </div></div>
       <div class="form-group"><label class="form-label">Server lock (starting state)</label>
         <select class="form-control" id="tryout-lock">
-          <option value="LOCKED">Locked (:serverlock on)</option>
           <option value="UNLOCKED">Unlocked (:serverlock off)</option>
+          <option value="LOCKED">Locked (:serverlock on)</option>
         </select>
         <span style="display:block;font-size:11px;color:var(--text-muted);margin-top:4px;">Updates live from the game once the tryout is running.</span></div>
       <div class="form-group" style="margin-bottom:0;"><label class="form-label">Notes (optional)</label>

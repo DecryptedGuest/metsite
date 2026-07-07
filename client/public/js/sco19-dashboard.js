@@ -72,17 +72,22 @@
   };
 
   window.sco19OpenSchedule = function () {
-    const el = document.getElementById('sco19-tryout-when'); if (el) el.value = '';
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const d = document.getElementById('sco19-tryout-date'); if (d) d.value = today;
+    const t = document.getElementById('sco19-tryout-time'); if (t) t.value = '';
     const n = document.getElementById('sco19-tryout-notes'); if (n) n.value = '';
     openModal('modal-sco19-tryout');
   };
   window.sco19SubmitSchedule = async function () {
-    const when = document.getElementById('sco19-tryout-when').value;
+    const date = document.getElementById('sco19-tryout-date').value;
+    const time = document.getElementById('sco19-tryout-time').value;
     const lock = document.getElementById('sco19-tryout-lock').value;
     const notes = document.getElementById('sco19-tryout-notes').value;
-    if (!when) return showToast('Pick a date & time.', 'warning');
+    if (!date) return showToast('Pick a date.', 'warning');
+    if (!time) return showToast('Pick a time.', 'warning');
     try {
-      await api('/api/sco19/tryouts', { method: 'POST', body: JSON.stringify({ scheduledAt: new Date(when).toISOString(), lockState: lock, notes }) });
+      await api('/api/sco19/tryouts', { method: 'POST', body: JSON.stringify({ scheduledAt: new Date(`${date}T${time}`).toISOString(), lockState: lock, notes }) });
       closeModal('modal-sco19-tryout'); showToast('Tryout scheduled', 'success'); sco19LoadTryouts();
     } catch (e) { showToast(e.message, 'error'); }
   };

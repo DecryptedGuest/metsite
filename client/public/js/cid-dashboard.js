@@ -72,17 +72,22 @@
   };
 
   window.cidOpenSchedule = function () {
-    const el = document.getElementById('cid-tryout-when'); if (el) el.value = '';
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const d = document.getElementById('cid-tryout-date'); if (d) d.value = today;
+    const t = document.getElementById('cid-tryout-time'); if (t) t.value = '';
     const n = document.getElementById('cid-tryout-notes'); if (n) n.value = '';
     openModal('modal-cid-tryout');
   };
   window.cidSubmitSchedule = async function () {
-    const when = document.getElementById('cid-tryout-when').value;
+    const date = document.getElementById('cid-tryout-date').value;
+    const time = document.getElementById('cid-tryout-time').value;
     const lock = document.getElementById('cid-tryout-lock').value;
     const notes = document.getElementById('cid-tryout-notes').value;
-    if (!when) return showToast('Pick a date & time.', 'warning');
+    if (!date) return showToast('Pick a date.', 'warning');
+    if (!time) return showToast('Pick a time.', 'warning');
     try {
-      await api('/api/cid/tryouts', { method: 'POST', body: JSON.stringify({ scheduledAt: new Date(when).toISOString(), lockState: lock, notes }) });
+      await api('/api/cid/tryouts', { method: 'POST', body: JSON.stringify({ scheduledAt: new Date(`${date}T${time}`).toISOString(), lockState: lock, notes }) });
       closeModal('modal-cid-tryout'); showToast('Tryout scheduled', 'success'); cidLoadTryouts();
     } catch (e) { showToast(e.message, 'error'); }
   };
