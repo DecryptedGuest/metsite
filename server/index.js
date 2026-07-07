@@ -658,14 +658,15 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     })))
     .sort((a, b) => new Date(b.issuedAt) - new Date(a.issuedAt));
 
-  // Permissions come from the member's role in the perms group (rank 2..99),
-  // merged with any perms the bot wrote onto the profile. Standing flags come
-  // from the disciplinary Discord roles captured at login (user.metRoleIds).
-  const { resolveUserPerms, flagsFromRoleIds } = require('./lib/permsGroup');
-  let groupPerms = [];
-  try { groupPerms = await resolveUserPerms(req.user.robloxId); } catch (e) { groupPerms = []; }
+  // Paid permissions come from the member's MET-server Discord roles (Media,
+  // Quota Exempt, Multi Divisional Permissions, Gang Permissions), captured at
+  // login → user.metRoleIds — NOT the Roblox perms group. Merged with any perms
+  // the bot wrote onto the profile. Standing flags come from the disciplinary
+  // Discord roles the same way.
+  const { permsFromMetRoles, flagsFromRoleIds } = require('./lib/permsGroup');
+  const rolePerms = permsFromMetRoles(req.user.metRoleIds);
   const botPerms = (metProfile && Array.isArray(metProfile.perms)) ? metProfile.perms : [];
-  const perms = mergePerms(groupPerms, botPerms);
+  const perms = mergePerms(rolePerms, botPerms);
   const flags = flagsFromRoleIds(req.user.metRoleIds);
 
   res.json({

@@ -111,12 +111,15 @@ async function loadProfile() {
     divEl.innerHTML = `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
 
-  // ── Perms ──
-  const permsEl = document.getElementById('p-perms');
+  // ── Perms — only shown if the member holds a paid-permission role ──
   const perms = data.perms || [];
-  permsEl.innerHTML = perms.length
-    ? perms.map(p => chip(p.label || p.key, p.color)).join('')
-    : `<span class="chip-empty">No permissions synced yet.</span>`;
+  const permsPanel = document.getElementById('p-perms-panel');
+  if (perms.length) {
+    if (permsPanel) permsPanel.style.display = '';
+    document.getElementById('p-perms').innerHTML = perms.map(p => chip(p.label || p.key, p.color)).join('');
+  } else if (permsPanel) {
+    permsPanel.style.display = 'none';
+  }
 
   // ── Punishment history ──
   const pun = document.getElementById('p-punishments');

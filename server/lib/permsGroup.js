@@ -232,9 +232,33 @@ function flagsFromRoleIds(roleIds) {
   return out;
 }
 
+// ── Paid permissions (MET-server Discord roles) ──────────────────────
+// Whether a member has any paid permission is read from these MET-server Discord
+// roles (captured at login → user.metRoleIds), NOT the Roblox perms group. If a
+// member holds none of them the profile hides the Permissions section entirely.
+const PAID_PERM_ROLES = [
+  { key: 'media',        env: 'MEDIA_PERMS_ROLE_ID',    label: 'Media' },
+  { key: 'quota_exempt', env: 'QUOTA_EXEMPT_ROLE_ID',   label: 'Quota Exempt' },
+  { key: 'multidiv',     env: 'MULTIDIV_PERMS_ROLE_ID', label: 'Multi Divisional Permissions' },
+  // Note: env is GANG_PERMS_ROLD_ID (as configured); accept the corrected spelling too.
+  { key: 'gang',         env: 'GANG_PERMS_ROLD_ID', envAlt: 'GANG_PERMS_ROLE_ID', label: 'Gang Permissions' },
+];
+function permsFromMetRoles(roleIds) {
+  const ids = new Set((Array.isArray(roleIds) ? roleIds : []).map(String));
+  const out = [];
+  for (const p of PAID_PERM_ROLES) {
+    const rid = process.env[p.env] || (p.envAlt ? process.env[p.envAlt] : null);
+    if (rid && ids.has(String(rid))) {
+      out.push({ key: p.key, label: p.label, roleId: String(rid) });
+    }
+  }
+  return out;
+}
+
 module.exports = {
   permsGroupId, openCloudKey, PERM_RANK_MAX, PALETTE, paletteHex,
   PERMS_ROLES, isDividerName, isPermRole,
   permsFromGroupRoles, resolveUserPerms, fetchOpenCloudPermRoles,
   FLAG_ROLES, flagsFromRoleIds,
+  PAID_PERM_ROLES, permsFromMetRoles,
 };
