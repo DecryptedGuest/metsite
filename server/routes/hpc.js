@@ -12,6 +12,68 @@ const audit = require('../lib/audit');
 
 const router = express.Router();
 
+// When a cadet PASSES the final exam, accept them into the MET Roblox group as
+// Community Support Officer (first rank) — but ONLY if they have a pending join
+// request (so we never rank someone who never asked to join). Fully best-effort:
+// resolves the Roblox id from the linked account (or the typed username), finds
+// the CSO role, approves the pending request, then sets the CSO rank. Never
+// throws onto the mark handler. Returns a small result object for logging.
+async function acceptPassedCadetIntoMet(s, req) {
+  try {
+    const rlib = require('../lib/roblox');
+    const { metGroupId } = require('../lib/divisions');
+    const gid = metGroupId();
+    const cookie = rlib.cookieForDivision('MET');
+    if (!gid || !cookie) return { ok: false, reason: 'MET group / cookie not configured' };
+
+    // Resolve the cadet's Roblox id (submission stores only the username).
+    let robloxId = null;
+    if (s.userId) {
+      const u = await prisma.user.findUnique({ where: { id: s.userId }, select: { robloxId: true } }).catch(() => null);
+      robloxId = u && u.robloxId ? String(u.robloxId) : null;
+    }
+    if (!robloxId && s.robloxUsername) {
+      const r = await rlib.getRobloxIdFromUsername(s.robloxUsername).catch(() => null);
+      robloxId = r && r.id ? String(r.id) : null;
+    }
+    if (!robloxId) return { ok: false, reason: 'could not resolve Roblox id' };
+
+    // Find the Community Support Officer role (env override, else by name, else
+    // the lowest member rank — roles come back sorted rank ASC, Guest = rank 0).
+    let csoRoleId = process.env.MET_CSO_ROLE_ID || null;
+    let roles = [];
+    if (!csoRoleId) {
+      roles = await rlib.listGroupRoles(gid, cookie).catch(() => []);
+      const named = roles.find(r => /community support officer/i.test(r.name || ''));
+      const lowest = roles.find(r => Number(r.rank) > 0);
+      csoRoleId = (named || lowest) ? String((named || lowest).id) : null;
+    }
+
+    // Only proceed if there's a PENDING join request for this user.
+    let found = false, token = null, guard = 0;
+    do {
+      const page = await rlib.listJoinRequests(token, gid, cookie).catch(() => null);
+      if (!page) break;
+      if ((page.requests || []).some(r => String(r.userId) === robloxId)) { found = true; break; }
+      token = page.nextPageToken || null;
+    } while (token && ++guard < 20);
+    if (!found) return { ok: false, reason: 'no pending join request' };
+
+    await rlib.resolveJoinRequest(robloxId, 'approve', gid, cookie);
+    if (csoRoleId) await rlib.changeGroupRank(robloxId, csoRoleId, gid, cookie).catch(() => {});
+
+    audit.log(req && req.user, {
+      category: 'GROUP', action: 'RANK_CHANGE', division: 'MET',
+      target: { type: 'roblox_user', id: robloxId, name: s.robloxUsername },
+      summary: `Accepted ${s.robloxUsername || robloxId} into the MET group as Community Support Officer (passed final exam)`,
+    });
+    return { ok: true, robloxId, csoRoleId };
+  } catch (e) {
+    console.warn('[HPC] acceptPassedCadetIntoMet failed:', e.message);
+    return { ok: false, reason: e.message };
+  }
+}
+
 // GET /api/hpc/context — what the current HPC member can do (drives the UI).
 router.get('/context', (req, res) => {
   res.json({
@@ -189,6 +251,10 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
       note,
     }).catch(() => null);
     if (msgId) await prisma.hpcExamSubmission.update({ where: { id: s.id }, data: { resultMessageId: msgId } }).catch(() => {});
+
+    // On a pass, accept the cadet into the MET group as CSO (best-effort, only if
+    // they have a pending join request). Fire-and-forget so the mark returns fast.
+    if (passed) acceptPassedCadetIntoMet(s, req).catch(() => {});
 
     audit.record({
       req, action: 'EXAM_MARK', category: 'exam', targetType: 'submission', targetId: s.id,

@@ -358,7 +358,7 @@ async function submitExam() {
   const missing = paper.questions.filter(q => q.required && !answers[q.id]);
   if (missing.length) return showToast(`Please answer all required questions (${missing.length} remaining).`, 'warning');
 
-  if (!(await uiConfirm('Submit your final exam? You cannot change your answers after submitting.'))) return;
+  if (!(await uiConfirm('Submit your final exam? You cannot change your answers after submitting. Make sure you have requested to join the Metropolitan Police group so you can be accepted when you pass.'))) return;
 
   // Flush any in-progress focus timer + finalise keystroke-cadence variance.
   Object.values(perQuestion).forEach(pq => {
