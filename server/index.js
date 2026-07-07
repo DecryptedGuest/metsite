@@ -567,11 +567,17 @@ async function computeMyDivisions(user) {
     mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
   }
   // MET HICOMM — the portal-wide oversight tier (Deputy Commissioner+ in the MET
-  // group, or DEVELOPER). Shown as its own division card + switcher entry.
+  // group, or DEVELOPER). The 'MET' cache entry is an access marker, not a real
+  // division dashboard, so pull it out and use its rank for the HICOMM card. The
+  // member's other division cards are already ranked by their MET rank (from
+  // roleResolver), so their MET rank shows everywhere (above divisional HICOMM).
+  const metEntry = mine.find(d => d.division === 'MET');
+  mine = mine.filter(d => d.division !== 'MET');
   try {
     const { userIsMetHicomm } = require('./lib/metRank');
-    if (await userIsMetHicomm(user) && !mine.some(d => d.division === 'METHICOMM')) {
-      mine.push({ division: 'METHICOMM', tier: 'LEAD', rankName: 'High Command',
+    const isHicomm = !!metEntry || await userIsMetHicomm(user);
+    if (isHicomm && !mine.some(d => d.division === 'METHICOMM')) {
+      mine.push({ division: 'METHICOMM', tier: 'LEAD', rankName: (metEntry && metEntry.rankName) || 'High Command',
         name: 'MET HICOMM', slug: 'hicomm', fullName: 'MET High Command', color: '#f5c518', icon: '/img/divisions/met.png' });
     }
   } catch (e) { /* metRank/Roblox unavailable → no HICOMM card */ }

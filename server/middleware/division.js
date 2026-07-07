@@ -23,16 +23,31 @@ function userDivisions(user) {
   return [];
 }
 
-// Does the user have access to `division`? IA → site role; HPC → Junior
-// Instructor and above (not mere group membership); others → cache.
+// MET High Command — portal-wide oversight tier (Deputy Commissioner+ in the MET
+// group). Sync check off cached data: the METHICOMM Discord role captured at
+// login, or the 'MET' entry stamped into the divisions cache from the MET group
+// rank (see roleResolver). MET HICOMM gets LEAD access to EVERY division (not the
+// dev panel). DEVELOPER is separate and always passes its own checks.
+function userIsMetHicommCached(user) {
+  if (!user) return false;
+  const rid = process.env.METHICOMM_ROLE_ID;
+  if (rid && Array.isArray(user.metRoleIds) && user.metRoleIds.map(String).includes(String(rid))) return true;
+  return userDivisions(user).some(d => d.division === 'MET');
+}
+
+// Does the user have access to `division`? DEVELOPER + MET HICOMM → every
+// division; IA → site role; HPC → Junior Instructor and above; others → cache.
 function userHasDivision(user, division) {
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   if (division === 'IA')  return IA_MEMBER_ROLES.includes(user.role);
-  if (division === 'HPC') return user.role === 'DEVELOPER' || userHpcTier(user, 'instructor');
+  if (division === 'HPC') return userHpcTier(user, 'instructor');
   return hasDivisionAccess(userDivisions(user), division);
 }
 
-// Is the user LEAD-tier in `division`? IA → HICOMM/SUPERVISOR/DEV; others → cache.
+// Is the user LEAD-tier in `division`? DEVELOPER + MET HICOMM → LEAD everywhere;
+// IA → HICOMM/SUPERVISOR/DEV; others → cache.
 function userIsDivisionLead(user, division) {
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   if (division === 'IA') return IA_LEAD_ROLES.includes(user.role);
   return divisionTier(userDivisions(user), division) === 'LEAD';
 }
@@ -42,7 +57,7 @@ function userIsDivisionLead(user, division) {
 function requireDivision(division) {
   return function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (req.user.role === 'DEVELOPER') return next();
+    if (req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user)) return next();
     if (userHasDivision(req.user, division)) return next();
 
     const isApi = req.originalUrl.startsWith('/api');
@@ -55,7 +70,7 @@ function requireDivision(division) {
 function requireDivisionLead(division) {
   return function (req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (req.user.role === 'DEVELOPER') return next();
+    if (req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user)) return next();
     if (userIsDivisionLead(req.user, division)) return next();
 
     const isApi = req.originalUrl.startsWith('/api');
@@ -96,7 +111,7 @@ async function userHasFinalExamRole(user) {
 
 // kind: 'instructor' | 'marker' | 'quota'. DEVELOPER always passes.
 function userHpcTier(user, kind) {
-  if (user.role === 'DEVELOPER') return true;
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   const e = hpcEntry(user);
   if (!e) return false;
   return hpcRankAtLeast(e.rankName, e.rank, kind);
@@ -107,7 +122,7 @@ function userHpcTier(user, kind) {
 function hpcReviewMinRank() { const n = parseInt(process.env.HPC_REVIEW_MIN_RANK, 10); return Number.isFinite(n) ? n : 247; }
 function userHpcReviewer(user) {
   if (!user) return false;
-  if (user.role === 'DEVELOPER') return true;
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   const e = userDivisions(user).find(d => d.division === 'HPC');
   return !!(e && Number(e.rank) >= hpcReviewMinRank());
 }
@@ -128,7 +143,7 @@ function requireHpcQuota(req, res, next) {
 // Lets FLP high command manage the FLP Roblox group from their dashboard.
 // Override the threshold with FLP_GROUP_ADMIN_MIN_RANK. DEVELOPER always passes.
 function userFlpGroupAdmin(user) {
-  if (user.role === 'DEVELOPER') return true;
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   const min = parseInt(process.env.FLP_GROUP_ADMIN_MIN_RANK, 10);
   const threshold = Number.isFinite(min) ? min : 170; // Assistant Director
   const e = userDivisions(user).find(d => d.division === 'FLP');
@@ -167,12 +182,12 @@ async function userHoldsAnyRole(user, guildId, roleIds) {
 
 async function userHasCidTryout(user) {
   if (!user) return false;
-  if (user.role === 'DEVELOPER') return true;
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   return userHoldsAnyRole(user, cidGuildId(), cidAccessRoleIds());
 }
 async function userIsCidLead(user) {
   if (!user) return false;
-  if (user.role === 'DEVELOPER') return true;
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   return userHoldsAnyRole(user, cidGuildId(), cidLeadRoleIds());
 }
 
@@ -208,7 +223,7 @@ function requireMetHicomm(req, res, next) {
 module.exports = {
   requireDivision, requireDivisionLead,
   userDivisions, userHasDivision, userIsDivisionLead, DIVISION_SLUG,
-  userNeedsFinalExam, userHasFinalExamRole, userHpcTier, userHpcReviewer, requireHpcMarker, requireHpcQuota,
+  userNeedsFinalExam, userHasFinalExamRole, userHpcTier, userHpcReviewer, userIsMetHicommCached, requireHpcMarker, requireHpcQuota,
   userFlpGroupAdmin, requireFlpGroupAdmin,
   userHasCidTryout, userIsCidLead, requireCidTryout, requireCidLead,
   requireMetHicomm,

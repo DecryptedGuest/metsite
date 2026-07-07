@@ -63,4 +63,15 @@ async function userIsMetHicomm(user) {
   return HICOMM_PATTERN.test(String(role.name || ''));
 }
 
-module.exports = { metRole, hicommMinRank, userIsMetHicomm };
+// The user's MET-group role IF it qualifies them as High Command, else null.
+// Used to grant MET HICOMM LEAD access to every division, labelled with their
+// actual MET rank (which outranks divisional HICOMM).
+async function metHicommRoleByRoblox(robloxId) {
+  const role = await metRole(robloxId);
+  if (!role) return null;
+  const min = await hicommMinRank();
+  const ok = (min != null) ? Number(role.rank) >= min : HICOMM_PATTERN.test(String(role.name || ''));
+  return ok ? role : null;
+}
+
+module.exports = { metRole, hicommMinRank, userIsMetHicomm, metHicommRoleByRoblox };

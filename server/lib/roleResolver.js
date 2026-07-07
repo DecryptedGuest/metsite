@@ -162,6 +162,19 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
       const groupDivs = await resolveGroupDivisions(rId);
       divisions.push(...groupDivs);
     } catch (e) { /* Roblox unreachable → no group divisions this pass */ }
+
+    // MET High Command (Deputy Commissioner+ in the MET group, not a developer):
+    // LEAD access to EVERY division, ranked by their MET rank — which outranks
+    // divisional HICOMM. The dev panel stays developer-only (handled elsewhere).
+    try {
+      const { metHicommRoleByRoblox } = require('./metRank');
+      const hc = await metHicommRoleByRoblox(rId);
+      if (hc) {
+        const lead = ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: hc.name, rank: hc.rank, metHicomm: true }));
+        lead.push({ division: 'MET', tier: 'LEAD', rankName: hc.name, rank: hc.rank, metHicomm: true });
+        return lead;
+      }
+    } catch (e) { /* MET lookup failed → normal divisions only this pass */ }
   }
 
   return divisions;
