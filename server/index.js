@@ -560,6 +560,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     }
   } catch (e) { /* never block /api/me on a revalidation hiccup */ }
 
+  const { userNeedsFinalExam } = require('./middleware/division');
   res.json({
     id:              req.user.id,
     discordId:       req.user.discordId,
@@ -570,6 +571,9 @@ app.get('/api/me', requireAuth, async (req, res) => {
     isBlacklisted:   req.user.isBlacklisted,
     notifyAsked:     req.user.notifyAsked,
     notifyEnabled:   req.user.notifyEnabled,
+    // Whether the user holds the HPC final-exam role (login snapshot). Drives the
+    // "Final Exam" menu entry — the /exam page still does the authoritative check.
+    examEligible:    userNeedsFinalExam(req.user),
     divisions:       Array.isArray(req.user.divisions) ? req.user.divisions : [],
   });
 });

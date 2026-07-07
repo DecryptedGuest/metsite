@@ -48,7 +48,7 @@ async function initExam() {
   try { status = await api('/api/exam/my'); } catch (e) { return showState('<i class="ti ti-alert-triangle"></i>', 'Something went wrong', e.message); }
 
   if (!status.eligible) {
-    return showState('<i class="ti ti-circle-check"></i>', 'No exam required', 'Your account doesn\'t have the Hendon Police College final-exam role, so there\'s nothing for you to sit here. If you believe this is a mistake, contact HPC staff.');
+    return showState('<i class="ti ti-circle-check"></i>', 'No exam required', 'Your account doesn\'t have the Hendon Police College final-exam role, so there\'s no exam for you to take here. If you believe this is a mistake, contact HPC staff.');
   }
   if (status.latest && status.latest.status === 'PASSED') {
     clearDraft();

@@ -60,9 +60,11 @@ async function initMetTopbar(currentDivision) {
   // profile page sets its own label in HTML).
   if (badge && currentDivision) badge.textContent = DIVISION_LABEL[currentDivision] || currentDivision;
 
+  let examEligible = false; // holds the final-exam role → show the Final Exam menu entry
   try {
     const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     if (me) {
+      examEligible = !!me.examEligible;
       const nameEl = document.getElementById('met-user-name');
       if (nameEl) nameEl.textContent = me.displayName || me.discordUsername;
 
@@ -113,7 +115,8 @@ async function initMetTopbar(currentDivision) {
       const PAGES = [
         { href: '/support',   icon: 'ti-lifebuoy',       label: 'Support' },
         { href: '/loa',       icon: 'ti-calendar-off',   label: 'Leave of Absence' },
-        { href: '/exam',      icon: 'ti-writing',        label: 'Final Exam' },
+        // Final Exam only appears for cadets who hold the final-exam role.
+        ...(examEligible ? [{ href: '/exam', icon: 'ti-writing', label: 'Final Exam' }] : []),
         { href: '/app',       icon: 'ti-device-mobile',  label: 'Mobile App' },
       ];
       const switcherEl = document.getElementById('met-switcher');

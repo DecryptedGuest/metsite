@@ -165,7 +165,7 @@ async function loadExamStatus() {
   const latest = s.latest;
   let html;
   if (!latest) {
-    html = `<p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">You're required to sit the Metropolitan Police Final Examination.</p>
+    html = `<p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">You're required to take the Metropolitan Police Final Examination.</p>
       <a href="/exam" class="btn btn-primary btn-sm"><i class="ti ti-writing"></i> Take Final Exam</a>`;
   } else if (latest.status === 'PENDING') {
     html = `<div style="display:flex;align-items:center;gap:10px;"><span class="badge badge-pending"><span class="badge-dot"></span>Awaiting marking</span>

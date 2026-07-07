@@ -352,7 +352,7 @@ async function openExamResult(id) {
 
 // Developer-only: permanently void an exam so the cadet can retake it fresh.
 async function voidExam(id, who) {
-  if (!(await uiConfirm(`Void ${who}'s final exam? This deletes it entirely — they'll be treated as if they never took it and can sit it again. This can't be undone.`))) return;
+  if (!(await uiConfirm(`Void ${who}'s final exam? This deletes it entirely — they'll be treated as if they never took it and can take it again. This can't be undone.`))) return;
   try {
     await api('/api/hpc/exam/submissions/' + id, { method: 'DELETE' });
     showToast('Exam voided — the cadet can retake it.', 'success');
