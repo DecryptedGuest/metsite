@@ -117,6 +117,7 @@ if (RUN_WORKERS) {
   require('./lib/accessControl').startAccessRevalidator();
   require('./lib/quota').startQuotaWorker();
   require('./lib/tryouts').startTryoutWorker();
+  require('./lib/iaSync').startIaSync(); // no-op unless IA_DATABASE_URL is set
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');

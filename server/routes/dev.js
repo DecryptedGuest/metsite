@@ -15,6 +15,21 @@ router.use((req, res, next) => {
   next();
 });
 
+// POST /api/dev/ia-sync — pull cases + tickets from the live IA database
+// (IA_DATABASE_URL) into the MET database. Idempotent; safe to run repeatedly.
+router.post('/ia-sync', async (req, res) => {
+  try {
+    const result = await require('../lib/iaSync').syncAll();
+    if (!result.ok) return res.status(400).json({ error: result.reason || 'IA sync not configured' });
+    audit.log(req.user, { category: 'DEV', action: 'IA_SYNC',
+      summary: `Synced IA data — cases ${result.cases && result.cases.synced}/${result.cases && result.cases.total}, tickets ${result.tickets && result.tickets.synced}/${result.tickets && result.tickets.total}` });
+    res.json(result);
+  } catch (e) {
+    console.error('[Dev] IA sync failed:', e.message);
+    res.status(500).json({ error: 'IA sync failed: ' + e.message });
+  }
+});
+
 // DELETE /api/dev/tryouts/:id — remove a tryout (any division). Best-effort
 // removal of its Discord announcement + host DM, and its queued commands.
 router.delete('/tryouts/:id', async (req, res) => {
