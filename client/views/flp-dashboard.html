@@ -67,11 +67,17 @@
       <div class="page-header fade-up">
         <div><h1 class="page-title">Frontline Policing</h1><p class="page-sub">FLP · Overview</p></div>
       </div>
+      <div id="flp-kpis" class="fade-up"></div>
       <div class="panel glass fade-up stagger-1">
-        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
-          <div style="font-size:40px;margin-bottom:1rem;"><i class="ti ti-tools"></i></div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
-          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">FLP tools are being built. You have access to this division — check back soon for its features.</div>
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Activity · last 30 days</div></div>
+        <div style="padding:0.6rem 1rem 1.1rem;" id="flp-activity-chart"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Quick actions</div></div>
+        <div class="profile-section" style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('patrols')"><i class="ti ti-clipboard-check"></i> Patrol Logs</button>
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('events')"><i class="ti ti-calendar-star"></i> Event Logs</button>
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('analytics')"><i class="ti ti-chart-histogram"></i> Analytics</button>
         </div>
       </div>
     </section>

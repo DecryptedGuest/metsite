@@ -18,10 +18,41 @@ function flpNavigate(pageId) {
   if (page) page.classList.add('active');
   const btn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
   if (btn) btn.classList.add('active');
+  if (pageId === 'dashboard') loadFlpOverview();
   if (pageId === 'group') loadFlpGroup();
   if (pageId === 'patrols') loadPatrols();
   if (pageId === 'events') loadEvents();
   if (pageId === 'analytics') loadFlpAnalytics();
+}
+
+// ── Overview (KPIs + activity trend) ──
+async function loadFlpOverview() {
+  const kpis = document.getElementById('flp-kpis');
+  const chart = document.getElementById('flp-activity-chart');
+  if (!kpis) return;
+  let d; try { d = await api('/api/flp/analytics?days=30'); }
+  catch (e) { if (chart) chart.innerHTML = `<div class="table-empty-text">${fesc(e.message)}</div>`; return; }
+  const act = d.activity || { series: [] };
+  const tot = act.series.reduce((a, s) => ({ p: a.p + s.patrols, e: a.e + s.events, t: a.t + (s.tickets || 0) }), { p: 0, e: 0, t: 0 });
+  const tile = (v, l, c) => `<div class="panel glass" style="padding:1rem 1.1rem;flex:1;min-width:140px;">
+      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);">${l}</div>
+      <div style="font-size:28px;font-weight:800;line-height:1.1;margin-top:4px;color:${c};">${v}</div></div>`;
+  kpis.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
+      ${tile(tot.p, 'Patrol logs', 'var(--green,#22c55e)')}
+      ${tile(tot.e, 'Event logs', 'var(--amber,#e8842a)')}
+      ${tile(tot.t, 'Support tickets', 'var(--blue,#3b82f6)')}
+      ${tile(tot.p + tot.e, 'Total logs (30d)', 'var(--text-primary)')}
+    </div>`;
+  if (chart && window.MetCharts && act.series.length) {
+    const labels = act.series.map(s => s.day.slice(5));
+    chart.innerHTML = window.MetCharts.lineChart([
+      { name: 'Patrols', color: '#22c55e', points: act.series.map(s => s.patrols) },
+      { name: 'Events', color: '#e8842a', points: act.series.map(s => s.events) },
+      { name: 'Tickets', color: '#3b82f6', points: act.series.map(s => s.tickets || 0) },
+    ], labels, { height: 210 });
+  } else if (chart) {
+    chart.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:1rem;">No activity in this window yet.</div>';
+  }
 }
 
 // ── Analytics tab (patrol/event/ticket activity) ──
@@ -47,6 +78,7 @@ async function loadFlpAnalytics() {
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => btn.addEventListener('click', () => flpNavigate(btn.dataset.page)));
 
 async function initFlp() {
+  loadFlpOverview();
   try { flpCtx = await api('/api/flp/context'); } catch (e) { flpCtx = { canGroupAdmin: false }; }
   if (flpCtx.canGroupAdmin) {
     document.querySelectorAll('.group-admin-only').forEach(el => el.style.display = '');

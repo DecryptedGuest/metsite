@@ -33,6 +33,12 @@
       <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
       <div class="met-switcher-menu" id="met-switcher-menu"></div>
     </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
   </div>
 </div>
 
@@ -165,11 +171,6 @@
           <button class="theme-toggle" id="btn-theme-toggle" title="Toggle light/dark theme">
             <i class="ti ti-sun" id="theme-icon" style="font-size:16px;"></i>
           </button>
-          <form action="/auth/logout" method="POST">
-            <button type="submit" class="btn btn-icon btn-ghost" title="Sign out">
-              <i class="ti ti-logout" style="font-size:16px;"></i>
-            </button>
-          </form>
         </div>
       </div>
     </div>
