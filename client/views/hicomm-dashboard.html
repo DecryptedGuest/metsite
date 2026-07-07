@@ -64,6 +64,7 @@
         <div class="nav-section-label">Intelligence</div>
         <button class="nav-item" data-page="officer"><i class="ti ti-user-search nav-icon"></i><span>Officer 360°</span></button>
         <button class="nav-item" data-page="audit"><i class="ti ti-history nav-icon"></i><span>Audit Trail</span></button>
+        <button class="nav-item" data-page="gamelogs"><i class="ti ti-device-gamepad-2 nav-icon"></i><span>Game Logs</span></button>
         <div class="nav-section-label">Groups</div>
         <button class="nav-item" data-page="group"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
       </nav>
@@ -149,6 +150,33 @@
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>When</th><th>Category</th><th>Action</th><th>Actor</th><th>Summary</th></tr></thead>
           <tbody id="hc-audit-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- GAME LOGS (Adonis / join / leave / chat from the training game) -->
+    <section class="page" id="page-gamelogs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Game Logs</h1><p class="page-sub">Training game · Adonis, joins, leaves and chat</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Live Feed</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select class="form-control" id="hc-gl-source" onchange="hcLoadGameLogs()" style="height:30px;font-size:12px;width:130px;">
+              <option value="">All types</option>
+              <option value="ADONIS">Adonis</option>
+              <option value="JOIN">Joins</option>
+              <option value="LEAVE">Leaves</option>
+              <option value="CHAT">Chat</option>
+            </select>
+            <input type="text" class="form-control" id="hc-gl-q" placeholder="Search…" style="height:30px;font-size:12px;width:160px;" />
+            <button class="btn btn-ghost btn-sm" onclick="hcLoadGameLogs()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>When</th><th>Type</th><th>Actor</th><th>Action</th><th>Target</th><th>Message</th></tr></thead>
+          <tbody id="hc-gl-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
         </table></div>
       </div>
     </section>

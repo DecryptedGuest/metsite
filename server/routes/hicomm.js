@@ -106,6 +106,33 @@ router.get('/audit', async (req, res) => {
   }
 });
 
+// ── GET /api/hicomm/game-logs?source=&q=&before= — in-game log feed ──
+// Adonis / join / leave / chat logs ingested from the training game.
+router.get('/game-logs', async (req, res) => {
+  try {
+    const where = {};
+    const src = String(req.query.source || '').toUpperCase();
+    if (['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src)) where.source = src;
+    const q = String(req.query.q || '').trim();
+    if (q) where.OR = [
+      { actor: { contains: q, mode: 'insensitive' } },
+      { target: { contains: q, mode: 'insensitive' } },
+      { message: { contains: q, mode: 'insensitive' } },
+      { action: { contains: q, mode: 'insensitive' } },
+    ];
+    if (req.query.before) where.createdAt = { lt: new Date(req.query.before) };
+    const rows = await prisma.gameLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 150 });
+    res.json(rows.map(r => ({
+      id: r.id, source: r.source, actor: r.actor, actorId: r.actorId,
+      target: r.target, action: r.action, message: r.message, place: r.place,
+      createdAt: r.createdAt,
+    })));
+  } catch (e) {
+    console.error('[HICOMM] game-logs failed:', e.message);
+    res.status(500).json({ error: 'Failed to load game logs' });
+  }
+});
+
 // ── GET /api/hicomm/officer/search?q= — find an officer (type-ahead) ──
 // DB-FIRST: every officer who has signed in is already in the user table with
 // their Discord + Roblox identity cached, so we never touch Rover here (its rate

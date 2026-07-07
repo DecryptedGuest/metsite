@@ -583,4 +583,46 @@ router.post('/tryout/commands/ack', requireGameSecret, async (req, res) => {
   }
 });
 
+// ── POST /api/game/log — in-game log ingest (Adonis / join / leave / chat) ──
+// The training/tryout game POSTs its logs here (same x-game-secret auth). Accepts
+// either a single event or { logs: [...] } for batching. Every field is optional
+// and tolerant of the different shapes each log type sends — we normalise into a
+// GameLog row. MET HICOMM view these on the site. Idempotency isn't enforced
+// (logs are append-only, high volume), but we cap batch size to avoid abuse.
+function normaliseGameLog(ev = {}) {
+  const src = String(ev.source || ev.type || ev.kind || '').toUpperCase();
+  const source = ['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src) ? src : 'ADONIS';
+  const s = (v) => (v == null ? null : String(v).slice(0, 1000));
+  return {
+    source,
+    actor:   s(ev.actor ?? ev.player ?? ev.admin ?? ev.username ?? ev.from ?? ev.user),
+    actorId: s(ev.actorId ?? ev.playerId ?? ev.userId ?? ev.adminId),
+    target:  s(ev.target ?? ev.victim ?? ev.targetName),
+    action:  s(ev.action ?? ev.command ?? ev.cmd),
+    message: s(ev.message ?? ev.reason ?? ev.text ?? ev.chat ?? ev.content),
+    place:   s(ev.place ?? ev.placeName ?? ev.server ?? ev.jobId),
+  };
+}
+
+router.post('/log', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const events = Array.isArray(body.logs) ? body.logs
+      : Array.isArray(body.events) ? body.events
+      : [body];
+    const rows = events.slice(0, 200).map(ev => {
+      const n = normaliseGameLog(ev);
+      // Keep the raw payload for audit, but strip the shared secret if echoed back.
+      const raw = { ...ev }; delete raw.secret;
+      return { ...n, raw };
+    }).filter(r => r.actor || r.target || r.message || r.action);
+    if (!rows.length) return res.json({ ok: true, stored: 0 });
+    const r = await prisma.gameLog.createMany({ data: rows });
+    res.json({ ok: true, stored: r.count });
+  } catch (err) {
+    console.error('[Game] log ingest failed:', err.message);
+    res.status(500).json({ error: 'Failed to store log' });
+  }
+});
+
 module.exports = router;

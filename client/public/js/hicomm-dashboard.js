@@ -20,6 +20,7 @@
     if (name === 'analytics') hcLoadAnalytics();
     if (name === 'integrity') hcLoadIntegrity();
     if (name === 'audit') hcLoadAudit();
+    if (name === 'gamelogs') hcLoadGameLogs();
     if (name === 'group' && typeof loadGroupPanel === 'function') loadGroupPanel();
   }
   function wireNav() {
@@ -350,6 +351,28 @@
         <td>${esc(a.actorName || 'System')}</td><td>${esc(a.summary || '')}</td></tr>`;
     }).join('') : '<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No matching actions.</div></td></tr>';
   };
+
+  // ── Game logs ──
+  const GL_ICON = { ADONIS: ['ti-shield-bolt', '#f59e0b'], JOIN: ['ti-login', '#2ed896'], LEAVE: ['ti-logout', '#8b93a1'], CHAT: ['ti-message', '#3b82f6'] };
+  window.hcLoadGameLogs = async function () {
+    const src = $('hc-gl-source') ? $('hc-gl-source').value : '';
+    const q = $('hc-gl-q') ? $('hc-gl-q').value.trim() : '';
+    const tb = $('hc-gl-tbody');
+    if (!tb) return;
+    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+    let rows; try { rows = await api(`/api/hicomm/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${esc(e.message)}</td></tr>`; return; }
+    tb.innerHTML = rows.length ? rows.map(g => {
+      const [ic, col] = GL_ICON[g.source] || ['ti-point', '#888'];
+      return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${ago(g.createdAt)}</td>
+        <td><span style="color:${col};"><i class="ti ${ic}"></i> ${esc(g.source)}</span></td>
+        <td>${esc(g.actor || '—')}</td>
+        <td>${g.action ? `<span class="mono" style="font-size:11px;">${esc(g.action)}</span>` : '—'}</td>
+        <td>${esc(g.target || '—')}</td>
+        <td style="max-width:360px;">${esc(g.message || '')}</td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>';
+  };
+  let glT = null;
+  document.addEventListener('input', (e) => { if (e.target && e.target.id === 'hc-gl-q') { clearTimeout(glT); glT = setTimeout(hcLoadGameLogs, 250); } });
 
   // ── Init ──
   async function init() {
