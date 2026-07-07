@@ -83,12 +83,6 @@ async function initMetTopbar(currentDivision) {
     const menu = document.getElementById('met-switcher-menu');
     if (data && menu) {
       menu.innerHTML = '';
-      const dashLink = document.createElement('a');
-      dashLink.href = '/dashboard';
-      dashLink.className = 'met-switcher-item';
-      dashLink.innerHTML = '<span><i class="ti ti-layout-dashboard"></i> My dashboard</span>';
-      menu.appendChild(dashLink);
-
       (data.mine || []).forEach(d => {
         const a = document.createElement('a');
         const isCurrent = d.division === currentDivision;
@@ -101,54 +95,72 @@ async function initMetTopbar(currentDivision) {
     }
   } catch (e) { /* non-fatal */ }
 
-  // Inject a "Menu" dropdown of the site's top-level pages into the topbar,
-  // alongside Search / Switch Division. Reuses the switcher's markup + CSS.
+  // "You're here" highlight for the current page's topbar control.
+  const HERE = location.pathname.replace(/\/$/, '') || '/';
+  function markHere(el) {
+    if (!el) return;
+    el.style.background = 'rgba(74,143,255,0.14)';
+    el.style.color = 'var(--blue,#4a8fff)';
+    el.title = (el.title ? el.title + ' — ' : '') + "You're here";
+  }
+
+  const right = document.querySelector('.met-topbar-right');
+
+  // Inject the consistent main buttons (My Dashboard, Menu, Search) into the
+  // topbar-right on every page that has one — same set everywhere.
   try {
-    const right = document.querySelector('.met-topbar-right');
-    const switcher = document.getElementById('met-switcher');
     if (right && !document.getElementById('met-pages')) {
       const PAGES = [
-        { href: '/dashboard', icon: 'ti-user',          label: 'My Profile' },
         { href: '/support',   icon: 'ti-lifebuoy',       label: 'Support' },
         { href: '/loa',       icon: 'ti-calendar-off',   label: 'Leave of Absence' },
         { href: '/exam',      icon: 'ti-writing',        label: 'Final Exam' },
         { href: '/app',       icon: 'ti-device-mobile',  label: 'Mobile App' },
       ];
-      const here = location.pathname.replace(/\/$/, '');
+      const switcherEl = document.getElementById('met-switcher');
+
+      // Menu dropdown (top-level pages) — reuses the switcher's markup + CSS.
       const wrap = document.createElement('div');
       wrap.className = 'met-switcher';
       wrap.id = 'met-pages';
       wrap.innerHTML =
         '<button class="btn btn-ghost btn-sm" id="met-pages-btn"><i class="ti ti-menu-2"></i> Menu</button>' +
         '<div class="met-switcher-menu">' +
-        PAGES.map(p => `<a href="${p.href}" class="met-switcher-item${here === p.href ? ' current' : ''}"><span><i class="ti ${p.icon}"></i> ${p.label}</span></a>`).join('') +
+        PAGES.map(p => `<a href="${p.href}" class="met-switcher-item${HERE === p.href ? ' current' : ''}"><span><i class="ti ${p.icon}"></i> ${p.label}</span></a>`).join('') +
         '</div>';
-      // Place it just before the division switcher (after the Search button).
-      if (switcher) right.insertBefore(wrap, switcher); else right.appendChild(wrap);
+      if (switcherEl) right.insertBefore(wrap, switcherEl); else right.appendChild(wrap);
       const pBtn = wrap.querySelector('#met-pages-btn');
       pBtn.addEventListener('click', (e) => { e.stopPropagation(); wrap.classList.toggle('open'); });
       document.addEventListener('click', () => wrap.classList.remove('open'));
+      if (PAGES.some(p => p.href === HERE)) markHere(pBtn);
+
+      // Search (⌘K / Ctrl-K) — only if the command palette is on this page.
+      if (typeof window.openCommandPalette === 'function' && !document.getElementById('met-cmdk-btn')) {
+        const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+        const sBtn = document.createElement('button');
+        sBtn.id = 'met-cmdk-btn';
+        sBtn.className = 'btn btn-ghost btn-sm';
+        sBtn.title = 'Search (' + (isMac ? '⌘K' : 'Ctrl + K') + ')';
+        sBtn.innerHTML = `<i class="ti ti-search"></i> <span style="margin:0 2px;">Search</span> <span class="cmdk-kbd" style="opacity:.6;font-size:11px;">${isMac ? '⌘K' : 'Ctrl + K'}</span>`;
+        sBtn.addEventListener('click', function () { window.openCommandPalette(); });
+        right.insertBefore(sBtn, right.firstChild);
+      }
+
+      // My Dashboard — a persistent main button (leftmost), highlighted when here.
+      const dashBtn = document.createElement('a');
+      dashBtn.id = 'met-dash-btn';
+      dashBtn.href = '/dashboard';
+      dashBtn.className = 'btn btn-ghost btn-sm';
+      dashBtn.innerHTML = '<i class="ti ti-layout-dashboard"></i> My Dashboard';
+      right.insertBefore(dashBtn, right.firstChild);
+      if (HERE === '/dashboard' || HERE === '/profile') markHere(dashBtn);
     }
   } catch (e) { /* cosmetic */ }
 
-  // Inject a discoverable ⌘K / Ctrl-K command-palette trigger into the topbar.
-  try {
-    const right = document.querySelector('.met-topbar-right');
-    if (right && !document.getElementById('met-cmdk-btn') && typeof window.openCommandPalette === 'function') {
-      const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-      const btn = document.createElement('button');
-      btn.id = 'met-cmdk-btn';
-      btn.className = 'btn btn-ghost btn-sm';
-      btn.title = 'Search (' + (isMac ? '⌘K' : 'Ctrl + K') + ')';
-      btn.innerHTML = `<i class="ti ti-search"></i> <span style="margin:0 2px;">Search</span> <span class="cmdk-kbd" style="opacity:.6;font-size:11px;">${isMac ? '⌘K' : 'Ctrl + K'}</span>`;
-      btn.addEventListener('click', function () { window.openCommandPalette(); });
-      right.insertBefore(btn, right.firstChild);
-    }
-  } catch (e) { /* cosmetic */ }
-
+  // Wire the division switcher (markup-based) + highlight it on a division page.
   const switcher = document.getElementById('met-switcher');
   const switcherBtn = document.getElementById('met-switcher-btn');
   if (switcher && switcherBtn) {
+    if (currentDivision) markHere(switcherBtn);
     switcherBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       switcher.classList.toggle('open');
