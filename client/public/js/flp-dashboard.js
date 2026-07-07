@@ -132,24 +132,67 @@ async function loadPatrols() {
   }
 }
 
+// One person on the event card. `host=true` keeps the full server nickname
+// (with its rank prefix); otherwise it shows the prefix-stripped Roblox username.
+// Discord username + user id follow in muted text.
+function flpPerson(m, host) {
+  if (!m) return '<span style="color:var(--text-muted);">—</span>';
+  const primary = host ? (m.nickname || m.roblox || m.discordUsername || ('#' + m.id))
+                       : (m.roblox || m.nickname || m.discordUsername || ('#' + m.id));
+  const meta = [];
+  if (m.discordUsername) meta.push('@' + m.discordUsername);
+  if (m.id) meta.push(m.id);
+  return `${fesc(primary)}${meta.length ? ` <span style="color:var(--text-muted);font-size:11px;">${fesc(meta.join(' · '))}</span>` : ''}`;
+}
+function flpPeopleList(arr, host) {
+  if (!arr || !arr.length) return '<span style="color:var(--text-muted);">—</span>';
+  return `<div style="display:flex;flex-direction:column;gap:5px;">${arr.map(m => `<div>${flpPerson(m, host)}</div>`).join('')}</div>`;
+}
+
 function renderPatrol(p) {
   const isEvent = p.type === 'EVENT';
+  const em = isEvent ? p.eventMeta : null;   // resolved host/attendees/notes (may be null on old rows)
   const fn = isEvent ? 'reviewEvent' : 'reviewPatrol';
   flpGal[p.id] = p.images || [];   // register this log's images for the lightbox
   const imgs = (p.images || []).map((u, i) => `<img src="${fesc(u)}" onclick="flpLightbox('${p.id}', ${i})" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-dim);cursor:zoom-in;" loading="lazy" />`).join('');
-  const rows = [
-    ['Submitted by', `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`],
-    ['Division', fesc(p.division || 'N/A')],
-    ['Date', `${fesc(p.dateLabel || '—')}${p.crossedMidnight ? ' <span style="color:var(--amber);font-size:11px;"><i class="ti ti-moon"></i> crossed midnight — started the night before</span>' : ''}`],
-    ['Started', fesc(p.shiftStart || '—')],
-    ['Ended', fesc(p.shiftEnd || '—')],
-    ['Total time', fesc(p.totalLabel || '—')],
-  ].map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;">${k}</span><span>${v}</span></div>`).join('');
+  const dateCell = `${fesc(p.dateLabel || '—')}${p.crossedMidnight ? ' <span style="color:var(--amber);font-size:11px;"><i class="ti ti-moon"></i> crossed midnight — started the night before</span>' : ''}`;
+  const submitterCell = `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`;
+
+  let rowsArr, title;
+  if (em) {
+    // Pretty event card. The Host keeps the rank prefix + Discord; attendees show
+    // the Roblox username (prefix stripped) + Discord username + id.
+    title = (em.host && (em.host.nickname || em.host.roblox)) || p.submitterDisplayName || p.submitterUsername || 'Event log';
+    rowsArr = [
+      ['Host', em.host ? flpPerson(em.host, true) : submitterCell],
+      em.eventType ? ['Event type', fesc(em.eventType)] : null,
+      em.rank ? ['Rank', fesc(em.rank)] : null,
+      (em.coHost || em.coHostText) ? ['Co-Host', em.coHost ? flpPerson(em.coHost, true) : fesc(em.coHostText)] : null,
+      ['Date', dateCell],
+      ['Started', fesc(p.shiftStart || '—')],
+      ['Ended', fesc(p.shiftEnd || '—')],
+      ['Total time', fesc(p.totalLabel || '—')],
+      ['Attendees', flpPeopleList(em.attendees, false)],
+      em.notesText ? ['Notes', fesc(em.notesText)] : null,
+      (em.noteMembers && em.noteMembers.length) ? ['Noted', flpPeopleList(em.noteMembers, false)] : null,
+    ].filter(Boolean);
+  } else {
+    title = p.submitterDisplayName || p.submitterUsername || 'Log';
+    rowsArr = [
+      ['Submitted by', submitterCell],
+      ['Division', fesc(p.division || 'N/A')],
+      ['Date', dateCell],
+      ['Started', fesc(p.shiftStart || '—')],
+      ['Ended', fesc(p.shiftEnd || '—')],
+      ['Total time', fesc(p.totalLabel || '—')],
+    ];
+  }
+  const rows = rowsArr.map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;flex-shrink:0;">${k}</span><span style="flex:1;">${v}</span></div>`).join('');
   const pointNote = (isEvent && p.status === 'APPROVED')
     ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '<i class="ti ti-check"></i> +1 point added to the MET database' : '<i class="ti ti-alert-triangle"></i> point not added — member not found on a rank tab / non-numeric cell'}</div>` : '';
   const devDel = flpCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="flpDeleteLog('${p.id}','${isEvent ? 'EVENT' : 'PATROL'}')"><i class="ti ti-trash"></i> Delete</button>` : '';
   return `<div class="panel glass fade-up" style="margin-bottom:16px;">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot ${isEvent ? 'amber' : 'blue'}"></span>${fesc(p.submitterDisplayName || p.submitterUsername || 'Log')}</div>${PATROL_STATUS[p.status] || ''}</div>
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot ${isEvent ? 'amber' : 'blue'}"></span>${fesc(title)}</div>${PATROL_STATUS[p.status] || ''}</div>
     <div class="profile-section">
       ${rows}
       ${imgs ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">${imgs}</div>` : '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">No images attached.</div>'}

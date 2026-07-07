@@ -625,6 +625,7 @@ model PatrolLog {
   logDate              DateTime? // the shift's date: parsed from the log if present, else the message-sent date
   crossedMidnight      Boolean  @default(false) // shift ran past 00:00 (started the previous night)
   images               Json? // attachment image URLs
+  eventMeta            Json? // EVENT logs: parsed + Discord-resolved { eventType, rank, host, coHost, attendees[], notesText, noteMembers[] }
   rawContent           String?
   status               String    @default("PENDING") // PENDING | APPROVED | DENIED
   reviewedById         String?

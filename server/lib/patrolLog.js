@@ -231,6 +231,122 @@ async function reviewFromReactions(message) {
   } catch (e) { return null; }
 }
 
+// ── EVENT log parsing ─────────────────────────────────────────────────
+// Event logs follow a semi-structured host template, e.g.:
+//   8/10  <:FLP:…>              (a quota counter — ignored)
+//   Event-Type: MP
+//   Host: <@123>
+//   Co-Host: N/A
+//   Attendees: <@1> <@2> <@3>
+//   Rank: SUP
+//   Start-Time: 8:56           (already picked up by shiftTime())
+//   End-Time: 9:26
+//   NOTES: free text
+//   Notes: <@4> <@5>           (sign-off / witness mentions)
+function mentionsIn(str) {
+  const out = []; const re = /<@!?(\d+)>/g; let m;
+  while ((m = re.exec(String(str || ''))) !== null) out.push(m[1]);
+  return out;
+}
+
+// Pull the raw fields (values + mention ids) out of an event-log message body.
+function parseEventLog(content) {
+  const lines = String(content || '').split(/\r?\n/);
+  const val = (re) => { for (const l of lines) { const m = l.match(re); if (m) return (m[1] || '').trim(); } return null; };
+  const clean = (s) => s ? s.replace(/<a?:\w+:\d+>/g, '').replace(/[*_`~]/g, '').trim() : null;
+
+  const eventType = clean(val(/^\s*event[\s\-_]*type\s*[:\-]?\s*(.+)$/i));
+  const rank      = clean(val(/^\s*rank\s*[:\-]?\s*(.+)$/i));
+  const hostLine  = lines.find(l => /^\s*host\s*[:\-]/i.test(l)) || '';
+  const coHostLine= lines.find(l => /^\s*co[\s\-_]*host\s*[:\-]/i.test(l)) || '';
+  const attLine   = lines.find(l => /^\s*attend(?:ee|ees|ance)?\s*[:\-]/i.test(l)) || '';
+
+  const coHostIds = mentionsIn(coHostLine);
+  const coHostRaw = clean(coHostLine.replace(/^\s*co[\s\-_]*host\s*[:\-]?/i, ''));
+
+  // Every "notes" line: free text → notesText, mentions → noteMentionIds.
+  const noteLines = lines.filter(l => /^\s*notes?\s*[:\-]/i.test(l));
+  const noteMentionIds = []; const notesTextParts = [];
+  for (const l of noteLines) {
+    noteMentionIds.push(...mentionsIn(l));
+    const txt = clean(l.replace(/^\s*notes?\s*[:\-]?/i, '').replace(/<@!?\d+>/g, ''));
+    if (txt) notesTextParts.push(txt);
+  }
+
+  return {
+    eventType: eventType || null,
+    rank: rank || null,
+    hostId: mentionsIn(hostLine)[0] || null,
+    coHostId: coHostIds[0] || null,
+    coHostText: coHostIds.length ? null : (coHostRaw || null),
+    attendeeIds: mentionsIn(attLine),
+    noteMentionIds: [...new Set(noteMentionIds)],
+    notesText: notesTextParts.join(' ') || null,
+  };
+}
+
+// Server nickname of a resolved member (falls back to global/username).
+function nickOf(gm) {
+  if (!gm) return null;
+  return gm.nickname || (gm.user && (gm.user.globalName || gm.user.username)) || null;
+}
+// Roblox username = the server nickname minus its "RANK | " prefix.
+function robloxFromNick(nick) {
+  if (!nick) return null;
+  return nick.includes('|') ? nick.split('|').pop().trim() : nick.trim();
+}
+// Resolve a set of Discord ids to members: cached mentions first, then ONE bulk
+// REST fetch for the rest (no privileged intent needed for id lookups).
+async function resolveMembers(message, ids) {
+  const map = new Map();
+  const uniq = [...new Set((ids || []).filter(Boolean))];
+  if (!uniq.length || !message.guild) return map;
+  for (const id of uniq) {
+    const gm = (message.mentions && message.mentions.members && message.mentions.members.get(id))
+            || message.guild.members.cache.get(id);
+    if (gm) map.set(id, gm);
+  }
+  const missing = uniq.filter(id => !map.has(id));
+  if (missing.length) {
+    try { (await message.guild.members.fetch({ user: missing })).forEach((gm, id) => map.set(id, gm)); }
+    catch (e) { /* leave unresolved — the id still shows */ }
+  }
+  return map;
+}
+// A person entry for the event card. Keeps both the full nickname (host shows
+// this, with its rank prefix) and the prefix-stripped Roblox username (attendees).
+function personEntry(message, mentionUsers, id, map) {
+  if (!id) return null;
+  const gm = map.get(id);
+  const user = (gm && gm.user) || (mentionUsers && mentionUsers.get(id)) || null;
+  const nick = nickOf(gm);
+  return {
+    id,
+    discordUsername: user ? user.username : null,
+    nickname: nick,                 // full server nickname (with prefix)
+    roblox: robloxFromNick(nick),   // nickname minus "RANK | " prefix
+  };
+}
+
+// Build the resolved event-card metadata from a discord.js message.
+async function buildEventMeta(message) {
+  const ev = parseEventLog(message.content || '');
+  const allIds = [ev.hostId, ev.coHostId, ...ev.attendeeIds, ...ev.noteMentionIds].filter(Boolean);
+  const map = await resolveMembers(message, allIds);
+  const users = message.mentions && message.mentions.users;
+  const one = (id) => personEntry(message, users, id, map);
+  return {
+    eventType:   ev.eventType,
+    rank:        ev.rank,
+    host:        one(ev.hostId),
+    coHost:      one(ev.coHostId),
+    coHostText:  ev.coHostText,
+    attendees:   ev.attendeeIds.map(one).filter(Boolean),
+    notesText:   ev.notesText,
+    noteMembers: ev.noteMentionIds.map(one).filter(Boolean),
+  };
+}
+
 // Status comes from the message's tick/cross reaction: ✅ → APPROVED, ❌ →
 // DENIED, none → PENDING. opts.reconcile updates an already-imported row's
 // status/date from the message (so re-running the backfill corrects statuses),
@@ -249,12 +365,17 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
     // The shift's date: an explicit date in the log if present, else the message-
     // sent date. For a shift past midnight this is the message-sent day.
     const logDate = parseLogDate(message.content || '') || message.createdAt || new Date();
+    // EVENT logs: resolve the host template (host / co-host / attendees / notes)
+    // into the pretty on-site card. Best-effort — never blocks ingestion.
+    let eventMeta = null;
+    if (type === 'EVENT') eventMeta = await buildEventMeta(message).catch(() => null);
 
     if (existing) {
       if (!opts.reconcile) return existing;
       // Only reconcile import-created rows — never overwrite a real site review.
       const humanReviewed = existing.reviewedByName && !IMPORT_REVIEWERS.has(existing.reviewedByName);
       const data = { logDate, crossedMidnight: !!parsed.crossedMidnight };
+      if (eventMeta) data.eventMeta = eventMeta;
       if (!humanReviewed) {
         data.status = status;
         data.reviewedByName = reviewed ? verdict.by : null;
@@ -278,6 +399,7 @@ async function createFromMessage(message, type = 'PATROL', opts = {}) {
         totalMinutes:         parsed.totalMinutes,
         logDate:              logDate,
         crossedMidnight:      !!parsed.crossedMidnight,
+        eventMeta:            eventMeta,
         images:               imageUrls(message),
         rawContent:           (message.content || '').slice(0, 4000),
         status:               status,
@@ -387,10 +509,11 @@ function serialize(p) {
     shiftStart: shiftStart, shiftEnd: shiftEnd,
     totalMinutes: totalMinutes, totalLabel: formatTotal(totalMinutes),
     logDate: logDate, dateLabel, crossedMidnight,
+    eventMeta: p.eventMeta || null,
     images: Array.isArray(p.images) ? p.images : [],
     status: p.status, reviewedByName: p.reviewedByName, reviewedAt: p.reviewedAt,
     createdAt: p.createdAt,
   };
 }
 
-module.exports = { parseClock, shiftTime, parseDivision, parsePatrolLog, formatTotal, imageUrls, createFromMessage, serialize, robloxNameCandidates, awardMetEventPoint };
+module.exports = { parseClock, shiftTime, parseDivision, parsePatrolLog, formatTotal, imageUrls, createFromMessage, serialize, robloxNameCandidates, awardMetEventPoint, parseEventLog, buildEventMeta };
