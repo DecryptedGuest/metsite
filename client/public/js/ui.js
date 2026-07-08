@@ -783,3 +783,34 @@ document.addEventListener('DOMContentLoaded', () => {
     overlay ? close() : open();
   });
 })();
+
+// ── Connectivity indicator ───────────────────────────────────────
+// Shows a small banner when the browser goes offline and a toast when it
+// comes back — helpful on mobile where connections drop mid-action.
+(function () {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+  function banner(show) {
+    var b = document.getElementById('net-offline-banner');
+    if (show) {
+      if (b) return;
+      b = document.createElement('div');
+      b.id = 'net-offline-banner';
+      b.innerHTML = '<i class="ti ti-wifi-off"></i> You\'re offline — changes may not save until you reconnect.';
+      b.style.cssText =
+        'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11800;' +
+        'display:flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;' +
+        'font-size:13px;font-weight:600;color:#fff;background:#b4441f;' +
+        'box-shadow:0 6px 22px rgba(0,0,0,.45);white-space:nowrap;';
+      document.body.appendChild(b);
+    } else if (b) {
+      b.remove();
+    }
+  }
+  window.addEventListener('offline', function () { banner(true); });
+  window.addEventListener('online', function () {
+    banner(false);
+    if (window.showToast) showToast('Back online', 'success');
+  });
+  // Reflect the state at load (e.g. page opened while already offline).
+  if (navigator.onLine === false) banner(true);
+})();
