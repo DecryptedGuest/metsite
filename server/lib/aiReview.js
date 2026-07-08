@@ -9,8 +9,20 @@ const { getActiveOffenses } = require('./offenses');
 
 const INLINE_MAX = 18 * 1024 * 1024; // Gemini inline-data request cap (~20MB total)
 
+// Only ever fetch medal.tv URLs server-side — otherwise an attacker could point
+// this at internal endpoints (SSRF). Restricts to medal.tv and its subdomains.
+function isMedalUrl(u) {
+  try {
+    const url = new URL(String(u));
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+    const h = url.hostname.toLowerCase();
+    return h === 'medal.tv' || h.endsWith('.medal.tv');
+  } catch (e) { return false; }
+}
+
 // Pull the underlying MP4 URL out of a medal.tv clip page.
 async function extractMedalMp4(pageUrl) {
+  if (!isMedalUrl(pageUrl)) return null; // reject non-medal hosts (SSRF guard)
   const res = await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (IACMS evidence bot)' }, redirect: 'follow' });
   if (!res.ok) return null;
   const html = await res.text();

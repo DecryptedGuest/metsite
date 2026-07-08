@@ -35,7 +35,12 @@ function allTimeBuckets(dates) {
   const now = Date.now();
   let min = now;
   for (const d of dates) { if (d == null) continue; const t = new Date(d).getTime(); if (Number.isFinite(t) && t < min) min = t; }
-  return Math.min(MAX_ALLTIME_DAYS, Math.max(1, Math.floor((now - min) / DAY) + 1));
+  // Count by UTC calendar-day span (inclusive) so it matches emptyDays' day-
+  // anchored keys — a ms floor() would drop the earliest day.
+  const md = new Date(min), nd = new Date(now);
+  const minMidnight = Date.UTC(md.getUTCFullYear(), md.getUTCMonth(), md.getUTCDate());
+  const nowMidnight = Date.UTC(nd.getUTCFullYear(), nd.getUTCMonth(), nd.getUTCDate());
+  return Math.min(MAX_ALLTIME_DAYS, Math.max(1, Math.round((nowMidnight - minMidnight) / DAY) + 1));
 }
 
 // ── Tryout performance ────────────────────────────────────────────────

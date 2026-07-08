@@ -98,9 +98,14 @@ router.post('/submit', async (req, res) => {
   const { answers, detection } = req.body || {};
   if (!answers || typeof answers !== 'object') return res.status(400).json({ error: 'answers are required' });
 
-  // Block a second attempt while one is still awaiting marking.
-  const pending = await prisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id, status: 'PENDING' } });
-  if (pending) return res.status(409).json({ error: 'You already have an exam awaiting marking.' });
+  // Only a fresh attempt (no prior) or a retake after a FAIL is allowed — mirror
+  // /my's canRetake rule so a passed/pending cadet can't re-submit.
+  const latest = await prisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' } });
+  if (latest && latest.status !== 'FAILED') {
+    return res.status(409).json({ error: latest.status === 'PENDING'
+      ? 'You already have an exam awaiting marking.'
+      : 'You have already passed the final exam.' });
+  }
 
   // Validate required questions are answered.
   const missing = hpcExam.QUESTIONS.filter(q => q.required && !String(answers[q.id] || '').trim()).map(q => q.id);

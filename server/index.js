@@ -265,7 +265,7 @@ app.use('/api/ai-review', requireAuth, ia, aiReviewRoutes);
 app.use('/api/push',     requireAuth, ia, pushRoutes);
 app.use('/api/notifications', requireAuth, ia, notificationRoutes);
 app.use('/api/media',    requireAuth, ia, require('./routes/media'));
-app.use('/auth/debug',  debugRoutes); // TEMPORARY
+app.use('/auth/debug',  requireAuth, require('./middleware/auth').requireDeveloper, debugRoutes); // developer-only diagnostics
 
 // New divisions — own routes, own scope, gated to their own division.
 // CID tryouts use the CID-role gate (applied inside cid.js), not the generic

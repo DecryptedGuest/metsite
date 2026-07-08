@@ -787,6 +787,9 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
     if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Case is not pending' });
     if (req.user.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(existing))
       return res.status(403).json({ error: 'Only HICOMM can approve a case involving a Blacklist or Termination.' });
+    // Separation of duties: you can't review (and self-award quota for) your own case.
+    if (existing.userId === req.user.id && req.user.role !== 'DEVELOPER')
+      return res.status(403).json({ error: 'You cannot review your own case; another reviewer must approve it.' });
 
     // Atomically claim the PENDING→APPROVED transition so two concurrent
     // approvals can't both run the side effects (double demotion / dupe rows).
@@ -891,7 +894,10 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
     // +4 quota points for the IA member who submitted the case — queued durably
     // so a transient failure (or a rapid approve burst) never drops the points.
     // Never award for imported/legacy cases (owned by the import system user).
-    if (existing.user && existing.user.discordId !== 'SYSTEM_LEGACY_IMPORT') {
+    // Never award quota for imported/synced records (legacy import or IA sync),
+    // nor for an IA-origin synced case regardless of how its owner resolved.
+    const IMPORT_OWNERS = new Set(['SYSTEM_LEGACY_IMPORT', 'ia-archive-import']);
+    if (existing.origin !== 'IA' && existing.user && !IMPORT_OWNERS.has(existing.user.discordId)) {
       const { enqueueQuotaAward } = require('../lib/quota');
       enqueueQuotaAward({
         refType: 'case', refId: existing.id,
@@ -915,6 +921,8 @@ router.patch('/:id/deny', requireHICOMM, async (req, res) => {
     if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Case is not pending' });
     if (req.user.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(existing))
       return res.status(403).json({ error: 'Only HICOMM can deny a case involving a Blacklist or Termination.' });
+    if (existing.userId === req.user.id && req.user.role !== 'DEVELOPER')
+      return res.status(403).json({ error: 'You cannot review your own case; another reviewer must deny it.' });
 
     const claim = await prisma.case.updateMany({ where: { id: req.params.id, status: 'PENDING' }, data: { status: 'DENIED' } });
     if (claim.count === 0) return res.status(409).json({ error: 'Case is not pending' });
