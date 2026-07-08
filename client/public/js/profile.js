@@ -409,13 +409,12 @@ function punishmentColor(type) {
   return null;
 }
 
-// ── My Activity + achievements ──────────────────────────────────────
+// ── My Activity ─────────────────────────────────────────────────────
 async function loadActivity() {
   let s; try { s = await api('/api/me/stats'); } catch (e) { return; }
   const panel = document.getElementById('p-activity-panel');
   if (!panel) return;
   const hours = Math.round((s.totalMinutes || 0) / 6) / 10; // 1dp
-  const days = s.memberSince ? Math.floor((Date.now() - new Date(s.memberSince).getTime()) / 86400000) : 0;
   const tile = (v, l, c) => `<div style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
       <div style="font-size:24px;font-weight:800;color:${c};line-height:1.1;">${v}</div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
@@ -425,36 +424,6 @@ async function loadActivity() {
     tile(hours, 'Hours on patrol', 'var(--blue,#4a8fff)') +
     tile(s.tryoutsHosted || 0, 'Tryouts hosted', 'var(--text-primary)') +
     tile(s.rankChanges || 0, 'Rank changes', 'var(--text-primary)');
-
-  // Achievements, computed from the stats — earned ones lit, the rest greyed.
-  // `cur`/`goal` on tiered achievements drive a "34 / 50" progress hint while locked.
-  const ACH = [
-    { key: 'first',   icon: 'ti-shoe',          name: 'First Steps',       desc: 'Log your first patrol',          cur: s.patrols || 0,       goal: 1,  unit: 'patrols' },
-    { key: 'reg',     icon: 'ti-walk',          name: 'Patrol Regular',    desc: '10 approved patrols',            cur: s.patrols || 0,       goal: 10, unit: 'patrols' },
-    { key: 'vet',     icon: 'ti-medal',         name: 'Patrol Veteran',    desc: '50 approved patrols',            cur: s.patrols || 0,       goal: 50, unit: 'patrols' },
-    { key: 'host',    icon: 'ti-calendar-star', name: 'Event Host',        desc: 'Run an event',                   cur: s.events || 0,        goal: 1,  unit: 'events' },
-    { key: 'trainer', icon: 'ti-school',        name: 'Trainer',           desc: 'Host a tryout',                  cur: s.tryoutsHosted || 0, goal: 1,  unit: 'tryouts' },
-    { key: 'grad',    icon: 'ti-certificate',   name: 'Graduate',          desc: 'Pass the final exam',            earned: !!s.examPassed },
-    { key: 'time',    icon: 'ti-clock-hour-4',  name: 'Time Served',       desc: '10+ hours on patrol',            cur: hours,                goal: 10, unit: 'hours' },
-    { key: 'climb',   icon: 'ti-trending-up',   name: 'Climbing the Ranks', desc: 'Earn a promotion',              cur: s.rankChanges || 0,   goal: 1,  unit: 'promotions' },
-    { key: 'loyal',   icon: 'ti-shield-star',   name: 'Loyal Officer',     desc: '90 days with the MET',           cur: days,                 goal: 90, unit: 'days' },
-  ].map(a => (a.earned === undefined ? { ...a, earned: (a.cur || 0) >= a.goal } : a));
-  const earnedCount = ACH.filter(a => a.earned).length;
-  document.getElementById('p-achievements').innerHTML =
-    `<div style="width:100%;font-size:12px;color:var(--text-muted);margin-bottom:4px;">${earnedCount} of ${ACH.length} unlocked</div>` +
-    ACH.map(a => {
-      const showProgress = !a.earned && a.goal > 1 && (a.cur || 0) > 0;
-      const pct = showProgress ? Math.min(100, Math.round(((a.cur || 0) / a.goal) * 100)) : 0;
-      const hint = showProgress
-        ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${a.cur} / ${a.goal} ${escHtml(a.unit)}</div>
-           <div style="height:3px;border-radius:3px;background:var(--border,#2a2a2a);margin-top:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:var(--blue,#4a8fff);opacity:.7;"></div></div>`
-        : `<div style="font-size:11px;color:var(--text-muted);">${escHtml(a.desc)}</div>`;
-      return `<div title="${escHtml(a.desc)}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--border,#2a2a2a);min-width:150px;${a.earned ? 'background:rgba(74,143,255,.08);' : 'opacity:.55;'}">
-        <i class="ti ${a.icon}" style="font-size:20px;color:${a.earned ? 'var(--blue,#4a8fff)' : 'var(--text-muted)'};"></i>
-        <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">${escHtml(a.name)}</div>
-        ${hint}</div>
-      </div>`;
-    }).join('');
   panel.style.display = '';
 }
 
