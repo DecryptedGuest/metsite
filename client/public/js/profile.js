@@ -468,7 +468,25 @@ window.toggleReduceMotion = function () {
   if (window.showToast) showToast(next ? 'Reduced motion on' : 'Reduced motion off', 'info');
 };
 
+function densityOn() { try { return localStorage.getItem('iacms_density') === 'compact'; } catch (e) { return false; } }
+function renderDensityBtn() {
+  const btn = document.getElementById('p-density-btn');
+  if (!btn) return;
+  const on = densityOn();
+  btn.classList.toggle('btn-primary', on);
+  btn.classList.toggle('btn-ghost', !on);
+  btn.innerHTML = `<i class="ti ti-layout-rows"></i> Compact${on ? ' · on' : ''}`;
+}
+window.toggleDensity = function () {
+  const next = !densityOn();
+  try { localStorage.setItem('iacms_density', next ? 'compact' : 'cosy'); } catch (e) {}
+  if (window.applyDensity) window.applyDensity(next);
+  renderDensityBtn();
+  if (window.showToast) showToast(next ? 'Compact layout on' : 'Comfortable layout', 'info');
+};
+
 loadProfile();
 loadActivity();
 renderAccents();
 renderReduceMotionBtn();
+renderDensityBtn();

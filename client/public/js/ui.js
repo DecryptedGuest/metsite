@@ -72,6 +72,34 @@ if (typeof window !== 'undefined') {
   } catch (e) {}
 }
 
+// ── Compact density ──────────────────────────────────────────────
+// Tightens panel/section padding site-wide for members who prefer to
+// fit more on screen. Stored per-device; scoped to a data attribute so
+// it's fully reversible with no effect when off.
+function applyDensity(compact) {
+  const r = document.documentElement;
+  if (compact) {
+    r.setAttribute('data-density', 'compact');
+    if (!document.getElementById('iacms-density-style')) {
+      const s = document.createElement('style');
+      s.id = 'iacms-density-style';
+      s.textContent =
+        'html[data-density="compact"] .profile-section{padding:.7rem .9rem!important}' +
+        'html[data-density="compact"] .panel-header{padding-top:.6rem!important;padding-bottom:.6rem!important}' +
+        'html[data-density="compact"] .panel{margin-bottom:.8rem!important}' +
+        'html[data-density="compact"] .stat-card,html[data-density="compact"] .stat-card-inner{padding:.6rem .8rem!important}' +
+        'html[data-density="compact"] .profile-wrap>*{margin-bottom:.7rem!important}';
+      (document.head || document.documentElement).appendChild(s);
+    }
+  } else {
+    r.removeAttribute('data-density');
+  }
+}
+if (typeof window !== 'undefined') {
+  window.applyDensity = applyDensity;
+  try { applyDensity(localStorage.getItem('iacms_density') === 'compact'); } catch (e) {}
+}
+
 // ── Toast Notifications ──────────────────────────────────────────
 // How long a toast stays on screen. User-configurable (Preferences), stored in
 // localStorage as seconds; clamped to a sane 1–30s. Callers may still pass an
