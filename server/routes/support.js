@@ -198,7 +198,10 @@ router.patch('/settings', async (req, res) => {
     if (body.greetings && typeof body.greetings === 'object') {
       const g = {};
       for (const k of Object.keys(support.DEFAULT_GREETINGS)) {
-        if (typeof body.greetings[k] === 'string') g[k] = body.greetings[k].slice(0, 1200);
+        // Only persist a non-empty override — a blank field means "use the
+        // default", so it's shown (via the /config spread) and used (via the
+        // claim-time `||`) consistently instead of storing a dead empty string.
+        if (typeof body.greetings[k] === 'string' && body.greetings[k].trim()) g[k] = body.greetings[k].slice(0, 1200);
       }
       prefs.greetings = g;
     }
