@@ -709,3 +709,49 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
+
+// ── Keyboard-shortcut help overlay ───────────────────────────────
+// Press "?" (Shift+/) anywhere outside a text field to see the shortcut
+// cheatsheet. Esc or click-away closes it. Site-wide via ui.js.
+(function () {
+  if (typeof document === 'undefined') return;
+  var SHORTCUTS = [
+    { keys: ['⌘/Ctrl', 'K'], desc: 'Open command palette (jump anywhere)' },
+    { keys: ['?'],           desc: 'Show this shortcut help' },
+    { keys: ['Esc'],         desc: 'Close dialogs / palette' },
+    { keys: ['↑', '↓'],      desc: 'Move selection in the command palette' },
+    { keys: ['Enter'],       desc: 'Run the selected command' },
+  ];
+  var overlay = null;
+  function keyCap(k) {
+    return '<span style="display:inline-block;min-width:20px;text-align:center;padding:2px 7px;border:1px solid var(--border,rgba(255,255,255,.16));border-radius:6px;font-size:12px;font-family:var(--font-mono,monospace);background:var(--hover,rgba(255,255,255,.05));">' + k + '</span>';
+  }
+  function open() {
+    if (overlay) return;
+    overlay = document.createElement('div');
+    overlay.id = 'kbd-help';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:11500;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;';
+    var rows = SHORTCUTS.map(function (s) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--border,rgba(255,255,255,.07));">' +
+        '<span style="font-size:13px;color:var(--text-secondary,#c8c8c8);">' + s.desc + '</span>' +
+        '<span style="display:flex;gap:5px;flex-shrink:0;">' + s.keys.map(keyCap).join('') + '</span></div>';
+    }).join('');
+    overlay.innerHTML = '<div style="width:min(440px,92vw);background:var(--panel-solid,#151821);border:1px solid var(--border,#2a2a2a);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.55);padding:20px 22px;">' +
+      '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;"><i class="ti ti-keyboard" style="font-size:19px;color:var(--blue,#4a8fff);"></i><span style="font-size:15px;font-weight:600;">Keyboard shortcuts</span></div>' +
+      rows + '<div style="margin-top:14px;text-align:right;"><button id="kbd-help-close" class="btn btn-ghost btn-sm">Close</button></div></div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    var c = document.getElementById('kbd-help-close');
+    if (c) c.addEventListener('click', close);
+  }
+  function close() { if (overlay) { overlay.remove(); overlay = null; } }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && overlay) { close(); return; }
+    if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target;
+    var tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable)) return;
+    e.preventDefault();
+    overlay ? close() : open();
+  });
+})();
