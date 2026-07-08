@@ -451,7 +451,14 @@
 
   async function finishIntake() {
     try {
-      const r = await api(tok('/api/support/tickets/' + cur.id + '/submit-intake', cur.id), { method: 'POST', body: JSON.stringify({ answers: intakeAnswers }) });
+      // For appeals, send the structured punishment the opener picked so IA
+      // get a proper card (Roblox/Discord/case) — never shown to the opener.
+      const appeal = selectedPunishment ? {
+        id: selectedPunishment.id, type: selectedPunishment.type, caseRef: selectedPunishment.caseRef || null,
+        source: selectedPunishment.source || null, reason: selectedPunishment.reason || null,
+        issuedAt: selectedPunishment.issuedAt || null, expiresAt: selectedPunishment.expiresAt || null,
+      } : null;
+      const r = await api(tok('/api/support/tickets/' + cur.id + '/submit-intake', cur.id), { method: 'POST', body: JSON.stringify({ answers: intakeAnswers, appeal }) });
       cur = r.ticket; mode = 'chat';
       const full = await api(tok('/api/support/tickets/' + cur.id, cur.id));
       cur = full; renderTicketHeader(full); renderLog(full);

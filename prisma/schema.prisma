@@ -712,6 +712,7 @@ model SupportTicket {
   openerFp        String? // per-browser fingerprint (localStorage id)
   openerUa        String? // user-agent snapshot (informational)
   intake          Json? // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
+  appealMeta      Json? // DISCIPLINARY_APPEAL: the punishment being appealed { id, type, caseRef, source, reason, issuedAt, expiresAt }
   claimedById     String?
   claimedByName   String?
   claimedAt       DateTime?

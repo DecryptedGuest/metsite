@@ -112,10 +112,40 @@
     } catch (e) { $('sd-log').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   };
 
+  // IA-only card for a Disciplinary Appeal: the opener's Roblox + Discord
+  // identity, the punishment being appealed, and jump-to buttons. The server
+  // only sends `t.appeal` to handlers, so the opener never sees this.
+  function appealCardHtml(a) {
+    if (!a) return '';
+    const p = a.punishment || {}, o = a.opener || {};
+    const pfp = o.headshotUrl
+      ? `<img src="${esc(o.headshotUrl)}" alt="" style="width:56px;height:56px;border-radius:12px;object-fit:cover;background:#111;flex-shrink:0;">`
+      : `<div style="width:56px;height:56px;border-radius:12px;background:#1a1f2b;display:flex;align-items:center;justify-content:center;color:#8b93a1;flex-shrink:0;"><i class="ti ti-user"></i></div>`;
+    const rows = [];
+    if (o.robloxUsername || o.robloxId) rows.push(`<div><span style="color:var(--text-muted);">Roblox:</span> ${esc(o.robloxUsername || '—')}${o.robloxId ? ` <span style="color:var(--text-muted);">(${esc(o.robloxId)})</span>` : ''}</div>`);
+    if (o.discordUsername || o.discordId) rows.push(`<div><span style="color:var(--text-muted);">Discord:</span> ${esc(o.discordUsername || '—')}${o.discordId ? ` <span style="color:var(--text-muted);">(${esc(o.discordId)})</span>` : ''}</div>`);
+    const punLine = `<div style="margin-top:6px;"><span style="color:var(--text-muted);">Appealing:</span> <strong>${esc(p.type || 'Punishment')}</strong>${p.caseRef ? ` <span style="color:var(--text-muted);font-size:11px;">${esc(p.caseRef)}</span>` : ''}</div>`;
+    const reason = p.reason ? `<div style="margin-top:4px;color:var(--text-secondary);font-size:12px;">${esc(p.reason)}</div>` : '';
+    const btns = [];
+    if (o.robloxUrl)  btns.push(`<a href="${esc(o.robloxUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-brand-roblox"></i> Roblox profile</a>`);
+    if (a.caseUrl)    btns.push(`<a href="${esc(a.caseUrl)}" class="btn btn-ghost btn-sm"><i class="ti ti-folder-open"></i> Open case</a>`);
+    if (o.discordId)  btns.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${esc(o.discordId)}','${esc(o.robloxUsername || o.discordUsername || '')}')"><i class="ti ti-user-circle"></i> Full profile</button>`);
+    return `<div class="glass" style="border:1px solid var(--amber,#e8842a)33;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber,#e8842a);margin-bottom:10px;"><i class="ti ti-shield-lock"></i> IA · appeal details — not visible to the opener</div>
+      <div style="display:flex;gap:12px;">
+        ${pfp}
+        <div style="flex:1;min-width:0;font-size:13px;line-height:1.6;">${rows.join('')}${punLine}${reason}</div>
+      </div>
+      ${btns.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">${btns.join('')}</div>` : ''}
+    </div>`;
+  }
+
   function renderWorkspace(t) {
     $('sd-title').textContent = `${t.typeLabel} · ${t.openerName}`;
     renderToolbar(t);
     renderLog(t);
+    // Prepend the IA-only appeal card above the conversation (staff-only data).
+    if (t.appeal) { const log = $('sd-log'); if (log) log.insertAdjacentHTML('afterbegin', appealCardHtml(t.appeal)); }
     const composer = $('sd-composer');
     if (composer) composer.style.display = (t.caps && (t.caps.canReply || t.caps.canInternalNote)) ? '' : 'none';
   }

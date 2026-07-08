@@ -405,7 +405,22 @@ router.post('/tickets/:id/submit-intake', async (req, res) => {
       if (!row.answer.trim() && !row.attachments.length) return res.status(400).json({ error: `Please answer: ${q.prompt}` });
     }
 
-    const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { intake, status: 'OPEN' } });
+    // Appeals: persist the structured punishment the opener picked (for the
+    // IA-only card). Guarded to the appeal type; ignored otherwise.
+    let appealMeta;
+    if (t.type === 'DISCIPLINARY_APPEAL' && req.body && req.body.appeal && typeof req.body.appeal === 'object') {
+      const a = req.body.appeal;
+      appealMeta = {
+        id: a.id != null ? String(a.id) : null,
+        type: a.type ? String(a.type).slice(0, 60) : null,
+        caseRef: a.caseRef ? String(a.caseRef).slice(0, 120) : null,
+        source: a.source ? String(a.source).slice(0, 20) : null,
+        reason: a.reason ? String(a.reason).slice(0, 1000) : null,
+        issuedAt: a.issuedAt || null,
+        expiresAt: a.expiresAt || null,
+      };
+    }
+    const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { intake, status: 'OPEN', ...(appealMeta ? { appealMeta } : {}) } });
     const handoffMsg = await prisma.supportMessage.create({ data: {
       ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME,
       body: support.handoffMessage(t.type),
@@ -471,6 +486,36 @@ router.get('/tickets/:id', async (req, res) => {
       if (t.openerFp) or.push({ fingerprint: t.openerFp });
       const active = or.length ? await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }).catch(() => null) : null;
       out.openerBlacklisted = !!active;
+    }
+    // Appeal card — handlers/IA only. Enriches the punishment being appealed
+    // with the opener's Roblox + Discord identity and a jump-to-case link.
+    // Never attached for the opener, so it stays invisible to them.
+    if (req.user && support.canHandleTicket(req.user, t) && t.appealMeta) {
+      try {
+        const appeal = { punishment: t.appealMeta, opener: null, caseUrl: null };
+        if (t.openerId) {
+          const u = await prisma.user.findUnique({
+            where: { id: t.openerId },
+            select: { robloxId: true, robloxUsername: true, discordId: true, discordUsername: true, displayName: true },
+          }).catch(() => null);
+          if (u) {
+            let headshot = null;
+            if (u.robloxId) { try { headshot = await require('../lib/roblox').getRobloxAvatarHeadshot(u.robloxId); } catch (e) {} }
+            appeal.opener = {
+              robloxId: u.robloxId || null,
+              robloxUsername: u.robloxUsername || null,
+              robloxUrl: u.robloxId ? `https://www.roblox.com/users/${u.robloxId}/profile` : null,
+              headshotUrl: headshot,
+              discordId: u.discordId || null,
+              discordUsername: u.discordUsername || null,
+            };
+          }
+        }
+        if (t.appealMeta.source === 'case' && t.appealMeta.id) {
+          appeal.caseUrl = `/ia/dashboard?page=cases&case=${encodeURIComponent(t.appealMeta.id)}`;
+        }
+        out.appeal = appeal;
+      } catch (e) { /* enrichment is best-effort */ }
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: 'Failed to load the ticket' }); }
