@@ -29,6 +29,16 @@
         if (window.applyReduceMotion) window.applyReduceMotion(next);
         if (window.showToast) showToast(next ? 'Reduced motion on' : 'Reduced motion off', 'info');
       } },
+    { label: 'Toggle compact layout', icon: 'ti-layout-rows', action: () => {
+        var on = false; try { on = localStorage.getItem('iacms_density') === 'compact'; } catch (e) {}
+        var next = !on;
+        try { localStorage.setItem('iacms_density', next ? 'compact' : 'cosy'); } catch (e) {}
+        if (window.applyDensity) window.applyDensity(next);
+        if (window.showToast) showToast(next ? 'Compact layout on' : 'Comfortable layout', 'info');
+      } },
+    { label: 'Copy link to this page', icon: 'ti-link', action: () => {
+        if (window.copyText) window.copyText(location.href, 'Page link');
+      } },
     { label: 'Sign out', icon: 'ti-logout', action: () => {
         const f = document.createElement('form'); f.method = 'POST'; f.action = '/auth/logout';
         document.body.appendChild(f); f.submit();
