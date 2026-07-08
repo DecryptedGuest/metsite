@@ -64,8 +64,35 @@
     list.querySelectorAll('.cmdk-row').forEach(r => r.addEventListener('click', () => run(items[+r.dataset.i])));
   }
 
+  // ── Recently visited pages (MRU) ──
+  function getRecents() {
+    try { return JSON.parse(localStorage.getItem('iacms_recent_pages') || '[]'); } catch (e) { return []; }
+  }
+  function recordVisit() {
+    try {
+      const url = location.pathname + location.hash;
+      if (!location.pathname || location.pathname === '/' || location.pathname === '/login') return;
+      let label = (document.title || '').replace(/^MET\s*[·»|-]\s*/i, '').trim() || location.pathname;
+      let list = getRecents().filter(r => r.url !== url);
+      list.unshift({ label, url, icon: 'ti-history' });
+      list = list.slice(0, 5);
+      localStorage.setItem('iacms_recent_pages', JSON.stringify(list));
+    } catch (e) { /* ignore */ }
+  }
+
   function baseItems(q) {
     const nav = NAV.filter(n => !q || n.label.toLowerCase().includes(q.toLowerCase()));
+    // With no query, surface recent pages first (skipping the page we're on).
+    if (!q) {
+      const here = location.pathname + location.hash;
+      const recents = getRecents()
+        .filter(r => r.url !== here)
+        .map(r => ({ label: r.label, sub: 'Recent', icon: 'ti-history', url: r.url }));
+      if (recents.length) {
+        const recentUrls = new Set(recents.map(r => r.url));
+        return recents.concat(nav.filter(n => !n.url || !recentUrls.has(n.url)));
+      }
+    }
     return nav;
   }
   function onType() {
@@ -112,4 +139,8 @@
     if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); open ? close() : openPalette(); }
   });
   window.openCommandPalette = openPalette;
+
+  // Remember this page so it can appear under "Recent" next time.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', recordVisit);
+  else recordVisit();
 })();
