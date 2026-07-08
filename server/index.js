@@ -962,7 +962,10 @@ function sendPage(res, file) {
       const req = res.req;
       const host = String((req && (req.headers['x-forwarded-host'] || req.headers.host)) || '')
         .split(',')[0].trim().toLowerCase();
-      html = require('./lib/assets').injectAntiCopyGuard(html, host);
+      // Developers keep devtools/right-click; everyone else gets the deterrent.
+      let devState = 'unknown';
+      if (req && req.user) devState = req.user.role === 'DEVELOPER' ? 'dev' : 'nondev';
+      html = require('./lib/assets').injectAntiCopyGuard(html, host, devState);
     } catch (e) { /* never block the page render on the guard */ }
     res.type('html').send(html);
   } catch (e) { res.sendFile(file); }

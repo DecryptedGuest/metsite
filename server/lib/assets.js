@@ -137,8 +137,25 @@ function deterrentScript() {
 
 // Insert the guard + deterrents as early as possible (right after <head>) so
 // they run before the UI paints. Falls back to prepending if there's no <head>.
-function injectAntiCopyGuard(html, host) {
-  const inject = guardScript(host) + deterrentScript();
+//
+// `devState` describes who the page is being served to:
+//   'dev'     — a signed-in developer: keep full devtools/right-click access.
+//               We skip the deterrent and persist a bypass flag so public pages
+//               (hub/login, where the server can't see who they are) also skip.
+//   'nondev'  — a signed-in non-developer: apply the deterrent AND clear any
+//               bypass flag they may have set themselves, so they can't opt out.
+//   'unknown' — a public/unauthenticated page: apply the deterrent, which
+//               self-skips only if a dev bypass flag is already present.
+function injectAntiCopyGuard(html, host, devState) {
+  let extra;
+  if (devState === 'dev') {
+    extra = '<script>try{localStorage.setItem("iacms_devtools","1")}catch(e){}</script>';
+  } else if (devState === 'nondev') {
+    extra = '<script>try{localStorage.removeItem("iacms_devtools")}catch(e){}</script>' + deterrentScript();
+  } else {
+    extra = deterrentScript();
+  }
+  const inject = guardScript(host) + extra;
   let injected = false;
   const out = html.replace(/<head[^>]*>/i, (m) => { injected = true; return m + inject; });
   return injected ? out : (inject + html);
