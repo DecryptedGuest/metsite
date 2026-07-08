@@ -14,6 +14,7 @@
   let pendingIdentity = null;
   let myPunishments = null;      // cached /my-punishments (for the appeal picker)
   let selectedPunishment = null; // the punishment the opener picked to appeal
+  let pendingAppealId = null;    // deep-link ?appeal=<id> → auto-select in the picker
 
   let CFG = { types: [], isStaff: false, handleableTypes: [], me: null };
   const typeByKey = {};
@@ -67,8 +68,15 @@
     }
     wireComposer();
     // Deep link: /support?ticket=ID
-    const id = new URLSearchParams(location.search).get('ticket');
-    if (id) openTicket(id);
+    const params = new URLSearchParams(location.search);
+    const id = params.get('ticket');
+    if (id) return openTicket(id);
+    // Deep link: /support?appeal=<punishmentId|caseRef> → open a Disciplinary
+    // Appeal and pre-select that punishment (used by the punishment DM link).
+    if (params.has('appeal')) {
+      pendingAppealId = params.get('appeal') || null;
+      supOpenNew('DISCIPLINARY_APPEAL');
+    }
   }
 
   // ── Landing: panels ─────────────────────────────────────────────────
@@ -319,6 +327,13 @@
     }).join('');
     hint.innerHTML = `<div style="margin-bottom:6px;color:var(--text-muted);">Choose the punishment you're appealing:</div>${btns}
       <button class="btn btn-ghost btn-sm" onclick="supPick('Other / not listed')">Other / not listed</button>`;
+    // Deep-linked from a punishment DM → pre-select the matching punishment
+    // (still changeable). Match on the punishment id or its case reference.
+    if (pendingAppealId) {
+      const want = String(pendingAppealId); pendingAppealId = null;
+      const idx = list.findIndex(p => String(p.id) === want || (p.caseRef && String(p.caseRef) === want));
+      if (idx >= 0) window.supPickPunishment(idx);
+    }
   }
   window.supPickPunishment = function (i) {
     const p = (myPunishments || [])[i]; if (!p) return;
