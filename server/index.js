@@ -897,10 +897,16 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
       dbPrisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id, status: 'PASSED' }, select: { id: true } }).catch(() => null),
       dbPrisma.rankHistory.count({ where: { OR: [{ userId: req.user.id }, { discordId }] } }).catch(() => 0),
     ]);
+    // Division-based tile visibility: events-hosted → FLP; tryouts-hosted → HPC/CID.
+    let divs = [];
+    try { divs = Array.isArray(req.user.divisions) ? req.user.divisions : (typeof req.user.divisions === 'string' ? JSON.parse(req.user.divisions) : []); } catch (e) { divs = []; }
+    const inDiv = d => Array.isArray(divs) && divs.some(x => x && x.division === d);
     res.json({
       patrols, events,
       totalMinutes: (patrolAgg && patrolAgg._sum && patrolAgg._sum.totalMinutes) || 0,
       tryoutsHosted, examPassed: !!examPass, rankChanges,
+      showEvents: inDiv('FLP'),
+      showTryouts: inDiv('HPC') || inDiv('CID'),
       memberSince: req.user.createdAt,
     });
   } catch (e) { res.status(500).json({ error: 'Failed to load stats' }); }

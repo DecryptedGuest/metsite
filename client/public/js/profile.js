@@ -418,12 +418,12 @@ async function loadActivity() {
   const tile = (v, l, c) => `<div style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
       <div style="font-size:24px;font-weight:800;color:${c};line-height:1.1;">${v}</div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
-  document.getElementById('p-activity-stats').innerHTML =
+  let html =
     tile(s.patrols || 0, 'Patrols', 'var(--green,#22c55e)') +
-    tile(s.events || 0, 'Events', 'var(--amber,#e8842a)') +
-    tile(hours, 'Hours on patrol', 'var(--blue,#4a8fff)') +
-    tile(s.tryoutsHosted || 0, 'Tryouts hosted', 'var(--text-primary)') +
-    tile(s.rankChanges || 0, 'Rank changes', 'var(--text-primary)');
+    tile(hours, 'Total patrol hours', 'var(--blue,#4a8fff)');
+  if (s.showEvents)   html += tile(s.events || 0, 'Events hosted', 'var(--amber,#e8842a)');       // FLP only
+  if (s.showTryouts)  html += tile(s.tryoutsHosted || 0, 'Tryouts hosted', 'var(--text-primary)'); // HPC/CID only
+  document.getElementById('p-activity-stats').innerHTML = html;
   panel.style.display = '';
 }
 
