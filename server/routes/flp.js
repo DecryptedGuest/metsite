@@ -116,23 +116,44 @@ router.patch('/group/members/:userId/rank', requireFlpGroupAdmin, async (req, re
   if (!roleId) return res.status(400).json({ error: 'roleId is required' });
   try {
     const gid = flpGroupId();
-    // Guardrail: a non-developer can only assign ranks BELOW their own FLP rank.
+    // Guardrail: a non-developer can only assign ranks BELOW their own FLP rank,
+    // AND may only manage members who currently rank below them (so they can't
+    // demote a superior). The frontend hides the control; this enforces it.
     if (req.user.role !== 'DEVELOPER') {
+      const myRank = myFlpRank(req.user);
       const roles  = await listGroupRoles(gid);
       const target = roles.find(r => String(r.id) === String(roleId).split('/').pop());
       if (!target) return res.status(400).json({ error: 'Unknown role for this group.' });
-      if (Number(target.rank) >= myFlpRank(req.user)) {
+      if (Number(target.rank) >= myRank) {
         return res.status(403).json({ error: 'You can only assign ranks below your own.' });
+      }
+      const { getUserGroupRole } = require('../lib/roblox');
+      const cur = await getUserGroupRole(req.params.userId, gid).catch(() => null);
+      const curRank = cur && cur.rank != null ? Number(cur.rank) : Infinity;
+      if (curRank >= myRank) {
+        return res.status(403).json({ error: 'You can only manage members ranked below your own.' });
       }
     }
     await changeGroupRank(req.params.userId, roleId, gid);
+    require('../lib/audit').log(req.user, { category: 'GROUP', action: 'RANK_CHANGE', division: 'FLP',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Changed FLP group rank for Roblox user ${req.params.userId}` });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/group/members/:userId', requireFlpGroupAdmin, async (req, res) => {
   try {
-    await exileFromGroup(req.params.userId, flpGroupId());
+    const gid = flpGroupId();
+    // Can't kick a member who currently outranks (or equals) you (developers bypass).
+    if (req.user.role !== 'DEVELOPER') {
+      const { getUserGroupRole } = require('../lib/roblox');
+      const cur = await getUserGroupRole(req.params.userId, gid).catch(() => null);
+      const curRank = cur && cur.rank != null ? Number(cur.rank) : Infinity;
+      if (curRank >= myFlpRank(req.user)) {
+        return res.status(403).json({ error: 'You can only kick members ranked below your own.' });
+      }
+    }
+    await exileFromGroup(req.params.userId, gid);
     require('../lib/audit').log(req.user, { category: 'GROUP', action: 'KICK', division: 'FLP',
       target: { type: 'roblox_user', id: req.params.userId }, summary: `Kicked Roblox user ${req.params.userId} from FLP group` });
     res.json({ success: true });

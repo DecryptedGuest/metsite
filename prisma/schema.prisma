@@ -18,7 +18,7 @@ model User {
   discordUsername String
   displayName     String?
   discordAvatar   String?
-  role            Role      @default(IA)
+  role            Role      @default(NONE) // no IA role unless one is actually resolved at login
   isBlacklisted   Boolean   @default(false)
   blacklistReason String?
   mustReauth      Boolean   @default(false)
@@ -283,6 +283,7 @@ model PushSubscription {
 }
 
 enum Role {
+  NONE // no IA site role — division-only members / plain members; grants no IA access
   IA
   HICOMM
   SUPERVISOR

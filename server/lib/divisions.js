@@ -93,6 +93,13 @@ const LEAD_RANK_PATTERNS = {
 function isLeadRank(division, roleName, rankNumber) {
   const envMin = parseInt(process.env[`LEAD_MIN_RANK_${division}`], 10);
   if (Number.isFinite(envMin)) return Number(rankNumber) >= envMin;
+  // Prefer the authoritative rank→tier table (ranks.js): LEAD = the division's
+  // HIGH tier. This avoids the loose regex swallowing lower ranks by substring
+  // (e.g. "Unit Commander" is MIDDLE, not Command; "Assistant Director" is HIGH).
+  const { tierForRank } = require('./ranks');
+  const t = tierForRank(division, roleName);
+  if (t) return t === 'HIGH';
+  // Fallback for role names not present in the table (whitespace/suffix variants).
   const pat = LEAD_RANK_PATTERNS[division];
   return pat ? pat.test(String(roleName || '')) : false;
 }

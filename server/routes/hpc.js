@@ -319,7 +319,7 @@ function tryoutSummary(t) {
 // GET /api/hpc/tryouts — upcoming + recent tryouts.
 router.get('/tryouts', async (req, res) => {
   try {
-    const tryouts = await prisma.tryout.findMany({ orderBy: { scheduledAt: 'desc' }, take: 100 });
+    const tryouts = await prisma.tryout.findMany({ where: { division: 'HPC' }, orderBy: { scheduledAt: 'desc' }, take: 100 });
     res.json(tryouts.map(t => ({ ...tryoutSummary(t), isMine: t.hostId === req.user.id })));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load tryouts' });
@@ -340,7 +340,7 @@ function canManageTryout(user, t) {
 // co-host also get `canManage:true` to drive it from here.
 router.get('/tryouts/live', async (req, res) => {
   try {
-    const live = await prisma.tryout.findMany({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' }, take: 20 });
+    const live = await prisma.tryout.findMany({ where: { status: 'LIVE', division: 'HPC' }, orderBy: { scheduledAt: 'desc' }, take: 20 });
     res.json(live.map(t => ({
       id: t.id, hostName: t.hostName, coHostName: t.coHostName,
       lockState: t.lockState, scheduledAt: t.scheduledAt,
@@ -357,7 +357,7 @@ router.get('/tryouts/live', async (req, res) => {
 // applies it, so the site can drive the tryout like the in-game panel.
 router.post('/tryouts/:id/command', async (req, res) => {
   try {
-    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    const t = await prisma.tryout.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
     if (!canManageTryout(req.user, t)) return res.status(403).json({ error: 'Only the host or co-host can manage this tryout.' });
     if (t.status !== 'LIVE') return res.status(400).json({ error: 'This tryout is not live.' });
@@ -421,7 +421,7 @@ router.post('/tryouts', async (req, res) => {
 // POST /api/hpc/tryouts/:id/cancel — host (or developer) cancels a tryout.
 router.post('/tryouts/:id/cancel', async (req, res) => {
   try {
-    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    const t = await prisma.tryout.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
     if (!canManageTryout(req.user, t)) {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can cancel this tryout.' });
@@ -438,7 +438,7 @@ router.post('/tryouts/:id/cancel', async (req, res) => {
 // POST /api/hpc/tryouts/:id/complete — mark a live tryout finished.
 router.post('/tryouts/:id/complete', async (req, res) => {
   try {
-    const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
+    const t = await prisma.tryout.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
     if (!canManageTryout(req.user, t)) {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can end this tryout.' });
@@ -475,7 +475,7 @@ router.get('/tryout-logs/context', (req, res) => {
 // GET /api/hpc/tryout-logs/mine — the host's own logs (drafts + submitted).
 router.get('/tryout-logs/mine', async (req, res) => {
   try {
-    const logs = await prisma.tryoutLog.findMany({ where: { hostId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 100 });
+    const logs = await prisma.tryoutLog.findMany({ where: { hostId: req.user.id, division: 'HPC' }, orderBy: { createdAt: 'desc' }, take: 100 });
     res.json(logs.map(l => tryoutLogsLib.serialize(l)));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load your tryout logs' });
@@ -486,7 +486,7 @@ router.get('/tryout-logs/mine', async (req, res) => {
 router.get('/tryout-logs/pending', requireTryoutApprover, async (req, res) => {
   try {
     const status = ['PENDING', 'APPROVED', 'DENIED'].includes(req.query.status) ? req.query.status : 'PENDING';
-    const logs = await prisma.tryoutLog.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, take: 200 });
+    const logs = await prisma.tryoutLog.findMany({ where: { status, division: 'HPC' }, orderBy: { createdAt: 'desc' }, take: 200 });
     res.json(logs.map(l => tryoutLogsLib.serialize(l)));
   } catch (err) {
     res.status(500).json({ error: 'Failed to load the review queue' });
@@ -496,7 +496,7 @@ router.get('/tryout-logs/pending', requireTryoutApprover, async (req, res) => {
 // GET /api/hpc/tryout-logs/:id — full detail (owner or approver only).
 router.get('/tryout-logs/:id', async (req, res) => {
   try {
-    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.hostId !== req.user.id && !canApproveTryouts(req.user)) {
       return res.status(403).json({ error: 'Not your tryout log.' });
@@ -512,7 +512,7 @@ router.get('/tryout-logs/:id', async (req, res) => {
 // results/strikes on the site before submitting.
 router.post('/tryout-logs/:id/submit', async (req, res) => {
   try {
-    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.hostId !== req.user.id) return res.status(403).json({ error: 'Only the host can submit this log.' });
     if (log.status !== 'DRAFT') return res.status(400).json({ error: 'This log has already been submitted.' });
@@ -540,7 +540,7 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
 // POST /api/hpc/tryout-logs/:id/approve { note? } — HICOMM approves → +1 point.
 router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) => {
   try {
-    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
 
@@ -569,7 +569,7 @@ router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) 
 // POST /api/hpc/tryout-logs/:id/deny { note } — HICOMM denies.
 router.post('/tryout-logs/:id/deny', requireTryoutApprover, async (req, res) => {
   try {
-    const log = await prisma.tryoutLog.findUnique({ where: { id: req.params.id } });
+    const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: 'HPC' } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be denied.' });
 

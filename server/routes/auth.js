@@ -238,7 +238,11 @@ router.get('/discord/callback', async (req, res) => {
           discordUsername: discordUser.username,
           discordAvatar:   avatarUrl,
           displayName,
-          ...(systemRole ? { role: systemRole } : {}),
+          // Reflect the resolved IA site role — NONE when there isn't one, so a
+          // division-only member (e.g. CID group but no IA role) is never left
+          // with the old default IA role and its IA access. Their division
+          // access comes from `divisions`, not `role`.
+          role:            systemRole || 'NONE',
           divisions:       divisions,
           metRoleIds:      Array.isArray(memberRoles) ? memberRoles : [],
           mustReauth:      false,
@@ -250,7 +254,7 @@ router.get('/discord/callback', async (req, res) => {
           discordAvatar:   avatarUrl,
           displayName,
           metRoleIds:      Array.isArray(memberRoles) ? memberRoles : [],
-          ...(systemRole ? { role: systemRole } : {}),
+          role:            systemRole || 'NONE',
           divisions:       divisions,
         },
       });

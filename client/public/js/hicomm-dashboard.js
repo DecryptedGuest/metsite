@@ -180,7 +180,7 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Joined ${fmtWhen(o.joinedAt)}${o.lastLogin ? ' · last seen ' + ago(o.lastLogin) : ''}</div></div>
         <div style="display:flex;flex-direction:column;gap:8px;">
           <button class="btn btn-ghost btn-sm" onclick="hcViewAs('${o.id}')"><i class="ti ti-eye-search"></i> View access</button>
-          <button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="hcForceReauth('${o.id}','${esc(o.name)}')"><i class="ti ti-logout-2"></i> Force re-auth</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="hcForceReauth('${o.id}','${jsAttr(o.name)}')"><i class="ti ti-logout-2"></i> Force re-auth</button>
         </div>
       </div></div>
       <div id="hc-viewas"></div>

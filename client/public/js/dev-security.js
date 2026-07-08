@@ -62,8 +62,8 @@
         <td style="font-size:12px;">${esc(s.device || (s.userAgent || '').slice(0, 40) || '—')}</td>
         <td style="font-size:12px;">${fmt(s.lastSeenAt)}${stateTag}</td>
         <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">
-          <button class="btn btn-ghost btn-sm" title="All logins for this account" onclick="secAccountLogins('${s.userId}','${esc((s.user&&s.user.name)||'')}')"><i class="ti ti-history"></i></button>
-          <button class="btn btn-ghost btn-sm" title="Force this officer to sign in again everywhere" onclick="secForceReauth('${s.userId}','${esc((s.user&&s.user.name)||'')}')"><i class="ti ti-logout-2"></i></button>
+          <button class="btn btn-ghost btn-sm" title="All logins for this account" onclick="secAccountLogins('${s.userId}','${jsAttr((s.user&&s.user.name)||'')}')"><i class="ti ti-history"></i></button>
+          <button class="btn btn-ghost btn-sm" title="Force this officer to sign in again everywhere" onclick="secForceReauth('${s.userId}','${jsAttr((s.user&&s.user.name)||'')}')"><i class="ti ti-logout-2"></i></button>
           <button class="btn btn-danger btn-sm" ${s.current ? 'disabled title="This is your current session"' : (s.revoked || s.expired ? 'disabled' : '')} onclick="secKill('${s.id}')"><i class="ti ti-plug-off"></i> Kill</button>
         </td></tr>`;
     }).join('');

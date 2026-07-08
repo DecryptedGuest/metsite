@@ -318,7 +318,7 @@ async function checkMediaAccess(req, m) {
   }
   const role = user && user.role;
   const allowed =
-    (m.visibility === 'IA'        && !!role) ||
+    (m.visibility === 'IA'        && ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) ||
     (m.visibility === 'STAFF'     && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(role)) ||
     (m.visibility === 'DEVELOPER' && role === 'DEVELOPER');
   return { allowed, user };
@@ -511,7 +511,13 @@ app.get('/media/:id', async (req, res) => {
 
     const buf = Buffer.isBuffer(m.data) ? m.data : Buffer.from(m.data);
     const total = buf.length;
-    res.set('Content-Type', m.mimeType);
+    // SVG (and any HTML-ish) content can carry inline scripts that would run on
+    // our own origin if rendered inline. Never let those render: serve as plain
+    // text and force a download instead.
+    const unsafeInline = /svg|html|xml/i.test(m.mimeType || '');
+    res.set('Content-Type', unsafeInline ? 'text/plain; charset=utf-8' : m.mimeType);
+    if (unsafeInline) res.set('Content-Disposition', `attachment; filename="${String(m.filename || 'file').replace(/[^\w.\-]+/g, '_')}"`);
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Accept-Ranges', 'bytes');
     // Modest cache only — so changing a file from PUBLIC to private actually
     // stops it being served from a CDN/browser cache within minutes.
@@ -1004,10 +1010,9 @@ app.get('/mobile/:token', recordVisit, async (req, res) => {
     await dbPrisma.mobileLoginToken.update({ where: { id: row.id }, data: { usedAt: new Date() } });
     const user = await dbPrisma.user.findUnique({ where: { id: row.userId } });
     if (!user || user.isBlacklisted || user.mustReauth) return res.redirect('/login');
-    const jwtToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('iacms_token', jwtToken, {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    // Create a real Session row so the token carries a `sid` — requireAuth
+    // rejects any token without one, which previously broke the whole handoff.
+    await require('./routes/auth').createSession(req, res, user);
     return res.redirect('/app?welcome=1');
   } catch (e) {
     console.error('[App] handoff failed:', e.message);

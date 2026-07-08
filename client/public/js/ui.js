@@ -501,11 +501,29 @@ function officerCell(c) {
   return `<div style="display:flex;align-items:center;gap:7px;">${avatar}${name}</div>`;
 }
 
+// Escape for HTML text AND attribute contexts. Critically escapes quotes too —
+// textContent->innerHTML only escapes & < >, which lets user content break out
+// of a quoted attribute (title="…", href="…", src="…", alt="…") and inject an
+// event handler. Safe for double- and single-quoted attributes.
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str == null ? '' : str).replace(/[&<>"'`]/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;',
+  }[c]));
 }
+// Safe interpolation for a JS string literal inside an on* attribute, e.g.
+// onclick="fn('${jsAttr(x)}')". HTML-entity escaping is NOT enough here — the
+// browser HTML-decodes the attribute before the JS parser sees it, so a decoded
+// quote would still break out of the string. So backslash-escape the JS
+// specials and HTML-escape only the attribute-delimiter quote.
+function jsAttr(str) {
+  return String(str == null ? '' : str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '\\x3C')
+    .replace(/\r?\n/g, '\\n');
+}
+if (typeof window !== 'undefined') window.jsAttr = jsAttr;
 
 function emptyRow(colspan, message = 'No cases found') {
   return `<tr>
