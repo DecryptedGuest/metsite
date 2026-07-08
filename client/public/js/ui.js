@@ -932,3 +932,26 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore);
   else restore();
 })();
+
+// ── Icon-font resilience ─────────────────────────────────────────
+// The Tabler icon webfont normally loads from a CDN. On networks where the
+// CDN is blocked/slow the glyphs vanish (empty squares) and the UI looks
+// "broken" / empty. If the font isn't available shortly after load, pull in a
+// self-hosted copy from /vendor/tabler/ so icons still render. Harmless if the
+// local files aren't present (nothing to load); a no-op when the CDN worked.
+(function () {
+  if (typeof document === 'undefined' || !document.fonts || !document.fonts.check) return;
+  function ensureIcons() {
+    try {
+      if (document.fonts.check('16px "tabler-icons"')) return; // CDN font is present
+      if (document.getElementById('tabler-local')) return;
+      var l = document.createElement('link');
+      l.id = 'tabler-local'; l.rel = 'stylesheet';
+      l.href = '/vendor/tabler/tabler-icons.min.css';
+      document.head.appendChild(l);
+    } catch (e) { /* ignore */ }
+  }
+  // Give the CDN a moment, then check (and re-check once more).
+  document.fonts.ready.then(function () { setTimeout(ensureIcons, 800); setTimeout(ensureIcons, 2500); })
+    .catch(function () { setTimeout(ensureIcons, 800); });
+})();
