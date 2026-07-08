@@ -47,9 +47,10 @@ async function requireAuth(req, res, next) {
 
   if (user.isBlacklisted) {
     res.clearCookie('iacms_token');
+    const reason = (user.blacklistReason || '').trim();
     return isApi
-      ? res.status(403).json({ error: 'Your account has been blacklisted.' })
-      : res.redirect('/denied?reason=blacklisted');
+      ? res.status(403).json({ error: 'Your account has been blacklisted.', reason: reason || undefined })
+      : res.redirect('/denied?reason=blacklisted' + (reason ? '&msg=' + encodeURIComponent(reason.slice(0, 300)) : ''));
   }
 
   if (user.mustReauth) {
@@ -80,9 +81,21 @@ async function requireAuth(req, res, next) {
         : res.redirect('/login?error=access_revoked');
     }
     req.sessionId = session.id;
-    // Throttled lastSeen bump (~5 min) — never block the request on it.
+    // Rolling ("remember me") session: keep active users signed in. Piggyback
+    // on the ~5-min lastSeen throttle to also push the expiry window forward
+    // and reissue the cookie, so simply returning to the site keeps you logged
+    // in until you explicitly log out. Never blocks the request.
     if (Date.now() - new Date(session.lastSeenAt).getTime() > 5 * 60 * 1000) {
-      prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(() => {});
+      const SESSION_DAYS = parseInt(process.env.SESSION_DAYS, 10) || 60;
+      const newExpiry = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+      prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date(), expiresAt: newExpiry } }).catch(() => {});
+      try {
+        const rolled = jwt.sign({ userId: user.id, sid: session.id }, process.env.JWT_SECRET, { expiresIn: `${SESSION_DAYS}d` });
+        res.cookie('iacms_token', rolled, {
+          httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
+          maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
+        });
+      } catch (e) { /* non-fatal — the existing cookie still works */ }
     }
   } else {
     res.clearCookie('iacms_token');

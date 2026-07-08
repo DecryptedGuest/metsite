@@ -346,7 +346,10 @@ async function createSession(req, res, user) {
   const ip = getClientIp(req);
   const ua = (req.headers['user-agent'] || '').slice(0, 400);
   const device = describeDevice(ua);
-  const SESSION_DAYS = 7;
+  // Rolling "remember me" window. The session slides forward on activity
+  // (see requireAuth) so a returning browser stays signed in until the user
+  // logs out manually. Configurable via SESSION_DAYS; defaults to 60 days.
+  const SESSION_DAYS = parseInt(process.env.SESSION_DAYS, 10) || 60;
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
 
   let isNewDevice = false;

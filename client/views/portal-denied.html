@@ -76,8 +76,17 @@
     document.getElementById('denied-sub').textContent = 'You must be a member of the MET Police Discord server to sign in.';
     document.getElementById('denied-card').style.display = 'none';
   } else if (reason === 'blacklisted') {
+    document.getElementById('denied-title').textContent = 'Account Blacklisted';
     document.getElementById('denied-sub').textContent = 'Your account has been blacklisted from this system.';
-    document.getElementById('denied-card').style.display = 'none';
+    const msg = new URLSearchParams(location.search).get('msg');
+    if (msg) {
+      // Show the reason the user was blacklisted, plus how to appeal.
+      document.getElementById('denied-reason-1').textContent = 'Reason: ' + msg;
+      document.getElementById('denied-card').querySelectorAll('.reason-row span')[1].textContent =
+        'If you believe this is a mistake, you can appeal through the support desk.';
+    } else {
+      document.getElementById('denied-card').style.display = 'none';
+    }
   } else if (divisionName) {
     document.getElementById('denied-sub').textContent =
       'Your Discord account does not have the role required to access ' + divisionName + '.';
