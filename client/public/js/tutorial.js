@@ -123,8 +123,8 @@
       // The hub ("/") is guest-accessible, so it's excluded — a logged-out
       // visitor never gets prompted anywhere except support. /dashboard and
       // /profile are auth-gated, so only signed-in members reach them.
-      const p = location.pathname;
-      const ok = /^\/support/.test(p) || p === '/dashboard' || p === '/profile';
+      const path = location.pathname;
+      const ok = /^\/support/.test(path) || path === '/dashboard' || path === '/profile';
       if (!ok) return;
       let seen = false; try { seen = !!localStorage.getItem(seenKey()); } catch (e) {}
       if (seen) return;
