@@ -262,8 +262,10 @@ router.post('/tickets', async (req, res) => {
   const type = String((req.body && req.body.type) || '').toUpperCase();
   const cfg  = support.typeConfig(type);
   if (!cfg) return res.status(400).json({ error: 'Unknown ticket type.' });
-  // Refuse blacklisted guests (matched by IP or browser fingerprint).
-  const bl = await blacklistMatch(req);
+  // Refuse blacklisted GUESTS (matched by IP/fingerprint). Signed-in members are
+  // accountable via their openerId and handled by account-level isBlacklisted,
+  // so the IP/fingerprint blacklist never applies to them.
+  const bl = req.user ? null : await blacklistMatch(req);
   if (bl) return res.status(403).json({ error: 'You have been blacklisted from opening support tickets.' });
   try {
     // Anonymous openers get a per-ticket token; logged-in openers are matched by id.
@@ -320,7 +322,8 @@ router.post('/tickets/:id/upload', rawUpload, async (req, res) => {
     // access check happens on the ticket-scoped serving route below.
     const m = await prisma.media.create({ data: {
       title: null, filename, mimeType, size: buf.length, data: buf,
-      kind: isVideo ? 'video' : 'image', visibility: 'DEVELOPER', uploaderId: req.user.id,
+      kind: isVideo ? 'video' : 'image', visibility: 'DEVELOPER',
+      uploaderId: req.user ? req.user.id : null, // guest openers have no account
     } });
     res.status(201).json({ mediaId: m.id, kind: m.kind, name: filename, url: `/api/support/tickets/${t.id}/media/${m.id}` });
   } catch (e) {
@@ -332,11 +335,28 @@ router.post('/tickets/:id/upload', rawUpload, async (req, res) => {
 // ── GET /api/support/tickets/:id/media/:mediaId — serve an attachment ──
 router.get('/tickets/:id/media/:mediaId', async (req, res) => {
   try {
-    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    const t = await prisma.supportTicket.findUnique({
+      where: { id: req.params.id },
+      include: { messages: { select: { attachments: true } } },
+    });
     if (!t || !canSee(req, t)) return res.status(403).end();
+    // The media must actually belong to THIS ticket (intake or a message
+    // attachment) — otherwise it's an IDOR to serve any Media row by id.
+    const allowed = new Set();
+    for (const q of (Array.isArray(t.intake) ? t.intake : []))
+      for (const a of (Array.isArray(q.attachments) ? q.attachments : []))
+        if (a && a.mediaId) allowed.add(String(a.mediaId));
+    for (const msg of (t.messages || []))
+      for (const a of (Array.isArray(msg.attachments) ? msg.attachments : []))
+        if (a && a.mediaId) allowed.add(String(a.mediaId));
+    if (!allowed.has(String(req.params.mediaId))) return res.status(404).end();
     const m = await prisma.media.findUnique({ where: { id: req.params.mediaId }, select: { data: true, mimeType: true } });
     if (!m) return res.status(404).end();
-    res.set('Content-Type', m.mimeType);
+    // Never render svg/html/xml inline on our origin (stored-XSS vector).
+    const unsafeInline = /svg|html|xml/i.test(m.mimeType || '');
+    res.set('Content-Type', unsafeInline ? 'text/plain; charset=utf-8' : m.mimeType);
+    if (unsafeInline) res.set('Content-Disposition', 'attachment');
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Cache-Control', 'private, no-cache');
     res.send(m.data);
   } catch (e) {
@@ -460,6 +480,7 @@ router.get('/tickets/:id', async (req, res) => {
 // Basic identity for anyone signed in; IA staff additionally see the person's
 // IA rank (site role) + divisions. Used by the clickable profile cards in chat.
 router.get('/user-profile', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in first.' });
   try {
     const { userId, discordId } = req.query;
     let u = null;

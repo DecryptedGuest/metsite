@@ -788,7 +788,11 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
     if (req.user.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(existing))
       return res.status(403).json({ error: 'Only HICOMM can approve a case involving a Blacklist or Termination.' });
 
-    const updated = await prisma.case.update({ where: { id: req.params.id }, data: { status: 'APPROVED' } });
+    // Atomically claim the PENDING→APPROVED transition so two concurrent
+    // approvals can't both run the side effects (double demotion / dupe rows).
+    const claim = await prisma.case.updateMany({ where: { id: req.params.id, status: 'PENDING' }, data: { status: 'APPROVED' } });
+    if (claim.count === 0) return res.status(409).json({ error: 'Case is not pending' });
+    const updated = await prisma.case.findUnique({ where: { id: req.params.id } });
 
     await prisma.caseAction.create({
       data: { caseId: existing.id, actionType: 'APPROVED', performedBy: req.user.id, notes: 'Approved by HICOMM/Developer' },
@@ -912,7 +916,9 @@ router.patch('/:id/deny', requireHICOMM, async (req, res) => {
     if (req.user.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(existing))
       return res.status(403).json({ error: 'Only HICOMM can deny a case involving a Blacklist or Termination.' });
 
-    const updated = await prisma.case.update({ where: { id: req.params.id }, data: { status: 'DENIED' } });
+    const claim = await prisma.case.updateMany({ where: { id: req.params.id, status: 'PENDING' }, data: { status: 'DENIED' } });
+    if (claim.count === 0) return res.status(409).json({ error: 'Case is not pending' });
+    const updated = await prisma.case.findUnique({ where: { id: req.params.id } });
     await prisma.caseAction.create({
       data: { caseId: existing.id, actionType: 'DENIED', performedBy: req.user.id, notes: 'Denied by HICOMM/Developer' },
     });
@@ -942,6 +948,13 @@ router.patch('/:id', async (req, res) => {
     const isOwnerPending = existing.userId === req.user.id && existing.status === 'PENDING';
     if (!isElevated && !isOwnerPending) {
       return res.status(403).json({ error: 'You can only edit your own pending case.' });
+    }
+    // Same separation-of-duties gate as approve/deny: a SUPERVISOR can neither
+    // edit a case that already carries a Blacklist/Termination nor inject one.
+    if (req.user.role === 'SUPERVISOR' &&
+        (caseHasHicommOnlyPunishment(existing) ||
+         (Array.isArray(rawActions) && rawActions.some(a => a && HICOMM_ONLY_ACTIONS.includes(a.action))))) {
+      return res.status(403).json({ error: 'Only HICOMM can edit a case involving a Blacklist or Termination.' });
     }
 
     const data = {};

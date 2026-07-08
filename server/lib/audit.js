@@ -11,6 +11,15 @@ const crypto = require('crypto');
 
 function auditSecret() { return process.env.AUDIT_HMAC_SECRET || process.env.JWT_SECRET || 'met-audit-fallback'; }
 
+// Deterministic JSON: sort object keys recursively so the byte stream is the
+// same at write time and at verify time (jsonb reorders keys, which otherwise
+// makes a legitimate multi-key metadata row read as "tampered").
+function stableStringify(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+}
+
 // A per-row tamper-evidence HMAC over the immutable fields. Editing any field in
 // the DB without the secret invalidates the hash, which the verify pass detects.
 function rowHash(r) {
@@ -18,7 +27,7 @@ function rowHash(r) {
     r.id, r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
     r.category, r.action, r.actorId || '', r.actorName || '', r.actorRole || '',
     r.targetType || '', r.targetId || '', r.targetName || '', r.division || '',
-    r.summary || '', r.ip || '', JSON.stringify(r.metadata == null ? null : r.metadata),
+    r.summary || '', r.ip || '', stableStringify(r.metadata == null ? null : r.metadata),
   ].join('␟');
   return crypto.createHmac('sha256', auditSecret()).update(canonical).digest('hex');
 }

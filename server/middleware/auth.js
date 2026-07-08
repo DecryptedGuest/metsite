@@ -155,6 +155,15 @@ async function maybeAuth(req, res, next) {
   try { user = await prisma.user.findUnique({ where: { id: payload.userId } }); }
   catch (e) { req.user = null; return next(); }
   if (!user || user.isBlacklisted || user.mustReauth) { req.user = null; return next(); }
+  // Honour per-session revocation / force-reauth here too — a revoked or
+  // sid-less session degrades to anonymous (guest) rather than keeping staff
+  // capabilities on maybeAuth routes like /api/support.
+  if (!payload.sid) { req.user = null; return next(); }
+  let session = null;
+  try { session = await prisma.session.findUnique({ where: { id: payload.sid } }); }
+  catch (e) { req.user = null; return next(); }
+  if (!session || session.revokedAt || session.expiresAt < new Date()) { req.user = null; return next(); }
+  req.sessionId = session.id;
   req.user = user;
   next();
   maybeRefreshRoles(user);

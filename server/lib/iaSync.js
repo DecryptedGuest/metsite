@@ -63,11 +63,17 @@ async function syncCases(limit = 10000) {
     FROM cases c LEFT JOIN users u ON u.id = c."userId"
     ORDER BY c."createdAt" ASC LIMIT ${Number(limit) || 10000}
   `);
-  let synced = 0;
+  let synced = 0, skipped = 0;
   for (const r of rows) {
     try {
+      // IA and MET number cases independently, so an IA "#5" can collide with a
+      // native MET "#5". Never overwrite a natively-created case: only touch rows
+      // that don't exist yet or were themselves written by IA sync.
+      const ex = await prisma.case.findUnique({ where: { caseRef: r.caseRef }, select: { origin: true } }).catch(() => null);
+      if (ex && ex.origin !== 'IA') { skipped++; console.warn('[IA] case sync skip (native case owns ref)', r.caseRef); continue; }
       const userId = await resolve(r.ownerDiscordId || r.officerDiscordId, r.ownerDiscordUsername);
       const data = {
+        origin: 'IA',
         userId,
         officerDiscordId: r.officerDiscordId || null,
         robloxUserId: r.robloxUserId || null,
@@ -94,7 +100,7 @@ async function syncCases(limit = 10000) {
       synced++;
     } catch (e) { console.warn('[IA] case sync skip', r.caseRef, '-', e.message); }
   }
-  return { ok: true, synced, total: rows.length };
+  return { ok: true, synced, skipped, total: rows.length };
 }
 
 async function syncTickets(limit = 10000) {

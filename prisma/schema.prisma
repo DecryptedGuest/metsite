@@ -112,6 +112,7 @@ model CaptureLog {
 model Case {
   id                          String     @id @default(uuid())
   caseRef                     String     @unique
+  origin                      String     @default("NATIVE") // NATIVE | IA — IA sync never overwrites a NATIVE case
   userId                      String
   officerDiscordId            String?
   robloxUserId                String?
@@ -233,7 +234,7 @@ model Media {
   data       Bytes
   kind       String // 'image' | 'video'
   visibility String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
-  uploaderId String
+  uploaderId String?  // null for guest (anonymous) support-ticket uploads
   views      Int      @default(0)
   width      Int? // pixel dimensions (for video/image OG embeds)
   height     Int?
@@ -241,7 +242,7 @@ model Media {
   posterMime String? // e.g. 'image/jpeg'; presence signals a poster exists
   createdAt  DateTime @default(now())
 
-  uploader User @relation(fields: [uploaderId], references: [id])
+  uploader User? @relation(fields: [uploaderId], references: [id])
 
   @@index([createdAt])
   @@map("media")

@@ -221,7 +221,7 @@ router.get('/approvals', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load approvals' }); }
 });
 
-router.post('/approvals', async (req, res) => {
+router.post('/approvals', requireStepUpEnforced, async (req, res) => {
   try {
     const action = String((req.body && req.body.action) || '').toUpperCase();
     if (!FOUR_EYES_ACTIONS.includes(action)) return res.status(400).json({ error: 'Unknown action' });
