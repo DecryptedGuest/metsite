@@ -231,6 +231,32 @@ router.get('/tryouts', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load tryouts' }); }
 });
 
+// ── GET /api/support/my-punishments — the signed-in member's disciplinary
+// history with expiry, for the Disciplinary Appeal picker. Guests → []. ──
+router.get('/my-punishments', async (req, res) => {
+  if (!req.user) return res.json({ punishments: [] });
+  try {
+    const { getCasePunishments } = require('../lib/punishments');
+    const [botPuns, casePuns] = await Promise.all([
+      prisma.metPunishment.findMany({ where: { discordId: req.user.discordId }, orderBy: { issuedAt: 'desc' }, take: 100 }).catch(() => []),
+      getCasePunishments({ discordId: req.user.discordId, robloxId: req.user.robloxId, robloxUsername: req.user.robloxUsername }).catch(() => []),
+    ]);
+    const now = Date.now();
+    const punishments = casePuns
+      .concat(botPuns.map(p => ({ id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy, caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt, source: 'bot' })))
+      .sort((a, b) => new Date(b.issuedAt) - new Date(a.issuedAt))
+      .map(p => {
+        const exp = p.expiresAt ? new Date(p.expiresAt).getTime() : null;
+        const permanent = exp == null;
+        const expired = exp != null && exp <= now;
+        const daysLeft = exp != null ? Math.max(0, Math.ceil((exp - now) / 86400000)) : null;
+        return { id: String(p.id), source: p.source, type: p.type || 'Punishment', reason: p.reason || null,
+          caseRef: p.caseRef || null, issuedAt: p.issuedAt, expiresAt: p.expiresAt || null, permanent, expired, daysLeft };
+      });
+    res.json({ punishments });
+  } catch (e) { res.json({ punishments: [] }); }
+});
+
 // ── POST /api/support/tickets { type } — open a ticket, start intake ──
 router.post('/tickets', async (req, res) => {
   const type = String((req.body && req.body.type) || '').toUpperCase();
@@ -258,6 +284,13 @@ router.post('/tickets', async (req, res) => {
       ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME,
       body: `Hi — I'm the MET support assistant. I'll take a few details for your **${cfg.label}**, then hand you to the right team. You can answer below.`,
     } });
+    // Appeals: a short pointer on how appeals work before the questions start.
+    if (type === 'DISCIPLINARY_APPEAL') {
+      await prisma.supportMessage.create({ data: {
+        ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME,
+        body: `**Before you appeal:** if you believe the punishment was a mistake or you're innocent, you can appeal it now. If it was valid but you'd like it reviewed, appeals open after a short waiting period — around **2 weeks** for minor punishments and **3 weeks** for more serious ones — and you'll need to explain why it should be reconsidered. An **expired** punishment no longer counts against you, but you can still raise one here to speak with an investigator.`,
+      } });
+    }
     res.status(201).json({ ticket: serializeTicket(t, { user: req.user, opener: true }), questions: cfg.questions, token });
   } catch (e) {
     console.error('[Support] create ticket failed:', e.message);

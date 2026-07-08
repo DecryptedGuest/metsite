@@ -31,7 +31,9 @@ const TYPES = {
     blurb: 'Appeal a strike, demotion, exile, or blacklist you think was unfair.',
     roles: IA_STAFF,
     questions: [
-      { id: 'action',   prompt: 'What action was taken against you?', kind: 'choice', choices: ['Strike', 'Demotion', 'Exile', 'Blacklist', 'Other'] },
+      // `punishment` kind → the client offers the opener's own punishments (with
+      // expiry countdowns) to pick from; `choices` is the guest / no-history fallback.
+      { id: 'action',   prompt: 'Which punishment are you appealing?', kind: 'punishment', choices: ['Strike', 'Demotion', 'Exile', 'Blacklist', 'Other'] },
       { id: 'why',      prompt: 'Why do you believe it was unjustified? Explain your side.', kind: 'longtext' },
       { id: 'evidence', prompt: 'Attach any supporting evidence — screenshots, clips, or links.', kind: 'evidence', optional: true },
     ],

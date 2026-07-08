@@ -12,6 +12,8 @@
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) => `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);">${txt}</a>`);
   let pendingIdentity = null;
+  let myPunishments = null;      // cached /my-punishments (for the appeal picker)
+  let selectedPunishment = null; // the punishment the opener picked to appeal
 
   let CFG = { types: [], isStaff: false, handleableTypes: [], me: null };
   const typeByKey = {};
@@ -263,7 +265,9 @@
     askNext();
   }
   function showQuestionHint(q) {
-    if (q.kind === 'choice' && q.choices) {
+    if (q.kind === 'punishment') {
+      renderPunishmentPicker(q);
+    } else if (q.kind === 'choice' && q.choices) {
       $('sup-hint').innerHTML = 'Choose or type: ' + q.choices.map(c => `<button class="btn btn-ghost btn-sm" style="margin:2px;" onclick="supPick('${esc(c)}')">${esc(c)}</button>`).join('');
     } else if (q.kind === 'evidence') {
       $('sup-hint').textContent = 'Attach files with the paperclip, and/or paste links. Then press Send.';
@@ -282,6 +286,54 @@
     });
   }
   window.supPick = function (val) { $('sup-input').value = val; };
+
+  // ── Disciplinary Appeal: pick from the member's own punishments ──────
+  async function loadMyPunishments() {
+    if (myPunishments) return myPunishments;
+    try { const r = await api('/api/support/my-punishments'); myPunishments = (r && r.punishments) || []; }
+    catch (e) { myPunishments = []; }
+    return myPunishments;
+  }
+  function punMeta(p) {
+    if (p.expired) return { label: 'expired', color: 'var(--text-muted, #8b93a1)' };
+    if (p.permanent) return { label: 'no expiry', color: 'var(--text-muted, #8b93a1)' };
+    if (p.daysLeft != null) return { label: p.daysLeft + ' day' + (p.daysLeft === 1 ? '' : 's') + ' left', color: p.daysLeft <= 3 ? 'var(--amber, #e8842a)' : 'var(--green, #22c55e)' };
+    return { label: '', color: 'var(--text-muted)' };
+  }
+  async function renderPunishmentPicker(q) {
+    const hint = $('sup-hint');
+    hint.innerHTML = '<span style="color:var(--text-muted);">Loading your punishments…</span>';
+    const list = await loadMyPunishments();
+    const fallback = () => {
+      const choices = (q.choices && q.choices.length) ? q.choices : ['Strike', 'Demotion', 'Exile', 'Blacklist', 'Other'];
+      hint.innerHTML = 'Choose or type: ' + choices.map(c => `<button class="btn btn-ghost btn-sm" style="margin:2px;" onclick="supPick('${esc(c)}')">${esc(c)}</button>`).join('');
+    };
+    if (!list || !list.length) return fallback(); // guest / no history → manual list
+    const btns = list.map((p, i) => {
+      const m = punMeta(p);
+      const when = p.issuedAt ? new Date(p.issuedAt).toLocaleDateString() : '';
+      return `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;white-space:normal;height:auto;margin-bottom:6px;padding:8px 10px;${p.expired ? 'opacity:.7;' : ''}" onclick="supPickPunishment(${i})">
+        <strong>${esc(p.type)}</strong>${p.caseRef ? ` <span style="color:var(--text-muted);font-size:11px;">${esc(p.caseRef)}</span>` : ''}
+        <span style="color:var(--text-muted);font-size:11px;">· ${esc(when)}</span>
+        <span style="color:${m.color};font-size:11px;">· ${esc(m.label)}</span></button>`;
+    }).join('');
+    hint.innerHTML = `<div style="margin-bottom:6px;color:var(--text-muted);">Choose the punishment you're appealing:</div>${btns}
+      <button class="btn btn-ghost btn-sm" onclick="supPick('Other / not listed')">Other / not listed</button>`;
+  }
+  window.supPickPunishment = function (i) {
+    const p = (myPunishments || [])[i]; if (!p) return;
+    const m = punMeta(p);
+    const when = p.issuedAt ? new Date(p.issuedAt).toLocaleDateString() : 'unknown date';
+    selectedPunishment = p;
+    $('sup-input').value = `${p.type}${p.caseRef ? ' (' + p.caseRef + ')' : ''} — issued ${when} · ${m.label}`;
+    if (p.expired) {
+      appendBubble({ authorKind: 'BOT', authorName: BOT_NAME,
+        body: "Heads up — that punishment has **expired**, so it may no longer count against you. You can still submit this appeal and speak to an investigator about it.",
+        createdAt: new Date().toISOString() });
+      scrollLog();
+    }
+    $('sup-input').focus();
+  };
 
   function recordAnswer(q, answer, attachments, identity) {
     intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments, identity: identity || null });
