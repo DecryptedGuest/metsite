@@ -110,4 +110,21 @@ function serialize(a) {
   };
 }
 
-module.exports = { record, log, serialize, write, clientIp, verify, rowHash };
+// Throttled "access denied" logger for suspicious probing of privileged gates.
+// Records at most once per (user, action) per 5 minutes so an attacker hammering
+// an endpoint can't flood the audit trail, while still surfacing the attempt.
+const _deniedThrottle = new Map();
+function denied(req, action, summary) {
+  try {
+    const uid = (req && req.user && req.user.id) || (req && clientIp(req)) || 'anon';
+    const key = uid + ':' + action;
+    const now = Date.now();
+    if (now - (_deniedThrottle.get(key) || 0) < 5 * 60 * 1000) return;
+    _deniedThrottle.set(key, now);
+    if (_deniedThrottle.size > 5000) _deniedThrottle.clear(); // bound memory
+    record({ req, action, category: 'SECURITY', targetType: 'user',
+      targetId: (req && req.user && req.user.id) || null, summary });
+  } catch (e) { /* logging must never break the request */ }
+}
+
+module.exports = { record, log, serialize, write, clientIp, verify, rowHash, denied };

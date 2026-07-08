@@ -236,6 +236,7 @@ function requireMetHicomm(req, res, next) {
   const { userIsMetHicomm } = require('../lib/metRank');
   userIsMetHicomm(req.user).then(ok => {
     if (ok) return next();
+    try { require('../lib/audit').denied(req, 'ACCESS_DENIED_HICOMM', `Non-HICOMM (${req.user.role}) tried to reach a MET HICOMM endpoint: ${req.method} ${req.originalUrl}`); } catch (e) {}
     if (req.originalUrl.startsWith('/api')) return res.status(403).json({ error: 'MET HICOMM access required' });
     return res.redirect('/hicomm/denied');
   }).catch(() => res.status(403).json({ error: 'MET HICOMM access required' }));

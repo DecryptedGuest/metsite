@@ -21,9 +21,12 @@
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.addEventListener('click', () => showPage(b.dataset.page)));
 
   function evLine(e) {
-    const sev = /LOCKDOWN|REVOKE|BLACKLIST|BAN|FORCE|KICK|DELETE/.test(e.action) ? 'var(--red)' : /BROADCAST|RANK|APPROVE/.test(e.action) ? 'var(--amber)' : 'var(--text-secondary)';
-    return `<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border,#2a2a2a);font-size:13px;">
-      <span style="color:${sev};font-weight:700;min-width:130px;">${esc(e.action)}</span>
+    // Attack-adjacent signals (failed logins, brute-force lockouts, QR phishing
+    // mismatches, denied privileged access) are flagged distinctly.
+    const suspicious = /FAIL|LOCKOUT|MISMATCH|DENIED|SUSPICIOUS|SSRF/.test(e.action);
+    const sev = (suspicious || /LOCKDOWN|REVOKE|BLACKLIST|BAN|FORCE|KICK|DELETE/.test(e.action)) ? 'var(--red)' : /BROADCAST|RANK|APPROVE/.test(e.action) ? 'var(--amber)' : 'var(--text-secondary)';
+    return `<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border,#2a2a2a);font-size:13px;${suspicious ? 'background:rgba(224,80,58,.06);' : ''}">
+      <span style="color:${sev};font-weight:700;min-width:130px;">${suspicious ? '<i class="ti ti-alert-triangle"></i> ' : ''}${esc(e.action)}</span>
       <span style="flex:1;">${esc(e.summary || (e.category + '/' + e.action))}<div style="font-size:11px;color:var(--text-muted);">${esc(e.actorName || 'System')}${e.ip ? ' · ' + esc(e.ip) : ''} · ${fmt(e.createdAt)}</div></span></div>`;
   }
 
@@ -35,12 +38,13 @@
       ]);
       $('sec-stats').innerHTML = [
         ['Active sessions', sessions.length, 'var(--blue)'],
+        ['Suspicious (24h)', alerts.suspicious24h || 0, (alerts.suspicious24h || 0) ? 'var(--red)' : 'var(--green)'],
         ['Security events (7d)', alerts.events.length, 'var(--amber)'],
         ['Multi-IP users', alerts.multiIp.length, alerts.multiIp.length ? 'var(--red)' : 'var(--green)'],
         ['2FA compliant', `${comp.compliant}/${comp.total}`, 'var(--green)'],
       ].map(([l, v, c]) => `<div class="sec-stat"><div class="v" style="color:${c};">${v}</div><div class="l">${l}</div></div>`).join('');
       $('sec-overview-feed').innerHTML = alerts.events.length ? alerts.events.slice(0, 20).map(evLine).join('') : '<div class="table-empty-text" style="padding:16px;">No recent security events.</div>';
-      const b = $('sec-alert-badge'); if (b) { const n = alerts.multiIp.length; b.style.display = n ? 'inline-flex' : 'none'; b.textContent = n; }
+      const b = $('sec-alert-badge'); if (b) { const n = alerts.multiIp.length + (alerts.suspicious24h || 0); b.style.display = n ? 'inline-flex' : 'none'; b.textContent = n; }
     } catch (e) { $('sec-stats').innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
 

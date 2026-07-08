@@ -139,6 +139,7 @@ function requireHICOMMStrict(req, res, next) {
 function requireDeveloper(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (req.user.role === 'DEVELOPER') return next();
+  try { require('../lib/audit').denied(req, 'ACCESS_DENIED_DEV', `Non-developer (${req.user.role}) tried to reach a developer endpoint: ${req.method} ${req.originalUrl}`); } catch (e) {}
   return res.status(403).json({ error: 'Developer access required' });
 }
 

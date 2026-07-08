@@ -40,6 +40,9 @@ function usable(u) { return u && !u.isBlacklisted && !u.mustReauth; }
 
 const codeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many code requests — wait a few minutes and try again.' } });
+// Brute-force guard for the passwordless verify endpoints.
+const verifyLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts — wait a few minutes and try again.' } });
 
 // ── 1. Discord DM 6-digit code ───────────────────────────────────────
 // POST /api/login/code/request { discord } — resolve the account, DM a code.
@@ -82,16 +85,20 @@ router.post('/code/request', codeLimiter, async (req, res) => {
 });
 
 // POST /api/login/code/verify { id, code }
-router.post('/code/verify', async (req, res) => {
+router.post('/code/verify', verifyLimiter, async (req, res) => {
   try {
     const { id, code } = req.body || {};
     const c = await prisma.loginChallenge.findUnique({ where: { id: String(id || '') } }).catch(() => null);
     if (!c || c.method !== 'CODE' || c.status !== 'PENDING') return res.status(400).json({ error: 'Invalid or expired code. Request a new one.' });
     if (new Date(c.expiresAt) < new Date()) return res.status(400).json({ error: 'That code has expired. Request a new one.' });
-    if (c.attempts >= MAX_ATTEMPTS) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {}); require('../lib/bot').deleteLoginDm(c.id).catch(() => {}); return res.status(429).json({ error: 'Too many attempts. Request a new code.' }); }
+    if (c.attempts >= MAX_ATTEMPTS) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {}); require('../lib/bot').deleteLoginDm(c.id).catch(() => {}); audit.record({ req, action: 'LOGIN_CODE_LOCKOUT', category: 'SECURITY', targetType: 'user', targetId: c.userId || null, summary: 'Discord sign-in code locked out after too many wrong attempts (possible brute force)' }); return res.status(429).json({ error: 'Too many attempts. Request a new code.' }); }
 
     const ok = c.userId && String(code || '').trim() === c.code;
-    if (!ok) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { attempts: { increment: 1 } } }).catch(() => {}); return res.status(400).json({ error: 'Incorrect code.' }); }
+    if (!ok) {
+      await prisma.loginChallenge.update({ where: { id: c.id }, data: { attempts: { increment: 1 } } }).catch(() => {});
+      audit.record({ req, action: 'LOGIN_CODE_FAIL', category: 'SECURITY', targetType: 'user', targetId: c.userId || null, summary: `Wrong Discord sign-in code (attempt ${(c.attempts || 0) + 1})` });
+      return res.status(400).json({ error: 'Incorrect code.' });
+    }
 
     const user = await prisma.user.findUnique({ where: { id: c.userId } });
     if (!usable(user)) return res.status(403).json({ error: 'This account cannot sign in.' });
@@ -187,6 +194,7 @@ router.post('/qr/approve', requireAuth, async (req, res) => {
     if (new Date(c.expiresAt) < new Date()) return res.status(400).json({ error: 'This sign-in request has expired.' });
     const code = String((req.body && req.body.matchCode) || '').trim();
     if (!c.matchCode || code !== c.matchCode) {
+      audit.record({ req, action: 'QR_CODE_MISMATCH', category: 'SECURITY', targetType: 'user', targetId: req.user.id, summary: 'QR sign-in approval attempted with the wrong match code (possible QR phishing)' });
       return res.status(400).json({ error: 'That code doesn\'t match the one on the sign-in screen. Only continue if you started this sign-in yourself.' });
     }
     await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'APPROVED', userId: req.user.id } });
@@ -217,7 +225,7 @@ router.post('/passkey/options', async (req, res) => {
 });
 
 // POST /api/login/passkey/verify { response }
-router.post('/passkey/verify', async (req, res) => {
+router.post('/passkey/verify', verifyLimiter, async (req, res) => {
   try {
     const { rpID, origin } = rpInfo(req);
     let expectedChallenge = null;
@@ -232,7 +240,10 @@ router.post('/passkey/verify', async (req, res) => {
       expectedChallenge, expectedOrigin: origin, expectedRPID: rpID,
       authenticator: { credentialID: passkey.credentialId, credentialPublicKey: passkey.publicKey, counter: Number(passkey.counter), transports: toB64urlArray(passkey.transports) },
     });
-    if (!verification.verified) return res.status(400).json({ error: 'Passkey verification failed.' });
+    if (!verification.verified) {
+      audit.record({ req, action: 'PASSKEY_FAIL', category: 'SECURITY', targetType: 'user', targetId: passkey.userId || null, summary: 'Passkey sign-in failed verification (bad signature/challenge)' });
+      return res.status(400).json({ error: 'Passkey verification failed.' });
+    }
 
     const user = await prisma.user.findUnique({ where: { id: passkey.userId } });
     if (!usable(user)) return res.status(403).json({ error: 'This account cannot sign in.' });

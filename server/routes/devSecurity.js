@@ -144,7 +144,12 @@ router.get('/alerts', async (req, res) => {
       cur.ips.add(s.ip); byUser.set(k, cur);
     }
     const multiIp = [...byUser.values()].filter(v => v.ips.size >= 2).map(v => ({ name: v.name, ips: [...v.ips] }));
-    res.json({ events: events.map(audit.serialize), multiIp });
+    // Count attack-adjacent signals (failed logins, lockouts, QR-phishing
+    // mismatches, denied privileged access) in the last 24h for the badge.
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const SUSPICIOUS = /FAIL|LOCKOUT|MISMATCH|DENIED|SUSPICIOUS|SSRF/;
+    const suspicious24h = events.filter(e => new Date(e.createdAt).getTime() >= dayAgo && SUSPICIOUS.test(e.action || '')).length;
+    res.json({ events: events.map(audit.serialize), multiIp, suspicious24h });
   } catch (e) { res.status(500).json({ error: 'Failed to load alerts' }); }
 });
 
