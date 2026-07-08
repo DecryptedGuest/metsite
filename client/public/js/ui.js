@@ -814,3 +814,38 @@ document.addEventListener('DOMContentLoaded', () => {
   // Reflect the state at load (e.g. page opened while already offline).
   if (navigator.onLine === false) banner(true);
 })();
+
+// ── External-link hardening ──────────────────────────────────────
+// Any target="_blank" link without rel="noopener" lets the opened page
+// reach back via window.opener (tabnabbing). Harden static links on load
+// and any links injected later via innerHTML.
+(function () {
+  if (typeof document === 'undefined') return;
+  function harden(root) {
+    var links = (root || document).querySelectorAll ? (root || document).querySelectorAll('a[target="_blank"]') : [];
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      var rel = (a.getAttribute('rel') || '');
+      if (!/\bnoopener\b/.test(rel)) a.setAttribute('rel', (rel + ' noopener noreferrer').trim());
+    }
+  }
+  function start() {
+    harden(document);
+    try {
+      var mo = new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          var added = muts[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var n = added[j];
+            if (n.nodeType !== 1) continue;
+            if (n.tagName === 'A') harden(n.parentNode || document);
+            else harden(n);
+          }
+        }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    } catch (e) { /* observer unsupported → static sweep still applied */ }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
