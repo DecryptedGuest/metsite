@@ -519,8 +519,42 @@ window.toggleDensity = function () {
   if (window.showToast) showToast(next ? 'Compact layout on' : 'Comfortable layout', 'info');
 };
 
+// ── What's New ──────────────────────────────────────────────────────
+// Dev-maintained changelog, newest first. Bump the `id` when you add an
+// entry — the "New" badge lights until the member has viewed it.
+const CHANGELOG = [
+  { id: '2026-07-08', date: '8 Jul 2026', title: 'Personalisation & polish', items: [
+      'New Appearance settings: accent colour, light/dark, compact layout and reduce-motion.',
+      'Profile now shows your activity stats and achievement progress.',
+      'Quick-copy Discord/Roblox ID chips, richer active-sessions list.',
+      'Press "?" anywhere for keyboard shortcuts; ⌘K remembers recent pages.',
+    ] },
+];
+function renderWhatsNew() {
+  const panel = document.getElementById('p-whatsnew-panel');
+  const body = document.getElementById('p-whatsnew');
+  if (!panel || !body || !CHANGELOG.length) return;
+  let seen = ''; try { seen = localStorage.getItem('iacms_changelog_seen') || ''; } catch (e) {}
+  const newest = CHANGELOG[0].id;
+  if (seen !== newest) document.getElementById('p-whatsnew-badge').style.display = '';
+  body.innerHTML = CHANGELOG.slice(0, 4).map(e => `
+    <div style="padding:6px 0 12px;border-bottom:1px solid var(--border-dim,rgba(255,255,255,.06));">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;">
+        <span style="font-size:13px;font-weight:700;">${escHtml(e.title)}</span>
+        <span style="font-size:11px;color:var(--text-muted);">${escHtml(e.date)}</span>
+      </div>
+      <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+        ${e.items.map(i => `<li>${escHtml(i)}</li>`).join('')}
+      </ul>
+    </div>`).join('');
+  panel.style.display = '';
+  // Mark the newest entry as seen once the panel has been rendered/viewed.
+  try { localStorage.setItem('iacms_changelog_seen', newest); } catch (e) {}
+}
+
 loadProfile();
 loadActivity();
+renderWhatsNew();
 renderAccents();
 renderReduceMotionBtn();
 renderDensityBtn();
