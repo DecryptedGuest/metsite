@@ -107,25 +107,60 @@ router.post('/code/verify', async (req, res) => {
 });
 
 // ── 2. QR approval (approve from a logged-in device) ─────────────────
-// POST /api/login/qr/start → returns a pending challenge + its QR to display.
-router.post('/qr/start', async (req, res) => {
+// Anti-QRLJacking: the flow is bound to the initiating browser (a secret cookie
+// gates status polling), a 2-digit number-match code must be confirmed by the
+// approver, and the approval page shows the initiating device's context so a
+// victim can recognise an unfamiliar device and decline.
+const qrLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many sign-in requests — wait a few minutes and try again.' } });
+const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+const qrCookieName = (id) => 'qr_' + String(id).replace(/[^a-zA-Z0-9]/g, '');
+
+// POST /api/login/qr/start → returns a pending challenge + its QR + match code.
+router.post('/qr/start', qrLimiter, async (req, res) => {
   try {
-    const c = await prisma.loginChallenge.create({ data: { method: 'QR', ip: ipOf(req), expiresAt: new Date(Date.now() + QR_TTL_MS) } });
+    const secret    = crypto.randomBytes(24).toString('hex');
+    const matchCode = String(crypto.randomInt(10, 100)); // 2 digits
+    const ua        = String(req.headers['user-agent'] || '').slice(0, 400);
+    const c = await prisma.loginChallenge.create({ data: {
+      method: 'QR', ip: ipOf(req), userAgent: ua, matchCode, secretHash: sha256(secret),
+      expiresAt: new Date(Date.now() + QR_TTL_MS),
+    } });
+    // Bind status polling to THIS browser — an attacker who only has the id/URL
+    // can't complete the flow to receive the session cookie.
+    res.cookie(qrCookieName(c.id), secret, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: QR_TTL_MS });
     const approveUrl = `${baseUrl(req)}/link/approve?id=${c.id}`;
     const qr = await QRCode.toDataURL(approveUrl, { width: 240, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b0f1a', light: '#ffffff' } });
-    res.json({ id: c.id, qr, approveUrl, expiresInMs: QR_TTL_MS });
+    res.json({ id: c.id, qr, approveUrl, expiresInMs: QR_TTL_MS, matchCode });
   } catch (e) {
     console.error('[AuthAlt] qr/start failed:', e.message);
     res.status(500).json({ error: 'Could not start QR sign-in.' });
   }
 });
 
-// GET /api/login/qr/status?id — the browser polls; on approval this sets the
-// session cookie on THIS (browser) response and reports approved.
-router.get('/qr/status', async (req, res) => {
+// GET /api/login/qr/context?id — the approving (logged-in) device reads the
+// initiating device's context so it can be shown before approving.
+router.get('/qr/context', async (req, res) => {
   try {
     const c = await prisma.loginChallenge.findUnique({ where: { id: String(req.query.id || '') } }).catch(() => null);
+    if (!c || c.method !== 'QR' || c.status !== 'PENDING' || new Date(c.expiresAt) < new Date()) return res.status(404).json({ error: 'This sign-in request is no longer valid.' });
+    let device = 'an unknown device';
+    try { device = require('./auth').describeDevice(c.userAgent || '') || device; } catch (e) {}
+    res.json({ device, ip: c.ip || null, startedAt: c.createdAt, matchCode: c.matchCode || null });
+  } catch (e) { res.status(500).json({ error: 'Could not load request.' }); }
+});
+
+// GET /api/login/qr/status?id — the browser polls; on approval this sets the
+// session cookie on THIS (browser) response and reports approved. Requires the
+// initiator secret cookie so only the browser that started the flow gets in.
+router.get('/qr/status', async (req, res) => {
+  try {
+    const id = String(req.query.id || '');
+    const c = await prisma.loginChallenge.findUnique({ where: { id } }).catch(() => null);
     if (!c || c.method !== 'QR') return res.json({ status: 'expired' });
+    // Initiator binding: this must be the browser that started the request.
+    const secret = req.cookies && req.cookies[qrCookieName(id)];
+    if (!secret || !c.secretHash || sha256(secret) !== c.secretHash) return res.json({ status: 'pending' });
     if (c.status === 'CONSUMED') return res.json({ status: 'consumed' });
     if (new Date(c.expiresAt) < new Date()) return res.json({ status: 'expired' });
     if (c.status !== 'APPROVED' || !c.userId) return res.json({ status: 'pending' });
@@ -133,6 +168,7 @@ router.get('/qr/status', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: c.userId } });
     if (!usable(user)) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {}); return res.json({ status: 'denied' }); }
     await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {});
+    res.clearCookie(qrCookieName(id));
     await createSession(req, res, user);
     audit.record({ req, action: 'LOGIN_QR', category: 'auth', targetType: 'user', targetId: user.id, summary: 'Signed in via QR approved on another device' });
     res.json({ status: 'approved' });
@@ -142,13 +178,19 @@ router.get('/qr/status', async (req, res) => {
   }
 });
 
-// POST /api/login/qr/approve { id } — the logged-in device approves the browser.
+// POST /api/login/qr/approve { id, matchCode } — the logged-in device approves.
+// The approver must confirm the 2-digit code shown on the initiating screen.
 router.post('/qr/approve', requireAuth, async (req, res) => {
   try {
     const c = await prisma.loginChallenge.findUnique({ where: { id: String((req.body && req.body.id) || '') } }).catch(() => null);
     if (!c || c.method !== 'QR' || c.status !== 'PENDING') return res.status(400).json({ error: 'This sign-in request is no longer valid.' });
     if (new Date(c.expiresAt) < new Date()) return res.status(400).json({ error: 'This sign-in request has expired.' });
+    const code = String((req.body && req.body.matchCode) || '').trim();
+    if (!c.matchCode || code !== c.matchCode) {
+      return res.status(400).json({ error: 'That code doesn\'t match the one on the sign-in screen. Only continue if you started this sign-in yourself.' });
+    }
     await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'APPROVED', userId: req.user.id } });
+    audit.record({ req, action: 'LOGIN_QR_APPROVE', category: 'auth', targetType: 'user', targetId: req.user.id, summary: 'Approved a QR sign-in from another device' });
     res.json({ ok: true });
   } catch (e) {
     console.error('[AuthAlt] qr/approve failed:', e.message);

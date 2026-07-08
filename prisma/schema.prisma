@@ -794,6 +794,9 @@ model LoginChallenge {
   status    String   @default("PENDING") // PENDING | APPROVED | CONSUMED
   attempts  Int      @default(0)
   ip        String?
+  userAgent String?  // QR: the initiating device, shown to the approver for context
+  matchCode String?  // QR: 2-digit number-match code the approver must confirm
+  secretHash String? // QR: sha256 of the initiator secret (binds status polling)
   createdAt DateTime @default(now())
   expiresAt DateTime
 

@@ -90,7 +90,10 @@
       const r = await api('/api/login/qr/start', { method: 'POST' });
       const wrap = document.getElementById('alt-qr-wrap');
       if (!wrap) return;
-      wrap.innerHTML = `<img class="alt-qr" src="${r.qr}" alt="Sign-in QR code" /><div class="alt-desc" style="text-align:center;">Waiting for approval… this code expires in 3 minutes.</div>`;
+      wrap.innerHTML = `<img class="alt-qr" src="${r.qr}" alt="Sign-in QR code" />
+        ${r.matchCode ? `<div class="alt-desc" style="text-align:center;margin-top:6px;">When approving on your other device, confirm this code:</div>
+          <div style="text-align:center;font-size:30px;font-weight:800;letter-spacing:.15em;color:var(--blue,#4a8fff);margin:2px 0 6px;">${esc(String(r.matchCode))}</div>` : ''}
+        <div class="alt-desc" style="text-align:center;">Waiting for approval… this code expires in 3 minutes.</div>`;
       const started = Date.now();
       qrTimer = setInterval(async () => {
         if (Date.now() - started > r.expiresInMs) { stopQr(); wrap.innerHTML = `<div class="alt-desc" style="text-align:center;color:var(--amber,#e8842a);">This code expired.</div><button class="btn btn-ghost btn-discord-full" id="alt-qr-retry"><i class="ti ti-refresh"></i> New code</button>`; document.getElementById('alt-qr-retry').addEventListener('click', qrStart); return; }

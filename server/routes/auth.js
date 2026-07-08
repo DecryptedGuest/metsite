@@ -569,5 +569,6 @@ router.buildRedirectUri = buildRedirectUri;
 // the cookie without redirecting (for XHR flows); it throws on failure.
 router.establishSession = establishSession;
 router.createSession = createSession;
+router.describeDevice = describeDevice;
 
 module.exports = router;
