@@ -105,6 +105,8 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Opt out of AI training/indexing/archiving for compliant crawlers.
+  res.setHeader('X-Robots-Tag', 'noai, noimageai, noarchive');
   // camera=(self) is permitted for the exam webcam-proctoring feature; all
   // other powerful features are denied.
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), payment=(), camera=(self)');
@@ -166,6 +168,37 @@ app.use(cookieParser());
 // CSRF: hand every visitor a token cookie their JS can echo back on mutations.
 const { issueCsrfToken, requireCsrf } = require('./middleware/csrf');
 app.use(issueCsrfToken);
+
+// Block self-identifying AI crawlers/agents and headless scrapers from the
+// HTML pages (self-exempts API/auth/webhooks/assets so integrations are safe).
+const { botGuard } = require('./middleware/botGuard');
+app.use(botGuard);
+
+// robots.txt — the polite layer: ask well-behaved crawlers (incl. AI trainers)
+// not to crawl at all. Advisory, but the major AI bots honour it.
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(
+    'User-agent: GPTBot\nDisallow: /\n\n' +
+    'User-agent: OAI-SearchBot\nDisallow: /\n\n' +
+    'User-agent: ChatGPT-User\nDisallow: /\n\n' +
+    'User-agent: anthropic-ai\nDisallow: /\n\n' +
+    'User-agent: ClaudeBot\nDisallow: /\n\n' +
+    'User-agent: Claude-Web\nDisallow: /\n\n' +
+    'User-agent: Claude-User\nDisallow: /\n\n' +
+    'User-agent: CCBot\nDisallow: /\n\n' +
+    'User-agent: Google-Extended\nDisallow: /\n\n' +
+    'User-agent: PerplexityBot\nDisallow: /\n\n' +
+    'User-agent: Perplexity-User\nDisallow: /\n\n' +
+    'User-agent: Bytespider\nDisallow: /\n\n' +
+    'User-agent: Amazonbot\nDisallow: /\n\n' +
+    'User-agent: Applebot-Extended\nDisallow: /\n\n' +
+    'User-agent: Meta-ExternalAgent\nDisallow: /\n\n' +
+    'User-agent: cohere-ai\nDisallow: /\n\n' +
+    'User-agent: Diffbot\nDisallow: /\n\n' +
+    '# Everything here is behind sign-in anyway.\n' +
+    'User-agent: *\nDisallow: /\n'
+  );
+});
 
 // ── Site-private gate (developer-controlled) ─────────────────────
 // When sitePrivate is on, nobody but a logged-in DEVELOPER can reach the
