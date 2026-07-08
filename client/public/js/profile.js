@@ -415,7 +415,7 @@ async function loadActivity() {
   const panel = document.getElementById('p-activity-panel');
   if (!panel) return;
   const hours = Math.round((s.totalMinutes || 0) / 6) / 10; // 1dp
-  const tile = (v, l, c) => `<div style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
+  const tile = (v, l, c) => `<div class="met-tile" style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
       <div style="font-size:24px;font-weight:800;color:${c};line-height:1.1;">${v}</div>
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
   let html =

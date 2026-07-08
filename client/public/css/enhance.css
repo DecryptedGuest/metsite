@@ -22,12 +22,19 @@
 .btn-icon:hover, .theme-toggle:hover { transform: translateY(-1px) scale(1.08); }
 .btn-icon:active, .theme-toggle:active { transform: scale(.94); }
 
-/* ── Cards: gentle lift + accent border on hover ────────────────────── */
-.stat-card:hover, .sup-panel:hover, a.profile-div-card:hover {
+/* ── Cards / tiles: gentle lift + accent border on hover ────────────── */
+/* Applies to clickable cards AND display-only tiles (e.g. My Activity) so
+   everything card-like gives a little life on hover. */
+.stat-card, .sup-panel, a.profile-div-card, .met-tile {
+  transition: transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease, border-color .2s ease, background-color .18s ease;
+}
+.stat-card:hover, .sup-panel:hover, a.profile-div-card:hover, .met-tile:hover {
   transform: translateY(-3px);
   box-shadow: 0 12px 32px rgba(0,0,0,.30);
-  border-color: var(--blue-dim, rgba(74,143,255,.30));
+  border-color: var(--blue-dim, rgba(74,143,255,.45));
 }
+/* A subtle inner glow on display tiles so they feel alive without a click. */
+.met-tile:hover { background: var(--blue-dim, rgba(74,143,255,.06)); }
 /* Big panels: no jumpy transform — just a soft glow so dense dashboards stay calm */
 .panel:hover { box-shadow: 0 10px 30px rgba(0,0,0,.22); border-color: var(--blue-dim, rgba(74,143,255,.22)); }
 

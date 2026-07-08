@@ -119,13 +119,16 @@
   window.metTour = {
     start: function () { run(stepsFor(pageKey())); },
     offerIfFirstVisit: function () {
-      // Only auto-offer on the main dashboard and the support page — the two
-      // that warrant a walkthrough. The topbar "Tour" button covers the rest.
-      const k = pageKey();
-      if (k !== 'profile' && k !== 'support') return;
+      // Auto-offer only on the support page and the signed-in dashboard/profile.
+      // The hub ("/") is guest-accessible, so it's excluded — a logged-out
+      // visitor never gets prompted anywhere except support. /dashboard and
+      // /profile are auth-gated, so only signed-in members reach them.
+      const p = location.pathname;
+      const ok = /^\/support/.test(p) || p === '/dashboard' || p === '/profile';
+      if (!ok) return;
       let seen = false; try { seen = !!localStorage.getItem(seenKey()); } catch (e) {}
       if (seen) return;
-      if (!stepsFor(k).length) return;
+      if (!stepsFor(pageKey()).length) return;
       // A small, dismissible prompt — not a forced overlay.
       const p = document.createElement('div');
       p.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:12400;max-width:300px;background:var(--panel-solid,#151a24);border:1px solid var(--border,#2a2f3a);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.45);padding:14px 16px;';
