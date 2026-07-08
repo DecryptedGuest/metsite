@@ -21,11 +21,29 @@ function divWhere(division, extra = {}) {
   return division ? { division, ...extra } : { ...extra };
 }
 
+// Parse a ?days= value → a clamped day count, or 0 for the "all time" sentinel.
+const MAX_ALLTIME_DAYS = 3650; // safety cap on all-time daily buckets (~10y)
+function normDays(v) {
+  if (v == null) return 30;
+  const s = String(v).toLowerCase();
+  if (s === 'all' || s === '0') return 0;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) ? Math.min(180, Math.max(7, n)) : 30;
+}
+// All-time mode: number of daily buckets spanning the earliest of `dates` → today.
+function allTimeBuckets(dates) {
+  const now = Date.now();
+  let min = now;
+  for (const d of dates) { if (d == null) continue; const t = new Date(d).getTime(); if (Number.isFinite(t) && t < min) min = t; }
+  return Math.min(MAX_ALLTIME_DAYS, Math.max(1, Math.floor((now - min) / DAY) + 1));
+}
+
 // ── Tryout performance ────────────────────────────────────────────────
 // Concluded tryout logs bucketed by day (attendees / passed / failed), the
 // overall pass rate, and a host leaderboard (tryouts run + candidates passed).
 async function tryoutAnalytics(division, days = 30) {
-  const since = new Date(Date.now() - days * DAY);
+  const allTime = days <= 0;
+  const since = allTime ? new Date(0) : new Date(Date.now() - days * DAY);
   const logs = await prisma.tryoutLog.findMany({
     where: divWhere(division, { createdAt: { gte: since } }),
     select: {
@@ -37,7 +55,8 @@ async function tryoutAnalytics(division, days = 30) {
     take: 5000,
   });
 
-  const byDay = new Map(emptyDays(days).map(d => [d.day, { day: d.day, tryouts: 0, attendees: 0, passed: 0, failed: 0 }]));
+  const bucketCount = allTime ? allTimeBuckets(logs.map(l => l.concludedAt || l.createdAt)) : days;
+  const byDay = new Map(emptyDays(bucketCount).map(d => [d.day, { day: d.day, tryouts: 0, attendees: 0, passed: 0, failed: 0 }]));
   const hosts = new Map();
   let tAtt = 0, tPass = 0, tFail = 0;
   for (const l of logs) {
@@ -55,7 +74,7 @@ async function tryoutAnalytics(division, days = 30) {
     .slice(0, 12);
 
   return {
-    days,
+    days: bucketCount, allTime,
     series: [...byDay.values()],
     totals: { tryouts: logs.length, attendees: tAtt, passed: tPass, failed: tFail,
               passRate: tAtt ? Math.round((tPass / tAtt) * 100) : 0 },
@@ -86,7 +105,8 @@ async function recruitmentFunnel(division, days = 30) {
 // logs aren't division-scoped in the schema, so `division` only filters tickets
 // isn't meaningful — these are MET-wide signals).
 async function activityAnalytics(days = 30) {
-  const since = new Date(Date.now() - days * DAY);
+  const allTime = days <= 0;
+  const since = allTime ? new Date(0) : new Date(Date.now() - days * DAY);
   // Bucket patrol/event logs by the SHIFT's own date (logDate), not the import
   // time — a bulk import all lands on one day otherwise. Pull a wide window and
   // filter by the effective date so a log whose logDate is outside the window is
@@ -98,10 +118,13 @@ async function activityAnalytics(days = 30) {
     }),
     prisma.supportTicket.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true, status: true }, take: 8000 }),
   ]);
-  const byDay = new Map(emptyDays(days).map(d => [d.day, { day: d.day, patrols: 0, events: 0, tickets: 0 }]));
+  const bucketCount = allTime
+    ? allTimeBuckets([...patrols.map(p => p.logDate || p.createdAt), ...tickets.map(t => t.createdAt)])
+    : days;
+  const byDay = new Map(emptyDays(bucketCount).map(d => [d.day, { day: d.day, patrols: 0, events: 0, tickets: 0 }]));
   for (const p of patrols) { const b = byDay.get(dayKey(p.logDate || p.createdAt)); if (b) { if (p.type === 'EVENT') b.events++; else b.patrols++; } }
   for (const t of tickets) { const b = byDay.get(dayKey(t.createdAt)); if (b) b.tickets++; }
-  return { days, series: [...byDay.values()] };
+  return { days: bucketCount, allTime, series: [...byDay.values()] };
 }
 
 // ── Integrity flags (the "AI auditor") ────────────────────────────────
@@ -179,4 +202,4 @@ async function integrityFlags(division, days = 45) {
   return { flags, scanned: logs.length };
 }
 
-module.exports = { tryoutAnalytics, recruitmentFunnel, activityAnalytics, integrityFlags };
+module.exports = { tryoutAnalytics, recruitmentFunnel, activityAnalytics, integrityFlags, normDays };

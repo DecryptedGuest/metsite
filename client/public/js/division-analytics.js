@@ -17,8 +17,9 @@
 
   function kpiRow(t) {
     const tot = t.totals || {};
+    const range = t.allTime ? 'all time' : `last ${t.days} days`;
     return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
-      ${tile('Tryouts run', nf(tot.tryouts), `last ${t.days} days`, 'var(--blue,#3b82f6)')}
+      ${tile('Tryouts run', nf(tot.tryouts), range, 'var(--blue,#3b82f6)')}
       ${tile('Candidates', nf(tot.attendees), 'attended', 'var(--text-primary)')}
       ${tile('Passed', nf(tot.passed), `${nf(tot.failed)} failed`, 'var(--green,#22c55e)')}
       ${tile('Pass rate', (tot.passRate || 0) + '%', 'of attendees', tot.passRate >= 50 ? 'var(--green,#22c55e)' : 'var(--amber,#e8842a)')}
@@ -53,9 +54,10 @@
 
     return `${kpiRow(t)}
       <div class="panel glass" style="margin-bottom:1rem;">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Trend · last ${t.days} days</div>
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Trend · ${t.allTime ? 'all time' : 'last ' + t.days + ' days'}</div>
           <div class="da-days" style="display:flex;gap:4px;">
-            ${[7, 30, 90].map(d => `<button class="btn btn-ghost btn-sm da-day-btn${d === t.days ? ' active' : ''}" data-days="${d}">${d}d</button>`).join('')}
+            ${[7, 30, 90].map(d => `<button class="btn btn-ghost btn-sm da-day-btn${(!t.allTime && d === t.days) ? ' active' : ''}" data-days="${d}">${d}d</button>`).join('')}
+            <button class="btn btn-ghost btn-sm da-day-btn${t.allTime ? ' active' : ''}" data-days="all">All</button>
           </div>
         </div>
         <div style="padding:0.5rem 1rem 1rem;">${chart}</div>
@@ -80,8 +82,11 @@
     try { data = await api(`${opts.apiPath}?days=${days}`); }
     catch (e) { mount.innerHTML = `<div style="color:var(--red);padding:1rem;">${esc(e.message)}</div>`; return; }
     mount.innerHTML = fullHtml(data);
-    // Wire the day-range toggle (re-render in place).
-    mount.querySelectorAll('.da-day-btn').forEach(b => b.addEventListener('click', () => render({ ...opts, days: parseInt(b.dataset.days, 10) })));
+    // Wire the day-range toggle (re-render in place). "all" → all time.
+    mount.querySelectorAll('.da-day-btn').forEach(b => b.addEventListener('click', () => {
+      const dv = b.dataset.days;
+      render({ ...opts, days: dv === 'all' ? 'all' : parseInt(dv, 10) });
+    }));
   }
 
   // Lightweight KPI-only strip for an overview page. opts: { apiPath, mountId, days }

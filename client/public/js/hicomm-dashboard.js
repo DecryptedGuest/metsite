@@ -92,7 +92,7 @@
     const board = C.barList(t.leaderboard.map(h => ({ label: h.hostName || 'Host', sub: `${h.tryouts} tryouts · ${h.passRate}% pass`, value: h.attendees, color: '#3b82f6' })));
     wrap.innerHTML = `
       <div class="cc-grid fade-up" style="margin-bottom:16px;">
-        <div class="cc-stat"><div class="v">${t.totals.tryouts}</div><div class="l">Tryouts (${d.days}d)</div></div>
+        <div class="cc-stat"><div class="v">${t.totals.tryouts}</div><div class="l">Tryouts (${d.allTime ? 'all time' : d.days + 'd'})</div></div>
         <div class="cc-stat"><div class="v">${t.totals.attendees}</div><div class="l">Candidates</div></div>
         <div class="cc-stat"><div class="v" style="color:var(--green);">${t.totals.passed}</div><div class="l">Passed</div></div>
         <div class="cc-stat"><div class="v" style="color:var(--red);">${t.totals.failed}</div><div class="l">Failed</div></div>

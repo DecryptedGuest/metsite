@@ -69,7 +69,12 @@
       </div>
       <div id="flp-kpis" class="fade-up"></div>
       <div class="panel glass fade-up stagger-1">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Activity · last 30 days</div></div>
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Activity</div>
+          <select class="form-control" id="flp-ov-days" style="width:auto;" onchange="loadFlpOverview()">
+            <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
+          </select>
+        </div>
         <div style="padding:0.6rem 1rem 1.1rem;" id="flp-activity-chart"><div class="table-loading"><div class="spinner"></div></div></div>
       </div>
       <div class="panel glass fade-up stagger-2">
@@ -150,7 +155,7 @@
       <div class="page-header fade-up">
         <div><h1 class="page-title">FLP Analytics</h1><p class="page-sub">Patrol &amp; event activity across the frontline</p></div>
         <select class="form-control" id="flp-an-days" style="width:auto;" onchange="loadFlpAnalytics()">
-          <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option>
+          <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
         </select>
       </div>
       <div id="flp-analytics"><div class="table-loading"><div class="spinner"></div></div></div>

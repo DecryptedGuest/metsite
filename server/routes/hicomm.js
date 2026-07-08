@@ -61,13 +61,13 @@ router.get('/overview', async (req, res) => {
 router.get('/analytics', async (req, res) => {
   try {
     const division = normDiv(req.query.division);
-    const days = clampDays(req.query.days);
+    const days = analytics.normDays(req.query.days); // number, or 0 = all time
     const [tryouts, funnel, activity] = await Promise.all([
       analytics.tryoutAnalytics(division, days),
       analytics.recruitmentFunnel(division, days),
       analytics.activityAnalytics(days),
     ]);
-    res.json({ division: division || 'ALL', days, tryouts, funnel, activity });
+    res.json({ division: division || 'ALL', days: tryouts.days, allTime: tryouts.allTime, tryouts, funnel, activity });
   } catch (e) {
     console.error('[HICOMM] analytics failed:', e.message);
     res.status(500).json({ error: 'Failed to load analytics' });

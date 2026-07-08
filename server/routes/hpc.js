@@ -594,12 +594,12 @@ router.post('/tryout-logs/:id/deny', requireTryoutApprover, async (req, res) => 
 router.get('/analytics', async (req, res) => {
   try {
     const analytics = require('../lib/analytics');
-    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const days = analytics.normDays(req.query.days); // number, or 0 = all time
     const [tryouts, funnel] = await Promise.all([
       analytics.tryoutAnalytics('HPC', days),
       analytics.recruitmentFunnel('HPC', days),
     ]);
-    res.json({ division: 'HPC', days, tryouts, funnel });
+    res.json({ division: 'HPC', days: tryouts.days, allTime: tryouts.allTime, tryouts, funnel });
   } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
 });
 

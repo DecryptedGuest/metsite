@@ -135,13 +135,13 @@ router.post('/tryouts', async (req, res) => {
 router.get('/analytics', async (req, res) => {
   try {
     const analytics = require('../lib/analytics');
-    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const days = analytics.normDays(req.query.days); // number, or 0 = all time
     const [tryouts, funnel, integrity] = await Promise.all([
       analytics.tryoutAnalytics('SCO19', days),
       analytics.recruitmentFunnel('SCO19', days),
-      analytics.integrityFlags('SCO19', Math.max(days, 45)),
+      analytics.integrityFlags('SCO19', days <= 0 ? 3650 : Math.max(days, 45)),
     ]);
-    res.json({ division: 'SCO19', days, tryouts, funnel, integrity });
+    res.json({ division: 'SCO19', days: tryouts.days, allTime: tryouts.allTime, tryouts, funnel, integrity });
   } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
 });
 

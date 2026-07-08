@@ -30,9 +30,11 @@ async function loadFlpOverview() {
   const kpis = document.getElementById('flp-kpis');
   const chart = document.getElementById('flp-activity-chart');
   if (!kpis) return;
-  let d; try { d = await api('/api/flp/analytics?days=30'); }
+  const days = (document.getElementById('flp-ov-days') || {}).value || 30;
+  let d; try { d = await api('/api/flp/analytics?days=' + days); }
   catch (e) { if (chart) chart.innerHTML = `<div class="table-empty-text">${fesc(e.message)}</div>`; return; }
   const act = d.activity || { series: [] };
+  const rangeLabel = d.allTime ? 'all time' : (d.days || 30) + 'd';
   const tot = act.series.reduce((a, s) => ({ p: a.p + s.patrols, e: a.e + s.events }), { p: 0, e: 0 });
   const tile = (v, l, c) => `<div class="panel glass" style="padding:1rem 1.1rem;flex:1;min-width:140px;">
       <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);">${l}</div>
@@ -40,7 +42,7 @@ async function loadFlpOverview() {
   kpis.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
       ${tile(tot.p, 'Patrol logs', 'var(--green,#22c55e)')}
       ${tile(tot.e, 'Event logs', 'var(--amber,#e8842a)')}
-      ${tile(tot.p + tot.e, 'Total logs (30d)', 'var(--text-primary)')}
+      ${tile(tot.p + tot.e, 'Total logs (' + rangeLabel + ')', 'var(--text-primary)')}
     </div>`;
   if (chart && window.MetCharts && act.series.length) {
     const labels = act.series.map(s => s.day.slice(5));
@@ -61,6 +63,7 @@ async function loadFlpAnalytics() {
   const days = (document.getElementById('flp-an-days') || {}).value || 30;
   let d; try { d = await api('/api/flp/analytics?days=' + days); } catch (e) { wrap.innerHTML = `<div class="table-empty"><div class="table-empty-text">${fesc(e.message)}</div></div>`; return; }
   const C = window.MetCharts, act = d.activity, labels = act.series.map(s => s.day.slice(5));
+  const rangeLabel = d.allTime ? 'all time' : (d.days || 30) + 'd';
   const line = C.lineChart([
     { name: 'Patrols', color: '#14b8a6', points: act.series.map(s => s.patrols) },
     { name: 'Events', color: '#e8842a', points: act.series.map(s => s.events) },
@@ -69,7 +72,7 @@ async function loadFlpAnalytics() {
   const card = (v, l, c) => `<div style="padding:14px 16px;border-radius:12px;border:1px solid var(--border,#2a2a2a);"><div style="font-size:26px;font-weight:800;color:${c};">${v}</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;">${l}</div></div>`;
   wrap.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;" class="fade-up">
-      ${card(tot.p, 'Patrols (' + d.days + 'd)', 'var(--green)')}${card(tot.e, 'Event Logs', 'var(--amber)')}
+      ${card(tot.p, 'Patrols (' + rangeLabel + ')', 'var(--green)')}${card(tot.e, 'Event Logs', 'var(--amber)')}
     </div>
     <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Activity Trend</div></div><div style="padding:12px 16px;">${line}</div></div>`;
 }

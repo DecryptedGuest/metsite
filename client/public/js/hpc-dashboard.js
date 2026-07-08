@@ -38,7 +38,7 @@ async function loadHpcAnalytics() {
   const board = C.barList(t.leaderboard.map(h => ({ label: h.hostName || 'Host', sub: `${h.tryouts} tryouts · ${h.passRate}% pass`, value: h.attendees, color: '#3b82f6' })));
   wrap.innerHTML = `
     <div class="cc-grid fade-up" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;">
-      ${statCard(t.totals.tryouts, 'Tryouts (' + d.days + 'd)')}${statCard(t.totals.attendees, 'Candidates')}
+      ${statCard(t.totals.tryouts, 'Tryouts (' + (d.allTime ? 'all time' : d.days + 'd') + ')')}${statCard(t.totals.attendees, 'Candidates')}
       ${statCard(t.totals.passed, 'Passed', 'var(--green)')}${statCard(t.totals.failed, 'Failed', 'var(--red)')}${statCard(t.totals.passRate + '%', 'Pass Rate', 'var(--amber)')}
     </div>
     <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;">

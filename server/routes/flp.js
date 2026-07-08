@@ -144,9 +144,9 @@ router.delete('/group/members/:userId', requireFlpGroupAdmin, async (req, res) =
 router.get('/analytics', async (req, res) => {
   try {
     const analytics = require('../lib/analytics');
-    const days = Math.min(180, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const days = analytics.normDays(req.query.days); // number, or 0 = all time
     const activity = await analytics.activityAnalytics(days);
-    res.json({ division: 'FLP', days, activity });
+    res.json({ division: 'FLP', days: activity.days, allTime: activity.allTime, activity });
   } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
 });
 
