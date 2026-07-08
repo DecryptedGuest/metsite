@@ -123,6 +123,14 @@ function showToast(message, type = 'info', duration) {
     warning: '<i class="ti ti-alert-triangle"></i>',
   };
 
+  // Cap the visible stack so a burst of toasts can't fill the screen —
+  // drop the oldest once we're over the limit.
+  const MAX_TOASTS = 4;
+  const existing = container.querySelectorAll('.toast');
+  for (let i = 0; i <= existing.length - MAX_TOASTS; i++) {
+    if (existing[i]) existing[i].remove();
+  }
+
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.title = 'Click to dismiss';
