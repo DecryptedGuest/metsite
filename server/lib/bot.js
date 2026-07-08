@@ -891,9 +891,16 @@ async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   }
 }
 
+// Login-code DMs, tracked so we can delete them once the code is used or
+// expires — a 6-digit sign-in code shouldn't linger in the member's DMs.
+const _loginDms = new Map(); // challengeId -> { message, timer }
+const LOGIN_DM_TTL_MS = 10 * 60 * 1000;
+
 // DM a one-time 6-digit sign-in code to a user. Returns true if delivered.
-// Used by the "get a code in Discord" login option. Best-effort.
-async function dmLoginCode(discordId, code) {
+// Used by the "get a code in Discord" login option. Best-effort. If a
+// challengeId is given, the DM is auto-deleted after the code's lifetime and
+// can be deleted early via deleteLoginDm() once it's consumed.
+async function dmLoginCode(discordId, code, challengeId) {
   if (!ready || !discordId || !code) return false;
   try {
     const user  = await client.users.fetch(String(discordId));
@@ -901,12 +908,27 @@ async function dmLoginCode(discordId, code) {
       .setColor(0x3b82f6)
       .setTitle('Your MET sign-in code')
       .setDescription(`Enter this code on the sign-in page to log in:\n\n## \`${code}\`\n\nIt expires in 10 minutes and can only be used once. If you didn't request this, ignore this message — nobody can sign in without it.`);
-    await user.send({ embeds: [embed] });
+    const msg = await user.send({ embeds: [embed] });
+    if (challengeId) {
+      const timer = setTimeout(() => deleteLoginDm(challengeId), LOGIN_DM_TTL_MS);
+      if (timer.unref) timer.unref();
+      _loginDms.set(String(challengeId), { message: msg, timer });
+    }
     return true;
   } catch (e) {
     console.warn('[Auth] dmLoginCode failed:', e.message);
     return false;
   }
+}
+
+// Delete a previously-sent login-code DM (once the code is used/expired).
+async function deleteLoginDm(challengeId) {
+  const key = String(challengeId || '');
+  const rec = _loginDms.get(key);
+  if (!rec) return false;
+  _loginDms.delete(key);
+  if (rec.timer) clearTimeout(rec.timer);
+  try { await rec.message.delete(); return true; } catch (e) { return false; }
 }
 
 // DM the host that their tryout was auto-cancelled for inactivity (they left the
@@ -1344,7 +1366,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
-  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmLoginCode,
+  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmLoginCode, deleteLoginDm,
   reactToMessage, postChannelMessage, editChannelMessage,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   backfillLogChannel, backfillPatrolLogs,

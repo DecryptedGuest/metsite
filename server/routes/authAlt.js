@@ -72,7 +72,7 @@ router.post('/code/request', codeLimiter, async (req, res) => {
       },
     });
     if (usable(user)) {
-      await require('../lib/bot').dmLoginCode(discordId, code).catch(() => false);
+      await require('../lib/bot').dmLoginCode(discordId, code, challenge.id).catch(() => false);
     }
     res.json({ ok: true, id: challenge.id });
   } catch (e) {
@@ -88,7 +88,7 @@ router.post('/code/verify', async (req, res) => {
     const c = await prisma.loginChallenge.findUnique({ where: { id: String(id || '') } }).catch(() => null);
     if (!c || c.method !== 'CODE' || c.status !== 'PENDING') return res.status(400).json({ error: 'Invalid or expired code. Request a new one.' });
     if (new Date(c.expiresAt) < new Date()) return res.status(400).json({ error: 'That code has expired. Request a new one.' });
-    if (c.attempts >= MAX_ATTEMPTS) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {}); return res.status(429).json({ error: 'Too many attempts. Request a new code.' }); }
+    if (c.attempts >= MAX_ATTEMPTS) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {}); require('../lib/bot').deleteLoginDm(c.id).catch(() => {}); return res.status(429).json({ error: 'Too many attempts. Request a new code.' }); }
 
     const ok = c.userId && String(code || '').trim() === c.code;
     if (!ok) { await prisma.loginChallenge.update({ where: { id: c.id }, data: { attempts: { increment: 1 } } }).catch(() => {}); return res.status(400).json({ error: 'Incorrect code.' }); }
@@ -96,6 +96,7 @@ router.post('/code/verify', async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: c.userId } });
     if (!usable(user)) return res.status(403).json({ error: 'This account cannot sign in.' });
     await prisma.loginChallenge.update({ where: { id: c.id }, data: { status: 'CONSUMED' } }).catch(() => {});
+    require('../lib/bot').deleteLoginDm(c.id).catch(() => {}); // remove the code DM now it's used
     await createSession(req, res, user); // sets the cookie (no redirect)
     audit.record({ req, action: 'LOGIN_CODE', category: 'auth', targetType: 'user', targetId: user.id, summary: 'Signed in with a Discord DM code' });
     res.json({ ok: true });

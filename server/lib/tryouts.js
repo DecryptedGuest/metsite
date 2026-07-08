@@ -32,7 +32,8 @@ function divisionConfig(division) {
       division:               'CID',
       channelId:              process.env.CID_TRYOUT_CHANNEL_ID || null,
       pingRoleIds:            namedPings.length ? namedPings : splitIds(process.env.CID_TRYOUT_PING_ROLE_IDS),
-      emoji:                  process.env.CID_EMOJI || ':CID:',
+      // Full custom-emoji token — a bare `:CID:` renders as literal text in Discord.
+      emoji:                  process.env.CID_EMOJI || '<:CID:1438625241999085790>',
       eventType:              'CID Tryout',
       // Host-DM presentation (CID-specific, so a CID host never sees HPC wording).
       dashboardSlug:          'cid',
