@@ -253,6 +253,31 @@ async function loadTryouts() {
 }
 
 // ── Active sessions / device management ──────────────────────────
+// Pick a device-appropriate icon from the user-agent-derived device string.
+function deviceIcon(device) {
+  const d = String(device || '').toLowerCase();
+  if (/iphone|android|mobile|phone/.test(d)) return 'ti-device-mobile';
+  if (/ipad|tablet/.test(d)) return 'ti-device-tablet';
+  if (/mac|windows|linux|desktop|pc/.test(d)) return 'ti-device-desktop';
+  return 'ti-device-laptop';
+}
+
+// "just now" / "5 min ago" / "3 hours ago" / "2 days ago", else a date.
+function relativeTime(ts) {
+  const t = new Date(ts).getTime();
+  if (isNaN(t)) return '';
+  const diff = Date.now() - t;
+  if (diff < 0) return 'just now';
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return min + (min === 1 ? ' min ago' : ' mins ago');
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + (hr === 1 ? ' hour ago' : ' hours ago');
+  const day = Math.floor(hr / 24);
+  if (day < 30) return day + (day === 1 ? ' day ago' : ' days ago');
+  return formatDateTime(ts);
+}
+
 async function loadSessions() {
   let data;
   try { data = await api('/api/me/sessions'); } catch (e) { return; }
@@ -267,14 +292,14 @@ async function loadSessions() {
 
   el.innerHTML = sessions.map(s => `
     <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
-      <i class="ti ti-device-desktop" style="font-size:20px;color:var(--text-muted);"></i>
+      <i class="ti ${deviceIcon(s.device)}" style="font-size:20px;color:${s.current ? 'var(--green,#22c55e)' : 'var(--text-muted)'};"></i>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;">
           ${escHtml(s.device)}
           ${s.current ? '<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>This device</span>' : ''}
         </div>
-        <div style="font-size:11px;color:var(--text-muted);">
-          Signed in ${formatDateTime(s.createdAt)}  ·  Last active ${formatDateTime(s.lastSeenAt)}
+        <div style="font-size:11px;color:var(--text-muted);" title="Signed in ${escHtml(formatDateTime(s.createdAt))} · Last active ${escHtml(formatDateTime(s.lastSeenAt))}">
+          Active ${escHtml(relativeTime(s.lastSeenAt))}  ·  signed in ${escHtml(relativeTime(s.createdAt))}
         </div>
       </div>
       ${s.current
