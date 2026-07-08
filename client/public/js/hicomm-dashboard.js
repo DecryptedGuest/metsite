@@ -374,17 +374,6 @@
   let glT = null;
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'hc-gl-q') { clearTimeout(glT); glT = setTimeout(hcLoadGameLogs, 250); } });
 
-  // ── Roster sync ──
-  window.hcSyncRoster = async function () {
-    const selEl = document.getElementById('group-division-select');
-    const division = (selEl && selEl.value) ? selEl.value.toUpperCase() : 'MET';
-    showToast('Syncing roster…', 'info');
-    try {
-      const r = await api('/api/hicomm/roster/sync', { method: 'POST', body: JSON.stringify({ division }) });
-      showToast(`Roster synced to Discord (${r.total} members).`, 'success');
-    } catch (e) { showToast(e.message, 'error'); }
-  };
-
   // ── Init ──
   async function init() {
     wireNav();

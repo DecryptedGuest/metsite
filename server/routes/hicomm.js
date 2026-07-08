@@ -134,20 +134,6 @@ router.get('/game-logs', async (req, res) => {
   }
 });
 
-// ── POST /api/hicomm/roster/sync — build + post/edit the Discord roster ──
-router.post('/roster/sync', async (req, res) => {
-  try {
-    const division = String((req.body && req.body.division) || 'MET').toUpperCase();
-    const result = await require('../lib/roster').syncRoster(division);
-    if (!result.ok) return res.status(400).json({ error: result.reason || 'Roster sync failed' });
-    audit.log(req.user, { category: 'GROUP', action: 'ROSTER_SYNC', division,
-      summary: `Synced the ${division} roster to Discord (${result.total} members)` });
-    res.json(result);
-  } catch (e) {
-    console.error('[HICOMM] roster sync failed:', e.message);
-    res.status(500).json({ error: 'Failed to sync roster' });
-  }
-});
 
 // ── GET /api/hicomm/officer/search?q= — find an officer (type-ahead) ──
 // DB-FIRST: every officer who has signed in is already in the user table with
