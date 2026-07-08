@@ -592,6 +592,24 @@ window.disablePush = async function () {
   renderNotifPanel();
 };
 
+// ── Data export ─────────────────────────────────────────────────────
+// Members can download a JSON copy of their own profile + activity data.
+window.downloadMyData = async function () {
+  if (window.showToast) showToast('Preparing your data…', 'info');
+  const out = { exportedAt: new Date().toISOString() };
+  try { out.profile = await api('/api/me/profile'); } catch (e) { out.profile = { error: 'unavailable' }; }
+  try { out.stats = await api('/api/me/stats'); } catch (e) { out.stats = { error: 'unavailable' }; }
+  try {
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'met-my-data.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (window.showToast) showToast('Your data has been downloaded.', 'success');
+  } catch (e) { if (window.showToast) showToast('Could not prepare the download.', 'error'); }
+};
+
 loadProfile();
 loadActivity();
 renderWhatsNew();
