@@ -64,7 +64,7 @@ async function ingestPromotion(message) {
     // Nothing useful parsed → skip (avoids capturing chatter in the channel).
     if (!memberName && !mention && !toRank) return null;
 
-    return await prisma.rankHistory.create({
+    const rec = await prisma.rankHistory.create({
       data: {
         discordId: mention ? mention.id : null,
         memberName,
@@ -73,6 +73,31 @@ async function ingestPromotion(message) {
         source: 'DISCORD', messageId,
       },
     });
+
+    // DM the member: promotions are informational; demotions include an appeal
+    // link (a demotion can be a disciplinary action). Live-only, best-effort.
+    if (mention && mention.id && process.env.MEMBER_ACTION_DM !== 'off') {
+      try {
+        const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
+        const isDemotion = /demot/i.test(content);
+        const change = (fromRank && toRank) ? `**${fromRank} → ${toRank}**\n` : (toRank ? `New rank: **${toRank}**\n` : '');
+        if (isDemotion) {
+          require('./bot').dmMemberNotice(mention.id, {
+            color: 0xe8842a,
+            title: 'You have been demoted',
+            description: `${change}${reason ? `**Reason:** ${String(reason).slice(0, 600)}\n` : ''}\nIf you believe this was a mistake, you can appeal below and speak to an investigator.`,
+            appealUrl: `${base}/support?appeal`,
+          }).catch(() => {});
+        } else {
+          require('./bot').dmMemberNotice(mention.id, {
+            color: 0x22c55e,
+            title: 'You have been promoted',
+            description: `Congratulations${toRank ? `, you've been promoted to **${toRank}**` : ' on your promotion'}!${reason ? `\n**Reason:** ${String(reason).slice(0, 600)}` : ''}`,
+          }).catch(() => {});
+        }
+      } catch (e) { /* DM is best-effort */ }
+    }
+    return rec;
   } catch (e) {
     console.error('[Ingest] promotion failed:', e.message);
     return null;
@@ -109,7 +134,7 @@ async function ingestInfraction(message) {
     const reason = fieldAfter(content, /reason\s*[:\-]?\s*(.+)/i) || content.slice(0, 500) || null;
     const byName = (message.member && message.member.displayName) || (message.author && (message.author.globalName || message.author.username)) || null;
 
-    return await prisma.metPunishment.create({
+    const created = await prisma.metPunishment.create({
       data: {
         discordId: mention.id,
         type: infractionType(content),
@@ -120,6 +145,22 @@ async function ingestInfraction(message) {
         active: true,
       },
     });
+
+    // New punishment → DM the member the reason + a direct appeal link that
+    // pre-selects this punishment. Only fires here (live ingest), never on
+    // backfill, and only on genuinely new rows (dupes return above). Best-effort.
+    if (process.env.MEMBER_ACTION_DM !== 'off') {
+      try {
+        const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
+        require('./bot').dmMemberNotice(mention.id, {
+          color: 0xf04f5e,
+          title: 'You have received a disciplinary action',
+          description: `**Type:** ${created.type}\n${reason ? `**Reason:** ${String(reason).slice(0, 600)}\n` : ''}\nIf you believe this was a mistake — or want to see the evidence and full details — open an appeal below and an investigator will review it.`,
+          appealUrl: `${base}/support?appeal=${encodeURIComponent(created.id)}`,
+        }).catch(() => {});
+      } catch (e) { /* DM is best-effort */ }
+    }
+    return created;
   } catch (e) {
     console.error('[Ingest] infraction failed:', e.message);
     return null;

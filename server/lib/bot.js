@@ -1383,8 +1383,34 @@ async function timeoutMember(discordUserId, { durationMinutes, reason, guildId }
   return true;
 }
 
+// Generic DM to a member with an optional "Appeal / view details" link button.
+// Used for punishment, demotion and promotion notices. Best-effort — a member
+// with DMs closed just silently doesn't receive it.
+async function dmMemberNotice(discordId, o) {
+  if (!ready || !discordId || !o) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const embed = new EmbedBuilder()
+      .setColor(o.color || 0x3b82f6)
+      .setTitle(o.title || 'MET Notice')
+      .setDescription(o.description || '​')
+      .setFooter({ text: 'Metropolitan Police' });
+    const components = [];
+    if (o.appealUrl) {
+      components.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(o.appealLabel || 'Appeal / view details').setURL(o.appealUrl),
+      ));
+    }
+    await user.send({ embeds: [embed], components });
+    return true;
+  } catch (e) {
+    console.warn('[Notice] dmMemberNotice failed:', e.message);
+    return false;
+  }
+}
+
 module.exports = {
-  startBot, assignRole, removeRole, setMemberNickname, getMemberDisplayName, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, setMemberNickname, dmMemberNotice, getMemberDisplayName, lookupMember, getMemberRecord,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript,
