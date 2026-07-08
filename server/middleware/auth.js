@@ -80,19 +80,6 @@ async function requireAuth(req, res, next) {
         ? res.status(401).json({ error: 'Your session has ended. Please sign in again.' })
         : res.redirect('/login?error=access_revoked');
     }
-    // VPN/proxy block — cheap check using the flag stamped on the session at
-    // login (no external lookup on the request path). Developers are exempt so
-    // an admin on a VPN is never locked out. Toggleable via Site Control.
-    if (session.ipVpn && user.role !== 'DEVELOPER') {
-      try {
-        if (require('../lib/accessGuard').flagOn('vpnBlock')) {
-          res.clearCookie('iacms_token');
-          return isApi
-            ? res.status(403).json({ error: 'Access from VPNs or proxies is not allowed.', reason: 'vpn' })
-            : res.redirect('/denied?reason=vpn');
-        }
-      } catch (e) { /* fail open */ }
-    }
     req.sessionId = session.id;
     // Rolling ("remember me") session: keep active users signed in. Piggyback
     // on the ~5-min lastSeen throttle to also push the expiry window forward

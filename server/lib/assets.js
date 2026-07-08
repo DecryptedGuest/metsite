@@ -119,13 +119,29 @@ function guardScript(host) {
     '}catch(e){}})();</script>';
 }
 
-// Insert the guard as early as possible (right after <head>) so it runs before
-// the UI paints. Falls back to prepending if there's no <head>.
+// Right-click / devtools / view-source / save deterrents. Soft by nature —
+// trivially bypassable — but they stop casual inspection and copying. A quiet
+// bypass (localStorage `iacms_devtools`) lets the site owner still debug: open
+// devtools from the browser menu once, run localStorage.iacms_devtools='1'.
+function deterrentScript() {
+  return '<script>(function(){try{try{if(localStorage.getItem("iacms_devtools"))return;}catch(e){}' +
+    'document.addEventListener("contextmenu",function(e){e.preventDefault();},{capture:true});' +
+    'document.addEventListener("keydown",function(e){var k=(e.key||"").toLowerCase();var mod=e.ctrlKey||e.metaKey;' +
+    'var block=(k==="f12")' +
+    '||(mod&&e.shiftKey&&(k==="i"||k==="j"||k==="c"))' +
+    '||(e.metaKey&&e.altKey&&(k==="i"||k==="j"||k==="c"))' +
+    '||(mod&&(k==="u"||k==="s"));' +
+    'if(block){e.preventDefault();e.stopPropagation();return false;}},{capture:true});' +
+    '}catch(e){}})();</script>';
+}
+
+// Insert the guard + deterrents as early as possible (right after <head>) so
+// they run before the UI paints. Falls back to prepending if there's no <head>.
 function injectAntiCopyGuard(html, host) {
-  const guard = guardScript(host);
+  const inject = guardScript(host) + deterrentScript();
   let injected = false;
-  const out = html.replace(/<head[^>]*>/i, (m) => { injected = true; return m + guard; });
-  return injected ? out : (guard + html);
+  const out = html.replace(/<head[^>]*>/i, (m) => { injected = true; return m + inject; });
+  return injected ? out : (inject + html);
 }
 
 module.exports = { getMinifiedJs, getMinifiedHtml, injectAntiCopyGuard };

@@ -343,11 +343,9 @@ async function establishSession(req, res, user) {
     if (verdict.block) {
       try {
         require('../lib/audit').record({
-          req, action: verdict.reason === 'vpn' ? 'LOGIN_BLOCKED_VPN' : 'LOGIN_BLOCKED_ALT',
+          req, action: 'LOGIN_BLOCKED_ALT',
           category: 'SECURITY', targetType: 'user', targetId: user.id,
-          summary: verdict.reason === 'vpn'
-            ? `Login blocked — VPN/proxy IP${verdict.detail && verdict.detail.org ? ' (' + verdict.detail.org + ')' : ''}`
-            : `Login blocked — detected as an alt of a blacklisted account${verdict.detail && verdict.detail.of ? ' (' + verdict.detail.of + ')' : ''}`,
+          summary: `Login blocked — detected as an alt of a blacklisted account${verdict.detail && verdict.detail.of ? ' (' + verdict.detail.of + ')' : ''}`,
         });
       } catch (e) {}
       return res.redirect('/denied?reason=' + verdict.reason);

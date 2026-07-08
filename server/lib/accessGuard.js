@@ -5,13 +5,14 @@
 //    IP or an identical device string). When an account is blacklisted, its
 //    detected alts are blacklisted too, and any future login that shares a
 //    signal with a blacklisted account is blocked at the door.
-//  • VPN blocking — logins/requests coming over a detected VPN, proxy or
-//    datacenter IP are blocked (real IPs are needed for alt detection to work).
+//  • VPN handling — VPNs are NOT blocked. They are only flagged in the dev
+//    Security Center (via ipIntel), which also tracks each account's most
+//    recent REAL (non-VPN) IP. We still look VPN status up here so alt
+//    detection never matches on a shared VPN IP.
 //
-// Both are developer-toggleable (Site Control: `vpnBlock`, `altBlock`) and
-// DEFAULT ON, but always FAIL OPEN — an external-lookup failure or a DB blip
-// never locks a legitimate member out. Developers are always exempt so an
-// admin on a VPN can never be locked out of their own site.
+// Alt blocking is developer-toggleable (Site Control: `altBlock`) and DEFAULT
+// ON, but always FAILS OPEN — an external-lookup failure or a DB blip never
+// locks a legitimate member out. Developers are always exempt.
 const prisma     = require('./db');
 const ipIntel    = require('./ipIntel');
 const siteConfig = require('./siteConfig');
@@ -111,12 +112,12 @@ async function evaluateLogin({ ip, user }) {
     if (user && user.role === 'DEVELOPER') return { block: false };
     // One VPN lookup, reused for both the VPN block and to avoid alt-matching
     // on a shared VPN IP (which would false-positive heavily).
+    // VPNs are NOT blocked — they're only flagged in the dev panel. We still
+    // look the IP up so alt detection never matches on a shared VPN IP (which
+    // would false-positive heavily).
     let vpn = null;
     if (ip && !ipIntel.isLocalOrPrivate(ip)) {
       try { vpn = await ipIntel.lookupIp(ip); } catch (e) { vpn = null; }
-    }
-    if (flagOn('vpnBlock') && vpn && vpn.vpn) {
-      return { block: true, reason: 'vpn', detail: { org: vpn.org || null } };
     }
     if (flagOn('altBlock')) {
       // (a) shares a stored real IP / device with a blacklisted account.

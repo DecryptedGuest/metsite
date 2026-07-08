@@ -87,18 +87,6 @@
     } else {
       document.getElementById('denied-card').style.display = 'none';
     }
-  } else if (reason === 'vpn') {
-    document.getElementById('denied-title').textContent = 'VPN / Proxy Blocked';
-    document.getElementById('denied-sub').textContent =
-      'Access from VPNs, proxies and datacenter connections is blocked. Please disable your VPN and try again.';
-    document.getElementById('denied-card').style.display = 'none';
-    showMoreDetails(
-      'Why is my VPN blocked?',
-      'For security, the MET Dashboard blocks connections from VPNs, proxies and hosting/datacenter IPs. ' +
-      'These are commonly used to evade blacklists and operate alternate accounts, so genuine IP information is ' +
-      'required for our alt-detection system to work. Turn off your VPN/proxy and reload to sign in normally. ' +
-      'If you are on a legitimate network that is being misdetected, contact a server administrator.'
-    );
   } else if (reason === 'alt') {
     document.getElementById('denied-title').textContent = 'Access Blocked';
     document.getElementById('denied-sub').textContent =
