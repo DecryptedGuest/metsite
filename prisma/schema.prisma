@@ -30,6 +30,7 @@ model User {
   notifyAsked     Boolean   @default(false)
   notifyEnabled   Boolean   @default(false)
   notifyPrefs     Json?
+  supportPrefs    Json? // IA support desk: { greetings: {TYPE:string}, quickReplies: string[] }
   lastRoleCheck   DateTime?
   createdAt       DateTime  @default(now())
   lastLogin       DateTime  @default(now())

@@ -2003,21 +2003,6 @@
   </div>
 </div>
 
-<!-- SUPPORT DESK — reason prompt (escalate / close) -->
-<div class="modal-overlay" id="modal-sd-reason">
-  <div class="modal glass-bright" style="max-width:440px;">
-    <div class="modal-header"><div class="modal-title" id="sd-reason-title">Reason</div>
-      <button class="modal-close" onclick="closeModal('modal-sd-reason')"><i class="ti ti-x"></i></button></div>
-    <div class="modal-body">
-      <textarea class="form-control" id="sd-reason-input" rows="3" placeholder="Reason (optional)…"></textarea>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-sd-reason')">Cancel</button>
-      <button class="btn btn-primary" id="sd-reason-confirm" onclick="sdReasonConfirm()">Confirm</button>
-    </div>
-  </div>
-</div>
-
 <!-- SUPPORT DESK — canned responses picker -->
 <div class="modal-overlay" id="modal-sd-canned">
   <div class="modal glass-bright" style="max-width:520px;">
@@ -2027,12 +2012,25 @@
   </div>
 </div>
 
+<!-- SUPPORT DESK — settings (claim greetings + quick replies) -->
+<div class="modal-overlay" id="modal-sd-settings">
+  <div class="modal glass-bright" style="max-width:640px;">
+    <div class="modal-header"><div class="modal-title"><i class="ti ti-settings"></i> Support Desk Settings</div>
+      <button class="modal-close" onclick="closeModal('modal-sd-settings')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="sd-settings-body" style="max-height:60vh;overflow:auto;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sd-settings')">Cancel</button>
+      <button class="btn btn-primary" onclick="sdSaveSettings()"><i class="ti ti-device-floppy"></i> Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="/js/guard.js?v=73"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=73"></script>
 <script src="/js/dashboard.js?v=73"></script>
 <script src="/js/tickets.js?v=73"></script>
-<script src="/js/support-staff.js?v=73"></script>
+<script src="/js/support-staff.js?v=74"></script>
 <script src="/js/security.js?v=73"></script>
 <script src="/js/records.js?v=73"></script>
 <script src="/js/quota-check.js?v=73"></script>

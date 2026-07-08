@@ -445,8 +445,12 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     $('sup-input').focus();
   };
   window.supHelpTopics = helpTopics;
+  // Server-provided FAQ entries (sanitized) — { key, label, body }.
+  const kbEntry = k => (CFG.knowledge || []).find(e => e.key === k);
   function helpTopics() {
-    const opts = [['join', 'How do I join the MET?'], ['tryout', 'When is the next tryout?'], ['reqs', 'What are the requirements?'], ['human', 'Talk to an investigator']];
+    const opts = [['join', 'How do I join the MET?'], ['tryout', 'When is the next tryout?'], ['reqs', 'What are the requirements?']];
+    (CFG.knowledge || []).forEach(k => opts.push(['kb:' + k.key, k.label]));
+    opts.push(['human', 'Talk to an investigator']);
     $('sup-log').insertAdjacentHTML('beforeend',
       `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 4px 44px;">` +
       opts.map(([k, l]) => `<button class="btn btn-ghost btn-sm" onclick="supHelp('${k}')">${esc(l)}</button>`).join('') + `</div>`);
@@ -454,11 +458,14 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   }
   window.supHelp = function (topic) {
     const labels = { join: 'How do I join the MET?', tryout: 'When is the next tryout?', reqs: 'What are the requirements?', human: 'Talk to an investigator' };
-    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || 'You', authorAvatar: MY_AVATAR, body: labels[topic] || topic, createdAt: new Date().toISOString() });
+    let echo = labels[topic] || topic, kbBody = null;
+    if (topic.indexOf('kb:') === 0) { const e = kbEntry(topic.slice(3)); echo = e ? e.label : topic; kbBody = e ? e.body : null; }
+    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || 'You', authorAvatar: MY_AVATAR, body: echo, createdAt: new Date().toISOString() });
     if (topic === 'human') return helpHandoff(lastHelpText);
     if (topic === 'join') return appendBotTyping(KB_JOIN, helpFollowup);
     if (topic === 'reqs') return appendBotTyping(KB_REQS, helpFollowup);
     if (topic === 'tryout') return helpTryouts();
+    if (kbBody) return appendBotTyping(kbBody, helpFollowup);
   };
   function helpFollowup() {
     $('sup-log').insertAdjacentHTML('beforeend',
@@ -487,6 +494,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     if (/join|how do i (get|become)|sign ?up|recruit/.test(t)) return appendBotTyping(KB_JOIN, helpFollowup);
     if (/require|how old|days old|gang|group/.test(t)) return appendBotTyping(KB_REQS, helpFollowup);
     if (/tryout|try out|when.*(tryout|test)|next test/.test(t)) return helpTryouts();
+    if (/appeal|strike|blacklist|terminat|demot|exile|punish|discipline|suspend|warning/.test(t)) { const e = kbEntry('appeals'); if (e) return appendBotTyping(e.body, helpFollowup); }
     appendBotTyping("I'm not sure I can answer that one. Want me to connect you to an Internal Affairs investigator?", () => {
       $('sup-log').insertAdjacentHTML('beforeend',
         `<div style="display:flex;gap:8px;margin:4px 0 4px 44px;">

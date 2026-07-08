@@ -170,15 +170,47 @@ async function createIaTicketLog(t, closer) {
 
 // ── GET /api/support/config — landing catalogue + this user's capabilities ──
 router.get('/config', (req, res) => {
+  const prefs = (req.user && req.user.supportPrefs && typeof req.user.supportPrefs === 'object') ? req.user.supportPrefs : {};
   res.json({
     types: support.publicCatalogue(),
+    knowledge: support.KNOWLEDGE, // member-facing FAQ for the help bot
     loggedIn: !!req.user,
     isStaff: support.isStaff(req.user),
     isHicomm: support.isHicomm(req.user),
     handleableTypes: support.handleableTypes(req.user),
     priorities: support.PRIORITIES,
-    me: req.user ? { id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null } : null,
+    me: req.user ? {
+      id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null,
+      // Support-desk settings (staff): effective claim greetings + saved quick replies.
+      greetings: { ...support.DEFAULT_GREETINGS, ...(prefs.greetings || {}) },
+      quickReplies: Array.isArray(prefs.quickReplies) ? prefs.quickReplies : null,
+    } : null,
   });
+});
+
+// ── PATCH /api/support/settings — staff save their greetings + quick replies ──
+router.patch('/settings', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in first.' });
+  if (!support.isStaff(req.user)) return res.status(403).json({ error: 'Support staff only.' });
+  try {
+    const body = req.body || {};
+    const prefs = (req.user.supportPrefs && typeof req.user.supportPrefs === 'object') ? { ...req.user.supportPrefs } : {};
+    if (body.greetings && typeof body.greetings === 'object') {
+      const g = {};
+      for (const k of Object.keys(support.DEFAULT_GREETINGS)) {
+        if (typeof body.greetings[k] === 'string') g[k] = body.greetings[k].slice(0, 1200);
+      }
+      prefs.greetings = g;
+    }
+    if (Array.isArray(body.quickReplies)) {
+      prefs.quickReplies = body.quickReplies.filter(x => typeof x === 'string').map(s => s.slice(0, 1000).trim()).filter(Boolean).slice(0, 40);
+    }
+    await prisma.user.update({ where: { id: req.user.id }, data: { supportPrefs: prefs } });
+    res.json({ ok: true, supportPrefs: prefs });
+  } catch (e) {
+    console.error('[Support] settings save failed:', e.message);
+    res.status(500).json({ error: 'Failed to save settings' });
+  }
 });
 
 // ── GET /api/support/tryouts — upcoming MET (HPC) tryouts, for the help bot ──
@@ -422,6 +454,25 @@ router.post('/resolve-identity', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Lookup failed' }); }
 });
 
+// Compose the greeting an investigator auto-pastes when claiming a ticket:
+// their IA rank + Roblox username, category-aware wording, and a supervision
+// line for Probationary Investigators. Uses the staffer's saved template when
+// set, else the default. Best-effort — returns null if anything is unavailable.
+async function buildClaimGreeting(user, ticket) {
+  const username = user.robloxUsername || user.displayName || user.discordUsername || '';
+  let rankName = '', isProbationary = false;
+  if (user.robloxId) {
+    try {
+      const { getUserGroupRole } = require('../lib/roblox');
+      const role = await getUserGroupRole(user.robloxId, process.env.IA_GROUP_ID || '407296071');
+      if (role && role.name) { rankName = role.name; isProbationary = /probationary/i.test(role.name); }
+    } catch (e) { /* group lookup unavailable → omit rank */ }
+  }
+  const saved = (user.supportPrefs && user.supportPrefs.greetings) || {};
+  const template = saved[ticket.type] || support.DEFAULT_GREETINGS[ticket.type] || support.DEFAULT_GREETINGS.GENERAL_SUPPORT;
+  return support.fillGreeting(template, { rank: rankName, username, isProbationary });
+}
+
 // ── POST /api/support/tickets/:id/claim — staff claim ──
 router.post('/tickets/:id/claim', async (req, res) => {
   try {
@@ -436,7 +487,10 @@ router.post('/tickets/:id/claim', async (req, res) => {
     const claimMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `${name} has claimed this ticket and will assist you.` } });
     support.publish(t.id, 'message', serializeMessage(t.id, claimMsg));
     support.publish(t.id, 'update', { status: 'CLAIMED', claimedByName: name });
-    res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
+    // Compose the investigator's greeting to prefill their composer (never posted
+    // automatically — they review/edit and send it themselves).
+    const greeting = await buildClaimGreeting(req.user, t).catch(() => null);
+    res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }), greeting });
   } catch (e) { res.status(500).json({ error: 'Failed to claim' }); }
 });
 

@@ -63,6 +63,57 @@ const TYPES = {
 const BOT_NAME   = 'MET Assistant';
 const BOT_AVATAR = '/img/divisions/met.png';
 
+// ── Help-bot knowledge base (member-facing, sanitized) ────────────────
+// Informational FAQ the General Support assistant can surface. Deliberately
+// high-level: no internal IA thresholds, staff names, case-file handling or
+// classified process — just what a member needs to understand outcomes and how
+// to appeal. `body` uses the same **bold**/[link](url) markdown the chat renders.
+const KNOWLEDGE = [
+  {
+    key: 'appeals',
+    label: 'Punishments & appeals',
+    body: `**Punishments & appeals**
+The Metropolitan Police takes conduct seriously. Depending on how serious a rule-break is, outcomes can range from a **warning** or **strike** up to a **suspension**, **removal from the force**, or a **blacklist**. Minor issues are usually handled with a warning first; more serious ones carry heavier action.
+
+**If you think a punishment was a mistake**
+If you believe you were punished in error or you're innocent, you can appeal **straight away** — open a **Disciplinary Action Appeal** ticket and explain what happened.
+
+**Appealing a valid punishment**
+If the punishment was correct but you'd still like it reviewed, there's a short waiting period first — around **2 weeks** for minor punishments and **3 weeks** for more serious ones — and you'll need to write a clear explanation of why it should be reconsidered.
+
+**Good to know**
+• Removals from the force, and blacklists issued for **exploiting or cheating**, are generally final and can't be appealed. Blacklists for other reasons may be appealed.
+• Every appeal is reviewed by Internal Affairs, and the final decision rests with them.
+
+To start an appeal, choose **Appeal a punishment** on the support home.`,
+  },
+];
+
+// ── Claim greeting templates (per ticket type) ────────────────────────
+// The auto-pasted opener an investigator sends when they claim a ticket. Staff
+// can override these per-user in the support desk settings. Placeholders:
+//   {rank}        → the claimant's IA rank name (e.g. "Investigator")
+//   {username}    → the claimant's Roblox username
+//   {supervision} → ", working under the supervision of IA High Command"
+//                   (auto-added only for Probationary Investigators)
+const DEFAULT_GREETINGS = {
+  GENERAL_SUPPORT:     "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be handling your General Support ticket today and will assist you with any queries or concerns you may have.",
+  DISCIPLINARY_APPEAL: "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be reviewing your Disciplinary Action Appeal today.",
+  OFFICER_COMPLAINT:   "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be handling your Officer Complaint today.",
+  IA_COMPLAINT:        "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be handling your Internal Affairs complaint today.",
+};
+// Fill a greeting template. isProbationary → include the supervision clause.
+function fillGreeting(template, { rank, username, isProbationary } = {}) {
+  const supervision = isProbationary ? ', working under the supervision of IA High Command' : '';
+  return String(template || '')
+    .replace(/\{rank\}/g, rank || '')
+    .replace(/\{username\}/g, username || '')
+    .replace(/\{supervision\}/g, supervision)
+    .replace(/\s{2,}/g, ' ')   // collapse doubled spaces (e.g. when rank is empty)
+    .replace(/\s+([.,])/g, '$1')
+    .trim();
+}
+
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 function normPriority(p) { const v = String(p || '').toUpperCase(); return PRIORITIES.includes(v) ? v : 'NORMAL'; }
 
@@ -223,4 +274,5 @@ module.exports = {
   TYPES, typeConfig, isStaff, isHicomm, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
   handoffMessage, resolveIdentity, subscribe, publish, PRIORITIES, normPriority,
   BOT_NAME, BOT_AVATAR, IA_STAFF, IA_HICOMM,
+  KNOWLEDGE, DEFAULT_GREETINGS, fillGreeting,
 };

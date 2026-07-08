@@ -13,7 +13,8 @@
   let sdSeq = 0;
 
   const $ = id => document.getElementById(id);
-  const CANNED = [
+  // Quick replies — default set; replaced by the staffer's saved list on load.
+  let CANNED = [
     'Thanks for reaching out — an investigator is reviewing your report now.',
     'Could you provide any evidence (screenshots or clips) to support this?',
     'Can you confirm the date/time and which server this happened on?',
@@ -44,6 +45,8 @@
   window.loadSupportTickets = async function () {
     if (!SDC) {
       try { SDC = await api('/api/support/config'); } catch (e) { SDC = { handleableTypes: [], isHicomm: false, priorities: ['LOW', 'NORMAL', 'HIGH', 'URGENT'], me: {} }; }
+      // Seed quick replies from the staffer's saved settings (falls back to defaults).
+      if (SDC.me && Array.isArray(SDC.me.quickReplies) && SDC.me.quickReplies.length) CANNED = SDC.me.quickReplies.slice();
       // type filter options
       const sel = $('sd-type-filter');
       if (sel && sel.options.length <= 1) {
@@ -137,6 +140,7 @@
     if (c.canDeEscalate) b.push(`<button class="btn btn-ghost btn-sm" onclick="sdAct('deescalate')"><i class="ti ti-flag-off"></i> Clear flag</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${t.openerId}','${esc(t.openerName)}')"><i class="ti ti-user"></i> Opener Profile</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdCanned()"><i class="ti ti-message-2-bolt"></i> Quick replies</button>`);
+    b.push(`<button class="btn btn-ghost btn-sm" onclick="sdSettings()" title="Support desk settings — edit your claim greetings and quick replies"><i class="ti ti-settings"></i></button>`);
     if (c.canClose)  b.push(`<button class="btn btn-danger btn-sm" onclick="sdClose()"><i class="ti ti-lock"></i> Close</button>`);
     // Guest ticket-blacklist: block/allow this guest opener's IP + browser.
     if (t.openerBlacklisted && (c.isHicomm || c.canBlacklist)) {
@@ -196,41 +200,36 @@
     const map = { claim: 'claim', release: 'release', deescalate: 'escalate' };
     try {
       const body = action === 'deescalate' ? JSON.stringify({ off: true }) : undefined;
-      await api('/api/support/tickets/' + curT.id + '/' + map[action], { method: 'POST', body });
+      const r = await api('/api/support/tickets/' + curT.id + '/' + map[action], { method: 'POST', body });
       showToast('Done', 'success'); await reloadTicket(); refreshQueue();
+      // On claim, prefill the composer with the investigator's greeting (they
+      // review/edit and send it themselves). Don't clobber an in-progress draft.
+      if (action === 'claim' && r && r.greeting) {
+        const inp = $('sd-input');
+        if (inp && !inp.value.trim()) { inp.value = r.greeting; inp.focus(); }
+      }
     } catch (e) { showToast(e.message, 'error'); }
   };
   window.sdSetPriority = async function (p) {
     try { await api('/api/support/tickets/' + curT.id + '/priority', { method: 'POST', body: JSON.stringify({ priority: p }) }); showToast('Priority set', 'success'); await reloadTicket(); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
   };
-  // In-modal reason prompt (no browser prompt()).
-  let sdReasonCb = null;
-  function sdReasonPrompt(title, placeholder, confirmText, cb) {
-    $('sd-reason-title').textContent = title;
-    const ta = $('sd-reason-input'); ta.value = ''; ta.placeholder = placeholder;
-    $('sd-reason-confirm').textContent = confirmText;
-    sdReasonCb = cb;
-    openModal('modal-sd-reason');
-    setTimeout(() => ta.focus(), 50);
-  }
-  window.sdReasonConfirm = function () {
-    const val = $('sd-reason-input').value.trim();
-    const cb = sdReasonCb; sdReasonCb = null;
-    closeModal('modal-sd-reason');
-    if (cb) cb(val);
+  // Reason prompts use the shared awaited dialog (uiPrompt → string, or null on
+  // Cancel / Escape / backdrop). A null result is a hard abort, so "Cancel" can
+  // never fall through to the action.
+  window.sdEscalate = async function () {
+    const note = await uiPrompt('Escalate this ticket up to IA High Command. Add a note (optional).',
+      { title: 'Escalate to IA HICOMM', confirmText: 'Escalate', placeholder: 'Reason (optional)…', multiline: true });
+    if (note === null) return;
+    try { await api('/api/support/tickets/' + curT.id + '/escalate', { method: 'POST', body: JSON.stringify({ note }) }); showToast('Escalated', 'success'); await reloadTicket(); refreshQueue(); }
+    catch (e) { showToast(e.message, 'error'); }
   };
-  window.sdEscalate = function () {
-    sdReasonPrompt('Escalate to IA HICOMM', 'Reason (optional)…', 'Escalate', async (note) => {
-      try { await api('/api/support/tickets/' + curT.id + '/escalate', { method: 'POST', body: JSON.stringify({ note }) }); showToast('Escalated', 'success'); await reloadTicket(); refreshQueue(); }
-      catch (e) { showToast(e.message, 'error'); }
-    });
-  };
-  window.sdClose = function () {
-    sdReasonPrompt('Close ticket', 'Close reason (optional) — an IA ticket log is auto-filed for HICOMM…', 'Close ticket', async (reason) => {
-      try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); await reloadTicket(); refreshQueue(); }
-      catch (e) { showToast(e.message, 'error'); }
-    });
+  window.sdClose = async function () {
+    const reason = await uiPrompt('Close this ticket. Add a close reason (optional) — an IA ticket log is auto-filed for HICOMM.',
+      { title: 'Close ticket', confirmText: 'Close ticket', cancelText: 'Cancel', placeholder: 'Close reason (optional)…', multiline: true, danger: true });
+    if (reason === null) return; // Cancel / Escape / backdrop → do NOT close
+    try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); await reloadTicket(); refreshQueue(); }
+    catch (e) { showToast(e.message, 'error'); }
   };
   window.sdBlacklist = async function (off) {
     if (off) {
@@ -240,10 +239,11 @@
         .catch(e => showToast(e.message, 'error'));
       return;
     }
-    sdReasonPrompt('Blacklist guest', "Reason (optional) — blocks this guest's IP and browser from opening new support tickets…", 'Blacklist', async (reason) => {
-      try { await api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Guest blacklisted', 'success'); await reloadTicket(); }
-      catch (e) { showToast(e.message, 'error'); }
-    });
+    const reason = await uiPrompt("Blacklist this guest — blocks their IP and browser from opening new support tickets. Reason (optional).",
+      { title: 'Blacklist guest', confirmText: 'Blacklist', placeholder: 'Reason (optional)…', multiline: true, danger: true });
+    if (reason === null) return;
+    try { await api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Guest blacklisted', 'success'); await reloadTicket(); }
+    catch (e) { showToast(e.message, 'error'); }
   };
   window.sdDelete = async function () {
     if (!(await uiConfirm('Permanently delete this ticket and its messages? This cannot be undone.'))) return;
@@ -255,6 +255,40 @@
     openModal('modal-sd-canned');
   };
   window.sdUseCanned = function (text) { $('sd-input').value = text; closeModal('modal-sd-canned'); $('sd-input').focus(); };
+
+  // ── Support desk settings — edit claim greetings + quick replies ──────
+  const GREETING_LABELS = {
+    GENERAL_SUPPORT: 'General Support', DISCIPLINARY_APPEAL: 'Disciplinary Action Appeal',
+    OFFICER_COMPLAINT: 'Officer Complaint', IA_COMPLAINT: 'Internal Affairs Complaint',
+  };
+  window.sdSettings = function () {
+    const g = (SDC && SDC.me && SDC.me.greetings) || {};
+    const greetFields = Object.keys(GREETING_LABELS).map(k => `
+      <label style="display:block;font-size:12px;font-weight:600;margin:10px 0 4px;">${esc(GREETING_LABELS[k])}</label>
+      <textarea class="form-control" id="sd-set-greet-${k}" rows="3" style="font-size:13px;">${esc(g[k] || '')}</textarea>`).join('');
+    $('sd-settings-body').innerHTML = `
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px;"><i class="ti ti-message-plus"></i> Claim greetings</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-bottom:4px;">Auto-pasted into your reply box when you claim a ticket. Placeholders:
+        <code>{rank}</code> your IA rank · <code>{username}</code> your Roblox name ·
+        <code>{supervision}</code> the "under the supervision of IA High Command" line (added automatically only for Probationary Investigators).</div>
+      ${greetFields}
+      <div style="font-size:13px;font-weight:700;margin:16px 0 6px;"><i class="ti ti-message-2-bolt"></i> Quick replies</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">One per line. These appear in the Quick replies picker.</div>
+      <textarea class="form-control" id="sd-set-canned" rows="8" style="font-size:13px;">${esc(CANNED.join('\n'))}</textarea>`;
+    openModal('modal-sd-settings');
+  };
+  window.sdSaveSettings = async function () {
+    const greetings = {};
+    Object.keys(GREETING_LABELS).forEach(k => { const el = $('sd-set-greet-' + k); if (el) greetings[k] = el.value; });
+    const quickReplies = ($('sd-set-canned').value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    try {
+      await api('/api/support/settings', { method: 'PATCH', body: JSON.stringify({ greetings, quickReplies }) });
+      CANNED = quickReplies.length ? quickReplies.slice() : CANNED;
+      if (SDC && SDC.me) { SDC.me.greetings = { ...(SDC.me.greetings || {}), ...greetings }; SDC.me.quickReplies = quickReplies; }
+      showToast('Settings saved', 'success');
+      closeModal('modal-sd-settings');
+    } catch (e) { showToast(e.message, 'error'); }
+  };
 
   window.sdProfile = async function (userId, name) {
     // Reuse a simple alert-style card in the canned modal container.
