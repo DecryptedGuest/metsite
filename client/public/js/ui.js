@@ -643,3 +643,44 @@ document.addEventListener('DOMContentLoaded', () => {
     return _fetch(input, init);
   };
 })();
+
+// ── Back-to-top button ───────────────────────────────────────────
+// Appears on long pages once the member scrolls down; smooth-scrolls
+// to the top. Self-contained, site-wide (ui.js loads almost everywhere).
+(function () {
+  if (typeof document === 'undefined') return;
+  function init() {
+    if (document.getElementById('back-to-top')) return;
+    var b = document.createElement('button');
+    b.id = 'back-to-top';
+    b.type = 'button';
+    b.setAttribute('aria-label', 'Back to top');
+    b.innerHTML = '<i class="ti ti-arrow-up"></i>';
+    b.style.cssText =
+      'position:fixed;right:18px;bottom:18px;z-index:9400;width:42px;height:42px;' +
+      'border-radius:50%;border:1px solid var(--border,rgba(255,255,255,.14));' +
+      'background:var(--panel-solid,#151821);color:var(--text-primary,#fff);' +
+      'font-size:18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.4);' +
+      'display:flex;align-items:center;justify-content:center;opacity:0;' +
+      'pointer-events:none;transition:opacity .2s ease,transform .2s ease;transform:translateY(8px);';
+    b.addEventListener('click', function () {
+      var reduce = document.documentElement.getAttribute('data-reduce-motion') === '1';
+      window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    });
+    document.body.appendChild(b);
+    var shown = false;
+    function onScroll() {
+      var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+      var next = y > 400;
+      if (next === shown) return;
+      shown = next;
+      b.style.opacity = next ? '1' : '0';
+      b.style.pointerEvents = next ? 'auto' : 'none';
+      b.style.transform = next ? 'translateY(0)' : 'translateY(8px)';
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

@@ -21,6 +21,18 @@
         const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', cur); try { localStorage.setItem('iacms_theme', cur); } catch (e) {}
       } },
+    { label: 'Toggle reduce motion', icon: 'ti-accessible', action: () => {
+        let pref = ''; try { pref = localStorage.getItem('iacms_reduce_motion') || ''; } catch (e) {}
+        const osReduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const next = !(pref === 'on' || (pref !== 'off' && osReduce));
+        try { localStorage.setItem('iacms_reduce_motion', next ? 'on' : 'off'); } catch (e) {}
+        if (window.applyReduceMotion) window.applyReduceMotion(next);
+        if (window.showToast) showToast(next ? 'Reduced motion on' : 'Reduced motion off', 'info');
+      } },
+    { label: 'Sign out', icon: 'ti-logout', action: () => {
+        const f = document.createElement('form'); f.method = 'POST'; f.action = '/auth/logout';
+        document.body.appendChild(f); f.submit();
+      } },
   ];
 
   function build() {
