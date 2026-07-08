@@ -53,6 +53,14 @@ function setSiteChrome(division) {
 }
 if (typeof window !== 'undefined') window.setSiteChrome = setSiteChrome;
 
+// Load the tour engine on any page with the topbar (offers the tour once on a
+// first visit; the topbar "Tour" button re-runs it any time).
+if (typeof document !== 'undefined' && !window.metTour && !document.getElementById('met-tour-engine')) {
+  var _tourScript = document.createElement('script');
+  _tourScript.id = 'met-tour-engine'; _tourScript.src = '/js/tutorial.js'; _tourScript.defer = true;
+  document.head.appendChild(_tourScript);
+}
+
 async function initMetTopbar(currentDivision) {
   setSiteChrome(currentDivision);
   const badge = document.getElementById('met-division-badge');
@@ -146,6 +154,24 @@ async function initMetTopbar(currentDivision) {
         sBtn.innerHTML = `<i class="ti ti-search"></i> <span style="margin:0 2px;">Search</span> <span class="cmdk-kbd" style="opacity:.6;font-size:11px;">${isMac ? '⌘K' : 'Ctrl + K'}</span>`;
         sBtn.addEventListener('click', function () { window.openCommandPalette(); });
         right.insertBefore(sBtn, right.firstChild);
+      }
+
+      // Tour — always available (even after it's been seen), launches the
+      // page walkthrough. Loads the engine on demand if it isn't in yet.
+      if (!document.getElementById('met-tour-btn')) {
+        const onSupport = /^\/support/.test(location.pathname);
+        const tBtn = document.createElement('button');
+        tBtn.id = 'met-tour-btn';
+        tBtn.className = 'btn btn-ghost btn-sm';
+        tBtn.title = onSupport ? 'How the support desk works' : 'Take a tour of this page';
+        tBtn.innerHTML = onSupport ? '<i class="ti ti-help-circle"></i> How support works' : '<i class="ti ti-help-circle"></i> Tour';
+        tBtn.addEventListener('click', function () {
+          if (window.metTour) return window.metTour.start();
+          const s = document.createElement('script'); s.src = '/js/tutorial.js';
+          s.onload = function () { if (window.metTour) window.metTour.start(); };
+          document.head.appendChild(s);
+        });
+        right.insertBefore(tBtn, right.firstChild);
       }
 
       // My Dashboard — a persistent main button (leftmost), highlighted when here.
