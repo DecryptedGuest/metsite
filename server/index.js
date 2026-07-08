@@ -1137,6 +1137,9 @@ if (require.main === module) {
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
     console.log(`   DB: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}\n`);
+    // Pre-obfuscate client JS into cache so the first page load isn't slowed
+    // by the one-time obfuscation pass. Non-blocking, best-effort.
+    try { require('./lib/assets').warmJsCache(PUBLIC_DIR + '/js'); } catch (e) {}
   });
 }
 

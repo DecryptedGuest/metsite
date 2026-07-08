@@ -8,6 +8,38 @@ const fs = require('fs');
 let terser = null;
 try { terser = require('terser'); } catch (e) { /* optional dependency */ }
 
+let obfuscator = null;
+try { obfuscator = require('javascript-obfuscator'); } catch (e) { /* optional dependency */ }
+
+// Obfuscation settings tuned to be STRONG but safe for this codebase:
+//  • renameGlobals:false — the app calls top-level functions across files and
+//    from inline onclick="…" handlers, so globals must keep their names.
+//  • stringArray + base64 + splitStrings — string literals become opaque
+//    lookups instead of readable text.
+//  • controlFlowFlattening (moderate) + numbersToExpressions — scrambles the
+//    logic structure. deadCodeInjection / selfDefending / debugProtection are
+//    left OFF to avoid any runtime or performance surprises on a live site.
+const OBF_OPTS = {
+  compact: true,
+  renameGlobals: false,
+  identifierNamesGenerator: 'hexadecimal',
+  stringArray: true,
+  stringArrayThreshold: 1,
+  stringArrayEncoding: ['base64'],
+  stringArrayCallsTransform: true,
+  splitStrings: true,
+  splitStringsChunkLength: 10,
+  numbersToExpressions: true,
+  simplify: true,
+  transformObjectKeys: false,
+  controlFlowFlattening: true,
+  controlFlowFlatteningThreshold: 0.5,
+  deadCodeInjection: false,
+  selfDefending: false,
+  debugProtection: false,
+  disableConsoleOutput: false,
+};
+
 const cache = new Map(); // key -> { mtimeMs, content }
 
 // Cache-busting version for client assets. Derived once per deploy from the git
@@ -32,21 +64,28 @@ async function getMinifiedJs(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
   let out = raw;
 
+  // 1) Minify with terser (mangle function-scoped names, strip comments).
   if (terser) {
     try {
       const result = await terser.minify(raw, {
-        // Heavier passes make the output harder to read (a stronger deterrent)
-        // while staying safe. drop_debugger + passes:3 squeeze structure out.
         compress: { passes: 3, drop_debugger: true, booleans_as_integers: true },
-        // Mangle only function-scoped names (toplevel:false) so cross-file
-        // globals like `api`, `openDetail`, etc. keep working.
-        mangle:   { toplevel: false },
-        // No comments, and no whitespace/semicolons that aid reading.
+        mangle:   { toplevel: false }, // keep cross-file globals working
         format:   { comments: false, beautify: false, semicolons: true },
       });
       if (result && result.code) out = result.code;
     } catch (e) {
-      out = raw; // any failure → serve the original, unbroken file
+      out = raw; // any failure → fall back to the original, unbroken file
+    }
+  }
+
+  // 2) Obfuscate the minified code (string-array + control-flow flattening).
+  //    Skippable via OBFUSCATE_JS=off. Any error → keep the minified output.
+  if (obfuscator && process.env.OBFUSCATE_JS !== 'off') {
+    try {
+      const code = obfuscator.obfuscate(out, OBF_OPTS).getObfuscatedCode();
+      if (code && code.length) out = code;
+    } catch (e) {
+      /* keep the minified (still-working) output */
     }
   }
 
@@ -161,4 +200,19 @@ function injectAntiCopyGuard(html, host, devState) {
   return injected ? out : (inject + html);
 }
 
-module.exports = { getMinifiedJs, getMinifiedHtml, injectAntiCopyGuard };
+// Pre-build the obfuscated JS cache at boot so the (one-time, CPU-heavy)
+// obfuscation cost is paid at startup — when no user is waiting on a page —
+// instead of on the first request for each file. Yields between files so it
+// never hogs the event loop for long. Best-effort; failures are ignored.
+async function warmJsCache(dir) {
+  try {
+    const path = require('path');
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
+    for (const f of files) {
+      try { await getMinifiedJs(path.join(dir, f)); } catch (e) { /* skip */ }
+      await new Promise(r => setImmediate(r)); // yield to keep the server responsive
+    }
+  } catch (e) { /* directory unreadable → nothing to warm */ }
+}
+
+module.exports = { getMinifiedJs, getMinifiedHtml, injectAntiCopyGuard, warmJsCache };
