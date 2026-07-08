@@ -16,6 +16,31 @@ if (typeof window !== 'undefined') {
   try { const a = localStorage.getItem('iacms_accent'); if (a) applyAccent(a); } catch (e) {}
 }
 
+// ── Clipboard helper ─────────────────────────────────────────────
+// Copies text and shows a toast. Falls back to a hidden textarea +
+// execCommand for browsers/contexts without the async Clipboard API.
+function copyText(text, label) {
+  const done = () => { if (window.showToast) showToast((label || 'Copied') + ' to clipboard', 'success'); };
+  const fail = () => { if (window.showToast) showToast('Could not copy', 'error'); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(String(text)).then(done).catch(fail);
+      return;
+    }
+  } catch (e) { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = String(text);
+    ta.style.cssText = 'position:fixed;top:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    done();
+  } catch (e) { fail(); }
+}
+if (typeof window !== 'undefined') window.copyText = copyText;
+
 // ── Reduce motion / performance mode ─────────────────────────────
 // Opt-in (or auto via the OS prefers-reduced-motion setting). Kills the
 // animated background canvas, scanline and page-entry animations for
