@@ -849,3 +849,20 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
+
+// ── One-time discoverability tip ─────────────────────────────────
+// The first time a member lands on a page with the toast system, nudge
+// them toward the command palette and shortcut help. Shown once, ever.
+(function () {
+  if (typeof document === 'undefined') return;
+  function maybeTip() {
+    try { if (localStorage.getItem('iacms_tip_seen')) return; } catch (e) { return; }
+    if (!document.getElementById('toast-container')) return; // no toast host here
+    try { localStorage.setItem('iacms_tip_seen', '1'); } catch (e) {}
+    setTimeout(function () {
+      if (window.showToast) showToast('Tip: press Ctrl/⌘ + K to jump anywhere, or “?” for keyboard shortcuts.', 'info', 7000);
+    }, 1500);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', maybeTip);
+  else maybeTip();
+})();
