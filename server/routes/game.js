@@ -194,6 +194,7 @@ router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
       if (t && !['CANCELLED', 'COMPLETED'].includes(t.status)) {
         const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
         await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+        await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
         await bot.editTryoutHostDM(updated).catch(() => {});
       }
     } catch (e) { console.warn('[Game] conclude close-out failed:', e.message); }
@@ -536,10 +537,11 @@ router.post('/tryout/cancel', requireGameSecret, async (req, res) => {
     if (['CANCELLED', 'COMPLETED'].includes(t.status)) return res.json({ ok: true, alreadyClosed: true });
 
     const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
-    // Remove the channel announcement and flip the host DM to "❌ Cancelled".
+    // Remove the channel announcement, end the Discord event, and flip the host DM.
     try {
       const bot = require('../lib/bot');
       await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+      await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
       await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* Discord side is best-effort */ }
     res.json({ ok: true, tryoutId: updated.id });

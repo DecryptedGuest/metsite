@@ -460,7 +460,14 @@ router.post('/tryouts/:id/cancel', async (req, res) => {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can cancel this tryout.' });
     }
     if (['COMPLETED', 'CANCELLED'].includes(t.status)) return res.status(400).json({ error: 'This tryout is already finished.' });
-    await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+    const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+    // End the Discord side: remove the announcement, end the scheduled event, flip the host DM.
+    try {
+      const bot = require('../lib/bot');
+      await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+      await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
+      await bot.editTryoutHostDM(updated).catch(() => {});
+    } catch (e) { /* Discord side is best-effort */ }
     audit.record({ req, action: 'TRYOUT_CANCEL', category: 'tryout', targetType: 'tryout', targetId: t.id, summary: 'Cancelled a MET tryout' });
     res.json({ success: true });
   } catch (err) {
@@ -476,7 +483,12 @@ router.post('/tryouts/:id/complete', async (req, res) => {
     if (!canManageTryout(req.user, t)) {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can end this tryout.' });
     }
-    await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+    const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+    // End the Discord scheduled event now the tryout has concluded.
+    try {
+      const bot = require('../lib/bot');
+      await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
+    } catch (e) { /* Discord side is best-effort */ }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to complete tryout' });
