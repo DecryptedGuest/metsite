@@ -407,5 +407,38 @@ async function loadActivity() {
   panel.style.display = '';
 }
 
+// ── Appearance: accent colour + theme ───────────────────────────────
+const ACCENTS = [
+  { name: 'MET Blue (default)', hex: '' },
+  { name: 'Azure',   hex: '#4a8fff' }, { name: 'Emerald', hex: '#22c55e' },
+  { name: 'Amber',   hex: '#e8842a' }, { name: 'Rose',    hex: '#f04f6e' },
+  { name: 'Violet',  hex: '#8b5cf6' }, { name: 'Teal',    hex: '#14b8a6' },
+  { name: 'Gold',    hex: '#f5b730' }, { name: 'Crimson', hex: '#e0503a' },
+];
+function renderAccents() {
+  const wrap = document.getElementById('p-accent-swatches');
+  if (!wrap) return;
+  let cur = ''; try { cur = localStorage.getItem('iacms_accent') || ''; } catch (e) {}
+  wrap.innerHTML = ACCENTS.map(a => {
+    const active = (a.hex || '') === cur;
+    const bg = a.hex || 'var(--blue,#4a8fff)';
+    return `<button title="${escHtml(a.name)}" onclick="setAccent('${a.hex}')" style="width:34px;height:34px;border-radius:50%;cursor:pointer;background:${bg};border:2px solid ${active ? 'var(--text-primary)' : 'transparent'};box-shadow:${active ? '0 0 0 2px var(--bg,#0a0a0a)' : 'none'};position:relative;">${active ? '<i class="ti ti-check" style="color:#fff;font-size:16px;"></i>' : ''}</button>`;
+  }).join('');
+}
+window.setAccent = function (hex) {
+  try { if (hex) localStorage.setItem('iacms_accent', hex); else localStorage.removeItem('iacms_accent'); } catch (e) {}
+  if (window.applyAccent) window.applyAccent(hex);
+  renderAccents();
+  if (window.showToast) showToast('Accent updated.', 'success');
+};
+window.toggleTheme = function () {
+  let t = 'dark'; try { t = localStorage.getItem('iacms_theme') || 'dark'; } catch (e) {}
+  const next = t === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('iacms_theme', next); } catch (e) {}
+  document.documentElement.setAttribute('data-theme', next);
+  if (window.showToast) showToast(next === 'dark' ? 'Dark mode' : 'Light mode', 'info');
+};
+
 loadProfile();
 loadActivity();
+renderAccents();

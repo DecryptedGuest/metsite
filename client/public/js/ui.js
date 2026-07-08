@@ -1,5 +1,21 @@
 // client/public/js/ui.js
 
+// ── Accent colour ────────────────────────────────────────────────
+// A member-chosen accent overrides the site's default blue (--blue) everywhere.
+// Applied on every page load (ui.js is loaded almost everywhere).
+function applyAccent(hex) {
+  const r = document.documentElement;
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) { r.style.removeProperty('--blue'); r.style.removeProperty('--blue-dim'); r.style.removeProperty('--blue-glow'); return; }
+  const n = parseInt(hex.slice(1), 16), R = (n >> 16) & 255, G = (n >> 8) & 255, B = n & 255;
+  r.style.setProperty('--blue', hex);
+  r.style.setProperty('--blue-dim', `rgba(${R},${G},${B},0.18)`);
+  r.style.setProperty('--blue-glow', `rgba(${R},${G},${B},0.25)`);
+}
+if (typeof window !== 'undefined') {
+  window.applyAccent = applyAccent;
+  try { const a = localStorage.getItem('iacms_accent'); if (a) applyAccent(a); } catch (e) {}
+}
+
 // ── Toast Notifications ──────────────────────────────────────────
 // How long a toast stays on screen. User-configurable (Preferences), stored in
 // localStorage as seconds; clamped to a sane 1–30s. Callers may still pass an
