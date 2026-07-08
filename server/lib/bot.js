@@ -648,7 +648,7 @@ async function sendTryoutHostDM(tryout) {
     const embed = new EmbedBuilder()
       .setColor(tryout.privateServerLink ? 0x2ed896 : 0xf5b730)
       .setTitle(cfg.dmTitle)
-      .setDescription(`Your scheduled ${cfg.eventType} has started. Pick a co-host, then post the announcement when you\'re ready.`)
+      .setDescription(`Your scheduled ${cfg.eventType} has started. Pick a co-host (if applicable), then post the announcement when you\'re ready.`)
       .addFields(
         { name: 'Private server link', value: tryout.privateServerLink || 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
         { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
