@@ -552,9 +552,50 @@ function renderWhatsNew() {
   try { localStorage.setItem('iacms_changelog_seen', newest); } catch (e) {}
 }
 
+// ── Push notifications ──────────────────────────────────────────────
+function renderNotifPanel() {
+  const panel = document.getElementById('p-notif-panel');
+  const body = document.getElementById('p-notif-body');
+  const pc = window.pushClient;
+  if (!panel || !body || !pc) return;
+  panel.style.display = '';
+  if (!pc.supported || !pc.supported()) {
+    body.innerHTML = `<div style="font-size:13px;color:var(--text-muted);"><i class="ti ti-bell-off"></i> Push notifications aren't supported on this browser.</div>`;
+    return;
+  }
+  const state = pc.permissionState ? pc.permissionState() : 'default';
+  if (state === 'granted') {
+    body.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="badge badge-approved"><span class="badge-dot"></span>Enabled on this device</span>
+        <button class="btn btn-ghost btn-sm" onclick="disablePush()"><i class="ti ti-bell-off"></i> Turn off</button>
+      </div>`;
+  } else if (state === 'denied') {
+    body.innerHTML = `<div style="font-size:13px;color:var(--text-muted);"><i class="ti ti-bell-x"></i> Notifications are blocked for this site — enable them in your browser's site settings, then reload.</div>`;
+  } else {
+    body.innerHTML = `<button class="btn btn-primary btn-sm" onclick="enablePush()"><i class="ti ti-bell"></i> Enable notifications</button>`;
+  }
+}
+window.enablePush = async function () {
+  const pc = window.pushClient; if (!pc) return;
+  try {
+    const res = await pc.requestPushPermission();
+    if (res === 'granted') { if (window.showToast) showToast('Notifications enabled on this device.', 'success'); }
+    else if (res === 'denied') { if (window.showToast) showToast('Notifications were blocked. Enable them in browser settings.', 'error'); }
+    else { if (window.showToast) showToast('Could not enable notifications here.', 'error'); }
+  } catch (e) { if (window.showToast) showToast('Could not enable notifications.', 'error'); }
+  renderNotifPanel();
+};
+window.disablePush = async function () {
+  const pc = window.pushClient; if (!pc) return;
+  try { await pc.removePushSubscription(); if (window.showToast) showToast('Notifications turned off on this device.', 'info'); }
+  catch (e) { if (window.showToast) showToast('Could not turn off notifications.', 'error'); }
+  renderNotifPanel();
+};
+
 loadProfile();
 loadActivity();
 renderWhatsNew();
+renderNotifPanel();
 renderAccents();
 renderReduceMotionBtn();
 renderDensityBtn();
