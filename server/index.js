@@ -955,6 +955,15 @@ function sendPage(res, file) {
     if (require('./lib/siteConfig').isOn('auroraTheme')) {
       html = html.replace('<html', '<html data-ui="aurora"');
     }
+    // Anti-copy / anti-save guard, baked with the actual serving host so a
+    // saved (file://) or re-hosted copy locks itself, while the real site —
+    // on any domain — never can.
+    try {
+      const req = res.req;
+      const host = String((req && (req.headers['x-forwarded-host'] || req.headers.host)) || '')
+        .split(',')[0].trim().toLowerCase();
+      html = require('./lib/assets').injectAntiCopyGuard(html, host);
+    } catch (e) { /* never block the page render on the guard */ }
     res.type('html').send(html);
   } catch (e) { res.sendFile(file); }
 }

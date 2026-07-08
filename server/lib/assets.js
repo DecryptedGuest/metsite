@@ -35,11 +35,14 @@ async function getMinifiedJs(filePath) {
   if (terser) {
     try {
       const result = await terser.minify(raw, {
-        compress: true,
+        // Heavier passes make the output harder to read (a stronger deterrent)
+        // while staying safe. drop_debugger + passes:3 squeeze structure out.
+        compress: { passes: 3, drop_debugger: true, booleans_as_integers: true },
         // Mangle only function-scoped names (toplevel:false) so cross-file
         // globals like `api`, `openDetail`, etc. keep working.
         mangle:   { toplevel: false },
-        format:   { comments: false },
+        // No comments, and no whitespace/semicolons that aid reading.
+        format:   { comments: false, beautify: false, semicolons: true },
       });
       if (result && result.code) out = result.code;
     } catch (e) {
@@ -70,4 +73,59 @@ function getMinifiedHtml(filePath) {
   return out;
 }
 
-module.exports = { getMinifiedJs, getMinifiedHtml };
+// ── Anti-copy / anti-save guard ──────────────────────────────────────
+// Injected inline into every served HTML page, baked with the ACTUAL host
+// that served the page. If the page is later opened as a saved file
+// (file://) or re-hosted on a different domain, the guard blanks the UI and
+// shows a full-screen, self-healing "not the official site" error that keeps
+// re-asserting itself if removed from the DOM.
+//
+// Baking the serving host means the real site can NEVER lock itself out — the
+// allowed host is literally whatever domain delivered the page. This is a
+// strong deterrent against casual copying; it is not unbreakable (a determined
+// person can disable JS or edit the saved file), which is inherent to the web.
+function buildAllowlist(host) {
+  const allow = [];
+  if (host) allow.push(host);
+  (process.env.OFFICIAL_HOSTS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean).forEach(h => allow.push(h));
+  // Only trust localhost in dev (or when we were actually served from it), so a
+  // production page can't be re-hosted behind a local web server to dodge the guard.
+  if (process.env.NODE_ENV !== 'production' || /^(localhost|127\.0\.0\.1|\[?::1\]?)(:|$)/.test(host || '')) {
+    allow.push('localhost', '127.0.0.1');
+  }
+  return [...new Set(allow)];
+}
+
+function guardScript(host) {
+  const allow = JSON.stringify(buildAllowlist(host));
+  // Kept compact and dependency-free; runs before the rest of the page.
+  return '<script>(function(){try{' +
+    'var A=' + allow + ';var p=location.protocol,h=(location.hostname||"").toLowerCase();' +
+    'var web=(p==="http:"||p==="https:");' +
+    'var official=web&&(A.length===0||A.indexOf(h)!==-1);' +
+    'if(official)return;' +
+    'try{document.documentElement.style.setProperty("visibility","hidden","important");}catch(e){}' +
+    'var MSG=\'<div style="max-width:520px"><div style="font-size:48px;line-height:1">\\u26D4</div>' +
+    '<div style="font-size:22px;font-weight:800;margin:12px 0 8px;color:#ff5d6c">This is not the official MET Police site</div>' +
+    '<div style="font-size:14px;line-height:1.7;color:#c9d1e0">This page has been saved, copied or re-hosted. The Metropolitan Police portal only runs on its official website — saved and cloned copies are disabled for security. Please return to the official site.</div></div>\';' +
+    'function L(){try{if(document.getElementById("__sl__"))return;var d=document.createElement("div");d.id="__sl__";' +
+    'd.setAttribute("style","position:fixed;inset:0;z-index:2147483647;background:#0b0f1a;color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:24px;");' +
+    'd.innerHTML=MSG;(document.body||document.documentElement).appendChild(d);' +
+    'document.documentElement.style.setProperty("visibility","visible","important");' +
+    'try{document.body.style.setProperty("overflow","hidden","important");}catch(e){}}catch(e){}}' +
+    'function E(){L();try{var b=document.body;if(b){for(var i=b.children.length-1;i>=0;i--){var c=b.children[i];if(c.id!=="__sl__")b.removeChild(c);}}}catch(e){}}' +
+    'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",E);else E();' +
+    'setInterval(E,500);try{new MutationObserver(E).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}' +
+    '}catch(e){}})();</script>';
+}
+
+// Insert the guard as early as possible (right after <head>) so it runs before
+// the UI paints. Falls back to prepending if there's no <head>.
+function injectAntiCopyGuard(html, host) {
+  const guard = guardScript(host);
+  let injected = false;
+  const out = html.replace(/<head[^>]*>/i, (m) => { injected = true; return m + guard; });
+  return injected ? out : (guard + html);
+}
+
+module.exports = { getMinifiedJs, getMinifiedHtml, injectAntiCopyGuard };
