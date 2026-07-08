@@ -522,6 +522,10 @@ async function exileFromGroup(robloxUserId, gid, cookie) {
     const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, { method: 'DELETE' }, true, ck);
     if (res.ok) {
       console.log(`Roblox exile: user ${robloxUserId} removed from group ${groupId}`);
+      // RoVer-style Discord update — strip the rank prefix on termination.
+      try {
+        require('./rover').roverUpdate({ robloxId: robloxUserId, groupId, terminated: true }).catch(() => {});
+      } catch (e) { /* ignore */ }
       return true;
     }
     const text = await res.text();
@@ -645,6 +649,11 @@ async function changeGroupRank(robloxUserId, roleId, gid, cookie) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} changing rank: ${body.slice(0, 200)}`);
   }
+  // RoVer-style Discord update (nickname sync) — fire-and-forget so it never
+  // slows or fails the rank change. Lazy require avoids a circular dependency.
+  try {
+    require('./rover').roverUpdate({ robloxId: robloxUserId, groupId, roleId }).catch(() => {});
+  } catch (e) { /* ignore */ }
 }
 
 /**

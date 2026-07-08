@@ -224,6 +224,30 @@ async function assignRole(discordUserId, roleId) {
 }
 
 /**
+ * Set a guild member's server nickname (max 32 chars). Used by the RoVer-style
+ * rank sync to keep "RANK | RobloxUsername" current after a rank change. Needs
+ * the bot to have Manage Nicknames and a role above the target. Best-effort.
+ */
+async function setMemberNickname(discordUserId, nick) {
+  if (!ready || !nick) return false;
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) return false;
+  try {
+    const guild  = await client.guilds.fetch(guildId);
+    const member = await guild.members.fetch(discordUserId);
+    if (!member) return false;
+    const clean = String(nick).slice(0, 32);
+    if (member.nickname === clean) return true; // already correct — no-op
+    await member.setNickname(clean, 'RoVer-style rank sync');
+    console.log(`[rover] nickname set for ${discordUserId} → "${clean}"`);
+    return true;
+  } catch (err) {
+    console.warn(`[rover] setNickname failed for ${discordUserId}:`, err.message);
+    return false;
+  }
+}
+
+/**
  * Look up a user's display name in the guild by their Discord user ID.
  * Used to resolve officer names when a case is submitted.
  */
@@ -1360,7 +1384,7 @@ async function timeoutMember(discordUserId, { durationMinutes, reason, guildId }
 }
 
 module.exports = {
-  startBot, assignRole, removeRole, getMemberDisplayName, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, setMemberNickname, getMemberDisplayName, lookupMember, getMemberRecord,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript,
