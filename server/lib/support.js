@@ -94,25 +94,35 @@ To start an appeal, choose **Appeal a punishment** on the support home.`,
 // ── Claim greeting templates (per ticket type) ────────────────────────
 // The auto-pasted opener an investigator sends when they claim a ticket. Staff
 // can override these per-user in the support desk settings. Placeholders:
-//   {rank}        → the claimant's IA rank name (e.g. "Investigator")
-//   {username}    → the claimant's Roblox username
-//   {supervision} → ", working under the supervision of IA High Command"
-//                   (auto-added only for Probationary Investigators)
+//   {rank}     → the claimant's IA rank name (e.g. "Investigator")
+//   {username} → the claimant's Roblox username
+// Probationary Investigators automatically get ", working under the supervision
+// of IA High Command" inserted after "Internal Affairs" (they can also place it
+// explicitly with the {supervision} placeholder). Non-PINV never see it.
 const DEFAULT_GREETINGS = {
-  GENERAL_SUPPORT:     "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be handling your General Support ticket today and will assist you with any queries or concerns you may have.",
-  DISCIPLINARY_APPEAL: "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be reviewing your Disciplinary Action Appeal today.",
-  OFFICER_COMPLAINT:   "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be handling your Officer Complaint today.",
-  IA_COMPLAINT:        "G'day, I am {rank} {username} with Internal Affairs{supervision}. I will be handling your Internal Affairs complaint today.",
+  GENERAL_SUPPORT:     "G'day, I am {rank} {username} with Internal Affairs. I will be handling your General Support ticket today and will assist you with any queries or concerns you may have.",
+  DISCIPLINARY_APPEAL: "G'day, I am {rank} {username} with Internal Affairs. I will be reviewing your Disciplinary Action Appeal today.",
+  OFFICER_COMPLAINT:   "G'day, I am {rank} {username} with Internal Affairs. I will be handling your Officer Complaint today.",
+  IA_COMPLAINT:        "G'day, I am {rank} {username} with Internal Affairs. I will be handling your Internal Affairs complaint today.",
 };
-// Fill a greeting template. isProbationary → include the supervision clause.
+// Fill a greeting template. isProbationary → include the supervision clause
+// (either at the explicit {supervision} placeholder, or auto-inserted after the
+// first "Internal Affairs" mention). Spacing/punctuation is normalised so the
+// result always reads cleanly regardless of how the template was written.
 function fillGreeting(template, { rank, username, isProbationary } = {}) {
-  const supervision = isProbationary ? ', working under the supervision of IA High Command' : '';
-  return String(template || '')
+  const clause = isProbationary ? ', working under the supervision of IA High Command' : '';
+  let out = String(template || '')
     .replace(/\{rank\}/g, rank || '')
-    .replace(/\{username\}/g, username || '')
-    .replace(/\{supervision\}/g, supervision)
-    .replace(/\s{2,}/g, ' ')   // collapse doubled spaces (e.g. when rank is empty)
-    .replace(/\s+([.,])/g, '$1')
+    .replace(/\{username\}/g, username || '');
+  if (out.includes('{supervision}')) {
+    out = out.replace(/\{supervision\}/g, clause);
+  } else if (clause) {
+    out = out.replace(/Internal Affairs/i, m => m + clause); // auto-insert for PINV
+  }
+  return out
+    .replace(/ {2,}/g, ' ')          // collapse doubled spaces (e.g. empty rank)
+    .replace(/ +([.,])/g, '$1')      // no space before punctuation
+    .replace(/,\s*,/g, ',')          // guard against a doubled comma
     .trim();
 }
 

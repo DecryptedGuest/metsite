@@ -50,13 +50,13 @@ async function loadProfile() {
   const name = data.metNickname || u.displayName || u.discordUsername;
   document.getElementById('p-name').textContent = name;
 
-  // Time-of-day greeting with the member's first name.
+  // Time-of-day greeting with the member's Roblox username.
   const gEl = document.getElementById('p-greeting');
   if (gEl) {
     const h = new Date().getHours();
     const part = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
-    const first = String(name || '').trim().split(/\s+/)[0] || '';
-    gEl.textContent = first ? `${part}, ${first}` : part;
+    const who = u.robloxUsername || String(name || '').trim().split(/\s+/)[0] || '';
+    gEl.textContent = who ? `${part}, ${who}` : part;
     gEl.style.display = '';
   }
 

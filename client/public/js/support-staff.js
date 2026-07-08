@@ -281,6 +281,7 @@
     catch (e) { showToast(e.message, 'error'); }
   };
   window.sdCanned = function () {
+    sdCannedTitle('<i class="ti ti-message-2-bolt"></i> Quick Replies');
     $('sd-canned-body').innerHTML = CANNED.map(c => `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;margin-bottom:6px;white-space:normal;height:auto;padding:8px 10px;" onclick="sdUseCanned(${JSON.stringify(c).replace(/"/g, '&quot;')})">${esc(c)}</button>`).join('');
     openModal('modal-sd-canned');
   };
@@ -296,11 +297,21 @@
     const greetFields = Object.keys(GREETING_LABELS).map(k => `
       <label style="display:block;font-size:12px;font-weight:600;margin:10px 0 4px;">${esc(GREETING_LABELS[k])}</label>
       <textarea class="form-control" id="sd-set-greet-${k}" rows="3" style="font-size:13px;">${esc(g[k] || '')}</textarea>`).join('');
+    const isPinv = !!(SDC && SDC.me && SDC.me.isProbationary);
+    const placeholderRows = [
+      ['{rank}', 'Your IA rank name (e.g. Investigator)'],
+      ['{username}', 'Your Roblox username'],
+    ];
+    if (isPinv) placeholderRows.push(['{supervision}', 'Inserts “working under the supervision of IA High Command”. Added automatically for you as a Probationary Investigator — you only need this if you want to control where it appears.']);
+    const placeholderList = placeholderRows.map(([code, desc]) =>
+      `<div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border-dim,rgba(255,255,255,.06));">
+        <code style="background:var(--hover,rgba(255,255,255,.06));padding:2px 7px;border-radius:6px;font-size:12px;white-space:nowrap;">${esc(code)}</code>
+        <span style="font-size:12px;color:var(--text-secondary);line-height:1.5;">${esc(desc)}</span></div>`).join('');
     $('sd-settings-body').innerHTML = `
       <div style="font-size:13px;font-weight:700;margin-bottom:6px;"><i class="ti ti-message-plus"></i> Claim greetings</div>
-      <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-bottom:4px;">Auto-pasted into your reply box when you claim a ticket. Placeholders:
-        <code>{rank}</code> your IA rank · <code>{username}</code> your Roblox name ·
-        <code>{supervision}</code> the "under the supervision of IA High Command" line (added automatically only for Probationary Investigators).</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Auto-pasted into your reply box when you claim a ticket.</div>
+      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;">Available placeholders</div>
+      <div style="margin-bottom:12px;">${placeholderList}</div>
       ${greetFields}
       <div style="font-size:13px;font-weight:700;margin:16px 0 6px;"><i class="ti ti-message-2-bolt"></i> Quick replies</div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">One per line. These appear in the Quick replies picker.</div>
@@ -320,14 +331,16 @@
     } catch (e) { showToast(e.message, 'error'); }
   };
 
+  function sdCannedTitle(html) { const el = document.querySelector('#modal-sd-canned .modal-title'); if (el) el.innerHTML = html; }
   window.sdProfile = async function (userId, name) {
-    // Reuse a simple alert-style card in the canned modal container.
+    // Reuse the canned-modal container, but title it as a profile (not "Quick Replies").
+    sdCannedTitle('<i class="ti ti-user"></i> Profile');
     $('sd-canned-body').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     openModal('modal-sd-canned');
     try {
       const p = await api('/api/support/user-profile?userId=' + encodeURIComponent(userId));
       const av = p.avatar ? `<img src="${esc(p.avatar)}" style="width:52px;height:52px;border-radius:50%;">` : '';
-      const roblox = p.robloxUsername ? `<div style="font-size:12px;color:var(--text-muted);">Roblox: <a href="https://www.roblox.com/users/${esc(p.robloxId || '')}/profile" target="_blank" rel="noopener" style="color:var(--blue);">@${esc(p.robloxUsername)}</a></div>` : '';
+      const roblox = p.robloxUsername ? `<div style="font-size:12px;color:var(--text-muted);">Roblox: <a href="https://www.roblox.com/users/${esc(p.robloxId || '')}/profile" target="_blank" rel="noopener" style="color:var(--blue);">@${esc(p.robloxUsername)}${p.robloxId ? ` (${esc(p.robloxId)})` : ''}</a></div>` : '';
       let ia = '';
       if (p.role) {
         const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}`).join('<br>') || '—';

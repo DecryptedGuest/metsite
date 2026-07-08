@@ -169,8 +169,17 @@ async function createIaTicketLog(t, closer) {
 }
 
 // ── GET /api/support/config — landing catalogue + this user's capabilities ──
-router.get('/config', (req, res) => {
+router.get('/config', async (req, res) => {
   const prefs = (req.user && req.user.supportPrefs && typeof req.user.supportPrefs === 'object') ? req.user.supportPrefs : {};
+  // Whether the staffer is a Probationary Investigator (drives the {supervision}
+  // placeholder + auto-clause). Only looked up for staff; best-effort.
+  let isProbationary = false;
+  if (req.user && support.isStaff(req.user) && req.user.robloxId) {
+    try {
+      const role = await require('../lib/roblox').getUserGroupRole(req.user.robloxId, process.env.IA_GROUP_ID || '407296071');
+      isProbationary = !!(role && role.name && /probationary/i.test(role.name));
+    } catch (e) { /* omit → false */ }
+  }
   res.json({
     types: support.publicCatalogue(),
     knowledge: support.KNOWLEDGE, // member-facing FAQ for the help bot
@@ -181,6 +190,7 @@ router.get('/config', (req, res) => {
     priorities: support.PRIORITIES,
     me: req.user ? {
       id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null,
+      isProbationary,
       // Support-desk settings (staff): effective claim greetings + saved quick replies.
       greetings: { ...support.DEFAULT_GREETINGS, ...(prefs.greetings || {}) },
       quickReplies: Array.isArray(prefs.quickReplies) ? prefs.quickReplies : null,
