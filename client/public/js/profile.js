@@ -299,7 +299,7 @@ async function loadSessions() {
           ${s.current ? '<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>This device</span>' : ''}
         </div>
         <div style="font-size:11px;color:var(--text-muted);" title="Signed in ${escHtml(formatDateTime(s.createdAt))} · Last active ${escHtml(formatDateTime(s.lastSeenAt))}">
-          Active ${escHtml(relativeTime(s.lastSeenAt))}  ·  signed in ${escHtml(relativeTime(s.createdAt))}
+          Active <span data-rel-ts="${escHtml(s.lastSeenAt)}">${escHtml(relativeTime(s.lastSeenAt))}</span>  ·  signed in <span data-rel-ts="${escHtml(s.createdAt)}">${escHtml(relativeTime(s.createdAt))}</span>
         </div>
       </div>
       ${s.current
@@ -609,6 +609,16 @@ window.downloadMyData = async function () {
     if (window.showToast) showToast('Your data has been downloaded.', 'success');
   } catch (e) { if (window.showToast) showToast('Could not prepare the download.', 'error'); }
 };
+
+// Keep any [data-rel-ts] relative timestamps ("5 mins ago") fresh without
+// re-fetching. Runs once a minute — cheap and applies to anything tagged.
+function tickRelativeTimes() {
+  document.querySelectorAll('[data-rel-ts]').forEach(el => {
+    const ts = el.getAttribute('data-rel-ts');
+    if (ts) el.textContent = relativeTime(ts);
+  });
+}
+setInterval(tickRelativeTimes, 60000);
 
 loadProfile();
 loadActivity();
