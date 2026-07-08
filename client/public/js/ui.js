@@ -866,3 +866,44 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', maybeTip);
   else maybeTip();
 })();
+
+// ── Remember the active dashboard tab ────────────────────────────
+// Dashboards switch ".page" sections via ".nav-item[data-page]" buttons.
+// Remember the last one per page path and restore it on reload, so a
+// refresh doesn't always dump you back on the overview. Generic: works
+// for any dashboard using that pattern, with no per-dashboard code.
+(function () {
+  if (typeof document === 'undefined') return;
+  function key() { return 'iacms_tab:' + location.pathname; }
+  // Record clicks (capture phase so it runs regardless of the dashboard's own handler).
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('.nav-item[data-page]') : null;
+    if (!t) return;
+    try { localStorage.setItem(key(), t.getAttribute('data-page')); } catch (err) {}
+  }, true);
+
+  function restore() {
+    // Respect explicit deep links (e.g. #officer:123) — don't override them.
+    if (location.hash && location.hash.length > 1) return;
+    // Respect notification / query deep links (?page=…&case=…&ticket=…).
+    try {
+      var qp = new URLSearchParams(location.search || '');
+      if (qp.get('page') || qp.get('case') || qp.get('ticket') || qp.get('officer')) return;
+    } catch (err) { /* ignore */ }
+    var want; try { want = localStorage.getItem(key()); } catch (err) { return; }
+    if (!want) return;
+    if (!document.querySelector('.nav-item[data-page]')) return; // not a tabbed dashboard
+    var tries = 0;
+    (function attempt() {
+      var btn = document.querySelector('.nav-item[data-page="' + (window.CSS && CSS.escape ? CSS.escape(want) : want) + '"]');
+      // Only restore a tab that exists, is visible (not perms-hidden) and isn't already active.
+      if (btn && btn.offsetParent !== null) {
+        if (!btn.classList.contains('active')) btn.click();
+        return;
+      }
+      if (++tries < 12) setTimeout(attempt, 180); // wait out async perms reveal (~2s max)
+    })();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore);
+  else restore();
+})();
