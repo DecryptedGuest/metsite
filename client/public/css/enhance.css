@@ -1,0 +1,76 @@
+/* enhance.css — site-wide micro-interactions + polish.
+   Injected into every page after the base stylesheets. Uses GPU-friendly
+   transform/opacity/shadow transitions. Reduce-motion (ui.js) zeroes all
+   transitions/animations globally with !important, so this self-disables. */
+
+/* ── Smooth transitions on interactive surfaces ─────────────────────── */
+.btn, .btn-icon, .nav-item, .met-chip, .badge, .stat-card, .sup-panel,
+.met-switcher-item, .filter-tab, .data-table tbody tr, a.profile-div-card,
+.chip, .toast, .theme-toggle, .met-topbar-logo {
+  transition: transform .16s cubic-bezier(.2,.7,.3,1),
+              box-shadow .2s ease, background-color .18s ease,
+              border-color .2s ease, color .15s ease, opacity .18s ease;
+}
+.panel, .glass { transition: box-shadow .25s ease, border-color .25s ease, transform .2s cubic-bezier(.2,.7,.3,1); }
+
+/* ── Buttons: lift on hover, press on click, glow on primary/danger ──── */
+.btn { will-change: transform; }
+.btn:hover  { transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.97); }
+.btn-primary:hover  { box-shadow: 0 6px 22px var(--blue-glow, rgba(74,143,255,.38)); }
+.btn-danger:hover   { box-shadow: 0 6px 22px rgba(240,79,94,.32); }
+.btn-icon:hover, .theme-toggle:hover { transform: translateY(-1px) scale(1.08); }
+.btn-icon:active, .theme-toggle:active { transform: scale(.94); }
+
+/* ── Cards: gentle lift + accent border on hover ────────────────────── */
+.stat-card:hover, .sup-panel:hover, a.profile-div-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(0,0,0,.30);
+  border-color: var(--blue-dim, rgba(74,143,255,.30));
+}
+/* Big panels: no jumpy transform — just a soft glow so dense dashboards stay calm */
+.panel:hover { box-shadow: 0 10px 30px rgba(0,0,0,.22); border-color: var(--blue-dim, rgba(74,143,255,.22)); }
+
+/* ── Sidebar / nav: slide + highlight ───────────────────────────────── */
+.nav-item:hover { transform: translateX(3px); background: var(--hover, rgba(255,255,255,.05)); }
+.met-switcher-item:hover { transform: translateX(3px); background: var(--hover, rgba(255,255,255,.06)); }
+
+/* ── Tables: row highlight ──────────────────────────────────────────── */
+.data-table tbody tr:hover { background: var(--hover, rgba(74,143,255,.06)); }
+
+/* ── Chips / badges: subtle pop ─────────────────────────────────────── */
+.met-chip:hover, .chip:hover { transform: translateY(-1px); }
+
+/* ── Inputs: focus glow ─────────────────────────────────────────────── */
+.form-control { transition: box-shadow .18s ease, border-color .18s ease, background-color .18s ease; }
+.form-control:focus {
+  outline: none;
+  border-color: var(--blue, #4a8fff);
+  box-shadow: 0 0 0 3px var(--blue-dim, rgba(74,143,255,.22));
+}
+
+/* ── Links ──────────────────────────────────────────────────────────── */
+a { transition: color .15s ease, opacity .15s ease; }
+
+/* ── Logo micro-interaction ─────────────────────────────────────────── */
+.met-topbar-logo:hover { transform: rotate(-4deg) scale(1.05); }
+
+/* ── Modal entrance ─────────────────────────────────────────────────── */
+@keyframes met-modal-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+.modal-overlay.open .modal, .modal.open, .met-modal.open { animation: met-modal-in .22s cubic-bezier(.2,.7,.3,1) both; }
+
+/* ── Entrance polish for fade-up sections (staggered) ───────────────── */
+@keyframes met-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: met-fade-up .45s cubic-bezier(.2,.7,.3,1) both; }
+.stagger-1 { animation-delay: .06s; }
+.stagger-2 { animation-delay: .12s; }
+.stagger-3 { animation-delay: .18s; }
+
+/* ── Accessible focus ring (keyboard only) ──────────────────────────── */
+.btn:focus-visible, .nav-item:focus-visible, a:focus-visible, .form-control:focus-visible {
+  outline: 2px solid var(--blue, #4a8fff);
+  outline-offset: 2px;
+}
+
+/* ── Spinner: a touch smoother ──────────────────────────────────────── */
+.spinner { transition: opacity .2s ease; }

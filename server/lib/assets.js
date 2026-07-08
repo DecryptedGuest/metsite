@@ -103,10 +103,15 @@ function getMinifiedHtml(filePath) {
   // Strip HTML comments (section labels / structure hints), collapse the blank
   // lines between tags, and rewrite every local asset's ?v=… to the deploy
   // version so a new deploy always busts the browser cache automatically.
-  const out = raw
+  let out = raw
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/\n\s*\n+/g, '\n')
     .replace(/\?v=[\w.-]+/g, '?v=' + ASSET_VERSION);
+  // Site-wide micro-interaction / polish layer, loaded last so it can refine
+  // the base styles. Injected once, on every page.
+  if (!/\/css\/enhance\.css/.test(out)) {
+    out = out.replace(/<\/head>/i, `<link rel="stylesheet" href="/css/enhance.css?v=${ASSET_VERSION}"></head>`);
+  }
 
   cache.set('html:' + filePath, { mtimeMs: stat.mtimeMs, content: out });
   return out;
