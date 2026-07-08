@@ -86,6 +86,30 @@
   font-size: 11px; font-weight: 700;
 }
 
+/* ── Mobile: keep the packed topbar from overflowing ───────────────── */
+/* Medium screens: drop the long brand line and the username text (the badge
+   + avatar still identify the division and user), which frees enough room for
+   the button labels to fit. Matches dashboard.css's 900/640 breakpoints. */
+@media (max-width: 900px) {
+  .met-topbar-brand { display: none; }
+  #met-user-name { display: none; }
+  .met-topbar-user { gap: 0; }
+}
+/* Small screens: collapse every topbar-right button to an icon. The labels are
+   bare text nodes next to the icon, so zeroing the button font-size hides the
+   text while the icon (restored below) stays. */
+@media (max-width: 640px) {
+  .met-topbar { padding: 0.5rem 0.7rem; gap: 0.4rem; }
+  .met-topbar-logo { width: 26px; height: 26px; }
+  .met-topbar-division { font-size: 12px; }
+  .met-topbar-right { gap: 0.3rem; }
+  .met-topbar-right .btn-sm { font-size: 0; padding-left: 9px; padding-right: 9px; }
+  .met-topbar-right .btn-sm i { font-size: 17px; }
+  .met-topbar-right .cmdk-kbd { display: none; }
+  /* Dropdowns must never spill past the viewport edge. */
+  .met-switcher-menu { min-width: 200px; max-width: calc(100vw - 20px); }
+}
+
 /* ── Hub / landing page ────────────────────────────────────────────── */
 .hub-wrap { max-width: 1080px; margin: 0 auto; padding: 3rem 1.5rem 4rem; position: relative; z-index: 1; }
 .hub-hero { text-align: center; margin-bottom: 2.6rem; animation: fadeUp 0.6s ease both; }
