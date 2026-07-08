@@ -858,20 +858,53 @@ document.addEventListener('DOMContentLoaded', () => {
   else start();
 })();
 
-// ── Remember the active dashboard tab ────────────────────────────
-// Dashboards switch ".page" sections via ".nav-item[data-page]" buttons.
-// Remember the last one per page path and restore it on reload, so a
-// refresh doesn't always dump you back on the overview. Generic: works
-// for any dashboard using that pattern, with no per-dashboard code.
+// ── Remember the active dashboard tab + section (this tab-session only) ──
+// Dashboards switch ".page" sections via ".nav-item[data-page]" buttons and
+// filter them with "[data-filter]" controls. We remember the active page and
+// its filter so a REFRESH restores exactly where you were (the division itself
+// is preserved by the URL). Stored in sessionStorage, so closing the browser
+// tab wipes it → a fresh open defaults back to the dashboard/overview.
+// Generic: works for any dashboard using these patterns, no per-dashboard code.
 (function () {
   if (typeof document === 'undefined') return;
-  function key() { return 'iacms_tab:' + location.pathname; }
-  // Record clicks (capture phase so it runs regardless of the dashboard's own handler).
+  function key() { return 'iacms_nav:' + location.pathname; }
+  function esc(v) { return (window.CSS && CSS.escape) ? CSS.escape(String(v)) : String(v); }
+  function load() { try { return JSON.parse(sessionStorage.getItem(key()) || '{}') || {}; } catch (e) { return {}; } }
+  function save(s) { try { sessionStorage.setItem(key(), JSON.stringify(s)); } catch (e) {} }
+  function activePage() {
+    var a = document.querySelector('.nav-item[data-page].active');
+    return a ? a.getAttribute('data-page') : null;
+  }
+
+  // Record clicks in the capture phase so it runs regardless of the dashboard's
+  // own handlers — the active page, and the filter chosen within each page.
   document.addEventListener('click', function (e) {
-    var t = e.target && e.target.closest ? e.target.closest('.nav-item[data-page]') : null;
-    if (!t) return;
-    try { localStorage.setItem(key(), t.getAttribute('data-page')); } catch (err) {}
+    var el = e.target && e.target.closest ? e.target.closest('.nav-item[data-page],[data-filter]') : null;
+    if (!el) return;
+    var s = load();
+    if (el.matches('.nav-item[data-page]')) {
+      s.page = el.getAttribute('data-page');
+    } else {
+      s.filters = s.filters || {};
+      s.filters[activePage() || s.page || '_'] = el.getAttribute('data-filter');
+    }
+    save(s);
   }, true);
+
+  function restoreFilter(s) {
+    var f = s.filters && s.filters[s.page];
+    if (!f) return;
+    var tries = 0;
+    (function tryF() {
+      var scope = document.getElementById('page-' + s.page) || document;
+      var fb = scope.querySelector('[data-filter="' + esc(f) + '"]');
+      if (fb && fb.offsetParent !== null) {
+        if (!fb.classList.contains('active')) fb.click();
+        return;
+      }
+      if (++tries < 10) setTimeout(tryF, 150);
+    })();
+  }
 
   function restore() {
     // Respect explicit deep links (e.g. #officer:123) — don't override them.
@@ -881,15 +914,16 @@ document.addEventListener('DOMContentLoaded', () => {
       var qp = new URLSearchParams(location.search || '');
       if (qp.get('page') || qp.get('case') || qp.get('ticket') || qp.get('officer')) return;
     } catch (err) { /* ignore */ }
-    var want; try { want = localStorage.getItem(key()); } catch (err) { return; }
-    if (!want) return;
     if (!document.querySelector('.nav-item[data-page]')) return; // not a tabbed dashboard
+    var s = load();
+    if (!s || !s.page) return; // fresh tab session → leave the default (dashboard)
     var tries = 0;
     (function attempt() {
-      var btn = document.querySelector('.nav-item[data-page="' + (window.CSS && CSS.escape ? CSS.escape(want) : want) + '"]');
+      var btn = document.querySelector('.nav-item[data-page="' + esc(s.page) + '"]');
       // Only restore a tab that exists, is visible (not perms-hidden) and isn't already active.
       if (btn && btn.offsetParent !== null) {
         if (!btn.classList.contains('active')) btn.click();
+        restoreFilter(s); // then re-apply the section/filter within that tab
         return;
       }
       if (++tries < 12) setTimeout(attempt, 180); // wait out async perms reveal (~2s max)
