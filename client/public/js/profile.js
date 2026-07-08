@@ -367,4 +367,45 @@ function punishmentColor(type) {
   return null;
 }
 
+// ── My Activity + achievements ──────────────────────────────────────
+async function loadActivity() {
+  let s; try { s = await api('/api/me/stats'); } catch (e) { return; }
+  const panel = document.getElementById('p-activity-panel');
+  if (!panel) return;
+  const hours = Math.round((s.totalMinutes || 0) / 6) / 10; // 1dp
+  const days = s.memberSince ? Math.floor((Date.now() - new Date(s.memberSince).getTime()) / 86400000) : 0;
+  const tile = (v, l, c) => `<div style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
+      <div style="font-size:24px;font-weight:800;color:${c};line-height:1.1;">${v}</div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
+  document.getElementById('p-activity-stats').innerHTML =
+    tile(s.patrols || 0, 'Patrols', 'var(--green,#22c55e)') +
+    tile(s.events || 0, 'Events', 'var(--amber,#e8842a)') +
+    tile(hours, 'Hours on patrol', 'var(--blue,#4a8fff)') +
+    tile(s.tryoutsHosted || 0, 'Tryouts hosted', 'var(--text-primary)') +
+    tile(s.rankChanges || 0, 'Rank changes', 'var(--text-primary)');
+
+  // Achievements, computed from the stats — earned ones lit, the rest greyed.
+  const ACH = [
+    { key: 'first',   icon: 'ti-shoe',          name: 'First Steps',       desc: 'Log your first patrol',          earned: (s.patrols || 0) >= 1 },
+    { key: 'reg',     icon: 'ti-walk',          name: 'Patrol Regular',    desc: '10 approved patrols',            earned: (s.patrols || 0) >= 10 },
+    { key: 'vet',     icon: 'ti-medal',         name: 'Patrol Veteran',    desc: '50 approved patrols',            earned: (s.patrols || 0) >= 50 },
+    { key: 'host',    icon: 'ti-calendar-star', name: 'Event Host',        desc: 'Run an event',                   earned: (s.events || 0) >= 1 },
+    { key: 'trainer', icon: 'ti-school',        name: 'Trainer',           desc: 'Host a tryout',                  earned: (s.tryoutsHosted || 0) >= 1 },
+    { key: 'grad',    icon: 'ti-certificate',   name: 'Graduate',          desc: 'Pass the final exam',            earned: !!s.examPassed },
+    { key: 'time',    icon: 'ti-clock-hour-4',  name: 'Time Served',       desc: '10+ hours on patrol',            earned: hours >= 10 },
+    { key: 'climb',   icon: 'ti-trending-up',   name: 'Climbing the Ranks', desc: 'Earn a promotion',              earned: (s.rankChanges || 0) >= 1 },
+    { key: 'loyal',   icon: 'ti-shield-star',   name: 'Loyal Officer',     desc: '90 days with the MET',           earned: days >= 90 },
+  ];
+  const earnedCount = ACH.filter(a => a.earned).length;
+  document.getElementById('p-achievements').innerHTML =
+    `<div style="width:100%;font-size:12px;color:var(--text-muted);margin-bottom:4px;">${earnedCount} of ${ACH.length} unlocked</div>` +
+    ACH.map(a => `<div title="${escHtml(a.desc)}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--border,#2a2a2a);${a.earned ? 'background:rgba(74,143,255,.08);' : 'opacity:.45;'}">
+        <i class="ti ${a.icon}" style="font-size:20px;color:${a.earned ? 'var(--blue,#4a8fff)' : 'var(--text-muted)'};"></i>
+        <div><div style="font-size:13px;font-weight:700;">${escHtml(a.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${escHtml(a.desc)}</div></div>
+      </div>`).join('');
+  panel.style.display = '';
+}
+
 loadProfile();
+loadActivity();

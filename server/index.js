@@ -850,6 +850,29 @@ app.get('/api/me/points', requireAuth, async (req, res) => {
   }
 });
 
+// ── Current user's activity stats (patrols, events, tryouts, etc.) ──
+// Powers the "My Activity" + achievements panel on the profile. Read-only
+// aggregation over the member's own approved logs.
+app.get('/api/me/stats', requireAuth, async (req, res) => {
+  try {
+    const discordId = req.user.discordId;
+    const [patrols, events, patrolAgg, tryoutsHosted, examPass, rankChanges] = await Promise.all([
+      dbPrisma.patrolLog.count({ where: { submitterDiscordId: discordId, type: 'PATROL', status: 'APPROVED' } }).catch(() => 0),
+      dbPrisma.patrolLog.count({ where: { submitterDiscordId: discordId, type: 'EVENT', status: 'APPROVED' } }).catch(() => 0),
+      dbPrisma.patrolLog.aggregate({ _sum: { totalMinutes: true }, where: { submitterDiscordId: discordId, type: 'PATROL', status: 'APPROVED' } }).catch(() => null),
+      dbPrisma.tryoutLog.count({ where: { OR: [{ hostDiscordId: discordId }, { hostId: req.user.id }], status: 'APPROVED' } }).catch(() => 0),
+      dbPrisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id, status: 'PASSED' }, select: { id: true } }).catch(() => null),
+      dbPrisma.rankHistory.count({ where: { OR: [{ userId: req.user.id }, { discordId }] } }).catch(() => 0),
+    ]);
+    res.json({
+      patrols, events,
+      totalMinutes: (patrolAgg && patrolAgg._sum && patrolAgg._sum.totalMinutes) || 0,
+      tryoutsHosted, examPassed: !!examPass, rankChanges,
+      memberSince: req.user.createdAt,
+    });
+  } catch (e) { res.status(500).json({ error: 'Failed to load stats' }); }
+});
+
 // ── Live updates (Server-Sent Events) ───────────────────────────
 // Opens a long-lived stream the browser subscribes to for instant in-page
 // updates (exam marked, tryout live, new sign-in). No-op on serverless where
