@@ -76,6 +76,7 @@ async function initHpc() {
   if (hpcCtx.canApprove) { document.querySelectorAll('.approve-only').forEach(el => el.style.display = ''); loadReviewBadge(); }
   if (!hpcCtx.canMark && !hpcCtx.canQuota) document.getElementById('hpc-nonmarker-note').style.display = 'block';
   if (hpcCtx.canMark) { try { hpcPaper = (await api('/api/hpc/exam/paper')); } catch (e) {} loadStats(); }
+  loadExamInsights();
 
   // Deep-link from the in-game "review your tryout" link: /hpc/dashboard?tryoutLog=<id>
   const tlogId = new URLSearchParams(location.search).get('tryoutLog');
@@ -95,6 +96,34 @@ async function loadStats() {
     const badge = document.getElementById('hpc-pending-badge');
     if (pending.length) { badge.textContent = pending.length; badge.style.display = ''; }
   } catch (e) { /* non-fatal */ }
+}
+
+// Exam insights on the overview (pass rate, average, distribution) — available
+// to any HPC member, unlike the marker-only stat cards above.
+async function loadExamInsights() {
+  let d; try { d = await api('/api/hpc/exam/analytics'); } catch (e) { return; }
+  const panel = document.getElementById('hpc-exam-insights');
+  const tiles = document.getElementById('hpc-insights-tiles');
+  const dist = document.getElementById('hpc-insights-dist');
+  if (!panel || !tiles || !dist) return;
+  const tile = (v, l, c) => `<div class="met-tile" style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
+      <div style="font-size:24px;font-weight:800;color:${c};line-height:1.1;">${v}</div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
+  tiles.innerHTML =
+    tile(d.total || 0, 'Total exams', 'var(--text-primary)') +
+    tile(d.passRate != null ? d.passRate + '%' : '—', 'Pass rate', 'var(--green,#22c55e)') +
+    tile(d.avgPercentage != null ? d.avgPercentage + '%' : '—', 'Average score', 'var(--blue,#4a8fff)') +
+    tile(d.pending || 0, 'Awaiting marking', 'var(--amber,#e8842a)');
+  const max = Math.max(1, ...(d.distribution || []).map(b => b.count));
+  dist.innerHTML = (d.distribution || []).map(b => {
+    const h = Math.round((b.count / max) * 88) + 2;
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;height:100%;">
+      <div style="font-size:11px;color:var(--text-muted);">${b.count}</div>
+      <div title="${esc(b.label)}: ${b.count}" style="width:100%;border-radius:6px 6px 0 0;height:${h}px;background:linear-gradient(180deg,var(--blue,#4a8fff),var(--blue-dim,rgba(74,143,255,.4)));"></div>
+      <div style="font-size:10px;color:var(--text-muted);">${esc(b.label)}</div>
+    </div>`;
+  }).join('');
+  panel.style.display = '';
 }
 
 document.getElementById('hpc-filter-tabs').addEventListener('click', (e) => {

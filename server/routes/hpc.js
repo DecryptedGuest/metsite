@@ -129,6 +129,39 @@ router.get('/exam/results', async (req, res) => {
   }
 });
 
+// GET /api/hpc/exam/analytics — aggregate exam insights for the overview.
+// Same audience as /exam/results (any HPC member). Best-effort.
+router.get('/exam/analytics', async (req, res) => {
+  try {
+    const subs = await prisma.hpcExamSubmission.findMany({
+      select: { status: true, percentage: true, markedAt: true, createdAt: true, robloxUsername: true, discordUsername: true, score: true, maxScore: true },
+      orderBy: { createdAt: 'desc' }, take: 1000,
+    });
+    const total = subs.length;
+    const passed = subs.filter(s => s.status === 'PASSED').length;
+    const failed = subs.filter(s => s.status === 'FAILED').length;
+    const pending = subs.filter(s => s.status === 'PENDING').length;
+    const marked = subs.filter(s => s.percentage != null);
+    const avgPercentage = marked.length ? Math.round(marked.reduce((a, s) => a + s.percentage, 0) / marked.length) : null;
+    const passRate = (passed + failed) ? Math.round((passed / (passed + failed)) * 100) : null;
+    // Distribution of marked results into 10-point bands.
+    const bands = [[0, 49], [50, 59], [60, 69], [70, 79], [80, 89], [90, 100]];
+    const distribution = bands.map(([lo, hi]) => ({
+      label: lo === 0 ? '<50' : (hi === 100 ? '90+' : lo + '–' + hi),
+      count: marked.filter(s => s.percentage >= lo && s.percentage <= hi).length,
+    }));
+    // Simple 30-day trend: exams taken per week (4 buckets).
+    const now = Date.now(), wk = 7 * 86400000;
+    const weekly = [0, 1, 2, 3].map(i => {
+      const end = now - i * wk, start = end - wk;
+      return { weeksAgo: i, count: subs.filter(s => { const t = new Date(s.createdAt).getTime(); return t > start && t <= end; }).length };
+    }).reverse();
+    res.json({ total, passed, failed, pending, avgPercentage, passRate, distribution, weekly });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load exam analytics' });
+  }
+});
+
 // GET /api/hpc/exam/results/:id — read-only exam detail for ANY HPC member
 // (Junior Instructor+). Shows the mark, status, feedback note and timing — but
 // NOT the answers or anti-cheat detail (those stay marker-only via the
