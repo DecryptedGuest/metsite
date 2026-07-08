@@ -23,6 +23,8 @@ const KEYS = [
   'countdownTarget', // ISO datetime string for the countdown
   'auroraTheme',     // site-wide UI theme: on = Aurora, off = Classic
   'requirePasskeyElevated', // elevated staff must have a passkey for sensitive actions
+  'vpnBlock',        // block logins/access from detected VPN/proxy/datacenter IPs (default ON)
+  'altBlock',        // advanced alt detection: propagate blacklists to alts + block alt logins (default ON)
 ];
 
 let cache = {};

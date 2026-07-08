@@ -114,7 +114,16 @@ router.post('/users/:id/blacklist', async (req, res) => {
     await prisma.session.updateMany({ where: { userId: req.params.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {});
     audit.log(req.user, { category: 'ACCESS', action: 'BLACKLIST', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
       summary: `Blacklisted ${u.displayName || u.discordUsername}${reason ? ` — ${reason}` : ''}` });
-    res.json({ success: true });
+
+    // Advanced alt detection: propagate the blacklist to accounts that share a
+    // real IP / device with this one (developer-toggleable via `altBlock`).
+    let altIds = [];
+    try { altIds = await require('../lib/accessGuard').propagateBlacklistToAlts(u, reason); } catch (e) { altIds = []; }
+    if (altIds.length) {
+      audit.log(req.user, { category: 'ACCESS', action: 'BLACKLIST_ALTS', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
+        summary: `Alt detection auto-blacklisted ${altIds.length} linked account(s) of ${u.displayName || u.discordUsername}` });
+    }
+    res.json({ success: true, altsBlacklisted: altIds.length });
   } catch (err) {
     res.status(500).json({ error: 'Failed to blacklist user' });
   }

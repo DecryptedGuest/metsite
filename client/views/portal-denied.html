@@ -87,11 +87,57 @@
     } else {
       document.getElementById('denied-card').style.display = 'none';
     }
+  } else if (reason === 'vpn') {
+    document.getElementById('denied-title').textContent = 'VPN / Proxy Blocked';
+    document.getElementById('denied-sub').textContent =
+      'Access from VPNs, proxies and datacenter connections is blocked. Please disable your VPN and try again.';
+    document.getElementById('denied-card').style.display = 'none';
+    showMoreDetails(
+      'Why is my VPN blocked?',
+      'For security, the MET Dashboard blocks connections from VPNs, proxies and hosting/datacenter IPs. ' +
+      'These are commonly used to evade blacklists and operate alternate accounts, so genuine IP information is ' +
+      'required for our alt-detection system to work. Turn off your VPN/proxy and reload to sign in normally. ' +
+      'If you are on a legitimate network that is being misdetected, contact a server administrator.'
+    );
+  } else if (reason === 'alt') {
+    document.getElementById('denied-title').textContent = 'Access Blocked';
+    document.getElementById('denied-sub').textContent =
+      'This account has been blocked from the MET Dashboard.';
+    document.getElementById('denied-card').style.display = 'none';
+    showMoreDetails(
+      'Why was I blocked?',
+      'Our alt-detection system linked this account to one that has been blacklisted from the system ' +
+      '(for example, by a shared connection or device). Ban evasion using alternate accounts is not permitted. ' +
+      'If you believe this is a mistake, you can appeal through the support desk.'
+    );
   } else if (divisionName) {
     document.getElementById('denied-sub').textContent =
       'Your Discord account does not have the role required to access ' + divisionName + '.';
     document.getElementById('denied-reason-1').textContent =
       'You must hold a ' + divisionName + ' Discord role to enter this division.';
+  }
+
+  // Render a collapsible "Show more details" block below the message.
+  function showMoreDetails(heading, body) {
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'width:100%;max-width:440px;';
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.innerHTML = '<i class="ti ti-info-circle"></i> Show more details';
+    var panel = document.createElement('div');
+    panel.className = 'denied-card glass';
+    panel.style.cssText = 'display:none;margin-top:12px;text-align:left;';
+    panel.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">' +
+      heading + '</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">' + body + '</div>';
+    btn.addEventListener('click', function () {
+      var open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'block';
+      btn.innerHTML = open ? '<i class="ti ti-info-circle"></i> Show more details'
+                           : '<i class="ti ti-chevron-up"></i> Hide details';
+    });
+    wrap.appendChild(btn); wrap.appendChild(panel);
+    var actions = document.querySelector('.denied-actions');
+    if (actions && actions.parentNode) actions.parentNode.insertBefore(wrap, actions);
   }
 })();
 </script>

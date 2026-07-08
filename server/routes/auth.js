@@ -335,6 +335,25 @@ router.get('/discord/callback', async (req, res) => {
 // "try another way" options) can set the cookie then return JSON. createSession
 // THROWS on session-create failure so each caller handles it its own way.
 async function establishSession(req, res, user) {
+  // Advanced alt detection + VPN blocking (developer-toggleable, fails open).
+  try {
+    const { getClientIp } = require('../middleware/visit');
+    const guard = require('../lib/accessGuard');
+    const verdict = await guard.evaluateLogin({ ip: getClientIp(req), user });
+    if (verdict.block) {
+      try {
+        require('../lib/audit').record({
+          req, action: verdict.reason === 'vpn' ? 'LOGIN_BLOCKED_VPN' : 'LOGIN_BLOCKED_ALT',
+          category: 'SECURITY', targetType: 'user', targetId: user.id,
+          summary: verdict.reason === 'vpn'
+            ? `Login blocked — VPN/proxy IP${verdict.detail && verdict.detail.org ? ' (' + verdict.detail.org + ')' : ''}`
+            : `Login blocked — detected as an alt of a blacklisted account${verdict.detail && verdict.detail.of ? ' (' + verdict.detail.of + ')' : ''}`,
+        });
+      } catch (e) {}
+      return res.redirect('/denied?reason=' + verdict.reason);
+    }
+  } catch (e) { /* fail open — never block a login on a guard error */ }
+
   try { await createSession(req, res, user); }
   catch (e) { return serverErr(res, e); }
   console.log('[Auth] Login complete, redirecting to dashboard');
