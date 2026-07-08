@@ -417,25 +417,34 @@ async function loadActivity() {
     tile(s.rankChanges || 0, 'Rank changes', 'var(--text-primary)');
 
   // Achievements, computed from the stats — earned ones lit, the rest greyed.
+  // `cur`/`goal` on tiered achievements drive a "34 / 50" progress hint while locked.
   const ACH = [
-    { key: 'first',   icon: 'ti-shoe',          name: 'First Steps',       desc: 'Log your first patrol',          earned: (s.patrols || 0) >= 1 },
-    { key: 'reg',     icon: 'ti-walk',          name: 'Patrol Regular',    desc: '10 approved patrols',            earned: (s.patrols || 0) >= 10 },
-    { key: 'vet',     icon: 'ti-medal',         name: 'Patrol Veteran',    desc: '50 approved patrols',            earned: (s.patrols || 0) >= 50 },
-    { key: 'host',    icon: 'ti-calendar-star', name: 'Event Host',        desc: 'Run an event',                   earned: (s.events || 0) >= 1 },
-    { key: 'trainer', icon: 'ti-school',        name: 'Trainer',           desc: 'Host a tryout',                  earned: (s.tryoutsHosted || 0) >= 1 },
+    { key: 'first',   icon: 'ti-shoe',          name: 'First Steps',       desc: 'Log your first patrol',          cur: s.patrols || 0,       goal: 1,  unit: 'patrols' },
+    { key: 'reg',     icon: 'ti-walk',          name: 'Patrol Regular',    desc: '10 approved patrols',            cur: s.patrols || 0,       goal: 10, unit: 'patrols' },
+    { key: 'vet',     icon: 'ti-medal',         name: 'Patrol Veteran',    desc: '50 approved patrols',            cur: s.patrols || 0,       goal: 50, unit: 'patrols' },
+    { key: 'host',    icon: 'ti-calendar-star', name: 'Event Host',        desc: 'Run an event',                   cur: s.events || 0,        goal: 1,  unit: 'events' },
+    { key: 'trainer', icon: 'ti-school',        name: 'Trainer',           desc: 'Host a tryout',                  cur: s.tryoutsHosted || 0, goal: 1,  unit: 'tryouts' },
     { key: 'grad',    icon: 'ti-certificate',   name: 'Graduate',          desc: 'Pass the final exam',            earned: !!s.examPassed },
-    { key: 'time',    icon: 'ti-clock-hour-4',  name: 'Time Served',       desc: '10+ hours on patrol',            earned: hours >= 10 },
-    { key: 'climb',   icon: 'ti-trending-up',   name: 'Climbing the Ranks', desc: 'Earn a promotion',              earned: (s.rankChanges || 0) >= 1 },
-    { key: 'loyal',   icon: 'ti-shield-star',   name: 'Loyal Officer',     desc: '90 days with the MET',           earned: days >= 90 },
-  ];
+    { key: 'time',    icon: 'ti-clock-hour-4',  name: 'Time Served',       desc: '10+ hours on patrol',            cur: hours,                goal: 10, unit: 'hours' },
+    { key: 'climb',   icon: 'ti-trending-up',   name: 'Climbing the Ranks', desc: 'Earn a promotion',              cur: s.rankChanges || 0,   goal: 1,  unit: 'promotions' },
+    { key: 'loyal',   icon: 'ti-shield-star',   name: 'Loyal Officer',     desc: '90 days with the MET',           cur: days,                 goal: 90, unit: 'days' },
+  ].map(a => (a.earned === undefined ? { ...a, earned: (a.cur || 0) >= a.goal } : a));
   const earnedCount = ACH.filter(a => a.earned).length;
   document.getElementById('p-achievements').innerHTML =
     `<div style="width:100%;font-size:12px;color:var(--text-muted);margin-bottom:4px;">${earnedCount} of ${ACH.length} unlocked</div>` +
-    ACH.map(a => `<div title="${escHtml(a.desc)}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--border,#2a2a2a);${a.earned ? 'background:rgba(74,143,255,.08);' : 'opacity:.45;'}">
+    ACH.map(a => {
+      const showProgress = !a.earned && a.goal > 1 && (a.cur || 0) > 0;
+      const pct = showProgress ? Math.min(100, Math.round(((a.cur || 0) / a.goal) * 100)) : 0;
+      const hint = showProgress
+        ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${a.cur} / ${a.goal} ${escHtml(a.unit)}</div>
+           <div style="height:3px;border-radius:3px;background:var(--border,#2a2a2a);margin-top:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:var(--blue,#4a8fff);opacity:.7;"></div></div>`
+        : `<div style="font-size:11px;color:var(--text-muted);">${escHtml(a.desc)}</div>`;
+      return `<div title="${escHtml(a.desc)}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--border,#2a2a2a);min-width:150px;${a.earned ? 'background:rgba(74,143,255,.08);' : 'opacity:.55;'}">
         <i class="ti ${a.icon}" style="font-size:20px;color:${a.earned ? 'var(--blue,#4a8fff)' : 'var(--text-muted)'};"></i>
-        <div><div style="font-size:13px;font-weight:700;">${escHtml(a.name)}</div>
-        <div style="font-size:11px;color:var(--text-muted);">${escHtml(a.desc)}</div></div>
-      </div>`).join('');
+        <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">${escHtml(a.name)}</div>
+        ${hint}</div>
+      </div>`;
+    }).join('');
   panel.style.display = '';
 }
 
