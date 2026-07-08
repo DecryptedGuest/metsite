@@ -439,6 +439,29 @@ window.toggleTheme = function () {
   if (window.showToast) showToast(next === 'dark' ? 'Dark mode' : 'Light mode', 'info');
 };
 
+function reduceMotionOn() {
+  let pref = ''; try { pref = localStorage.getItem('iacms_reduce_motion') || ''; } catch (e) {}
+  if (pref === 'on') return true;
+  if (pref === 'off') return false;
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; }
+}
+function renderReduceMotionBtn() {
+  const btn = document.getElementById('p-reduce-motion-btn');
+  if (!btn) return;
+  const on = reduceMotionOn();
+  btn.classList.toggle('btn-primary', on);
+  btn.classList.toggle('btn-ghost', !on);
+  btn.innerHTML = `<i class="ti ti-accessible"></i> Reduce motion${on ? ' · on' : ''}`;
+}
+window.toggleReduceMotion = function () {
+  const next = !reduceMotionOn();
+  try { localStorage.setItem('iacms_reduce_motion', next ? 'on' : 'off'); } catch (e) {}
+  if (window.applyReduceMotion) window.applyReduceMotion(next);
+  renderReduceMotionBtn();
+  if (window.showToast) showToast(next ? 'Reduced motion on' : 'Reduced motion off', 'info');
+};
+
 loadProfile();
 loadActivity();
 renderAccents();
+renderReduceMotionBtn();

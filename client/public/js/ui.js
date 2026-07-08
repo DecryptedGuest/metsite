@@ -16,6 +16,37 @@ if (typeof window !== 'undefined') {
   try { const a = localStorage.getItem('iacms_accent'); if (a) applyAccent(a); } catch (e) {}
 }
 
+// ── Reduce motion / performance mode ─────────────────────────────
+// Opt-in (or auto via the OS prefers-reduced-motion setting). Kills the
+// animated background canvas, scanline and page-entry animations for
+// members on low-power devices or who find the motion distracting.
+function applyReduceMotion(on) {
+  const r = document.documentElement;
+  if (on) {
+    r.setAttribute('data-reduce-motion', '1');
+    if (!document.getElementById('iacms-reduce-motion-style')) {
+      const s = document.createElement('style');
+      s.id = 'iacms-reduce-motion-style';
+      s.textContent =
+        'html[data-reduce-motion="1"] *{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important;scroll-behavior:auto!important}' +
+        'html[data-reduce-motion="1"] .bg-grid,html[data-reduce-motion="1"] .bg-glow-1,html[data-reduce-motion="1"] .bg-glow-2,html[data-reduce-motion="1"] .bg-scanline{animation:none!important;opacity:.35}' +
+        'html[data-reduce-motion="1"] .bg-scanline{display:none}';
+      (document.head || document.documentElement).appendChild(s);
+    }
+  } else {
+    r.removeAttribute('data-reduce-motion');
+  }
+}
+if (typeof window !== 'undefined') {
+  window.applyReduceMotion = applyReduceMotion;
+  try {
+    const pref = localStorage.getItem('iacms_reduce_motion');
+    // 'on'/'off' is an explicit member choice; when unset, follow the OS.
+    const osReduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    applyReduceMotion(pref === 'on' || (pref !== 'off' && osReduce));
+  } catch (e) {}
+}
+
 // ── Toast Notifications ──────────────────────────────────────────
 // How long a toast stays on screen. User-configurable (Preferences), stored in
 // localStorage as seconds; clamped to a sane 1–30s. Callers may still pass an
