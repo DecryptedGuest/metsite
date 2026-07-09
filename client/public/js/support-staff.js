@@ -41,7 +41,7 @@
     return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
   }
 
-  // ── Queue ───────────────────────────────────────────────────────────
+  // ── Queue ──────────────────────────────────────────────────────────
   window.loadSupportTickets = async function () {
     if (!SDC) {
       try { SDC = await api('/api/support/config'); } catch (e) { SDC = { handleableTypes: [], isHicomm: false, priorities: ['LOW', 'NORMAL', 'HIGH', 'URGENT'], me: {} }; }
@@ -76,6 +76,10 @@
     if (sdType) q.set('type', sdType);
     try {
       const rows = await api('/api/support/tickets/queue?' + q.toString());
+      // "My queue" ordering: float the tickets I'm handling to the top, keeping
+      // the server's escalated/priority/newest order within each group.
+      const myId = (window.currentUser && window.currentUser.id) || null;
+      if (myId) rows.sort((a, b) => (b.claimedById === myId ? 1 : 0) - (a.claimedById === myId ? 1 : 0));
       if (!rows.length) { tb.innerHTML = '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tickets here.</div></td></tr>'; }
       else tb.innerHTML = rows.map(rowHtml).join('');
       // Nav badge: count of unclaimed active tickets.
@@ -101,8 +105,15 @@
     </tr>`;
   }
 
-  // ── Ticket workspace ────────────────────────────────────────────────
+  // ── Ticket workspace ──────────────────────────────────────────────
   window.sdOpen = async function (id) {
+    // Make the Support Desk tab the active page behind the workspace, so "Go to
+    // ticket" / "Claim ticket" from the alert always land on the desk (not
+    // whatever page happened to be open). Only navigate if not already there.
+    try {
+      const deskPage = document.getElementById('page-support-tickets');
+      if (deskPage && !deskPage.classList.contains('active') && typeof window.navigateTo === 'function') window.navigateTo('support-tickets');
+    } catch (e) { /* non-fatal */ }
     openModal('modal-sd-ticket');
     $('sd-log').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     $('sd-toolbar').innerHTML = ''; sdPending = []; renderPending();
@@ -110,6 +121,18 @@
       const t = await api('/api/support/tickets/' + id);
       curT = t; renderWorkspace(t); openStream(id);
     } catch (e) { $('sd-log').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
+  };
+
+  // Open a ticket and immediately claim it (used by the pop-up alert's big
+  // "Claim & open" button). Only claims if it's actually claimable by you.
+  window.sdOpenAndClaim = async function (id) {
+    await window.sdOpen(id);
+    try {
+      if (curT && curT.id === id && curT.caps && curT.caps.canClaim) {
+        await window.sdAct('claim');
+        if (typeof window.showToast === 'function') window.showToast('Ticket claimed', 'success');
+      }
+    } catch (e) { /* claim race / already taken — the workspace still opens */ }
   };
 
   // IA-only card for a Disciplinary Appeal: the opener's Roblox + Discord
@@ -261,7 +284,7 @@
     const l = $('sd-log'); l.scrollTop = l.scrollHeight;
   }
 
-  // ── Actions ─────────────────────────────────────────────────────────
+  // ── Actions ─────────────────────────────────────────────────────
   async function reloadTicket() { try { const t = await api('/api/support/tickets/' + curT.id); curT = t; renderWorkspace(t); } catch (e) {} }
   window.sdAct = async function (action) {
     const map = { claim: 'claim', release: 'release', deescalate: 'escalate' };
@@ -317,12 +340,26 @@
     try { await api('/api/support/tickets/' + curT.id, { method: 'DELETE' }); showToast('Deleted', 'success'); closeModal('modal-sd-ticket'); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
   };
+  // Expand saved-reply variables against the open ticket: {opener} = the
+  // member's name, {rank} = the handling investigator's IA rank, {caseRef} =
+  // the appealed punishment's case reference (blank if not an appeal).
+  function expandCannedVars(text) {
+    const t = curT || {};
+    const opener  = t.openerName || 'there';
+    const rank    = (t.claimant && t.claimant.rankName) || (SDC && SDC.me && SDC.me.rankName) || 'Investigator';
+    const caseRef = (t.appeal && t.appeal.punishment && t.appeal.punishment.caseRef) || '';
+    return String(text)
+      .replace(/\{opener\}/gi, opener)
+      .replace(/\{rank\}/gi, rank)
+      .replace(/\{caseRef\}/gi, caseRef);
+  }
   window.sdCanned = function () {
     sdCannedTitle('<i class="ti ti-message-2-bolt"></i> Quick Replies');
-    $('sd-canned-body').innerHTML = CANNED.map(c => `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;margin-bottom:6px;white-space:normal;height:auto;padding:8px 10px;" onclick="sdUseCanned(${JSON.stringify(c).replace(/"/g, '&quot;')})">${esc(c)}</button>`).join('');
+    const hint = '<div style="font-size:11px;color:var(--text-muted);margin:0 0 10px;">Variables expand when inserted: <code>{opener}</code>, <code>{rank}</code>, <code>{caseRef}</code>.</div>';
+    $('sd-canned-body').innerHTML = hint + CANNED.map(c => `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;margin-bottom:6px;white-space:normal;height:auto;padding:8px 10px;" onclick="sdUseCanned(${JSON.stringify(c).replace(/"/g, '&quot;')})">${esc(expandCannedVars(c))}</button>`).join('');
     openModal('modal-sd-canned');
   };
-  window.sdUseCanned = function (text) { $('sd-input').value = text; closeModal('modal-sd-canned'); $('sd-input').focus(); };
+  window.sdUseCanned = function (text) { $('sd-input').value = expandCannedVars(text); closeModal('modal-sd-canned'); $('sd-input').focus(); };
 
   // ── Support desk settings — edit claim greetings + quick replies ──────
   const GREETING_LABELS = {
@@ -431,7 +468,7 @@
     } catch (e) { $('sd-canned-body').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   };
 
-  // ── Composer + uploads ──────────────────────────────────────────────
+  // ── Composer + uploads ─────────────────────────────────────────────
   function wireComposer() {
     $('sd-attach').addEventListener('click', () => $('sd-file').click());
     $('sd-file').addEventListener('change', onPick);
@@ -472,7 +509,7 @@
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  // ── Realtime (SSE + polling fallback) ────────────────────────────────
+  // ── Realtime (SSE + polling fallback) ───────────────────────────────────
   let sdPoll = null;
   function openStream(id) {
     closeStream();
@@ -504,4 +541,32 @@
   document.addEventListener('click', e => {
     if (e.target && (e.target.closest && e.target.closest('#modal-sd-ticket .modal-close'))) closeStream();
   });
+
+  // Keyboard shortcuts while a ticket workspace is open: C = claim, R = reply.
+  document.addEventListener('keydown', e => {
+    const modal = document.getElementById('modal-sd-ticket');
+    if (!modal || getComputedStyle(modal).display === 'none') return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = (e.key || '').toLowerCase();
+    if (k === 'c' && curT && curT.caps && curT.caps.canClaim) { e.preventDefault(); window.sdAct('claim'); }
+    else if (k === 'r') { e.preventDefault(); const inp = document.getElementById('sd-input'); if (inp) inp.focus(); }
+  });
+
+  // Deep link from the pop-up alert / a shared link:
+  // /ia/dashboard?supportTicket=<id>[&claim=1] — open (and optionally claim) it
+  // in the desk, over whichever dashboard page is active.
+  (function deepLink() {
+    let done = false;
+    async function run() {
+      if (done) return; done = true;
+      const p = new URLSearchParams(location.search);
+      const tid = p.get('supportTicket');
+      if (!tid) return;
+      try { if (typeof window.loadSupportTickets === 'function') await window.loadSupportTickets(); } catch (e) {}
+      if (p.get('claim') === '1') window.sdOpenAndClaim(tid); else window.sdOpen(tid);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+    else run();
+  })();
 })();
