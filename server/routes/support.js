@@ -633,6 +633,23 @@ router.post('/tickets/:id/messages', async (req, res) => {
     const out = serializeMessage(t.id, msg);
     out.authorAvatar = req.user ? (req.user.discordAvatar || null) : null; // poster's PFP
     support.publish(t.id, 'message', out, { staffOnly: internal });
+
+    // Notify the claimant when someone else speaks in a ticket they claimed
+    // (respects their notifications toggle in the IA notifications tab).
+    try {
+      const authorId = req.user ? req.user.id : null;
+      if (t.claimedById && t.claimedById !== authorId) {
+        const cfg = support.typeConfig(t.type);
+        const who = req.user ? (req.user.displayName || req.user.discordUsername) : (t.openerName || 'Someone');
+        const preview = body ? body.slice(0, 100) : (attachments.length ? '📎 Attachment' : 'New activity');
+        require('../lib/push').sendCustomNotification({
+          userIds: [t.claimedById],
+          title: `New reply · ${cfg ? cfg.label : t.type}`,
+          body: `${who}: ${preview}`,
+          url: `/support?ticket=${t.id}`,
+        }).catch(() => {});
+      }
+    } catch (e) { /* notification is best-effort */ }
     res.status(201).json(out);
   } catch (e) {
     console.error('[Support] message failed:', e.message);
