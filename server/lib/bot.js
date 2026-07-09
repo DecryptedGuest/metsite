@@ -232,6 +232,46 @@ async function getGuildMemberRoles(discordUserId, guildId) {
   } catch { return null; }
 }
 
+// A member's Discord DISPLAY style in a guild — like Discord colours a name:
+//   { color, gradient, roleName, roleIcon }
+//   color    — hex of the highest-position role that has a colour (or null)
+//   gradient — [hex,…] when that role is a holographic/gradient role (or null)
+//   roleName — the name of that colour role (the "role on their name")
+//   roleIcon — that role's icon URL (or null)
+// Best-effort: null on any failure. Cached briefly (roles/members change rarely).
+const _roleStyleCache = new Map(); // `${guildId}:${discordId}` → { at, style }
+function _hex(n) { if (n == null) return null; var v = (Number(n) >>> 0) & 0xffffff; return '#' + v.toString(16).padStart(6, '0'); }
+async function getMemberRoleStyle(discordUserId, guildId) {
+  if (!ready || !guildId || !discordUserId) return null;
+  const key = guildId + ':' + discordUserId;
+  const hit = _roleStyleCache.get(key);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.style;
+  try {
+    const guild  = await client.guilds.fetch(guildId);
+    const member = await guild.members.fetch(discordUserId);
+    const roles = [...member.roles.cache.values()].filter(r => r.id !== guild.id).sort((a, b) => b.position - a.position);
+    // Highest-position role that actually sets a colour (Discord's rule).
+    const colourRole = roles.find(r => (r.color && r.color !== 0) || (r.colors && r.colors.primaryColor != null)) || null;
+    const nameRole = colourRole || roles[0] || null;
+    let color = null, gradient = null;
+    if (colourRole) {
+      try { color = colourRole.hexColor && colourRole.hexColor !== '#000000' ? colourRole.hexColor : _hex(colourRole.color); } catch (e) { color = _hex(colourRole.color); }
+      try {
+        var c = colourRole.colors;
+        if (c && c.secondaryColor != null) {
+          gradient = [c.primaryColor, c.secondaryColor, c.tertiaryColor].filter(x => x != null).map(_hex).filter(Boolean);
+          if (!color && gradient.length) color = gradient[0];
+        }
+      } catch (e) {}
+    }
+    let roleIcon = null;
+    if (nameRole) { try { roleIcon = nameRole.iconURL ? nameRole.iconURL({ size: 32, extension: 'png' }) : null; } catch (e) {} }
+    const style = { color: color || null, gradient: gradient || null, roleName: nameRole ? nameRole.name : null, roleIcon };
+    _roleStyleCache.set(key, { at: Date.now(), style });
+    return style;
+  } catch (e) { return null; }
+}
+
 // Every member of `guildId` holding `roleId` → [{ id, username, displayName }],
 // sorted by display name. Requires the Guild Members intent. [] on any failure.
 async function listGuildRoleMembers(guildId, roleId) {
@@ -1568,5 +1608,6 @@ module.exports = {
   reactToMessage, postChannelMessage, editChannelMessage,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   backfillLogChannel, backfillPatrolLogs,
+  getGuildMemberRoles, listGuildRoleMembers, getMemberRoleStyle,
   isReady: () => ready,
 };

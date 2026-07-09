@@ -379,3 +379,9 @@
 .dc-mc-link { color: var(--blue, #4a9eff); text-decoration: none; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
 .dc-mc-link:hover { text-decoration: underline; }
 .dc-mc-note { font-size: 11px; color: var(--text-muted, #9aa3b2); }
+
+/* Discord role colour + icon on names (support tickets) */
+.dc-role-icon { width: 14px; height: 14px; border-radius: 3px; object-fit: cover; vertical-align: -2px; margin-right: 3px; }
+.dc-mc-role { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted, #9aa3b2); margin-top: 3px; font-weight: 600; }
+.dc-mc-role .dc-role-icon { width: 15px; height: 15px; }
+.sup-name .dc-role-icon { width: 13px; height: 13px; }

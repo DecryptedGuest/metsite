@@ -302,11 +302,16 @@
       ${avatarHtml(m)}
       <div class="sup-body">
         ${replyRefSd(m)}
-        <div class="sup-meta"><span class="sup-name"${nameClick}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="sdReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
+        <div class="sup-meta"><span class="sup-name"${nameClick}${sdNameUid(m)}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="sdReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
         ${m.body ? `<div class="sup-text">${mdInlineSd(m.body)}</div>` : ''}
         ${m.identity ? idCard(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
       </div></div>`;
+  }
+  // data-uid on a STAFF author's name → coloured by their Discord role.
+  function sdNameUid(m) {
+    const k = (m.authorKind || '').toLowerCase();
+    return (m.authorDiscordId && (k === 'staff' || k === 'internal')) ? ` data-uid="${esc(m.authorDiscordId)}"` : '';
   }
   function idCard(p) {
     const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" style="width:52px;height:52px;border-radius:9px;object-fit:cover;">` : '';

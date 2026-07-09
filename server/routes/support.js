@@ -83,9 +83,11 @@ function replyPreview(m) {
 }
 
 function serializeMessage(ticketId, m, avatarMap, msgById) {
+  const meta = (m.authorId && avatarMap) ? avatarMap.get(m.authorId) : null;
   return {
     id: m.id, authorId: m.authorId, authorName: m.authorName, authorKind: m.authorKind,
-    authorAvatar: (m.authorId && avatarMap) ? (avatarMap.get(m.authorId) || null) : (m.authorAvatar || null),
+    authorAvatar: (meta ? meta.avatar : (m.authorAvatar || null)),
+    authorDiscordId: (meta ? meta.discordId : (m.authorDiscordId || null)),
     body: m.body, attachments: attWithUrls(ticketId, m.attachments), createdAt: m.createdAt,
     replyToId: m.replyToId || null,
     // Reply reference resolves only against messages the viewer can see (msgById
@@ -134,7 +136,7 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null, opene
     // published staffOnly over SSE) — never expose it to the opener.
     escalatedNote: staffView ? (t.escalatedNote || null) : null,
     openerId: t.openerId, openerName: t.openerName,
-    openerAvatar: (avatarMap && avatarMap.get(t.openerId)) || null,
+    openerAvatar: (avatarMap && avatarMap.get(t.openerId) && avatarMap.get(t.openerId).avatar) || null,
     claimedById: t.claimedById, claimedByName: t.claimedByName, claimedAt: t.claimedAt,
     closeReason: t.closeReason, closedAt: t.closedAt, createdAt: t.createdAt,
     isMine: opener || (user ? t.openerId === user.id : false),
@@ -153,11 +155,13 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null, opene
 }
 
 // Build a Map(userId -> discordAvatar URL) for a set of user ids (openers/authors).
+// Map(userId → { avatar, discordId }) for a set of user ids. discordId lets the
+// client colour author names by their Discord role (like Discord).
 async function avatarsFor(ids) {
   const uniq = [...new Set((ids || []).filter(Boolean))];
   if (!uniq.length) return new Map();
-  const users = await prisma.user.findMany({ where: { id: { in: uniq } }, select: { id: true, discordAvatar: true } });
-  return new Map(users.map(u => [u.id, u.discordAvatar || null]));
+  const users = await prisma.user.findMany({ where: { id: { in: uniq } }, select: { id: true, discordAvatar: true, discordId: true } });
+  return new Map(users.map(u => [u.id, { avatar: u.discordAvatar || null, discordId: u.discordId || null }]));
 }
 
 // ── Auto ticket-log on close ─────────────────────────────────────────
@@ -802,6 +806,7 @@ router.post('/tickets/:id/messages', async (req, res) => {
     } });
     const out = serializeMessage(t.id, msg);
     out.authorAvatar = req.user ? (req.user.discordAvatar || null) : null; // poster's PFP
+    out.authorDiscordId = req.user ? (req.user.discordId || null) : null;  // for name colour
     out.replyTo = replyParent ? replyPreview(replyParent) : null;          // self-contained for SSE
     support.publish(t.id, 'message', out, { staffOnly: internal });
 
@@ -869,7 +874,7 @@ async function resolveMentionProfile(discordId) {
   const hit = _mentionCache.get(id);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.profile;
 
-  const out = { discordId: id, name: null, discordUsername: null, discordAvatar: null, robloxUsername: null, robloxId: null, robloxHeadshot: null, hasSiteProfile: false };
+  const out = { discordId: id, name: null, discordUsername: null, discordAvatar: null, robloxUsername: null, robloxId: null, robloxHeadshot: null, hasSiteProfile: false, color: null, gradient: null, roleName: null, roleIcon: null };
   const u = await prisma.user.findUnique({
     where: { discordId: id },
     select: { discordUsername: true, displayName: true, discordAvatar: true, robloxUsername: true, robloxId: true },
@@ -898,6 +903,13 @@ async function resolveMentionProfile(discordId) {
     }
   }
   if (out.robloxId) { try { out.robloxHeadshot = await require('../lib/roblox').getRobloxAvatarHeadshot(out.robloxId); } catch (e) {} }
+
+  // Discord display style — colour their name by their highest colour role, like
+  // Discord (with gradient + role name + role icon when available).
+  try {
+    const style = await require('../lib/bot').getMemberRoleStyle(id, process.env.DISCORD_GUILD_ID);
+    if (style) { out.color = style.color || null; out.gradient = style.gradient || null; out.roleName = style.roleName || null; out.roleIcon = style.roleIcon || null; }
+  } catch (e) {}
   if (!out.name) out.name = null;
 
   _mentionCache.set(id, { at: Date.now(), profile: out });

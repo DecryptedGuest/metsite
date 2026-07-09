@@ -318,12 +318,17 @@
       ${avatarHtml(m)}
       <div class="sup-body">
         ${replyRefHtml(m)}
-        <div class="sup-meta"><span class="sup-name"${profileClick(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="supReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
+        <div class="sup-meta"><span class="sup-name"${profileClick(m)}${nameUid(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="supReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
         ${m.body ? `<div class="sup-text">${mdInline(m.body)}</div>` : ''}
         ${m.identity ? identityCardHtml(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
       </div>
     </div>`;
+  }
+  // data-uid on a STAFF author's name → coloured by their Discord role (enrichMentions).
+  function nameUid(m) {
+    const k = (m.authorKind || '').toLowerCase();
+    return (m.authorDiscordId && (k === 'staff' || k === 'internal')) ? ` data-uid="${esc(m.authorDiscordId)}"` : '';
   }
   // The little "replying to X" reference rendered above a message body.
   function replyRefHtml(m) {
