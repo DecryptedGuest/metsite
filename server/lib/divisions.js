@@ -192,6 +192,9 @@ async function resolveGroupDivisions(robloxId) {
     let role = null;
     try { role = await getUserGroupRole(robloxId, groupId); } catch (e) { role = null; }
     if (role && Number(role.rank) > 0) {
+      // HPC only counts as a division site-wide for Junior Instructor and above —
+      // cadets / lower HPC group ranks don't get the HPC division on the portal.
+      if (division === 'HPC' && !hpcRankAtLeast(role.name, role.rank, 'instructor')) continue;
       out.push({
         division,
         rank:     Number(role.rank),

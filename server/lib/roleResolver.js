@@ -34,22 +34,32 @@ function roleFromIaGroupRank(name, rank) {
   const n = (name || '').toString().toLowerCase().trim();
   const r = Number(rank);
 
-  // Explicit non-staff base ranks.
-  if (n === 'guest' || n === 'member') return null;
+  // The rank NAME is authoritative — group rank NUMBERS vary between group setups
+  // and a Probationary/Junior Investigator must never be classified off a number
+  // that happens to collide with a middle-command tier (the cause of a
+  // Probationary Investigator wrongly showing as SUPERVISOR). Numbers are only a
+  // fallback when the name doesn't classify.
+  if (n) {
+    // Explicit non-staff base ranks.
+    if (n === 'guest' || n === 'member') return null;
+    // High Command — Deputy Director and above (named).
+    if (/deputy\s*director|administration|hicom|overseer|owner|holder/.test(n)) return 'HICOMM';
+    // Middle command — Senior Investigator, Supervisor, Assistant Director.
+    // (Checked BEFORE the generic "director" → HICOMM rule so "Assistant Director"
+    // stays SUPERVISOR; only Deputy Director and above is HICOMM.)
+    if (/senior\s*investigator|supervisor|assistant\s*director/.test(n)) return 'SUPERVISOR';
+    // Any other "director" (Director rank 40) → High Command.
+    if (/\bdirector\b/.test(n)) return 'HICOMM';
+    // Investigator tiers (Probationary / Junior / Investigator) — standard IA
+    // access. This wins over any numeric guess below.
+    if (/investigator|probationary/.test(n)) return 'IA';
+  }
 
-  // Middle command — Senior Investigator, Supervisor, Assistant Director.
-  // (Checked BEFORE High Command so "Assistant Director" never matches the
-  // director → HICOMM rule; only Deputy Director and above is HICOMM.)
-  if (/senior\s*investigator|supervisor|assistant\s*director/.test(n) || r === 15 || r === 20 || r === 30) return 'SUPERVISOR';
-
-  // High Command — Deputy Director and above (rank ≥ 35) + named HC ranks.
-  if (/deputy\s*director|\bdirector\b|administration|hicom|overseer|owner|holder/.test(n)) return 'HICOMM';
-  if (Number.isFinite(r) && r >= 35) return 'HICOMM';
-
-  // Investigator tiers (Probationary / Junior / Investigator) — standard IA access.
-  if (/investigator/.test(n)) return 'IA';
-  if (Number.isFinite(r) && r >= 1 && r <= 14) return 'IA';
-
+  // Numeric fallback — only reached when the name gave us nothing usable.
+  if (!Number.isFinite(r)) return null;
+  if (r >= 35) return 'HICOMM';
+  if (r === 15 || r === 20 || r === 30) return 'SUPERVISOR';
+  if (r >= 1 && r <= 14) return 'IA';
   return null;
 }
 
