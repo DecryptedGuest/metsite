@@ -997,7 +997,9 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
         try {
           const m = JSON.parse(ev.data);
           if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return;
-          msgBlip(); // soft chime — a new message came in (our own echoes are de-duped above)
+          // Only the ticket opener or its claimant hears the chime — not other
+          // staff who merely have access to view/type (HICOMM, supervisor, …).
+          if (cur && (cur.isMine || (CFG.me && cur.claimedById && cur.claimedById === CFG.me.id))) msgBlip();
           // System/transition bot messages (claimed, transferred, released, closed)
           // must render as their panel card — NOT a plain typing bubble — so the
           // investigator card etc. show. Only conversational bot lines type out.

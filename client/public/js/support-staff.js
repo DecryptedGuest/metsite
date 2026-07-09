@@ -673,7 +673,7 @@
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (m.authorName) { if (_sdTypers[m.authorName]) { clearTimeout(_sdTypers[m.authorName]); delete _sdTypers[m.authorName]; sdRenderTypers(); } } } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (m.authorName) { if (_sdTypers[m.authorName]) { clearTimeout(_sdTypers[m.authorName]); delete _sdTypers[m.authorName]; sdRenderTypers(); } } } catch (e) {}
       });
       sdES.addEventListener('typing', ev => { try { sdOnTyping(JSON.parse(ev.data)); } catch (e) {} });
       sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
