@@ -38,7 +38,7 @@
 
   const $ = id => document.getElementById(id);
 
-  // ── Init ────────────────────────────────────────────────────
+  // ── Init ──────────────────────────────────────────────────────
   async function init() {
     try {
       CFG = await api('/api/support/config');
@@ -79,7 +79,7 @@
     }
   }
 
-  // ── Landing: panels ──────────────────────────────────────────
+  // ── Landing: panels ────────────────────────────────────────────
   function renderPanels() {
     $('sup-panels').innerHTML = CFG.types.map(t => `
       <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}">
@@ -323,7 +323,7 @@
 
   function scrollLog() { const l = $('sup-log'); l.scrollTop = l.scrollHeight; }
 
-  // ── Intake flow ────────────────────────────────────────────
+  // ── Intake flow ────────────────────────────────────────────────
   function startIntake(questions) {
     mode = 'intake';
     intakeQs = (questions || []).slice();
@@ -519,7 +519,7 @@
     askNext();
   };
 
-  // ── Clickable profile cards ─────────────────────────────────────
+  // ── Clickable profile cards ──────────────────────────────────────
   window.supOpenProfile = async function (kind, authorId) {
     openModal('modal-sup-profile');
     const body = $('sup-prof-body'), title = $('sup-prof-title');
@@ -758,9 +758,27 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   function setComposerEnabled(t) {
     const canOpener = t.isMine && t.status !== 'CLOSED';
     const canStaff = t.canManage && t.status !== 'CLOSED';
-    const on = mode === 'intake' ? (t.isMine && t.status === 'INTAKE') : (canOpener || canStaff);
+    let on = mode === 'intake' ? (t.isMine && t.status === 'INTAKE') : (canOpener || canStaff);
+    // A ticket-blacklisted opener is locked out of their own ticket entirely
+    // (staff who can manage are never locked).
+    const locked = !!t.locked && !t.canManage;
+    if (locked) on = false;
     $('sup-composer').style.display = on ? '' : 'none';
-    if (mode !== 'intake' && !on && t.status === 'CLOSED') { /* closed: composer hidden */ }
+    showLockNotice(locked);
+  }
+  // A banner shown where the composer would be when the opener has been
+  // ticket-blacklisted — makes the block obvious and immediate.
+  function showLockNotice(locked) {
+    let el = document.getElementById('sup-lock-notice');
+    if (!locked) { if (el) el.remove(); return; }
+    if (el) return;
+    const composer = $('sup-composer');
+    if (!composer || !composer.parentNode) return;
+    el = document.createElement('div');
+    el.id = 'sup-lock-notice';
+    el.style.cssText = 'display:flex;align-items:center;gap:9px;padding:13px 15px;border-top:1px solid var(--border,#2a3040);background:var(--surface-1,#0e1420);color:var(--text-muted,#8b93a1);font-size:13px;';
+    el.innerHTML = '<i class="ti ti-ban" style="color:var(--red,#e2231a);font-size:19px;flex:0 0 auto;"></i> You have been blocked from support by Internal Affairs — you can no longer reply here or open new tickets.';
+    composer.parentNode.insertBefore(el, composer.nextSibling);
   }
 
   let attSeq = 0;
@@ -831,10 +849,15 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
       $('sup-input').value = ''; clearPending();
-    } catch (e) { showToast(e.message, 'error'); }
+    } catch (e) {
+      showToast(e.message, 'error');
+      // If the send was refused because we've just been blocked, re-sync so the
+      // composer locks itself immediately.
+      if (/block|blacklist/i.test(e.message || '')) refreshTicket(cur.id);
+    }
   }
 
-  // ── Realtime (SSE + polling fallback) ───────────────────────────────
+  // ── Realtime (SSE + polling fallback) ───────────────────────────────────
   let pollTimer = null;
   function openStream(ticketId) {
     closeStream();
@@ -844,11 +867,19 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
         try {
           const m = JSON.parse(ev.data);
           if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return;
-          if ((m.authorKind || '').toLowerCase() === 'bot') appendBotTyping(m.body, null, m.id);
+          // System/transition bot messages (claimed, transferred, released, closed)
+          // must render as their panel card — NOT a plain typing bubble — so the
+          // investigator card etc. show. Only conversational bot lines type out.
+          if ((m.authorKind || '').toLowerCase() === 'bot' && !transitionPanel(m)) appendBotTyping(m.body, null, m.id);
           else appendBubble(m);
         } catch (e) {}
       });
-      es.addEventListener('update', () => refreshTicket(ticketId));
+      es.addEventListener('update', ev => {
+        // Grab the claimant card synchronously (before the 'claimed' message event
+        // is processed) so the panel renders with the investigator's avatars.
+        try { const d = JSON.parse(ev.data || '{}'); if (d && d.claimant && cur) cur.claimant = d.claimant; } catch (e) {}
+        refreshTicket(ticketId);
+      });
       es.onerror = () => { /* browser auto-reconnects */ };
     } catch (e) { /* SSE unsupported → the poll below still updates the chat */ }
     // Polling fallback — guarantees the opener's chat updates even if a proxy
@@ -869,12 +900,12 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     (t.messages || []).forEach(m => {
       if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) appendBubble(m);
     });
-    if (t.status !== cur.status || (t.claimedByName || '') !== (cur.claimedByName || '')) {
+    if (t.status !== cur.status || (t.claimedByName || '') !== (cur.claimedByName || '') || !!t.locked !== !!cur.locked) {
       cur = t; renderTicketHeader(t); setComposerEnabled(t);
     }
   }
 
-  // ── Staff actions ────────────────────────────────────────────
+  // ── Staff actions ─────────────────────────────────────────────
   window.supClaim = async function () {
     try { const r = await api('/api/support/tickets/' + cur.id + '/claim', { method: 'POST' }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Claimed', 'success'); }
     catch (e) { showToast(e.message, 'error'); }
