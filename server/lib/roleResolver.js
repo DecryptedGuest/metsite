@@ -192,8 +192,12 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
       const { metHicommRoleByRoblox } = require('./metRank');
       const hc = await metHicommRoleByRoblox(rId);
       if (hc) {
-        const lead = ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: hc.name, rank: hc.rank, metHicomm: true }));
-        lead.push({ division: 'MET', tier: 'LEAD', rankName: hc.name, rank: hc.rank, metHicomm: true });
+        // MET High Command → LEAD (divisional-HICOMM level) access to EVERY
+        // division, shown as "MET HICOMM". Their effective site role is upgraded
+        // to HICOMM (see effectiveSiteRole) so the IA audit/quota tools treat
+        // them as divisional HICOMM too.
+        const lead = ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: 'MET HICOMM', rank: hc.rank, metRankName: hc.name, metHicomm: true }));
+        lead.push({ division: 'MET', tier: 'LEAD', rankName: 'MET HICOMM', rank: hc.rank, metRankName: hc.name, metHicomm: true });
         return lead;
       }
     } catch (e) { /* MET lookup failed → normal divisions only this pass */ }
@@ -212,7 +216,17 @@ function divisionTier(divisions, division) {
   return entry ? entry.tier : null;
 }
 
+// A user's EFFECTIVE site role. MET High Command is high command portal-wide, so
+// their effective role is at least HICOMM — this makes the IA-side tools (audit,
+// quota, support-desk HICOMM actions), which are gated on the site role, treat a
+// MET HICOMM the same as a divisional IA HICOMM. DEVELOPER always stays DEVELOPER.
+function effectiveSiteRole(baseRole, divisions) {
+  if (baseRole === 'DEVELOPER') return 'DEVELOPER';
+  if (Array.isArray(divisions) && divisions.some(d => d && d.metHicomm)) return 'HICOMM';
+  return baseRole;
+}
+
 module.exports = {
   resolveSiteRole, resolveSiteRoleDetailed, roleFromIaGroupRank, roleFromDiscordRoles,
-  resolveDivisionsForUser, hasDivisionAccess, divisionTier, ALL_DIVISIONS,
+  resolveDivisionsForUser, hasDivisionAccess, divisionTier, effectiveSiteRole, ALL_DIVISIONS,
 };

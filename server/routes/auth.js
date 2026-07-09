@@ -17,7 +17,7 @@ function getDeveloperDiscordId() { return process.env.DEVELOPER_DISCORD_ID || '1
 // Map an IA group role → site role. Shared with the access revalidator so the
 // two never drift. (Director/HICOM/+ → HICOMM, Supervisor → SUPERVISOR,
 // Investigator tiers → IA, Guest/Member → no access.)
-const { roleFromIaGroupRank, resolveDivisionsForUser } = require('../lib/roleResolver');
+const { roleFromIaGroupRank, resolveDivisionsForUser, effectiveSiteRole } = require('../lib/roleResolver');
 
 // Turn a raw User-Agent string into a short human label ("Chrome on Windows")
 // for the Active Sessions panel and new-device alerts. Best-effort only.
@@ -219,6 +219,8 @@ router.get('/discord/callback', async (req, res) => {
     // Only block login entirely when the user has neither an IA system role
     // nor access to any other division.
     const divisions = await resolveDivisionsForUser({ discordId: discordUser.id, siteRole: systemRole });
+    // MET High Command counts as HICOMM portal-wide (incl. the IA HICOMM tools).
+    systemRole = effectiveSiteRole(systemRole, divisions);
     console.log('[Auth] Divisions resolved:', divisions.map(d => `${d.division}:${d.tier}`).join(', ') || 'none');
 
     // Anyone in the MET Discord may sign in — being in the guild (checked above)
@@ -568,6 +570,8 @@ router.get('/roblox/callback', async (req, res) => {
 
     // Divisions — pass robloxId so this never re-hits RoVer.
     const divisions = await resolveDivisionsForUser({ discordId, siteRole: systemRole, robloxId });
+    // MET High Command counts as HICOMM portal-wide (incl. the IA HICOMM tools).
+    systemRole = effectiveSiteRole(systemRole, divisions);
     // Anyone in the MET Discord (guild membership checked above) may sign in —
     // no role/division required; they just get a base NONE account.
     if (!isDeveloper && siteConfig.isOn('loginLockdown')) return res.redirect('/denied?reason=lockdown');

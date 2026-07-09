@@ -3,7 +3,7 @@
 // that members who lose their roles also lose site access. requireAuth reads the
 // role live from the DB, so updating it here takes effect on the next request.
 const prisma = require('./db');
-const { resolveSiteRoleDetailed, resolveDivisionsForUser } = require('./roleResolver');
+const { resolveSiteRoleDetailed, resolveDivisionsForUser, effectiveSiteRole } = require('./roleResolver');
 
 const DEVELOPER_DISCORD_ID = () => process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
 
@@ -43,34 +43,36 @@ async function revalidateUser(user, getMemberRecord) {
   // Also refresh the member's Discord role IDs so role-gated features stay
   // current WITHOUT a re-login — e.g. removing the final-exam role hides the
   // exam, losing the British-citizen role hides tryouts, perms flags update.
+  // MET High Command counts as HICOMM portal-wide, even with no IA group rank.
+  const effRole = effectiveSiteRole(newRole, divisions);
   const stamp = { lastRoleCheck: new Date(), divisions, metRoleIds: memberRoles };
 
-  if (newRole) {
-    if (newRole !== user.role) {
-      await prisma.user.update({ where: { id: user.id }, data: { ...stamp, role: newRole } });
-      console.log(`[Access] ${user.discordUsername} role ${user.role} → ${newRole}.`);
-      return 'changed';
-    }
-    await prisma.user.update({ where: { id: user.id }, data: stamp });
-    return 'unchanged';
-  }
-
-  // No role resolved. Only revoke when we're CERTAIN: the bot confirms they're
-  // in the guild AND the rank lookup was conclusive. A transient RoVer failure
-  // (inconclusive) must never revoke — that was booting valid users on login.
-  if (inDiscord === true && conclusive) {
+  // A member who has LEFT the MET Discord loses access (confirmed not-in-guild).
+  // Being in the guild with NO qualifying role is now VALID — a base NONE
+  // account — so we no longer revoke for "no role" (that used to boot ordinary
+  // members). `conclusive` guards against a transient lookup wrongly revoking.
+  if (inDiscord === false && conclusive) {
     if (!user.mustReauth) {
       await prisma.user.update({ where: { id: user.id }, data: { ...stamp, mustReauth: true } });
-      console.log(`[Access] Revoked ${user.discordUsername} (${user.discordId}) — confirmed no qualifying role.`);
+      console.log(`[Access] Revoked ${user.discordUsername} (${user.discordId}) — no longer in the MET Discord.`);
       return 'revoked';
     }
     await prisma.user.update({ where: { id: user.id }, data: stamp });
     return 'already-revoked';
   }
 
-  // Inconclusive — leave access as-is and just record that we checked.
+  // In the guild (or an inconclusive check — fail open): sync the role. Never a
+  // logout. A resolved role wins; otherwise NONE only when the lookup was
+  // CONCLUSIVE (they genuinely hold nothing) — on a transient/inconclusive
+  // failure keep their existing role rather than downgrading it.
+  const roleToSet = effRole || (conclusive ? 'NONE' : user.role);
+  if (roleToSet !== user.role) {
+    await prisma.user.update({ where: { id: user.id }, data: { ...stamp, role: roleToSet } });
+    console.log(`[Access] ${user.discordUsername} role ${user.role} → ${roleToSet}.`);
+    return 'changed';
+  }
   await prisma.user.update({ where: { id: user.id }, data: stamp });
-  return 'inconclusive-skip';
+  return 'unchanged';
 }
 
 // ── Blocking freshness check for rank-locked gates ───────────────────
