@@ -36,12 +36,35 @@ async function resolveToRobloxUsername(input) {
 
 // ── Helpers ──────────────────────────────────────────────────
 async function nextTicketRef() {
-  const counter = await prisma.ticketCounter.upsert({
+  // Bump the counter (atomic) and build the candidate ref.
+  let { count } = await prisma.ticketCounter.upsert({
     where:  { id: 1 },
     update: { count: { increment: 1 } },
     create: { id: 1, count: 1 },
   });
-  return `TKT-${String(counter.count).padStart(4, '0')}`;
+  let ref = `TKT-${String(count).padStart(4, '0')}`;
+
+  // The IA site was cloned from this codebase, so its tickets use the SAME
+  // TKT-#### scheme. Once IA_DATABASE_URL is set, iaSync imports those tickets,
+  // which occupy TKT-#### refs while our counter is still low — so the candidate
+  // ref can collide (a unique-constraint violation → "Failed to create ticket").
+  // If it's taken, jump the counter PAST the highest TKT-#### currently in use
+  // (native or imported) so creation never collides again.
+  const taken = (r) => prisma.ticket.findUnique({ where: { ticketRef: r }, select: { id: true } }).then(Boolean).catch(() => false);
+  if (await taken(ref)) {
+    const rows = await prisma.ticket.findMany({ where: { ticketRef: { startsWith: 'TKT-' } }, select: { ticketRef: true } });
+    let maxN = count;
+    for (const row of rows) {
+      const n = parseInt(String(row.ticketRef).replace(/^TKT-/i, ''), 10);
+      if (Number.isFinite(n) && n > maxN) maxN = n;
+    }
+    count = maxN + 1;
+    await prisma.ticketCounter.update({ where: { id: 1 }, data: { count } });
+    ref = `TKT-${String(count).padStart(4, '0')}`;
+    // Extremely defensive: never return a taken ref.
+    if (await taken(ref)) ref = `TKT-${count}-${Math.random().toString(36).slice(2, 6)}`;
+  }
+  return ref;
 }
 
 // ── GET /api/tickets/my-roblox ─────────────────────────────────
