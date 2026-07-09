@@ -362,3 +362,20 @@
 .sup-typing-dots span:nth-child(2) { animation-delay: .2s; }
 .sup-typing-dots span:nth-child(3) { animation-delay: .4s; }
 @keyframes supTypeBlink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+/* Mention profile card (click a <@user> pill in a ticket) */
+.dc-mention-card { position: fixed; z-index: 2147483000; min-width: 240px; max-width: 320px;
+  background: rgba(10,14,26,0.98); border: 1px solid var(--border-mid, #2a3040);
+  border-radius: 12px; box-shadow: 0 14px 44px rgba(0,0,0,0.55); padding: 13px 14px;
+  font-size: 13px; color: var(--text-primary, #e6e9ef); animation: dcMcIn .12s ease-out; }
+@keyframes dcMcIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.dc-mc-head { display: flex; align-items: center; gap: 11px; }
+.dc-mc-avs { display: flex; align-items: center; flex-shrink: 0; }
+.dc-mc-fallback { width: 46px; height: 46px; border-radius: 50%; background: var(--blue-dim, rgba(74,158,255,.15));
+  color: var(--blue, #4a9eff); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
+.dc-mc-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dc-mc-handles { font-size: 11px; color: var(--text-muted, #9aa3b2); margin-top: 2px; }
+.dc-mc-foot { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border-dim, #1c2230); }
+.dc-mc-link { color: var(--blue, #4a9eff); text-decoration: none; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.dc-mc-link:hover { text-decoration: underline; }
+.dc-mc-note { font-size: 11px; color: var(--text-muted, #9aa3b2); }

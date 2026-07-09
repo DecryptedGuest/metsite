@@ -224,6 +224,7 @@
     parts.push(...msgs.slice(1).map(renderMsg));
     $('sup-log').innerHTML = statusTimelineHtml(t) + parts.join('');
     scrollLog(true); // full render only happens on ticket open → land at the bottom
+    enrichLogMentions();
   }
 
   // A plain-language progress bar the OPENER sees at the top of their ticket, so
@@ -595,7 +596,18 @@
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  function appendBubble(m) { $('sup-log').insertAdjacentHTML('beforeend', renderMsg(m)); scrollLog(); }
+  function appendBubble(m) { $('sup-log').insertAdjacentHTML('beforeend', renderMsg(m)); scrollLog(); enrichLogMentions(); }
+  // Resolve <@id> mentions in the log into MET nicknames + a profile card.
+  function enrichLogMentions() {
+    if (!window.enrichMentions || !cur) return;
+    const root = $('sup-log'); if (!root) return;
+    window.enrichMentions(root, {
+      resolve: async (ids) => {
+        try { const r = await api(tok('/api/support/tickets/' + cur.id + '/mention', cur.id), { method: 'POST', body: JSON.stringify({ ids }) }); return r.mentions || {}; }
+        catch (e) { return {}; }
+      },
+    });
+  }
   // A "typing…" bot bubble that reveals `text` after a short, length-scaled delay.
   function appendBotTyping(text, done, mid) {
     const id = 'typing-' + Math.random().toString(36).slice(2);

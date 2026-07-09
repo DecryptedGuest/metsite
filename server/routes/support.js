@@ -844,6 +844,74 @@ router.post('/tickets/:id/typing', async (req, res) => {
   } catch (e) { res.status(204).end(); }
 });
 
+// Parse a Roblox username out of a MET nickname like "DEV | realangeloo".
+function robloxFromNick(nick) {
+  if (!nick) return null;
+  const parts = String(nick).split('|');
+  const last = parts[parts.length - 1].trim().replace(/[^A-Za-z0-9_]/g, '');
+  return last || null;
+}
+
+// Resolve a Discord id mentioned in a ticket → a small profile. Uses the site
+// user record if they're registered; otherwise builds one from the MET server
+// (nickname + avatar) and their Roblox account (parsed from the nickname).
+const _mentionCache = new Map(); // discordId → { at, profile }
+async function resolveMentionProfile(discordId) {
+  const id = String(discordId || '').replace(/\D/g, '');
+  if (!id) return null;
+  const hit = _mentionCache.get(id);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.profile;
+
+  const out = { discordId: id, name: null, discordUsername: null, discordAvatar: null, robloxUsername: null, robloxId: null, robloxHeadshot: null, hasSiteProfile: false };
+  const u = await prisma.user.findUnique({
+    where: { discordId: id },
+    select: { discordUsername: true, displayName: true, discordAvatar: true, robloxUsername: true, robloxId: true },
+  }).catch(() => null);
+
+  // MET-server nickname + avatar (best-effort).
+  let member = null;
+  try { member = await require('../lib/bot').getGuildMemberInfo(id, process.env.DISCORD_GUILD_ID); } catch (e) {}
+
+  out.name = (member && member.displayName) || (u && (u.displayName || u.discordUsername)) || null;
+  out.discordAvatar = (member && member.avatar) || (u && u.discordAvatar) || null;
+  out.discordUsername = (u && u.discordUsername) || null;
+  if (u) {
+    out.hasSiteProfile = true;
+    out.robloxUsername = u.robloxUsername || null;
+    out.robloxId = u.robloxId ? String(u.robloxId) : null;
+  }
+  // Roblox — from the linked site account, else parsed from the nickname.
+  if (!out.robloxId) {
+    const guess = robloxFromNick(out.name);
+    if (guess) {
+      try { const r = await require('../lib/roblox').getRobloxIdFromUsername(guess); if (r && r.id) { out.robloxId = String(r.id); out.robloxUsername = r.username || guess; } } catch (e) {}
+    }
+  }
+  if (out.robloxId) { try { out.robloxHeadshot = await require('../lib/roblox').getRobloxAvatarHeadshot(out.robloxId); } catch (e) {} }
+  if (!out.name) out.name = null;
+
+  _mentionCache.set(id, { at: Date.now(), profile: out });
+  return out;
+}
+
+// ── POST /api/support/tickets/:id/mention { ids } — resolve @mentions ──
+router.post('/tickets/:id/mention', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.slice(0, 30) : [];
+    const map = {};
+    await Promise.all(ids.map(async (raw) => {
+      const p = await resolveMentionProfile(raw).catch(() => null);
+      if (p) map[p.discordId] = p;
+    }));
+    res.json({ mentions: map });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to resolve mentions' });
+  }
+});
+
 // ── POST /api/support/tickets/:id/close { reason } — handling staff close ──
 router.post('/tickets/:id/close', async (req, res) => {
   try {

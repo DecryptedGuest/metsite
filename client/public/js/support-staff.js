@@ -320,6 +320,17 @@
   let _sdPinned = true;
   function sdNearBottom(l) { return !l || (l.scrollHeight - l.scrollTop - l.clientHeight) < 140; }
   function sdScroll(force) { const l = $('sd-log'); if (!l) return; if (force) _sdPinned = true; if (_sdPinned) l.scrollTop = l.scrollHeight; }
+  // Resolve <@id> mentions in the log into MET nicknames + a profile card.
+  function sdEnrichMentions() {
+    if (!window.enrichMentions || !curT) return;
+    const root = $('sd-log'); if (!root) return;
+    window.enrichMentions(root, {
+      resolve: async (ids) => {
+        try { const r = await api('/api/support/tickets/' + curT.id + '/mention', { method: 'POST', body: JSON.stringify({ ids }) }); return r.mentions || {}; }
+        catch (e) { return {}; }
+      },
+    });
+  }
   (function () { const l = document.getElementById('sd-log'); if (l) l.addEventListener('scroll', () => { _sdPinned = sdNearBottom(l); }, { passive: true }); })();
 
   function renderLog(t) {
@@ -332,7 +343,7 @@
     });
     parts.push(...msgs.slice(1).map(msgHtml));
     $('sd-log').innerHTML = parts.join('');
-    sdScroll();
+    sdScroll(); sdEnrichMentions();
   }
 
   // ── Actions ─────────────────────────────────────────────────────────
@@ -589,7 +600,7 @@
     const replyToId = sdReplyTo ? sdReplyTo.id : null;
     try {
       const msg = await api('/api/support/tickets/' + curT.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal, replyToId }) });
-      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); sdScroll(true); }
+      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); sdScroll(true); sdEnrichMentions(); }
       $('sd-input').value = ''; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
       sdReplyTo = null; renderSdReplyBar();
       window.supFmtPreviewClear('sd-fmt-preview');
@@ -654,7 +665,7 @@
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); if (m.authorName) { if (_sdTypers[m.authorName]) { clearTimeout(_sdTypers[m.authorName]); delete _sdTypers[m.authorName]; sdRenderTypers(); } } } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (m.authorName) { if (_sdTypers[m.authorName]) { clearTimeout(_sdTypers[m.authorName]); delete _sdTypers[m.authorName]; sdRenderTypers(); } } } catch (e) {}
       });
       sdES.addEventListener('typing', ev => { try { sdOnTyping(JSON.parse(ev.data)); } catch (e) {} });
       sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
@@ -676,7 +687,7 @@
     (t.messages || []).forEach(m => {
       if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); }
     });
-    sdScroll();
+    sdScroll(); sdEnrichMentions();
     if (t.status !== curT.status) { curT = t; renderToolbar(t); }
   }
 
