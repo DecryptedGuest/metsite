@@ -1945,7 +1945,7 @@
       <div id="sd-composer" style="padding:12px 16px;border-top:1px solid var(--border,#2a2a2a);">
         <div id="sd-pending" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;"></div>
         <div style="display:flex;gap:8px;align-items:flex-end;">
-          <textarea class="form-control" id="sd-input" rows="1" placeholder="Reply to the ticket…" style="flex:1;resize:vertical;min-height:42px;"></textarea>
+          <div class="form-control rc-editor" id="sd-input" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Reply to the ticket…" style="flex:1;min-height:42px;"></div>
           <input type="file" id="sd-file" accept="image/*,video/*" multiple style="display:none;" />
           <button class="btn btn-ghost btn-icon" id="sd-attach" title="Attach"><i class="ti ti-paperclip"></i></button>
           <button class="btn btn-primary" id="sd-send"><i class="ti ti-send"></i></button>

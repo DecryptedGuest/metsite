@@ -340,3 +340,15 @@
 .sup-fmt-preview-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--text-muted, #9aa3b2); margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
 .sup-fmt-preview .sup-text { font-size: 13px; }
+
+/* Rich (WYSIWYG) markdown composer — formatting renders live in the box */
+.rc-editor { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; overflow-y: auto;
+  max-height: 180px; min-height: 44px; cursor: text; line-height: 1.5; }
+.rc-editor:focus { outline: none; }
+.rc-editor:empty:before { content: attr(data-placeholder); color: var(--text-muted, #9aa3b2); pointer-events: none; }
+.rc-editor .rc-m { opacity: .4; }                 /* dimmed markdown markers */
+.rc-editor .rc-q { color: var(--text-muted, #9aa3b2); }
+.rc-editor .rc-sp { background: rgba(255,255,255,0.10); border-radius: 4px; }
+.rc-editor .rc-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(0,0,0,0.28); border-radius: 4px; padding: 0 3px; font-size: .92em; }
+.rc-editor .rc-mention { background: rgba(88,101,242,0.28); color: #c7ccf7; border-radius: 3px; padding: 0 2px; }

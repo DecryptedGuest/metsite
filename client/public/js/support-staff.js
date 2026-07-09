@@ -512,7 +512,8 @@
     $('sd-file').addEventListener('change', onPick);
     $('sd-send').addEventListener('click', onSend);
     $('sd-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
-    $('sd-input').addEventListener('input', () => window.supFmtPreview('sd-input', 'sd-fmt-preview', 'sd-composer'));
+    // Rich (WYSIWYG) composer — formatting renders live inside the box as you type.
+    if (window.initRichComposer) window.initRichComposer($('sd-input'));
   }
   function renderPending() {
     $('sd-pending').innerHTML = sdPending.map(p => {
