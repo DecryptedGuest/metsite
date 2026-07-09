@@ -11,7 +11,7 @@
 // asset loads are never affected.
 
 // Self-identifying AI crawlers, trainers and assistant fetchers.
-const AI_BOTS = /(GPTBot|ChatGPT-User|OAI-SearchBot|OpenAI|anthropic-ai|Claude-Web|ClaudeBot|Claude-User|Claude-SearchBot|CCBot|Google-Extended|GoogleOther|PerplexityBot|Perplexity-User|Bytespider|Amazonbot|Applebot-Extended|cohere-ai|Diffbot|DuckAssistBot|ImagesiftBot|Omgili(bot)?|YouBot|Meta-External(Agent|Fetcher)|FacebookBot|Timpibot|iaskspider|PetalBot|DataForSeoBot|magpie-crawler|Webzio|AI2Bot|Kangaroo Bot|TikTokSpider|Awario|peer39_crawler|Scrapy)/i;
+const AI_BOTS = /(GPTBot|ChatGPT-User|OAI-SearchBot|OpenAI|anthropic-ai|Claude-Web|ClaudeBot|Claude-User|Claude-SearchBot|CCBot|Google-Extended|GoogleOther|Google-CloudVertexBot|PerplexityBot|Perplexity-User|Bytespider|Amazonbot|Applebot-Extended|cohere-ai|Diffbot|DuckAssistBot|ImagesiftBot|img2dataset|Omgili(bot)?|YouBot|Meta-External(Agent|Fetcher)|FacebookBot|Timpibot|iaskspider|PetalBot|DataForSeoBot|magpie-crawler|Webzio|AI2Bot(-Dolma)?|Kangaroo Bot|TikTokSpider|Awario|peer39_crawler|Scrapy|VelenPublicWebCrawler|FriendlyCrawler|SemanticScholarBot|ISSCyberRiskCrawler|Devin|OperatorBot|NovaAct|xAI|GrokBot)/i;
 
 // Generic automation / scripting stacks used to mirror or scrape a site.
 const AUTOMATION = /(HeadlessChrome|PhantomJS|Puppeteer|Playwright|Selenium|python-requests|python-httpx|aiohttp|node-fetch|axios\/|http\.rb|Guzzle|libwww-perl|WWW-Mechanize|scrapy|httrack|wget|SiteSucker|WebCopier|Teleport)/i;

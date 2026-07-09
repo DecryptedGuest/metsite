@@ -25,15 +25,19 @@ const OBF_OPTS = {
   identifierNamesGenerator: 'hexadecimal',
   stringArray: true,
   stringArrayThreshold: 1,
-  stringArrayEncoding: ['base64'],
+  stringArrayEncoding: ['base64', 'rc4'],
   stringArrayCallsTransform: true,
+  stringArrayWrappersType: 'function',
+  stringArrayWrappersCount: 2,
+  stringArrayRotate: true,
+  stringArrayShuffle: true,
   splitStrings: true,
-  splitStringsChunkLength: 10,
+  splitStringsChunkLength: 8,
   numbersToExpressions: true,
   simplify: true,
   transformObjectKeys: false,
   controlFlowFlattening: true,
-  controlFlowFlatteningThreshold: 0.5,
+  controlFlowFlatteningThreshold: 0.75,
   deadCodeInjection: false,
   selfDefending: false,
   debugProtection: false,
@@ -111,6 +115,17 @@ function getMinifiedHtml(filePath) {
   // the base styles. Injected once, on every page.
   if (!/\/css\/enhance\.css/.test(out)) {
     out = out.replace(/<\/head>/i, `<link rel="stylesheet" href="/css/enhance.css?v=${ASSET_VERSION}"></head>`);
+  }
+  // Passive behavioural bot detection (telemetry only — never blocks). Injected
+  // once on every page, deferred so it never delays first paint.
+  if (!/\/js\/bot-sentinel\.js/.test(out)) {
+    out = out.replace(/<\/body>/i, `<script src="/js/bot-sentinel.js?v=${ASSET_VERSION}" defer></script></body>`);
+  }
+  // Opt every page out of AI training/scraping (advisory, honoured by the major
+  // AI crawlers). noindex is deliberately NOT set here — that stays governed by
+  // robots.txt so search behaviour is unchanged.
+  if (!/name="robots"/i.test(out)) {
+    out = out.replace(/<head[^>]*>/i, (m) => `${m}<meta name="robots" content="noai, noimageai, noarchive">`);
   }
 
   cache.set('html:' + filePath, { mtimeMs: stat.mtimeMs, content: out });

@@ -186,14 +186,19 @@ app.get('/robots.txt', (req, res) => {
     'User-agent: Claude-User\nDisallow: /\n\n' +
     'User-agent: CCBot\nDisallow: /\n\n' +
     'User-agent: Google-Extended\nDisallow: /\n\n' +
+    'User-agent: Google-CloudVertexBot\nDisallow: /\n\n' +
     'User-agent: PerplexityBot\nDisallow: /\n\n' +
     'User-agent: Perplexity-User\nDisallow: /\n\n' +
     'User-agent: Bytespider\nDisallow: /\n\n' +
     'User-agent: Amazonbot\nDisallow: /\n\n' +
     'User-agent: Applebot-Extended\nDisallow: /\n\n' +
     'User-agent: Meta-ExternalAgent\nDisallow: /\n\n' +
+    'User-agent: Meta-ExternalFetcher\nDisallow: /\n\n' +
     'User-agent: cohere-ai\nDisallow: /\n\n' +
     'User-agent: Diffbot\nDisallow: /\n\n' +
+    'User-agent: AI2Bot\nDisallow: /\n\n' +
+    'User-agent: img2dataset\nDisallow: /\n\n' +
+    'User-agent: VelenPublicWebCrawler\nDisallow: /\n\n' +
     '# Everything here is behind sign-in anyway.\n' +
     'User-agent: *\nDisallow: /\n'
   );
@@ -228,6 +233,28 @@ app.use(async (req, res, next) => {
 app.get('/api/site-config', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json(siteConfig.publicConfig());
+});
+
+// ── Behavioural bot signal beacon (from client/public/js/bot-sentinel.js) ──
+// Passive telemetry: the client reports input signatures a human doesn't make
+// (cursor teleports, synthetic events, automation flags). We only LOG them to
+// the Security Center — never block — so a false positive can't hurt a real
+// user. Public + rate-limited (global /api limiter + a stricter per-route cap).
+const botSignalLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+app.post('/api/security/bot-signal', botSignalLimiter, (req, res) => {
+  try {
+    const b = req.body || {};
+    const type = String(b.type || 'unknown').replace(/[^a-z0-9-]/gi, '').slice(0, 40) || 'unknown';
+    const path = String(b.path || '').slice(0, 120);
+    let detail = '';
+    try { detail = JSON.stringify(b.detail || {}).slice(0, 200); } catch (e) { detail = ''; }
+    require('./lib/audit').record({
+      req, action: 'BOT_SIGNAL', category: 'SECURITY', targetType: 'request',
+      summary: `Behavioural bot signal: ${type}${path ? ` on ${path}` : ''}${detail && detail !== '{}' ? ` — ${detail}` : ''}`,
+      metadata: { type, detail: b.detail || {}, reportedPath: path },
+    }).catch(() => {});
+  } catch (e) { /* best-effort */ }
+  res.status(204).end();
 });
 
 // Serve minified JS (deterrent against reading client code via view-source).
@@ -1026,6 +1053,9 @@ function sendPage(res, file) {
       }
       html = require('./lib/assets').injectAntiCopyGuard(html, host, devState, { skipDeterrent });
     } catch (e) { /* never block the page render on the guard */ }
+    // Ask AI crawlers not to train on / archive this page (advisory; the major
+    // AI bots honour it). Not "noindex" — search indexing stays robots.txt-governed.
+    try { res.set('X-Robots-Tag', 'noai, noimageai, noarchive'); } catch (e) { /* header set best-effort */ }
     res.type('html').send(html);
   } catch (e) { res.sendFile(file); }
 }
