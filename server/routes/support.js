@@ -844,6 +844,13 @@ router.post('/tickets/:id/typing', async (req, res) => {
   } catch (e) { res.status(204).end(); }
 });
 
+// A guaranteed Discord avatar URL — the user's default embed avatar (new
+// username system: (id >> 22) % 6), used only when no real avatar is available.
+function defaultDiscordAvatar(id) {
+  try { return `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(id) >> 22n) % 6n)}.png`; }
+  catch (e) { return 'https://cdn.discordapp.com/embed/avatars/0.png'; }
+}
+
 // Parse a Roblox username out of a MET nickname like "DEV | realangeloo".
 function robloxFromNick(nick) {
   if (!nick) return null;
@@ -873,7 +880,10 @@ async function resolveMentionProfile(discordId) {
   try { member = await require('../lib/bot').getGuildMemberInfo(id, process.env.DISCORD_GUILD_ID); } catch (e) {}
 
   out.name = (member && member.displayName) || (u && (u.displayName || u.discordUsername)) || null;
-  out.discordAvatar = (member && member.avatar) || (u && u.discordAvatar) || null;
+  // Always resolve a Discord avatar: the bot's displayAvatarURL (custom OR the
+  // user's default) → the stored one → a computed Discord default so the Discord
+  // logo is never missing.
+  out.discordAvatar = (member && member.avatar) || (u && u.discordAvatar) || defaultDiscordAvatar(id);
   out.discordUsername = (u && u.discordUsername) || null;
   if (u) {
     out.hasSiteProfile = true;
