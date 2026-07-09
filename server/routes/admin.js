@@ -48,7 +48,12 @@ router.use((req, res, next) => {
 router.get('/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
+      // Only real people who have actually signed in — a session row exists for
+      // every login. This excludes the shell rows the IA archive import creates
+      // (username "ia_<id>" / "IA Archive"), which never log in and cluttered
+      // the panel. Most-recently-active first.
+      where: { sessions: { some: {} } },
+      orderBy: [{ lastLogin: 'desc' }, { createdAt: 'desc' }],
       select: {
         id: true, discordId: true, discordUsername: true,
         displayName: true, discordAvatar: true, role: true,
@@ -71,7 +76,9 @@ router.get('/users', async (req, res) => {
 // ── PATCH /api/admin/users/:id/role ─────────────────────────
 router.patch('/users/:id/role', async (req, res) => {
   const { role } = req.body;
-  if (!['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) {
+  // NONE removes site access (division-only / plain member). Changing the site
+  // role never touches the Roblox group — it's a site-only standing.
+  if (!['NONE', 'IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
   // Prevent dev from demoting themselves
@@ -161,7 +168,7 @@ router.delete('/cases/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/visits ──────────────────────────────────
+// ── GET /api/admin/visits ───────────────────────────────────
 // Developer-only website visit log (most recent first).
 router.get('/visits', async (req, res) => {
   try {
@@ -233,7 +240,6 @@ router.delete('/access-grants/:id', async (req, res) => {
 });
 
 // ── GET /api/admin/security ─────────────────────────────────
-// Developer-only screenshot/capture security log (most recent first).
 router.get('/security', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 300, 1000);
@@ -248,7 +254,7 @@ router.get('/security', async (req, res) => {
   }
 });
 
-// ── DELETE /api/admin/tickets/:id ────────────────────────────
+// ── DELETE /api/admin/tickets/:id ─────────────────────────────
 router.delete('/tickets/:id', async (req, res) => {
   try {
     const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });

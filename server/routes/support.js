@@ -10,13 +10,13 @@ const support = require('../lib/support');
 
 const router = express.Router();
 
-// ── Optional-login identity ──────────────────────────────────────────
+// ── Optional-login identity ────────────────────────────────────────
 // Login is optional. A logged-in opener is matched by openerId; an anonymous
 // opener holds a per-ticket secret token (localStorage) sent as ?token= /
 // x-support-token / body.token.
 function reqToken(req) { return req.get('x-support-token') || (req.query && req.query.token) || (req.body && req.body.token) || null; }
 
-// ── Guest ticket-blacklist ───────────────────────────────────────────
+// ── Guest ticket-blacklist ────────────────────────────────────────
 // The requester's network identity: IP (via the trusted proxy) + a per-browser
 // fingerprint the client persists in localStorage (x-support-fp).
 function clientNet(req) {
@@ -121,7 +121,7 @@ async function avatarsFor(ids) {
   return new Map(users.map(u => [u.id, u.discordAvatar || null]));
 }
 
-// ── Auto ticket-log on close ─────────────────────────────────────────
+// ── Auto ticket-log on close ────────────────────────────────────────
 // When a support ticket is closed, mint a normal IA ticket log (PENDING) so IA
 // HICOMM review/approve/deny it exactly like a manually-filed one. All fields
 // are autofilled from the support ticket. Best-effort; never blocks the close.
@@ -440,6 +440,18 @@ router.post('/tickets/:id/submit-intake', async (req, res) => {
     } });
     support.publish(t.id, 'message', serializeMessage(t.id, handoffMsg));
     support.publish(t.id, 'update', { status: 'OPEN' });
+    // The ticket is now ready to claim → chime + on-screen popup for eligible
+    // staff (events-client.js 'support_open'), plus the durable web-push below.
+    support.broadcastOpenTicket(updated).catch(() => {});
+    try {
+      const cfg = support.typeConfig(updated.type);
+      require('../lib/push').notifyStaff({
+        category: 'ticket', ticketType: updated.type,
+        title: `New ${cfg ? cfg.label : 'support'} ticket`,
+        body: `${updated.openerName || 'A member'} opened a ticket — ready to claim.`,
+        url: `/ia/dashboard?supportTicket=${encodeURIComponent(updated.id)}&claim=1`,
+      });
+    } catch (e) { /* push is best-effort */ }
     res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
   } catch (e) {
     console.error('[Support] submit-intake failed:', e.message);
