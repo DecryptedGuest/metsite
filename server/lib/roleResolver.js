@@ -24,23 +24,27 @@ function getDeveloperRoleIds() {
 //   Investigator tiers (Probationary/Junior/Investigator/Senior, rank 1–15)
 //                                                               → IA
 //   Guest / Member / anything else                             → null (no access)
+// Map an IA Roblox-group rank to a site role. Aligned to the real IA group:
+//   Guest(0)/Member(1) → none · Probationary(1)/Junior(5)/Investigator(10) → IA
+//   Senior Investigator(15)/Supervisor(20) → SUPERVISOR (middle command)
+//   Assistant Director(30)/Deputy Director(35)/Director(40)+ → HICOMM
 function roleFromIaGroupRank(name, rank) {
   const n = (name || '').toString().toLowerCase().trim();
   const r = Number(rank);
 
-  // Explicit non-staff base ranks
+  // Explicit non-staff base ranks.
   if (n === 'guest' || n === 'member') return null;
 
-  // High Command and above
+  // High Command — Assistant Director and above (rank ≥ 30) + named HC ranks.
   if (/director|administration|hicom|overseer|owner|holder/.test(n)) return 'HICOMM';
   if (Number.isFinite(r) && r >= 30) return 'HICOMM';
 
-  // Supervisor — case/ticket approval perms only (no audit/quota)
-  if (n === 'supervisor' || r === 20) return 'SUPERVISOR';
+  // Middle command — Senior Investigator + Supervisor (case/ticket approval).
+  if (/senior\s*investigator|supervisor/.test(n) || r === 15 || r === 20) return 'SUPERVISOR';
 
-  // Investigator tiers (incl. Senior Investigator) — standard IA access
+  // Investigator tiers (Probationary / Junior / Investigator) — standard IA access.
   if (/investigator/.test(n)) return 'IA';
-  if (Number.isFinite(r) && r >= 1 && r <= 15) return 'IA';
+  if (Number.isFinite(r) && r >= 1 && r <= 14) return 'IA';
 
   return null;
 }
@@ -162,6 +166,20 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
       const groupDivs = await resolveGroupDivisions(rId);
       divisions.push(...groupDivs);
     } catch (e) { /* Roblox unreachable → no group divisions this pass */ }
+
+    // Show the member's ACTUAL IA group rank name (e.g. "Senior Investigator")
+    // instead of the coarse site role. Permissions/tier still come from the site
+    // role; only the displayed rank name + number are enriched.
+    if (iaTier) {
+      try {
+        const { getUserGroupRole } = require('./roblox');
+        const iaRole = await getUserGroupRole(rId, process.env.IA_GROUP_ID || '407296071');
+        if (iaRole && iaRole.name) {
+          const e = divisions.find(d => d.division === 'IA');
+          if (e) { e.rankName = iaRole.name; e.rank = Number(iaRole.rank) || null; }
+        }
+      } catch (e) { /* keep the site-role name */ }
+    }
 
     // MET High Command (Deputy Commissioner+ in the MET group, not a developer):
     // LEAD access to EVERY division, ranked by their MET rank — which outranks

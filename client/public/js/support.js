@@ -857,6 +857,25 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     }
   }
 
+  // A soft, quiet blip when a message arrives (distinct from the loud new-ticket
+  // alert). Needs a prior user gesture to sound (browser autoplay rule) — the
+  // opener is interacting with the ticket, so it's unlocked.
+  let _msgActx = null;
+  function msgBlip() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      if (!_msgActx) _msgActx = new AC();
+      if (_msgActx.state === 'suspended') _msgActx.resume().catch(() => {});
+      const ctx = _msgActx, now = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 620;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.13, now + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o.connect(g); g.connect(ctx.destination); o.start(now); o.stop(now + 0.2);
+    } catch (e) { /* audio unavailable */ }
+  }
+
   // ── Realtime (SSE + polling fallback) ───────────────────────────────────
   let pollTimer = null;
   function openStream(ticketId) {
@@ -867,6 +886,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
         try {
           const m = JSON.parse(ev.data);
           if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return;
+          msgBlip(); // soft chime — a new message came in (our own echoes are de-duped above)
           // System/transition bot messages (claimed, transferred, released, closed)
           // must render as their panel card — NOT a plain typing bubble — so the
           // investigator card etc. show. Only conversational bot lines type out.

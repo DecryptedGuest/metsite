@@ -537,12 +537,30 @@
 
   // ── Realtime (SSE + polling fallback) ────────────────────────────────
   let sdPoll = null;
+  // Soft, quiet blip when a message arrives in the open ticket (browser autoplay
+  // rule needs a prior gesture — staff are clicking around the desk, so it's on).
+  let _msgActx = null;
+  function msgBlip() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      if (!_msgActx) _msgActx = new AC();
+      if (_msgActx.state === 'suspended') _msgActx.resume().catch(() => {});
+      const ctx = _msgActx, now = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 620;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.13, now + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o.connect(g); g.connect(ctx.destination); o.start(now); o.stop(now + 0.2);
+    } catch (e) { /* audio unavailable */ }
+  }
+
   function openStream(id) {
     closeStream();
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; } catch (e) {}
       });
       sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
     } catch (e) {}

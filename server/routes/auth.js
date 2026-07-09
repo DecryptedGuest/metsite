@@ -221,11 +221,12 @@ router.get('/discord/callback', async (req, res) => {
     const divisions = await resolveDivisionsForUser({ discordId: discordUser.id, siteRole: systemRole });
     console.log('[Auth] Divisions resolved:', divisions.map(d => `${d.division}:${d.tier}`).join(', ') || 'none');
 
-    if (!isDeveloper && !grant && !systemRole && divisions.length === 0) {
-      console.warn('[Auth] No IA group rank or division group membership — denying');
-      return res.redirect('/denied?reason=no_role');
-    }
-    console.log('[Auth] System role assigned:', systemRole || '(none — division-only access)');
+    // Anyone in the MET Discord may sign in — being in the guild (checked above)
+    // is the only requirement. A member with no IA role and no division group
+    // rank still gets a base account (role NONE) and can use the hub/profile;
+    // division-gated features stay gated by requireDivision. We NO LONGER deny
+    // login for "no role" — that locked out ordinary members who are allowed in.
+    console.log('[Auth] System role assigned:', systemRole || '(none — signed in, no division access yet)');
 
     // ── Login lockdown: developers only ───────────────────────
     if (!isDeveloper && siteConfig.isOn('loginLockdown')) {
@@ -567,7 +568,8 @@ router.get('/roblox/callback', async (req, res) => {
 
     // Divisions — pass robloxId so this never re-hits RoVer.
     const divisions = await resolveDivisionsForUser({ discordId, siteRole: systemRole, robloxId });
-    if (!isDeveloper && !grant && !systemRole && divisions.length === 0) return res.redirect('/denied?reason=no_role');
+    // Anyone in the MET Discord (guild membership checked above) may sign in —
+    // no role/division required; they just get a base NONE account.
     if (!isDeveloper && siteConfig.isOn('loginLockdown')) return res.redirect('/denied?reason=lockdown');
 
     user = await prisma.user.upsert({

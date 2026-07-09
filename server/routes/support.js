@@ -85,14 +85,19 @@ function ticketCaps(user, t) {
   const hic = support.isHicomm(user);
   const handler = support.canHandleTicket(user, t);
   const claimant = !!(t.claimedById && user && t.claimedById === user.id);
+  const supPlus = !!user && ['SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(user.role);
   const open = t.status !== 'CLOSED';
+  // Once claimed, a ticket is locked to its claimant — other investigators can't
+  // act on it unless they're Supervisor+ (oversight). Unclaimed tickets are open
+  // to any handler so they can pick one up.
+  const claimGate = !t.claimedById || claimant || supPlus;
   return {
     isHicomm: hic,
     canClaim:       handler && open && (!t.claimedById || hic),
     canRelease:     (claimant || hic) && t.status === 'CLAIMED',
     canClose:       (claimant || hic) && open,
-    canReply:       handler && open,
-    canInternalNote: handler,
+    canReply:       handler && open && claimGate,
+    canInternalNote: handler && claimGate,
     canPriority:    (claimant || hic) && open,
     canReassign:    (claimant || hic) && open,
     canEscalate:    handler && open && !t.escalated,
@@ -717,6 +722,13 @@ router.post('/tickets/:id/messages', async (req, res) => {
     // A ticket-blacklisted opener can no longer type in their own ticket.
     if (isOpener(req, t) && !isHandler(req, t) && await openerIsBlacklisted(t)) {
       return res.status(403).json({ error: 'You have been blocked from this ticket by Internal Affairs.', locked: true });
+    }
+    // A CLAIMED ticket is locked to its claimant (+ Supervisor+ oversight); the
+    // opener always keeps posting. Other investigators can't reply to a case
+    // someone else is handling.
+    if (!isOpener(req, t) && t.status === 'CLAIMED' && t.claimedById && String(t.claimedById) !== String(req.user && req.user.id)) {
+      const supPlus = req.user && ['SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(req.user.role);
+      if (!supPlus) return res.status(403).json({ error: 'This ticket is being handled by its claimant — only they or a supervisor can reply.' });
     }
 
     const body = (req.body && req.body.body != null ? String(req.body.body) : '').slice(0, 4000).trim();

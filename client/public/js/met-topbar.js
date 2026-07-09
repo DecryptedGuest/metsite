@@ -68,7 +68,8 @@ async function initMetTopbar(currentDivision) {
   // profile page sets its own label in HTML).
   if (badge && currentDivision) badge.textContent = DIVISION_LABEL[currentDivision] || currentDivision;
 
-  let examEligible = false; // holds the final-exam role → show the Final Exam menu entry
+  let examEligible = false;  // holds the final-exam role → show the Final Exam menu entry
+  let hasIADivision = false; // IA-division access → show the Support Desk pill
   try {
     const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     if (me) {
@@ -90,6 +91,7 @@ async function initMetTopbar(currentDivision) {
 
   try {
     const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
+    hasIADivision = !!(data && Array.isArray(data.mine) && data.mine.some(d => d.division === 'IA'));
     const menu = document.getElementById('met-switcher-menu');
     if (data && menu) {
       menu.innerHTML = '';
@@ -161,6 +163,8 @@ async function initMetTopbar(currentDivision) {
       // count goes up (a new ticket landed). Refreshed on 'support_open' SSE
       // events (events-client.js calls loadSupportBadge) and every 60s.
       window.loadSupportBadge = async function () {
+        // Support Desk is IA-division only — never for other divisions or signed-out.
+        if (!hasIADivision) { const ex = document.getElementById('met-support-pill'); if (ex) ex.remove(); return; }
         let rows;
         try { rows = await fetch('/api/support/tickets/queue?unclaimed=1', { credentials: 'include' }).then(r => r.ok ? r.json() : null); }
         catch (e) { return; }
