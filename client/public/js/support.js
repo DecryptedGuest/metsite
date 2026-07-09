@@ -945,6 +945,10 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
         try { const d = JSON.parse(ev.data || '{}'); if (d && d.claimant && cur) cur.claimant = d.claimant; } catch (e) {}
         refreshTicket(ticketId);
       });
+      // A message removed server-side (e.g. a claim-race message auto-deleted).
+      es.addEventListener('delete', ev => {
+        try { const d = JSON.parse(ev.data); if (d && d.id) { const el = document.querySelector(`[data-mid="${d.id}"]`); if (el) el.remove(); } } catch (e) {}
+      });
       es.onerror = () => { /* browser auto-reconnects */ };
     } catch (e) { /* SSE unsupported → the poll below still updates the chat */ }
     // Polling fallback — guarantees the opener's chat updates even if a proxy

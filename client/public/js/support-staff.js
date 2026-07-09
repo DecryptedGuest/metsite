@@ -604,6 +604,10 @@
         try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; } catch (e) {}
       });
       sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
+      // A message removed server-side (e.g. a claim-race message auto-deleted).
+      sdES.addEventListener('delete', ev => {
+        try { const d = JSON.parse(ev.data); if (d && d.id) { const el = document.querySelector(`[data-mid="${d.id}"]`); if (el) el.remove(); } } catch (e) {}
+      });
     } catch (e) {}
     // Polling fallback — append any new messages even if SSE is buffered.
     sdPoll = setInterval(() => sdRefresh(id), 5000);

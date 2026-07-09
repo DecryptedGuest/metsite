@@ -98,7 +98,9 @@ function ticketCaps(user, t) {
   const hic = support.isHicomm(user);
   const handler = support.canHandleTicket(user, t);
   const claimant = !!(t.claimedById && user && t.claimedById === user.id);
-  const supPlus = !!user && ['SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(user.role);
+  // Oversight tier that may act on a ticket claimed by someone else — IA
+  // Supervisor (rank 20) and above, NOT Senior Investigator (site role SUPERVISOR).
+  const supPlus = support.canOverrideClaimLock(user);
   const open = t.status !== 'CLOSED';
   // Once claimed, a ticket is locked to its claimant — other investigators can't
   // act on it unless they're Supervisor+ (oversight). Unclaimed tickets are open
@@ -711,6 +713,29 @@ router.post('/tickets/:id/claim', async (req, res) => {
       return res.status(409).json({ error: `Already claimed by ${(fresh && fresh.claimedByName) || 'another investigator'}.` });
     }
     const updated = await prisma.supportTicket.findUnique({ where: { id: t.id } });
+
+    // Claim-race cleanup: any STAFF message from a NON-claimant investigator who
+    // isn't oversight-tier (IA Supervisor 20+ / HICOMM), sent in the moments
+    // before the claim landed, is auto-removed so it can't overlap the claimant's
+    // handling. Broadcast a 'delete' so every client drops the bubble too.
+    try {
+      const since = new Date(Date.now() - 20000);
+      const racers = await prisma.supportMessage.findMany({
+        where: { ticketId: t.id, authorKind: 'STAFF', authorId: { not: req.user.id }, createdAt: { gte: since } },
+        select: { id: true, authorId: true },
+      });
+      if (racers.length) {
+        const authorIds = [...new Set(racers.map(m => m.authorId).filter(Boolean))];
+        const authors = await prisma.user.findMany({ where: { id: { in: authorIds } }, select: { id: true, role: true, divisions: true } });
+        const byId = new Map(authors.map(u => [u.id, u]));
+        const toDelete = racers.filter(m => !support.canOverrideClaimLock(byId.get(m.authorId))).map(m => m.id);
+        if (toDelete.length) {
+          await prisma.supportMessage.deleteMany({ where: { id: { in: toDelete } } });
+          for (const id of toDelete) support.publish(t.id, 'delete', { id });
+        }
+      }
+    } catch (e) { /* race cleanup is best-effort */ }
+
     const claimMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `${name} has claimed this ticket and will assist you.` } });
     // Push the claimant card FIRST (with the investigator's avatars/rank) so it's
     // already on the opener's client when the "claimed" panel message renders —
@@ -741,7 +766,7 @@ router.post('/tickets/:id/messages', async (req, res) => {
     // opener always keeps posting. Other investigators can't reply to a case
     // someone else is handling.
     if (!isOpener(req, t) && t.status === 'CLAIMED' && t.claimedById && String(t.claimedById) !== String(req.user && req.user.id)) {
-      const supPlus = req.user && ['SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(req.user.role);
+      const supPlus = support.canOverrideClaimLock(req.user);
       if (!supPlus) return res.status(403).json({ error: 'This ticket is being handled by its claimant — only they or a supervisor can reply.' });
     }
 

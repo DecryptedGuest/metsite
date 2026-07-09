@@ -134,6 +134,32 @@ function isStaff(user)    { return !!user && IA_STAFF.includes(user.role); }
 // IA HICOMM (High Command) — the elevated tier that overlooks everything.
 function isHicomm(user)   { return !!user && ['HICOMM', 'DEVELOPER'].includes(user.role); }
 
+// May this user type in a ticket ALREADY CLAIMED by someone else? Only the
+// genuine oversight tier — IA Supervisor (group rank 20) and above, or HICOMM /
+// DEVELOPER. Deliberately NOT the coarse SUPERVISOR *site role*, which also
+// covers Senior Investigator (rank 15): a Senior Investigator who didn't claim
+// must be locked out of another investigator's claimed ticket. The IA group
+// rank comes from the user's cached divisions; falls back to the rank name.
+const IA_CLAIM_OVERRIDE_MIN_RANK = () => { const n = parseInt(process.env.IA_CLAIM_OVERRIDE_MIN_RANK, 10); return Number.isFinite(n) ? n : 20; };
+function iaDivisionEntry(user) {
+  const divs = (user && Array.isArray(user.divisions)) ? user.divisions : [];
+  return divs.find(d => d && d.division === 'IA') || null;
+}
+function canOverrideClaimLock(user) {
+  if (!user) return false;
+  if (user.role === 'DEVELOPER' || user.role === 'HICOMM') return true;
+  const e = iaDivisionEntry(user);
+  const rank = e && Number.isFinite(Number(e.rank)) ? Number(e.rank) : null;
+  if (rank != null) return rank >= IA_CLAIM_OVERRIDE_MIN_RANK();
+  // No cached rank number → fall back to the rank NAME, but ONLY when it's a real
+  // group rank name. Before enrichment runs, rankName is just the site-role string
+  // ("SUPERVISOR"), which is ambiguous — a Senior Investigator (rank 15) also has
+  // the SUPERVISOR site role — so we ignore that placeholder and stay locked.
+  const name = (e && e.rankName ? String(e.rankName) : '');
+  if (!name || name.toUpperCase() === String(user.role || '').toUpperCase()) return false;
+  return /supervisor|assistant\s*director|deputy\s*director|\bdirector\b|administration|hicom|overseer|met hicomm/i.test(name);
+}
+
 // The "you're now in the queue" message, worded for who actually handles the type.
 function handoffMessage(type) {
   const cfg = typeConfig(type);
@@ -404,7 +430,7 @@ async function resolveIdentity(input) {
 }
 
 module.exports = {
-  TYPES, typeConfig, isStaff, isHicomm, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
+  TYPES, typeConfig, isStaff, isHicomm, canOverrideClaimLock, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
   handoffMessage, resolveIdentity, subscribe, publish, broadcastOpenTicket, PRIORITIES, normPriority,
   BOT_NAME, BOT_AVATAR, IA_STAFF, IA_HICOMM,
   KNOWLEDGE, DEFAULT_GREETINGS, fillGreeting,
