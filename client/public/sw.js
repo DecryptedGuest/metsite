@@ -50,16 +50,23 @@ self.addEventListener('push', function (e) {
     body:  data.body  || 'New activity requires your attention.',
     icon:  data.icon  || '/img/divisions/met.png',
     badge: '/img/divisions/met.png',
-    data:  { url: data.url || '/profile' },
+    data:  data, // keep url + optional viewUrl/claimUrl for the action buttons
     requireInteraction: !!data.requireInteraction,
     tag:   data.tag || undefined,
+    // Action buttons (e.g. "Claim ticket" / "Go to ticket") + a buzz on mobile.
+    actions:  Array.isArray(data.actions) ? data.actions.slice(0, 2) : undefined,
+    vibrate:  Array.isArray(data.vibrate) ? data.vibrate : undefined,
   };
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', function (e) {
   e.notification.close();
-  var target = e.notification.data && e.notification.data.url ? e.notification.data.url : '/profile';
+  var d = e.notification.data || {};
+  // The tapped action button picks the destination; a plain body tap uses url.
+  var target = d.url || '/profile';
+  if (e.action === 'claim' && d.claimUrl) target = d.claimUrl;
+  else if (e.action === 'view' && d.viewUrl) target = d.viewUrl;
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (wins) {
       for (var i = 0; i < wins.length; i++) {

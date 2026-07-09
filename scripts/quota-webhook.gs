@@ -165,7 +165,9 @@ function resetAll() {
   var sheet = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : ss.getSheets()[0];
   if (!sheet) return json({ ok: false, error: 'sheet not found' });
 
-  var values = sheet.getDisplayValues();
+  // getDisplayValues() lives on Range, not Sheet — use getDataRange() first
+  // (bare sheet.getDisplayValues() throws and 500s every reset).
+  var values = sheet.getDataRange().getDisplayValues();
   var userCol = -1, dayCols = {};
   for (var r = 0; r < values.length; r++) {
     for (var c = 0; c < values[r].length; c++) {
@@ -217,7 +219,7 @@ function setExempt(username, marker) {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : ss.getSheets()[0];
   if (!sheet) return json({ ok: false, error: 'sheet not found' });
-  var values = sheet.getDisplayValues();
+  var values = sheet.getDataRange().getDisplayValues(); // getDisplayValues() is a Range method
   var userCol = -1, dayCols = {};
   for (var r = 0; r < values.length; r++) for (var c = 0; c < values[r].length; c++) {
     var v = (values[r][c] || '').toString().trim().toLowerCase();

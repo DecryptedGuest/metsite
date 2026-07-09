@@ -144,6 +144,36 @@ async function initMetTopbar(currentDivision) {
       document.addEventListener('click', () => wrap.classList.remove('open'));
       if (PAGES.some(p => p.href === HERE)) markHere(pBtn);
 
+      // Live unclaimed-ticket counter — a topbar pill that only appears for IA
+      // staff (the queue endpoint 403s for everyone else) and PULSES when the
+      // count goes up (a new ticket landed). Refreshed on 'support_open' SSE
+      // events (events-client.js calls loadSupportBadge) and every 60s.
+      window.loadSupportBadge = async function () {
+        let rows;
+        try { rows = await fetch('/api/support/tickets/queue?unclaimed=1', { credentials: 'include' }).then(r => r.ok ? r.json() : null); }
+        catch (e) { return; }
+        if (!Array.isArray(rows)) return; // non-staff / not signed in
+        const n = rows.length;
+        let pill = document.getElementById('met-support-pill');
+        if (!pill) {
+          pill = document.createElement('a');
+          pill.id = 'met-support-pill';
+          pill.href = '/ia/dashboard?page=support-tickets';
+          pill.className = 'btn btn-ghost btn-sm';
+          pill.title = 'Support desk — unclaimed tickets';
+          pill.innerHTML = '<i class="ti ti-headset"></i> Support <span id="met-support-badge" style="min-width:18px;height:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--red,#e0503a);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;">0</span>';
+          right.insertBefore(pill, right.firstChild);
+        }
+        const badge = document.getElementById('met-support-badge');
+        const prev = parseInt(badge.getAttribute('data-n'), 10) || 0;
+        badge.setAttribute('data-n', n);
+        badge.textContent = n;
+        badge.style.display = n ? 'inline-flex' : 'none';
+        if (n > prev && badge.animate) badge.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.45)' }, { transform: 'scale(1)' }], { duration: 520 });
+      };
+      window.loadSupportBadge();
+      setInterval(() => window.loadSupportBadge(), 60000);
+
       // Search (⌘K / Ctrl-K) — only if the command palette is on this page.
       if (typeof window.openCommandPalette === 'function' && !document.getElementById('met-cmdk-btn')) {
         const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);

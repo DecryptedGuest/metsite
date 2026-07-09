@@ -125,11 +125,25 @@ router.get('/review', async (req, res) => {
       if (!divs.length) return res.json([]); // not a reviewer
       where = { scope: 'DIVISION', division: { in: divs } };
     }
-    const rows = await prisma.loaRequest.findMany({
-      // Never surface the reviewer's own requests in their review queue.
-      where: { ...where, userId: { not: req.user.id }, ...(req.query.status ? { status: String(req.query.status).toUpperCase() } : {}) },
-      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], take: 100,
-    });
+    // Never surface the reviewer's own requests in their review queue.
+    const baseWhere = { ...where, userId: { not: req.user.id } };
+    let rows;
+    if (req.query.status) {
+      rows = await prisma.loaRequest.findMany({
+        where: { ...baseWhere, status: String(req.query.status).toUpperCase() },
+        orderBy: [{ createdAt: 'desc' }], take: 200,
+      });
+    } else {
+      // PENDING must always be visible and never crowded out by history. Fetch
+      // pending (oldest-waiting first) and recent decisions separately, then
+      // concatenate — the old single `orderBy status asc, take 100` sorted
+      // APPROVED/CANCELLED/DENIED ahead of PENDING and could page pending out.
+      const [pending, decided] = await Promise.all([
+        prisma.loaRequest.findMany({ where: { ...baseWhere, status: 'PENDING' }, orderBy: [{ createdAt: 'asc' }], take: 200 }),
+        prisma.loaRequest.findMany({ where: { ...baseWhere, status: { not: 'PENDING' } }, orderBy: [{ createdAt: 'desc' }], take: 100 }),
+      ]);
+      rows = [...pending, ...decided];
+    }
     res.json(rows.map(serialize));
   } catch (e) {
     console.error('[LOA] review load failed:', e.message);
@@ -150,8 +164,10 @@ router.post('/:id/decision', async (req, res) => {
     const action = String((req.body && req.body.action) || '').toLowerCase();
     if (!['approve', 'deny'].includes(action)) return res.status(400).json({ error: 'action must be approve or deny' });
 
-    const updated = await prisma.loaRequest.update({
-      where: { id: r.id },
+    // Atomic transition: only decide if it's still PENDING, so two reviewers (or
+    // a reviewer racing the requester's /cancel) can't overwrite each other.
+    const claim = await prisma.loaRequest.updateMany({
+      where: { id: r.id, status: 'PENDING' },
       data: {
         status: action === 'approve' ? 'APPROVED' : 'DENIED',
         reviewerId: req.user.id, reviewerName: req.user.displayName || req.user.discordUsername,
@@ -159,6 +175,8 @@ router.post('/:id/decision', async (req, res) => {
         reviewedAt: new Date(),
       },
     });
+    if (!claim.count) return res.status(409).json({ error: 'This request has already been decided.' });
+    const updated = await prisma.loaRequest.findUnique({ where: { id: r.id } });
     audit.record({
       req, action: `LOA_${action === 'approve' ? 'APPROVE' : 'DENY'}`, category: 'ACCESS',
       targetType: 'loa', targetId: r.id, division: r.division || 'MET',

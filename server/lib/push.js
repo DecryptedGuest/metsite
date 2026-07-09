@@ -65,14 +65,20 @@ async function notifyStaff(payload) {
       if (payload.category === 'case')   return prefs.newCase;
       if (payload.category === 'ticket') {
         if (!prefs.newTicket) return false;
-        if (payload.ticketType && prefs.ticketTypes.length)
-          return prefs.ticketTypes.includes(payload.ticketType);
+        // An explicit empty ticketTypes means "none of them" — respect it.
+        // (getPrefs returns the full default list when the user never customised,
+        // so [] only ever appears when they deliberately unchecked every type.)
+        if (payload.ticketType) return prefs.ticketTypes.includes(payload.ticketType);
         return true;
       }
       return true;
     });
     await deliver(eligible, {
       title: payload.title, body: payload.body, url: payload.url,
+      // Optional richer-notification fields (action buttons, per-action URLs,
+      // keep-on-screen, vibration, coalescing tag) passed straight to the SW.
+      actions: payload.actions, viewUrl: payload.viewUrl, claimUrl: payload.claimUrl,
+      requireInteraction: payload.requireInteraction, vibrate: payload.vibrate, tag: payload.tag,
     });
   } catch (e) {
     console.error('[Push] notifyStaff error:', e.message);
@@ -83,7 +89,7 @@ async function notifyStaff(payload) {
 //   opts: { userIds?: string[], all?: boolean, title, body, url }
 // Sends to every active subscription of the targeted users (admin intent — not
 // gated on category prefs), but still skips users who disabled notifications.
-async function sendCustomNotification({ userIds, all, title, body, url }) {
+async function sendCustomNotification({ userIds, all, title, body, url, actions, viewUrl, claimUrl, requireInteraction, vibrate, tag }) {
   if (!CONFIGURED) return { sent: 0 };
   try {
     const where = all ? {} : { userId: { in: userIds || [] } };
@@ -92,7 +98,7 @@ async function sendCustomNotification({ userIds, all, title, body, url }) {
       include: { user: { select: { notifyEnabled: true } } },
     });
     const targets = subs.filter(s => s.user && s.user.notifyEnabled);
-    await deliver(targets, { title, body, url: url || '/dashboard' });
+    await deliver(targets, { title, body, url: url || '/dashboard', actions, viewUrl, claimUrl, requireInteraction, vibrate, tag });
     return { sent: targets.length };
   } catch (e) {
     console.error('[Push] sendCustomNotification error:', e.message);
