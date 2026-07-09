@@ -155,8 +155,9 @@ function canHandle(user, type) {
 // testing) — you interact with it purely as its opener.
 function canHandleTicket(user, ticket) {
   if (!user || !ticket) return false;
+  // Nobody can claim/handle/log a ticket they opened — not even a developer.
+  if (ticket.openerId && ticket.openerId === user.id) return false;
   if (user.role === 'DEVELOPER') return true;
-  if (ticket.openerId === user.id) return false;
   return canHandle(user, ticket.type);
 }
 
