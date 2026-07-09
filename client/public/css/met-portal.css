@@ -352,3 +352,13 @@
 .rc-editor .rc-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: rgba(0,0,0,0.28); border-radius: 4px; padding: 0 3px; font-size: .92em; }
 .rc-editor .rc-mention { background: rgba(88,101,242,0.28); color: #c7ccf7; border-radius: 3px; padding: 0 2px; }
+
+/* Typing indicator (support tickets) */
+.sup-typing { display: flex; align-items: center; gap: 7px; padding: 4px 14px 6px;
+  font-size: 12px; color: var(--text-muted, #9aa3b2); font-style: italic; }
+.sup-typing-dots { display: inline-flex; gap: 3px; }
+.sup-typing-dots span { width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-muted, #9aa3b2); display: inline-block; animation: supTypeBlink 1.2s infinite ease-in-out both; }
+.sup-typing-dots span:nth-child(2) { animation-delay: .2s; }
+.sup-typing-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes supTypeBlink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }

@@ -825,6 +825,22 @@ router.post('/tickets/:id/messages', async (req, res) => {
   }
 });
 
+// ── POST /api/support/tickets/:id/typing — broadcast a "typing…" ping ──
+// No body stored; just fans a transient 'typing' event to the ticket's stream so
+// the other side can show an indicator. Rate-limited by the client (~every 2s).
+router.post('/tickets/:id/typing', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).end();
+    if (!canSee(req, t)) return res.status(403).end();
+    if (t.status === 'CLOSED') return res.status(204).end();
+    const opener = isOpener(req, t);
+    const name = req.user ? (req.user.displayName || req.user.discordUsername) : (t.openerName || 'Guest');
+    support.publish(t.id, 'typing', { name, who: opener ? 'OPENER' : 'STAFF', userId: req.user ? req.user.id : null });
+    res.status(204).end();
+  } catch (e) { res.status(204).end(); }
+});
+
 // ── POST /api/support/tickets/:id/close { reason } — handling staff close ──
 router.post('/tickets/:id/close', async (req, res) => {
   try {

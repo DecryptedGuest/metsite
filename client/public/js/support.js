@@ -223,7 +223,7 @@
     }
     parts.push(...msgs.slice(1).map(renderMsg));
     $('sup-log').innerHTML = statusTimelineHtml(t) + parts.join('');
-    scrollLog();
+    scrollLog(true); // full render only happens on ticket open → land at the bottom
   }
 
   // A plain-language progress bar the OPENER sees at the top of their ticket, so
@@ -338,7 +338,15 @@
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('sup-flash'); setTimeout(() => el.classList.remove('sup-flash'), 1200); }
   };
 
-  function scrollLog() { const l = $('sup-log'); l.scrollTop = l.scrollHeight; }
+  // Auto-scroll only when the user is pinned to the bottom — so scrolling UP to
+  // read history isn't yanked back down by incoming messages / polling.
+  let _supPinned = true;
+  function nearBottom(l) { return !l || (l.scrollHeight - l.scrollTop - l.clientHeight) < 140; }
+  function scrollLog(force) { const l = $('sup-log'); if (!l) return; if (force) _supPinned = true; if (_supPinned) l.scrollTop = l.scrollHeight; }
+  (function wireScrollPin() {
+    const l = document.getElementById('sup-log');
+    if (l) l.addEventListener('scroll', () => { _supPinned = nearBottom(l); }, { passive: true });
+  })();
 
   // ── Intake flow ────────────────────────────────────────────────
   function startIntake(questions) {
@@ -776,7 +784,39 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     });
     // Rich (WYSIWYG) composer — formatting renders live inside the box as you type.
     if (window.initRichComposer) window.initRichComposer($('sup-input'));
+    $('sup-input').addEventListener('input', sendTyping);
   }
+
+  // ── Typing indicator ─────────────────────────────────────────────
+  let _lastTypingPing = 0;
+  function sendTyping() {
+    if (!cur || !cur.id || mode === 'intake') return;
+    const now = Date.now();
+    if (now - _lastTypingPing < 2000) return;   // throttle to ~every 2s
+    _lastTypingPing = now;
+    try { fetch(tok('/api/support/tickets/' + cur.id + '/typing', cur.id), { method: 'POST', credentials: 'same-origin' }).catch(() => {}); } catch (e) {}
+  }
+  const _typers = {};   // name -> timeout id
+  function onTyping(d) {
+    if (!d || !d.name || d.who === 'OPENER') return;   // opener only shows STAFF typing
+    if (_typers[d.name]) clearTimeout(_typers[d.name]);
+    _typers[d.name] = setTimeout(() => { delete _typers[d.name]; renderTypers(); }, 4500);
+    renderTypers();
+  }
+  function renderTypers() {
+    let el = document.getElementById('sup-typing');
+    const names = Object.keys(_typers);
+    if (!names.length) { if (el) { el.style.display = 'none'; el.innerHTML = ''; } return; }
+    if (!el) {
+      const composer = $('sup-composer'); if (!composer || !composer.parentNode) return;
+      el = document.createElement('div'); el.id = 'sup-typing'; el.className = 'sup-typing';
+      composer.parentNode.insertBefore(el, composer);
+    }
+    el.style.display = '';
+    const label = names.length === 1 ? `${names[0]} is typing` : `${names.slice(0, 2).join(', ')}${names.length > 2 ? ' and others' : ''} are typing`;
+    el.innerHTML = `<span class="sup-typing-dots"><span></span><span></span><span></span></span> ${esc(label)}…`;
+  }
+  function clearTypers() { Object.keys(_typers).forEach(k => clearTimeout(_typers[k])); Object.keys(_typers).forEach(k => delete _typers[k]); renderTypers(); }
   function setComposerEnabled(t) {
     const canOpener = t.isMine && t.status !== 'CLOSED';
     const canStaff = t.canManage && t.status !== 'CLOSED';
@@ -897,7 +937,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     try {
       const msg = await api(tok('/api/support/tickets/' + cur.id + '/messages', cur.id), { method: 'POST', body: JSON.stringify({ body, attachments: atts, replyToId }) });
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
-      if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
+      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { _supPinned = true; appendBubble(msg); } // own send → jump to bottom
       $('sup-input').value = ''; clearPending(); replyTo = null; renderReplyBar();
     } catch (e) {
       showToast(e.message, 'error');
@@ -930,6 +970,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   let pollTimer = null;
   function openStream(ticketId) {
     closeStream();
+    _supPinned = true;   // fresh ticket view starts pinned to the newest message
     try {
       es = new EventSource(tok('/api/support/tickets/' + ticketId + '/stream', ticketId));
       es.addEventListener('message', ev => {
@@ -942,6 +983,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
           // investigator card etc. show. Only conversational bot lines type out.
           if ((m.authorKind || '').toLowerCase() === 'bot' && !transitionPanel(m)) appendBotTyping(m.body, null, m.id);
           else appendBubble(m);
+          if ((m.authorKind || '').toLowerCase() === 'staff') clearTypers(); // they sent → stop "typing…"
         } catch (e) {}
       });
       es.addEventListener('update', ev => {
@@ -954,6 +996,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       es.addEventListener('delete', ev => {
         try { const d = JSON.parse(ev.data); if (d && d.id) { const el = document.querySelector(`[data-mid="${d.id}"]`); if (el) el.remove(); } } catch (e) {}
       });
+      es.addEventListener('typing', ev => { try { onTyping(JSON.parse(ev.data)); } catch (e) {} });
       es.onerror = () => { /* browser auto-reconnects */ };
     } catch (e) { /* SSE unsupported → the poll below still updates the chat */ }
     // Polling fallback — guarantees the opener's chat updates even if a proxy

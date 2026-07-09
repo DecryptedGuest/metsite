@@ -117,6 +117,13 @@
     openModal('modal-sd-ticket');
     $('sd-log').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     $('sd-toolbar').innerHTML = ''; sdPending = []; renderPending();
+    // Reset the (shared) composer so a draft / greeting from the previously-open
+    // ticket never carries into this one — the cause of a claim's format landing
+    // in the wrong ticket.
+    const _inp = $('sd-input'); if (_inp) _inp.value = '';
+    sdReplyTo = null; renderSdReplyBar();
+    const _ic = $('sd-internal'); if (_ic) _ic.checked = false;
+    sdClearTypers(); _sdPinned = true;   // fresh ticket → start pinned to newest
     try {
       const t = await api('/api/support/tickets/' + id);
       curT = t; renderWorkspace(t); openStream(id);
@@ -308,6 +315,13 @@
       ${head}<div><div style="font-weight:700;">${esc(p.robloxDisplayName || p.robloxUsername || 'Unknown')}</div>
       <div style="font-size:12px;color:var(--text-muted);">@${esc(p.robloxUsername || '')} · Roblox ID ${esc(p.robloxId || '')}${p.discordId ? ` · Discord ${esc(p.discordId)}` : ''}</div></div></div>`;
   }
+  // Auto-scroll only when pinned to the bottom, so scrolling up to read history
+  // isn't yanked back down by the 5s poll / incoming messages / updates.
+  let _sdPinned = true;
+  function sdNearBottom(l) { return !l || (l.scrollHeight - l.scrollTop - l.clientHeight) < 140; }
+  function sdScroll(force) { const l = $('sd-log'); if (!l) return; if (force) _sdPinned = true; if (_sdPinned) l.scrollTop = l.scrollHeight; }
+  (function () { const l = document.getElementById('sd-log'); if (l) l.addEventListener('scroll', () => { _sdPinned = sdNearBottom(l); }, { passive: true }); })();
+
   function renderLog(t) {
     const msgs = t.messages || [];
     const parts = [];
@@ -318,20 +332,22 @@
     });
     parts.push(...msgs.slice(1).map(msgHtml));
     $('sd-log').innerHTML = parts.join('');
-    const l = $('sd-log'); l.scrollTop = l.scrollHeight;
+    sdScroll();
   }
 
   // ── Actions ─────────────────────────────────────────────────────────
   async function reloadTicket() { try { const t = await api('/api/support/tickets/' + curT.id); curT = t; renderWorkspace(t); } catch (e) {} }
   window.sdAct = async function (action) {
     const map = { claim: 'claim', release: 'release', deescalate: 'escalate' };
+    const tid = curT && curT.id;   // the ticket this action targets
     try {
       const body = action === 'deescalate' ? JSON.stringify({ off: true }) : undefined;
-      const r = await api('/api/support/tickets/' + curT.id + '/' + map[action], { method: 'POST', body });
+      const r = await api('/api/support/tickets/' + tid + '/' + map[action], { method: 'POST', body });
       showToast('Done', 'success'); await reloadTicket(); refreshQueue();
       // On claim, prefill the composer with the investigator's greeting (they
-      // review/edit and send it themselves). Don't clobber an in-progress draft.
-      if (action === 'claim' && r && r.greeting) {
+      // review/edit and send it themselves). Only if we're STILL on that ticket
+      // and its composer is empty — never paste it into a different ticket.
+      if (action === 'claim' && r && r.greeting && curT && curT.id === tid) {
         const inp = $('sd-input');
         if (inp && !inp.value.trim()) { inp.value = r.greeting; inp.focus(); }
       }
@@ -514,6 +530,7 @@
     $('sd-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
     // Rich (WYSIWYG) composer — formatting renders live inside the box as you type.
     if (window.initRichComposer) window.initRichComposer($('sd-input'));
+    $('sd-input').addEventListener('input', sdSendTyping);
   }
   function renderPending() {
     $('sd-pending').innerHTML = sdPending.map(p => {
@@ -572,12 +589,45 @@
     const replyToId = sdReplyTo ? sdReplyTo.id : null;
     try {
       const msg = await api('/api/support/tickets/' + curT.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal, replyToId }) });
-      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; }
+      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); sdScroll(true); }
       $('sd-input').value = ''; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
       sdReplyTo = null; renderSdReplyBar();
       window.supFmtPreviewClear('sd-fmt-preview');
     } catch (e) { showToast(e.message, 'error'); }
   }
+
+  // ── Typing indicator ─────────────────────────────────────────────
+  let _sdLastTyping = 0;
+  function sdSendTyping() {
+    if (!curT || !curT.id) return;
+    const ic = $('sd-internal'); if (ic && ic.checked) return;   // don't leak internal-note typing
+    const now = Date.now();
+    if (now - _sdLastTyping < 2000) return;
+    _sdLastTyping = now;
+    try { fetch('/api/support/tickets/' + curT.id + '/typing', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); } catch (e) {}
+  }
+  const _sdTypers = {};
+  function sdOnTyping(d) {
+    if (!d || !d.name) return;
+    if (d.userId && SDC && SDC.me && d.userId === SDC.me.id) return;   // ignore my own
+    if (_sdTypers[d.name]) clearTimeout(_sdTypers[d.name]);
+    _sdTypers[d.name] = setTimeout(() => { delete _sdTypers[d.name]; sdRenderTypers(); }, 4500);
+    sdRenderTypers();
+  }
+  function sdRenderTypers() {
+    let el = document.getElementById('sd-typing');
+    const names = Object.keys(_sdTypers);
+    if (!names.length) { if (el) { el.style.display = 'none'; el.innerHTML = ''; } return; }
+    if (!el) {
+      const composer = $('sd-composer'); if (!composer || !composer.parentNode) return;
+      el = document.createElement('div'); el.id = 'sd-typing'; el.className = 'sup-typing';
+      composer.parentNode.insertBefore(el, composer);
+    }
+    el.style.display = '';
+    const label = names.length === 1 ? `${names[0]} is typing` : `${names.slice(0, 2).join(', ')}${names.length > 2 ? ' and others' : ''} are typing`;
+    el.innerHTML = `<span class="sup-typing-dots"><span></span><span></span><span></span></span> ${esc(label)}…`;
+  }
+  function sdClearTypers() { Object.keys(_sdTypers).forEach(k => clearTimeout(_sdTypers[k])); Object.keys(_sdTypers).forEach(k => delete _sdTypers[k]); sdRenderTypers(); }
 
   // ── Realtime (SSE + polling fallback) ────────────────────────────────
   let sdPoll = null;
@@ -604,8 +654,9 @@
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; msgBlip(); $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); if (m.authorName) { if (_sdTypers[m.authorName]) { clearTimeout(_sdTypers[m.authorName]); delete _sdTypers[m.authorName]; sdRenderTypers(); } } } catch (e) {}
       });
+      sdES.addEventListener('typing', ev => { try { sdOnTyping(JSON.parse(ev.data)); } catch (e) {} });
       sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
       // A message removed server-side (e.g. a claim-race message auto-deleted).
       sdES.addEventListener('delete', ev => {
@@ -625,7 +676,7 @@
     (t.messages || []).forEach(m => {
       if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); }
     });
-    const l = $('sd-log'); if (l) l.scrollTop = l.scrollHeight;
+    sdScroll();
     if (t.status !== curT.status) { curT = t; renderToolbar(t); }
   }
 
