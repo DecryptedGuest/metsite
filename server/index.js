@@ -16,7 +16,6 @@ const aiReviewRoutes = require('./routes/aiReview');
 const pushRoutes     = require('./routes/push');
 const notificationRoutes = require('./routes/notifications');
 const cidRoutes   = require('./routes/cid');
-const sco19Routes = require('./routes/sco19');
 const flpRoutes   = require('./routes/flp');
 const hpcRoutes   = require('./routes/hpc');
 const examRoutes  = require('./routes/exam');
@@ -304,7 +303,8 @@ app.use('/auth/debug',  requireAuth, require('./middleware/auth').requireDevelop
 // CID tryouts use the CID-role gate (applied inside cid.js), not the generic
 // CID-division cache, so CID instructors get in via their CID Discord roles.
 app.use('/api/cid',   requireAuth, cidRoutes);
-app.use('/api/sco19', requireAuth, requireDivision('SCO19'), sco19Routes);
+// SCO-19 has no tryout programme — no /api/sco19 routes. The /sco19/dashboard
+// page is a lightweight division overview served below.
 app.use('/api/flp',   requireAuth, requireDivision('FLP'),   flpRoutes);
 app.use('/api/hpc',   requireAuth, requireDivision('HPC'),
   (req, res, next) => (req.method === 'POST' && /^\/tryouts/.test(req.path)) ? tryoutWriteLimiter(req, res, next) : next(),
