@@ -5,17 +5,27 @@
 const prisma = require('./db');
 
 // Division slug for review links (CID logs review on /cid, HPC on /hpc).
-// Normalise a tryout division to one of the known tryout programmes.
+// Normalise a tryout division to one of the REVIEWABLE tryout programmes. SCO-19
+// has no tryout dashboard anymore, so any stray SCO19 payload is folded into HPC
+// rather than landing in a queue with no UI to view/submit/approve it.
 function normTryoutDivision(v) {
   const d = String(v || '').toUpperCase();
-  return (d === 'CID' || d === 'SCO19') ? d : 'HPC';
+  return d === 'CID' ? 'CID' : 'HPC';
 }
 function divSlug(division) {
-  const d = normTryoutDivision(division);
-  return d === 'CID' ? 'cid' : (d === 'SCO19' ? 'sco19' : 'hpc');
+  return normTryoutDivision(division) === 'CID' ? 'cid' : 'hpc';
 }
 
-// ── Attendee / event normalisation ───────────────────────────────────
+// The inbound game payload can carry the shared secret (when a game authenticates
+// via body.secret rather than the header). Never persist that credential at rest.
+function stripSecret(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const p = { ...payload };
+  delete p.secret; delete p.signature;
+  return p;
+}
+
+// ── Attendee / event normalisation ────────────────────────────────
 // The game sends loosely-shaped data; normalise it and compute counts so the
 // site never trusts the client's own totals.
 function toResult(v) {
@@ -93,7 +103,7 @@ function countsFor(attendees) {
   };
 }
 
-// ── Host resolution ──────────────────────────────────────────────────
+// ── Host resolution ──────────────────────────────────────────
 // The host must be a site user (an HPC instructor who has logged in). Resolve
 // by Discord id, then by stored Roblox id, then via RoVer (roblox → discord).
 async function resolveHostUser({ hostDiscordId, hostRobloxId, hostRobloxName } = {}) {
@@ -206,7 +216,7 @@ async function createFromGamePayload(payload = {}) {
         attendees, events, ...counts,
         status,
         division:       normTryoutDivision(payload.division),
-        gamePayload:    payload,
+        gamePayload:    stripSecret(payload),
       },
     });
   } catch (e) {
@@ -226,7 +236,7 @@ async function createFromGamePayload(payload = {}) {
     reviewUrl: `${base}/${divSlug(log.division)}/dashboard?tryoutLog=${log.id}` };
 }
 
-// ── Serialisation for the API ────────────────────────────────────────
+// ── Serialisation for the API ───────────────────────────────────
 function serialize(log, { full = false } = {}) {
   const base = {
     id: log.id, hostName: log.hostName, hostDiscordId: log.hostDiscordId,
@@ -243,7 +253,7 @@ function serialize(log, { full = false } = {}) {
   return { ...base, attendees: log.attendees || [], events: log.events || [], notes: log.notes, proof: log.proof || null, hostRobloxName: log.hostRobloxName || null };
 }
 
-// ── +1 HPC point on approval ─────────────────────────────────────────
+// ── +1 HPC point on approval ──────────────────────────────────
 // Writes +1 to the host's current-day cell on the HPC database sheet, reusing
 // the quota sheet helpers. Best-effort: returns false (no throw) if Google
 // Sheets isn't configured or the host row can't be found.
@@ -297,7 +307,7 @@ async function awardHpcPoint(log) {
   }
 }
 
-// ── +1 CID "event hosted" on approval ────────────────────────────────
+// ── +1 CID "event hosted" on approval ────────────────────────────
 // Writes +1 to the host's current-day cell in the EVENTS HOSTED/ATTENDED block
 // on the CID database sheet (CID_SHEET_ID). The sheet is split into rank-tier
 // tabs (LOW / MIDDLE / HIGH RANK); rather than assume the host's tier we search
