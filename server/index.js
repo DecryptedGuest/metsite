@@ -82,7 +82,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Security headers (CSP + hardening) ───────────────────────────
+// ── Security headers (CSP + hardening) ────────────────────────────
 // Set before any route so every response carries them. CSP keeps
 // 'unsafe-inline' for script-src because the app relies on inline <script>
 // blocks and inline onclick handlers; jsdelivr is allowed for the Tabler icon
@@ -152,7 +152,7 @@ if (RUN_WORKERS) {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');
 }
 
-// ── Middleware ───────────────────────────────────────────────────
+// ── Middleware ──────────────────────────────────────────────
 // Large limit so ticket-log proof images (base64 data URLs) fit in the body.
 // Up to 10 images × 5 MB inflate to ~67 MB once base64-encoded.
 // Capture the raw JSON body so game callbacks can be HMAC-verified
@@ -199,7 +199,7 @@ app.get('/robots.txt', (req, res) => {
   );
 });
 
-// ── Site-private gate (developer-controlled) ─────────────────────
+// ── Site-private gate (developer-controlled) ──────────────────────
 // When sitePrivate is on, nobody but a logged-in DEVELOPER can reach the
 // site at all — not even the login page. /auth/* stays open so a developer
 // can still sign in, and /api/site-config stays open so the curtain renders.
@@ -255,7 +255,7 @@ app.use('/api',  rateLimit({ windowMs: 1  * 60 * 1000, max: 120 }));
 // header; logout only clears a cookie). Safe methods pass through untouched.
 app.use('/api', requireCsrf);
 
-// ── Abuse-focused per-route rate limiters ────────────────────────
+// ── Abuse-focused per-route rate limiters ───────────────────────
 // The blanket /api limiter (120/min) covers ordinary traffic; these are much
 // tighter caps on the few endpoints where abuse is costly or high-impact.
 const examSubmitLimiter = rateLimit({
@@ -271,7 +271,7 @@ const tryoutWriteLimiter = rateLimit({
   message: { error: 'Too many tryout actions. Please wait a moment.' },
 });
 
-// ── Routes ───────────────────────────────────────────────────────
+// ── Routes ───────────────────────────────────────────────────
 // Shared across the whole portal.
 app.use('/auth',        authRoutes);
 // "Try another way" passwordless sign-in (Discord DM code, QR approval,
@@ -294,8 +294,12 @@ app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
 app.use('/api/ai-review', requireAuth, ia, aiReviewRoutes);
-app.use('/api/push',     requireAuth, ia, pushRoutes);
-app.use('/api/notifications', requireAuth, ia, notificationRoutes);
+// Push + notification self-service must be open to EVERY signed-in member — the
+// "Enable notifications" button on /profile and /app is shown to all users. The
+// developer-only endpoints inside these routers carry their own requireDeveloper
+// gate, so they stay protected without the IA mount gate.
+app.use('/api/push',     requireAuth, pushRoutes);
+app.use('/api/notifications', requireAuth, notificationRoutes);
 app.use('/api/media',    requireAuth, ia, require('./routes/media'));
 app.use('/auth/debug',  requireAuth, require('./middleware/auth').requireDeveloper, debugRoutes); // developer-only diagnostics
 
@@ -578,7 +582,7 @@ app.get('/media/:id', async (req, res) => {
   }
 });
 
-// ── Current user ─────────────────────────────────────────────────
+// ── Current user ────────────────────────────────────────────
 app.get('/api/me', requireAuth, async (req, res) => {
   // Re-check the user's IA rank on load (throttled) so a member who has been
   // demoted/removed loses access before the page finishes loading. If they no
@@ -868,7 +872,7 @@ app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
   });
 });
 
-// ── Current user's quota points (from the IA Database sheet) ─────
+// ── Current user's quota points (from the IA Database sheet) ───
 app.get('/api/me/points', requireAuth, async (req, res) => {
   try {
     const { getMemberPoints } = require('./lib/quota');
@@ -912,7 +916,7 @@ app.get('/api/me/stats', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load stats' }); }
 });
 
-// ── Live updates (Server-Sent Events) ───────────────────────────
+// ── Live updates (Server-Sent Events) ──────────────────────────
 // Opens a long-lived stream the browser subscribes to for instant in-page
 // updates (exam marked, tryout live, new sign-in). No-op on serverless where
 // connections can't be held; Web Push is the durable fallback.
@@ -921,7 +925,7 @@ app.get('/api/events', requireAuth, (req, res) => {
   require('./lib/events').subscribe(req.user.id, res);
 });
 
-// ── Active sessions (device management) ─────────────────────────
+// ── Active sessions (device management) ──────────────────────
 // Lists the user's live sign-ins and lets them revoke any one, or all the
 // others ("sign out everywhere else"). Powered by the server-side Session
 // model that requireAuth validates on every request.
@@ -982,7 +986,7 @@ app.post('/api/me/sessions/revoke-others', requireAuth, async (req, res) => {
   }
 });
 
-// ── Page routes ──────────────────────────────────────────────────
+// ── Page routes ─────────────────────────────────────────────
 const views = path.join(__dirname, '../client/views');
 
 // Send HTML with comments stripped; fall back to the raw file on any error.
@@ -1004,7 +1008,23 @@ function sendPage(res, file) {
       // Developers keep devtools/right-click; everyone else gets the deterrent.
       let devState = 'unknown';
       if (req && req.user) devState = req.user.role === 'DEVELOPER' ? 'dev' : 'nondev';
-      html = require('./lib/assets').injectAntiCopyGuard(html, host, devState);
+      // Sign-in pages must not run the right-click/key deterrents — they break
+      // mobile password managers / autofill (the reported "screen freezes when I
+      // tap a saved password" bug). No proprietary UI lives on these pages.
+      const base = require('path').basename(String(file || ''));
+      const skipDeterrent = base === 'index.html' || base === 'login.html';
+      // Point social-embed image/url tags at the ACTUAL serving host, so link
+      // previews (Discord/Twitter) resolve the logo on whatever domain served
+      // the page — slrmet.com, metia.uk, etc. — instead of a hard-coded domain
+      // that may cross-host redirect (which crawlers won't follow for images).
+      if (host && /^[a-z0-9.-]+$/.test(host)) {
+        const origin = 'https://' + host;
+        html = html.replace(
+          /(<meta\s+(?:property|name)="(?:og:image|og:image:secure_url|og:url|twitter:image)"\s+content=")https?:\/\/[^/"]+/gi,
+          '$1' + origin,
+        );
+      }
+      html = require('./lib/assets').injectAntiCopyGuard(html, host, devState, { skipDeterrent });
     } catch (e) { /* never block the page render on the guard */ }
     res.type('html').send(html);
   } catch (e) { res.sendFile(file); }
@@ -1109,7 +1129,7 @@ app.get('/dev/security', recordVisit, requireAuth, (req, res) => {
   return sendPage(res, path.join(views, 'dev-security.html'));
 });
 
-// ── 404 / Error ──────────────────────────────────────────────────
+// ── 404 / Error ─────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404);
   // Never return the HTML hub page for asset/api requests — doing so makes a
