@@ -18,48 +18,44 @@ function getDeveloperRoleIds() {
 
 // Map an Internal Affairs Roblox group (407296071) role to a site role, using
 // both the role name and its numeric rank for reliability:
-//   High Command (Assistant Director rank 30 and up — incl. Director, MET
+//   High Command (Deputy Director rank 35 and up — incl. Director, MET
 //     ADMINISTRATION/HICOM/OVERSEER, GAME OWNER, HOLDER)        → HICOMM
-//   Supervisor (rank 20)                                        → SUPERVISOR
-//   Investigator tiers (Probationary/Junior/Investigator/Senior, rank 1–15)
+//   Supervisor (rank 20) / Assistant Director (rank 30)         → SUPERVISOR
+//   Investigator tiers (Probationary/Junior/Investigator/Senior, rank 1–19)
 //                                                               → IA
 //   Guest / Member / anything else                             → null (no access)
-// Map an IA Roblox-group rank to a site role. Aligned to the real IA group:
-//   Guest(0)/Member(1) → none · Probationary(1)/Junior(5)/Investigator(10) → IA
-//   Senior Investigator(15)/Supervisor(20)/Assistant Director(30) → SUPERVISOR (middle)
-//   Deputy Director(35)/Director(40)/administration/hicom/… → HICOMM (high command)
-// HICOMM = the IA High Command tools (audit, quota) — only Deputy Director and
-// above; Assistant Director is deliberately MIDDLE, not HICOMM.
+// NOTE: Senior Investigator (rank 15) is a normal INVESTIGATOR (IA tier) — it is
+// NOT a Supervisor. Only the actual "Supervisor" rank (20) and Assistant Director
+// (30) get the SUPERVISOR access tier; Deputy Director (35) and up are HICOMM.
 function roleFromIaGroupRank(name, rank) {
   const n = (name || '').toString().toLowerCase().trim();
   const r = Number(rank);
 
   // The rank NAME is authoritative — group rank NUMBERS vary between group setups
-  // and a Probationary/Junior Investigator must never be classified off a number
-  // that happens to collide with a middle-command tier (the cause of a
-  // Probationary Investigator wrongly showing as SUPERVISOR). Numbers are only a
+  // and an investigator (incl. Senior Investigator) must never be classified off a
+  // number that happens to collide with a middle-command tier. Numbers are only a
   // fallback when the name doesn't classify.
   if (n) {
     // Explicit non-staff base ranks.
     if (n === 'guest' || n === 'member') return null;
     // High Command — Deputy Director and above (named).
     if (/deputy\s*director|administration|hicom|overseer|owner|holder/.test(n)) return 'HICOMM';
-    // Middle command — Senior Investigator, Supervisor, Assistant Director.
-    // (Checked BEFORE the generic "director" → HICOMM rule so "Assistant Director"
-    // stays SUPERVISOR; only Deputy Director and above is HICOMM.)
-    if (/senior\s*investigator|supervisor|assistant\s*director/.test(n)) return 'SUPERVISOR';
+    // Middle command — Supervisor and Assistant Director ONLY (NOT Senior
+    // Investigator, which is a normal investigator). Checked before the generic
+    // "director" → HICOMM rule so "Assistant Director" stays SUPERVISOR.
+    if (/\bsupervisor\b|assistant\s*director/.test(n)) return 'SUPERVISOR';
     // Any other "director" (Director rank 40) → High Command.
     if (/\bdirector\b/.test(n)) return 'HICOMM';
-    // Investigator tiers (Probationary / Junior / Investigator) — standard IA
-    // access. This wins over any numeric guess below.
+    // Investigator tiers (Probationary / Junior / Investigator / Senior
+    // Investigator) — standard IA access. This wins over any numeric guess below.
     if (/investigator|probationary/.test(n)) return 'IA';
   }
 
   // Numeric fallback — only reached when the name gave us nothing usable.
   if (!Number.isFinite(r)) return null;
-  if (r >= 35) return 'HICOMM';
-  if (r === 15 || r === 20 || r === 30) return 'SUPERVISOR';
-  if (r >= 1 && r <= 14) return 'IA';
+  if (r >= 35) return 'HICOMM';    // Deputy Director and above
+  if (r >= 20) return 'SUPERVISOR'; // Supervisor (20), Assistant Director (30)
+  if (r >= 1)  return 'IA';         // Senior Investigator (15) and below
   return null;
 }
 
@@ -192,8 +188,13 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
   const divisions = [];
 
   // IA — from the site role, keeping IA fully decoupled from the group logic.
+  // rankName here is only a PLACEHOLDER — it's replaced below with the member's
+  // actual IA group rank name (e.g. "Senior Investigator") when Roblox is
+  // reachable. Use a friendly label, never the raw site-role word, so a flaky
+  // enrichment never mislabels e.g. a Senior Investigator as "SUPERVISOR".
   const iaTier = iaTierFromSiteRole(siteRole);
-  if (iaTier) divisions.push({ division: 'IA', tier: iaTier, rankName: siteRole, rank: null });
+  const IA_ROLE_LABEL = { IA: 'Internal Affairs', SUPERVISOR: 'Supervisor', HICOMM: 'IA High Command', DEVELOPER: 'Developer' };
+  if (iaTier) divisions.push({ division: 'IA', tier: iaTier, rankName: IA_ROLE_LABEL[siteRole] || 'Internal Affairs', rank: null });
 
   // CID / SCO19 / FLP / HPC — Roblox group rank only. Resolve the user's Roblox
   // id from the stored/RoVer link if the caller didn't supply one.
