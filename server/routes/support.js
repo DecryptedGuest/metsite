@@ -314,6 +314,9 @@ router.post('/tickets', async (req, res) => {
   const type = String((req.body && req.body.type) || '').toUpperCase();
   const cfg  = support.typeConfig(type);
   if (!cfg) return res.status(400).json({ error: 'Unknown ticket type.' });
+  // Import-only types (Website Support) can't be opened here — they arrive via
+  // Discord transcript import.
+  if (cfg.importOnly) return res.status(400).json({ error: 'This ticket type cannot be opened here.' });
   // Refuse blacklisted GUESTS (matched by IP/fingerprint). Signed-in members are
   // accountable via their openerId and handled by account-level isBlacklisted,
   // so the IP/fingerprint blacklist never applies to them.

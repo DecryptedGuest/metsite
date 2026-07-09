@@ -51,7 +51,11 @@ const TYPES = {
     ],
   },
   GENERAL_SUPPORT: {
+    // Import-only: website support tickets are NOT opened on the support page —
+    // they arrive by importing their Tickety Discord transcripts. Kept here so
+    // imports/close-logs classify to this type and display as "Website Support".
     key: 'GENERAL_SUPPORT', label: 'Website Support', button: 'Ask a question', icon: 'ti-lifebuoy', helpBot: true,
+    importOnly: true,
     blurb: 'Ask a question or get help — how to join, tryouts, anything.',
     roles: IA_STAFF,
     questions: [
@@ -225,8 +229,10 @@ function canView(user, ticket) {
 }
 
 // Public (client-safe) view of the type catalogue for the landing page.
+// Import-only types (e.g. Website Support) are excluded — they can't be opened
+// from the support page, only imported from Discord.
 function publicCatalogue() {
-  return Object.values(TYPES).map(t => ({
+  return Object.values(TYPES).filter(t => !t.importOnly).map(t => ({
     key: t.key, label: t.label, button: t.button, blurb: t.blurb, icon: t.icon,
     restricted: !!t.restricted, helpBot: !!t.helpBot, questions: t.questions,
   }));

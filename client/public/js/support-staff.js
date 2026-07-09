@@ -685,17 +685,6 @@
     if (e.target && (e.target.closest && e.target.closest('#modal-sd-ticket .modal-close'))) closeStream();
   });
 
-  // Keyboard shortcuts while a ticket workspace is open: C = claim, R = reply.
-  document.addEventListener('keydown', e => {
-    const modal = document.getElementById('modal-sd-ticket');
-    if (!modal || getComputedStyle(modal).display === 'none') return;
-    const tag = (e.target && e.target.tagName) || '';
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
-    const k = (e.key || '').toLowerCase();
-    if (k === 'c' && curT && curT.caps && curT.caps.canClaim) { e.preventDefault(); window.sdAct('claim'); }
-    else if (k === 'r') { e.preventDefault(); const inp = document.getElementById('sd-input'); if (inp) inp.focus(); }
-  });
-
   // Deep link from the pop-up alert / a shared link:
   // /ia/dashboard?supportTicket=<id>[&claim=1] — open (and optionally claim) it
   // in the desk, over whichever dashboard page is active.
