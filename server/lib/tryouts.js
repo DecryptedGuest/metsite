@@ -195,7 +195,7 @@ function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
     `Host: ${host}`,
     `Co-Host: ${coHost}`,
     `Starting: ${fmtDiscordTs(tryout)}`,
-    'Reactions: 3+ (3 ✅ needed to start the tryout, including the host)',
+    'Reactions: 3+',
     `Game link: ${link}`,
     'Information:',
     "`• CID is the Metropolitan Police Service's (MPS) Criminal Investigations unit. This elite group of individuals are trained for immediate responses to any crime scene.",

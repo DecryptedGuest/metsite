@@ -804,6 +804,8 @@ async function reactToMessage(channelId, messageId, emoji) {
 // id on the tryout. Returns the message id, or null if it couldn't post.
 async function postTryoutAnnouncement(tryout) {
   if (!ready) return null;
+  // Never post twice (e.g. auto-post on schedule + the host's "Send Announcement").
+  if (tryout && tryout.announcementSent) return tryout.announcementMsgId || null;
   const { formatAnnouncement, formatCidRecruitment, announcementAllowedMentions, divisionConfig, announceChannelId } = require('./tryouts');
   const chId = announceChannelId(tryout);
   if (!chId) { console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} — cannot announce.`); return null; }

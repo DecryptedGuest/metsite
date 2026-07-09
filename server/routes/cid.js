@@ -124,6 +124,8 @@ router.post('/tryouts', async (req, res) => {
       const bot = require('../lib/bot');
       const evId = await bot.createTryoutScheduledEvent(t, bot.tryoutGuildId(t.division));
       if (evId) { t.scheduledEventId = evId; await prisma.tryout.update({ where: { id: t.id }, data: { scheduledEventId: evId } }).catch(() => {}); }
+      // Post the announcement immediately on schedule (best-effort).
+      bot.postTryoutAnnouncement(t).catch(() => {});
     } catch (e) { /* best-effort */ }
     res.status(201).json(tryoutSummary(t));
   } catch (err) {
