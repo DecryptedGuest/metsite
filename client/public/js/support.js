@@ -618,11 +618,48 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     const media = logo ? `<img src="${logo}" style="width:34px;height:34px;border-radius:8px;object-fit:cover;" alt="">` : `<i class="ti ${icon}" style="font-size:22px;color:var(--blue);"></i>`;
     return `<div class="sup-sys">${media}<div><div style="font-weight:700;font-size:13px;">${esc(title)}</div>${sub ? `<div style="font-size:11px;color:var(--text-muted);">${esc(sub)}</div>` : ''}</div></div>`;
   }
+  // The investigator (claimant) card — little Discord + Roblox avatar profiles,
+  // name, IA rank and handles. Rendered inside the "Claimed" card so the opener
+  // (and staff) can see exactly who is dealing with their ticket.
+  function claimantRowHtml(c) {
+    if (!c) return '';
+    const dAv = c.discordAvatar
+      ? `<img src="${esc(c.discordAvatar)}" alt="Discord" title="Discord avatar" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid #5865F2;background:#0b0f18;">`
+      : '';
+    const rInner = c.headshotUrl
+      ? `<img src="${esc(c.headshotUrl)}" alt="Roblox" title="Roblox avatar" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid #e2231a;background:#0b0f18;${dAv ? 'margin-left:-10px;' : ''}">`
+      : '';
+    const rAv = rInner && c.robloxUrl
+      ? `<a href="${esc(c.robloxUrl)}" target="_blank" rel="noopener" style="display:inline-flex;">${rInner}</a>`
+      : rInner;
+    const rank = c.rankName ? `<span style="font-size:11px;color:var(--blue);font-weight:600;margin-left:6px;">${esc(c.rankName)}</span>` : '';
+    const handles = [
+      c.robloxUsername ? `Roblox @${esc(c.robloxUsername)}` : '',
+      c.discordUsername ? `Discord @${esc(c.discordUsername)}` : '',
+    ].filter(Boolean).join(' · ');
+    return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+      <div style="display:flex;align-items:center;">${dAv}${rAv}</div>
+      <div style="min-width:0;">
+        <div style="font-weight:700;font-size:13px;">${esc(c.name || 'Investigator')}${rank}</div>
+        ${handles ? `<div style="font-size:11px;color:var(--text-muted);">${handles}</div>` : ''}
+      </div>
+    </div>`;
+  }
+  function claimedPanelHtml(sub) {
+    const c = cur && cur.claimant;
+    return `<div class="sup-sys" style="align-items:flex-start;max-width:520px;">
+      <img src="/img/divisions/ia.png" style="width:34px;height:34px;border-radius:8px;object-fit:cover;" alt="">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:13px;">Claimed by Internal Affairs</div>
+        ${c ? claimantRowHtml(c) : (sub ? `<div style="font-size:11px;color:var(--text-muted);">${esc(sub)}</div>` : '')}
+      </div>
+    </div>`;
+  }
   function transitionPanel(m) {
     if ((m.authorKind || '').toLowerCase() !== 'bot') return null;
     const b = m.body || '';
     if (/will be with you shortly/i.test(b)) return sysPanelHtml('/img/divisions/ia.png', null, 'Transferred to Internal Affairs', b);
-    if (/claimed this ticket/i.test(b))       return sysPanelHtml('/img/divisions/ia.png', null, 'Claimed by Internal Affairs', b);
+    if (/claimed this ticket/i.test(b))       return claimedPanelHtml(b);
     if (/released this ticket/i.test(b))       return sysPanelHtml(null, 'ti-arrow-back-up', 'Back in the queue', b);
     if (/was closed/i.test(b))                 return sysPanelHtml(null, 'ti-lock', 'Ticket closed', b);
     return null;
@@ -746,6 +783,8 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     if (!cur || cur.id !== ticketId) return;
     let t;
     try { t = await api(tok('/api/support/tickets/' + ticketId, ticketId)); } catch (e) { return; }
+    // Make the investigator card available before the "Claimed" bubble renders.
+    if (t.claimant) cur.claimant = t.claimant;
     (t.messages || []).forEach(m => {
       if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) appendBubble(m);
     });

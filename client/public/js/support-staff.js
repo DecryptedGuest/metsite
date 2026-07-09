@@ -140,12 +140,44 @@
     </div>`;
   }
 
+  // Investigator (claimant) card — little Discord + Roblox avatar profiles,
+  // name, IA rank and handles, so everyone sees who owns this ticket.
+  function claimantCardHtml(c) {
+    if (!c) return '';
+    const dAv = c.discordAvatar
+      ? `<img src="${esc(c.discordAvatar)}" alt="Discord" title="Discord avatar" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #5865F2;background:#0b0f18;">`
+      : '';
+    const rInner = c.headshotUrl
+      ? `<img src="${esc(c.headshotUrl)}" alt="Roblox" title="Roblox avatar" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #e2231a;background:#0b0f18;${dAv ? 'margin-left:-12px;' : ''}">`
+      : '';
+    const rAv = rInner && c.robloxUrl ? `<a href="${esc(c.robloxUrl)}" target="_blank" rel="noopener" style="display:inline-flex;">${rInner}</a>` : rInner;
+    const rank = c.rankName ? `<span style="font-size:11px;color:var(--blue);font-weight:600;margin-left:6px;">${esc(c.rankName)}</span>` : '';
+    const handles = [
+      c.robloxUsername ? `Roblox @${esc(c.robloxUsername)}` : '',
+      c.discordUsername ? `Discord @${esc(c.discordUsername)}` : '',
+    ].filter(Boolean).join(' · ');
+    const btn = c.id ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="sdProfile('${esc(c.id)}','${esc(c.robloxUsername || c.name || '')}')"><i class="ti ti-user-circle"></i> Profile</button>` : '';
+    return `<div class="glass" style="border:1px solid var(--blue,#4a8fff)33;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--blue,#4a8fff);margin-bottom:10px;"><i class="ti ti-shield-check"></i> Handling investigator</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;">${dAv}${rAv}</div>
+        <div style="min-width:0;">
+          <div style="font-weight:700;font-size:14px;">${esc(c.name || 'Investigator')}${rank}</div>
+          ${handles ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${handles}</div>` : ''}
+        </div>
+        ${btn}
+      </div>
+    </div>`;
+  }
+
   function renderWorkspace(t) {
     $('sd-title').textContent = `${t.typeLabel} · ${t.openerName}`;
     renderToolbar(t);
     renderLog(t);
     // Prepend the IA-only appeal card above the conversation (staff-only data).
     if (t.appeal) { const log = $('sd-log'); if (log) log.insertAdjacentHTML('afterbegin', appealCardHtml(t.appeal)); }
+    // Investigator card at the very top when the ticket is claimed.
+    if (t.claimant) { const log = $('sd-log'); if (log) log.insertAdjacentHTML('afterbegin', claimantCardHtml(t.claimant)); }
     const composer = $('sd-composer');
     if (composer) composer.style.display = (t.caps && (t.caps.canReply || t.caps.canInternalNote)) ? '' : 'none';
   }

@@ -497,6 +497,40 @@ router.get('/tickets/:id', async (req, res) => {
       const active = or.length ? await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }).catch(() => null) : null;
       out.openerBlacklisted = !!active;
     }
+    // Claimant ("investigator") card — shown to everyone who can see the ticket,
+    // so the opener knows exactly who's helping them and staff see who owns it.
+    // Carries the investigator's Discord + Roblox avatars, names and IA rank.
+    if (t.claimedById) {
+      try {
+        const c = await prisma.user.findUnique({
+          where: { id: t.claimedById },
+          select: { id: true, displayName: true, discordUsername: true, discordId: true, discordAvatar: true, robloxId: true, robloxUsername: true },
+        });
+        if (c) {
+          const roblox = require('../lib/roblox');
+          let headshot = null, rankName = null;
+          if (c.robloxId) {
+            try { headshot = await roblox.getRobloxAvatarHeadshot(c.robloxId); } catch (e) {}
+            try {
+              const role = await roblox.getUserGroupRole(c.robloxId, process.env.IA_GROUP_ID || '407296071');
+              if (role && role.name) rankName = role.name;
+            } catch (e) {}
+          }
+          out.claimant = {
+            id: c.id,
+            name: c.displayName || c.discordUsername,
+            discordUsername: c.discordUsername || null,
+            discordId: c.discordId || null,
+            discordAvatar: c.discordAvatar || null,
+            robloxId: c.robloxId || null,
+            robloxUsername: c.robloxUsername || null,
+            robloxUrl: c.robloxId ? `https://www.roblox.com/users/${c.robloxId}/profile` : null,
+            headshotUrl: headshot,
+            rankName,
+          };
+        }
+      } catch (e) { /* best-effort — claimant card just won't render */ }
+    }
     // Appeal card — handlers/IA only. Enriches the punishment being appealed
     // with the opener's Roblox + Discord identity and a jump-to-case link.
     // Never attached for the opener, so it stays invisible to them.
