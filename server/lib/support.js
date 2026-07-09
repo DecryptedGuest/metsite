@@ -34,7 +34,7 @@ const TYPES = {
       // `punishment` kind → the client offers the opener's own punishments (with
       // expiry countdowns) to pick from; `choices` is the guest / no-history fallback.
       { id: 'action',   prompt: 'Which punishment are you appealing?', kind: 'punishment', choices: ['Strike', 'Demotion', 'Exile', 'Blacklist', 'Other'] },
-      { id: 'why',      prompt: 'Why do you believe it was unjustified? Explain your side.', kind: 'longtext' },
+      { id: 'why',      prompt: 'Why would you like to appeal this punishment?', kind: 'longtext' },
       { id: 'evidence', prompt: 'Attach any supporting evidence — screenshots, clips, or links.', kind: 'evidence', optional: true },
     ],
   },
@@ -150,9 +150,27 @@ function canHandle(user, type) {
   return !!cfg && cfg.roles.includes(user.role);
 }
 
+// Is this user the SUBJECT of a report ticket (the person being reported)?
+// Checks the intake identity answers against the user's Discord/Roblox ids.
+// IA must never see or handle a report filed about themselves.
+function isSubjectOfReport(user, ticket) {
+  if (!user || !ticket) return false;
+  if (ticket.type !== 'OFFICER_COMPLAINT' && ticket.type !== 'IA_COMPLAINT') return false;
+  const intake = Array.isArray(ticket.intake) ? ticket.intake : [];
+  for (const q of intake) {
+    const id = q && q.identity;
+    if (!id) continue;
+    if (id.discordId && user.discordId && String(id.discordId) === String(user.discordId)) return true;
+    if (id.robloxId && user.robloxId && String(id.robloxId) === String(user.robloxId)) return true;
+  }
+  return false;
+}
+
 // Can this user HANDLE this specific ticket? Same as canHandle, but you can
 // never claim/close/handle a ticket you opened yourself (except DEVELOPER, for
-// testing) — you interact with it purely as its opener.
+// testing) — you interact with it purely as its opener — and you can never
+// handle a report filed ABOUT you (an officer report can't be claimed by the
+// officer it names).
 function canHandleTicket(user, ticket) {
   if (!user || !ticket) return false;
   // Developers bypass every gate — including the "can't handle your own ticket"
@@ -160,6 +178,8 @@ function canHandleTicket(user, ticket) {
   if (user.role === 'DEVELOPER') return true;
   // Real IA staff can't claim/handle/log a ticket they opened (integrity).
   if (ticket.openerId && ticket.openerId === user.id) return false;
+  // …nor a report that names them as the subject.
+  if (isSubjectOfReport(user, ticket)) return false;
   return canHandle(user, ticket.type);
 }
 
@@ -172,6 +192,9 @@ function handleableTypes(user) {
 function canView(user, ticket) {
   if (!user || !ticket) return false;
   if (ticket.openerId === user.id) return true;
+  // A named subject of a report can't even view the report filed about them
+  // (except DEVELOPER, for testing) — same integrity rule as canHandleTicket.
+  if (user.role !== 'DEVELOPER' && isSubjectOfReport(user, ticket)) return false;
   return canHandle(user, ticket.type);
 }
 
@@ -213,6 +236,55 @@ function publish(ticketId, event, data, opts) {
   }
 }
 
+// Alert eligible staff that a ticket just became ready to claim: an instant,
+// in-page popup + chime on their dashboard (events-client.js 'support_open'),
+// on top of the durable web-push. Best-effort — never blocks the open request.
+async function broadcastOpenTicket(ticket) {
+  try {
+    if (!ticket) return;
+    const cfg = typeConfig(ticket.type);
+    const roles = (cfg && cfg.roles) || IA_STAFF;
+    const prisma = require('./db');
+    const events = require('./events');
+    const staff = await prisma.user.findMany({
+      where: { role: { in: roles }, isBlacklisted: false },
+      select: { id: true },
+    });
+    // A one-line preview from the opener's first non-empty intake answer.
+    let preview = null;
+    const intake = Array.isArray(ticket.intake) ? ticket.intake : [];
+    const firstAns = intake.find(q => q && q.answer && String(q.answer).trim());
+    if (firstAns) preview = String(firstAns.answer).slice(0, 160);
+    const idEnc = encodeURIComponent(ticket.id);
+    const payload = {
+      ticketId:   ticket.id,
+      type:       ticket.type,
+      typeLabel:  (cfg && cfg.label) || ticket.type,
+      openerName: ticket.openerName || 'a member',
+      preview,
+      url: `/ia/dashboard?supportTicket=${idEnc}&claim=1`,
+    };
+    // Never alert the opener about their own ticket.
+    const targetIds = staff.map(s => s.id).filter(id => !(ticket.openerId && id === ticket.openerId));
+    // Instant in-page popup + loud chime for any eligible staffer on the site now.
+    for (const id of targetIds) events.publishToUser(id, 'support_open', payload);
+    // Durable web push to the same IA set (phone + desktop) with action buttons,
+    // so investigators who aren't on the site still get alerted and can jump in.
+    try {
+      require('./push').sendCustomNotification({
+        userIds: targetIds,
+        title: `New ticket · ${(cfg && cfg.label) || 'Internal Affairs'}`,
+        body:   `${ticket.openerName || 'A member'} opened a ticket — tap to claim.`,
+        url:      `/ia/dashboard?supportTicket=${idEnc}&claim=1`,
+        viewUrl:  `/ia/dashboard?supportTicket=${idEnc}`,
+        claimUrl: `/ia/dashboard?supportTicket=${idEnc}&claim=1`,
+        actions: [{ action: 'claim', title: 'Claim ticket' }, { action: 'view', title: 'Go to ticket' }],
+        requireInteraction: true, vibrate: [200, 100, 200], tag: 'support-ticket-' + ticket.id,
+      }).catch(() => {});
+    } catch (e) { /* push is best-effort */ }
+  } catch (e) { /* best-effort */ }
+}
+
 // ── Identity resolution (for "which officer / who" intake questions) ──
 // Accepts a Discord username, Roblox username, or a Discord/Roblox ID, and
 // resolves it to a Roblox profile (username + headshot) so the opener can
@@ -232,6 +304,7 @@ async function _buildPerson(robloxId, extra) {
     robloxUsername: info ? info.username : null,
     robloxDisplayName: info ? info.displayName : null,
     headshotUrl: head || null,
+    robloxUrl: `https://www.roblox.com/users/${robloxId}/profile`,
     ...(extra || {}),
   };
   // If we don't already know the Discord side, reverse-resolve it via RoVer so
@@ -241,6 +314,23 @@ async function _buildPerson(robloxId, extra) {
       const matches = await roblox.getDiscordFromRoblox(String(robloxId));
       if (matches && matches[0] && matches[0].discordId) out.discordId = String(matches[0].discordId);
     } catch (e) { /* RoVer down → no discord id */ }
+  }
+  // Enrich with the Discord profile (avatar + display name) so the "is this the
+  // right person?" card can show a Discord picture beside the Roblox one, with
+  // both platform logos. Best-effort — needs the bot to be in the guild.
+  if (out.discordId && !out.discordAvatar) {
+    try {
+      const bot = require('./bot');
+      const guildId = process.env.DISCORD_GUILD_ID;
+      const gm = guildId ? await bot.getGuildMemberInfo(String(out.discordId), guildId) : null;
+      if (gm) {
+        if (gm.avatar) out.discordAvatar = gm.avatar;
+        if (gm.displayName) {
+          out.discordDisplayName = gm.displayName;
+          if (!out.discordUsername) out.discordUsername = gm.displayName;
+        }
+      }
+    } catch (e) { /* bot/guild lookup unavailable → no discord avatar */ }
   }
   return out;
 }
@@ -287,7 +377,7 @@ async function resolveIdentity(input) {
 
 module.exports = {
   TYPES, typeConfig, isStaff, isHicomm, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
-  handoffMessage, resolveIdentity, subscribe, publish, PRIORITIES, normPriority,
+  handoffMessage, resolveIdentity, subscribe, publish, broadcastOpenTicket, PRIORITIES, normPriority,
   BOT_NAME, BOT_AVATAR, IA_STAFF, IA_HICOMM,
   KNOWLEDGE, DEFAULT_GREETINGS, fillGreeting,
 };
