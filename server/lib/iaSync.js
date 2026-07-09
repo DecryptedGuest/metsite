@@ -69,7 +69,7 @@ async function syncCases(limit = 10000) {
       // IA and MET number cases independently, so an IA "#5" can collide with a
       // native MET "#5". Never overwrite a natively-created case: only touch rows
       // that don't exist yet or were themselves written by IA sync.
-      const ex = await prisma.case.findUnique({ where: { caseRef: r.caseRef }, select: { origin: true } }).catch(() => null);
+      const ex = await prisma.case.findUnique({ where: { caseRef: r.caseRef }, select: { origin: true, status: true } }).catch(() => null);
       if (ex && ex.origin !== 'IA') { skipped++; console.warn('[IA] case sync skip (native case owns ref)', r.caseRef); continue; }
       const userId = await resolve(r.ownerDiscordId || r.officerDiscordId, r.ownerDiscordUsername);
       const data = {
@@ -92,9 +92,15 @@ async function syncCases(limit = 10000) {
         status: norm(r.status, CASE_STATUS, 'PENDING'),
         updatedAt: r.updatedAt || new Date(),
       };
+      // Once a synced case has been ACTIONED on the MET side (approved/denied),
+      // MET is authoritative: the admin log was posted, roles applied, quota
+      // enqueued. Never let a later sync revert its status / clobber its MET log
+      // id — that reverted approvals to PENDING (re-approve → duplicate log).
+      const updateData = { ...data };
+      if (ex && ex.status && ex.status !== 'PENDING') { delete updateData.status; delete updateData.logMessageId; }
       await prisma.case.upsert({
         where: { caseRef: r.caseRef },
-        update: data,
+        update: updateData,
         create: { caseRef: r.caseRef, createdAt: r.createdAt || new Date(), ...data },
       });
       synced++;
@@ -123,12 +129,14 @@ async function syncTickets(limit = 10000) {
       // this ref, import the IA row under a "<ref>-IA" ref so it stays visible
       // rather than clobbering the native ticket or being dropped.
       let ref = r.ticketRef;
-      const ex = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true } }).catch(() => null);
+      let exStatus = null;
+      const ex = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true, status: true } }).catch(() => null);
       if (ex && ex.origin !== 'IA') {
         ref = `${r.ticketRef}-IA`;
-        const ex2 = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true } }).catch(() => null);
+        const ex2 = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true, status: true } }).catch(() => null);
         if (ex2 && ex2.origin !== 'IA') { skipped++; console.warn('[IA] ticket sync skip (native ticket owns ref)', r.ticketRef); continue; }
-      }
+        exStatus = ex2 && ex2.status;
+      } else if (ex) { exStatus = ex.status; }
       const userId = await resolve(r.ownerDiscordId, r.ownerDiscordUsername);
       const data = {
         origin: 'IA',
@@ -144,9 +152,12 @@ async function syncTickets(limit = 10000) {
         reviewedBy: r.reviewedBy || null,
         reviewedAt: r.reviewedAt || null,
       };
+      // Don't revert a ticket already actioned on the MET side.
+      const updateData = { ...data };
+      if (exStatus && exStatus !== 'PENDING') { delete updateData.status; }
       await prisma.ticket.upsert({
         where: { ticketRef: ref },
-        update: data,
+        update: updateData,
         create: { ticketRef: ref, createdAt: r.createdAt || new Date(), ...data },
       });
       synced++;

@@ -831,10 +831,19 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
     if (claim.count === 0) return res.status(409).json({ error: 'Case is not pending' });
     const updated = await prisma.case.findUnique({ where: { id: req.params.id } });
 
+    // Has this case already been actioned before? A synced case can be approved
+    // here, reverted to PENDING by a stale IA sync, then re-approved — in which
+    // case the admin log was already posted and roles/demotion already applied.
+    // Detect that and SKIP the side effects (no duplicate log, no double demote);
+    // only the status fix (done above) + quota (idempotent, below) still run.
+    const alreadyActioned = (await prisma.caseAction.count({ where: { caseId: existing.id, actionType: 'APPROVED' } }).catch(() => 0)) > 0;
+
     await prisma.caseAction.create({
-      data: { caseId: existing.id, actionType: 'APPROVED', performedBy: req.user.id, notes: 'Approved by HICOMM/Developer' },
+      data: { caseId: existing.id, actionType: 'APPROVED', performedBy: req.user.id,
+        notes: alreadyActioned ? 'Re-approved (already actioned — side effects skipped)' : 'Approved by HICOMM/Developer' },
     });
 
+    if (!alreadyActioned) {
     // Suspect's Roblox headshot → embed thumbnail. (The "Signed, …" author is a
     // fixed Internal Affairs High Command signature set in buildCaseEmbed.)
     const { suspectAvatar } = await resolveCaseAvatars(null, existing);
@@ -924,18 +933,23 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
         },
       }).catch(() => {});
     }
+    } // end if (!alreadyActioned) — side effects only run on the first approval
 
     // +4 quota points for the IA member who submitted the case — queued durably
-    // so a transient failure (or a rapid approve burst) never drops the points.
-    // Never award for imported/legacy cases (owned by the import system user).
-    // Never award quota for imported/synced records (legacy import or IA sync),
-    // nor for an IA-origin synced case regardless of how its owner resolved.
+    // (idempotent per case id) so a transient failure or a rapid approve burst
+    // never drops or doubles the points. Awarded whenever the case is APPROVED on
+    // the MET side by a resolvable investigator — INCLUDING IA-origin cases that
+    // are being reviewed here (they were previously skipped, so their submitter
+    // never got the points). Only the placeholder-owned bulk imports are excluded.
     const IMPORT_OWNERS = new Set(['SYSTEM_LEGACY_IMPORT', 'ia-archive-import']);
-    if (existing.origin !== 'IA' && existing.user && !IMPORT_OWNERS.has(existing.user.discordId)) {
+    if (existing.user && existing.user.discordId && !IMPORT_OWNERS.has(existing.user.discordId)) {
       const { enqueueQuotaAward } = require('../lib/quota');
       enqueueQuotaAward({
         refType: 'case', refId: existing.id,
-        discordId: existing.user.discordId, robloxUsername: existing.user.robloxUsername,
+        discordId: existing.user.discordId,
+        // Fall back to the investigator's Roblox name (IA-origin cases often have
+        // no Roblox link on the resolved owner shell) so the sheet can still match.
+        robloxUsername: existing.user.robloxUsername || existing.investigatorRobloxUsername || null,
         points: 4, label: `case ${existing.caseRef}`,
       }).catch(() => {});
     }
