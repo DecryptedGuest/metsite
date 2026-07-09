@@ -1396,12 +1396,45 @@ async function loadAdminStats() {
   } catch {}
 }
 
+// The MET umbrella group's rank ladder (for the MET-rank override dropdown),
+// fetched once and cached for the session.
+let _metRolesCache = null;
+async function metRolesOnce() {
+  if (_metRolesCache) return _metRolesCache;
+  try { _metRolesCache = await api('/api/admin/met-roles'); } catch (e) { _metRolesCache = []; }
+  return _metRolesCache || [];
+}
+// A per-user MET-rank <select>: "— none —" plus every MET rank (highest first).
+// The selected option is the user's current site-only override, if any.
+function metRankSelect(u, metRoles) {
+  const cur = u.metRankOverride && Number(u.metRankOverride.rank);
+  const opts = ['<option value="">— MET rank —</option>'].concat(
+    (metRoles || []).map(r =>
+      `<option value="${r.rank}" ${cur === Number(r.rank) ? 'selected' : ''}>${escapeHtml(r.name)}</option>`));
+  return `<select class="role-select" title="Site-only MET rank override" onchange="changeUserMetRank('${u.id}',this.value)">${opts.join('')}</select>`;
+}
+// Apply / clear a user's MET-rank override. Deputy Commissioner+ becomes MET
+// HICOMM site-wide; the exact rank is shown as their divisional rank.
+async function changeUserMetRank(userId, rankVal) {
+  try {
+    let body;
+    if (!rankVal) body = { clear: true };
+    else {
+      const role = (_metRolesCache || []).find(r => String(r.rank) === String(rankVal));
+      if (!role) return;
+      body = { name: role.name, rank: role.rank };
+    }
+    await api(`/api/admin/users/${userId}/met-rank`, { method: 'PATCH', body: JSON.stringify(body) });
+    showToast(rankVal ? 'MET rank set (applies on their next request)' : 'MET rank override cleared', 'success');
+  } catch (e) { showToast(e.message || 'Failed to set MET rank', 'error'); }
+}
+
 async function loadAdminUsers() {
   const tbody = document.getElementById('admin-users-tbody');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="10" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const users = await api('/api/admin/users');
+    const [users, metRoles] = await Promise.all([api('/api/admin/users'), metRolesOnce()]);
     if (!users?.length) { tbody.innerHTML = emptyRow(10, 'No users found.'); return; }
     const roleOptions = r => ['NONE','IA','SUPERVISOR','HICOMM','DEVELOPER'].map(v =>
       `<option value="${v}" ${r === v ? 'selected' : ''}>${v}</option>`).join('');
@@ -1424,7 +1457,10 @@ async function loadAdminUsers() {
                </div>`
             : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>'}</td>
         <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
-        <td><select class="role-select" onchange="changeUserRole('${u.id}',this.value)">${roleOptions(u.role)}</select></td>
+        <td><div style="display:flex;flex-direction:column;gap:4px;min-width:150px;">
+          <select class="role-select" onchange="changeUserRole('${u.id}',this.value)">${roleOptions(u.role)}</select>
+          ${metRankSelect(u, metRoles)}
+        </div></td>
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
         <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>
         <td>${u.notifyEnabled && u.hasPush

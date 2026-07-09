@@ -60,7 +60,7 @@ router.get('/users', async (req, res) => {
         isBlacklisted: true, blacklistReason: true,
         lastIp: true, robloxId: true, robloxUsername: true,
         createdAt: true, lastLogin: true,
-        notifyEnabled: true,
+        notifyEnabled: true, metRankOverride: true,
         _count: { select: { cases: true, pushSubscriptions: true } },
       },
     });
@@ -103,6 +103,56 @@ router.patch('/users/:id/role', async (req, res) => {
     res.json({ success: true, role: user.role });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// ── GET /api/admin/met-roles ────────────────────────────────
+// The live MET umbrella group's rank ladder (from the Roblox roles API), newest
+// rank first — populates the dev panel's MET-rank dropdown. Cached in roblox.js.
+router.get('/met-roles', async (req, res) => {
+  try {
+    const { getGroupRolesPublic } = require('../lib/roblox');
+    const { metGroupId } = require('../lib/divisions');
+    const roles = await getGroupRolesPublic(metGroupId());
+    const out = (roles || [])
+      .filter(r => Number(r.rank) > 0 && Number(r.rank) < 255) // skip Guest(0)/Owner(255)
+      .sort((a, b) => Number(b.rank) - Number(a.rank));
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load MET roles' });
+  }
+});
+
+// ── PATCH /api/admin/users/:id/met-rank ─────────────────────
+// Set (or clear) a SITE-ONLY MET rank override for a user. Body:
+//   { name, rank }  — set the override to this MET rank
+//   { clear: true } — remove the override
+// Never touches the Roblox group. Takes effect on the user's next revalidation
+// (≤1 min on a gated route, or immediately on their next login).
+router.patch('/users/:id/met-rank', async (req, res) => {
+  try {
+    const body = req.body || {};
+    let metRankOverride = null;
+    if (!body.clear) {
+      const rank = parseInt(body.rank, 10);
+      const name = (body.name || '').toString().trim().slice(0, 80);
+      if (!Number.isFinite(rank) || rank < 1 || rank > 255 || !name) {
+        return res.status(400).json({ error: 'Provide a valid MET rank (name + rank), or clear:true.' });
+      }
+      metRankOverride = { name, rank };
+    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data:  { metRankOverride, lastRoleCheck: null }, // force a re-derive on next access
+    });
+    audit.log(req.user, { category: 'ACCESS', action: 'MET_RANK_OVERRIDE',
+      target: { type: 'user', id: req.params.id, name: user.displayName || user.discordUsername },
+      summary: metRankOverride
+        ? `MET rank override set to ${metRankOverride.name} (rank ${metRankOverride.rank}) for ${user.displayName || user.discordUsername}`
+        : `MET rank override cleared for ${user.displayName || user.discordUsername}` });
+    res.json({ success: true, metRankOverride });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to set MET rank' });
   }
 });
 

@@ -147,18 +147,47 @@ function iaTierFromSiteRole(siteRole) {
   return null;
 }
 
+// Build the "MET High Command" division set — LEAD in every division plus MET,
+// shown as the given MET rank. Their effective site role is upgraded to HICOMM
+// (see effectiveSiteRole) so IA audit/quota tools treat them as divisional HICOMM.
+function buildMetHicommLead(name, rank) {
+  const lead = ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: 'MET HICOMM', rank, metRankName: name, metHicomm: true }));
+  lead.push({ division: 'MET', tier: 'LEAD', rankName: 'MET HICOMM', rank, metRankName: name, metHicomm: true });
+  return lead;
+}
+
+// A developer-set MET rank override that meets the HICOMM threshold → the MET
+// High Command division set; otherwise null (fall through to normal resolution).
+async function metHicommLeadFromOverride(metRankOverride) {
+  if (!metRankOverride || !Number.isFinite(Number(metRankOverride.rank))) return null;
+  try {
+    const { hicommMinRank } = require('./metRank');
+    const min = await hicommMinRank();
+    if (min != null && Number(metRankOverride.rank) >= min) {
+      return buildMetHicommLead(metRankOverride.name || 'MET HICOMM', Number(metRankOverride.rank));
+    }
+  } catch (e) { /* threshold discovery failed → no override this pass */ }
+  return null;
+}
+
 // Resolve every division the user can access, with their tier + Roblox rank.
 // Returns [{ division, tier, rankName, rank }] where tier is 'LEAD' | 'MEMBER'.
 //   - IA: from the site role (no Roblox group query — unchanged behaviour).
 //   - CID/SCO19/FLP/HPC: from each division's Roblox group rank.
 // A developer (by id or DEVELOPER site role) gets LEAD in every division.
-async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null }) {
+async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null, metRankOverride = null }) {
   const { resolveGroupDivisions } = require('./divisions');
 
   const isDeveloper = discordId === getDeveloperDiscordId() || siteRole === 'DEVELOPER';
   if (isDeveloper) {
     return ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: 'Developer', rank: null }));
   }
+
+  // Developer-set MET-rank override (site-only). When it meets the MET HICOMM
+  // threshold it grants LEAD access to every division site-wide — shown as their
+  // overridden MET rank — WITHOUT any Roblox lookup. Checked first so it wins.
+  const metOverrideLead = await metHicommLeadFromOverride(metRankOverride);
+  if (metOverrideLead) return metOverrideLead;
 
   const divisions = [];
 
@@ -201,15 +230,7 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
     try {
       const { metHicommRoleByRoblox } = require('./metRank');
       const hc = await metHicommRoleByRoblox(rId);
-      if (hc) {
-        // MET High Command → LEAD (divisional-HICOMM level) access to EVERY
-        // division, shown as "MET HICOMM". Their effective site role is upgraded
-        // to HICOMM (see effectiveSiteRole) so the IA audit/quota tools treat
-        // them as divisional HICOMM too.
-        const lead = ALL_DIVISIONS.map(division => ({ division, tier: 'LEAD', rankName: 'MET HICOMM', rank: hc.rank, metRankName: hc.name, metHicomm: true }));
-        lead.push({ division: 'MET', tier: 'LEAD', rankName: 'MET HICOMM', rank: hc.rank, metRankName: hc.name, metHicomm: true });
-        return lead;
-      }
+      if (hc) return buildMetHicommLead(hc.name, hc.rank);
     } catch (e) { /* MET lookup failed → normal divisions only this pass */ }
   }
 

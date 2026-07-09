@@ -50,6 +50,11 @@ model User {
   // things gated on a specific Discord role (e.g. the HPC final-exam role).
   metRoleIds Json?
 
+  // Developer-set, SITE-ONLY MET rank override: { name, rank }. When present it
+  // is used as the user's MET rank site-wide (label + MET-HICOMM standing)
+  // WITHOUT touching the Roblox group. Cleared by setting it null.
+  metRankOverride Json?
+
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
   tryoutLogs         TryoutLog[]

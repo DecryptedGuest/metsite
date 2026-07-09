@@ -36,6 +36,7 @@ async function revalidateUser(user, getMemberRecord) {
       discordId: user.discordId,
       siteRole:  newRole || user.role,
       robloxId:  user.robloxId || null,
+      metRankOverride: user.metRankOverride || null,
     });
   } catch (e) {
     divisions = Array.isArray(user.divisions) ? user.divisions : [];

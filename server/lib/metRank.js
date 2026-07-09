@@ -56,6 +56,11 @@ async function userIsMetHicomm(user) {
   if (user.role === 'DEVELOPER') return true;
   const rid = process.env.METHICOMM_ROLE_ID;
   if (rid && Array.isArray(user.metRoleIds) && user.metRoleIds.includes(rid)) return true;
+  // Developer-set, site-only MET rank override that meets the HICOMM threshold.
+  if (user.metRankOverride && Number.isFinite(Number(user.metRankOverride.rank))) {
+    const min = await hicommMinRank();
+    if (min != null && Number(user.metRankOverride.rank) >= min) return true;
+  }
   const role = await metRole(user.robloxId);
   if (!role) return false;
   const min = await hicommMinRank();

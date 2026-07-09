@@ -24,7 +24,7 @@ const DAY_FULL  = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 // MET use FLP_/MET_ prefixed vars. Everything a sheet-touching function needs
 // (sheet id, tab, timezone, webhook, results webhook, rank→target resolver) is
 // resolved through quotaConfig(division), which defaults to 'IA'.
-const DIVISION_PREFIX = { IA: '', FLP: 'FLP_', MET: 'MET_' };
+const DIVISION_PREFIX = { IA: '', FLP: 'FLP_', MET: 'MET_', SCO19: 'SCO19_', CID: 'CID_' };
 
 // Build a rank→{exempt,target,tier} resolver for FLP/MET from env:
 //   <PREFIX>QUOTA_TARGETS = JSON array of { match:"<regex>", target:<int|null>,
@@ -72,9 +72,11 @@ function quotaConfig(division) {
   const tz = process.env[`${prefix}QUOTA_TIMEZONE`] || process.env.QUOTA_TIMEZONE || 'Europe/London';
 
   let sheetId;
-  if (div === 'FLP')      sheetId = process.env.FLP_SHEET_ID || '';
-  else if (div === 'MET') sheetId = process.env.MET_SHEET_ID || '';
-  else                    sheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID; // IA (+ fallback)
+  if (div === 'FLP')        sheetId = process.env.FLP_SHEET_ID || '';
+  else if (div === 'MET')   sheetId = process.env.MET_SHEET_ID || '';
+  else if (div === 'SCO19') sheetId = process.env.SCO19_SHEET_ID || '';
+  else if (div === 'CID')   sheetId = process.env.CID_SHEET_ID || '';
+  else                      sheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID; // IA (+ fallback)
 
   const resultsWebhookUrl = div === 'IA'
     ? (process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || '')
