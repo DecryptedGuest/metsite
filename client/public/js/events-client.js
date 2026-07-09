@@ -12,22 +12,33 @@
   function call(fn) { try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {} }
 
   // ── Alert chime (WebAudio, no asset) — a loud, urgent rising alarm ────
-  var _actx = null;
+  var _actx = null, _primed = false;
   function ensureAudio() {
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       if (!_actx) _actx = new AC();
       if (_actx.state === 'suspended') _actx.resume().catch(function () {});
+      // Prime with a one-sample silent buffer on the first gesture so the context
+      // stays unlocked (esp. iOS/Safari) for later background chimes.
+      if (!_primed && _actx.state === 'running') {
+        try {
+          var b = _actx.createBuffer(1, 1, 22050), s = _actx.createBufferSource();
+          s.buffer = b; s.connect(_actx.destination); s.start(0); _primed = true;
+        } catch (e) {}
+      }
       return _actx;
     } catch (e) { return null; }
   }
   // Unlock the audio context on the first user gesture, so the alert can still
   // sound later even when this tab is in the background (browsers only allow
-  // audio once the context has been resumed under a user gesture).
-  ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
+  // audio once the context has been resumed under a user gesture). We listen to
+  // a broad set of gestures and re-arm when the tab regains focus, so once the
+  // investigator has interacted with the dashboard at all, alerts always chime.
+  ['pointerdown', 'mousedown', 'click', 'keydown', 'touchstart'].forEach(function (ev) {
     window.addEventListener(ev, ensureAudio, { passive: true });
   });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) ensureAudio(); });
   function chime() {
     var ctx = ensureAudio(); if (!ctx) return;
     var now = ctx.currentTime;

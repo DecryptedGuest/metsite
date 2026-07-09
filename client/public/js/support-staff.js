@@ -41,7 +41,7 @@
     return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
   }
 
-  // ── Queue ──────────────────────────────────────────────────────────
+  // ── Queue ───────────────────────────────────────────────────────────
   window.loadSupportTickets = async function () {
     if (!SDC) {
       try { SDC = await api('/api/support/config'); } catch (e) { SDC = { handleableTypes: [], isHicomm: false, priorities: ['LOW', 'NORMAL', 'HIGH', 'URGENT'], me: {} }; }
@@ -105,7 +105,7 @@
     </tr>`;
   }
 
-  // ── Ticket workspace ──────────────────────────────────────────────
+  // ── Ticket workspace ────────────────────────────────────────────────
   window.sdOpen = async function (id) {
     // Make the Support Desk tab the active page behind the workspace, so "Go to
     // ticket" / "Claim ticket" from the alert always land on the desk (not
@@ -199,8 +199,8 @@
     renderLog(t);
     // Prepend the IA-only appeal card above the conversation (staff-only data).
     if (t.appeal) { const log = $('sd-log'); if (log) log.insertAdjacentHTML('afterbegin', appealCardHtml(t.appeal)); }
-    // Investigator card at the very top when the ticket is claimed.
-    if (t.claimant) { const log = $('sd-log'); if (log) log.insertAdjacentHTML('afterbegin', claimantCardHtml(t.claimant)); }
+    // The investigator (claimant) card renders inline at the "claimed" message
+    // (see sdTransitionPanel), matching the member view — no separate top card.
     const composer = $('sd-composer');
     if (composer) composer.style.display = (t.caps && (t.caps.canReply || t.caps.canInternalNote)) ? '' : 'none';
   }
@@ -248,7 +248,24 @@
     const click = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
     return `<div class="sup-av"${click}>${inner}</div>`;
   }
+  // A system/transition bot line (claimed / transferred / released) rendered as
+  // its card — mirrors the member view so a claimed ticket shows the investigator
+  // card inline instead of a plain "has claimed this ticket" line.
+  function sysCardSd(logo, title, sub) {
+    const media = logo ? `<img src="${esc(logo)}" style="width:34px;height:34px;border-radius:8px;object-fit:cover;" alt="">` : `<i class="ti ti-arrow-back-up" style="font-size:22px;color:var(--blue);"></i>`;
+    return `<div class="sup-sys">${media}<div><div style="font-weight:700;font-size:13px;">${esc(title)}</div>${sub ? `<div style="font-size:11px;color:var(--text-muted);">${esc(sub)}</div>` : ''}</div></div>`;
+  }
+  function sdTransitionPanel(m) {
+    if ((m.authorKind || '').toLowerCase() !== 'bot') return null;
+    const b = m.body || '';
+    if (/claimed this ticket/i.test(b)) return (curT && curT.claimant) ? claimantCardHtml(curT.claimant) : sysCardSd('/img/divisions/ia.png', 'Claimed by Internal Affairs', b);
+    if (/will be with you shortly/i.test(b)) return sysCardSd('/img/divisions/ia.png', 'Transferred to Internal Affairs', b);
+    if (/released this ticket/i.test(b)) return sysCardSd(null, 'Back in the queue', b);
+    return null;
+  }
   function msgHtml(m) {
+    const panel = sdTransitionPanel(m);
+    if (panel) return `<div class="sup-msg-sys"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>${panel}</div>`;
     const kind = (m.authorKind || 'staff').toLowerCase();
     const internal = kind === 'internal';
     const atts = (m.attachments || []).map(a => a.kind === 'video'
@@ -284,7 +301,7 @@
     const l = $('sd-log'); l.scrollTop = l.scrollHeight;
   }
 
-  // ── Actions ─────────────────────────────────────────────────────
+  // ── Actions ─────────────────────────────────────────────────────────
   async function reloadTicket() { try { const t = await api('/api/support/tickets/' + curT.id); curT = t; renderWorkspace(t); } catch (e) {} }
   window.sdAct = async function (action) {
     const map = { claim: 'claim', release: 'release', deescalate: 'escalate' };
@@ -468,7 +485,7 @@
     } catch (e) { $('sd-canned-body').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   };
 
-  // ── Composer + uploads ─────────────────────────────────────────────
+  // ── Composer + uploads ──────────────────────────────────────────────
   function wireComposer() {
     $('sd-attach').addEventListener('click', () => $('sd-file').click());
     $('sd-file').addEventListener('change', onPick);
@@ -509,7 +526,7 @@
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  // ── Realtime (SSE + polling fallback) ───────────────────────────────────
+  // ── Realtime (SSE + polling fallback) ────────────────────────────────
   let sdPoll = null;
   function openStream(id) {
     closeStream();
