@@ -64,24 +64,39 @@ function serverErr(res, e) {
   return res.redirect('/login?error=server_error&detail=' + detail);
 }
 
-// ── GET /auth/discord ─────────────────────────────────────────────
+// ── GET /auth/discord ──────────────────────────────────────
 router.get('/discord', (req, res) => {
+  // CSRF-protect the login: a random `state` echoed back by Discord and
+  // verified against a signed, short-lived httpOnly cookie in the callback.
+  // Without it, an attacker's captured `code` can be replayed to sign a victim
+  // into the ATTACKER's account (OAuth login CSRF). Mirrors the Roblox flow.
+  const state = b64url(crypto.randomBytes(16));
+  const stateToken = jwt.sign({ state }, process.env.JWT_SECRET, { expiresIn: '10m' });
+  res.cookie('discord_oauth', stateToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 10 * 60 * 1000 });
   const params = new URLSearchParams({
     client_id:     process.env.DISCORD_CLIENT_ID,
     redirect_uri:  buildRedirectUri(req),
     response_type: 'code',
     scope:         'identify guilds.members.read',
+    state,
   });
   res.redirect(`https://discord.com/oauth2/authorize?${params}`);
 });
 
-// ── GET /auth/discord/callback ────────────────────────────────────
+// ── GET /auth/discord/callback ───────────────────────────────
 router.get('/discord/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   if (error || !code) return res.redirect('/login?error=oauth_cancelled');
+  // Verify the CSRF state against the signed cookie before doing anything with
+  // the code (single-use: clear the cookie regardless of outcome).
+  let savedState;
+  try { savedState = jwt.verify(req.cookies?.discord_oauth || '', process.env.JWT_SECRET); }
+  catch (e) { res.clearCookie('discord_oauth'); return res.redirect('/login?error=oauth_state'); }
+  res.clearCookie('discord_oauth');
+  if (!savedState || !state || savedState.state !== state) return res.redirect('/login?error=oauth_state');
 
   try {
-    // ── Step 1: Exchange code for access token ────────────────────
+    // ── Step 1: Exchange code for access token ─────────────────
     console.log('[Auth] Exchanging code for token...');
     const tokenRes = await fetch(`${DISCORD_API}/oauth2/token`, {
       method:  'POST',
@@ -104,7 +119,7 @@ router.get('/discord/callback', async (req, res) => {
 
     const authHeader = `${tokenData.token_type} ${tokenData.access_token}`;
 
-    // ── Step 2: Fetch Discord identity ────────────────────────────
+    // ── Step 2: Fetch Discord identity ───────────────────────
     console.log('[Auth] Fetching Discord user...');
     const userRes     = await fetch(`${DISCORD_API}/users/@me`, {
       headers: { Authorization: authHeader },
@@ -157,7 +172,7 @@ router.get('/discord/callback', async (req, res) => {
       if (!isDeveloper && !grant) return res.redirect('/denied?reason=not_in_server');
     }
 
-    // ── Step 4: Determine system role ────────────────────────────
+    // ── Step 4: Determine system role ───────────────────────
     let systemRole;
     if (isDeveloper) {
       systemRole = 'DEVELOPER';
@@ -212,13 +227,13 @@ router.get('/discord/callback', async (req, res) => {
     }
     console.log('[Auth] System role assigned:', systemRole || '(none — division-only access)');
 
-    // ── Login lockdown: developers only ──────────────────────────
+    // ── Login lockdown: developers only ───────────────────────
     if (!isDeveloper && siteConfig.isOn('loginLockdown')) {
       console.log('[Auth] Login blocked by lockdown for non-developer.');
       return res.redirect('/denied?reason=lockdown');
     }
 
-    // ── Step 5: Upsert user in database ──────────────────────────
+    // ── Step 5: Upsert user in database ───────────────────────
     const avatarUrl = discordUser.avatar
       ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
       : null;
@@ -412,7 +427,7 @@ async function createSession(req, res, user) {
   return session;
 }
 
-// ── POST /auth/logout ─────────────────────────────────────────────
+// ── POST /auth/logout ──────────────────────────────────────
 router.post('/logout', async (req, res) => {
   // Revoke the server-side session so the token can never be replayed, even if
   // it was copied elsewhere. Best-effort — always clear the cookie regardless.
@@ -432,13 +447,13 @@ router.post('/logout', async (req, res) => {
   res.redirect('/login');
 });
 
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 // Sign in with Roblox (Roblox OAuth 2.0 / OIDC). Resolves the user's Discord
 // automatically — first from a stored account (robloxId already on file → NO
 // RoVer call), else via RoVer's roblox-to-discord reverse lookup. Roblox's own
 // OAuth is not RoVer, so we read its userinfo freely; the RoVer reverse lookup
 // (the rate-limited bit) is skipped whenever we already know the account.
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 const crypto = require('crypto');
 const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function robloxRedirectUri(req) {

@@ -34,7 +34,7 @@ async function resolveToRobloxUsername(input) {
   return input.trim();
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────
 async function nextTicketRef() {
   const counter = await prisma.ticketCounter.upsert({
     where:  { id: 1 },
@@ -44,7 +44,7 @@ async function nextTicketRef() {
   return `TKT-${String(counter.count).padStart(4, '0')}`;
 }
 
-// ── GET /api/tickets/my-roblox ────────────────────────────────────
+// ── GET /api/tickets/my-roblox ─────────────────────────────────
 // Returns the logged-in user's Roblox username via RoVer.
 router.get('/my-roblox', async (req, res) => {
   try {
@@ -59,7 +59,7 @@ router.get('/my-roblox', async (req, res) => {
   }
 });
 
-// ── POST /api/tickets/import-transcript ───────────────────────────
+// ── POST /api/tickets/import-transcript ─────────────────────────
 // Autofill a ticket from a Tickety "View Transcript" link. Scans the recent
 // closed-ticket logs, matches the transcript URL, and returns the fields to
 // prefill the form: Roblox username (resolved from the creator), ticket type
@@ -116,7 +116,7 @@ router.post('/import-transcript', async (req, res) => {
   }
 });
 
-// ── POST /api/tickets ─────────────────────────────────────────────
+// ── POST /api/tickets ──────────────────────────────────────
 // Submit a new ticket.
 router.post('/', async (req, res) => {
   const { robloxUsername, ticketType, submittedAt, timezone, conclusion, proofImages, transcriptLink } = req.body;
@@ -161,7 +161,7 @@ router.post('/', async (req, res) => {
       ticketType,
       title: `New Ticket — ${ticketRef}`,
       body:  `${resolvedRoblox} · ${typeLabels[ticketType] || ticketType}`,
-      url:   `/dashboard?page=ticket-review&ticket=${ticket.id}`,
+      url:   `/ia/dashboard?page=ticket-review&ticket=${ticket.id}`,
     });
 
     res.status(201).json(ticket);
@@ -171,7 +171,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ── GET /api/tickets/stats ────────────────────────────────────────
+// ── GET /api/tickets/stats ───────────────────────────────────
 // `pending` etc. are scoped to the user's OWN tickets (My Tickets badge).
 // `pendingAll` is every pending ticket (the HICOMM "Pending Tickets" review badge).
 router.get('/stats', async (req, res) => {
@@ -192,7 +192,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// ── GET /api/tickets ──────────────────────────────────────────────
+// ── GET /api/tickets ───────────────────────────────────────
 // "My Tickets" — always only the current user's own tickets (any role).
 router.get('/', async (req, res) => {
   try {
@@ -220,7 +220,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ── GET /api/tickets/all ──────────────────────────────────────────
+// ── GET /api/tickets/all ───────────────────────────────────
 // Every ticket — readable by any authenticated user (IA + HICOMM).
 // HICOMM-only actions (approve/deny) remain gated on their own endpoints.
 router.get('/all', async (req, res) => {
@@ -248,7 +248,7 @@ router.get('/all', async (req, res) => {
   }
 });
 
-// ── GET /api/tickets/:id ──────────────────────────────────────────
+// ── GET /api/tickets/:id ───────────────────────────────────
 // Get a single ticket with full proof images.
 router.get('/:id', async (req, res) => {
   try {
@@ -302,12 +302,16 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ── PATCH /api/tickets/:id/approve ────────────────────────────────
+// ── PATCH /api/tickets/:id/approve ────────────────────────────
 router.patch('/:id/approve', requireHICOMM, async (req, res) => {
   try {
     const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
     if (!existing)                     return res.status(404).json({ error: 'Ticket not found.' });
     if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Ticket is not pending.' });
+    // You can't review (and self-award quota for) your own ticket. Developers
+    // are exempt so they can test the review flow end-to-end.
+    if (existing.userId === req.user.id && req.user.role !== 'DEVELOPER')
+      return res.status(403).json({ error: 'You cannot review your own ticket.' });
     // IA Complaints (HICOMM tickets) are a High Command matter — Supervisors
     // (and IA, already blocked by requireHICOMM) cannot action them.
     if (existing.ticketType === 'HICOMM' && req.user.role === 'SUPERVISOR')
@@ -365,12 +369,14 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
   }
 });
 
-// ── PATCH /api/tickets/:id/deny ───────────────────────────────────
+// ── PATCH /api/tickets/:id/deny ──────────────────────────────
 router.patch('/:id/deny', requireHICOMM, async (req, res) => {
   try {
     const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
     if (!existing)                     return res.status(404).json({ error: 'Ticket not found.' });
     if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Ticket is not pending.' });
+    if (existing.userId === req.user.id && req.user.role !== 'DEVELOPER')
+      return res.status(403).json({ error: 'You cannot review your own ticket.' });
     if (existing.ticketType === 'HICOMM' && req.user.role === 'SUPERVISOR')
       return res.status(403).json({ error: 'Only HICOMM can action IA Complaint (HICOMM) tickets.' });
 
