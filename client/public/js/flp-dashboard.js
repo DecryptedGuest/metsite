@@ -100,14 +100,16 @@ async function flpVoidAllPending(type) {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-// ── Patrol logs ──────────────────────────────────────────────────────
+// ── Patrol logs ─────────────────────────────────────────────
 let patrolFilter = 'ALL';
 
 async function loadPatrolBadge() {
   try {
     const rows = await api('/api/flp/patrols?status=PENDING');
     const b = document.getElementById('flp-patrol-badge');
-    if (b && rows.length) { b.textContent = rows.length; b.style.display = ''; }
+    // Always sync the badge — including clearing it to 0 once the queue empties
+    // (previously it only ever set a non-zero count, so a stale '1' lingered).
+    if (b) { b.textContent = rows.length; b.style.display = rows.length ? '' : 'none'; }
   } catch (e) { /* non-fatal */ }
 }
 
@@ -286,7 +288,7 @@ async function loadEventBadge() {
   try {
     const rows = await api('/api/flp/patrols?type=EVENT&status=PENDING');
     const b = document.getElementById('flp-event-badge');
-    if (b && rows.length) { b.textContent = rows.length; b.style.display = ''; }
+    if (b) { b.textContent = rows.length; b.style.display = rows.length ? '' : 'none'; }
   } catch (e) { /* non-fatal */ }
 }
 
@@ -317,7 +319,7 @@ async function reviewEvent(id, action) {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-// ── Group panel ──────────────────────────────────────────────────────
+// ── Group panel ─────────────────────────────────────────────
 async function loadFlpGroup() {
   try { flpRoles = await api('/api/flp/group/roles'); } catch (e) { flpRoles = []; }
   await Promise.all([loadFlpPending(), loadFlpMembers()]);
