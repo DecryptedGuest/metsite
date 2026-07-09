@@ -397,9 +397,14 @@ router.get('/tryout/scheduled', requireGameSecret, async (req, res) => {
     const eventType = divisionConfig(div).eventType;
     const rows = await prisma.tryout.findMany({
       where: {
-        status: { in: ['SCHEDULED', 'LIVE'] },
         division: div,
-        scheduledAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }, // ignore very old rows
+        // Show every LIVE tryout; only prune STALE scheduled rows by age. The
+        // old flat 6h cutoff also hid long-running LIVE tryouts (>6h) from the
+        // in-game board even though they were still live.
+        OR: [
+          { status: 'LIVE' },
+          { status: 'SCHEDULED', scheduledAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } },
+        ],
       },
       orderBy: { scheduledAt: 'asc' }, take: 50,
     });
@@ -551,7 +556,7 @@ router.post('/tryout/cancel', requireGameSecret, async (req, res) => {
   }
 });
 
-// ── Site → game live commands ─────────────────────────────────────────
+// ── Site → game live commands ──────────────────────────────────
 // The in-game panel polls this for management actions the host/co-host issued
 // from the site (strike/pass/fail/kick), applies each, then acks by id.
 // GET /api/game/tryout/commands?tryoutId=...
@@ -621,9 +626,9 @@ router.post('/log', requireGameSecret, async (req, res) => {
     const rows = events.slice(0, 200).map(ev => {
       const n = normaliseGameLog(ev);
       // Keep the raw payload for audit, but strip the shared secret if echoed back.
-      const raw = { ...ev }; delete raw.secret;
+      const raw = { ...ev }; delete raw.secret; delete raw.signature;
       return { ...n, raw };
-    }).filter(r => r.actor || r.target || r.message || r.action);
+    }).filter(r => r.actor || r.actorId || r.target || r.targetId || r.message || r.action);
     if (!rows.length) return res.json({ ok: true, stored: 0 });
     const r = await prisma.gameLog.createMany({ data: rows });
     res.json({ ok: true, stored: r.count });

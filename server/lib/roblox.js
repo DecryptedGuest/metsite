@@ -381,7 +381,7 @@ async function getRobloxAvatarHeadshot(robloxUserId) {
  * Returns the membership object { group, role } or null if not in group.
  */
 async function getGroupMembership(robloxUserId) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+  const groupId = mainGroupId();
   if (!groupId) return null;
 
   try {
@@ -458,6 +458,16 @@ function robloxCookie() {
   return process.env.ROBLOX_COOKIE || null;
 }
 
+// The MET umbrella group id used for the default group operations (exile,
+// demote, membership, role list, nickname sync). Historically only
+// ROBLOX_GROUP_ID was read, but the deployed config puts the real MET group id
+// in GROUP_MET (ROBLOX_GROUP_ID ships empty), which silently disabled every
+// main-group action. Fall back GROUP_MET → the known MET group id so those work
+// out of the box. Matches divisions.metGroupId().
+function mainGroupId() {
+  return process.env.ROBLOX_GROUP_ID || process.env.GROUP_MET || '17275620';
+}
+
 // The cookie to manage a given division's group. CID uses its own bot account
 // (CID_ROBLOX_BOT_COOKIE) when set; everything else uses the default ROBLOX_COOKIE.
 function cookieForDivision(division) {
@@ -512,7 +522,7 @@ async function initCsrfReal() {
  * DELETE /groups/{groupId}/users/{userId}. Returns true/false.
  */
 async function exileFromGroup(robloxUserId, gid, cookie) {
-  const groupId = gid || process.env.ROBLOX_GROUP_ID;
+  const groupId = gid || mainGroupId();
   const ck = cookie || robloxCookie();
   if (!groupId || !ck) {
     console.warn('Group exile skipped — ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
@@ -542,7 +552,7 @@ async function exileFromGroup(robloxUserId, gid, cookie) {
  * Returns array of { id, path, name, rank, memberCount }.
  */
 async function listGroupRoles(gid, cookie) {
-  const groupId = gid || process.env.ROBLOX_GROUP_ID;
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/roles`, { method: 'GET' }, true, cookie);
@@ -565,7 +575,7 @@ async function listGroupRoles(gid, cookie) {
  * Returns { members: [{ userId, username, displayName, roleId }], nextPageToken }.
  */
 async function listGroupMembers(pageToken = null, gid, cookie) {
-  const groupId = gid || process.env.ROBLOX_GROUP_ID;
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/users?limit=100&sortOrder=Asc`;
@@ -593,7 +603,7 @@ async function listGroupMembers(pageToken = null, gid, cookie) {
  * Returns { requests: [{ userId, username, displayName, requestedAt }], nextPageToken }.
  */
 async function listJoinRequests(pageToken = null, gid, cookie) {
-  const groupId = gid || process.env.ROBLOX_GROUP_ID;
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests?limit=100&sortOrder=Asc`;
@@ -619,7 +629,7 @@ async function listJoinRequests(pageToken = null, gid, cookie) {
  * action: 'approve' (POST) | 'decline' (DELETE)
  */
 async function resolveJoinRequest(robloxUserId, action, gid, cookie) {
-  const groupId = gid || process.env.ROBLOX_GROUP_ID;
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   const url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests/users/${robloxUserId}`;
@@ -635,7 +645,7 @@ async function resolveJoinRequest(robloxUserId, action, gid, cookie) {
  * PATCH /groups/{groupId}/users/{userId} with { roleId }.
  */
 async function changeGroupRank(robloxUserId, roleId, gid, cookie) {
-  const groupId = gid || process.env.ROBLOX_GROUP_ID;
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   // Accept either a numeric id or a full "groups/x/roles/y" path
@@ -704,4 +714,5 @@ module.exports = {
   resolveJoinRequest,
   changeGroupRank,
   cookieForDivision,
+  mainGroupId,
 };
