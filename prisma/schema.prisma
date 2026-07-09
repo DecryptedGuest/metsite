@@ -260,6 +260,7 @@ model QuotaAward {
   robloxUsername String?
   points         Int
   label          String?
+  division       String   @default("IA") // IA | FLP | MET — which sheet the worker writes to
   status         String   @default("PENDING") // PENDING | DONE | FAILED
   attempts       Int      @default(0)
   lastError      String?

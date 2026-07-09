@@ -1,9 +1,21 @@
 /**
- * IACMS Quota Webhook — Google Apps Script
- * =========================================
- * Adds quota points to the IA database sheet when a case (+4) or ticket (+2)
- * is approved. Because this script is bound to the sheet, it already has full
- * edit access — no service account, no API enabling, no sharing required.
+ * IACMS / MET Quota Webhook — Google Apps Script
+ * ==============================================
+ * Adds quota points to a division's database sheet when a case (+4) or ticket
+ * (+2) — or an event log (+1) — is approved. Because this script is bound to the
+ * sheet, it already has full edit access — no service account, no API enabling,
+ * no sharing required.
+ *
+ * ONE DEPLOYMENT PER SHEET/DIVISION. This file is PER-SHEET (bound). The server
+ * is division-aware and points at each division's own webhook via env:
+ *   IA  → QUOTA_WEBHOOK_URL / QUOTA_WEBHOOK_SECRET
+ *   FLP → FLP_QUOTA_WEBHOOK_URL / FLP_QUOTA_WEBHOOK_SECRET
+ *   MET → MET_QUOTA_WEBHOOK_URL / MET_QUOTA_WEBHOOK_SECRET
+ * Deploy a SEPARATE copy of this script bound to each division's sheet, each
+ * with its OWN unique SECRET below. SHEET_NAME and TIMEZONE may differ per
+ * division (e.g. IA uses the "Staff" tab; another division may use a different
+ * tab or leave it blank for the first tab). Do NOT hardcode a second sheet id
+ * here — the binding is what selects the sheet.
  *
  * SETUP (one time):
  *   1. Open your quota Google Sheet.

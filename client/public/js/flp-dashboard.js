@@ -23,6 +23,8 @@ function flpNavigate(pageId) {
   if (pageId === 'patrols') loadPatrols();
   if (pageId === 'events') loadEvents();
   if (pageId === 'analytics') loadFlpAnalytics();
+  if (pageId === 'quota-flp' && typeof flpQuotaLoad === 'function') flpQuotaLoad('FLP');
+  if (pageId === 'quota-met' && typeof flpQuotaLoad === 'function') flpQuotaLoad('MET');
 }
 
 // ── Overview (KPIs + activity trend) ──
@@ -83,6 +85,9 @@ async function initFlp() {
   try { flpCtx = await api('/api/flp/context'); } catch (e) { flpCtx = { canGroupAdmin: false }; }
   if (flpCtx.canGroupAdmin) {
     document.querySelectorAll('.group-admin-only').forEach(el => el.style.display = '');
+  }
+  if (flpCtx.canQuota) {
+    document.querySelectorAll('.quota-only').forEach(el => el.style.display = '');
   }
   if (flpCtx.isDev) document.querySelectorAll('.flp-dev-only').forEach(el => el.style.display = '');
   if (flpCtx.canReviewPatrols) { loadPatrolBadge(); loadEventBadge(); }

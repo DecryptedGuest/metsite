@@ -18,6 +18,81 @@ const DEFAULT_SHEET_ID = '18BbP-zYFZlsMQsPuGT9zFQHgwEK4aqv_NtFXjPV8eM0';
 const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAY_FULL  = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+// ── Division-aware config ─────────────────────────────────────────
+// The same sheet engine now serves three divisions. IA uses the original,
+// UNPREFIXED env names so its behaviour is byte-identical to before; FLP and
+// MET use FLP_/MET_ prefixed vars. Everything a sheet-touching function needs
+// (sheet id, tab, timezone, webhook, results webhook, rank→target resolver) is
+// resolved through quotaConfig(division), which defaults to 'IA'.
+const DIVISION_PREFIX = { IA: '', FLP: 'FLP_', MET: 'MET_' };
+
+// Build a rank→{exempt,target,tier} resolver for FLP/MET from env:
+//   <PREFIX>QUOTA_TARGETS = JSON array of { match:"<regex>", target:<int|null>,
+//                           tier:"<label>", exempt:<bool> } — evaluated in order,
+//                           first match (case-insensitive on the rank) wins.
+//   <PREFIX>QUOTA_TARGET  = flat int fallback applied to all non-exempt ranks
+//                           (tier label = <PREFIX>QUOTA_TIER or "Member").
+// "loa" is always exempt; any "director" rank is exempt (universal defaults).
+function envTargetsResolver(prefix) {
+  return function (rank) {
+    const r = (rank || '').toString().trim().toLowerCase();
+    if (!r) return { exempt: false, target: null, tier: null };
+    if (r === 'loa')        return { exempt: true, target: 0, tier: 'LOA' };
+    if (/director/.test(r)) return { exempt: true, target: 0, tier: 'High Command' };
+    const raw = process.env[`${prefix}QUOTA_TARGETS`];
+    if (raw) {
+      try {
+        const rules = JSON.parse(raw);
+        if (Array.isArray(rules)) {
+          for (const rule of rules) {
+            if (!rule || !rule.match) continue;
+            let re; try { re = new RegExp(rule.match, 'i'); } catch (e) { continue; }
+            if (re.test(r)) {
+              if (rule.exempt) return { exempt: true, target: 0, tier: rule.tier || 'Exempt' };
+              const t = rule.target != null ? parseInt(rule.target, 10) : null;
+              return { exempt: false, target: Number.isFinite(t) ? t : null, tier: rule.tier || null };
+            }
+          }
+        }
+      } catch (e) { console.warn(`[quota] ${prefix}QUOTA_TARGETS is not valid JSON — ignoring.`); }
+    }
+    const flat = process.env[`${prefix}QUOTA_TARGET`];
+    if (flat != null && flat !== '') {
+      const t = parseInt(flat, 10);
+      if (Number.isFinite(t)) return { exempt: false, target: t, tier: process.env[`${prefix}QUOTA_TIER`] || 'Member' };
+    }
+    return { exempt: false, target: null, tier: null };
+  };
+}
+
+// Resolve the full per-division config. division ∈ {'IA','FLP','MET'} (default IA).
+function quotaConfig(division) {
+  const div = (division || 'IA').toString().toUpperCase();
+  const prefix = DIVISION_PREFIX[div] != null ? DIVISION_PREFIX[div] : '';
+  const tz = process.env[`${prefix}QUOTA_TIMEZONE`] || process.env.QUOTA_TIMEZONE || 'Europe/London';
+
+  let sheetId;
+  if (div === 'FLP')      sheetId = process.env.FLP_SHEET_ID || '';
+  else if (div === 'MET') sheetId = process.env.MET_SHEET_ID || '';
+  else                    sheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID; // IA (+ fallback)
+
+  const resultsWebhookUrl = div === 'IA'
+    ? (process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || '')
+    : (process.env[`${prefix}QUOTA_RESULTS_WEBHOOK_URL`] || '');
+
+  return {
+    division:          div,
+    prefix,
+    sheetId,
+    sheetName:         process.env[`${prefix}QUOTA_SHEET_NAME`] || '',
+    timezone:          tz,
+    webhookUrl:        process.env[`${prefix}QUOTA_WEBHOOK_URL`] || '',
+    webhookSecret:     process.env[`${prefix}QUOTA_WEBHOOK_SECRET`] || '',
+    resultsWebhookUrl,
+    targets:           div === 'IA' ? quotaForRank : envTargetsResolver(prefix),
+  };
+}
+
 // Map a header cell to a day index (0=Sun). Accepts "mon", "monday", "mon." etc.
 function dayIndexFromHeader(v) {
   const di = DAY_NAMES.indexOf(v); if (di >= 0) return di;
@@ -118,12 +193,13 @@ function findMemberRow(rows, cols, discordId, robloxCandidates) {
  */
 // Primary path: POST to a Google Apps Script Web App bound to the sheet.
 // Configure with QUOTA_WEBHOOK_URL + QUOTA_WEBHOOK_SECRET (see scripts/quota-webhook.gs).
-async function addQuotaViaWebhook(member, points, label) {
-  const url = process.env.QUOTA_WEBHOOK_URL;
+async function addQuotaViaWebhook(member, points, label, division = 'IA') {
+  const cfg = quotaConfig(division);
+  const url = cfg.webhookUrl;
   if (!url) return null; // webhook not configured → let caller fall back
   try {
     const fetch = require('node-fetch');
-    const tz = process.env.QUOTA_TIMEZONE || 'Europe/London';
+    const tz = cfg.timezone;
     const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz })
       .format(new Date()).slice(0, 3).toLowerCase(); // "mon", "tue", …
     const res = await fetch(url, {
@@ -131,7 +207,7 @@ async function addQuotaViaWebhook(member, points, label) {
       headers: { 'Content-Type': 'application/json' },
       redirect: 'follow',
       body: JSON.stringify({
-        secret:           process.env.QUOTA_WEBHOOK_SECRET || '',
+        secret:           cfg.webhookSecret,
         discordId:        member.discordId || null,
         robloxUsername:   member.robloxUsername || null,
         robloxCandidates: member.robloxCandidates || [],  // try-all list for renamed users
@@ -196,27 +272,28 @@ async function resolveMember(member) {
 // silently vanish. Queuing guarantees each increment reads the value the
 // previous one just wrote.
 let _quotaChain = Promise.resolve();
-function addQuotaPoints(rawMember, points, label = '') {
-  const run = () => addQuotaPointsImpl(rawMember, points, label);
+function addQuotaPoints(rawMember, points, label = '', division = 'IA') {
+  const run = () => addQuotaPointsImpl(rawMember, points, label, division);
   const result = _quotaChain.then(run, run); // run regardless of prior outcome
   _quotaChain = result.catch(() => {});       // a failure must not break the chain
   return result;
 }
 
-async function addQuotaPointsImpl(rawMember, points, label = '') {
+async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA') {
   const member = await resolveMember(rawMember);
-  const viaWebhook = await addQuotaViaWebhook(member, points, label);
+  const viaWebhook = await addQuotaViaWebhook(member, points, label, division);
   if (viaWebhook !== null) return viaWebhook; // webhook configured (success or fail)
 
   try {
     const sheets = getSheetsClient();
     if (!sheets) return false; // not configured — silent no-op
 
-    const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
-    const tz   = process.env.QUOTA_TIMEZONE || 'Europe/London';
+    const cfg = quotaConfig(division);
+    const spreadsheetId = cfg.sheetId;
+    const tz   = cfg.timezone;
 
     // Resolve the sheet/tab name
-    let sheetName = process.env.QUOTA_SHEET_NAME;
+    let sheetName = cfg.sheetName;
     if (!sheetName) {
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
       sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
@@ -327,13 +404,14 @@ async function setInvestigatorOfWeek(discordId) {
  * Returns { found, rank, quota:{exempt,target,tier}, remaining, days, total }
  * or { found:false }. Requires the Google service account (read path).
  */
-async function getMemberPoints(member) {
+async function getMemberPoints(member, division = 'IA') {
   try {
     const sheets = getSheetsClient();
     if (!sheets) return null;
 
-    const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
-    let sheetName = process.env.QUOTA_SHEET_NAME;
+    const cfg = quotaConfig(division);
+    const spreadsheetId = cfg.sheetId;
+    let sheetName = cfg.sheetName;
     if (!sheetName) {
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
       sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
@@ -360,11 +438,14 @@ async function getMemberPoints(member) {
     }
 
     const rank  = cols.rank != null ? (rows[rowIdx][cols.rank] || '').toString().trim() : '';
-    let quota = quotaForRank(rank);
-    // Apply the quota-reduction role if this member holds it.
-    const did = cols.discordId != null ? (rows[rowIdx][cols.discordId] || '').toString().trim() : (member.discordId || '');
-    const holders = await getReductionHolders();
-    if (holdsReductionRole(holders, did)) quota = applyQuotaReduction(quota);
+    let quota = cfg.targets(rank);
+    // Apply the quota-reduction role if this member holds it (IA only — the
+    // Investigator-of-the-Week reduction is an IA feature).
+    if (cfg.division === 'IA') {
+      const did = cols.discordId != null ? (rows[rowIdx][cols.discordId] || '').toString().trim() : (member.discordId || '');
+      const holders = await getReductionHolders();
+      if (holdsReductionRole(holders, did)) quota = applyQuotaReduction(quota);
+    }
     const remaining = quota.exempt || quota.target == null
       ? 0
       : Math.max(0, quota.target - total);
@@ -389,13 +470,14 @@ const NON_MEMBER = new Set([
  * Returns an array of { username, discordId, rank, quota, total, days, met }
  * or null if the read path (service account) isn't configured.
  */
-async function getAllMembersPoints() {
+async function getAllMembersPoints(division = 'IA') {
   try {
     const sheets = getSheetsClient();
     if (!sheets) return null;
 
-    const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
-    let sheetName = process.env.QUOTA_SHEET_NAME;
+    const cfg = quotaConfig(division);
+    const spreadsheetId = cfg.sheetId;
+    let sheetName = cfg.sheetName;
     if (!sheetName) {
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
       sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
@@ -408,7 +490,8 @@ async function getAllMembersPoints() {
     const cols = findColumns(rows);
     if (cols.username == null && cols.rank == null) return [];
 
-    const reductionHolders = await getReductionHolders(); // null if unavailable
+    // Quota-reduction role is IA-only (Investigator of the Week).
+    const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null; // null if unavailable
 
     const labels  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const members = [];
@@ -428,8 +511,8 @@ async function getAllMembersPoints() {
         if (Number.isFinite(num)) total += num;
         days[labels[d]] = raw && isNaN(num) ? raw : (Number.isFinite(num) ? num : 0);
       }
-      let quota = quotaForRank(rank);
-      if (holdsReductionRole(reductionHolders, did)) quota = applyQuotaReduction(quota);
+      let quota = cfg.targets(rank);
+      if (cfg.division === 'IA' && holdsReductionRole(reductionHolders, did)) quota = applyQuotaReduction(quota);
       members.push({
         username: uname,
         discordId: did || null,
@@ -453,16 +536,17 @@ async function getAllMembersPoints() {
  * markers like "EX" and the (formula) TOTAL column untouched.
  * Returns { ok, cleared } or { ok:false, error }.
  */
-async function resetAllQuota() {
+async function resetAllQuota(division = 'IA') {
+  const cfg = quotaConfig(division);
   // 1) Webhook first (the path that actually works for points). Falls back to
   //    the service account only if the webhook isn't configured / errors.
-  const url = process.env.QUOTA_WEBHOOK_URL;
+  const url = cfg.webhookUrl;
   if (url) {
     try {
       const fetch = require('node-fetch');
       const res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
-        body: JSON.stringify({ secret: process.env.QUOTA_WEBHOOK_SECRET || '', action: 'reset' }),
+        body: JSON.stringify({ secret: cfg.webhookSecret, action: 'reset' }),
       });
       const d = await res.json().catch(() => ({}));
       if (d && d.ok) return { ok: true, cleared: d.cleared };
@@ -477,8 +561,8 @@ async function resetAllQuota() {
   const sheets = getSheetsClient();
   if (sheets) {
     try {
-      const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
-      let sheetName = process.env.QUOTA_SHEET_NAME;
+      const spreadsheetId = cfg.sheetId;
+      let sheetName = cfg.sheetName;
       if (!sheetName) {
         const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
         sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
@@ -527,19 +611,20 @@ async function resetAllQuota() {
 // which is the configured/working one) and falls back to the service account —
 // previously it was the other way round, which 502'd when only the webhook was
 // set up.
-async function setMemberMarker(username, marker) {
+async function setMemberMarker(username, marker, division = 'IA') {
   const target = (username || '').trim();
   if (!target) return { ok: false, error: 'No username.' };
   const mark = (marker || 'EX').toString();
+  const cfg = quotaConfig(division);
 
   // 1) Webhook (Apps Script)
-  const url = process.env.QUOTA_WEBHOOK_URL;
+  const url = cfg.webhookUrl;
   if (url) {
     try {
       const fetch = require('node-fetch');
       const res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
-        body: JSON.stringify({ secret: process.env.QUOTA_WEBHOOK_SECRET || '', action: 'exempt', marker: mark, username: target }),
+        body: JSON.stringify({ secret: cfg.webhookSecret, action: 'exempt', marker: mark, username: target }),
       });
       const d = await res.json().catch(() => ({}));
       if (d && d.ok) return { ok: true };
@@ -554,8 +639,8 @@ async function setMemberMarker(username, marker) {
   const sheets = getSheetsClient();
   if (sheets) {
     try {
-      const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
-      let sheetName = process.env.QUOTA_SHEET_NAME;
+      const spreadsheetId = cfg.sheetId;
+      let sheetName = cfg.sheetName;
       if (!sheetName) {
         const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
         sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
@@ -584,8 +669,8 @@ async function setMemberMarker(username, marker) {
   return { ok: false, error: 'Quota sheet is not configured.' };
 }
 
-function setMemberExempt(username) { return setMemberMarker(username, 'EX'); }
-function setMemberLOA(username)    { return setMemberMarker(username, 'LOA'); }
+function setMemberExempt(username, division = 'IA') { return setMemberMarker(username, 'EX', division); }
+function setMemberLOA(username, division = 'IA')    { return setMemberMarker(username, 'LOA', division); }
 
 // ── Durable award outbox ──────────────────────────────────────────
 // Every approved case/ticket records an award row; a worker retries it until
@@ -609,7 +694,7 @@ async function processQuotaAwards() {
       try {
         ok = await addQuotaPointsImpl(
           { discordId: a.discordId, robloxUsername: a.robloxUsername },
-          a.points, a.label || '',
+          a.points, a.label || '', a.division || 'IA',
         );
       } catch (e) { ok = false; err = e.message; }
 
@@ -638,7 +723,7 @@ async function processQuotaAwards() {
 
 // Record an award durably, then kick the processor. Idempotent per ref so a
 // re-approve (or retry) never double-awards.
-async function enqueueQuotaAward({ refType, refId, discordId, robloxUsername, points, label }) {
+async function enqueueQuotaAward({ refType, refId, discordId, robloxUsername, points, label, division }) {
   try {
     await prisma.quotaAward.upsert({
       where:  { refType_refId: { refType, refId } },
@@ -648,6 +733,7 @@ async function enqueueQuotaAward({ refType, refId, discordId, robloxUsername, po
         discordId:      discordId || null,
         robloxUsername: robloxUsername || null,
         points, label: label || null,
+        division:       division || 'IA',
       },
     });
   } catch (e) {
@@ -667,4 +753,6 @@ module.exports = {
   setInvestigatorOfWeek,
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts).
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
+  // Division-aware config resolver (IA | FLP | MET).
+  quotaConfig, quotaForRank,
 };

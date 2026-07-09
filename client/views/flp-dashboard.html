@@ -56,6 +56,9 @@
         <button class="nav-item" data-page="patrols"><i class="ti ti-clipboard-check nav-icon"></i><span>Patrol Logs</span><span class="nav-badge pending" id="flp-patrol-badge" style="display:none;"></span></button>
         <button class="nav-item" data-page="events"><i class="ti ti-calendar-star nav-icon"></i><span>Event Logs</span><span class="nav-badge pending" id="flp-event-badge" style="display:none;"></span></button>
         <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
+        <div class="nav-section-label quota-only" style="display:none;">Quota</div>
+        <button class="nav-item quota-only" data-page="quota-flp" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check (FLP)</span></button>
+        <button class="nav-item quota-only" data-page="quota-met" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>MET Quota Review</span></button>
         <div class="nav-section-label group-admin-only" style="display:none;">High Command</div>
         <button class="nav-item group-admin-only" data-page="group" style="display:none;"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
       </nav>
@@ -160,6 +163,58 @@
       </div>
       <div id="flp-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
     </section>
+
+    <!-- QUOTA CHECK (FLP) — FLP High Command, reviews the FLP sheet -->
+    <section class="page" id="page-quota-flp">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Quota Check (FLP)</h1><p class="page-sub">FLP High Command · Weekly quota review</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="flpQuotaReset('FLP')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="flpQuotaSubmit('FLP')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>FLP Members</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost btn-sm" onclick="flpQuotaAuto('FLP')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="flpq-FLP-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="flpq-FLP-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MET QUOTA REVIEW — FLP High Command, reviews the MET sheet -->
+    <section class="page" id="page-quota-met">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">MET Quota Review</h1><p class="page-sub">FLP High Command · Reviews the MET database sheet</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="flpQuotaReset('MET')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="flpQuotaSubmit('MET')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>MET Members</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost btn-sm" onclick="flpQuotaAuto('MET')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="flpq-MET-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="flpq-MET-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -169,6 +224,7 @@
 <script src="/js/met-topbar.js"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
+<script src="/js/flp-quota-check.js"></script>
 <script src="/js/flp-dashboard.js"></script>
 <script>initMetTopbar('FLP');</script>
 </body>

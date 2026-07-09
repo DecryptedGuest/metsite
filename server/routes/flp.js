@@ -7,9 +7,11 @@ const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/db');
 
-const { userFlpGroupAdmin, requireFlpGroupAdmin, userDivisions } = require('../middleware/division');
+const { userFlpGroupAdmin, requireFlpGroupAdmin, userDivisions, userIsMetHicommCached } = require('../middleware/division');
 const { explicitGroupId } = require('../lib/divisions');
 const patrolLib = require('../lib/patrolLog');
+const quotaLib = require('../lib/quota');
+const { sendQuotaCheckWebhook } = require('../lib/webhook');
 const bot = require('../lib/bot');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
@@ -22,13 +24,63 @@ function myFlpRank(user) {
   return e ? Number(e.rank) : 0;
 }
 
+// ── FLP High Command gate ─────────────────────────────────────────
+// Passes when: DEVELOPER or MET HICOMM; OR the FLP group rank ≥
+// FLP_HICOMM_MIN_RANK (when that env is set); OR the user holds the Discord role
+// FLP_HICOMM_ROLE_ID (when set). If NEITHER env is set, falls back to the
+// existing Assistant-Director+ group-admin gate (userFlpGroupAdmin).
+async function userFlpHicomm(user) {
+  if (!user) return false;
+  if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
+
+  const min = parseInt(process.env.FLP_HICOMM_MIN_RANK, 10);
+  const hasMin = Number.isFinite(min);
+  const roleId = process.env.FLP_HICOMM_ROLE_ID;
+  const hasRole = !!roleId;
+
+  if (!hasMin && !hasRole) return userFlpGroupAdmin(user); // neither configured → AD+ fallback
+
+  if (hasMin) {
+    const e = userDivisions(user).find(d => d.division === 'FLP');
+    if (e && Number(e.rank) >= min) return true;
+  }
+  if (hasRole && user.discordId) {
+    try {
+      const { getRoleHolders } = require('../lib/bot');
+      const guildId = process.env.FLP_HICOMM_GUILD_ID || process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
+      if (guildId) {
+        const holders = await getRoleHolders(guildId, roleId);
+        const did = String(user.discordId).replace(/\D/g, '');
+        if (holders && holders.has(did)) return true;
+      }
+    } catch (e) { /* bot unavailable → deny this path */ }
+  }
+  return false;
+}
+
+async function requireFlpHicomm(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  try { if (await userFlpHicomm(req.user)) return next(); }
+  catch (e) { /* fall through to 403 */ }
+  return res.status(403).json({ error: 'FLP High Command access required.' });
+}
+
+// Map a UI scope (?scope=FLP|MET) to the quota-lib division. Defaults to FLP.
+function scopeDivision(req) {
+  const s = (req.query.scope || req.body && req.body.scope || 'FLP').toString().toUpperCase();
+  return s === 'MET' ? 'MET' : 'FLP';
+}
+
 router.get('/', (req, res) => res.json({ division: 'flp' }));
 
 // What the FLP dashboard can show for this user (drives the UI).
-router.get('/context', (req, res) => {
+router.get('/context', async (req, res) => {
+  let canQuota = false;
+  try { canQuota = await userFlpHicomm(req.user); } catch (e) { canQuota = false; }
   res.json({
     canGroupAdmin:    userFlpGroupAdmin(req.user),
     canReviewPatrols: true, // any FLP member (the route is already FLP-gated)
+    canQuota,               // FLP HICOMM — shows the Quota Check / MET Quota Review tabs
     flpRank:          myFlpRank(req.user),
     isDev:            req.user.role === 'DEVELOPER',
   });
@@ -63,12 +115,20 @@ router.post('/patrols/:id/:action', async (req, res) => {
     if (!p) return res.status(404).json({ error: 'Log not found' });
     if (p.status !== 'PENDING') return res.status(400).json({ error: 'This log has already been reviewed.' });
 
+    // EVENT logs are HICOMM-only to review; PATROL logs stay open to any FLP rank.
+    if (p.type === 'EVENT') {
+      let ok = false;
+      try { ok = await userFlpHicomm(req.user); } catch (e) { ok = false; }
+      if (!ok) return res.status(403).json({ error: 'FLP High Command access required to review event logs.' });
+    }
+
     const status = action === 'approve' ? 'APPROVED' : 'DENIED';
 
-    // Event logs award +1 on the MET database (best-effort; never blocks review).
+    // Event logs award +1 to the configured sheet(s) — EVENT_POINT_TARGET =
+    // FLP (default) | MET | BOTH. Best-effort; never blocks the review.
     let pointResult = null;
     if (status === 'APPROVED' && p.type === 'EVENT') {
-      pointResult = await patrolLib.awardMetEventPoint(p).catch(() => ({ ok: false }));
+      pointResult = await patrolLib.awardEventPoints(p).catch(() => ({ ok: false }));
     }
 
     await prisma.patrolLog.update({
@@ -162,6 +222,90 @@ router.delete('/group/members/:userId', requireFlpGroupAdmin, async (req, res) =
     res.json({ success: true });
   }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── FLP-scoped quota review (FLP High Command) ─────────────────────
+// Each endpoint takes ?scope=FLP|MET (query or body) which selects the division
+// config from the quota lib, so the SAME FLP tab can review the FLP sheet or the
+// MET sheet. Reuses the exact quota engine IA uses.
+router.get('/quota/members', requireFlpHicomm, async (req, res) => {
+  try {
+    const division = scopeDivision(req);
+    const members = await quotaLib.getAllMembersPoints(division);
+    if (members == null) return res.json({ configured: false, members: [], scope: division });
+    res.json({ configured: true, members, scope: division });
+  } catch (err) {
+    console.error('[FLP Quota] members error:', err.message);
+    res.status(500).json({ error: 'Failed to read quota sheet.' });
+  }
+});
+
+router.post('/quota/check', requireFlpHicomm, async (req, res) => {
+  const division = scopeDivision(req);
+  const { results, weekLabel } = req.body || {};
+  if (!Array.isArray(results) || !results.length) return res.status(400).json({ error: 'No results to submit.' });
+  for (const r of results) {
+    if (!r || !r.username || !['pass', 'fail', 'exempt'].includes(r.status)) {
+      return res.status(400).json({ error: 'Each result needs a username and a pass/fail/exempt status.' });
+    }
+  }
+  try {
+    const cfg = quotaLib.quotaConfig(division);
+    const ok = await sendQuotaCheckWebhook({
+      reviewerName:  req.user.displayName || req.user.discordUsername,
+      reviewerId:    req.user.discordId,
+      results, weekLabel,
+      webhookUrl:    cfg.resultsWebhookUrl,
+      divisionLabel: division,
+      mentionRoleId: process.env[`${cfg.prefix}QUOTA_MENTION_ROLE_ID`] || null,
+    });
+    if (!ok) return res.status(502).json({ error: 'Quota results webhook is not configured or failed to send.' });
+    res.json({ ok: true, scope: division });
+  } catch (err) {
+    console.error('[FLP Quota] check error:', err.message);
+    res.status(500).json({ error: 'Failed to submit quota check.' });
+  }
+});
+
+router.post('/quota/exempt', requireFlpHicomm, async (req, res) => {
+  const division = scopeDivision(req);
+  const username = (req.body && req.body.username || '').toString().trim();
+  if (!username) return res.status(400).json({ error: 'Username is required.' });
+  try {
+    const result = await quotaLib.setMemberExempt(username, division);
+    if (!result.ok) return res.status(500).json({ error: result.error || 'Failed to set exempt.' });
+    res.json(result);
+  } catch (err) {
+    console.error('[FLP Quota] exempt error:', err.message);
+    res.status(500).json({ error: 'Failed to set exempt.' });
+  }
+});
+
+router.post('/quota/loa', requireFlpHicomm, async (req, res) => {
+  const division = scopeDivision(req);
+  const username = (req.body && req.body.username || '').toString().trim();
+  if (!username) return res.status(400).json({ error: 'Username is required.' });
+  try {
+    const result = await quotaLib.setMemberLOA(username, division);
+    if (!result.ok) return res.status(500).json({ error: result.error || 'Failed to set LOA.' });
+    res.json(result);
+  } catch (err) {
+    console.error('[FLP Quota] loa error:', err.message);
+    res.status(500).json({ error: 'Failed to set LOA.' });
+  }
+});
+
+router.post('/quota/reset', requireFlpHicomm, async (req, res) => {
+  const division = scopeDivision(req);
+  try {
+    const result = await quotaLib.resetAllQuota(division);
+    if (!result.ok) return res.status(500).json({ error: result.error || 'Reset failed.' });
+    console.log(`[FLP Quota] ${division} reset by ${req.user.displayName || req.user.discordUsername} — ${result.cleared} cell(s) cleared`);
+    res.json(result);
+  } catch (err) {
+    console.error('[FLP Quota] reset error:', err.message);
+    res.status(500).json({ error: 'Failed to reset quota.' });
+  }
 });
 
 // ── GET /api/flp/analytics?days= — FLP patrol/event activity for the dashboard. ──

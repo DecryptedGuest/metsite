@@ -129,8 +129,10 @@ async function editApprovalWebhook(messageId, data) {
  * results: [{ username, rank, total, target, status:'pass'|'fail', reason }]
  * Sends to QUOTA_RESULTS_WEBHOOK_URL, falling back to DISCORD_WEBHOOK_URL.
  */
-async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername }) {
-  const url = process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
+async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, webhookUrl, mentionRoleId, divisionLabel }) {
+  // A scoped (division) call passes `webhookUrl` + `divisionLabel`; the IA path
+  // passes neither, so its URL/ping/labels stay exactly as before.
+  const url = webhookUrl || process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
   if (!url) { console.warn('No webhook URL for quota check — skipping.'); return false; }
 
   const passed = results.filter(r => r.status === 'pass').length;
@@ -152,25 +154,28 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
 
   const embed = {
     color: 0x4a8fff,
-    title: `Weekly Quota Review${weekLabel ? ` — ${weekLabel}` : ''}`,
+    title: `${divisionLabel ? divisionLabel + ' ' : ''}Weekly Quota Review${weekLabel ? ` — ${weekLabel}` : ''}`,
     description: desc || '*No members.*',
     fields: [
       { name: 'Reviewed by', value: reviewerId ? `<@${reviewerId}>` : (reviewerName || 'Unknown'), inline: true },
       { name: 'Passed',      value: String(passed), inline: true },
       { name: 'Failed',      value: String(failed), inline: true },
     ],
-    footer:    { text: 'Internal Affairs · Quota Check' },
+    footer:    { text: `${divisionLabel || 'Internal Affairs'} · Quota Check` },
     timestamp: new Date().toISOString(),
   };
+
+  // IA keeps its hardcoded role ping; a scoped call pings mentionRoleId when set,
+  // otherwise no ping.
+  const content = divisionLabel
+    ? (mentionRoleId ? `<@&${mentionRoleId}>` : '')
+    : '<@&1424504802741588019>';
 
   try {
     const res = await fetch(url, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-  content: "<@&1424504802741588019>",
-  embeds: [embed]
-}),
+      body: JSON.stringify({ content, embeds: [embed] }),
     });
     if (!res.ok) { console.error(`Quota webhook failed [${res.status}]:`, await res.text()); return false; }
     return true;

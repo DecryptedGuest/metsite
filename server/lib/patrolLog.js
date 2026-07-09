@@ -426,23 +426,28 @@ function robloxNameCandidates(log) {
   return [...new Set(out.filter(Boolean))];
 }
 
-// EVENT logs: on approval, add +1 to the member's current-day cell in the MET
-// database (MET_SHEET_ID). The correct tab is found by SEARCHING every tab for
-// the member's username — each member sits on exactly one rank tab (Chief
-// Inspector / Inspector / …), so no rank lookup is needed. Best-effort.
-async function awardMetEventPoint(log) {
-  const spreadsheetId = process.env.MET_SHEET_ID;
-  if (!spreadsheetId) { console.warn('[EventLog] MET_SHEET_ID not set — skipping point.'); return { ok: false, reason: 'MET_SHEET_ID not set' }; }
+// EVENT logs: on approval, add +1 to the member's current-day cell on the given
+// division's sheet (via quotaConfig(division) → sheetId). The correct tab is
+// found by SEARCHING every tab for the member's username — each member sits on
+// exactly one rank tab (Chief Inspector / Inspector / …), so no rank lookup is
+// needed. Best-effort. division ∈ {'FLP','MET','IA'} (default 'MET').
+async function awardEventPoint(log, division = 'MET') {
+  const q = require('./quota');
+  const cfg = q.quotaConfig(division);
+  const spreadsheetId = cfg.sheetId;
+  if (!spreadsheetId) { console.warn(`[EventLog] no sheet configured for ${division} — skipping point.`); return { ok: false, reason: `${division} sheet not set`, division }; }
   try {
-    const q = require('./quota');
     const sheets = q.getSheetsClient();
-    if (!sheets) return { ok: false, reason: 'Google Sheets not configured' };
-    const tz = process.env.QUOTA_TIMEZONE || 'Europe/London';
+    if (!sheets) return { ok: false, reason: 'Google Sheets not configured', division };
+    const tz = cfg.timezone;
 
     const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-    const tabs = (meta.data.sheets || []).map(s => s.properties.title);
+    // If a specific tab is configured for the division, only search that one;
+    // otherwise search every tab (per-rank tabs).
+    const allTabs = (meta.data.sheets || []).map(s => s.properties.title);
+    const tabs = cfg.sheetName ? allTabs.filter(t => t === cfg.sheetName) : allTabs;
     const candidates = robloxNameCandidates(log);
-    if (!candidates.length) return { ok: false, reason: 'no username to match' };
+    if (!candidates.length) return { ok: false, reason: 'no username to match', division };
 
     for (const tab of tabs) {
       let rows;
@@ -456,23 +461,42 @@ async function awardMetEventPoint(log) {
       if (rowIdx < 0) continue;
 
       const dayCol = cols.days[q.currentDayIndex(tz)];
-      if (dayCol == null) return { ok: false, reason: 'day column not found', tab };
+      if (dayCol == null) return { ok: false, reason: 'day column not found', tab, division };
       const cellRaw = (rows[rowIdx][dayCol] || '').toString().trim();
-      if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: `cell is "${cellRaw}" (e.g. EX) — left untouched`, tab };
+      if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: `cell is "${cellRaw}" (e.g. EX) — left untouched`, tab, division };
       const newVal = (cellRaw ? parseFloat(cellRaw) : 0) + 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId, range: `${tab}!${q.colLetter(dayCol)}${rowIdx + 1}`,
         valueInputOption: 'USER_ENTERED', requestBody: { values: [[newVal]] },
       });
-      console.log(`[EventLog] +1 → ${tab} / ${candidates[0]} (now ${newVal})`);
-      return { ok: true, tab, username: candidates[0], newVal };
+      console.log(`[EventLog] +1 → ${division}:${tab} / ${candidates[0]} (now ${newVal})`);
+      return { ok: true, tab, username: candidates[0], newVal, division };
     }
-    return { ok: false, reason: 'member not found on any tab' };
+    return { ok: false, reason: 'member not found on any tab', division };
   } catch (err) {
-    console.error('[EventLog] awardMetEventPoint failed:', err.message);
-    return { ok: false, reason: err.message };
+    console.error('[EventLog] awardEventPoint failed:', err.message);
+    return { ok: false, reason: err.message, division };
   }
 }
+
+// Award the event point to the sheet(s) named by EVENT_POINT_TARGET:
+//   FLP (default) | MET | BOTH. Best-effort across each target; returns the
+//   primary (first successful, else first) result plus a `results` array so
+//   callers can see per-division outcomes.
+async function awardEventPoints(log) {
+  const target = (process.env.EVENT_POINT_TARGET || 'FLP').toString().trim().toUpperCase();
+  const divisions = target === 'BOTH' ? ['FLP', 'MET'] : (target === 'MET' ? ['MET'] : ['FLP']);
+  const results = [];
+  for (const d of divisions) {
+    const r = await awardEventPoint(log, d).catch(e => ({ ok: false, reason: e.message, division: d }));
+    results.push(r);
+  }
+  const primary = results.find(r => r && r.ok) || results[0] || { ok: false, reason: 'no target division' };
+  return { ...primary, results };
+}
+
+// Back-compat: original name kept (writes to the MET database).
+function awardMetEventPoint(log) { return awardEventPoint(log, 'MET'); }
 
 function serialize(p) {
   // Re-derive times from the raw content on every read, so parser improvements
@@ -516,4 +540,4 @@ function serialize(p) {
   };
 }
 
-module.exports = { parseClock, shiftTime, parseDivision, parsePatrolLog, formatTotal, imageUrls, createFromMessage, serialize, robloxNameCandidates, awardMetEventPoint, parseEventLog, buildEventMeta };
+module.exports = { parseClock, shiftTime, parseDivision, parsePatrolLog, formatTotal, imageUrls, createFromMessage, serialize, robloxNameCandidates, awardMetEventPoint, awardEventPoint, awardEventPoints, parseEventLog, buildEventMeta };
