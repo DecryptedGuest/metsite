@@ -194,24 +194,33 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
  * posted message id, or null if no webhook is configured / it failed.
  */
 async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, score, maxScore, percentage, passed, note }) {
-  const embed = {
-    color: passed ? 0x2ed896 : 0xf04f5e,
-    title: `Final Exam Result — ${passed ? 'PASS ✅' : 'FAIL ❌'}`,
-    fields: [
-      { name: 'Student',    value: discordId ? `<@${discordId}>${discordUsername ? ` (@${discordUsername})` : ''}` : (discordUsername || 'Unknown'), inline: false },
-      ...(robloxUsername ? [{ name: 'Roblox', value: String(robloxUsername), inline: true }] : []),
-      { name: 'Mark',       value: `${score}/${maxScore}`, inline: true },
-      { name: 'Percentage', value: `${percentage}%`, inline: true },
-    ],
-    description: note ? `**NOTE:** ${String(note).slice(0, 1500)}` : undefined,
-    footer:    { text: 'Hendon Police College · Final Examination' },
-    timestamp: new Date().toISOString(),
-  };
-  const body = { embeds: [embed] };
-  if (discordId) body.content = `<@${discordId}>`;
+  // Plain-text format matching how markers post results in #final-exam-results:
+  //   Username of student: <@id>       (renders their MET nickname; no ping)
+  //   Mark: 33/36
+  //   Percentage: 92%
+  //   PASS ✅            (or FAIL ❌)
+  //   Notes: N/A
+  const student = discordId ? `<@${discordId}>` : (robloxUsername || discordUsername || 'Unknown');
+  const content =
+    `Username of student: ${student}\n` +
+    `Mark: ${score}/${maxScore}\n` +
+    `Percentage: ${percentage}%\n` +
+    `${passed ? 'PASS ✅' : 'FAIL ❌'}\n` +
+    `Notes: ${note ? String(note).slice(0, 1500) : 'N/A'}`;
+  // Render the mention (nickname) but never PING the student.
+  const body = { content, allowedMentions: { parse: [] } };
 
-  // Primary: the results webhook. Fallback: post via the bot to a channel id
-  // (FINAL_EXAM_CHANNEL_ID) so results still deliver if the webhook is unset/broken.
+  // Post AS THE MET BOT to the final-exam-results channel (default the linked
+  // channel). Fall back to the results webhook only if the bot can't deliver.
+  const chId = process.env.FINAL_EXAM_CHANNEL_ID || '1509522116590960640';
+  try {
+    const bot = require('./bot');
+    if (chId && typeof bot.postChannelMessage === 'function') {
+      const id = await bot.postChannelMessage(chId, body);
+      if (id) return id;
+    }
+  } catch (e) { console.error('HPC exam bot post error:', e.message); }
+
   const url = process.env.FINAL_EXAM_WEBHOOK || process.env.HPC_RESULTS_WEBHOOK_URL;
   if (url) {
     try {
@@ -221,21 +230,8 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
       if (res.ok) { const msg = await res.json().catch(() => ({})); return msg.id || 'sent'; }
       console.error(`HPC exam webhook failed [${res.status}]:`, await res.text().catch(() => ''));
     } catch (err) { console.error('HPC exam webhook error:', err.message); }
-  } else {
-    console.warn('No FINAL_EXAM_WEBHOOK / HPC_RESULTS_WEBHOOK_URL configured.');
   }
-
-  const chId = process.env.FINAL_EXAM_CHANNEL_ID;
-  if (chId) {
-    try {
-      const bot = require('./bot');
-      if (typeof bot.postChannelMessage === 'function') {
-        const id = await bot.postChannelMessage(chId, body);
-        if (id) return id;
-      }
-    } catch (e) { console.error('HPC exam channel fallback error:', e.message); }
-  }
-  console.warn('[Exam] result was NOT delivered — set FINAL_EXAM_WEBHOOK or FINAL_EXAM_CHANNEL_ID.');
+  console.warn('[Exam] result was NOT delivered — check the bot is in the guild or set FINAL_EXAM_WEBHOOK.');
   return null;
 }
 

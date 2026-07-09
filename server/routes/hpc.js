@@ -291,6 +291,15 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
     }).catch(() => null);
     if (msgId) await prisma.hpcExamSubmission.update({ where: { id: s.id }, data: { resultMessageId: msgId } }).catch(() => {});
 
+    // Also post the marking LOG to the HPC server's #final-exam-log (pings the
+    // Database Manager to verify). Best-effort — never blocks the mark.
+    require('../lib/bot').postHpcExamLog({
+      markerDiscordId: req.user.discordId || null,
+      markerName: req.user.displayName || req.user.discordUsername || 'Marker',
+      studentName: s.discordUsername || s.robloxUsername || 'Unknown',
+      percentage, robloxUsername: s.robloxUsername, discordUsername: s.discordUsername,
+    }).catch(() => {});
+
     // On a pass, accept the cadet into the MET group as CSO (best-effort, only if
     // they have a pending join request). Fire-and-forget so the mark returns fast.
     if (passed) acceptPassedCadetIntoMet(s, req).catch(() => {});

@@ -905,6 +905,38 @@ async function postTicketCloseLog(data = {}) {
   } catch (e) { console.warn('[Bot] postTicketCloseLog failed:', e.message); return null; }
 }
 
+// Post a "final exam log" to the HPC server's #final-exam-log channel — the
+// marking record (who marked it, the student, percentage, proof) that pings the
+// Database Manager role for verification. Format mirrors how it's posted today.
+async function postHpcExamLog(data = {}) {
+  if (!ready) return null;
+  const chId = process.env.FINAL_EXAM_LOG_CHANNEL_ID || '1510117564733460600';
+  const gId  = process.env.HPC_GUILD_ID || '1404258349981372589';
+  try {
+    const channel = await client.channels.fetch(chId);
+    if (!channel || typeof channel.send !== 'function') return null;
+    // Resolve the "Database Manager" role to ping — by env id (defaulted to the
+    // known role), else by name in the guild.
+    let roleId = process.env.HPC_DATABASE_MANAGER_ROLE_ID || '1412734182227972117';
+    if (!roleId) {
+      try { const guild = await client.guilds.fetch(gId); const roles = await guild.roles.fetch(); const role = roles.find(r => /database\s*manager/i.test(r.name)); if (role) roleId = role.id; } catch (e) {}
+    }
+    const dmMention = roleId ? `<@&${roleId}>` : '@Database Manager';
+    const marker = data.markerDiscordId ? `<@${data.markerDiscordId}>` : (data.markerName || 'Unknown');
+    const content =
+      `Username: ${marker}\n` +
+      `Student: ${data.studentName || 'Unknown'}\n` +
+      `Percentage: ${data.percentage}%\n` +
+      `Proof:\n` +
+      `${dmMention}\n` +
+      `Roblox Username: ${data.robloxUsername || 'N/A'}\n` +
+      `Discord Username: ${data.discordUsername ? '@' + data.discordUsername : 'N/A'}`;
+    // Ping ONLY the Database Manager role — never the marker/student.
+    const msg = await channel.send({ content, allowedMentions: { roles: roleId ? [roleId] : [], parse: [] } });
+    return msg.id;
+  } catch (e) { console.warn('[Bot] postHpcExamLog failed:', e.message); return null; }
+}
+
 // Edit a message the bot posted to a channel (by ids). Returns true on success.
 async function editChannelMessage(channelId, messageId, payload) {
   if (!ready || !channelId || !messageId || !payload) return false;
@@ -1642,7 +1674,7 @@ module.exports = {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmTicketAlert, dmLoginCode, deleteLoginDm,
-  reactToMessage, postChannelMessage, editChannelMessage, postTicketCloseLog,
+  reactToMessage, postChannelMessage, editChannelMessage, postTicketCloseLog, postHpcExamLog,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   backfillLogChannel, backfillPatrolLogs,
   getGuildMemberRoles, listGuildRoleMembers, getMemberRoleStyle,
