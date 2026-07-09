@@ -614,11 +614,11 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
   return { matched: false, error: 'no matching transcript found in recent ticket logs' };
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 // MET tryouts — DM the host when their tryout fires, with buttons to pick a
 // co-host and post the announcement. Interaction handlers live in
 // onInteraction (customIds prefixed "tryout_").
-// ─────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────
 
 // The action buttons attached to a host's tryout DM: pick a co-host, and
 // post/update the channel announcement. The announce label reflects whether the
@@ -661,7 +661,7 @@ async function sendTryoutHostDM(tryout) {
   }
 }
 
-// ── Patrol + event logs ───────────────────────────────────────────────
+// ── Patrol + event logs ────────────────────────────────────────────────────
 // A new message in PATROL_CHANNEL_ID / EVENTLOGS_CHANNEL_ID that looks like a
 // log → capture it for site review. (Pure chat without "shift" and no image is
 // ignored.)
@@ -806,13 +806,27 @@ async function postTryoutAnnouncement(tryout) {
   if (!ready) return null;
   // Never post twice (e.g. auto-post on schedule + the host's "Send Announcement").
   if (tryout && tryout.announcementSent) return tryout.announcementMsgId || null;
+  const db = require('./db');
+  // Atomically claim the announcement BEFORE posting so a double-click or a
+  // concurrent auto-announce can't both post (and double-ping the role). Only
+  // the caller that flips announcementSent false→true proceeds; a loser returns
+  // the existing message id. The flag is rolled back if the Discord post fails.
+  const claim = await db.tryout.updateMany({ where: { id: tryout.id, announcementSent: false }, data: { announcementSent: true } }).catch(() => ({ count: 0 }));
+  if (!claim.count) {
+    const fresh = await db.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null);
+    return (fresh && fresh.announcementMsgId) || (tryout && tryout.announcementMsgId) || null;
+  }
   const { formatAnnouncement, formatCidRecruitment, announcementAllowedMentions, divisionConfig, announceChannelId } = require('./tryouts');
   const chId = announceChannelId(tryout);
-  if (!chId) { console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} — cannot announce.`); return null; }
+  if (!chId) {
+    console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} — cannot announce.`);
+    await db.tryout.update({ where: { id: tryout.id }, data: { announcementSent: false } }).catch(() => {}); // release claim
+    return null;
+  }
   try {
     const ch  = await client.channels.fetch(chId);
     const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
-    const data = { announcementSent: true, announcementMsgId: msg.id };
+    const data = { announcementMsgId: msg.id };
 
     // CID: auto-react ✅ so members react toward the 3-reaction start threshold.
     // TODO(CONFIRM): detect when 3 ✅ is reached and ping/notify the host.
@@ -828,10 +842,12 @@ async function postTryoutAnnouncement(tryout) {
       } catch (e) { console.warn('[Tryout] CID recruitment cross-post failed:', e.message); }
     }
 
-    await require('./db').tryout.update({ where: { id: tryout.id }, data }).catch(() => {});
+    await db.tryout.update({ where: { id: tryout.id }, data }).catch(() => {});
     return msg.id;
   } catch (e) {
     console.warn('[Tryout] postTryoutAnnouncement failed:', e.message);
+    // Release the claim so a later retry can announce (the send never happened).
+    await db.tryout.update({ where: { id: tryout.id }, data: { announcementSent: false } }).catch(() => {});
     return null;
   }
 }
@@ -1211,12 +1227,12 @@ async function handleTryoutComponent(interaction) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 // Discord moderation — ban / unban / kick / timeout ("mute"). Used by the
 // Dev Panel's Discord Moderation tool (server/routes/admin.js). Every action
 // operates on DISCORD_GUILD_ID by default, or an explicit guildId if passed
 // (e.g. the MET server, if it differs from the portal's primary guild).
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 
 function targetGuildId(guildId) { return guildId || process.env.DISCORD_GUILD_ID; }
 
