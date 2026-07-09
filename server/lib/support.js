@@ -51,7 +51,7 @@ const TYPES = {
     ],
   },
   GENERAL_SUPPORT: {
-    key: 'GENERAL_SUPPORT', label: 'General Support', button: 'Ask a question', icon: 'ti-lifebuoy', helpBot: true,
+    key: 'GENERAL_SUPPORT', label: 'Website Support', button: 'Ask a question', icon: 'ti-lifebuoy', helpBot: true,
     blurb: 'Ask a question or get help — how to join, tryouts, anything.',
     roles: IA_STAFF,
     questions: [
@@ -100,7 +100,7 @@ To start an appeal, choose **Appeal a punishment** on the support home.`,
 // of IA High Command" inserted after "Internal Affairs" (they can also place it
 // explicitly with the {supervision} placeholder). Non-PINV never see it.
 const DEFAULT_GREETINGS = {
-  GENERAL_SUPPORT:     "G'day, I am {rank} {username} with Internal Affairs. I will be handling your General Support ticket today and will assist you with any queries or concerns you may have.",
+  GENERAL_SUPPORT:     "G'day, I am {rank} {username} with Internal Affairs. I will be handling your Website Support ticket today and will assist you with any queries or concerns you may have.",
   DISCIPLINARY_APPEAL: "G'day, I am {rank} {username} with Internal Affairs. I will be reviewing your Disciplinary Action Appeal today.",
   OFFICER_COMPLAINT:   "G'day, I am {rank} {username} with Internal Affairs. I will be handling your Officer Complaint today.",
   IA_COMPLAINT:        "G'day, I am {rank} {username} with Internal Affairs. I will be handling your Internal Affairs complaint today.",

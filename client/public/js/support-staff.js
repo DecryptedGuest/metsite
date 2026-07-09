@@ -401,7 +401,7 @@
 
   // ── Support desk settings — edit claim greetings + quick replies ──────
   const GREETING_LABELS = {
-    GENERAL_SUPPORT: 'General Support', DISCIPLINARY_APPEAL: 'Disciplinary Action Appeal',
+    GENERAL_SUPPORT: 'Website Support', DISCIPLINARY_APPEAL: 'Disciplinary Action Appeal',
     OFFICER_COMPLAINT: 'Officer Complaint', IA_COMPLAINT: 'Internal Affairs Complaint',
   };
   window.sdSettings = function () {

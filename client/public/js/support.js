@@ -627,7 +627,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   window.startHelpBot = function () {
     helpMode = true; cur = null; mode = 'chat'; closeStream();
     enterTicketView();
-    $('sup-t-title').textContent = 'General Support';
+    $('sup-t-title').textContent = 'Website Support';
     $('sup-t-sub').textContent = 'Ask me anything — joining, tryouts, and more.';
     const st = $('sup-t-status'); if (st) st.outerHTML = '<span id="sup-t-status"></span>';
     $('sup-t-actions').innerHTML = '';
