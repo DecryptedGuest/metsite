@@ -7,10 +7,11 @@
   const BOT_NAME = 'MET Assistant';
   const BOT_AVATAR = '/img/divisions/met.png';   // MET crest (not the IA logo)
   let MY_AVATAR = null;
-  // Render a small subset of markdown (**bold**) after escaping.
-  const mdInline = s => esc(s)
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) => `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);">${txt}</a>`);
+  // Full Discord-style formatting (bold/italic/underline/strike/spoiler/code/
+  // quotes/links/mentions) via the shared renderer, with a safe fallback.
+  const mdInline = s => window.mdRich
+    ? window.mdRich(s)
+    : esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   let pendingIdentity = null;
   let myPunishments = null;      // cached /my-punishments (for the appeal picker)
   let selectedPunishment = null; // the punishment the opener picked to appeal
@@ -34,6 +35,7 @@
   let intakeQs = [];     // remaining intake questions
   let intakeAnswers = []; // collected [{id,prompt,answer,attachments}]
   let pending = [];      // pending attachments for the composer
+  let replyTo = null;    // { id, authorName, snippet } the composer is replying to
   let es = null;         // EventSource
 
   const $ = id => document.getElementById(id);
@@ -310,16 +312,31 @@
         ? `<video src="${esc(u)}" controls></video>`
         : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(a.name || '')}" /></a>`;
     }).join('');
+    const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && cur && cur.status !== 'CLOSED';
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
-        <div class="sup-meta"><span class="sup-name"${profileClick(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span></div>
+        ${replyRefHtml(m)}
+        <div class="sup-meta"><span class="sup-name"${profileClick(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="supReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
         ${m.body ? `<div class="sup-text">${mdInline(m.body)}</div>` : ''}
         ${m.identity ? identityCardHtml(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
       </div>
     </div>`;
   }
+  // The little "replying to X" reference rendered above a message body.
+  function replyRefHtml(m) {
+    const r = m.replyTo;
+    if (!r) return '';
+    const who = r.authorName || (r.authorKind === 'BOT' ? BOT_NAME : 'message');
+    const snip = r.snippet ? esc(r.snippet) : '<span style="opacity:.6;">(no text)</span>';
+    return `<div class="sup-replyref" onclick="supJumpTo('${esc(r.id)}')" title="Jump to message">
+      <i class="ti ti-arrow-back-up"></i><span class="sup-replyref-who">${esc(who)}</span><span class="sup-replyref-snip">${snip}</span></div>`;
+  }
+  window.supJumpTo = function (mid) {
+    const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('sup-flash'); setTimeout(() => el.classList.remove('sup-flash'), 1200); }
+  };
 
   function scrollLog() { const l = $('sup-log'); l.scrollTop = l.scrollHeight; }
 
@@ -837,6 +854,33 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     return res.json();
   }
 
+  // ── Reply-to (Discord-style) ─────────────────────────────────────
+  window.supReply = function (mid) {
+    const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"]`);
+    if (!el) return;
+    const who = (el.querySelector('.sup-name') || {}).textContent || 'message';
+    const bodyEl = el.querySelector('.sup-text');
+    const snippet = bodyEl ? bodyEl.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : '📎 Attachment';
+    replyTo = { id: mid, authorName: who, snippet };
+    renderReplyBar();
+    const inp = $('sup-input'); if (inp) inp.focus();
+  };
+  window.supCancelReply = function () { replyTo = null; renderReplyBar(); };
+  function renderReplyBar() {
+    let bar = document.getElementById('sup-replybar');
+    if (!replyTo) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'sup-replybar'; bar.className = 'sup-replybar';
+      const pend = document.getElementById('sup-pending');
+      if (pend && pend.parentNode) pend.parentNode.insertBefore(bar, pend);
+      else $('sup-composer').insertBefore(bar, $('sup-composer').firstChild);
+    }
+    bar.innerHTML = `<i class="ti ti-arrow-back-up"></i><span class="sup-replybar-who">Replying to ${esc(replyTo.authorName)}</span>
+      <span class="sup-replybar-snip">${esc(replyTo.snippet || '')}</span>
+      <button class="sup-replybar-x" title="Cancel reply" onclick="supCancelReply()"><i class="ti ti-x"></i></button>`;
+  }
+
   async function onSend() {
     if (mode === 'intake') return submitIntakeStep();
     if (helpMode) { const text = $('sup-input').value.trim(); if (!text) return; $('sup-input').value = ''; return helpFreeText(text); }
@@ -844,11 +888,12 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     const body = $('sup-input').value.trim();
     const atts = readyAttachments();
     if (!body && !atts.length) return;
+    const replyToId = replyTo ? replyTo.id : null;
     try {
-      const msg = await api(tok('/api/support/tickets/' + cur.id + '/messages', cur.id), { method: 'POST', body: JSON.stringify({ body, attachments: atts }) });
+      const msg = await api(tok('/api/support/tickets/' + cur.id + '/messages', cur.id), { method: 'POST', body: JSON.stringify({ body, attachments: atts, replyToId }) });
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
-      $('sup-input').value = ''; clearPending();
+      $('sup-input').value = ''; clearPending(); replyTo = null; renderReplyBar();
     } catch (e) {
       showToast(e.message, 'error');
       // If the send was refused because we've just been blocked, re-sync so the

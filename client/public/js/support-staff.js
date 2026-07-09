@@ -248,7 +248,17 @@
   // Renders the SAME .sup-* chat markup the member support page uses, so a
   // claimed ticket looks identical in the Support Desk and on /support.
   // (Styling lives in the shared /css/support-chat.css.)
-  function mdInlineSd(s) { return esc(s || '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
+  function mdInlineSd(s) { return window.mdRich ? window.mdRich(s) : esc(s || '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
+  function replyRefSd(m) {
+    const r = m.replyTo; if (!r) return '';
+    const who = r.authorName || (r.authorKind === 'BOT' ? 'MET Assistant' : 'message');
+    const snip = r.snippet ? esc(r.snippet) : '<span style="opacity:.6;">(no text)</span>';
+    return `<div class="sup-replyref" onclick="sdJumpTo('${esc(r.id)}')" title="Jump to message"><i class="ti ti-arrow-back-up"></i><span class="sup-replyref-who">${esc(who)}</span><span class="sup-replyref-snip">${snip}</span></div>`;
+  }
+  window.sdJumpTo = function (mid) {
+    const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('sup-flash'); setTimeout(() => el.classList.remove('sup-flash'), 1200); }
+  };
   function avatarHtml(m) {
     const isBot = (m.authorKind || '').toLowerCase() === 'bot';
     const inner = isBot ? `<img src="${MET}" alt="MET">`
@@ -280,10 +290,12 @@
       ? `<video src="${esc(a.url)}" controls></video>`
       : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}"></a>`).join('');
     const nameClick = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
+    const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && curT && curT.status !== 'CLOSED';
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
-        <div class="sup-meta"><span class="sup-name"${nameClick}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span></div>
+        ${replyRefSd(m)}
+        <div class="sup-meta"><span class="sup-name"${nameClick}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="sdReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
         ${m.body ? `<div class="sup-text">${mdInlineSd(m.body)}</div>` : ''}
         ${m.identity ? idCard(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
@@ -522,16 +534,45 @@
         .catch(err => { item.status = 'error'; renderPending(); showToast(err.message, 'error'); });
     }
   }
+  // ── Reply-to (Discord-style) ─────────────────────────────────────
+  let sdReplyTo = null;
+  window.sdReply = function (mid) {
+    const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"]`);
+    if (!el) return;
+    const who = (el.querySelector('.sup-name') || {}).textContent || 'message';
+    const bodyEl = el.querySelector('.sup-text');
+    const snippet = bodyEl ? bodyEl.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : '📎 Attachment';
+    sdReplyTo = { id: mid, authorName: who, snippet };
+    renderSdReplyBar();
+    const inp = $('sd-input'); if (inp) inp.focus();
+  };
+  window.sdCancelReply = function () { sdReplyTo = null; renderSdReplyBar(); };
+  function renderSdReplyBar() {
+    let bar = document.getElementById('sd-replybar');
+    if (!sdReplyTo) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'sd-replybar'; bar.className = 'sup-replybar';
+      const pend = document.getElementById('sd-pending');
+      if (pend && pend.parentNode) pend.parentNode.insertBefore(bar, pend);
+    }
+    bar.innerHTML = `<i class="ti ti-arrow-back-up"></i><span class="sup-replybar-who">Replying to ${esc(sdReplyTo.authorName)}</span>
+      <span class="sup-replybar-snip">${esc(sdReplyTo.snippet || '')}</span>
+      <button class="sup-replybar-x" title="Cancel reply" onclick="sdCancelReply()"><i class="ti ti-x"></i></button>`;
+  }
+
   async function onSend() {
     if (sdPending.some(p => p.status === 'loading')) return showToast('Wait for uploads to finish.', 'warning');
     const body = $('sd-input').value.trim();
     const internal = $('sd-internal').checked;
     const atts = sdPending.filter(p => p.status === 'done').map(p => ({ mediaId: p.mediaId, kind: p.kind, name: p.name }));
     if (!body && !atts.length) return;
+    const replyToId = sdReplyTo ? sdReplyTo.id : null;
     try {
-      const msg = await api('/api/support/tickets/' + curT.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal }) });
+      const msg = await api('/api/support/tickets/' + curT.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal, replyToId }) });
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; }
       $('sd-input').value = ''; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
+      sdReplyTo = null; renderSdReplyBar();
     } catch (e) { showToast(e.message, 'error'); }
   }
 

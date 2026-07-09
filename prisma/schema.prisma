@@ -924,6 +924,7 @@ model SupportMessage {
   authorKind  String   @default("STAFF") // OPENER | STAFF | BOT
   body        String?
   attachments Json? // [{ mediaId, kind, name }]
+  replyToId   String? // id of the SupportMessage this one replies to (Discord-style)
   createdAt   DateTime @default(now())
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)

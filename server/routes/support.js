@@ -73,11 +73,24 @@ function attWithUrls(ticketId, atts) {
     url: `/api/support/tickets/${ticketId}/media/${a.mediaId}`,
   }));
 }
-function serializeMessage(ticketId, m, avatarMap) {
+// A short, plain-text preview of a message for reply references (no markdown).
+function replyPreview(m) {
+  if (!m) return null;
+  const snippet = m.body
+    ? String(m.body).replace(/\s+/g, ' ').trim().slice(0, 120)
+    : ((m.attachments && m.attachments.length) ? '📎 Attachment' : '');
+  return { id: m.id, authorName: m.authorName, authorKind: m.authorKind, snippet };
+}
+
+function serializeMessage(ticketId, m, avatarMap, msgById) {
   return {
     id: m.id, authorId: m.authorId, authorName: m.authorName, authorKind: m.authorKind,
     authorAvatar: (m.authorId && avatarMap) ? (avatarMap.get(m.authorId) || null) : (m.authorAvatar || null),
     body: m.body, attachments: attWithUrls(ticketId, m.attachments), createdAt: m.createdAt,
+    replyToId: m.replyToId || null,
+    // Reply reference resolves only against messages the viewer can see (msgById
+    // is built from the already-filtered list, so INTERNAL parents stay hidden).
+    replyTo: (m.replyToId && msgById) ? replyPreview(msgById.get(m.replyToId)) : (m.replyTo || null),
   };
 }
 // What the viewing staff member may do with this ticket (server-authoritative).
@@ -133,7 +146,8 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null, opene
   // Internal staff notes are never shown to the opener / non-handlers.
   let msgs = t.messages || [];
   if (!staffView) msgs = msgs.filter(m => (m.authorKind || '') !== 'INTERNAL');
-  return { ...base, intake, messages: msgs.map(m => serializeMessage(t.id, m, avatarMap)) };
+  const msgById = new Map(msgs.map(m => [m.id, m]));
+  return { ...base, intake, messages: msgs.map(m => serializeMessage(t.id, m, avatarMap, msgById)) };
 }
 
 // Build a Map(userId -> discordAvatar URL) for a set of user ids (openers/authors).
@@ -741,14 +755,26 @@ router.post('/tickets/:id/messages', async (req, res) => {
     // Internal notes: staff-only, hidden from the opener. Only handling staff can post them.
     const internal = !opener && !!(req.body && req.body.internal) && isHandler(req, t);
     const authorKind = internal ? 'INTERNAL' : (opener ? 'OPENER' : 'STAFF');
+
+    // Reply-to: must reference a real message ON THIS ticket. An opener may only
+    // quote messages they can see (never an INTERNAL staff note).
+    let replyToId = null, replyParent = null;
+    const wantReply = req.body && req.body.replyToId ? String(req.body.replyToId) : '';
+    if (wantReply) {
+      replyParent = await prisma.supportMessage.findFirst({ where: { id: wantReply, ticketId: t.id } });
+      if (replyParent && !(opener && (replyParent.authorKind || '') === 'INTERNAL')) replyToId = replyParent.id;
+      else replyParent = null;
+    }
+
     const msg = await prisma.supportMessage.create({ data: {
       ticketId: t.id,
       authorId:   req.user ? req.user.id : null,
       authorName: req.user ? (req.user.displayName || req.user.discordUsername) : t.openerName,
-      authorKind, body: body || null, attachments,
+      authorKind, body: body || null, attachments, replyToId,
     } });
     const out = serializeMessage(t.id, msg);
     out.authorAvatar = req.user ? (req.user.discordAvatar || null) : null; // poster's PFP
+    out.replyTo = replyParent ? replyPreview(replyParent) : null;          // self-contained for SSE
     support.publish(t.id, 'message', out, { staffOnly: internal });
 
     // Notify the claimant when someone else speaks in a ticket they claimed
