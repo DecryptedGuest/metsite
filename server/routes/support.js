@@ -36,6 +36,24 @@ async function blacklistMatch(req) {
   try { return await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }); }
   catch (e) { return null; }
 }
+// Is the OPENER of THIS ticket currently ticket-blacklisted? Matches the
+// ticket's stored opener IP/fingerprint against the active blacklist — used to
+// stop a blacklisted opener from posting further in their own ticket, and to
+// tell their client to lock the composer. (Also honours an account-level ban.)
+async function openerIsBlacklisted(t) {
+  if (t.openerId) {
+    try {
+      const u = await prisma.user.findUnique({ where: { id: t.openerId }, select: { isBlacklisted: true } });
+      if (u && u.isBlacklisted) return true;
+    } catch (e) { /* ignore */ }
+  }
+  const or = [];
+  if (t.openerIp) or.push({ ip: t.openerIp });
+  if (t.openerFp) or.push({ fingerprint: t.openerFp });
+  if (!or.length) return false;
+  try { return !!(await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } })); }
+  catch (e) { return false; }
+}
 function isOpener(req, t) {
   if (req.user && t.openerId && String(t.openerId) === String(req.user.id)) return true;
   const tok = reqToken(req);
@@ -387,6 +405,7 @@ router.post('/tickets/:id/submit-intake', async (req, res) => {
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
     if (!isOpener(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
     if (t.status !== 'INTAKE') return res.status(400).json({ error: 'Intake already completed.' });
+    if (await openerIsBlacklisted(t)) return res.status(403).json({ error: 'You have been blocked from opening support tickets by Internal Affairs.', locked: true });
 
     const cfg = support.typeConfig(t.type);
     const submitted = Array.isArray(req.body && req.body.answers) ? req.body.answers : [];
@@ -516,40 +535,15 @@ router.get('/tickets/:id', async (req, res) => {
       const active = or.length ? await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }).catch(() => null) : null;
       out.openerBlacklisted = !!active;
     }
+    // Tell the OPENER (not staff) if they've been blocked, so their client locks
+    // the composer the instant IA blacklists them — checked on every poll/SSE refresh.
+    if (isOpener(req, t) && !(req.user && support.canHandleTicket(req.user, t))) {
+      out.locked = await openerIsBlacklisted(t);
+    }
     // Claimant ("investigator") card — shown to everyone who can see the ticket,
     // so the opener knows exactly who's helping them and staff see who owns it.
     // Carries the investigator's Discord + Roblox avatars, names and IA rank.
-    if (t.claimedById) {
-      try {
-        const c = await prisma.user.findUnique({
-          where: { id: t.claimedById },
-          select: { id: true, displayName: true, discordUsername: true, discordId: true, discordAvatar: true, robloxId: true, robloxUsername: true },
-        });
-        if (c) {
-          const roblox = require('../lib/roblox');
-          let headshot = null, rankName = null;
-          if (c.robloxId) {
-            try { headshot = await roblox.getRobloxAvatarHeadshot(c.robloxId); } catch (e) {}
-            try {
-              const role = await roblox.getUserGroupRole(c.robloxId, process.env.IA_GROUP_ID || '407296071');
-              if (role && role.name) rankName = role.name;
-            } catch (e) {}
-          }
-          out.claimant = {
-            id: c.id,
-            name: c.displayName || c.discordUsername,
-            discordUsername: c.discordUsername || null,
-            discordId: c.discordId || null,
-            discordAvatar: c.discordAvatar || null,
-            robloxId: c.robloxId || null,
-            robloxUsername: c.robloxUsername || null,
-            robloxUrl: c.robloxId ? `https://www.roblox.com/users/${c.robloxId}/profile` : null,
-            headshotUrl: headshot,
-            rankName,
-          };
-        }
-      } catch (e) { /* best-effort — claimant card just won't render */ }
-    }
+    if (t.claimedById) out.claimant = await buildClaimantCard(t.claimedById);
     // Appeal card — handlers/IA only. Enriches the punishment being appealed
     // with the opener's Roblox + Discord identity and a jump-to-case link.
     // Never attached for the opener, so it stays invisible to them.
@@ -624,6 +618,41 @@ router.post('/resolve-identity', async (req, res) => {
 // their IA rank + Roblox username, category-aware wording, and a supervision
 // line for Probationary Investigators. Uses the staffer's saved template when
 // set, else the default. Best-effort — returns null if anything is unavailable.
+// Build the investigator ("claimant") card for a ticket's claimer — Discord +
+// Roblox avatars, names and IA rank. Shared by GET /tickets/:id and the live
+// claim broadcast so the opener sees the same rich card the instant it's claimed.
+async function buildClaimantCard(claimedById) {
+  if (!claimedById) return null;
+  try {
+    const c = await prisma.user.findUnique({
+      where: { id: claimedById },
+      select: { id: true, displayName: true, discordUsername: true, discordId: true, discordAvatar: true, robloxId: true, robloxUsername: true },
+    });
+    if (!c) return null;
+    const roblox = require('../lib/roblox');
+    let headshot = null, rankName = null;
+    if (c.robloxId) {
+      try { headshot = await roblox.getRobloxAvatarHeadshot(c.robloxId); } catch (e) {}
+      try {
+        const role = await roblox.getUserGroupRole(c.robloxId, process.env.IA_GROUP_ID || '407296071');
+        if (role && role.name) rankName = role.name;
+      } catch (e) {}
+    }
+    return {
+      id: c.id,
+      name: c.displayName || c.discordUsername,
+      discordUsername: c.discordUsername || null,
+      discordId: c.discordId || null,
+      discordAvatar: c.discordAvatar || null,
+      robloxId: c.robloxId || null,
+      robloxUsername: c.robloxUsername || null,
+      robloxUrl: c.robloxId ? `https://www.roblox.com/users/${c.robloxId}/profile` : null,
+      headshotUrl: headshot,
+      rankName,
+    };
+  } catch (e) { return null; }
+}
+
 async function buildClaimGreeting(user, ticket) {
   const username = user.robloxUsername || user.displayName || user.discordUsername || '';
   let rankName = '', isProbationary = false;
@@ -664,8 +693,13 @@ router.post('/tickets/:id/claim', async (req, res) => {
     }
     const updated = await prisma.supportTicket.findUnique({ where: { id: t.id } });
     const claimMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `${name} has claimed this ticket and will assist you.` } });
+    // Push the claimant card FIRST (with the investigator's avatars/rank) so it's
+    // already on the opener's client when the "claimed" panel message renders —
+    // otherwise the card shows with no avatars. Order matters: SSE delivers in
+    // send order, and the client sets cur.claimant synchronously on 'update'.
+    const claimant = await buildClaimantCard(req.user.id);
+    support.publish(t.id, 'update', { status: 'CLAIMED', claimedByName: name, claimant });
     support.publish(t.id, 'message', serializeMessage(t.id, claimMsg));
-    support.publish(t.id, 'update', { status: 'CLAIMED', claimedByName: name });
     // Compose the investigator's greeting to prefill their composer (never posted
     // automatically — they review/edit and send it themselves).
     const greeting = await buildClaimGreeting(req.user, t).catch(() => null);
@@ -680,6 +714,10 @@ router.post('/tickets/:id/messages', async (req, res) => {
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
     if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
     if (t.status === 'CLOSED') return res.status(400).json({ error: 'This ticket is closed.' });
+    // A ticket-blacklisted opener can no longer type in their own ticket.
+    if (isOpener(req, t) && !isHandler(req, t) && await openerIsBlacklisted(t)) {
+      return res.status(403).json({ error: 'You have been blocked from this ticket by Internal Affairs.', locked: true });
+    }
 
     const body = (req.body && req.body.body != null ? String(req.body.body) : '').slice(0, 4000).trim();
     const attachments = Array.isArray(req.body && req.body.attachments) ? req.body.attachments
