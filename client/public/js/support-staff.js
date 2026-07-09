@@ -332,22 +332,65 @@
   };
 
   function sdCannedTitle(html) { const el = document.querySelector('#modal-sd-canned .modal-title'); if (el) el.innerHTML = html; }
-  window.sdProfile = async function (userId, name) {
-    // Reuse the canned-modal container, but title it as a profile (not "Quick Replies").
+  function sdAvatarBlock(url, label, iconColor, iconClass) {
+    const img = url
+      ? `<img src="${esc(url)}" alt="" style="width:64px;height:64px;border-radius:14px;object-fit:cover;background:#111;">`
+      : `<div style="width:64px;height:64px;border-radius:14px;background:#1a1f2b;display:flex;align-items:center;justify-content:center;color:#5d6675;font-size:24px;"><i class="ti ti-user"></i></div>`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+      ${img}
+      <span style="font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:${iconColor};display:flex;align-items:center;gap:4px;"><i class="ti ${iconClass}"></i>${esc(label)}</span></div>`;
+  }
+  window.sdProfile = async function (id, name) {
     sdCannedTitle('<i class="ti ti-user"></i> Profile');
     $('sd-canned-body').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     openModal('modal-sd-canned');
     try {
-      const p = await api('/api/support/user-profile?userId=' + encodeURIComponent(userId));
-      const av = p.avatar ? `<img src="${esc(p.avatar)}" style="width:52px;height:52px;border-radius:50%;">` : '';
-      const roblox = p.robloxUsername ? `<div style="font-size:12px;color:var(--text-muted);">Roblox: <a href="https://www.roblox.com/users/${esc(p.robloxId || '')}/profile" target="_blank" rel="noopener" style="color:var(--blue);">@${esc(p.robloxUsername)}${p.robloxId ? ` (${esc(p.robloxId)})` : ''}</a></div>` : '';
-      let ia = '';
-      if (p.role) {
-        const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}`).join('<br>') || '—';
-        ia = `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#333);font-size:13px;"><strong>Site role:</strong> ${esc(p.role)}<br><strong>Divisions:</strong><br>${divs}</div>`;
+      // The id may be a site user id (uuid) or a Discord snowflake (all digits).
+      const key = /^\d{16,20}$/.test(String(id)) ? 'discordId' : 'userId';
+      const p = await api(`/api/support/user-profile?${key}=` + encodeURIComponent(id));
+
+      const roleBadge = p.role && p.role !== 'NONE'
+        ? `<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>${esc(p.role)}</span>` : '';
+      const since = p.createdAt ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Member since ${esc(new Date(p.createdAt).toLocaleDateString())}</div>` : '';
+
+      // Copyable identity rows.
+      const idRow = (labelIcon, labelColor, label, handle, rid, link) => {
+        const copyVal = rid || handle || '';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-dim,rgba(255,255,255,.06));">
+          <i class="ti ${labelIcon}" style="font-size:18px;color:${labelColor};width:20px;text-align:center;"></i>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);">${esc(label)}</div>
+            <div style="font-size:13px;">${handle ? '@' + esc(handle) : '<span style="color:var(--text-muted);">Not linked</span>'}${rid ? ` <span style="color:var(--text-muted);font-size:11px;">(${esc(rid)})</span>` : ''}</div>
+          </div>
+          ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open profile"><i class="ti ti-external-link"></i></a>` : ''}
+          ${copyVal ? `<button class="btn btn-ghost btn-sm" title="Copy" onclick="window.copyText && copyText('${esc(String(copyVal))}','${esc(label)}')"><i class="ti ti-copy"></i></button>` : ''}
+        </div>`;
+      };
+
+      let divs = '';
+      if (p.role !== undefined) {
+        const list = (p.divisions || []);
+        divs = `<div style="margin-top:14px;">
+          <div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Divisions & rank</div>
+          ${list.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${list.map(d => `<span class="met-chip">${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}</span>`).join('')}</div>`
+            : '<div style="font-size:12px;color:var(--text-muted);">No divisions.</div>'}
+        </div>`;
       }
-      $('sd-canned-body').innerHTML = `<div style="display:flex;gap:12px;align-items:center;">${av}<div><div style="font-weight:700;font-size:16px;">${esc(p.name)}</div>
-        <div style="font-size:12px;color:var(--text-muted);">Discord: @${esc(p.discordUsername)} (${esc(p.discordId)})</div>${roblox}</div></div>${ia}`;
+
+      $('sd-canned-body').innerHTML = `
+        <div style="display:flex;gap:18px;align-items:center;justify-content:center;padding:6px 0 14px;">
+          ${sdAvatarBlock(p.avatar, 'Discord', '#5865F2', 'ti-brand-discord')}
+          ${sdAvatarBlock(p.headshot, 'Roblox', '#e2231a', 'ti-brand-roblox')}
+        </div>
+        <div style="text-align:center;margin-bottom:6px;">
+          <div style="font-weight:800;font-size:18px;">${esc(p.name)}${roleBadge}</div>
+          ${since}
+        </div>
+        <div style="margin-top:10px;">
+          ${idRow('ti-brand-discord', '#5865F2', 'Discord', p.discordUsername, p.discordId, null)}
+          ${idRow('ti-brand-roblox', '#e2231a', 'Roblox', p.robloxUsername, p.robloxId, p.robloxId ? 'https://www.roblox.com/users/' + encodeURIComponent(p.robloxId) + '/profile' : null)}
+        </div>
+        ${divs}`;
     } catch (e) { $('sd-canned-body').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   };
 

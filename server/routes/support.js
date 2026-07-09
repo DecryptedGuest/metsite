@@ -546,6 +546,7 @@ router.get('/user-profile', async (req, res) => {
     const out = {
       name: u.displayName || u.discordUsername, discordUsername: u.discordUsername, discordId: u.discordId,
       avatar: u.discordAvatar || null, robloxUsername: u.robloxUsername || null, robloxId: u.robloxId || null,
+      createdAt: u.createdAt || null,
     };
     if (u.robloxId) { try { out.headshot = await require('../lib/roblox').getRobloxAvatarHeadshot(u.robloxId); } catch (e) {} }
     if (support.isStaff(req.user)) {
