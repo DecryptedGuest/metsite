@@ -215,7 +215,10 @@ function renderTicketsTable(){
     var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
     var pc=t.proofCount>0?"<i class=\"ti ti-photo\"></i> "+t.proofCount:"&mdash;";
     var inv=elev?"<td>"+escapeHtml((t.user&&(t.user.displayName||t.user.discordUsername))||"—")+"</td>":"";
-    var dec=elev?"<td onclick=\"event.stopPropagation();\">"+(t.status==="PENDING"?ticketRowActions(t.id,t.ticketType):"")+"</td>":"";
+    // You can't review your own ticket (server enforces this too); developers are
+    // exempt so they can test the flow. Hide the Approve/Deny controls otherwise.
+    var own=currentUser&&t.userId===currentUser.id&&currentUser.role!=="DEVELOPER";
+    var dec=elev?"<td onclick=\"event.stopPropagation();\">"+(t.status==="PENDING"&&!own?ticketRowActions(t.id,t.ticketType):"")+"</td>":"";
     return "<tr onclick=\"openTicketDetail('"+t.id+"')\">"
       +"<td><span class=\"case-ref\">"+escapeHtml(t.ticketRef)+"</span></td>"
       +"<td><span style=\"font-size:12px;font-weight:500;\">"+escapeHtml(t.robloxUsername)+"</span></td>"
@@ -278,7 +281,7 @@ function renderAllTicketsTable(){
       +dec+"</tr>";
   }).join("");
 }
-// ── HICOMM Ticket Review Queue (mirrors the cases Review Queue) ────
+// ── HICOMM Ticket Review Queue (mirrors the cases Review Queue) ──
 async function loadTicketReview(){
   var tbody=document.getElementById("ticket-review-tbody");
   var label=document.getElementById("ticket-pending-count-label");
