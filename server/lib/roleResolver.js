@@ -26,8 +26,10 @@ function getDeveloperRoleIds() {
 //   Guest / Member / anything else                             → null (no access)
 // Map an IA Roblox-group rank to a site role. Aligned to the real IA group:
 //   Guest(0)/Member(1) → none · Probationary(1)/Junior(5)/Investigator(10) → IA
-//   Senior Investigator(15)/Supervisor(20) → SUPERVISOR (middle command)
-//   Assistant Director(30)/Deputy Director(35)/Director(40)+ → HICOMM
+//   Senior Investigator(15)/Supervisor(20)/Assistant Director(30) → SUPERVISOR (middle)
+//   Deputy Director(35)/Director(40)/administration/hicom/… → HICOMM (high command)
+// HICOMM = the IA High Command tools (audit, quota) — only Deputy Director and
+// above; Assistant Director is deliberately MIDDLE, not HICOMM.
 function roleFromIaGroupRank(name, rank) {
   const n = (name || '').toString().toLowerCase().trim();
   const r = Number(rank);
@@ -35,12 +37,14 @@ function roleFromIaGroupRank(name, rank) {
   // Explicit non-staff base ranks.
   if (n === 'guest' || n === 'member') return null;
 
-  // High Command — Assistant Director and above (rank ≥ 30) + named HC ranks.
-  if (/director|administration|hicom|overseer|owner|holder/.test(n)) return 'HICOMM';
-  if (Number.isFinite(r) && r >= 30) return 'HICOMM';
+  // Middle command — Senior Investigator, Supervisor, Assistant Director.
+  // (Checked BEFORE High Command so "Assistant Director" never matches the
+  // director → HICOMM rule; only Deputy Director and above is HICOMM.)
+  if (/senior\s*investigator|supervisor|assistant\s*director/.test(n) || r === 15 || r === 20 || r === 30) return 'SUPERVISOR';
 
-  // Middle command — Senior Investigator + Supervisor (case/ticket approval).
-  if (/senior\s*investigator|supervisor/.test(n) || r === 15 || r === 20) return 'SUPERVISOR';
+  // High Command — Deputy Director and above (rank ≥ 35) + named HC ranks.
+  if (/deputy\s*director|\bdirector\b|administration|hicom|overseer|owner|holder/.test(n)) return 'HICOMM';
+  if (Number.isFinite(r) && r >= 35) return 'HICOMM';
 
   // Investigator tiers (Probationary / Junior / Investigator) — standard IA access.
   if (/investigator/.test(n)) return 'IA';
