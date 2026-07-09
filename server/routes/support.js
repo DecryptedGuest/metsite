@@ -826,12 +826,64 @@ router.post('/tickets/:id/messages', async (req, res) => {
         }).catch(() => {});
       }
     } catch (e) { /* notification is best-effort */ }
+
+    // Ping anyone @-mentioned in the body who has access to see this ticket.
+    notifyMentioned(t, body, req.user, internal).catch(() => {});
+
     res.status(201).json(out);
   } catch (e) {
     console.error('[Support] message failed:', e.message);
     res.status(500).json({ error: 'Failed to send' });
   }
 });
+
+// Notify users mentioned via <@id> in a ticket message. A mention only fires a
+// ping if the mentioned user is registered on the site AND can see the ticket
+// (the opener, or staff who handle its type). Internal notes never ping the
+// opener since they can't see internal notes. Fires a live SSE event (website
+// sound + popup) and a best-effort push notification. Never pings the author.
+async function notifyMentioned(t, body, author, internal) {
+  try {
+    const ids = [...String(body || '').matchAll(/<@!?(\d{5,25})>/g)].map(m => m[1]);
+    const uniq = [...new Set(ids)];
+    if (!uniq.length) return;
+    const users = await prisma.user.findMany({
+      where: { discordId: { in: uniq } },
+      select: { id: true, displayName: true, discordUsername: true },
+    });
+    if (!users.length) return;
+
+    const cfg = support.typeConfig(t.type);
+    const typeLabel = cfg ? cfg.label : t.type;
+    const by = author ? (author.displayName || author.discordUsername) : (t.openerName || 'Someone');
+    const preview = body ? body.replace(/<@!?\d+>/g, '@user').slice(0, 120) : 'mentioned you';
+    const authorId = author ? author.id : null;
+
+    for (const u of users) {
+      if (authorId && u.id === authorId) continue; // never ping yourself
+      const isTicketOpener = !!(t.openerId && u.id === t.openerId);
+      const canHandle = support.canHandle(u, t.type);
+      // Must be able to SEE the ticket. Internal notes are hidden from the
+      // opener, so an internal-note mention only reaches handling staff.
+      if (!isTicketOpener && !canHandle) continue;
+      if (internal && isTicketOpener && !canHandle) continue;
+      const url = (isTicketOpener && !canHandle)
+        ? `/support?ticket=${t.id}`
+        : `/ia/dashboard?supportTicket=${t.id}`;
+      try {
+        require('../lib/events').publishToUser(u.id, 'ticket_mention', {
+          ticketId: t.id, typeLabel, by, preview, url,
+        });
+      } catch (e) {}
+      require('../lib/push').sendCustomNotification({
+        userIds: [u.id],
+        title: `You were mentioned · ${typeLabel}`,
+        body: `${by}: ${preview}`,
+        url,
+      }).catch(() => {});
+    }
+  } catch (e) { /* best-effort */ }
+}
 
 // ── POST /api/support/tickets/:id/typing — broadcast a "typing…" ping ──
 // No body stored; just fans a transient 'typing' event to the ticket's stream so

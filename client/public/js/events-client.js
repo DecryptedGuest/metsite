@@ -121,6 +121,37 @@
   }
   window.metShowTicketAlert = showTicketAlert;
 
+  // ── "You were mentioned in a ticket" popup ────────────────────────────
+  // Fired when someone @-mentions you in a ticket you can see. Chime + a card
+  // with a single "Go to ticket" action (opens on the desk in place if we can).
+  function showMentionAlert(d) {
+    if (!d || !d.ticketId) return;
+    var wrap = ensureWrap();
+    var card = document.createElement('div');
+    card.className = 'met-alert';
+    card.innerHTML =
+      '<div class="ma-top"><i class="ti ti-at"></i> You were mentioned'
+        + '<button class="ma-x" title="Dismiss">&times;</button></div>'
+      + '<div class="ma-title">' + esc(d.typeLabel || 'Support ticket') + '</div>'
+      + '<div class="ma-sub">' + esc(d.by || 'Someone') + ' mentioned you</div>'
+      + (d.preview ? '<div class="ma-prev">' + esc(d.preview) + '</div>' : '')
+      + '<div class="ma-actions">'
+      +   '<button class="ma-go" style="flex:1"><i class="ti ti-arrow-right"></i> Go to ticket</button>'
+      + '</div>';
+    var remove = function () { try { card.remove(); } catch (e) {} };
+    card.querySelector('.ma-x').addEventListener('click', remove);
+    card.querySelector('.ma-go').addEventListener('click', function () {
+      // Staff desk deep-links open in place; the opener side reloads to the ticket.
+      if (/\/ia\//.test(d.url || '') && typeof window.sdOpen === 'function') { window.sdOpen(d.ticketId); remove(); }
+      else if (typeof window.supOpenTicket === 'function' && !/\/ia\//.test(d.url || '')) { window.supOpenTicket(d.ticketId); remove(); }
+      else window.location.href = d.url || ('/ia/dashboard?supportTicket=' + encodeURIComponent(d.ticketId));
+    });
+    wrap.appendChild(card);
+    chime();
+    setTimeout(remove, 60000);
+  }
+  window.metShowMentionAlert = showMentionAlert;
+
   function connect() {
     var es;
     try { es = new EventSource('/api/events', { withCredentials: true }); }
@@ -144,6 +175,11 @@
       showTicketAlert(parse(ev));
       call('refreshQueue');     // support desk — refresh the queue if open
       call('loadSupportBadge'); // topbar unclaimed counter, if present
+    });
+
+    // You were @-mentioned in a ticket you can see — sound + popup.
+    es.addEventListener('ticket_mention', function (ev) {
+      showMentionAlert(parse(ev));
     });
 
     es.addEventListener('notification', function (ev) {
