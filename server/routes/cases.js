@@ -127,10 +127,10 @@ async function generateCaseRef() {
   return `#${n}`;
 }
 
-// ── GET /api/cases/actions ────────────────────────────────────────
+// ── GET /api/cases/actions ───────────────────────────────────
 router.get('/actions', (req, res) => res.json(ACTION_NAMES));
 
-// ── POST /api/cases/ai-document ───────────────────────────────────
+// ── POST /api/cases/ai-document ───────────────────────────────
 // Generate a completed disciplinary Google Doc from investigator input and
 // return its URL (shared: anyone-with-link view + the email as editor).
 router.post('/ai-document', async (req, res) => {
@@ -163,7 +163,7 @@ router.post('/ai-document', async (req, res) => {
   }
 });
 
-// ── GET /api/cases/next-ref ───────────────────────────────────────
+// ── GET /api/cases/next-ref ─────────────────────────────────
 // The case ref the next submission will most likely get. An estimate — the
 // real ref is assigned atomically at submit, so a concurrent submission could
 // claim it first.
@@ -176,7 +176,7 @@ router.get('/next-ref', async (req, res) => {
   }
 });
 
-// ── POST /api/cases/parse-doc ─────────────────────────────────────
+// ── POST /api/cases/parse-doc ────────────────────────────────
 // Parse a Google Doc case file and return autofill data for the case form:
 // suspect (Roblox + Discord + MET group), investigator (Roblox + Discord),
 // punishments (from the struck-through checkboxes), reason, notes, link.
@@ -199,7 +199,7 @@ router.post('/parse-doc', async (req, res) => {
     const punishments = built.length ? built : (doc.punishments || []);
     const finalDecisionClean = cleanDecision(doc.finalDecision);
 
-    // ── Suspect ──────────────────────────────────────────────────────
+    // ── Suspect ────────────────────────────────────────
     const suspect = {
       robloxUsername:    doc.suspectRobloxUsername || null,
       robloxId:          null,
@@ -248,7 +248,7 @@ router.post('/parse-doc', async (req, res) => {
       suspect.discordUsername = rec?.username || null;
     }
 
-    // ── Investigator ─────────────────────────────────────────────────
+    // ── Investigator ────────────────────────────────────
     const investigator = {
       robloxUsername:  doc.investigatorRobloxUsername || null,
       robloxId:        null,
@@ -282,7 +282,7 @@ router.post('/parse-doc', async (req, res) => {
   }
 });
 
-// ── GET /api/cases/records-lookup ─────────────────────────────────
+// ── GET /api/cases/records-lookup ────────────────────────────
 // Internal Affairs records lookup. Resolves a target by any of:
 //   type = robloxId | robloxUsername | discordId | discordUsername | auto
 // Returns identity, MET group + rank, Discord presence, active punishment
@@ -298,7 +298,7 @@ router.get('/records-lookup', async (req, res) => {
   const notes = [];
 
   try {
-    // ── Step 1: resolve the primary identifier ──────────────────────
+    // ── Step 1: resolve the primary identifier ──────────────────
     const looksDiscordId = /^\d{17,20}$/.test(q);
     const looksRobloxId  = /^\d{1,16}$/.test(q);
 
@@ -405,7 +405,7 @@ router.get('/records-lookup', async (req, res) => {
       };
     }
 
-    // ── Step 4: Discord presence + roles ───────────────────────────
+    // ── Step 4: Discord presence + roles ──────────────────────
     if (discordId && discord.inDiscord === null) {
       discord = await getMemberRecord(discordId);
     }
@@ -416,7 +416,7 @@ router.get('/records-lookup', async (req, res) => {
       .filter(([, cfg]) => cfg.roleId && heldRoleSet.has(cfg.roleId))
       .map(([name, cfg]) => ({ action: name, roleId: cfg.roleId }));
 
-    // ── Step 6: cases filed against this target ────────────────────
+    // ── Step 6: cases filed against this target ─────────────────
     const orClauses = [];
     if (discordId)      orClauses.push({ officerDiscordId: discordId });
     if (robloxId)       orClauses.push({ robloxUserId: robloxId });
@@ -493,7 +493,7 @@ router.get('/records-lookup', async (req, res) => {
   }
 });
 
-// ── GET /api/cases/lookup-member/:discordId ───────────────────────
+// ── GET /api/cases/lookup-member/:discordId ──────────────────────
 router.get('/lookup-member/:discordId', async (req, res) => {
   const { discordId } = req.params;
   if (!/^\d{17,20}$/.test(discordId)) return res.status(400).json({ error: 'Invalid Discord ID format' });
@@ -502,7 +502,7 @@ router.get('/lookup-member/:discordId', async (req, res) => {
   res.json({ displayName: member || null });
 });
 
-// ── GET /api/cases/officer-profile/:id ────────────────────────────
+// ── GET /api/cases/officer-profile/:id ──────────────────────────
 // Accepts a Discord ID, Roblox ID, Discord username, or Roblox username.
 router.get('/officer-profile/:id', async (req, res) => {
   let id = (req.params.id || '').trim();
@@ -615,7 +615,7 @@ router.get('/officer-profile/:id', async (req, res) => {
   });
 });
 
-// ── GET /api/cases/stats ──────────────────────────────────────────
+// ── GET /api/cases/stats ───────────────────────────────────
 router.get('/stats', async (req, res) => {
   try {
     const isElevated = ['HICOMM','SUPERVISOR','DEVELOPER'].includes(req.user.role);
@@ -631,7 +631,7 @@ router.get('/stats', async (req, res) => {
   } catch { res.status(500).json({ error: 'Failed to fetch stats' }); }
 });
 
-// ── GET /api/cases/my ─────────────────────────────────────────────
+// ── GET /api/cases/my ──────────────────────────────────────
 router.get('/my', async (req, res) => {
   try {
     // "My Cases" is always only the cases the current user submitted, regardless
@@ -655,7 +655,7 @@ router.get('/my', async (req, res) => {
   }
 });
 
-// ── GET /api/cases/all ────────────────────────────────────────────
+// ── GET /api/cases/all ───────────────────────────────────
 // Readable by any authenticated user (IA + HICOMM). HICOMM-only actions
 // (approve/deny/delete) remain gated on their own endpoints.
 router.get('/all', async (req, res) => {
@@ -679,7 +679,7 @@ router.get('/all', async (req, res) => {
   }
 });
 
-// ── POST /api/cases ───────────────────────────────────────────────
+// ── POST /api/cases ──────────────────────────────────────
 // Body: { actions: [{ action, durationDays }], reason, notes, officerInput }
 // officerInput can be a Discord ID (17-20 digits) or Roblox ID (≤16 digits)
 router.post('/', async (req, res) => {
@@ -754,8 +754,15 @@ router.post('/', async (req, res) => {
   const actionDisplay = enrichedActions.map(a => a.action).join(', ');
 
   try {
-    const caseRef = await generateCaseRef();
-    const newCase = await prisma.case.create({
+    // caseRef is @unique. Two officers submitting at once — or an IA import
+    // grabbing the same #N between generateCaseRef() and create() — would clash
+    // on the unique constraint. Retry with a fresh ref on P2002 instead of
+    // 500-ing and discarding the officer's fully-filled case.
+    let caseRef, newCase;
+    for (let attempt = 0; ; attempt++) {
+     caseRef = await generateCaseRef();
+     try {
+      newCase = await prisma.case.create({
       data: {
         caseRef,
         userId:           req.user.id,
@@ -775,7 +782,13 @@ router.post('/', async (req, res) => {
         status:           'PENDING',
       },
       include: { user: { select: { discordUsername: true, displayName: true } } },
-    });
+      });
+      break;
+     } catch (err) {
+      if (err && err.code === 'P2002' && attempt < 5) continue; // ref clash → new ref
+      throw err;
+     }
+    }
 
     await prisma.caseAction.create({
       data: { caseId: newCase.id, actionType: 'CREATED', performedBy: req.user.id, notes: 'Case submitted' },
@@ -786,7 +799,7 @@ router.post('/', async (req, res) => {
       category: 'case',
       title: `New Case — ${caseRef}`,
       body:  `${robloxUsername || 'Unknown'} · ${actionDisplay}`,
-      url:   `/dashboard?page=review&case=${newCase.id}`,
+      url:   `/ia/dashboard?page=review&case=${newCase.id}`,
     });
 
     res.status(201).json(newCase);
@@ -796,7 +809,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ── PATCH /api/cases/:id/approve ──────────────────────────────────
+// ── PATCH /api/cases/:id/approve ──────────────────────────────
 router.patch('/:id/approve', requireHICOMM, async (req, res) => {
   try {
     const existing = await prisma.case.findUnique({
@@ -934,7 +947,7 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
   }
 });
 
-// ── PATCH /api/cases/:id/deny ─────────────────────────────────────
+// ── PATCH /api/cases/:id/deny ────────────────────────────────
 router.patch('/:id/deny', requireHICOMM, async (req, res) => {
   try {
     const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
@@ -1048,7 +1061,7 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// ── PATCH /api/cases/:id/request-changes ──────────────────────────
+// ── PATCH /api/cases/:id/request-changes ───────────────────────
 // Send a pending case back to its submitter with a note (e.g. "change the
 // punishment to Strike 1") instead of denying it. Case stays PENDING.
 router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
@@ -1095,7 +1108,7 @@ router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
         userIds: [existing.userId],
         title:   `Changes requested — ${existing.caseRef}`,
         body:    note,
-        url:     `/dashboard?page=my-cases&case=${existing.id}`,
+        url:     `/ia/dashboard?page=my-cases&case=${existing.id}`,
       }).catch(() => {});
     }
 
@@ -1106,7 +1119,7 @@ router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
   }
 });
 
-// ── GET /api/cases/audit ──────────────────────────────────────────
+// ── GET /api/cases/audit ─────────────────────────────────
 // Audit log is HICOMM/Developer only — supervisors don't get it.
 router.get('/audit', requireHICOMMStrict, async (req, res) => {
   try {
@@ -1122,7 +1135,7 @@ router.get('/audit', requireHICOMMStrict, async (req, res) => {
   } catch { res.status(500).json({ error: 'Failed to fetch audit log' }); }
 });
 
-// ── GET /api/cases/:id ────────────────────────────────────────────
+// ── GET /api/cases/:id ───────────────────────────────────
 // A single case with full detail — used to open a case from a shared link.
 // Readable by any authenticated user (same scope as /all). Registered last so
 // it doesn't shadow the specific GET routes above.
