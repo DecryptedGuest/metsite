@@ -77,6 +77,10 @@ async function initHpc() {
   if (!hpcCtx.canMark && !hpcCtx.canQuota) document.getElementById('hpc-nonmarker-note').style.display = 'block';
   if (hpcCtx.canMark) { try { hpcPaper = (await api('/api/hpc/exam/paper')); } catch (e) {} loadStats(); }
   loadExamInsights();
+  // Keep the "Live" tab appearing/disappearing with active tryouts even when
+  // the host is on another page (light poll; the live page itself polls faster).
+  loadLive();
+  if (!window._hpcLiveNavTimer) window._hpcLiveNavTimer = setInterval(loadLive, 15000);
 
   // Deep-link from the in-game "review your tryout" link: /hpc/dashboard?tryoutLog=<id>
   const tlogId = new URLSearchParams(location.search).get('tryoutLog');
@@ -716,6 +720,9 @@ async function loadLive() {
 
   const badge = document.getElementById('hpc-live-badge');
   if (badge) { if (live.length) { badge.textContent = live.length; badge.style.display = ''; } else badge.style.display = 'none'; }
+  // Only surface the "Live" nav tab while a tryout is actually running.
+  const liveNav = document.querySelector('.nav-item[data-page="live"]');
+  if (liveNav) liveNav.style.display = live.length ? '' : 'none';
   if (status) status.outerHTML = `<span class="badge ${live.length ? 'badge-approved' : 'badge-pending'}" id="hpc-live-status"><span class="badge-dot"></span>${live.length ? 'Live · ' + live.length : 'No live tryouts'}</span>`;
 
   if (!live.length) {
