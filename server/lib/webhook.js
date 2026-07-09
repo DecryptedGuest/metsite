@@ -1,13 +1,19 @@
 // server/lib/webhook.js
 const fetch = require('node-fetch');
+const { ACTION_CONFIG } = require('./actions');
 
 // Build a human-readable punishment list (shared by the embed + previews).
+// Only TIMED punishments (Zero Tolerance, Suspension) carry a duration: show
+// (Nd) when a length is set, else (Permanent) for an indefinite timed one.
+// Untimed actions (warnings, strikes, demotion, termination, blacklist) are
+// one-off and get no duration tag — the old logic wrongly stamped '(Permanent)'
+// on every warning/strike.
 function buildActionList({ actions, action }) {
   return Array.isArray(actions) && actions.length
     ? actions.map(a => {
-        const dur = a.durationDays ? ` (${a.durationDays}d)` : ' (Permanent)';
-        const noDur = ['Verbal Warning', 'Termination', 'Demotion', 'Blacklist'].includes(a.action) && !a.roleId;
-        return `• ${a.action}${noDur ? '' : dur}`;
+        const timed = ACTION_CONFIG[a.action] ? ACTION_CONFIG[a.action].timed : false;
+        const suffix = timed ? (a.durationDays ? ` (${a.durationDays}d)` : ' (Permanent)') : '';
+        return `• ${a.action}${suffix}`;
       }).join('\n')
     : `• ${action}`;
 }
