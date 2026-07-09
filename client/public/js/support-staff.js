@@ -182,34 +182,39 @@
     $('sd-toolbar').innerHTML = b.join(' ');
   }
 
+  // Renders the SAME .sup-* chat markup the member support page uses, so a
+  // claimed ticket looks identical in the Support Desk and on /support.
+  // (Styling lives in the shared /css/support-chat.css.)
+  function mdInlineSd(s) { return esc(s || '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
   function avatarHtml(m) {
     const isBot = (m.authorKind || '').toLowerCase() === 'bot';
-    const inner = isBot ? `<img src="${MET}" alt="" style="width:100%;height:100%;object-fit:cover;">`
-      : (m.authorAvatar ? `<img src="${esc(m.authorAvatar)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : esc((m.authorName || '?').slice(0, 1).toUpperCase()));
-    const click = m.authorId ? ` style="cursor:pointer;" onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')"` : '';
-    return `<div${click} style="width:32px;height:32px;border-radius:50%;overflow:hidden;flex:0 0 32px;background:#222;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${inner}</div>`;
+    const inner = isBot ? `<img src="${MET}" alt="MET">`
+      : (m.authorAvatar ? `<img src="${esc(m.authorAvatar)}" alt="">` : esc((m.authorName || '?').slice(0, 1).toUpperCase()));
+    const click = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
+    return `<div class="sup-av"${click}>${inner}</div>`;
   }
   function msgHtml(m) {
     const kind = (m.authorKind || 'staff').toLowerCase();
     const internal = kind === 'internal';
     const atts = (m.attachments || []).map(a => a.kind === 'video'
-      ? `<video src="${esc(a.url)}" controls style="max-width:220px;max-height:160px;border-radius:8px;"></video>`
-      : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" style="max-width:220px;max-height:160px;border-radius:8px;border:1px solid var(--border,#333);"></a>`).join('');
-    const nameColor = kind === 'bot' ? 'var(--blue)' : (internal ? 'var(--amber)' : (kind === 'opener' ? 'var(--text-primary)' : 'var(--green)'));
-    return `<div class="sd-msg"${m.id ? ` data-mid="${esc(m.id)}"` : ''} style="display:flex;gap:10px;${internal ? 'background:rgba(232,132,42,.07);border-left:2px solid var(--amber);padding:6px 8px;border-radius:8px;' : ''}">
+      ? `<video src="${esc(a.url)}" controls></video>`
+      : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}"></a>`).join('');
+    const nameClick = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
+    return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:12px;"><span style="font-weight:700;color:${nameColor};">${esc(m.authorName || '')}</span>${internal ? ' <span style="font-size:10px;color:var(--amber);">· internal note</span>' : ''} <span style="color:var(--text-muted);font-size:11px;">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span></div>
-        ${m.body ? `<div style="font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${esc(m.body).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')}</div>` : ''}
+      <div class="sup-body">
+        <div class="sup-meta"><span class="sup-name"${nameClick}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span></div>
+        ${m.body ? `<div class="sup-text">${mdInlineSd(m.body)}</div>` : ''}
         ${m.identity ? idCard(m.identity) : ''}
-        ${atts ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">${atts}</div>` : ''}
+        ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
       </div></div>`;
   }
   function idCard(p) {
-    const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" style="width:44px;height:44px;border-radius:8px;object-fit:cover;">` : '';
-    return `<div onclick="window.open('https://www.roblox.com/users/${esc(p.robloxId || '')}/profile','_blank','noopener')" style="cursor:pointer;display:flex;gap:10px;align-items:center;margin-top:6px;padding:8px 10px;border:1px solid var(--border,#333);border-radius:9px;max-width:320px;">
+    const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" style="width:52px;height:52px;border-radius:9px;object-fit:cover;">` : '';
+    const open = p.robloxId ? ` onclick="window.open('https://www.roblox.com/users/${esc(p.robloxId)}/profile','_blank','noopener')" title="Open Roblox profile"` : '';
+    return `<div class="sup-idcard"${open}>
       ${head}<div><div style="font-weight:700;">${esc(p.robloxDisplayName || p.robloxUsername || 'Unknown')}</div>
-      <div style="font-size:11px;color:var(--text-muted);">@${esc(p.robloxUsername || '')} · Roblox ${esc(p.robloxId || '')}${p.discordId ? ` · Discord ${esc(p.discordId)}` : ''}</div></div></div>`;
+      <div style="font-size:12px;color:var(--text-muted);">@${esc(p.robloxUsername || '')} · Roblox ID ${esc(p.robloxId || '')}${p.discordId ? ` · Discord ${esc(p.discordId)}` : ''}</div></div></div>`;
   }
   function renderLog(t) {
     const msgs = t.messages || [];

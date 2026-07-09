@@ -1,0 +1,34 @@
+/* Shared support-chat message styling.
+ * Loaded by both the member support page (client/views/support.html mirrors
+ * these rules inline) and the staff Support Desk (dashboard / dev-dashboard),
+ * so a claimed ticket looks identical in both places. */
+
+.sup-msg { display: flex; gap: 10px; }
+.sup-msg .sup-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; background: var(--surface-2, #222); display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 13px; font-weight: 700; }
+.sup-msg .sup-av img { width: 100%; height: 100%; object-fit: cover; }
+.sup-msg .sup-body { flex: 1; min-width: 0; }
+.sup-msg .sup-meta { font-size: 12px; margin-bottom: 2px; }
+.sup-msg .sup-name { font-weight: 700; }
+.sup-msg .sup-time { color: var(--text-muted); font-size: 11px; margin-left: 6px; }
+.sup-msg .sup-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.sup-msg.bot .sup-name { color: var(--blue); }
+.sup-msg.staff .sup-name { color: var(--green); }
+.sup-msg.opener .sup-name { color: var(--text-primary); }
+
+/* Internal (staff-only) notes — amber, tinted, left-barred. */
+.sup-msg.internal { background: rgba(232,132,42,.07); border-left: 2px solid var(--amber, #e8842a); padding: 6px 8px; border-radius: 8px; }
+.sup-msg.internal .sup-name { color: var(--amber, #e8842a); }
+.sup-note-tag { font-size: 10px; color: var(--amber, #e8842a); margin-left: 6px; }
+
+.sup-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.sup-atts a, .sup-atts img, .sup-atts video { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--border, #333); }
+
+/* System transition panels (transferred to IA, claimed, closed) */
+.sup-msg-sys { display: flex; justify-content: center; }
+.sup-sys { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 1px solid var(--border, #333); border-radius: 12px; background: rgba(74,143,255,.06); max-width: 460px; }
+
+/* Resolved-person / identity card */
+.sup-idcard { display: flex; gap: 12px; align-items: center; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border, #333); border-radius: 10px; max-width: 340px; background: rgba(255,255,255,.02); }
+.sup-idcard:hover { border-color: var(--blue, #4a8fff); }
+
+.sup-av[onclick]:hover, .sup-name[onclick]:hover { filter: brightness(1.15); text-decoration: underline; cursor: pointer; }
