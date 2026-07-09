@@ -947,6 +947,33 @@ router.post('/tickets/:id/mention', async (req, res) => {
   }
 });
 
+// Post a Tickety-style "Ticket Closed" embed for a closed support ticket to the
+// ticket-log channel, via the MET bot. Best-effort; never blocks the close.
+async function postSupportCloseLog(t, closer) {
+  try {
+    let creatorId = null, creatorUsername = null, creatorName = t.openerName || 'Guest';
+    if (t.openerId) {
+      const o = await prisma.user.findUnique({ where: { id: t.openerId }, select: { discordId: true, discordUsername: true, displayName: true } }).catch(() => null);
+      if (o) { creatorId = o.discordId || null; creatorUsername = o.discordUsername || null; creatorName = o.displayName || o.discordUsername || creatorName; }
+    }
+    const cfg = support.typeConfig(t.type);
+    let base = null; try { base = require('../lib/dmOptOut').siteBaseUrl(); } catch (e) {}
+    const nameSlug = String(t.openerName || 'guest').toLowerCase().replace(/[^a-z0-9_]/g, '');
+    await require('../lib/bot').postTicketCloseLog({
+      ticketName: `${(cfg && cfg.label ? cfg.label.toLowerCase().replace(/\s+/g, '-') : t.type.toLowerCase())}-${nameSlug}`,
+      ticketId: t.id,
+      reason: t.closeReason || 'Resolved',
+      creatorId, creatorUsername, creatorName,
+      creatorMention: creatorId ? `<@${creatorId}>` : creatorName,
+      executorId: closer.discordId || null,
+      executorUsername: closer.discordUsername || null,
+      executorName: closer.displayName || closer.discordUsername || 'Investigator',
+      executorMention: closer.discordId ? `<@${closer.discordId}>` : (closer.displayName || closer.discordUsername || 'Investigator'),
+      transcriptUrl: base ? `${base.replace(/\/$/, '')}/ia/dashboard?supportTicket=${t.id}` : null,
+    });
+  } catch (e) { /* never block the close on a Discord log */ }
+}
+
 // ── POST /api/support/tickets/:id/close { reason } — handling staff close ──
 router.post('/tickets/:id/close', async (req, res) => {
   try {
@@ -963,6 +990,8 @@ router.post('/tickets/:id/close', async (req, res) => {
     support.publish(t.id, 'update', { status: 'CLOSED' });
     // Auto-file an IA ticket log for HICOMM review (fire-and-forget).
     createIaTicketLog(updated, req.user).catch(() => {});
+    // Post a Tickety-style close log to the ticket-log channel via the MET bot.
+    postSupportCloseLog(updated, req.user).catch(() => {});
     require('../lib/audit').log(req.user, { category: 'TICKET', action: 'CLOSE', target: { type: 'support_ticket', id: t.id, name: t.type }, summary: `Closed ${t.type} ticket${reason ? ` — ${reason}` : ''}` });
     res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
   } catch (e) { res.status(500).json({ error: 'Failed to close' }); }

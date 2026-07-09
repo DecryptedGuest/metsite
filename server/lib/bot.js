@@ -868,6 +868,43 @@ async function postChannelMessage(channelId, payload) {
   }
 }
 
+// Post a Tickety-style "Ticket Closed" (or "Ticket Created") log for a MET-site
+// support ticket to the ticket-log channel, using the MET bot. Same layout as
+// Tickety but MET-branded (footer + colour). Best-effort; null on any failure.
+async function postTicketCloseLog(data = {}) {
+  if (!ready || !TICKET_LOG_GUILD_ID || !TICKET_LOG_CHANNEL_ID) return null;
+  try {
+    const guild = await client.guilds.fetch(TICKET_LOG_GUILD_ID);
+    const channel = await guild.channels.fetch(TICKET_LOG_CHANNEL_ID);
+    if (!channel || typeof channel.send !== 'function') return null;
+    const created = data.kind === 'created';
+    const na = (v) => (v == null || v === '') ? 'N/A' : String(v);
+    const embed = new EmbedBuilder()
+      .setColor(0x1d4ed8) // MET blue
+      .setTitle(created ? 'Ticket Created' : 'Ticket Closed')
+      .setDescription(`${data.executorMention || na(data.executorName)} ${created ? 'created' : 'closed'} a ticket.`)
+      .addFields(
+        { name: created ? 'Ticket Information' : 'Close Information',
+          value: `**Ticket Name:** ${na(data.ticketName)}\n**Ticket ID:** ${na(data.ticketId)}` + (created ? '' : `\n**Reason:** ${na(data.reason || 'Resolved')}`) },
+        { name: 'Creator Information',
+          value: `**Creator:** ${data.creatorMention || na(data.creatorName)}\n**Creator Username:** ${data.creatorUsername ? '@' + data.creatorUsername : 'N/A'}\n**Creator ID:** ${na(data.creatorId)}` },
+      );
+    if (!created) {
+      embed.addFields({ name: 'Executor Information',
+        value: `**Executor:** ${data.executorMention || na(data.executorName)}\n**Executor Username:** ${data.executorUsername ? '@' + data.executorUsername : 'N/A'}\n**Executor ID:** ${na(data.executorId)}` });
+    }
+    let iconURL; try { iconURL = guild.iconURL({ size: 64 }) || undefined; } catch (e) {}
+    embed.setFooter({ text: 'Metropolitan Police Service · Internal Affairs', iconURL }).setTimestamp(new Date());
+    const components = [];
+    if (data.transcriptUrl) {
+      components.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setLabel('View Transcript').setStyle(ButtonStyle.Link).setURL(data.transcriptUrl)));
+    }
+    const msg = await channel.send({ embeds: [embed], components });
+    return msg.id;
+  } catch (e) { console.warn('[Bot] postTicketCloseLog failed:', e.message); return null; }
+}
+
 // Edit a message the bot posted to a channel (by ids). Returns true on success.
 async function editChannelMessage(channelId, messageId, payload) {
   if (!ready || !channelId || !messageId || !payload) return false;
@@ -1605,7 +1642,7 @@ module.exports = {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmTicketAlert, dmLoginCode, deleteLoginDm,
-  reactToMessage, postChannelMessage, editChannelMessage,
+  reactToMessage, postChannelMessage, editChannelMessage, postTicketCloseLog,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   backfillLogChannel, backfillPatrolLogs,
   getGuildMemberRoles, listGuildRoleMembers, getMemberRoleStyle,
