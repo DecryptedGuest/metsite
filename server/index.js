@@ -321,6 +321,8 @@ app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
 app.use('/api/ai-review', requireAuth, ia, aiReviewRoutes);
+// IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
+app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
 // Push + notification self-service must be open to EVERY signed-in member — the
 // "Enable notifications" button on /profile and /app is shown to all users. The
 // developer-only endpoints inside these routers carry their own requireDeveloper

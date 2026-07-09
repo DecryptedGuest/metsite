@@ -124,6 +124,9 @@
         <button class="nav-item hicomm-strict-only" data-page="quota-check" style="display:none;">
           <i class="ti ti-checklist nav-icon"></i><span>Quota Check</span>
         </button>
+        <button class="nav-item hicomm-strict-only" data-page="ia-profiles" style="display:none;">
+          <i class="ti ti-user-search nav-icon"></i><span>IA Profiles</span>
+        </button>
 
         <!-- ── Developer ────────────────────────────────────── -->
         <div class="nav-section-label dev-only" style="display:none;">Developer</div>
@@ -1314,6 +1317,24 @@
       <div id="rec-results"></div>
     </section>
 
+    <!-- IA PROFILES (HICOMM + Developer only) -->
+    <section class="page" id="page-ia-profiles">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">IA Profiles</h1>
+          <p class="page-sub">Oversight · Search an IA member for their full record</p>
+        </div>
+      </div>
+      <div class="panel glass fade-up" style="margin-bottom:1.2rem;">
+        <div style="padding:1rem 1.2rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="text" class="form-control" id="iap-search" placeholder="Search IA members — name, Discord, or Roblox…" style="flex:1;min-width:220px;" />
+          <button class="btn btn-primary" id="iap-search-btn"><i class="ti ti-search"></i> Search</button>
+        </div>
+        <div id="iap-results" style="padding:0 1.2rem 1rem;"></div>
+      </div>
+      <div id="iap-profile"></div>
+    </section>
+
     <!-- QUOTA CHECK (HICOMM + Developer only) -->
     <section class="page" id="page-quota-check">
       <div class="page-header fade-up">
@@ -1970,6 +1991,7 @@
 <script src="/js/security.js?v=72"></script>
 <script src="/js/records.js?v=72"></script>
 <script src="/js/quota-check.js?v=72"></script>
+<script src="/js/ia-profiles.js?v=1"></script>
 <script src="/js/ai-review.js?v=72"></script>
 <script src="/js/media.js?v=72"></script>
 <script src="/js/passkeys.js"></script>

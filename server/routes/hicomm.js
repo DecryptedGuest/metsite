@@ -272,9 +272,28 @@ async function buildMetProfile({ discordId, robloxId, robloxUsername }) {
   return {
     discord,
     roblox: rid ? { id: rid, username: (info && info.username) || rname, displayName: info && info.displayName } : null,
-    robloxGroups: groups,
+    robloxGroups: filterMetGroups(groups),
     metRank: metRank ? { name: metRank.name, rank: metRank.rank } : null,
   };
+}
+
+// Officer 360 shows only groups RELATED TO MET (the umbrella group + the portal
+// divisions), not every Roblox group the person happens to be in. Kept by
+// configured group id (authoritative) or a MET-specific name match.
+const MET_GROUP_NAME = /metropolitan|met police|\bsco[\s-]?19\b|specialist firearms|firearms command|criminal invest|\bcid\b|frontline|hendon|police college|\bhpc\b|internal affairs|\bmi5\b|military intelligence|\bsas\b|special air service/i;
+function metRelatedGroupIds() {
+  try {
+    const div = require('../lib/divisions');
+    return new Set([div.metGroupId(), ...div.ALL.map(d => div.explicitGroupId(d))].filter(Boolean).map(String));
+  } catch (e) { return new Set(); }
+}
+function filterMetGroups(groups) {
+  const ids = metRelatedGroupIds();
+  return (groups || []).filter(g => {
+    const gid = g && g.group && String(g.group.id);
+    const name = (g && g.group && g.group.name) || '';
+    return (gid && ids.has(gid)) || MET_GROUP_NAME.test(name);
+  });
 }
 
 // ── GET /api/hicomm/officer/:id/met — enrich a SITE user's 360 with their live

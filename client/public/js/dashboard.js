@@ -282,6 +282,7 @@ function navigateTo(pageId) {
     'support-tickets': (typeof loadSupportTickets === 'function' ? loadSupportTickets : null),
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
     'quota-check':   (typeof loadQuotaCheck === 'function' ? loadQuotaCheck : null),
+    'ia-profiles':   (typeof loadIaProfiles === 'function' ? loadIaProfiles : null),
     'ai-review':     (typeof loadAiReview === 'function' ? loadAiReview : null),
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
