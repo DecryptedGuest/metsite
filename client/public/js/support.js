@@ -38,7 +38,7 @@
 
   const $ = id => document.getElementById(id);
 
-  // ── Init ────────────────────────────────────────────────────────────
+  // ── Init ───────────────────────────────────────────────────────
   async function init() {
     try {
       CFG = await api('/api/support/config');
@@ -79,7 +79,7 @@
     }
   }
 
-  // ── Landing: panels ─────────────────────────────────────────────────
+  // ── Landing: panels ────────────────────────────────────────────
   function renderPanels() {
     $('sup-panels').innerHTML = CFG.types.map(t => `
       <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}">
@@ -138,11 +138,14 @@
     } catch (e) { $('sup-queue').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   }
 
-  // ── Open / create a ticket ──────────────────────────────────────────
+  // ── Open / create a ticket ─────────────────────────────────────
   window.supOpenNew = async function (type) {
     const cfg = typeByKey[type] || {};
     if (cfg.helpBot) return startHelpBot(cfg);   // General Support → help bot first
     helpMode = false;
+    // Fresh ticket → drop any punishment picked for a previous appeal, so a
+    // stale selection can't be attached to this (possibly different) ticket.
+    selectedPunishment = null;
     try {
       const r = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({ type }) });
       if (r.token) remember(r.ticket.id, r.token);
@@ -217,8 +220,31 @@
       }
     }
     parts.push(...msgs.slice(1).map(renderMsg));
-    $('sup-log').innerHTML = parts.join('');
+    $('sup-log').innerHTML = statusTimelineHtml(t) + parts.join('');
     scrollLog();
+  }
+
+  // A plain-language progress bar the OPENER sees at the top of their ticket, so
+  // they can follow Submitted → Claimed → Decision without an investigator
+  // explaining it. Staff don't need it (they have the workspace controls).
+  function statusTimelineHtml(t) {
+    if (!t || !t.isMine) return '';
+    const claimedDone = t.status === 'CLAIMED' || t.status === 'CLOSED';
+    const closedDone  = t.status === 'CLOSED';
+    const steps = [
+      { label: 'Submitted', done: true, at: t.createdAt },
+      { label: claimedDone ? ('Claimed' + (t.claimedByName ? ' · ' + esc(t.claimedByName) : '')) : 'Awaiting an investigator', done: claimedDone, at: t.claimedAt },
+      { label: closedDone ? 'Reviewed & closed' : 'Decision', done: closedDone, at: t.closedAt },
+    ];
+    const col = (s) => `<div style="display:flex;flex-direction:column;align-items:center;flex:1 1 0;min-width:0;text-align:center;">
+      <div style="width:12px;height:12px;border-radius:50%;background:${s.done ? 'var(--green,#22c55e)' : 'var(--surface-2,#2a3140)'};box-shadow:0 0 0 2px ${s.done ? 'var(--green,#22c55e)' : 'var(--border,#3a4150)'};"></div>
+      <div style="font-size:11px;margin-top:6px;color:${s.done ? 'var(--text-primary)' : 'var(--text-muted)'};line-height:1.3;">${s.label}</div>
+      ${s.at ? `<div style="font-size:10px;color:var(--text-muted);margin-top:1px;">${fmtTime(s.at)}</div>` : ''}
+    </div>`;
+    const bar = (on) => `<div style="height:2px;flex:0 0 20px;margin-top:5px;background:${on ? 'var(--green,#22c55e)' : 'var(--border,#3a4150)'};"></div>`;
+    return `<div class="sup-timeline" style="display:flex;align-items:flex-start;padding:12px 14px;margin-bottom:10px;border:1px solid var(--border,#2a3140);border-radius:12px;background:rgba(255,255,255,.02);">
+      ${col(steps[0])}${bar(claimedDone)}${col(steps[1])}${bar(closedDone)}${col(steps[2])}
+    </div>`;
   }
 
   function profileClick(m) {
@@ -246,11 +272,15 @@
     const panel = transitionPanel(m);
     if (panel) return `<div class="sup-msg-sys"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>${panel}</div>`;
     const kind = (m.authorKind || 'STAFF').toLowerCase();
-    const atts = (m.attachments || []).map(a =>
-      a.kind === 'video'
-        ? `<video src="${esc(a.url)}" controls></video>`
-        : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}" /></a>`
-    ).join('');
+    const atts = (m.attachments || []).map(a => {
+      // Guest openers have no session cookie — a bare media URL 403s. Append the
+      // per-ticket token so their own evidence and staff-sent images load.
+      // (tok() is a no-op for signed-in users, who authenticate via cookie.)
+      const u = tok(a.url, cur && cur.id);
+      return a.kind === 'video'
+        ? `<video src="${esc(u)}" controls></video>`
+        : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(a.name || '')}" /></a>`;
+    }).join('');
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
@@ -264,7 +294,7 @@
 
   function scrollLog() { const l = $('sup-log'); l.scrollTop = l.scrollHeight; }
 
-  // ── Intake flow ─────────────────────────────────────────────────────
+  // ── Intake flow ─────────────────────────────────────────────────
   function startIntake(questions) {
     mode = 'intake';
     intakeQs = (questions || []).slice();
@@ -439,7 +469,7 @@
     askNext();
   };
 
-  // ── Clickable profile cards ─────────────────────────────────────────
+  // ── Clickable profile cards ─────────────────────────────────────
   window.supOpenProfile = async function (kind, authorId) {
     openModal('modal-sup-profile');
     const body = $('sup-prof-body'), title = $('sup-prof-title');
@@ -666,7 +696,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     return null;
   }
 
-  // ── Composer ────────────────────────────────────────────────────────
+  // ── Composer ─────────────────────────────────────────────────────
   function wireComposer() {
     $('sup-attach-btn').addEventListener('click', () => $('sup-file').click());
     $('sup-file').addEventListener('change', onPickFiles);
@@ -754,7 +784,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  // ── Realtime (SSE + polling fallback) ────────────────────────────────
+  // ── Realtime (SSE + polling fallback) ───────────────────────────────
   let pollTimer = null;
   function openStream(ticketId) {
     closeStream();
@@ -794,14 +824,17 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     }
   }
 
-  // ── Staff actions ───────────────────────────────────────────────────
+  // ── Staff actions ─────────────────────────────────────────────
   window.supClaim = async function () {
     try { const r = await api('/api/support/tickets/' + cur.id + '/claim', { method: 'POST' }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Claimed', 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.supClose = async function () {
-    const reason = (await uiPrompt('Closing note (optional):', { title: 'Close ticket', confirmText: 'Close ticket', placeholder: 'Optional note for the record' })) || '';
-    try { const r = await api('/api/support/tickets/' + cur.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Ticket closed', 'success'); }
+    // uiPrompt resolves null on Cancel / Escape / backdrop — a hard abort that
+    // must NOT close the ticket. `null || ''` would swallow that, so guard first.
+    const reason = await uiPrompt('Closing note (optional):', { title: 'Close ticket', confirmText: 'Close ticket', placeholder: 'Optional note for the record' });
+    if (reason === null) return;
+    try { const r = await api('/api/support/tickets/' + cur.id + '/close', { method: 'POST', body: JSON.stringify({ reason: reason || '' }) }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Ticket closed', 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };
 
