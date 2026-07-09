@@ -121,7 +121,6 @@ async function initMetTopbar(currentDivision) {
   try {
     if (right && !document.getElementById('met-pages')) {
       const PAGES = [
-        { href: '/support',   icon: 'ti-lifebuoy',       label: 'Support' },
         { href: '/loa',       icon: 'ti-calendar-off',   label: 'Leave of Absence' },
         // Final Exam only appears for cadets who hold the final-exam role.
         ...(examEligible ? [{ href: '/exam', icon: 'ti-writing', label: 'Final Exam' }] : []),
@@ -144,6 +143,19 @@ async function initMetTopbar(currentDivision) {
       document.addEventListener('click', () => wrap.classList.remove('open'));
       if (PAGES.some(p => p.href === HERE)) markHere(pBtn);
 
+      // A direct "Support" button for EVERYONE (members + IA) — takes them
+      // straight to the /support page. The IA "Support Desk" pill below is the
+      // separate, IA-only staff panel.
+      if (!document.getElementById('met-support-link')) {
+        const sup = document.createElement('a');
+        sup.id = 'met-support-link';
+        sup.href = '/support';
+        sup.className = 'btn btn-ghost btn-sm';
+        sup.innerHTML = '<i class="ti ti-lifebuoy"></i> Support';
+        if (switcherEl) right.insertBefore(sup, switcherEl); else right.appendChild(sup);
+        if (HERE === '/support') markHere(sup);
+      }
+
       // Live unclaimed-ticket counter — a topbar pill that only appears for IA
       // staff (the queue endpoint 403s for everyone else) and PULSES when the
       // count goes up (a new ticket landed). Refreshed on 'support_open' SSE
@@ -160,8 +172,8 @@ async function initMetTopbar(currentDivision) {
           pill.id = 'met-support-pill';
           pill.href = '/ia/dashboard?page=support-tickets';
           pill.className = 'btn btn-ghost btn-sm';
-          pill.title = 'Support desk — unclaimed tickets';
-          pill.innerHTML = '<i class="ti ti-headset"></i> Support <span id="met-support-badge" style="min-width:18px;height:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--red,#e0503a);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;">0</span>';
+          pill.title = 'Support Desk — Internal Affairs · unclaimed tickets';
+          pill.innerHTML = '<i class="ti ti-headset"></i> Support Desk <span id="met-support-badge" style="min-width:18px;height:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--red,#e0503a);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;">0</span>';
           right.insertBefore(pill, right.firstChild);
         }
         const badge = document.getElementById('met-support-badge');

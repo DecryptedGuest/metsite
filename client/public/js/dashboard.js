@@ -341,8 +341,18 @@ async function runIaSync() {
   if (out) out.innerHTML = '';
   try {
     const r = await api('/api/dev/ia-sync', { method: 'POST' });
-    const fmt = (lbl, x) => x ? `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}` : `${lbl}: —`;
-    if (out) out.innerHTML = `<span style="color:var(--green);"><i class="ti ti-check"></i> Synced. ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`;
+    // Surface a sub-sync failure (e.g. IA_DATABASE_URL wrong, or an IA schema/
+    // column mismatch) instead of a meaningless "+?/?" — that's what makes a
+    // silent failure look like "nothing happened".
+    const failed = (r.cases && r.cases.ok === false) || (r.tickets && r.tickets.ok === false);
+    const fmt = (lbl, x) => {
+      if (!x) return `${lbl}: —`;
+      if (x.ok === false) return `${lbl}: ⚠ ${x.reason || 'failed'}`;
+      return `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}${x.skipped ? ` (${x.skipped} skipped)` : ''}`;
+    };
+    if (out) out.innerHTML = failed
+      ? `<span style="color:var(--amber,#e8842a);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`
+      : `<span style="color:var(--green);"><i class="ti ti-check"></i> Synced. ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`;
   } catch (e) {
     if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
   } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Sync IA cases &amp; tickets'; } }
@@ -423,8 +433,8 @@ async function openTicketDeepLink(ticketId) {
 }
 
 // Copy a shareable deep-link to a case/ticket detail.
-function copyCaseLink(caseId) { copyDeepLink('/dashboard?case=' + caseId); }
-function copyTicketLink(ticketId) { copyDeepLink('/dashboard?ticket=' + ticketId); }
+function copyCaseLink(caseId) { copyDeepLink('/ia/dashboard?case=' + caseId); }
+function copyTicketLink(ticketId) { copyDeepLink('/ia/dashboard?ticket=' + ticketId); }
 function copyDeepLink(path) {
   const url = location.origin + path;
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1393,7 +1403,7 @@ async function loadAdminUsers() {
   try {
     const users = await api('/api/admin/users');
     if (!users?.length) { tbody.innerHTML = emptyRow(10, 'No users found.'); return; }
-    const roleOptions = r => ['IA','HICOMM','SUPERVISOR','DEVELOPER'].map(v =>
+    const roleOptions = r => ['NONE','IA','SUPERVISOR','HICOMM','DEVELOPER'].map(v =>
       `<option value="${v}" ${r === v ? 'selected' : ''}>${v}</option>`).join('');
     tbody.innerHTML = users.map(u => `
       <tr class="${u.isBlacklisted ? 'blacklisted-row' : ''}">
