@@ -89,7 +89,7 @@ router.post('/patrols/:id/:action', async (req, res) => {
   }
 });
 
-// ── FLP group panel (Assistant Director+) ─────────────────────────────
+// ── FLP group panel (Assistant Director+) ──────────────────────
 router.get('/group/roles', requireFlpGroupAdmin, async (req, res) => {
   try { res.json(await listGroupRoles(flpGroupId())); }
   catch (err) { res.status(500).json({ error: err.message }); }
@@ -153,7 +153,10 @@ router.delete('/group/members/:userId', requireFlpGroupAdmin, async (req, res) =
         return res.status(403).json({ error: 'You can only kick members ranked below your own.' });
       }
     }
-    await exileFromGroup(req.params.userId, gid);
+    // exileFromGroup returns false (never throws) on failure — don't claim
+    // success or log a KICK audit entry unless the exile actually happened.
+    const ok = await exileFromGroup(req.params.userId, gid);
+    if (!ok) return res.status(502).json({ error: 'Roblox rejected the kick (check the group bot cookie/permissions).' });
     require('../lib/audit').log(req.user, { category: 'GROUP', action: 'KICK', division: 'FLP',
       target: { type: 'roblox_user', id: req.params.userId }, summary: `Kicked Roblox user ${req.params.userId} from FLP group` });
     res.json({ success: true });

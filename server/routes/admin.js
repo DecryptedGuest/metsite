@@ -5,7 +5,7 @@ const { requireDeveloper } = require('../middleware/auth');
 const { userIsMetHicommCached } = require('../middleware/division');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
-  resolveJoinRequest, changeGroupRank, exileFromGroup, cookieForDivision,
+  resolveJoinRequest, changeGroupRank, exileFromGroup, cookieForDivision, mainGroupId,
 } = require('../lib/roblox');
 const {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
@@ -44,7 +44,7 @@ router.use((req, res, next) => {
   return requireDeveloper(req, res, next);
 });
 
-// ── GET /api/admin/users ──────────────────────────────────────────
+// ── GET /api/admin/users ───────────────────────────────────
 router.get('/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
@@ -68,7 +68,7 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/users/:id/role ──────────────────────────────
+// ── PATCH /api/admin/users/:id/role ─────────────────────────
 router.patch('/users/:id/role', async (req, res) => {
   const { role } = req.body;
   if (!['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) {
@@ -99,7 +99,7 @@ router.patch('/users/:id/role', async (req, res) => {
   }
 });
 
-// ── POST /api/admin/users/:id/blacklist ──────────────────────────
+// ── POST /api/admin/users/:id/blacklist ───────────────────────
 router.post('/users/:id/blacklist', async (req, res) => {
   const { reason } = req.body;
   if (req.params.id === req.user.id) {
@@ -129,7 +129,7 @@ router.post('/users/:id/blacklist', async (req, res) => {
   }
 });
 
-// ── POST /api/admin/users/:id/unblacklist ────────────────────────
+// ── POST /api/admin/users/:id/unblacklist ─────────────────────
 router.post('/users/:id/unblacklist', async (req, res) => {
   try {
     const u = await prisma.user.update({
@@ -144,7 +144,7 @@ router.post('/users/:id/unblacklist', async (req, res) => {
   }
 });
 
-// ── DELETE /api/admin/cases/:id ───────────────────────────────────
+// ── DELETE /api/admin/cases/:id ──────────────────────────────
 router.delete('/cases/:id', async (req, res) => {
   try {
     const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
@@ -161,7 +161,7 @@ router.delete('/cases/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/visits ─────────────────────────────────────────
+// ── GET /api/admin/visits ──────────────────────────────────
 // Developer-only website visit log (most recent first).
 router.get('/visits', async (req, res) => {
   try {
@@ -232,7 +232,7 @@ router.delete('/access-grants/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/security ───────────────────────────────────────
+// ── GET /api/admin/security ─────────────────────────────────
 // Developer-only screenshot/capture security log (most recent first).
 router.get('/security', async (req, res) => {
   try {
@@ -248,7 +248,7 @@ router.get('/security', async (req, res) => {
   }
 });
 
-// ── DELETE /api/admin/tickets/:id ─────────────────────────────────
+// ── DELETE /api/admin/tickets/:id ────────────────────────────
 router.delete('/tickets/:id', async (req, res) => {
   try {
     const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
@@ -261,7 +261,7 @@ router.delete('/tickets/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/settings ───────────────────────────────────────
+// ── GET /api/admin/settings ─────────────────────────────────
 router.get('/settings', async (req, res) => {
   try {
     const settings = await prisma.systemSetting.findMany();
@@ -273,7 +273,7 @@ router.get('/settings', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/settings ─────────────────────────────────────
+// ── PATCH /api/admin/settings ──────────────────────────────
 router.patch('/settings', async (req, res) => {
   const siteConfig = require('../lib/siteConfig');
   const allowed = ['webhookUrl', 'systemName', 'maintenanceMode', ...siteConfig.KEYS];
@@ -297,7 +297,7 @@ router.patch('/settings', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/stats ──────────────────────────────────────────
+// ── GET /api/admin/stats ──────────────────────────────────
 router.get('/stats', async (req, res) => {
   try {
     const [totalUsers, totalCases, totalActions, blacklisted] = await Promise.all([
@@ -312,10 +312,10 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/group/debug ────────────────────────────────────
+// ── GET /api/admin/group/debug ──────────────────────────────
 // Exercises the cookie-authenticated group functions so misconfiguration is visible
 router.get('/group/debug', async (req, res) => {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+  const groupId = mainGroupId();
 
   const probe = async (label, fn) => {
     try {
@@ -345,14 +345,14 @@ router.get('/group/debug', async (req, res) => {
   });
 });
 
-// ── GET /api/admin/group/divisions ────────────────────────────────
+// ── GET /api/admin/group/divisions ───────────────────────────
 // The selectable groups for the panel's division switcher (every division that
 // has a group id, + MET). Client-safe: names/keys only, never the group ids.
 router.get('/group/divisions', (req, res) => {
   res.json(panelGroups().map(g => ({ key: g.key, name: g.name, fullName: g.fullName })));
 });
 
-// ── GET /api/admin/group/roles ────────────────────────────────────
+// ── GET /api/admin/group/roles ──────────────────────────────
 router.get('/group/roles', async (req, res) => {
   try {
     const roles = await listGroupRoles(panelGroupId(req), panelCookie(req));
@@ -363,7 +363,7 @@ router.get('/group/roles', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/group/members ──────────────────────────────────
+// ── GET /api/admin/group/members ────────────────────────────
 router.get('/group/members', async (req, res) => {
   try {
     const { pageToken } = req.query;
@@ -375,7 +375,7 @@ router.get('/group/members', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/group/pending ──────────────────────────────────
+// ── GET /api/admin/group/pending ────────────────────────────
 router.get('/group/pending', async (req, res) => {
   try {
     const { pageToken } = req.query;
@@ -428,10 +428,14 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
   }
 });
 
-// ── DELETE /api/admin/group/members/:userId ───────────────────────
+// ── DELETE /api/admin/group/members/:userId ─────────────────────
 router.delete('/group/members/:userId', async (req, res) => {
   try {
-    await exileFromGroup(req.params.userId, panelGroupId(req), panelCookie(req));
+    // exileFromGroup returns false (never throws) on any failure — cookie unset,
+    // bot lacks permission, Roblox 403/429/500. Don't report success or write a
+    // KICK audit entry unless the exile actually happened.
+    const ok = await exileFromGroup(req.params.userId, panelGroupId(req), panelCookie(req));
+    if (!ok) return res.status(502).json({ error: 'Roblox rejected the kick (check the group bot cookie/permissions).' });
     audit.log(req.user, { category: 'GROUP', action: 'KICK', division: req.query.division || 'MET',
       target: { type: 'roblox_user', id: req.params.userId }, summary: `Kicked Roblox user ${req.params.userId} from ${req.query.division || 'MET'} group` });
     res.json({ success: true });
@@ -440,7 +444,7 @@ router.delete('/group/members/:userId', async (req, res) => {
   }
 });
 
-// ── Discord Moderation (Dev Panel) ────────────────────────────────
+// ── Discord Moderation (Dev Panel) ───────────────────────────
 // Ban / unban / kick / timeout ("mute") any Discord user by ID or by
 // searching the member list — for MET-server moderation, independent of any
 // IA case. Every action is logged to DiscordModerationLog for an audit trail.
@@ -567,7 +571,7 @@ router.delete('/discord/timeout/:discordId', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/audit ─────────────────────────────────────────
+// ── GET /api/admin/audit ─────────────────────────────────
 // Unified security audit trail (logins, session revocations, exam marking,
 // tryouts, moderation, access changes). Newest first, optional ?category= and
 // ?limit= filters. Developer-only (whole router is requireDeveloper).
