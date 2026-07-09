@@ -9,8 +9,24 @@
   const body = () => $('app-body');
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   const ua = navigator.userAgent || '';
-  const isIOS = /iphone|ipad|ipod/i.test(ua);
+  // iPadOS 13+ reports as desktop Safari — treat a touch Mac as iOS too.
+  const isIOS = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/i.test(ua) && 'ontouchend' in document);
   const isAndroid = /android/i.test(ua);
+  const isMobile = isIOS || isAndroid;
+  // Which browser? The exact Add-to-Home-Screen path differs per browser.
+  function iosBrowser() {
+    if (/CriOS/i.test(ua)) return 'chrome';
+    if (/FxiOS/i.test(ua)) return 'firefox';
+    if (/EdgiOS/i.test(ua)) return 'edge';
+    return 'safari';
+  }
+  function androidBrowser() {
+    if (/SamsungBrowser/i.test(ua)) return 'samsung';
+    if (/EdgA/i.test(ua)) return 'edge';
+    if (/OPR|Opera/i.test(ua)) return 'opera';
+    if (/Firefox/i.test(ua)) return 'firefox';
+    return 'chrome';
+  }
   const params = new URLSearchParams(location.search);
   let deferredPrompt = null;
 
@@ -44,19 +60,59 @@
     if (el && deferredPrompt) el.style.display = '';
   }
 
+  function stepRows(rows) {
+    return '<div style="text-align:left;margin-top:10px;">' + rows.map((r, i) =>
+      `<div class="step"${i === rows.length - 1 ? ' style="border:none;"' : ''}><div class="n">${i + 1}</div><div>${r}</div></div>`
+    ).join('') + '</div>';
+  }
   function stepsIOS() {
-    return `<div style="text-align:left;margin-top:10px;">
-      <div class="step"><div class="n">1</div><div>Tap the <strong>Share</strong> button <i class="ti ti-share"></i> at the bottom of Safari.</div></div>
-      <div class="step"><div class="n">2</div><div>Choose <strong>Add to Home Screen</strong> <i class="ti ti-square-plus"></i>.</div></div>
-      <div class="step" style="border:none;"><div class="n">3</div><div>Tap <strong>Add</strong> — the MET Dashboard appears on your home screen.</div></div>
-    </div>`;
+    const b = iosBrowser();
+    // iOS only lets you add a real home-screen app from Safari's share sheet.
+    if (b !== 'safari') {
+      const name = b === 'chrome' ? 'Chrome' : b === 'firefox' ? 'Firefox' : 'this browser';
+      return `<div class="muted" style="margin-top:10px;padding:10px 12px;border:1px solid var(--amber,#e8842a);border-radius:10px;color:var(--amber,#e8842a);"><i class="ti ti-alert-triangle"></i> You're in ${name}. On iPhone/iPad only <strong>Safari</strong> can add the app to your home screen.</div>`
+        + stepRows([
+          'Copy this page\'s address, then open it in <strong>Safari</strong>.',
+          'In Safari, tap the <strong>Share</strong> button <i class="ti ti-share"></i>.',
+          'Choose <strong>Add to Home Screen</strong> <i class="ti ti-square-plus"></i>, then tap <strong>Add</strong>.',
+        ]);
+    }
+    return stepRows([
+      'Tap the <strong>Share</strong> button <i class="ti ti-share"></i> at the bottom of Safari (or the top on iPad).',
+      'Scroll down and choose <strong>Add to Home Screen</strong> <i class="ti ti-square-plus"></i>.',
+      'Tap <strong>Add</strong> — the MET Dashboard appears on your home screen.',
+    ]);
   }
   function stepsAndroid() {
-    return `<div style="text-align:left;margin-top:10px;">
-      <button class="btn btn-primary big-btn" id="android-install" style="display:none;"><i class="ti ti-download"></i> Install app</button>
-      <div class="step"><div class="n">1</div><div>Tap the <strong>⋮</strong> menu in Chrome.</div></div>
-      <div class="step" style="border:none;"><div class="n">2</div><div>Choose <strong>Install app</strong> / <strong>Add to Home screen</strong>.</div></div>
-    </div>`;
+    const b = androidBrowser();
+    const installBtn = `<button class="btn btn-primary big-btn" id="android-install" style="display:none;"><i class="ti ti-download"></i> Install app</button>`;
+    if (b === 'samsung') {
+      return installBtn + stepRows([
+        'Tap the <strong>≡</strong> menu at the bottom of Samsung Internet.',
+        'Choose <strong>Add page to</strong> → <strong>Home screen</strong>.',
+        'Tap <strong>Add</strong> — the MET Dashboard appears on your home screen.',
+      ]);
+    }
+    if (b === 'firefox') {
+      return installBtn + stepRows([
+        'Tap the <strong>⋮</strong> menu in Firefox.',
+        'Choose <strong>Install</strong> (or <strong>Add to Home screen</strong>).',
+        'Confirm — the MET Dashboard appears on your home screen.',
+      ]);
+    }
+    if (b === 'edge') {
+      return installBtn + stepRows([
+        'Tap the <strong>⋯</strong> menu at the bottom of Edge.',
+        'Choose <strong>Add to phone</strong> (or <strong>Apps → Install</strong>).',
+        'Confirm — the MET Dashboard appears on your home screen.',
+      ]);
+    }
+    // Chrome / Opera / other Chromium.
+    return installBtn + stepRows([
+      'If you see the blue <strong>Install app</strong> button above, just tap it.',
+      'Otherwise tap the <strong>⋮</strong> menu (top-right) in your browser.',
+      'Choose <strong>Install app</strong> / <strong>Add to Home screen</strong>, then confirm.',
+    ]);
   }
 
   async function loadQR() {
@@ -86,7 +142,26 @@
       if (ai) ai.addEventListener('click', async () => { if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; } });
       return;
     }
-    // 3) Desktop (or any browser) that's logged in → show the handoff QR.
+    // 3) Any phone/tablet browser (already signed in here) → show the exact
+    //    Add-to-Home-Screen steps for THIS device + browser. No QR handoff —
+    //    they're already on the phone.
+    if (isMobile) {
+      $('app-sub').textContent = 'Add the MET Dashboard to your home screen.';
+      body().innerHTML = `<div class="muted">Install it so it opens like an app and keeps you signed in — follow the steps for your ${isIOS ? 'iPhone/iPad' : 'device'}.</div>
+        ${isIOS ? stepsIOS() : stepsAndroid()}
+        ${(isIOS && iosBrowser() !== 'safari') ? `<button class="btn btn-ghost big-btn" id="copy-here" style="margin-top:12px;"><i class="ti ti-copy"></i> Copy this page's link</button>` : ''}
+        <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;">${notifButton()}</div>`;
+      wireNotif(); renderInstallCTA();
+      const ai = $('android-install');
+      if (ai) ai.addEventListener('click', async () => { if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; } });
+      const ch = $('copy-here');
+      if (ch) ch.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(location.href); showToast('Link copied — paste it into Safari', 'success'); }
+        catch (e) { window.prompt('Copy this link and open it in Safari:', location.href); }
+      });
+      return;
+    }
+    // 4) Desktop (or any browser) that's logged in → show the handoff QR.
     $('app-sub').textContent = 'Get the dashboard on your phone — already signed in.';
     body().innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     const link = await loadQR();

@@ -38,7 +38,7 @@
 
   const $ = id => document.getElementById(id);
 
-  // ── Init ───────────────────────────────────────────────────────
+  // ── Init ────────────────────────────────────────────────────
   async function init() {
     try {
       CFG = await api('/api/support/config');
@@ -79,7 +79,7 @@
     }
   }
 
-  // ── Landing: panels ────────────────────────────────────────────
+  // ── Landing: panels ──────────────────────────────────────────
   function renderPanels() {
     $('sup-panels').innerHTML = CFG.types.map(t => `
       <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}">
@@ -138,7 +138,7 @@
     } catch (e) { $('sup-queue').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   }
 
-  // ── Open / create a ticket ─────────────────────────────────────
+  // ── Open / create a ticket ───────────────────────────────────────
   window.supOpenNew = async function (type) {
     const cfg = typeByKey[type] || {};
     if (cfg.helpBot) return startHelpBot(cfg);   // General Support → help bot first
@@ -257,16 +257,45 @@
       : (m.authorAvatar ? `<img src="${esc(m.authorAvatar)}" alt="" />` : esc((m.authorName || '?').slice(0, 1).toUpperCase()));
     return `<div class="sup-av"${profileClick(m)}>${inner}</div>`;
   }
+  // Small circular platform logo badge for the corner of an avatar.
+  function idLogoBadge(kind) {
+    const wrap = 'position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--surface-1,#0b0f18);box-shadow:0 1px 2px rgba(0,0,0,.4);';
+    if (kind === 'discord') {
+      return `<span style="${wrap}background:#5865F2;"><svg viewBox="0 0 24 24" width="9" height="9" fill="#fff"><path d="M20.317 4.369A19.79 19.79 0 0 0 15.885 3c-.211.375-.454.88-.622 1.28a18.27 18.27 0 0 0-5.53 0A12.7 12.7 0 0 0 9.11 3 19.74 19.74 0 0 0 4.677 4.37C1.997 8.36 1.27 12.24 1.633 16.07a19.9 19.9 0 0 0 6.073 3.058c.492-.67.93-1.382 1.307-2.13-.72-.27-1.41-.605-2.06-.996.173-.127.342-.26.505-.397a14.2 14.2 0 0 0 12.084 0c.165.14.334.272.505.397-.65.39-1.342.727-2.063.996.377.748.814 1.46 1.306 2.13a19.85 19.85 0 0 0 6.075-3.058c.427-4.44-.729-8.29-3.056-11.702ZM8.02 13.74c-1.183 0-2.157-1.085-2.157-2.42s.955-2.42 2.157-2.42c1.21 0 2.176 1.095 2.157 2.42 0 1.335-.955 2.42-2.157 2.42Zm7.96 0c-1.183 0-2.157-1.085-2.157-2.42s.955-2.42 2.157-2.42c1.21 0 2.176 1.095 2.157 2.42 0 1.335-.947 2.42-2.157 2.42Z"/></svg></span>`;
+    }
+    return `<span style="${wrap}background:#000;"><svg viewBox="0 0 24 24" width="9" height="9" fill="#fff"><path d="M4.976 0 0 18.573 18.573 24 24 5.427 4.976 0ZM10.19 9.377l4.434 1.187-1.187 4.434-4.434-1.187 1.187-4.434Z"/></svg></span>`;
+  }
+  // A full, proper profile card for an identity — Discord + Roblox avatars, each
+  // with its platform logo, name, handles and IDs. Whole card opens the Roblox
+  // profile. Used both in the intake "is this the right person?" confirmation
+  // and inline on report tickets.
   function identityCardHtml(p) {
     if (!p) return '';
-    const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" alt="" style="width:52px;height:52px;border-radius:9px;object-fit:cover;" />` : '';
-    const discord = (p.discordUsername || p.discordId)
-      ? `<div style="font-size:11px;color:var(--text-muted);">Discord: ${p.discordUsername ? '@' + esc(p.discordUsername) + ' ' : ''}${p.discordId ? `(ID ${esc(p.discordId)})` : ''}</div>`
+    const dAv = p.discordAvatar
+      ? `<span style="position:relative;display:inline-flex;"><img src="${esc(p.discordAvatar)}" alt="Discord avatar" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid #5865F2;background:#0b0f18;">${idLogoBadge('discord')}</span>`
       : '';
-    const open = p.robloxId ? ` onclick="window.open('https://www.roblox.com/users/${esc(p.robloxId)}/profile','_blank','noopener')" style="cursor:pointer;"` : '';
-    return `<div class="sup-idcard"${open} title="Open Roblox profile">${head}<div><div style="font-weight:700;">${esc(p.robloxDisplayName || p.robloxUsername || 'Unknown')}</div>
-      <div style="font-size:12px;color:var(--text-muted);">@${esc(p.robloxUsername || '')} · Roblox ID ${esc(p.robloxId || '')}</div>
-      ${discord}</div></div>`;
+    const rAv = p.headshotUrl
+      ? `<span style="position:relative;display:inline-flex;${dAv ? 'margin-left:-14px;' : ''}"><img src="${esc(p.headshotUrl)}" alt="Roblox avatar" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid #e2231a;background:#0b0f18;">${idLogoBadge('roblox')}</span>`
+      : '';
+    const avatars = (dAv || rAv) ? `<div style="display:flex;align-items:center;flex:0 0 auto;">${dAv}${rAv}</div>` : '';
+    const robloxUrl = p.robloxUrl || (p.robloxId ? `https://www.roblox.com/users/${esc(p.robloxId)}/profile` : '');
+    const robloxLine = (p.robloxUsername || p.robloxId)
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;"><span style="color:#e2231a;font-weight:700;">Roblox</span> ${p.robloxUsername ? '@' + esc(p.robloxUsername) : ''}${p.robloxId ? ` · ID ${esc(p.robloxId)}` : ''}</div>`
+      : '';
+    const discordLine = (p.discordUsername || p.discordId)
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;"><span style="color:#5865F2;font-weight:700;">Discord</span> ${p.discordUsername ? '@' + esc(p.discordUsername) : ''}${p.discordId ? ` · ID ${esc(p.discordId)}` : ''}</div>`
+      : '';
+    const foot = robloxUrl ? `<div style="font-size:11px;color:var(--blue);margin-top:7px;display:flex;align-items:center;gap:4px;"><i class="ti ti-external-link"></i> Open Roblox profile</div>` : '';
+    const open = robloxUrl ? ` onclick="window.open('${esc(robloxUrl)}','_blank','noopener')" style="cursor:pointer;display:flex;gap:13px;align-items:center;padding:13px;border:1px solid var(--border,#2a3040);border-radius:13px;background:var(--surface-1,#0e1420);max-width:430px;"` : ` style="display:flex;gap:13px;align-items:center;padding:13px;border:1px solid var(--border,#2a3040);border-radius:13px;background:var(--surface-1,#0e1420);max-width:430px;"`;
+    return `<div class="sup-idcard"${open} title="${robloxUrl ? 'Open Roblox profile' : ''}">
+      ${avatars}
+      <div style="min-width:0;flex:1;">
+        <div style="font-weight:700;font-size:15px;">${esc(p.robloxDisplayName || p.robloxUsername || p.discordUsername || 'Unknown')}</div>
+        ${robloxLine}
+        ${discordLine}
+        ${foot}
+      </div>
+    </div>`;
   }
   function renderMsg(m) {
     const panel = transitionPanel(m);
@@ -294,7 +323,7 @@
 
   function scrollLog() { const l = $('sup-log'); l.scrollTop = l.scrollHeight; }
 
-  // ── Intake flow ─────────────────────────────────────────────────
+  // ── Intake flow ────────────────────────────────────────────
   function startIntake(questions) {
     mode = 'intake';
     intakeQs = (questions || []).slice();
@@ -381,7 +410,7 @@
       $('sup-input').value = '';
       $('sup-input').placeholder = 'Describe the punishment you want to appeal…';
       appendBubble({ authorKind: 'BOT', authorName: BOT_NAME,
-        body: "No problem — tell me in your own words what you'd like to appeal (what it was, roughly when, and why you think it should be reviewed), then press Send.",
+        body: "No problem — tell me in your own words what you'd like to appeal.",
         createdAt: new Date().toISOString() });
       scrollLog();
       $('sup-input').focus();
@@ -393,12 +422,33 @@
     selectedPunishment = p;
     $('sup-input').value = `${p.type}${p.caseRef ? ' (' + p.caseRef + ')' : ''} — issued ${when}${m.label ? ' · ' + m.label : ''}`;
     if (p.expired) {
-      appendBubble({ authorKind: 'BOT', authorName: BOT_NAME,
-        body: "Heads up — that punishment has **expired**, so it may no longer count against you. You can still submit this appeal and speak to an investigator about it.",
-        createdAt: new Date().toISOString() });
+      // An expired punishment shouldn't still count — offer to connect them
+      // straight to an Internal Affairs investigator to have it removed, rather
+      // than making them argue a full appeal. They can still appeal normally.
+      $('sup-log').insertAdjacentHTML('beforeend', `<div class="sup-msg bot"><div class="sup-av"><img src="${BOT_AVATAR}" alt="MET" /></div><div class="sup-body">
+        <div class="sup-meta"><span class="sup-name">${BOT_NAME}</span></div>
+        <div class="sup-text">Heads up — that punishment has <strong>already expired</strong>, so it shouldn't be counting against you anymore. I can connect you straight to an Internal Affairs investigator to have it removed from your record.</div>
+        <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="supAppealExpiredRemove(event)"><i class="ti ti-headset"></i> Connect me to an investigator</button></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:7px;">Or keep going below to appeal it the normal way.</div>
+      </div></div>`);
       scrollLog();
     }
     $('sup-input').focus();
+  };
+  // Expired punishment → fast-track straight to IA: skip the justification and
+  // evidence steps and submit a removal request so an investigator can clear it.
+  window.supAppealExpiredRemove = function (ev) {
+    if (!selectedPunishment) return;
+    try { if (ev && ev.currentTarget) { ev.currentTarget.disabled = true; ev.currentTarget.classList.add('sup-btn-chosen'); } } catch (e) { /* non-fatal */ }
+    const p = selectedPunishment;
+    const when = p.issuedAt ? new Date(p.issuedAt).toLocaleDateString() : 'unknown date';
+    const actionQ = intakeQs.find(x => x.kind === 'punishment') || intakeQs[0];
+    intakeAnswers = [];
+    if (actionQ) intakeAnswers.push({ id: actionQ.id, prompt: actionQ.prompt, answer: `${p.type}${p.caseRef ? ' (' + p.caseRef + ')' : ''} — issued ${when} · expired`, attachments: [], identity: null });
+    intakeAnswers.push({ id: 'why', prompt: 'Why would you like to appeal this punishment?', answer: 'This punishment has already expired — requesting that an Internal Affairs investigator remove it from my record.', attachments: [], identity: null });
+    intakeQs = [];
+    appendBubble({ authorKind: 'OPENER', authorName: (CFG.me && CFG.me.name) || 'You', authorAvatar: MY_AVATAR, body: 'Please connect me to an investigator to remove this expired punishment.', createdAt: new Date().toISOString() });
+    appendBotTyping('Connecting you to an Internal Affairs investigator to have it removed…', function () { finishIntake(); });
   };
   // Back-compat: older deep links / callers may still call supPickPunishment.
   window.supPickPunishment = function (i) { window.supPunSelect(String(i)); };
@@ -696,7 +746,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     return null;
   }
 
-  // ── Composer ─────────────────────────────────────────────────────
+  // ── Composer ──────────────────────────────────────────────────
   function wireComposer() {
     $('sup-attach-btn').addEventListener('click', () => $('sup-file').click());
     $('sup-file').addEventListener('change', onPickFiles);
@@ -824,7 +874,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     }
   }
 
-  // ── Staff actions ─────────────────────────────────────────────
+  // ── Staff actions ────────────────────────────────────────────
   window.supClaim = async function () {
     try { const r = await api('/api/support/tickets/' + cur.id + '/claim', { method: 'POST' }); cur = r.ticket; renderTicketHeader(r.ticket); setComposerEnabled(r.ticket); showToast('Claimed', 'success'); }
     catch (e) { showToast(e.message, 'error'); }
