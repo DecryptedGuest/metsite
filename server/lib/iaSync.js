@@ -115,11 +115,23 @@ async function syncTickets(limit = 10000) {
     FROM tickets t LEFT JOIN users u ON u.id = t."userId"
     ORDER BY t."createdAt" ASC LIMIT ${Number(limit) || 10000}
   `);
-  let synced = 0;
+  let synced = 0, skipped = 0;
   for (const r of rows) {
     try {
+      // IA and MET number tickets independently, so an IA ref can collide with a
+      // natively-created MET ticket. Never overwrite a native ticket: if one owns
+      // this ref, import the IA row under a "<ref>-IA" ref so it stays visible
+      // rather than clobbering the native ticket or being dropped.
+      let ref = r.ticketRef;
+      const ex = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true } }).catch(() => null);
+      if (ex && ex.origin !== 'IA') {
+        ref = `${r.ticketRef}-IA`;
+        const ex2 = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true } }).catch(() => null);
+        if (ex2 && ex2.origin !== 'IA') { skipped++; console.warn('[IA] ticket sync skip (native ticket owns ref)', r.ticketRef); continue; }
+      }
       const userId = await resolve(r.ownerDiscordId, r.ownerDiscordUsername);
       const data = {
+        origin: 'IA',
         userId,
         robloxUsername: r.robloxUsername || 'unknown',
         ticketType: norm(r.ticketType, TICKET_TYPE, 'GENERAL_SUPPORT'),
@@ -133,14 +145,14 @@ async function syncTickets(limit = 10000) {
         reviewedAt: r.reviewedAt || null,
       };
       await prisma.ticket.upsert({
-        where: { ticketRef: r.ticketRef },
+        where: { ticketRef: ref },
         update: data,
-        create: { ticketRef: r.ticketRef, createdAt: r.createdAt || new Date(), ...data },
+        create: { ticketRef: ref, createdAt: r.createdAt || new Date(), ...data },
       });
       synced++;
     } catch (e) { console.warn('[IA] ticket sync skip', r.ticketRef, '-', e.message); }
   }
-  return { ok: true, synced, total: rows.length };
+  return { ok: true, synced, skipped, total: rows.length };
 }
 
 async function syncAll() {

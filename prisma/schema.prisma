@@ -179,6 +179,7 @@ model CaseCounter {
 model Ticket {
   id             String       @id @default(uuid())
   ticketRef      String       @unique
+  origin         String       @default("NATIVE") // NATIVE | IA — IA sync never overwrites a NATIVE ticket
   userId         String
   robloxUsername String
   ticketType     TicketType
