@@ -1,10 +1,11 @@
 // server/lib/accessGuard.js
 // Advanced alt detection + VPN/proxy access blocking.
 //
-//  • Alt detection — links accounts that share a hard signal (a real, non-VPN
-//    IP or an identical device string). When an account is blacklisted, its
-//    detected alts are blacklisted too, and any future login that shares a
-//    signal with a blacklisted account is blocked at the door.
+//  • Alt detection — links accounts that share a hard signal: a real, non-VPN
+//    IP. (The coarse "Chrome on Windows"-style device label is deliberately NOT
+//    used — it's shared by most members and would mass-link unrelated accounts.)
+//    When an account is blacklisted, its detected alts are blacklisted too, and
+//    any future login that shares a signal with a blacklisted account is blocked.
 //  • VPN handling — VPNs are NOT blocked. They are only flagged in the dev
 //    Security Center (via ipIntel), which also tracks each account's most
 //    recent REAL (non-VPN) IP. We still look VPN status up here so alt
@@ -23,34 +24,32 @@ function flagOn(key) {
   return v !== 'false' && v !== '0' && v !== 'off';
 }
 
-// Collect the hard signals (real IPs + device strings) tied to an account.
+// Collect the hard signals (real, non-VPN IPs) tied to an account. The device
+// label is intentionally excluded — it's low-entropy ("Chrome on Windows") and
+// shared by most members, so matching on it would link unrelated accounts.
 async function signalsFor(user) {
   const ips = new Set();
-  const devices = new Set();
   if (user.lastRealIp) ips.add(user.lastRealIp);
   try {
     const sess = await prisma.session.findMany({
       where: { userId: user.id },
-      select: { ip: true, ipVpn: true, device: true },
+      select: { ip: true, ipVpn: true },
     });
     sess.forEach(s => {
       if (s.ip && !s.ipVpn && !ipIntel.isLocalOrPrivate(s.ip)) ips.add(s.ip); // real IPs only
-      if (s.device) devices.add(s.device);
     });
   } catch (e) { /* best-effort */ }
-  return { ips: [...ips], devices: [...devices] };
+  return { ips: [...ips] };
 }
 
-// Find other accounts that share a real IP or device with this one.
+// Find other accounts that share a real (non-VPN) IP with this one.
 async function findAlts(user) {
-  const { ips, devices } = await signalsFor(user);
-  if (!ips.length && !devices.length) return [];
-  const or = [];
-  if (ips.length) {
-    or.push({ lastRealIp: { in: ips } });
-    or.push({ sessions: { some: { ip: { in: ips }, ipVpn: false } } });
-  }
-  if (devices.length) or.push({ sessions: { some: { device: { in: devices } } } });
+  const { ips } = await signalsFor(user);
+  if (!ips.length) return [];
+  const or = [
+    { lastRealIp: { in: ips } },
+    { sessions: { some: { ip: { in: ips }, ipVpn: false } } },
+  ];
   try {
     return await prisma.user.findMany({
       where: { id: { not: user.id }, OR: or },
@@ -120,7 +119,7 @@ async function evaluateLogin({ ip, user }) {
       try { vpn = await ipIntel.lookupIp(ip); } catch (e) { vpn = null; }
     }
     if (flagOn('altBlock')) {
-      // (a) shares a stored real IP / device with a blacklisted account.
+      // (a) shares a stored real IP with a blacklisted account.
       if (user) {
         const bad = await altOfBlacklisted(user);
         if (bad) return { block: true, reason: 'alt', detail: { of: bad.discordUsername || bad.id } };
