@@ -799,8 +799,11 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     $('sup-input').addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
     });
-    // Rich (WYSIWYG) composer — formatting renders live inside the box as you type.
-    if (window.initRichComposer) window.initRichComposer($('sup-input'));
+    // Rich (WYSIWYG) composer — formatting renders live inside the box as you type,
+    // with @-autocomplete of MET members.
+    if (window.initRichComposer) window.initRichComposer($('sup-input'), {
+      mentionSearch: async (q) => { if (!q) return []; try { const r = await api('/api/support/mention-search?q=' + encodeURIComponent(q)); return r.users || []; } catch (e) { return []; } },
+    });
     $('sup-input').addEventListener('input', sendTyping);
   }
 

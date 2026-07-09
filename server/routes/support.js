@@ -916,6 +916,19 @@ async function resolveMentionProfile(discordId) {
   return out;
 }
 
+// ── GET /api/support/mention-search?q= — @-autocomplete suggestions ──
+// Signed-in staff only. Searches the MET server's members (like Discord).
+router.get('/mention-search', async (req, res) => {
+  try {
+    if (!req.user) return res.json({ users: [] });
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.json({ users: [] });
+    let members = [];
+    try { members = await require('../lib/bot').searchGuildMembers(q, 8, process.env.DISCORD_GUILD_ID); } catch (e) { members = []; }
+    res.json({ users: (members || []).filter(m => !m.isBot).slice(0, 8).map(m => ({ id: m.id, name: m.displayName, username: m.username, avatar: m.avatar })) });
+  } catch (e) { res.json({ users: [] }); }
+});
+
 // ── POST /api/support/tickets/:id/mention { ids } — resolve @mentions ──
 router.post('/tickets/:id/mention', async (req, res) => {
   try {

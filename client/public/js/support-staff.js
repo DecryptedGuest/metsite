@@ -544,8 +544,11 @@
     $('sd-file').addEventListener('change', onPick);
     $('sd-send').addEventListener('click', onSend);
     $('sd-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
-    // Rich (WYSIWYG) composer — formatting renders live inside the box as you type.
-    if (window.initRichComposer) window.initRichComposer($('sd-input'));
+    // Rich (WYSIWYG) composer — formatting renders live inside the box as you type,
+    // with @-autocomplete of MET members.
+    if (window.initRichComposer) window.initRichComposer($('sd-input'), {
+      mentionSearch: async (q) => { if (!q) return []; try { const r = await api('/api/support/mention-search?q=' + encodeURIComponent(q)); return r.users || []; } catch (e) { return []; } },
+    });
     $('sd-input').addEventListener('input', sdSendTyping);
   }
   function renderPending() {
