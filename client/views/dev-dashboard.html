@@ -615,6 +615,25 @@
           </div>
         </div>
       </div>
+
+      <!-- Data Maintenance — dedupe IA→MET migration logs -->
+      <div class="panel glass fade-up stagger-4" style="margin-top:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Data Maintenance</div>
+        </div>
+        <div style="padding:1.2rem 1.4rem;display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.6;">
+            Remove <strong>duplicate case &amp; ticket logs</strong> left over from the old IA website → MET website
+            migration (e.g. a ticket imported as both <code>TKT-0001</code> and <code>TKT-0001-IA</code>). Always
+            <strong>scan first</strong> to preview — deletion keeps the canonical (native) record and removes the copies.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" onclick="dedupeMigration(false)"><i class="ti ti-search"></i> Scan (preview)</button>
+            <button class="btn btn-danger" onclick="dedupeMigration(true)"><i class="ti ti-trash"></i> Remove duplicates</button>
+          </div>
+          <div id="dedupe-results" style="font-size:12px;"></div>
+        </div>
+      </div>
     </section>
 
     <!-- GROUP MANAGEMENT (DEVELOPER ONLY) -->

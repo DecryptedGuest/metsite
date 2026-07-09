@@ -1430,6 +1430,27 @@ async function changeUserMetRank(userId, rankVal) {
   } catch (e) { showToast(e.message || 'Failed to set MET rank', 'error'); }
 }
 
+// Dedupe IA→MET migration duplicate case/ticket logs. preview=false → apply.
+async function dedupeMigration(apply) {
+  const box = document.getElementById('dedupe-results');
+  if (apply && !confirm('Delete the duplicate case/ticket logs? The canonical (native) record is kept. This cannot be undone.')) return;
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:8px;"><div class="spinner"></div></div>';
+  try {
+    const r = await api('/api/admin/dedupe-migration-logs', { method: 'POST', body: JSON.stringify({ apply, scope: 'all' }) });
+    const line = (name, s) => `<div style="margin-top:6px;"><strong>${name}:</strong> ${s.count} duplicate(s)${apply ? ` — deleted ${s.deleted}` : ''}` +
+      (s.report && s.report.length ? `<ul style="margin:4px 0 0 16px;color:var(--text-muted);">${s.report.slice(0, 40).map(g =>
+        `<li>keep <code>${escapeHtml(g.keep)}</code> (${escapeHtml(g.keepOrigin)}) — remove ${g.remove.map(x => `<code>${escapeHtml(x.ref)}</code>`).join(', ')}</li>`).join('')}</ul>` : '') + '</div>';
+    if (box) box.innerHTML = `<div style="border:1px solid var(--border,#2a3040);border-radius:8px;padding:10px;">
+      ${apply ? '<div style="color:var(--green,#28c76f);font-weight:600;">Cleanup applied.</div>' : '<div style="color:var(--amber);font-weight:600;">Preview only — nothing deleted.</div>'}
+      ${line('Tickets', r.tickets)}${line('Cases', r.cases)}
+      ${(r.tickets.count + r.cases.count) === 0 ? '<div style="margin-top:6px;color:var(--text-muted);">No migration duplicates found. 🎉</div>' : ''}
+    </div>`;
+    if (apply) showToast(`Removed ${r.tickets.deleted + r.cases.deleted} duplicate log(s)`, 'success');
+  } catch (e) {
+    if (box) box.innerHTML = `<div style="color:var(--red,#e2231a);">${escapeHtml(e.message || 'Failed')}</div>`;
+  }
+}
+
 async function loadAdminUsers() {
   const tbody = document.getElementById('admin-users-tbody');
   if (!tbody) return;

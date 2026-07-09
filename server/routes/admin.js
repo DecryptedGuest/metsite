@@ -106,6 +106,25 @@ router.patch('/users/:id/role', async (req, res) => {
   }
 });
 
+// ── POST /api/admin/dedupe-migration-logs ───────────────────
+// Remove duplicate case/ticket logs from the IA→MET migration. Dry run unless
+// { apply:true }. Optional { scope: 'all'|'cases'|'tickets' }. Developer-gated.
+router.post('/dedupe-migration-logs', async (req, res) => {
+  try {
+    const apply = !!(req.body && req.body.apply);
+    const scope = ['all', 'cases', 'tickets'].includes(req.body && req.body.scope) ? req.body.scope : 'all';
+    const result = await require('../lib/dedupeMigration').runDedupe({ apply, scope });
+    if (apply) {
+      audit.log(req.user, { category: 'ACCESS', action: 'DEDUPE_MIGRATION_LOGS',
+        summary: `Deduped migration logs — deleted ${result.tickets.deleted} ticket(s) + ${result.cases.deleted} case(s)` });
+    }
+    res.json(result);
+  } catch (e) {
+    console.error('[Admin] dedupe failed:', e.message);
+    res.status(500).json({ error: 'Dedupe failed' });
+  }
+});
+
 // ── GET /api/admin/met-roles ────────────────────────────────
 // The live MET umbrella group's rank ladder (from the Roblox roles API), newest
 // rank first — populates the dev panel's MET-rank dropdown. Cached in roblox.js.
