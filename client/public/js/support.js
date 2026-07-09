@@ -325,23 +325,24 @@
     const empty = (!list || !list.length);
     hint.innerHTML = `
       <div style="margin-bottom:6px;color:var(--text-muted);">${empty
-        ? "We couldn't find any punishments on your record. Pick the option below and tell us what you'd like to appeal."
+        ? "We couldn't find any punishments on your record. Pick “It's not listed here…” and tell us what you'd like to appeal."
         : "Choose the punishment you're appealing:"}</div>
       <select id="sup-pun-select" class="sup-select" onchange="supPunSelect(this.value)"
         style="width:100%;padding:9px 10px;border-radius:8px;background:var(--surface-2,#141922);color:var(--text-primary,#e8edf5);border:1px solid var(--border,#2a3140);font-size:13px;">
-        <option value="" disabled ${empty ? '' : 'selected'}>Select a punishment…</option>
+        <option value="" disabled selected>Select a punishment…</option>
         ${opts}
         ${notListed}
       </select>`;
     const sel = document.getElementById('sup-pun-select');
     // Deep-linked from a punishment DM → pre-select the matching punishment
     // (still changeable). Match on the punishment id or its case reference.
+    // Only auto-fire on an explicit deep link — never proactively (the picker
+    // must wait for the member to actually choose an option).
     if (pendingAppealId && list && list.length) {
       const want = String(pendingAppealId); pendingAppealId = null;
       const idx = list.findIndex(p => String(p.id) === want || (p.caseRef && String(p.caseRef) === want));
       if (idx >= 0) { sel.value = String(idx); window.supPunSelect(String(idx)); }
     }
-    if (empty && sel) { sel.value = '__none'; window.supPunSelect('__none'); }
   }
   window.supPunSelect = function (val) {
     if (val === '__none' || val === '') {
