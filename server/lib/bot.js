@@ -4,7 +4,23 @@
 
 const { Client, GatewayIntentBits, Partials, SlashCommandBuilder,
         EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder,
+        StringSelectMenuBuilder,
         GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel } = require('discord.js');
+
+// Per-division co-host restriction: a tryout co-host must be "staff" in that
+// division's server (a specific role). The picker then only offers those members.
+// HPC is restricted by default (role provided); CID only when its role env is
+// set; any other division stays unrestricted (pick anyone) unless configured.
+const HPC_GUILD_ID      = () => process.env.HPC_GUILD_ID || process.env.DISCORD_GUILD_ID;
+const HPC_STAFF_ROLE_ID = () => process.env.HPC_STAFF_ROLE_ID || '1426660644093952281';
+function coHostStaffConfig(division) {
+  const d = String(division || '').toUpperCase();
+  if (d === 'HPC') return { guildId: HPC_GUILD_ID(), roleId: HPC_STAFF_ROLE_ID() };
+  if (d === 'CID' && process.env.CID_STAFF_ROLE_ID) {
+    return { guildId: process.env.CID_GUILD_ID || process.env.DISCORD_GUILD_ID, roleId: process.env.CID_STAFF_ROLE_ID };
+  }
+  return null; // unrestricted → pick anybody in the server
+}
 
 // The bulk-import feature needs to read forum starter messages, and the ticket
 // transcript import needs to read Tickety's log embeds + "View Transcript"
@@ -77,7 +93,9 @@ async function registerImportCommand() {
 // Handle the import slash command (restricted to the developer user)
 async function onInteraction(interaction) {
   // Tryout DM buttons / co-host select menu.
-  if (interaction.isButton() || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())) {
+  if (interaction.isButton()
+      || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())
+      || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())) {
     if ((interaction.customId || '').startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
     }
@@ -195,6 +213,44 @@ async function getGuildMemberInfo(discordUserId, guildId) {
     };
   } catch {
     return null;
+  }
+}
+
+// A member's roles + names in a SPECIFIC guild, or null. Used to validate a
+// picked co-host still holds the HPC-staff role.
+async function getGuildMemberRoles(discordUserId, guildId) {
+  if (!ready || !guildId || !discordUserId) return null;
+  try {
+    const guild  = await client.guilds.fetch(guildId);
+    const member = await guild.members.fetch(discordUserId);
+    return {
+      id: member.id,
+      username: member.user.username,
+      displayName: member.displayName || member.user.username,
+      roleIds: member.roles.cache.map(r => r.id),
+    };
+  } catch { return null; }
+}
+
+// Every member of `guildId` holding `roleId` → [{ id, username, displayName }],
+// sorted by display name. Requires the Guild Members intent. [] on any failure.
+async function listGuildRoleMembers(guildId, roleId) {
+  if (!ready || !guildId || !roleId) return [];
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    const role  = await guild.roles.fetch(roleId).catch(() => null);
+    let members;
+    if (role && role.members && role.members.size) members = role.members;
+    else {
+      const all = await guild.members.fetch();     // needs GuildMembers intent
+      members = all.filter(m => m.roles.cache.has(roleId));
+    }
+    return [...members.values()]
+      .map(m => ({ id: m.id, username: m.user.username, displayName: m.displayName || m.user.username }))
+      .sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+  } catch (e) {
+    console.error('[Bot] listGuildRoleMembers failed:', e.message);
+    return [];
   }
 }
 
@@ -1180,18 +1236,63 @@ async function handleTryoutComponent(interaction) {
   // "Pick Co-Host" → show a member picker.
   if (id.startsWith('tryout_cohost_') && interaction.isButton()) {
     const tryoutId = id.slice('tryout_cohost_'.length);
-    const row = new ActionRowBuilder().addComponents(
-      new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
-    );
-    return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId }, select: { hostDiscordId: true, division: true } }).catch(() => null);
+    const cfg = coHostStaffConfig(t && t.division);
+    // Unrestricted division → keep the original "pick anybody" user select.
+    if (!cfg) {
+      const row = new ActionRowBuilder().addComponents(
+        new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
+      );
+      return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
+    }
+    // Restricted → only offer members holding the division's staff role.
+    let staff = [];
+    try { staff = await listGuildRoleMembers(cfg.guildId, cfg.roleId); }
+    catch (e) { console.error('[Bot] co-host staff fetch failed:', e.message); }
+    staff = staff.filter(m => !t || String(m.id) !== String(t.hostDiscordId)); // not yourself
+    if (!staff.length) {
+      return interaction.reply({ content: '⚠️ No eligible staff found to pick as a co-host. Check the server / staff-role configuration.', flags: 64 });
+    }
+    const capped = staff.slice(0, 25); // Discord select menus allow at most 25 options
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`tryout_cohostsel_${tryoutId}`)
+      .setPlaceholder('Select a staff co-host')
+      .setMinValues(1).setMaxValues(1)
+      .addOptions(capped.map(m => ({ label: (m.displayName || m.username || 'Unknown').slice(0, 100), description: ('@' + (m.username || '')).slice(0, 100), value: m.id })));
+    const row = new ActionRowBuilder().addComponents(menu);
+    const note = staff.length > 25 ? `\n(Showing the first 25 of ${staff.length} staff.)` : '';
+    return interaction.reply({ content: 'Select the co-host for this tryout (staff only):' + note, components: [row], flags: 64 });
   }
 
-  // Co-host chosen.
+  // Co-host chosen via the ANYBODY user-select (unrestricted divisions).
   if (id.startsWith('tryout_cohostsel_') && interaction.isUserSelectMenu && interaction.isUserSelectMenu()) {
     const tryoutId = id.slice('tryout_cohostsel_'.length);
     const picked   = interaction.users.first();
     const coName   = picked ? (picked.globalName || picked.username) : null;
     await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: picked ? picked.id : null, coHostName: coName } }).catch(() => {});
+    const fresh0 = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
+    if (fresh0) { await editTryoutAnnouncement(fresh0).catch(() => {}); await editTryoutHostDM(fresh0).catch(() => {}); }
+    return interaction.update({ content: `✅ Co-host set to **${coName}**.`, components: [] });
+  }
+
+  // Co-host chosen via the STAFF-only string select — value is the member's id.
+  if (id.startsWith('tryout_cohostsel_') && interaction.isStringSelectMenu && interaction.isStringSelectMenu()) {
+    const tryoutId = id.slice('tryout_cohostsel_'.length);
+    const pickedId = (interaction.values && interaction.values[0]) || null;
+    const t2  = await prisma.tryout.findUnique({ where: { id: tryoutId }, select: { division: true } }).catch(() => null);
+    const cfg = coHostStaffConfig(t2 && t2.division);
+    // Re-validate the pick still holds the division's staff role (defence in depth).
+    let coName = null, ok = false;
+    if (pickedId && cfg) {
+      try {
+        const info = await getGuildMemberRoles(pickedId, cfg.guildId);
+        if (info && Array.isArray(info.roleIds) && info.roleIds.map(String).includes(String(cfg.roleId))) {
+          ok = true; coName = info.displayName || info.username || null;
+        }
+      } catch (e) { /* fall through to rejection */ }
+    }
+    if (!ok) return interaction.update({ content: '⚠️ That member is not eligible staff — co-host not set.', components: [] });
+    await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: pickedId, coHostName: coName } }).catch(() => {});
     // Reflect the co-host in the already-posted announcement + the host DM.
     const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
     if (fresh) {
