@@ -91,7 +91,10 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null, opene
   const staffView = user ? support.canHandleTicket(user, t) : false;
   const base = {
     id: t.id, type: t.type, typeLabel: cfg ? cfg.label : t.type, status: t.status,
-    priority: t.priority || 'NORMAL', escalated: !!t.escalated, escalatedNote: t.escalatedNote || null,
+    priority: t.priority || 'NORMAL', escalated: !!t.escalated,
+    // escalatedNote is an internal staff note (stored as an INTERNAL message and
+    // published staffOnly over SSE) — never expose it to the opener.
+    escalatedNote: staffView ? (t.escalatedNote || null) : null,
     openerId: t.openerId, openerName: t.openerName,
     openerAvatar: (avatarMap && avatarMap.get(t.openerId)) || null,
     claimedById: t.claimedById, claimedByName: t.claimedByName, claimedAt: t.claimedAt,
@@ -459,8 +462,13 @@ router.get('/tickets/queue', async (req, res) => {
   if (!types.length) return res.json([]);
   const where = { type: { in: types } };
   // You can't handle your own ticket, so keep it out of your staff queue
-  // (developers still see everything, for testing).
-  if (req.user.role !== 'DEVELOPER') where.openerId = { not: req.user.id };
+  // (developers still see everything, for testing). NOTE: openerId is NULL for
+  // guest (not-signed-in) tickets, and Prisma `not: id` on a nullable column
+  // compiles to SQL `openerId <> $1`, which drops NULL rows — that would hide
+  // EVERY guest ticket from staff. Admit NULL explicitly so guests are seen.
+  if (req.user.role !== 'DEVELOPER') {
+    where.OR = [{ openerId: null }, { openerId: { not: req.user.id } }];
+  }
 
   // Filters: ?status= / ?mine=1 (claimed by me) / ?unclaimed=1 / ?escalated=1 / ?type=
   if (['INTAKE', 'OPEN', 'CLAIMED', 'CLOSED'].includes(req.query.status)) where.status = req.query.status;
@@ -556,7 +564,7 @@ router.get('/tickets/:id', async (req, res) => {
           }
         }
         if (t.appealMeta.source === 'case' && t.appealMeta.id) {
-          appeal.caseUrl = `/ia/dashboard?page=cases&case=${encodeURIComponent(t.appealMeta.id)}`;
+          appeal.caseUrl = `/ia/dashboard?page=all-cases&case=${encodeURIComponent(t.appealMeta.id)}`;
         }
         out.appeal = appeal;
       } catch (e) { /* enrichment is best-effort */ }
@@ -630,7 +638,20 @@ router.post('/tickets/:id/claim', async (req, res) => {
     if (t.claimedById && t.claimedById !== req.user.id) return res.status(409).json({ error: `Already claimed by ${t.claimedByName}.` });
 
     const name = req.user.displayName || req.user.discordUsername;
-    const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { status: 'CLAIMED', claimedById: req.user.id, claimedByName: name, claimedAt: new Date() } });
+    // Claim atomically: only take the ticket if it is still unclaimed (or already
+    // ours) and not closed. Two investigators clicking Claim at once would both
+    // pass the read-time checks above; this conditional write means the loser
+    // gets count===0 and a 409 instead of silently stealing the first claimant's
+    // ticket. (Handleability was already checked above.)
+    const claim = await prisma.supportTicket.updateMany({
+      where: { id: t.id, status: { not: 'CLOSED' }, OR: [{ claimedById: null }, { claimedById: req.user.id }] },
+      data: { status: 'CLAIMED', claimedById: req.user.id, claimedByName: name, claimedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      const fresh = await prisma.supportTicket.findUnique({ where: { id: t.id } }).catch(() => null);
+      return res.status(409).json({ error: `Already claimed by ${(fresh && fresh.claimedByName) || 'another investigator'}.` });
+    }
+    const updated = await prisma.supportTicket.findUnique({ where: { id: t.id } });
     const claimMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `${name} has claimed this ticket and will assist you.` } });
     support.publish(t.id, 'message', serializeMessage(t.id, claimMsg));
     support.publish(t.id, 'update', { status: 'CLAIMED', claimedByName: name });
