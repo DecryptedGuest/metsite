@@ -55,14 +55,19 @@ async function ingestPromotion(message) {
     const content = message.content || '';
     const mention = firstMention(message);
     const fromRank = fieldAfter(content, /(?:old|previous|from|current)\s*rank\s*[:\-]?\s*(.+)/i);
-    let toRank = fieldAfter(content, /(?:new\s*rank|to\s*rank|promoted\s*to|demoted\s*to|now)\s*[:\-]?\s*(.+)/i);
+    // NOTE: `now` is anchored with word boundaries so it doesn't match inside
+    // ordinary words ("known", "snow") and manufacture a bogus toRank.
+    let toRank = fieldAfter(content, /(?:new\s*rank|to\s*rank|promoted\s*to|demoted\s*to|\bnow\b)\s*[:\-]?\s*(.+)/i);
     if (!toRank) { const m = content.match(/(?:promoted|demoted)\s+to\s+(.+)/i); if (m) toRank = m[1].trim(); }
     const reason = fieldAfter(content, /reason\s*[:\-]?\s*(.+)/i);
     const memberName = (mention && mention.display) || namedMember(content) || null;
     const byName = (message.member && message.member.displayName) || (message.author && (message.author.globalName || message.author.username)) || null;
 
-    // Nothing useful parsed → skip (avoids capturing chatter in the channel).
-    if (!memberName && !mention && !toRank) return null;
+    // Require an actual promotion/demotion signal — a parsed rank or the
+    // promote/demote keyword. A bare @-mention ("Congrats @Bob!") must NOT
+    // create a RankHistory row or fire a "You have been promoted" DM.
+    const hasRankSignal = !!(toRank || fromRank) || /\b(promot|demot)/i.test(content);
+    if (!hasRankSignal) return null;
 
     const rec = await prisma.rankHistory.create({
       data: {
@@ -104,6 +109,16 @@ async function ingestPromotion(message) {
   }
 }
 
+// Does this message actually look like a disciplinary infraction (vs. casual
+// chatter that happens to @-mention a member)? A labelled type line, or any
+// recognised punishment keyword, qualifies.
+function looksLikeInfraction(content) {
+  const c = String(content || '');
+  if (/(?:infraction|punishment|type|action|strike)\s*[:\-]/i.test(c)) return true;
+  if (/\b(ban(?:ned)?|suspen\w*|demot\w*|strike[sd]?|warn\w*|blacklist\w*|terminat\w*|exile[sd]?)\b/i.test(c)) return true;
+  return false;
+}
+
 // Detect the punishment type from the message (keyword or labelled line).
 function infractionType(content) {
   const labelled = fieldAfter(content, /(?:infraction|punishment|type|action|strike)\s*[:\-]?\s*(.+)/i);
@@ -131,6 +146,12 @@ async function ingestInfraction(message) {
     if (!mention) return null; // can't attribute without a member reference
 
     const content = message.content || '';
+    // Only ingest messages that actually look like an infraction. Without this,
+    // any casual reply that @-mentions someone (e.g. "@Bob check your DMs")
+    // created a fake active punishment and DM'd them an alarming disciplinary
+    // notice. Require a labelled type line or a recognised punishment keyword.
+    if (!looksLikeInfraction(content)) return null;
+
     const reason = fieldAfter(content, /reason\s*[:\-]?\s*(.+)/i) || content.slice(0, 500) || null;
     const byName = (message.member && message.member.displayName) || (message.author && (message.author.globalName || message.author.username)) || null;
 
