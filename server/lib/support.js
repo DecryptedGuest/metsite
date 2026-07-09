@@ -155,9 +155,11 @@ function canHandle(user, type) {
 // testing) — you interact with it purely as its opener.
 function canHandleTicket(user, ticket) {
   if (!user || !ticket) return false;
-  // Nobody can claim/handle/log a ticket they opened — not even a developer.
-  if (ticket.openerId && ticket.openerId === user.id) return false;
+  // Developers bypass every gate — including the "can't handle your own ticket"
+  // rule — so they can test the full claim/handle flow on their own tickets.
   if (user.role === 'DEVELOPER') return true;
+  // Real IA staff can't claim/handle/log a ticket they opened (integrity).
+  if (ticket.openerId && ticket.openerId === user.id) return false;
   return canHandle(user, ticket.type);
 }
 

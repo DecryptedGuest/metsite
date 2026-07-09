@@ -390,7 +390,7 @@
         ? `<span class="badge badge-approved" style="margin-left:8px;"><span class="badge-dot"></span>${esc(p.role)}</span>` : '';
       const since = p.createdAt ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Member since ${esc(new Date(p.createdAt).toLocaleDateString())}</div>` : '';
 
-      // Copyable identity rows.
+      // Copyable identity rows, each with a branded "open profile" button.
       const idRow = (labelIcon, labelColor, label, handle, rid, link) => {
         const copyVal = rid || handle || '';
         return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-dim,rgba(255,255,255,.06));">
@@ -399,7 +399,7 @@
             <div style="font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);">${esc(label)}</div>
             <div style="font-size:13px;">${handle ? '@' + esc(handle) : '<span style="color:var(--text-muted);">Not linked</span>'}${rid ? ` <span style="color:var(--text-muted);font-size:11px;">(${esc(rid)})</span>` : ''}</div>
           </div>
-          ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open profile"><i class="ti ti-external-link"></i></a>` : ''}
+          ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ${esc(label)} profile" style="color:${labelColor};"><i class="ti ${labelIcon}"></i> Open profile</a>` : ''}
           ${copyVal ? `<button class="btn btn-ghost btn-sm" title="Copy" onclick="window.copyText && copyText('${esc(String(copyVal))}','${esc(label)}')"><i class="ti ti-copy"></i></button>` : ''}
         </div>`;
       };
@@ -424,7 +424,7 @@
           ${since}
         </div>
         <div style="margin-top:10px;">
-          ${idRow('ti-brand-discord', '#5865F2', 'Discord', p.discordUsername, p.discordId, null)}
+          ${idRow('ti-brand-discord', '#5865F2', 'Discord', p.discordUsername, p.discordId, p.discordId ? 'https://discord.com/users/' + encodeURIComponent(p.discordId) : null)}
           ${idRow('ti-brand-roblox', '#e2231a', 'Roblox', p.robloxUsername, p.robloxId, p.robloxId ? 'https://www.roblox.com/users/' + encodeURIComponent(p.robloxId) + '/profile' : null)}
         </div>
         ${divs}`;
