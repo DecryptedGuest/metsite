@@ -48,9 +48,11 @@ async function roverUpdate(opts = {}) {
     if (!username) username = await bot.getRobloxNameFromNick(discordId).catch(() => null);
     if (!username) return; // can't safely build a nickname
 
-    // Only the MAIN nickname group (ROBLOX_GROUP_ID) drives the server nickname;
-    // a change/removal in a division group leaves the MET nickname untouched.
-    const mainGroup = process.env.ROBLOX_GROUP_ID;
+    // Only the MAIN nickname group drives the server nickname; a change/removal
+    // in a division group leaves the MET nickname untouched. Use the shared
+    // main-group resolver (ROBLOX_GROUP_ID → GROUP_MET → default) so this fires
+    // even when only GROUP_MET is configured.
+    const mainGroup = roblox.mainGroupId();
     if (!mainGroup || (groupId && String(groupId) !== String(mainGroup))) return;
 
     if (terminated) {
