@@ -310,37 +310,57 @@
   }
   async function renderPunishmentPicker(q) {
     const hint = $('sup-hint');
-    hint.innerHTML = '<span style="color:var(--text-muted);">Loading your punishments…</span>';
+    hint.innerHTML = '<span style="color:var(--text-muted);">Loading your record…</span>';
     const list = await loadMyPunishments();
-    const fallback = () => {
-      const choices = (q.choices && q.choices.length) ? q.choices : ['Strike', 'Demotion', 'Exile', 'Blacklist', 'Other'];
-      hint.innerHTML = 'Choose or type: ' + choices.map(c => `<button class="btn btn-ghost btn-sm" style="margin:2px;" onclick="supPick('${esc(c)}')">${esc(c)}</button>`).join('');
-    };
-    if (!list || !list.length) return fallback(); // guest / no history → manual list
-    const btns = list.map((p, i) => {
+    // Build a proper dropdown of the member's own punishments (case-based +
+    // any legacy MET punishments), plus a final "it's not listed" option that
+    // lets them type out what they want to appeal instead.
+    const opts = (list || []).map((p, i) => {
+      const when = p.issuedAt ? new Date(p.issuedAt).toLocaleDateString() : 'unknown date';
       const m = punMeta(p);
-      const when = p.issuedAt ? new Date(p.issuedAt).toLocaleDateString() : '';
-      return `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;white-space:normal;height:auto;margin-bottom:6px;padding:8px 10px;${p.expired ? 'opacity:.7;' : ''}" onclick="supPickPunishment(${i})">
-        <strong>${esc(p.type)}</strong>${p.caseRef ? ` <span style="color:var(--text-muted);font-size:11px;">${esc(p.caseRef)}</span>` : ''}
-        <span style="color:var(--text-muted);font-size:11px;">· ${esc(when)}</span>
-        <span style="color:${m.color};font-size:11px;">· ${esc(m.label)}</span></button>`;
+      const bits = [p.type, p.caseRef ? '· ' + p.caseRef : '', '· ' + when, m.label ? '· ' + m.label : ''].filter(Boolean).join(' ');
+      return `<option value="${i}">${esc(bits)}</option>`;
     }).join('');
-    hint.innerHTML = `<div style="margin-bottom:6px;color:var(--text-muted);">Choose the punishment you're appealing:</div>${btns}
-      <button class="btn btn-ghost btn-sm" onclick="supPick('Other / not listed')">Other / not listed</button>`;
+    const notListed = `<option value="__none">It's not listed here…</option>`;
+    const empty = (!list || !list.length);
+    hint.innerHTML = `
+      <div style="margin-bottom:6px;color:var(--text-muted);">${empty
+        ? "We couldn't find any punishments on your record. Pick the option below and tell us what you'd like to appeal."
+        : "Choose the punishment you're appealing:"}</div>
+      <select id="sup-pun-select" class="sup-select" onchange="supPunSelect(this.value)"
+        style="width:100%;padding:9px 10px;border-radius:8px;background:var(--surface-2,#141922);color:var(--text-primary,#e8edf5);border:1px solid var(--border,#2a3140);font-size:13px;">
+        <option value="" disabled ${empty ? '' : 'selected'}>Select a punishment…</option>
+        ${opts}
+        ${notListed}
+      </select>`;
+    const sel = document.getElementById('sup-pun-select');
     // Deep-linked from a punishment DM → pre-select the matching punishment
     // (still changeable). Match on the punishment id or its case reference.
-    if (pendingAppealId) {
+    if (pendingAppealId && list && list.length) {
       const want = String(pendingAppealId); pendingAppealId = null;
       const idx = list.findIndex(p => String(p.id) === want || (p.caseRef && String(p.caseRef) === want));
-      if (idx >= 0) window.supPickPunishment(idx);
+      if (idx >= 0) { sel.value = String(idx); window.supPunSelect(String(idx)); }
     }
+    if (empty && sel) { sel.value = '__none'; window.supPunSelect('__none'); }
   }
-  window.supPickPunishment = function (i) {
-    const p = (myPunishments || [])[i]; if (!p) return;
+  window.supPunSelect = function (val) {
+    if (val === '__none' || val === '') {
+      // Not listed → let them describe it in their own words.
+      selectedPunishment = null;
+      $('sup-input').value = '';
+      $('sup-input').placeholder = 'Describe the punishment you want to appeal…';
+      appendBubble({ authorKind: 'BOT', authorName: BOT_NAME,
+        body: "No problem — tell me in your own words what you'd like to appeal (what it was, roughly when, and why you think it should be reviewed), then press Send.",
+        createdAt: new Date().toISOString() });
+      scrollLog();
+      $('sup-input').focus();
+      return;
+    }
+    const p = (myPunishments || [])[Number(val)]; if (!p) return;
     const m = punMeta(p);
     const when = p.issuedAt ? new Date(p.issuedAt).toLocaleDateString() : 'unknown date';
     selectedPunishment = p;
-    $('sup-input').value = `${p.type}${p.caseRef ? ' (' + p.caseRef + ')' : ''} — issued ${when} · ${m.label}`;
+    $('sup-input').value = `${p.type}${p.caseRef ? ' (' + p.caseRef + ')' : ''} — issued ${when}${m.label ? ' · ' + m.label : ''}`;
     if (p.expired) {
       appendBubble({ authorKind: 'BOT', authorName: BOT_NAME,
         body: "Heads up — that punishment has **expired**, so it may no longer count against you. You can still submit this appeal and speak to an investigator about it.",
@@ -349,6 +369,8 @@
     }
     $('sup-input').focus();
   };
+  // Back-compat: older deep links / callers may still call supPickPunishment.
+  window.supPickPunishment = function (i) { window.supPunSelect(String(i)); };
 
   function recordAnswer(q, answer, attachments, identity) {
     intakeAnswers.push({ id: q.id, prompt: q.prompt, answer, attachments, identity: identity || null });
