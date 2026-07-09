@@ -17,7 +17,7 @@ const ALL_TICKET_TYPES = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL
 // Default preference set — used when a user has enabled notifications but has
 // not customised anything yet (notifyPrefs is null).
 function defaultPrefs() {
-  return { newCase: true, newTicket: true, ticketTypes: [...ALL_TICKET_TYPES], announcements: true };
+  return { newCase: true, newTicket: true, ticketTypes: [...ALL_TICKET_TYPES], announcements: true, ticketDM: true };
 }
 
 function getPrefs(user) {
@@ -27,6 +27,8 @@ function getPrefs(user) {
     newCase:       p.newCase       !== false,
     newTicket:     p.newTicket     !== false,
     announcements: p.announcements !== false,
+    // Discord DM to IA (non-HICOMM) when a ticket opens; independent of web push.
+    ticketDM:      p.ticketDM       !== false,
     ticketTypes:   Array.isArray(p.ticketTypes) ? p.ticketTypes : d.ticketTypes,
   };
 }

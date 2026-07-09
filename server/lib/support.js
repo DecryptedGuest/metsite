@@ -282,6 +282,34 @@ async function broadcastOpenTicket(ticket) {
         requireInteraction: true, vibrate: [200, 100, 200], tag: 'support-ticket-' + ticket.id,
       }).catch(() => {});
     } catch (e) { /* push is best-effort */ }
+
+    // Discord DM to IA investigators/supervisors — "all of IA apart from IA
+    // HICOMM" — who haven't opted out: a tap-to-claim link + a one-click opt-out
+    // (they can turn it back on any time). Best-effort and per-user independent.
+    try {
+      const dmRoles = roles.filter(r => !IA_HICOMM.includes(r));
+      const { siteBaseUrl, ticketDmToggleUrl } = require('./dmOptOut');
+      const base = siteBaseUrl();
+      if (dmRoles.length && base) {
+        const dmStaff = await prisma.user.findMany({
+          where: { role: { in: dmRoles }, isBlacklisted: false, discordId: { not: null } },
+          select: { id: true, discordId: true, notifyPrefs: true },
+        });
+        const bot = require('./bot');
+        for (const u of dmStaff) {
+          if (ticket.openerId && u.id === ticket.openerId) continue; // never DM the opener
+          const prefs = (u.notifyPrefs && typeof u.notifyPrefs === 'object') ? u.notifyPrefs : {};
+          if (prefs.ticketDM === false) continue; // opted out
+          bot.dmTicketAlert(u.discordId, {
+            typeLabel:  (cfg && cfg.label) || 'Internal Affairs ticket',
+            openerName: ticket.openerName || 'a member',
+            preview,
+            claimUrl:   `${base}/ia/dashboard?supportTicket=${idEnc}&claim=1`,
+            optOutUrl:  ticketDmToggleUrl(u.id, true),
+          }).catch(() => {});
+        }
+      }
+    } catch (e) { /* DM alerting is best-effort */ }
   } catch (e) { /* best-effort */ }
 }
 

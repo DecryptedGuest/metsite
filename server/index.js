@@ -1038,6 +1038,36 @@ app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'ind
 app.get('/login',                (req, res) => res.redirect('/' + req.url.replace(/^\/login/, '')));
 app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
 
+// Public one-click opt-out / opt-in for the IA ticket DMs. Reached from the
+// signed link in the Discord DM (no login needed); the HMAC in `sig` binds the
+// link to this user so it can't flip anyone else's preference.
+app.get('/n/ticket-dm', async (req, res) => {
+  const { u, sig, off } = req.query;
+  const { verifyTicketDmSig, ticketDmToggleUrl } = require('./lib/dmOptOut');
+  const page = (title, inner) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>`
+    + `<style>body{font-family:system-ui,-apple-system,sans-serif;background:#0b0f18;color:#e8edf5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}`
+    + `.card{max-width:430px;text-align:center;background:#111722;border:1px solid #2a3040;border-radius:16px;padding:30px 26px}h1{font-size:19px;margin:0 0 10px}p{color:#aeb6c2;font-size:14px;line-height:1.6;margin:0 0 18px}`
+    + `a.btn{display:inline-block;padding:11px 18px;border-radius:10px;background:#4a8fff;color:#fff;text-decoration:none;font-weight:700;font-size:14px}a.alt{display:block;margin-top:14px;color:#8b93a1;font-size:12px}</style></head><body><div class="card">${inner}</div></body></html>`;
+  if (!u || !verifyTicketDmSig(u, sig)) {
+    return res.status(400).type('html').send(page('Invalid link', '<h1>Link invalid or expired</h1><p>Manage your notifications from the dashboard instead.</p><a class="btn" href="/dashboard">Open dashboard</a>'));
+  }
+  const optOut = String(off) === '1';
+  try {
+    const user = await dbPrisma.user.findUnique({ where: { id: String(u) }, select: { notifyPrefs: true } });
+    if (!user) return res.status(404).type('html').send(page('Not found', '<h1>Account not found</h1><p>We couldn’t find your account.</p>'));
+    const prefs = (user.notifyPrefs && typeof user.notifyPrefs === 'object') ? { ...user.notifyPrefs } : {};
+    prefs.ticketDM = !optOut;
+    await dbPrisma.user.update({ where: { id: String(u) }, data: { notifyPrefs: prefs } });
+    const toggleBack = ticketDmToggleUrl(String(u), !optOut);
+    const inner = optOut
+      ? '<h1>You’re opted out ✓</h1><p>You’ll no longer get a Discord DM when a new Internal Affairs ticket opens. You can turn them back on any time.</p><a class="btn" href="' + toggleBack + '">Turn DMs back on</a><a class="alt" href="/dashboard">Go to dashboard</a>'
+      : '<h1>DMs turned back on ✓</h1><p>You’ll get a Discord DM with a claim link when a new Internal Affairs ticket opens.</p><a class="btn" href="' + toggleBack + '">Opt out again</a><a class="alt" href="/dashboard">Go to dashboard</a>';
+    res.type('html').send(page(optOut ? 'Opted out' : 'Opted in', inner));
+  } catch (e) {
+    res.status(500).type('html').send(page('Error', '<h1>Something went wrong</h1><p>Please try again, or manage notifications from the dashboard.</p><a class="btn" href="/dashboard">Open dashboard</a>'));
+  }
+});
+
 // MET dashboard — the signed-in landing: identity, divisions, exam, record.
 // (The profile page IS the dashboard; served at both paths.)
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));

@@ -42,6 +42,7 @@ router.patch('/settings', async (req, res) => {
       newCase:       prefs.newCase       !== false,
       newTicket:     prefs.newTicket     !== false,
       announcements: prefs.announcements !== false,
+      ticketDM:      prefs.ticketDM      !== false,
       ticketTypes:   Array.isArray(prefs.ticketTypes)
         ? prefs.ticketTypes.filter(t => ALL_TICKET_TYPES.includes(t))
         : [...ALL_TICKET_TYPES],

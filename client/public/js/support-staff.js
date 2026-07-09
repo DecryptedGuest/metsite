@@ -127,12 +127,20 @@
   // "Claim & open" button). Only claims if it's actually claimable by you.
   window.sdOpenAndClaim = async function (id) {
     await window.sdOpen(id);
-    try {
-      if (curT && curT.id === id && curT.caps && curT.caps.canClaim) {
-        await window.sdAct('claim');
-        if (typeof window.showToast === 'function') window.showToast('Ticket claimed', 'success');
-      }
-    } catch (e) { /* claim race / already taken — the workspace still opens */ }
+    if (!curT || curT.id !== id) return;
+    const caps = curT.caps || {};
+    if (caps.canClaim) {
+      // sdAct shows its own "Done" (success) or "Already claimed by X" (race)
+      // toast and returns false on failure — so we never add a "claimed" message
+      // on top of an "already claimed" one.
+      await window.sdAct('claim');
+      return;
+    }
+    // Couldn't claim because it's ALREADY claimed → say exactly that, nothing else.
+    if (curT.status === 'CLAIMED') {
+      const who = (curT.claimant && curT.claimant.name) || curT.claimedByName || 'another investigator';
+      if (typeof window.showToast === 'function') window.showToast('This ticket is already claimed by ' + who + '.', 'info');
+    }
   };
 
   // IA-only card for a Disciplinary Appeal: the opener's Roblox + Discord
@@ -315,7 +323,8 @@
         const inp = $('sd-input');
         if (inp && !inp.value.trim()) { inp.value = r.greeting; inp.focus(); }
       }
-    } catch (e) { showToast(e.message, 'error'); }
+      return true;
+    } catch (e) { showToast(e.message, 'error'); return false; }
   };
   window.sdSetPriority = async function (p) {
     try { await api('/api/support/tickets/' + curT.id + '/priority', { method: 'POST', body: JSON.stringify({ priority: p }) }); showToast('Priority set', 'success'); await reloadTicket(); refreshQueue(); }

@@ -1685,6 +1685,7 @@ async function loadNotifSettings() {
   set('ns-enabled',   active);
   set('ns-newCase',   s.prefs.newCase);
   set('ns-newTicket', s.prefs.newTicket);
+  set('ns-ticketDM',  s.prefs.ticketDM !== false);
   document.querySelectorAll('.ns-tt').forEach(cb => { cb.checked = (s.prefs.ticketTypes || []).includes(cb.value); });
   setNotifPrefsVisible(active);
 
@@ -1725,6 +1726,7 @@ async function saveNotifSettings() {
   const prefs = {
     newCase:       document.getElementById('ns-newCase')?.checked   || false,
     newTicket:     document.getElementById('ns-newTicket')?.checked || false,
+    ticketDM:      document.getElementById('ns-ticketDM') ? !!document.getElementById('ns-ticketDM').checked : true,
     announcements: true, // developer announcements are always on
     ticketTypes:   Array.from(document.querySelectorAll('.ns-tt')).filter(cb => cb.checked).map(cb => cb.value),
   };

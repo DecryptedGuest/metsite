@@ -917,6 +917,35 @@ async function dmInstallLink(discordId, url) {
   }
 }
 
+// DM an IA investigator that a ticket is ready to claim, with a one-tap "Claim"
+// link and a one-click "opt out of these DMs" link. Best-effort — returns false
+// on closed DMs / not-in-a-shared-guild / bot offline. Requires absolute https
+// URLs (Discord link buttons reject relative/invalid URLs).
+async function dmTicketAlert(discordId, opts) {
+  opts = opts || {};
+  if (!ready || !discordId || !/^https:\/\//i.test(opts.claimUrl || '')) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const desc  = `**${opts.typeLabel || 'Support ticket'}** opened by **${opts.openerName || 'a member'}**.`
+      + (opts.preview ? `\n\n> ${String(opts.preview).slice(0, 300)}` : '')
+      + `\n\nTap **Claim ticket** to take it. Don't want these DMs? Use **Opt out** — you can turn them back on any time.`;
+    const embed = new EmbedBuilder()
+      .setColor(0x4a8fff)
+      .setTitle('🎫 New Internal Affairs ticket')
+      .setDescription(desc);
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Claim ticket').setURL(opts.claimUrl),
+    );
+    if (/^https:\/\//i.test(opts.optOutUrl || '')) {
+      row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Opt out of DMs').setURL(opts.optOutUrl));
+    }
+    await user.send({ embeds: [embed], components: [row] });
+    return true;
+  } catch (e) {
+    return false; // closed DMs / no shared guild — never noisy
+  }
+}
+
 // DM the host that their tryout was created + announced. Returns the DM message
 // id (so it can be edited in real time when the lock state changes), or null.
 async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
@@ -1434,7 +1463,7 @@ module.exports = {
   matchTicketTranscript,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
-  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmLoginCode, deleteLoginDm,
+  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmTicketAlert, dmLoginCode, deleteLoginDm,
   reactToMessage, postChannelMessage, editChannelMessage,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   backfillLogChannel, backfillPatrolLogs,
