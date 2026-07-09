@@ -333,3 +333,10 @@
 /* Flash a message when you jump to it from a reply reference */
 .sup-flash { animation: supFlash 1.2s ease-out; }
 @keyframes supFlash { 0% { background: rgba(74,158,255,0.22); } 100% { background: transparent; } }
+
+/* Live formatting preview under the ticket composer */
+.sup-fmt-preview { margin-top: 8px; padding: 8px 11px; border: 1px dashed var(--border, #2a3040);
+  border-radius: 8px; background: var(--surface-1, rgba(255,255,255,0.03)); }
+.sup-fmt-preview-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-muted, #9aa3b2); margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+.sup-fmt-preview .sup-text { font-size: 13px; }

@@ -512,6 +512,7 @@
     $('sd-file').addEventListener('change', onPick);
     $('sd-send').addEventListener('click', onSend);
     $('sd-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
+    $('sd-input').addEventListener('input', () => window.supFmtPreview('sd-input', 'sd-fmt-preview', 'sd-composer'));
   }
   function renderPending() {
     $('sd-pending').innerHTML = sdPending.map(p => {
@@ -573,6 +574,7 @@
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); const l = $('sd-log'); l.scrollTop = l.scrollHeight; }
       $('sd-input').value = ''; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
       sdReplyTo = null; renderSdReplyBar();
+      window.supFmtPreviewClear('sd-fmt-preview');
     } catch (e) { showToast(e.message, 'error'); }
   }
 

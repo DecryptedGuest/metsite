@@ -771,6 +771,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     $('sup-input').addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
     });
+    $('sup-input').addEventListener('input', () => window.supFmtPreview('sup-input', 'sup-fmt-preview', 'sup-composer'));
   }
   function setComposerEnabled(t) {
     const canOpener = t.isMine && t.status !== 'CLOSED';
@@ -894,6 +895,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (!document.querySelector(`[data-mid="${msg.id}"]`)) appendBubble(msg);
       $('sup-input').value = ''; clearPending(); replyTo = null; renderReplyBar();
+      window.supFmtPreviewClear('sup-fmt-preview');
     } catch (e) {
       showToast(e.message, 'error');
       // If the send was refused because we've just been blocked, re-sync so the
