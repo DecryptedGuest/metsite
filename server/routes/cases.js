@@ -96,13 +96,35 @@ async function resolveOfficerDiscordId(caseRow) {
   return null;
 }
 
+// The highest existing case number across the WHOLE shared database — native
+// and IA-synced/imported cases alike (all use "#N" refs). So new refs continue
+// in step with the IA database instead of a separate, out-of-sync counter.
+async function highestCaseNumber() {
+  let max = 0;
+  try {
+    const rows = await prisma.case.findMany({ select: { caseRef: true } });
+    for (const c of rows) {
+      const m = String(c.caseRef || '').match(/^#?(\d+)$/);
+      if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+    }
+  } catch (e) { /* fall back to the counter below */ }
+  try { const ctr = await prisma.caseCounter.findUnique({ where: { id: 1 } }); if (ctr && ctr.count > max) max = ctr.count; } catch (e) {}
+  return max;
+}
+
 async function generateCaseRef() {
-  const counter = await prisma.caseCounter.upsert({
-    where:  { id: 1 },
-    update: { count: { increment: 1 } },
-    create: { id: 1, count: 1 },
-  });
-  return `#${counter.count}`;
+  let n = (await highestCaseNumber()) + 1;
+  // Ensure the ref is free (caseRef is @unique) and keep the counter in step.
+  for (let i = 0; i < 100; i++) {
+    const ref = `#${n}`;
+    const exists = await prisma.case.findUnique({ where: { caseRef: ref } }).catch(() => null);
+    if (!exists) {
+      await prisma.caseCounter.upsert({ where: { id: 1 }, update: { count: n }, create: { id: 1, count: n } }).catch(() => {});
+      return ref;
+    }
+    n++;
+  }
+  return `#${n}`;
 }
 
 // ── GET /api/cases/actions ────────────────────────────────────────
@@ -147,8 +169,7 @@ router.post('/ai-document', async (req, res) => {
 // claim it first.
 router.get('/next-ref', async (req, res) => {
   try {
-    const counter = await prisma.caseCounter.findUnique({ where: { id: 1 } });
-    const next = (counter?.count || 0) + 1;
+    const next = (await highestCaseNumber()) + 1;
     res.json({ next, nextRef: `#${next}` });
   } catch (e) {
     res.json({ next: null, nextRef: null });
