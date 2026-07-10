@@ -271,8 +271,12 @@ async function initMetTopbar(currentDivision) {
     }
     const menu = document.getElementById('met-switcher-menu');
     if (data && menu) {
-      menu.innerHTML = '';
-      (data.mine || []).forEach(d => {
+      const mine = data.mine || [];
+      // A header makes it obvious this list is the divisions THIS user can enter.
+      menu.innerHTML = mine.length
+        ? '<div class="met-menu-label">Divisions you can access</div>'
+        : '<div class="met-menu-empty">No other divisions yet</div>';
+      mine.forEach(d => {
         const a = document.createElement('a');
         const isCurrent = d.division === currentDivision;
         a.href = `/${d.slug}/dashboard`;
@@ -310,8 +314,9 @@ async function initMetTopbar(currentDivision) {
       const switcherEl = document.getElementById('met-switcher');
 
       const GROUPS = [
+        // "My Dashboard" is a dedicated top-level button now (added below), so it's
+        // not repeated here.
         { label: 'Navigate', items: [
-          { href: '/dashboard', icon: 'ti-layout-dashboard', label: 'My Dashboard', match: ['/dashboard', '/profile'] },
           { href: '/support',   icon: 'ti-lifebuoy',         label: 'Support' },
         ] },
         { label: 'You', items: [
@@ -372,8 +377,8 @@ async function initMetTopbar(currentDivision) {
           pill.id = 'met-support-pill';
           pill.href = '/ia/dashboard?page=support-tickets';
           pill.className = 'btn btn-ghost btn-sm';
-          pill.title = 'Support Desk — Internal Affairs · unclaimed tickets';
-          pill.innerHTML = '<i class="ti ti-headset"></i> Support Desk <span id="met-support-badge" style="min-width:18px;height:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--red,#e0503a);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;">0</span>';
+          pill.title = 'Support Desk (Internal Affairs) · unclaimed tickets';
+          pill.innerHTML = '<i class="ti ti-headset"></i> Support Desk (IA) <span id="met-support-badge" style="min-width:18px;height:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--red,#e0503a);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;">0</span>';
           right.insertBefore(pill, right.firstChild);
         }
         const badge = document.getElementById('met-support-badge');
@@ -404,6 +409,20 @@ async function initMetTopbar(currentDivision) {
         });
         right.insertBefore(sBtn, right.firstChild);
       }
+
+      // Dashboard "home" button — a persistent, obvious way back to your own
+      // dashboard from anywhere. Kept as the leftmost top-level control (not buried
+      // in the Menu) and highlighted when you're already on it.
+      if (!document.getElementById('met-dash-btn')) {
+        const dBtn = document.createElement('a');
+        dBtn.id = 'met-dash-btn';
+        dBtn.href = '/dashboard';
+        dBtn.className = 'btn btn-ghost btn-sm';
+        dBtn.title = 'Go to your dashboard';
+        dBtn.innerHTML = '<i class="ti ti-home"></i> Dashboard';
+        right.insertBefore(dBtn, right.firstChild);
+        if (HERE === '/dashboard' || HERE === '/profile') markHere(dBtn);
+      }
     }
   } catch (e) { /* cosmetic */ }
 
@@ -411,6 +430,9 @@ async function initMetTopbar(currentDivision) {
   const switcher = document.getElementById('met-switcher');
   const switcherBtn = document.getElementById('met-switcher-btn');
   if (switcher && switcherBtn) {
+    // Make it obvious this jumps between the divisions the user belongs to.
+    switcherBtn.innerHTML = '<i class="ti ti-arrows-left-right"></i> My Divisions <i class="ti ti-chevron-down" style="font-size:13px;opacity:.6;"></i>';
+    switcherBtn.title = 'Switch to another division you have access to';
     if (currentDivision) markHere(switcherBtn);
     switcherBtn.addEventListener('click', (e) => {
       e.stopPropagation();

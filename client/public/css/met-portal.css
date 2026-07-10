@@ -56,6 +56,7 @@
 .met-menu-label { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
   color: var(--text-muted, #8b93a1); padding: 8px 10px 4px; }
 .met-menu-label:first-child { padding-top: 4px; }
+.met-menu-empty { font-size: 12px; color: var(--text-muted, #8b93a1); padding: 10px; text-align: center; }
 
 /* Hamburger (mobile only — shown by the <640px rule below). */
 .met-nav-toggle { display: none; margin-right: 2px; }
