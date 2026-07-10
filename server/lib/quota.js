@@ -474,15 +474,19 @@ const NON_MEMBER = new Set([
  */
 // Parse a sheet's raw grid (rows of cells) into member objects — shared by the
 // service-account read and the webhook read so both produce identical results.
-function buildMembersFromRows(rows, cfg, reductionHolders) {
+// `fallbackRank` (the tab name) is used as the rank when the tab has no rank
+// column — this is how MET-style databases that split ranks across TABS work
+// (each rank tab has username + day columns but no rank column of its own).
+function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank) {
   const cols = findColumns(rows);
   if (cols.username == null && cols.rank == null) return [];
   const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const members = [];
   for (let r = 0; r < rows.length; r++) {
     const uname = cols.username  != null ? (rows[r][cols.username]  || '').toString().trim() : '';
-    const rank  = cols.rank      != null ? (rows[r][cols.rank]      || '').toString().trim() : '';
+    let   rank  = cols.rank      != null ? (rows[r][cols.rank]      || '').toString().trim() : '';
     const did   = cols.discordId != null ? (rows[r][cols.discordId] || '').toString().trim() : '';
+    if (!rank && fallbackRank) rank = String(fallbackRank).trim();   // rank = tab name
     if (!uname || NON_MEMBER.has(uname.toLowerCase())) continue;
     if (!rank  || NON_MEMBER.has(rank.toLowerCase()))   continue; // member rows carry a rank
 
@@ -551,7 +555,8 @@ async function getAllMembersViaWebhook(cfg) {
     const out = [];
     for (const tab of data.tabs) {
       const rows = Array.isArray(tab && tab.values) ? tab.values : [];
-      for (const m of buildMembersFromRows(rows, cfg, null)) {
+      // The tab name is the rank fallback for split-by-rank databases (MET).
+      for (const m of buildMembersFromRows(rows, cfg, null, tab && tab.name)) {
         const key = (m.username || '').toLowerCase();
         if (key && !seen.has(key)) { seen.add(key); out.push(m); }
       }
