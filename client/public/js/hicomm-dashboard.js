@@ -244,8 +244,14 @@
           : d.roles.map(r => `<span class="met-chip" style="${r.color ? 'border-color:' + esc(r.color) + ';color:' + esc(r.color) + ';' : ''}">${esc(r.name)}</span>`).join(' '))
       : '<span style="color:var(--text-muted);font-size:12px;">No MET server roles found.</span>';
     const metRank = p.metRank ? `<span class="met-chip" style="border-color:var(--blue);color:var(--blue);">MET ${esc(p.metRank.name)}</span>` : '';
+    const groupIcon = (g) => {
+      const src = g.group && g.group.icon;
+      return src
+        ? `<img src="${esc(src)}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;flex-shrink:0;background:var(--bg-deep);">`
+        : `<span style="width:22px;height:22px;border-radius:6px;flex-shrink:0;background:var(--bg-deep);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--text-muted);">${esc((g.group.name || '?').slice(0,1).toUpperCase())}</span>`;
+    };
     const groupRows = groups.length
-      ? groups.map(g => `<tr><td>${esc(g.group.name)}</td><td style="color:var(--text-secondary);">${esc(g.role.name)}</td><td style="text-align:right;color:var(--text-muted);">${esc(String(g.role.rank))}</td></tr>`).join('')
+      ? groups.map(g => `<tr><td><span style="display:flex;align-items:center;gap:8px;">${groupIcon(g)}<span>${esc(g.group.name)}</span></span></td><td style="color:var(--text-secondary);">${esc(g.role.name)}</td><td style="text-align:right;color:var(--text-muted);">${esc(String(g.role.rank))}</td></tr>`).join('')
       : '<tr><td colspan="3" class="table-empty-text" style="padding:10px;">No Roblox groups found (or Roblox not linked).</td></tr>';
     const dnote = d && d.inServer
       ? `In MET server${d.joinedAt ? ' · joined ' + fmtWhen(d.joinedAt) : ''}${d.timedOutUntil ? ' · <span style="color:var(--amber);">timed out</span>' : ''}`

@@ -376,6 +376,41 @@ async function getRobloxAvatarHeadshot(robloxUserId) {
 }
 
 /**
+ * Fetch group icons for a batch of group ids from the public Roblox thumbnails
+ * API (no auth). Returns { [groupId]: imageUrl }. Missing/failed ids are simply
+ * absent. Cached per group id (icons basically never change) so repeated
+ * profile lookups don't re-hit Roblox.
+ */
+const groupIconCache = new Map(); // groupId → { url, expires }
+const GROUP_ICON_TTL = 24 * 60 * 60 * 1000; // 24h
+async function getGroupIcons(groupIds) {
+  const out = {};
+  const want = [...new Set((groupIds || []).map(String).filter(Boolean))];
+  const need = [];
+  for (const id of want) {
+    const hit = groupIconCache.get(id);
+    if (hit && Date.now() < hit.expires) { if (hit.url) out[id] = hit.url; }
+    else need.push(id);
+  }
+  if (!need.length) return out;
+  try {
+    const res = await fetch(`https://thumbnails.roblox.com/v1/groups/icons?groupIds=${need.join(',')}&size=150x150&format=Png&isCircular=false`);
+    if (res.ok) {
+      const data = await res.json();
+      for (const x of (data.data || [])) {
+        const id = String(x.targetId);
+        const url = (x.state === 'Completed' && x.imageUrl) ? x.imageUrl : null;
+        groupIconCache.set(id, { url, expires: Date.now() + GROUP_ICON_TTL });
+        if (url) out[id] = url;
+      }
+    }
+  } catch (err) {
+    console.error('Group icons lookup error:', err.message);
+  }
+  return out;
+}
+
+/**
  * Check whether a Roblox user is a member of the configured group.
  * Uses the public Roblox Groups API — no auth needed.
  * Returns the membership object { group, role } or null if not in group.
@@ -700,6 +735,7 @@ module.exports = {
   getRobloxUsersInfo,
   getGroupRolesPublic,
   getRobloxAvatarHeadshot,
+  getGroupIcons,
   getGroupMembership,
   getUserGroupRole,
   getUserGroupRoles,

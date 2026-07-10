@@ -273,9 +273,39 @@ async function buildMetProfile({ discordId, robloxId, robloxUsername }) {
   return {
     discord,
     roblox: rid ? { id: rid, username: (info && info.username) || rname, displayName: info && info.displayName } : null,
-    robloxGroups: filterMetGroups(groups),
+    robloxGroups: await withGroupIcons(filterMetGroups(groups)),
     metRank: metRank ? { name: metRank.name, rank: metRank.rank } : null,
   };
+}
+
+// Attach a division/group icon to each MET-related group. A group that maps to
+// a portal division (or the MET umbrella) uses that division's resolved icon —
+// the committed local logo where one exists, otherwise the live Roblox group
+// icon. Any remaining group falls back to its own Roblox group icon fetched
+// directly. All best-effort: on Roblox failure the icon is simply omitted.
+async function withGroupIcons(groups) {
+  if (!groups || !groups.length) return groups || [];
+  const byGroupId = {};
+  try {
+    const div = require('../lib/divisions');
+    const cfg = await div.getDivisionConfig();
+    for (const key of Object.keys(cfg)) {
+      const c = cfg[key];
+      if (c && c.groupId && c.icon) byGroupId[String(c.groupId)] = c.icon;
+    }
+  } catch (e) { /* no division config — fall through to Roblox icons */ }
+
+  const need = groups
+    .map(g => g && g.group && String(g.group.id))
+    .filter(id => id && !byGroupId[id]);
+  let robloxIcons = {};
+  if (need.length) { try { robloxIcons = await require('../lib/roblox').getGroupIcons(need); } catch (e) { robloxIcons = {}; } }
+
+  return groups.map(g => {
+    const gid = g && g.group && String(g.group.id);
+    const icon = (gid && (byGroupId[gid] || robloxIcons[gid])) || null;
+    return { ...g, group: { ...g.group, icon } };
+  });
 }
 
 // Officer 360 shows only groups RELATED TO MET (the umbrella group + the portal

@@ -274,3 +274,10 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
 .sup-msg.bot .sup-av   { box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue,#4a8fff) 55%, transparent); }
 .sup-msg.staff .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--green,#2ed896) 50%, transparent); }
 .sup-msg.internal .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber,#f5b730) 55%, transparent); }
+
+/* Topbar: pin the profile + Sign-out to the far right, whatever buttons the
+   topbar script injects (Menu / Support / Switch Division / badges). Flex order
+   keeps them last regardless of DOM insertion order, and a left auto-margin
+   spaces them clearly from the button cluster. */
+.met-topbar-user { order: 900; margin-left: auto; }
+.met-topbar-right > form { order: 901; }
