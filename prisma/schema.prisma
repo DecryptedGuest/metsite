@@ -932,6 +932,8 @@ model SupportMessage {
   body        String?
   attachments Json? // [{ mediaId, kind, name }]
   replyToId   String? // id of the SupportMessage this one replies to (Discord-style)
+  editedAt    DateTime? // set when the author edits their message (shows an [edited] marker)
+  deletedAt   DateTime? // soft-delete: hidden from the thread but kept for the audit trail
   createdAt   DateTime @default(now())
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)

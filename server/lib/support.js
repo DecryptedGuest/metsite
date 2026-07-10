@@ -377,6 +377,22 @@ async function broadcastOpenTicket(ticket) {
   } catch (e) { /* best-effort */ }
 }
 
+// Tell every eligible staffer to DISMISS the "ready to claim" popup for a ticket
+// that's just been claimed/closed/reopened-elsewhere, so nobody keeps a live
+// Claim CTA for a ticket someone else already grabbed. Best-effort.
+async function broadcastTicketTaken(ticket, extra) {
+  try {
+    if (!ticket) return;
+    const cfg = typeConfig(ticket.type);
+    const roles = (cfg && cfg.roles) || IA_STAFF;
+    const prisma = require('./db');
+    const events = require('./events');
+    const staff = await prisma.user.findMany({ where: { role: { in: roles }, isBlacklisted: false }, select: { id: true } });
+    const payload = { ticketId: ticket.id, status: ticket.status || null, ...(extra || {}) };
+    for (const s of staff) events.publishToUser(s.id, 'ticket_taken', payload);
+  } catch (e) { /* best-effort */ }
+}
+
 // ── Identity resolution (for "which officer / who" intake questions) ──
 // Accepts a Discord username, Roblox username, or a Discord/Roblox ID, and
 // resolves it to a Roblox profile (username + headshot) so the opener can
@@ -469,7 +485,7 @@ async function resolveIdentity(input) {
 
 module.exports = {
   TYPES, typeConfig, isStaff, isHicomm, canOverrideClaimLock, canHandle, canHandleTicket, handleableTypes, canView, publicCatalogue,
-  handoffMessage, resolveIdentity, subscribe, publish, broadcastOpenTicket, PRIORITIES, normPriority,
+  handoffMessage, resolveIdentity, subscribe, publish, broadcastOpenTicket, broadcastTicketTaken, PRIORITIES, normPriority,
   BOT_NAME, BOT_AVATAR, IA_STAFF, IA_HICOMM,
   KNOWLEDGE, DEFAULT_GREETINGS, fillGreeting,
 };

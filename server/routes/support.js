@@ -10,6 +10,30 @@ const support = require('../lib/support');
 
 const router = express.Router();
 
+// ── Lightweight in-memory rate limiter ───────────────────────────────
+// Single Railway instance, so an in-process sliding window is enough. Keyed by
+// a caller identity (user id or IP+fingerprint). Returns true when the action is
+// ALLOWED, false when the caller is over the limit. Buckets self-expire.
+const _rl = new Map(); // key -> number[] (timestamps within the window)
+function rateOk(key, max, windowMs) {
+  const now = Date.now();
+  const arr = (_rl.get(key) || []).filter(t => now - t < windowMs);
+  if (arr.length >= max) { _rl.set(key, arr); return false; }
+  arr.push(now); _rl.set(key, arr);
+  return true;
+}
+// Occasionally sweep stale buckets so the map can't grow unbounded.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, arr] of _rl) { const keep = arr.filter(t => now - t < 60000); if (keep.length) _rl.set(k, keep); else _rl.delete(k); }
+}, 120000).unref?.();
+// The caller's identity for rate-limiting: their user id if signed in, else IP+fp.
+function rlIdentity(req) {
+  if (req.user) return 'u:' + req.user.id;
+  const { ip, fp } = clientNet(req);
+  return 'g:' + (ip || '') + ':' + (fp || '');
+}
+
 // ── Optional-login identity ──────────────────────────────────────────
 // Login is optional. A logged-in opener is matched by openerId; an anonymous
 // opener holds a per-ticket secret token (localStorage) sent as ?token= /
@@ -91,6 +115,7 @@ function serializeMessage(ticketId, m, avatarMap, msgById) {
     authorAvatar: (meta ? meta.avatar : (m.authorAvatar || null)),
     authorDiscordId: (meta ? meta.discordId : (m.authorDiscordId || null)),
     body: m.body, attachments: attWithUrls(ticketId, m.attachments), createdAt: m.createdAt,
+    editedAt: m.editedAt || null,
     replyToId: m.replyToId || null,
     // Reply reference resolves only against messages the viewer can see (msgById
     // is built from the already-filtered list, so INTERNAL parents stay hidden).
@@ -150,7 +175,8 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null, opene
     id: q.id, prompt: q.prompt, answer: q.answer, identity: q.identity || null, attachments: attWithUrls(t.id, q.attachments),
   }));
   // Internal staff notes are never shown to the opener / non-handlers.
-  let msgs = t.messages || [];
+  // Soft-deleted messages are hidden from everyone (kept only for the audit trail).
+  let msgs = (t.messages || []).filter(m => !m.deletedAt);
   if (!staffView) msgs = msgs.filter(m => (m.authorKind || '') !== 'INTERNAL');
   const msgById = new Map(msgs.map(m => [m.id, m]));
   return { ...base, intake, messages: msgs.map(m => serializeMessage(t.id, m, avatarMap, msgById)) };
@@ -320,6 +346,10 @@ router.post('/tickets', async (req, res) => {
   const type = String((req.body && req.body.type) || '').toUpperCase();
   const cfg  = support.typeConfig(type);
   if (!cfg) return res.status(400).json({ error: 'Unknown ticket type.' });
+  // Anti-spam: cap new tickets per opener identity (6 / 10 min).
+  if (!rateOk('mk:' + rlIdentity(req), 6, 10 * 60 * 1000)) {
+    return res.status(429).json({ error: "You're opening tickets too quickly. Please wait a few minutes." });
+  }
   // Import-only types (Website Support) can't be opened here — they arrive via
   // Discord transcript import.
   if (cfg.importOnly) return res.status(400).json({ error: 'This ticket type cannot be opened here.' });
@@ -762,6 +792,8 @@ router.post('/tickets/:id/claim', async (req, res) => {
     const claimant = await buildClaimantCard(req.user.id);
     support.publish(t.id, 'update', { status: 'CLAIMED', claimedByName: name, claimant });
     support.publish(t.id, 'message', serializeMessage(t.id, claimMsg));
+    // Dismiss the "ready to claim" popup on every other staffer's screen.
+    try { support.broadcastTicketTaken(updated, { by: name }); } catch (e) {}
     // Compose the investigator's greeting to prefill their composer (never posted
     // automatically — they review/edit and send it themselves).
     const greeting = await buildClaimGreeting(req.user, t).catch(() => null);
@@ -776,6 +808,10 @@ router.post('/tickets/:id/messages', async (req, res) => {
     if (!t) return res.status(404).json({ error: 'Ticket not found' });
     if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
     if (t.status === 'CLOSED') return res.status(400).json({ error: 'This ticket is closed.' });
+    // Anti-spam: cap messages per sender (25 / 30s).
+    if (!rateOk('msg:' + rlIdentity(req), 25, 30 * 1000)) {
+      return res.status(429).json({ error: "You're sending messages too quickly. Slow down a moment." });
+    }
     // A ticket-blacklisted opener can no longer type in their own ticket.
     if (isOpener(req, t) && !isHandler(req, t) && await openerIsBlacklisted(t)) {
       return res.status(403).json({ error: 'You have been blocked from this ticket by Internal Affairs.', locked: true });
@@ -918,6 +954,8 @@ router.post('/tickets/:id/typing', async (req, res) => {
     if (!t) return res.status(404).end();
     if (!canSee(req, t)) return res.status(403).end();
     if (t.status === 'CLOSED') return res.status(204).end();
+    // Drop excess typing pings silently (a misbehaving client can't flood the bus).
+    if (!rateOk('typ:' + rlIdentity(req) + ':' + t.id, 4, 4 * 1000)) return res.status(204).end();
     const opener = isOpener(req, t);
     const name = req.user ? (req.user.displayName || req.user.discordUsername) : (t.openerName || 'Guest');
     support.publish(t.id, 'typing', { name, who: opener ? 'OPENER' : 'STAFF', userId: req.user ? req.user.id : null });
@@ -1073,6 +1111,8 @@ router.post('/tickets/:id/close', async (req, res) => {
     const closeMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `This ticket was closed by ${name}.${reason ? ` Reason: ${reason}` : ''}` } });
     support.publish(t.id, 'message', serializeMessage(t.id, closeMsg));
     support.publish(t.id, 'update', { status: 'CLOSED' });
+    // Dismiss any lingering "ready to claim" popup for this now-closed ticket.
+    try { support.broadcastTicketTaken(updated, { closed: true }); } catch (e) {}
     // Auto-file an IA ticket log for HICOMM review (fire-and-forget).
     createIaTicketLog(updated, req.user).catch(() => {});
     // Post a Tickety-style close log to the ticket-log channel via the MET bot.
@@ -1080,6 +1120,118 @@ router.post('/tickets/:id/close', async (req, res) => {
     require('../lib/audit').log(req.user, { category: 'TICKET', action: 'CLOSE', target: { type: 'support_ticket', id: t.id, name: t.type }, summary: `Closed ${t.type} ticket${reason ? ` — ${reason}` : ''}` });
     res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user }) });
   } catch (e) { res.status(500).json({ error: 'Failed to close' }); }
+});
+
+// ── POST /api/support/tickets/:id/reopen — opener follow-up OR staff reopen ──
+// Puts a CLOSED ticket back in the queue (OPEN, unclaimed) with the full history
+// intact, so a member with a new detail doesn't have to start over. Alerts staff.
+router.post('/tickets/:id/reopen', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    const opener = isOpener(req, t);
+    if (!opener && !support.canHandleTicket(req.user, t)) return res.status(403).json({ error: 'You cannot reopen this ticket.' });
+    if (t.status !== 'CLOSED') return res.status(400).json({ error: 'This ticket is not closed.' });
+    // Anti-spam: cap reopens per identity (4 / 10 min).
+    if (!rateOk('reopen:' + rlIdentity(req), 4, 10 * 60 * 1000)) return res.status(429).json({ error: 'Please wait before reopening again.' });
+
+    const reopened = await prisma.supportTicket.updateMany({
+      where: { id: t.id, status: 'CLOSED' },
+      data: { status: 'OPEN', claimedById: null, claimedByName: null, claimedAt: null, closedById: null, closedByName: null, closedAt: null },
+    });
+    if (reopened.count === 0) return res.status(400).json({ error: 'This ticket is not closed.' });
+    const updated = await prisma.supportTicket.findUnique({ where: { id: t.id } });
+    const who = req.user ? (req.user.displayName || req.user.discordUsername) : (t.openerName || 'The opener');
+    const note = req.body && req.body.note ? String(req.body.note).slice(0, 500) : '';
+    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `${who} reopened this ticket${opener ? ' with a follow-up' : ''}.` } });
+    support.publish(t.id, 'message', serializeMessage(t.id, bm));
+    support.publish(t.id, 'update', { status: 'OPEN', claimedByName: null });
+    // Re-alert eligible staff (in-page popup + push + DM), same as a fresh open.
+    try { const p = support.broadcastOpenTicket(updated); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+    require('../lib/audit').log(req.user, { category: 'TICKET', action: 'REOPEN', target: { type: 'support_ticket', id: t.id, name: t.type }, summary: `Reopened ${t.type} ticket` });
+    res.json({ ok: true, ticket: serializeTicket(updated, { user: req.user, opener }) });
+  } catch (e) { res.status(500).json({ error: 'Failed to reopen' }); }
+});
+
+// ── PATCH /api/support/tickets/:id/messages/:mid { body } — edit own message ──
+router.patch('/tickets/:id/messages/:mid', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
+    const m = await prisma.supportMessage.findFirst({ where: { id: req.params.mid, ticketId: t.id } });
+    if (!m || m.deletedAt) return res.status(404).json({ error: 'Message not found.' });
+    if (m.authorKind === 'BOT' || !m.authorId) return res.status(400).json({ error: 'System messages cannot be edited.' });
+    // Only the author may edit their own message.
+    if (!req.user || m.authorId !== req.user.id) return res.status(403).json({ error: 'You can only edit your own messages.' });
+    const body = (req.body && req.body.body != null ? String(req.body.body) : '').slice(0, 4000).trim();
+    if (!body) return res.status(400).json({ error: 'Message cannot be empty (delete it instead).' });
+    const updated = await prisma.supportMessage.update({ where: { id: m.id }, data: { body, editedAt: new Date() } });
+    const out = serializeMessage(t.id, updated);
+    out.authorDiscordId = req.user.discordId || null;
+    support.publish(t.id, 'edit', out, { staffOnly: (m.authorKind === 'INTERNAL') });
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: 'Failed to edit message' }); }
+});
+
+// ── DELETE /api/support/tickets/:id/messages/:mid — delete own message (or mod) ──
+router.delete('/tickets/:id/messages/:mid', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
+    const m = await prisma.supportMessage.findFirst({ where: { id: req.params.mid, ticketId: t.id } });
+    if (!m || m.deletedAt) return res.status(404).json({ error: 'Message not found.' });
+    if (m.authorKind === 'BOT' || !m.authorId) return res.status(400).json({ error: 'System messages cannot be deleted.' });
+    // Author deletes their own; a claimant or IA HICOMM may moderate any message.
+    const isAuthor = req.user && m.authorId === req.user.id;
+    const isMod = req.user && (support.isHicomm(req.user) || (t.claimedById && t.claimedById === req.user.id));
+    if (!isAuthor && !isMod) return res.status(403).json({ error: 'You can only delete your own messages.' });
+    await prisma.supportMessage.update({ where: { id: m.id }, data: { deletedAt: new Date() } });
+    support.publish(t.id, 'delete', { id: m.id }, { staffOnly: (m.authorKind === 'INTERNAL') });
+    if (isMod && !isAuthor) require('../lib/audit').log(req.user, { category: 'TICKET', action: 'MESSAGE_DELETE', target: { type: 'support_message', id: m.id, name: t.type }, summary: `Deleted a message by ${m.authorName} in a ${t.type} ticket` });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Failed to delete message' }); }
+});
+
+// ── GET /api/support/tickets/:id/transcript — self-contained HTML transcript ──
+// Opener or handling staff. Internal notes are included ONLY for staff.
+router.get('/tickets/:id/transcript', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id }, include: { messages: { orderBy: { createdAt: 'asc' } } } });
+    if (!t) return res.status(404).send('Not found');
+    if (!canSee(req, t)) return res.status(403).send('Forbidden');
+    const staffView = req.user ? support.canHandleTicket(req.user, t) : false;
+    const cfg = support.typeConfig(t.type);
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const rows = [];
+    // Intake Q/A first, then the thread — mirrors the on-site order.
+    for (const q of (Array.isArray(t.intake) ? t.intake : [])) {
+      rows.push({ kind: 'BOT', name: support.BOT_NAME, body: q.prompt, at: t.createdAt });
+      rows.push({ kind: 'OPENER', name: t.openerName, body: q.answer || (q.attachments && q.attachments.length ? `(${q.attachments.length} attachment(s))` : '—'), at: t.createdAt });
+    }
+    for (const m of (t.messages || [])) {
+      if (m.deletedAt) continue;
+      if (!staffView && m.authorKind === 'INTERNAL') continue;
+      let b = m.body || (m.attachments && m.attachments.length ? `(${m.attachments.length} attachment(s))` : '');
+      if (m.editedAt) b += '  (edited)';
+      rows.push({ kind: m.authorKind, name: m.authorName, body: b, at: m.createdAt, internal: m.authorKind === 'INTERNAL' });
+    }
+    const fmt = d => { try { return new Date(d).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'; } catch (e) { return ''; } };
+    const line = r => `<div class="m ${r.internal ? 'int' : ''}"><span class="h">${esc(r.name)} <time>${esc(fmt(r.at))}</time>${r.internal ? ' <em>internal note</em>' : ''}</span><div class="b">${esc(r.body).replace(/\n/g, '<br>')}</div></div>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cfg ? cfg.label : t.type)} — transcript</title>
+<style>body{font:14px/1.5 system-ui,Segoe UI,Arial,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;color:#111;background:#fff}
+h1{font-size:18px;margin:0 0 4px}.meta{color:#666;font-size:12px;margin-bottom:18px}
+.m{padding:8px 0;border-bottom:1px solid #eee}.m .h{font-weight:600;font-size:13px}.m time{color:#888;font-weight:400;font-size:11px;margin-left:6px}
+.m .b{margin-top:2px;white-space:pre-wrap;word-wrap:break-word}.m.int{background:#fff8e1;border-radius:6px;padding:8px}.m.int em{color:#b8860b;font-style:normal;font-size:11px}</style></head>
+<body><h1>${esc(cfg ? cfg.label : t.type)}</h1>
+<div class="meta">Ticket ${esc(t.id)} · Opened by ${esc(t.openerName)} · Status ${esc(t.status)}${t.closeReason ? ' · Closed: ' + esc(t.closeReason) : ''} · Generated ${esc(fmt(new Date()))}</div>
+${rows.map(line).join('\n')}
+</body></html>`;
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="transcript-${t.id.slice(0, 8)}.html"`);
+    res.send(html);
+  } catch (e) { res.status(500).send('Failed to build transcript'); }
 });
 
 // Load a ticket the current user is allowed to HANDLE, else respond + return null.
