@@ -1075,6 +1075,21 @@ router.get('/mention-search', async (req, res) => {
   } catch (e) { res.json({ users: [] }); }
 });
 
+// ── GET /api/support/channels — every MET server channel, flagged with whether
+// the signed-in user can see it (locked = No-Access), for the composer's Discord-
+// style `#` picker. The client fetches once and uses it both for the `#`
+// autocomplete and to resolve <#id> pills into names. Guests (no linked Discord)
+// get channels judged against @everyone. ──
+router.get('/channels', async (req, res) => {
+  try {
+    // Signed-in only — don't expose the MET channel list to anonymous guests.
+    if (!req.user) return res.json({ channels: [] });
+    let channels = [];
+    try { channels = await require('../lib/bot').listGuildChannels(req.user.discordId || null); } catch (e) { channels = []; }
+    res.json({ channels: channels || [] });
+  } catch (e) { res.json({ channels: [] }); }
+});
+
 // ── POST /api/support/tickets/:id/mention { ids } — resolve @mentions ──
 router.post('/tickets/:id/mention', async (req, res) => {
   try {

@@ -294,6 +294,15 @@
   padding: 1px 10px; color: var(--text-muted, #9aa3b2); }
 .sup-text .dc-mention { background: rgba(88,101,242,0.28); color: #c7ccf7;
   border-radius: 3px; padding: 0 3px; font-weight: 500; }
+/* Channel pill (Discord-style). Accessible = blurple #hash chip; locked = muted
+   with a lock icon + a "No-Access" tag, like Discord's no-access channels. */
+.sup-text .dc-channel { display: inline-flex; align-items: center; gap: 2px; }
+.sup-text .dc-channel .dc-ch-hash { opacity: .8; }
+.sup-text .dc-channel .dc-ch-ico { font-size: 12px; margin-right: 1px; }
+.sup-text .dc-channel.locked { background: rgba(148,158,178,0.16); color: var(--text-muted, #9aa3b2); font-weight: 500; }
+.sup-text .dc-channel.locked .dc-ch-na { font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; margin-left: 4px; padding: 0 4px; border-radius: 3px;
+  background: rgba(148,158,178,0.22); color: #b7bfce; }
 .sup-text .dc-spoiler { background: #1c1f27; color: transparent; border-radius: 4px;
   padding: 0 3px; cursor: pointer; user-select: none; transition: color .1s, background .1s; }
 .sup-text .dc-spoiler.shown { color: inherit; background: rgba(255,255,255,0.08); cursor: text; user-select: text; }
@@ -397,6 +406,16 @@
   color: var(--blue, #4a9eff); font-weight: 700; font-size: 12px; }
 .rc-ac-name { font-size: 13px; font-weight: 600; color: var(--text-primary, #e6e9ef); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rc-ac-sub { font-size: 11px; color: var(--text-muted, #9aa3b2); margin-left: auto; flex-shrink: 0; }
+/* `#` channel picker rows: a hash chip (or a lock chip + "No-Access" for
+   channels the user can't see), matching Discord's channel autocomplete. */
+.rc-ac-chico { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(88,101,242,0.18); color: #aeb6ff; font-size: 15px; }
+.rc-ac-chico.locked { background: rgba(148,158,178,0.16); color: #9aa3b2; }
+.rc-ac-ch.locked .rc-ac-name { color: var(--text-muted, #9aa3b2); }
+.rc-ac-na { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-left: auto; flex-shrink: 0;
+  padding: 1px 5px; border-radius: 4px; background: rgba(148,158,178,0.2); color: #b7bfce; }
+.rc-ac-ch .rc-ac-sub { margin-left: 8px; }
+.rc-ac-ch.locked .rc-ac-sub { margin-left: 8px; }
 
 /* Discord-style role pills — mirror how Discord shows roles on a profile:
    a colored dot (or role icon) + the role name in its role color. */

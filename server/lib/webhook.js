@@ -200,7 +200,18 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
   //   Percentage: 92%
   //   PASS ✅            (or FAIL ❌)
   //   Notes: N/A
-  const student = discordId ? `<@${discordId}>` : (robloxUsername || discordUsername || 'Unknown');
+  // Resolve the student's ACTUAL MET server nickname and post it as plain text.
+  // A raw <@id> mention renders as "@unknown-user" whenever Discord can't resolve
+  // the member in the results channel's guild (e.g. the results channel lives in a
+  // different guild than the one the student is in) — which is exactly the reported
+  // bug. Resolving the nickname server-side (from the MET guild) and posting it as
+  // text guarantees a readable name. Fall back through Roblox/Discord username, then
+  // the mention, then Unknown.
+  let resolvedName = null;
+  if (discordId) {
+    try { resolvedName = await require('./bot').getMemberDisplayName(discordId); } catch (e) { resolvedName = null; }
+  }
+  const student = resolvedName || robloxUsername || discordUsername || (discordId ? `<@${discordId}>` : 'Unknown');
   const content =
     `Username of student: ${student}\n` +
     `Mark: ${score}/${maxScore}\n` +

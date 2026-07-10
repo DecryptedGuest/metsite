@@ -199,6 +199,63 @@ async function getMemberDisplayName(discordUserId) {
   }
 }
 
+// List every text-like channel in the MET guild, flagged with whether the given
+// member can VIEW it (locked = No-Access), plus its category. Powers the ticket
+// composer's Discord-style `#` channel picker. When no user id is given, access is
+// judged against @everyone. Cached briefly per user (channels change rarely).
+const _channelListCache = new Map(); // key(discordUserId||'@everyone') → { at, list }
+const CHANNEL_LIST_TTL = 5 * 60 * 1000;
+async function listGuildChannels(forDiscordUserId) {
+  if (!ready) return [];
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) return [];
+  const key = forDiscordUserId ? String(forDiscordUserId) : '@everyone';
+  const hit = _channelListCache.get(key);
+  if (hit && Date.now() - hit.at < CHANNEL_LIST_TTL) return hit.list;
+  try {
+    const { ChannelType, PermissionsBitField } = require('discord.js');
+    const guild = await client.guilds.fetch(guildId);
+    const chans = await guild.channels.fetch();
+    let member = null;
+    if (forDiscordUserId) { try { member = await guild.members.fetch(forDiscordUserId); } catch (e) { member = null; } }
+    const subject = member || guild.roles.everyone;
+    const VIEW = PermissionsBitField.Flags.ViewChannel;
+    const TYPE_LABEL = {
+      [ChannelType.GuildText]: 'text',
+      [ChannelType.GuildAnnouncement]: 'announcement',
+      [ChannelType.GuildForum]: 'forum',
+      [ChannelType.GuildVoice]: 'voice',
+      [ChannelType.GuildStageVoice]: 'stage',
+    };
+    const list = [];
+    chans.forEach((c) => {
+      if (!c || !(c.type in TYPE_LABEL)) return;
+      let locked = true;
+      try { const p = c.permissionsFor(subject); locked = !(p && p.has(VIEW)); } catch (e) { locked = true; }
+      const parent = c.parentId ? chans.get(c.parentId) : null;
+      list.push({
+        id: c.id,
+        name: c.name,
+        type: TYPE_LABEL[c.type],
+        category: parent ? parent.name : null,
+        categoryPosition: parent ? parent.rawPosition : -1,
+        position: typeof c.rawPosition === 'number' ? c.rawPosition : 0,
+        locked,
+      });
+    });
+    list.sort((a, b) =>
+      (a.categoryPosition - b.categoryPosition) ||
+      String(a.category || '').localeCompare(String(b.category || '')) ||
+      (a.position - b.position) ||
+      String(a.name).localeCompare(String(b.name)));
+    _channelListCache.set(key, { at: Date.now(), list });
+    return list;
+  } catch (e) {
+    console.error('[bot] listGuildChannels failed:', e.message);
+    return hit ? hit.list : [];
+  }
+}
+
 // A member's display name (nickname) and avatar URL in a SPECIFIC guild.
 // Used for the administrative-log "Signed, <name>" author. Returns null if the
 // bot can't read that guild or the member isn't in it.
@@ -1671,7 +1728,7 @@ async function dmMemberNotice(discordId, o) {
 }
 
 module.exports = {
-  startBot, assignRole, removeRole, setMemberNickname, dmMemberNotice, getMemberDisplayName, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript,
