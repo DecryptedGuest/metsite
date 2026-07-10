@@ -176,7 +176,7 @@ router.post('/', async (req, res) => {
     });
 
     const typeLabels = {
-      GENERAL_SUPPORT: 'Website Support', HICOMM: 'HICOMM',
+      GENERAL_SUPPORT: 'General Support', HICOMM: 'HICOMM',
       OFFICER_REPORT: 'Officer Report', APPEAL: 'Disciplinary Action Appeal',
     };
     notifyStaff({

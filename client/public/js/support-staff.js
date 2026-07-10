@@ -373,11 +373,12 @@
     const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && curT && curT.status !== 'CLOSED';
     const edited = m.editedAt ? '<span class="sup-edited" title="Edited">(edited)</span>' : '';
     const mine = !!(m.id && SDC && SDC.me && m.authorId && m.authorId === SDC.me.id && kind !== 'bot');
-    // Moderators (claimant / IA HICOMM) may delete any non-system message.
-    const isMod = !!(curT && curT.caps && (curT.caps.isHicomm || (SDC && SDC.me && curT.claimedById === SDC.me.id)));
+    // Only DEVELOPERS may delete someone else's message; everyone else deletes
+    // only their own (server enforces this too).
+    const isDev = !!(SDC && SDC.me && SDC.me.isDeveloper);
     let ownActs = '';
     if (mine) ownActs += `<button class="sup-msg-act" title="Edit" onclick="sdEditMsg('${esc(m.id)}')"><i class="ti ti-pencil"></i></button>`;
-    if (mine || (isMod && kind !== 'bot' && m.id)) ownActs += `<button class="sup-msg-act" title="Delete" onclick="sdDeleteMsg('${esc(m.id)}')"><i class="ti ti-trash"></i></button>`;
+    if (mine || (isDev && kind !== 'bot' && m.id)) ownActs += `<button class="sup-msg-act" title="Delete" onclick="sdDeleteMsg('${esc(m.id)}')"><i class="ti ti-trash"></i></button>`;
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
@@ -388,10 +389,12 @@
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
       </div></div>`;
   }
-  // data-uid on a STAFF author's name → coloured by their Discord role.
+  // data-uid on an author's name → coloured by their Discord role (gradient + role
+  // icon) via enrichMentions. Applies to staff/internal AND the ticket opener, so
+  // openers get the same role styling as staff.
   function sdNameUid(m) {
     const k = (m.authorKind || '').toLowerCase();
-    return (m.authorDiscordId && (k === 'staff' || k === 'internal')) ? ` data-uid="${esc(m.authorDiscordId)}"` : '';
+    return (m.authorDiscordId && (k === 'staff' || k === 'internal' || k === 'opener')) ? ` data-uid="${esc(m.authorDiscordId)}"` : '';
   }
   function idCard(p) {
     const head = p.headshotUrl ? `<img src="${esc(p.headshotUrl)}" style="width:52px;height:52px;border-radius:9px;object-fit:cover;">` : '';
@@ -577,7 +580,7 @@
 
   // ── Support desk settings — edit claim greetings + quick replies ──────
   const GREETING_LABELS = {
-    GENERAL_SUPPORT: 'Website Support', DISCIPLINARY_APPEAL: 'Disciplinary Action Appeal',
+    GENERAL_SUPPORT: 'General Support', DISCIPLINARY_APPEAL: 'Disciplinary Action Appeal',
     OFFICER_COMPLAINT: 'Officer Complaint', IA_COMPLAINT: 'Internal Affairs Complaint',
   };
   window.sdSettings = function () {

@@ -269,7 +269,9 @@ function _uiDialog(kind, message, opts) {
 
     overlay.querySelector('[data-act="ok"]').addEventListener('click', () => done(okVal()));
     overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(cancelV()));
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(cancelV()); });
+    let mdOv = null;
+    overlay.addEventListener('mousedown', (e) => { mdOv = e.target === overlay ? overlay : null; });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay && mdOv === overlay) done(cancelV()); mdOv = null; });
     function onKey(e) {
       if (e.key === 'Escape') done(cancelV());
       else if (e.key === 'Enter' && !(opts.multiline && e.target === input)) { e.preventDefault(); done(okVal()); }
@@ -332,13 +334,22 @@ function showEmbedPreview({ title, note, embedData, buttons }) {
   openModal('modal-embed-preview');
 }
 
-// Close modal on overlay click
+// Close modal on overlay click — but ONLY when the click both starts and ends on
+// the backdrop itself. Without the mousedown guard, selecting/copying text inside
+// the modal and releasing the mouse over the backdrop fires a `click` whose target
+// is the overlay (the common ancestor of the drag), which would wrongly dismiss the
+// panel mid-copy. Tracking where the press began fixes that.
+let _mdOnOverlay = null;
+document.addEventListener('mousedown', (e) => {
+  _mdOnOverlay = (e.target.classList && e.target.classList.contains('modal-overlay')) ? e.target : null;
+});
 document.addEventListener('click', (e) => {
-  if (e.target.classList.contains('modal-overlay')) {
+  if (e.target.classList.contains('modal-overlay') && _mdOnOverlay === e.target) {
     stopMediaIn(e.target);
     e.target.classList.remove('open');
     document.body.style.overflow = '';
   }
+  _mdOnOverlay = null;
 });
 
 // Close modal on Escape
@@ -776,7 +787,9 @@ document.addEventListener('DOMContentLoaded', () => {
       '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;"><i class="ti ti-keyboard" style="font-size:19px;color:var(--blue,#4a8fff);"></i><span style="font-size:15px;font-weight:600;">Keyboard shortcuts</span></div>' +
       rows + '<div style="margin-top:14px;text-align:right;"><button id="kbd-help-close" class="btn btn-ghost btn-sm">Close</button></div></div>';
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    var _mdKbd = null;
+    overlay.addEventListener('mousedown', function (e) { _mdKbd = e.target === overlay ? overlay : null; });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay && _mdKbd === overlay) close(); _mdKbd = null; });
     var c = document.getElementById('kbd-help-close');
     if (c) c.addEventListener('click', close);
   }

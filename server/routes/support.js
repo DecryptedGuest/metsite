@@ -276,6 +276,9 @@ router.get('/config', async (req, res) => {
     me: req.user ? {
       id: req.user.id, name: req.user.displayName || req.user.discordUsername, avatar: req.user.discordAvatar || null,
       isProbationary,
+      // Deleting SOMEONE ELSE'S message is a developer-only power (server enforces
+      // this too). Everyone can still delete their own.
+      isDeveloper: req.user.role === 'DEVELOPER',
       // Support-desk settings (staff): effective claim greetings + saved quick replies.
       greetings: { ...support.DEFAULT_GREETINGS, ...(prefs.greetings || {}) },
       quickReplies: Array.isArray(prefs.quickReplies) ? prefs.quickReplies : null,
@@ -371,8 +374,8 @@ router.post('/tickets', async (req, res) => {
   if (!rateOk('mk:' + rlIdentity(req), 6, 10 * 60 * 1000)) {
     return res.status(429).json({ error: "You're opening tickets too quickly. Please wait a few minutes." });
   }
-  // Import-only types (Website Support) can't be opened here — they arrive via
-  // Discord transcript import.
+  // Import-only types can't be opened here — they arrive via Discord transcript
+  // import only.
   if (cfg.importOnly) return res.status(400).json({ error: 'This ticket type cannot be opened here.' });
   // An account-blacklisted member can't open tickets at all (they'd otherwise
   // spawn orphan INTAKE shells + bot messages before being blocked at submit).
@@ -1219,13 +1222,14 @@ router.delete('/tickets/:id/messages/:mid', async (req, res) => {
     const m = await prisma.supportMessage.findFirst({ where: { id: req.params.mid, ticketId: t.id } });
     if (!m || m.deletedAt) return res.status(404).json({ error: 'Message not found.' });
     if (m.authorKind === 'BOT' || !m.authorId) return res.status(400).json({ error: 'System messages cannot be deleted.' });
-    // Author deletes their own; a claimant or IA HICOMM may moderate any message.
+    // Everyone may delete ONLY their own messages. Deleting someone else's is a
+    // developer-only power (not claimants, not IA HICOMM).
     const isAuthor = req.user && m.authorId === req.user.id;
-    const isMod = req.user && (support.isHicomm(req.user) || (t.claimedById && t.claimedById === req.user.id));
-    if (!isAuthor && !isMod) return res.status(403).json({ error: 'You can only delete your own messages.' });
+    const isDev = req.user && req.user.role === 'DEVELOPER';
+    if (!isAuthor && !isDev) return res.status(403).json({ error: 'You can only delete your own messages.' });
     await prisma.supportMessage.update({ where: { id: m.id }, data: { deletedAt: new Date() } });
     support.publish(t.id, 'delete', { id: m.id }, { staffOnly: (m.authorKind === 'INTERNAL') });
-    if (isMod && !isAuthor) require('../lib/audit').log(req.user, { category: 'TICKET', action: 'MESSAGE_DELETE', target: { type: 'support_message', id: m.id, name: t.type }, summary: `Deleted a message by ${m.authorName} in a ${t.type} ticket` });
+    if (isDev && !isAuthor) require('../lib/audit').log(req.user, { category: 'TICKET', action: 'MESSAGE_DELETE', target: { type: 'support_message', id: m.id, name: t.type }, summary: `Deleted a message by ${m.authorName} in a ${t.type} ticket` });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Failed to delete message' }); }
 });

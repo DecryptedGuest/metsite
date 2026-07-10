@@ -186,7 +186,7 @@ function updateTicketNavBadge(){
   // Single source of truth (own pending + all-pending) lives in dashboard.js
   if(typeof loadTicketNavBadge==="function") loadTicketNavBadge();
 }
-var TL={GENERAL_SUPPORT:"Website Support",HICOMM:"HICOMM",OFFICER_REPORT:"Officer Report",APPEAL:"Disciplinary Action Appeal"};
+var TL={GENERAL_SUPPORT:"General Support",HICOMM:"HICOMM",OFFICER_REPORT:"Officer Report",APPEAL:"Disciplinary Action Appeal"};
 var TC={GENERAL_SUPPORT:"blue",HICOMM:"amber",OFFICER_REPORT:"red",APPEAL:"green"};
 function ticketStatusBadge(s){
   var m={

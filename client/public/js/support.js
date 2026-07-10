@@ -377,10 +377,12 @@
       </div>
     </div>`;
   }
-  // data-uid on a STAFF author's name → coloured by their Discord role (enrichMentions).
+  // data-uid on an author's name → coloured by their Discord role (gradient + role
+  // icon) via enrichMentions. Staff/internal AND the opener, so the opener's own
+  // name carries the same role styling as staff.
   function nameUid(m) {
     const k = (m.authorKind || '').toLowerCase();
-    return (m.authorDiscordId && (k === 'staff' || k === 'internal')) ? ` data-uid="${esc(m.authorDiscordId)}"` : '';
+    return (m.authorDiscordId && (k === 'staff' || k === 'internal' || k === 'opener')) ? ` data-uid="${esc(m.authorDiscordId)}"` : '';
   }
   // The little "replying to X" reference rendered above a message body.
   function replyRefHtml(m) {
@@ -754,7 +756,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   window.startHelpBot = function () {
     helpMode = true; cur = null; mode = 'chat'; closeStream();
     enterTicketView();
-    $('sup-t-title').textContent = 'Website Support';
+    $('sup-t-title').textContent = 'General Support';
     $('sup-t-sub').textContent = 'Ask me anything — joining, tryouts, and more.';
     const st = $('sup-t-status'); if (st) st.outerHTML = '<span id="sup-t-status"></span>';
     $('sup-t-actions').innerHTML = '';
