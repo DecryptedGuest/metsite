@@ -1,5 +1,5 @@
 // sw.js — MET Portal service worker: push notifications + PWA install/offline.
-var CACHE = 'met-portal-v1';
+var CACHE = 'met-portal-v2';
 var SHELL = ['/img/divisions/met.png', '/css/main.css', '/css/dashboard.css', '/js/ui.js'];
 
 self.addEventListener('install', function (e) {
@@ -60,20 +60,42 @@ self.addEventListener('push', function (e) {
   e.waitUntil(self.registration.showNotification(title, options));
 });
 
+// POST a ticket claim straight from the service worker so it lands the instant
+// the notification is tapped — no waiting on a page to load and re-read the URL.
+// Same-origin fetch carries the auth + csrf cookies; we echo the double-submit
+// csrf token in the header (read via the Cookie Store API, available in the SW).
+function swClaim(apiPath) {
+  return (self.cookieStore ? self.cookieStore.get('csrf_token') : Promise.resolve(null))
+    .catch(function () { return null; })
+    .then(function (c) {
+      var headers = (c && c.value) ? { 'X-CSRF-Token': c.value } : {};
+      return fetch(apiPath, { method: 'POST', credentials: 'include', headers: headers });
+    });
+}
+
 self.addEventListener('notificationclick', function (e) {
   e.notification.close();
   var d = e.notification.data || {};
+  var wantClaim = e.action === 'claim' && !!d.claimApi;
   // The tapped action button picks the destination; a plain body tap uses url.
   var target = d.url || '/profile';
   if (e.action === 'claim' && d.claimUrl) target = d.claimUrl;
   else if (e.action === 'view' && d.viewUrl) target = d.viewUrl;
   e.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (wins) {
-      for (var i = 0; i < wins.length; i++) {
-        var w = wins[i];
-        if (w.url.includes(self.location.origin)) { w.postMessage({ type: 'PUSH_NAV', url: target }); return w.focus(); }
-      }
-      return clients.openWindow(self.location.origin + target);
-    })
+    // Claim first (best-effort, before any window work) so the ticket is grabbed
+    // with zero delay even on a cold start; the focused/opened page then just
+    // reflects it (claiming a ticket you already hold is idempotent).
+    (wantClaim ? swClaim(d.claimApi).catch(function () {}) : Promise.resolve())
+      .then(function () { return clients.matchAll({ type: 'window', includeUncontrolled: true }); })
+      .then(function (wins) {
+        for (var i = 0; i < wins.length; i++) {
+          var w = wins[i];
+          if (w.url.includes(self.location.origin)) {
+            w.postMessage({ type: 'PUSH_NAV', url: target, supportTicket: d.ticketId || null, claim: wantClaim });
+            return w.focus();
+          }
+        }
+        return clients.openWindow(self.location.origin + target);
+      })
   );
 });

@@ -171,6 +171,13 @@
   window.sdOpenAndClaim = async function (id) {
     await window.sdOpen(id);
     if (!curT || curT.id !== id) return;
+    // Already ours — e.g. the service worker claimed it the instant the desktop
+    // notification was tapped. Surface it as claimed (chime, no warning toast).
+    const meId = (SDC && SDC.me && SDC.me.id) || (window.currentUser && window.currentUser.id) || null;
+    if (curT.claimedById && meId && curT.claimedById === meId) {
+      if (typeof sdSound === 'function') sdSound('claim_you');
+      return;
+    }
     const caps = curT.caps || {};
     if (caps.canClaim) {
       // sdAct shows its own "Done" (success) or "Already claimed by X" (race)

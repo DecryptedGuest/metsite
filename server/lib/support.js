@@ -341,6 +341,10 @@ async function broadcastOpenTicket(ticket) {
         url:      `/ia/dashboard?supportTicket=${idEnc}&claim=1`,
         viewUrl:  `/ia/dashboard?supportTicket=${idEnc}`,
         claimUrl: `/ia/dashboard?supportTicket=${idEnc}&claim=1`,
+        // Lets the service worker claim the ticket the instant "Claim" is tapped,
+        // without waiting for a page to load and re-read the URL.
+        claimApi: `/api/support/tickets/${ticket.id}/claim`,
+        ticketId: ticket.id,
         actions: [{ action: 'claim', title: 'Claim ticket' }, { action: 'view', title: 'Go to ticket' }],
         requireInteraction: true, vibrate: [200, 100, 200], tag: 'support-ticket-' + ticket.id,
       }).catch(() => {});
