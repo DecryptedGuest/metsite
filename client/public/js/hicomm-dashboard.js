@@ -216,7 +216,8 @@
     if (!p) return '';
     const d = p.discord, groups = p.robloxGroups || [];
     const roleChips = (d && d.roles && d.roles.length)
-      ? d.roles.map(r => `<span class="met-chip" style="${r.color ? 'border-color:' + esc(r.color) + ';color:' + esc(r.color) + ';' : ''}">${esc(r.name)}</span>`).join(' ')
+      ? (window.renderDiscordRoles ? window.renderDiscordRoles(d.roles)
+          : d.roles.map(r => `<span class="met-chip" style="${r.color ? 'border-color:' + esc(r.color) + ';color:' + esc(r.color) + ';' : ''}">${esc(r.name)}</span>`).join(' '))
       : '<span style="color:var(--text-muted);font-size:12px;">No MET server roles found.</span>';
     const metRank = p.metRank ? `<span class="met-chip" style="border-color:var(--blue);color:var(--blue);">MET: ${esc(p.metRank.name)} (rank ${esc(String(p.metRank.rank))})</span>` : '';
     const groupRows = groups.length

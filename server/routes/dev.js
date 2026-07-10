@@ -245,10 +245,7 @@ router.post('/emergency-alert', async (req, res) => {
       for (const id of ids) { const n = events.publishToUser(id, 'emergency_alert', payload); if (n) recipients++; sent += n; }
     }
 
-    audit.log(req.user, {
-      category: 'DEV', action: 'EMERGENCY_ALERT',
-      summary: `Sent an emergency alert (${target}) to ${recipients} online recipient(s): "${message.slice(0, 120)}"`,
-    });
+    // Deliberately NOT audit-logged — developer actions never appear in any log.
     res.json({ ok: true, sent, recipients });
   } catch (e) {
     console.error('[Dev] emergency alert failed:', e.message);

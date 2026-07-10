@@ -678,6 +678,14 @@ router.get('/user-profile', async (req, res) => {
     if (support.isStaff(req.user)) {
       out.role = u.role;
       out.divisions = Array.isArray(u.divisions) ? u.divisions : [];
+      // The person's live MET Discord roles ({name,color,icon}) so the profile
+      // card can render them as Discord-style pills. Staff-only, best-effort.
+      if (u.discordId) {
+        try {
+          const prof = await require('../lib/bot').getMetMemberProfile(u.discordId, process.env.DISCORD_GUILD_ID);
+          if (prof && Array.isArray(prof.roles)) out.discordRoles = prof.roles;
+        } catch (e) {}
+      }
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: 'Failed to load profile' }); }

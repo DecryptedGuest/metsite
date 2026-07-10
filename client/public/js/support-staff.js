@@ -637,6 +637,13 @@
           ${list.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${list.map(d => `<span class="met-chip">${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}</span>`).join('')}</div>`
             : '<div style="font-size:12px;color:var(--text-muted);">No divisions.</div>'}
         </div>`;
+        // Live MET Discord roles, rendered as Discord-style pills.
+        if (Array.isArray(p.discordRoles) && p.discordRoles.length && window.renderDiscordRoles) {
+          divs += `<div style="margin-top:14px;">
+            <div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">MET Discord roles</div>
+            ${window.renderDiscordRoles(p.discordRoles)}
+          </div>`;
+        }
       }
 
       $('sd-canned-body').innerHTML = `

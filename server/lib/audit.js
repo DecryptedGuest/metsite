@@ -45,6 +45,10 @@ function clientIp(req) {
 // computes the tamper-evidence HMAC, then persists.
 async function write(data) {
   try {
+    // Developer/maintenance actions are never recorded in the audit trail — they
+    // must not surface for MET HICOMM (or anyone) in any log view. (The DEV
+    // category is also the default when a caller omits one.)
+    if (String((data && data.category) || 'DEV').toUpperCase() === 'DEV') return;
     const row = { id: crypto.randomUUID(), createdAt: new Date(), ...data };
     row.hash = rowHash(row);
     await prisma.auditLog.create({ data: row });

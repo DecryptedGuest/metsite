@@ -62,7 +62,7 @@
         <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
         <button class="nav-item" data-page="integrity"><i class="ti ti-shield-check nav-icon"></i><span>Integrity</span><span class="nav-badge pending" id="hc-integrity-badge" style="display:none;"></span></button>
         <div class="nav-section-label">Intelligence</div>
-        <button class="nav-item" data-page="officer"><i class="ti ti-user-search nav-icon"></i><span>Officer 360°</span></button>
+        <button class="nav-item" data-page="officer"><i class="ti ti-user-search nav-icon"></i><span>Officer Lookup</span></button>
         <button class="nav-item" data-page="audit"><i class="ti ti-history nav-icon"></i><span>Audit Trail</span></button>
         <button class="nav-item" data-page="gamelogs"><i class="ti ti-device-gamepad-2 nav-icon"></i><span>Game Logs</span></button>
         <div class="nav-section-label">Groups</div>
@@ -121,10 +121,10 @@
       <div class="panel glass fade-up stagger-1"><div id="hc-integrity" style="padding:16px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
     </section>
 
-    <!-- OFFICER 360 -->
+    <!-- OFFICER LOOKUP -->
     <section class="page" id="page-officer">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Officer 360°</h1><p class="page-sub">Every action, tryout, patrol, case and punishment for one person</p></div>
+        <div><h1 class="page-title">Officer Lookup</h1><p class="page-sub">Every action, tryout, patrol, case and punishment for one person</p></div>
       </div>
       <div class="panel glass fade-up stagger-1" style="margin-bottom:16px;">
         <div style="padding:14px;display:flex;gap:8px;">
@@ -141,7 +141,7 @@
         <div><h1 class="page-title">Audit Trail</h1><p class="page-sub">Immutable record of every privileged action</p></div>
         <div style="display:flex;gap:8px;">
           <select class="form-control" id="hc-audit-cat" style="width:auto;" onchange="hcLoadAudit()">
-            <option value="">All categories</option><option value="GROUP">Group</option><option value="TRYOUT">Tryout</option><option value="TICKET">Ticket</option><option value="SUPPORT">Support</option><option value="CASE">Case</option><option value="ACCESS">Access / LOA</option><option value="SECURITY">Security</option><option value="DEV">Dev</option>
+            <option value="">All categories</option><option value="GROUP">Group</option><option value="TRYOUT">Tryout</option><option value="TICKET">Ticket</option><option value="SUPPORT">Support</option><option value="CASE">Case</option><option value="ACCESS">Access / LOA</option><option value="SECURITY">Security</option>
           </select>
           <input type="text" class="form-control" id="hc-audit-q" placeholder="Search…" oninput="hcAuditDebounced()" style="width:200px;" />
         </div>
@@ -258,6 +258,7 @@
 <script src="/js/met-topbar.js"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/group-panel.js"></script>
+<script src="/js/discord-format.js"></script>
 <script src="/js/hicomm-dashboard.js"></script>
 <script>initMetTopbar('HIGH COMMAND');</script>
 </body>

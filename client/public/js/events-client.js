@@ -230,27 +230,32 @@
   window.metShowMentionAlert = showMentionAlert;
 
   // ── Emergency alert (full-screen takeover) ────────────────────────────
-  // A loud alternating klaxon that DELIBERATELY ignores the snooze/mute — an
-  // emergency should always be heard (dev-only to send).
+  // A harsh, LOUD two-tone alarm modelled on a UK radio "panic button" / broadcast
+  // emergency warble — a rapidly alternating hi-lo square-wave tone that reads as
+  // "this is a real emergency." DELIBERATELY ignores the snooze/mute.
   function emergencySiren() {
     var ctx = ensureAudio(); if (!ctx) return;
     var now = ctx.currentTime;
-    for (var i = 0; i < 6; i++) {
-      (function (k) {
-        var at = now + k * 0.44;
-        try {
-          var o = ctx.createOscillator(), g = ctx.createGain();
-          o.type = 'sawtooth';
-          o.frequency.setValueAtTime(k % 2 ? 660 : 440, at);
-          o.frequency.linearRampToValueAtTime(k % 2 ? 440 : 660, at + 0.4);
-          g.gain.setValueAtTime(0.0001, at);
-          g.gain.exponentialRampToValueAtTime(0.6, at + 0.03);
-          g.gain.exponentialRampToValueAtTime(0.0001, at + 0.42);
-          o.connect(g); g.connect(ctx.destination);
-          o.start(at); o.stop(at + 0.44);
-        } catch (e) {}
-      })(i);
+    var dur = 3.6, step = 0.26;      // ~3.6s of alternating tone, ~0.26s per tone
+    // Two slightly-detuned square oscillators through one gain → a grating,
+    // penetrating alarm rather than a clean beep.
+    function voice(detune) {
+      var o = ctx.createOscillator(); o.type = 'square'; o.detune.value = detune;
+      var t = now, hi = true;
+      while (t < now + dur) { o.frequency.setValueAtTime(hi ? 1000 : 760, t); hi = !hi; t += step; }
+      return o;
     }
+    try {
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.5, now + 0.02);   // snap to loud immediately
+      g.gain.setValueAtTime(0.5, now + dur - 0.12);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; // tame the very top edge
+      var o1 = voice(0), o2 = voice(9);
+      o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ctx.destination);
+      o1.start(now); o2.start(now); o1.stop(now + dur); o2.stop(now + dur);
+    } catch (e) {}
   }
   function ensureEmergencyCss() {
     if (document.getElementById('met-emergency-css')) return;

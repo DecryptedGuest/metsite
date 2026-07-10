@@ -32,7 +32,7 @@ router.get('/overview', async (req, res) => {
       prisma.tryoutLog.count({ where: { status: 'PENDING' } }),
       prisma.case.count({ where: { status: 'PENDING' } }).catch(() => 0),
       prisma.patrolLog.count({ where: { status: 'PENDING' } }),
-      prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 15 }),
+      prisma.auditLog.findMany({ where: { category: { not: 'DEV' } }, orderBy: { createdAt: 'desc' }, take: 15 }),
       prisma.tryoutLog.count({ where: { createdAt: { gte: dayAgo } } }),
       prisma.supportTicket.count({ where: { createdAt: { gte: dayAgo } } }),
       prisma.user.count({ where: { createdAt: { gte: dayAgo } } }),
@@ -88,9 +88,10 @@ router.get('/integrity', async (req, res) => {
 // ── GET /api/hicomm/audit?category=&q=&before= — the audit trail ──
 router.get('/audit', async (req, res) => {
   try {
-    const where = {};
+    // Developer/maintenance actions are never surfaced in the audit trail.
+    const where = { category: { not: 'DEV' } };
     const cat = String(req.query.category || '').toUpperCase();
-    if (['GROUP', 'SUPPORT', 'TRYOUT', 'CASE', 'TICKET', 'ACCESS', 'SECURITY', 'DEV'].includes(cat)) where.category = cat;
+    if (['GROUP', 'SUPPORT', 'TRYOUT', 'CASE', 'TICKET', 'ACCESS', 'SECURITY'].includes(cat)) where.category = cat;
     const q = String(req.query.q || '').trim();
     if (q) where.OR = [
       { actorName: { contains: q, mode: 'insensitive' } },
@@ -364,7 +365,7 @@ router.get('/officer/:id/timeline', async (req, res) => {
       prisma.tryoutLog.findMany({ where: { hostId: u.id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, division: true, status: true, totalAttendees: true, passedCount: true, createdAt: true } }),
       prisma.patrolLog.findMany({ where: { submitterDiscordId: u.discordId }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, type: true, status: true, totalMinutes: true, createdAt: true } }),
       prisma.supportTicket.findMany({ where: { openerId: u.id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, type: true, status: true, createdAt: true } }),
-      prisma.auditLog.findMany({ where: { OR: [{ actorId: u.id }, { targetId: u.id }] }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      prisma.auditLog.findMany({ where: { category: { not: 'DEV' }, OR: [{ actorId: u.id }, { targetId: u.id }] }, orderBy: { createdAt: 'desc' }, take: 50 }),
     ]);
 
     const events = [];

@@ -598,7 +598,11 @@ async function getMetMemberProfile(discordUserId, guildId) {
     const roles  = [...member.roles.cache.values()]
       .filter(r => r.name && r.name !== '@everyone')
       .sort((a, b) => b.position - a.position)
-      .map(r => ({ id: r.id, name: r.name, color: r.hexColor && r.hexColor !== '#000000' ? r.hexColor : null }));
+      .map(r => ({
+        id: r.id, name: r.name,
+        color: r.hexColor && r.hexColor !== '#000000' ? r.hexColor : null,
+        icon: (typeof r.iconURL === 'function' ? r.iconURL({ size: 24 }) : null) || null,
+      }));
     return {
       inServer:    true,
       discordId:   member.user.id,
