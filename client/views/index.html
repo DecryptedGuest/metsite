@@ -21,20 +21,27 @@
   <link rel="stylesheet" href="/css/main.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
   <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/enhance.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     body { display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow-x: hidden; overflow-y: auto; padding: 24px 0; box-sizing: border-box; }
     .signin-wrap { position: relative; z-index: 1; width: 100%; max-width: 400px; padding: 1.2rem; display: flex; flex-direction: column; align-items: center; gap: 1.6rem; }
     .signin-crest { display: flex; flex-direction: column; align-items: center; gap: 0.9rem; animation: fadeUp 0.6s ease both; }
     .signin-crest img { width: 88px; height: 88px; border-radius: 16px; box-shadow: 0 0 40px rgba(20,60,200,0.28); }
-    .signin-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-primary); text-align: center; }
+    .signin-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-align: center;
+      background: linear-gradient(120deg, var(--text-primary) 0%, #8db4ff 52%, var(--purple, #9d7dff) 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+    .signin-divs { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; margin:2px 0 2px; }
+    .signin-divs .met-chip { font-size:11px; }
+    .signin-trust { display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin-top:12px; font-size:11px; color:var(--text-muted); }
+    .signin-trust i { margin-right:4px; }
     .signin-sub { font-size: 12px; color: var(--text-muted); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; margin-top: -0.4rem; }
     .signin-card { width: 100%; padding: 1.6rem 1.6rem 1.4rem; animation: fadeUp 0.6s ease 0.1s both; }
     .signin-card .hint { text-align: center; font-size: 11px; color: var(--text-tiny); margin-top: 0.9rem; }
     .btn-discord-full { width: 100%; justify-content: center; padding: 0.85rem 1.4rem; font-size: 14px; border-radius: var(--radius-md); }
     .signin-btns { display: flex; flex-direction: column; gap: 10px; }
-    .btn-roblox { background:#fff; color:#111; border:1px solid rgba(255,255,255,0.15); }
-    .btn-roblox:hover { background:#e9e9e9; color:#000; }
+    .btn-roblox { background:rgba(255,255,255,0.06); color:var(--text-primary); border:1px solid var(--border-mid); }
+    .btn-roblox:hover { background:rgba(255,255,255,0.11); color:#fff; border-color:var(--border-bright); }
     .signin-or { display:flex; align-items:center; gap:10px; margin:2px 0; color:var(--text-tiny); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
     .signin-or::before, .signin-or::after { content:""; flex:1; height:1px; background:rgba(255,255,255,0.08); }
     .try-another-btn { display:block; width:100%; margin-top:1rem; background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
@@ -87,8 +94,23 @@
         Sign in with Roblox
       </a>
     </div>
-    <div class="hint">You must be a member of the MET Discord server. Either option signs you into the same account.</div>
+    <div class="hint"><i class="ti ti-lock" style="opacity:.7;margin-right:4px;"></i>You must be a member of the MET Discord server. Either option signs you into the same account.</div>
+    <div class="signin-trust">
+      <span><i class="ti ti-shield-check" style="color:var(--green);"></i> Secure OAuth</span>
+      <span><i class="ti ti-brand-discord" style="color:var(--discord,#5865f2);"></i> Discord-verified</span>
+      <span><i class="ti ti-brand-roblox" style="color:var(--red,#f04f5e);"></i> Roblox-linked</span>
+    </div>
     <button type="button" id="try-another" class="try-another-btn">Try another way</button>
+  </div>
+
+  <!-- Divisions of the Service — colourful identity strip -->
+  <div class="signin-divs">
+    <span class="met-chip div-chip div-met">Metropolitan Police</span>
+    <span class="met-chip div-chip div-ia">Internal Affairs</span>
+    <span class="met-chip div-chip div-sco19">SCO-19</span>
+    <span class="met-chip div-chip div-cid">CID</span>
+    <span class="met-chip div-chip div-flp">Frontline</span>
+    <span class="met-chip div-chip div-hpc">High Command</span>
   </div>
 
   <!-- Alternative sign-in methods (rendered by login-alt.js) -->
