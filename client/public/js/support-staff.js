@@ -248,7 +248,40 @@
     // (see sdTransitionPanel), matching the member view — no separate top card.
     const composer = $('sd-composer');
     if (composer) composer.style.display = (t.caps && (t.caps.canReply || t.caps.canInternalNote)) ? '' : 'none';
+    sdRenderInactivity();
   }
+
+  // ── Inactivity auto-close ────────────────────────────────────────────
+  // When the OPENER hasn't replied for over an hour, offer the handling staffer a
+  // one-click "close for inactivity" that posts an automatic shutdown message.
+  const SD_INACTIVE_MS = 60 * 60 * 1000;
+  function sdOpenerIdleMs() { return (curT && curT.lastOpenerAt) ? (Date.now() - curT.lastOpenerAt) : 0; }
+  function sdRenderInactivity() {
+    let el = document.getElementById('sd-inactive-bar');
+    const show = !!(curT && curT.status && curT.status !== 'CLOSED' && curT.caps && curT.caps.canClose && sdOpenerIdleMs() > SD_INACTIVE_MS);
+    if (!show) { if (el) el.remove(); return; }
+    if (!el) {
+      const composer = $('sd-composer'); if (!composer || !composer.parentNode) return;
+      el = document.createElement('div'); el.id = 'sd-inactive-bar';
+      el.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0;border-top:1px solid var(--border,#2a3040);background:rgba(232,132,42,.08);color:var(--text-secondary,#aeb6c2);font-size:12.5px;';
+      composer.parentNode.insertBefore(el, composer);
+    }
+    const mins = Math.floor(sdOpenerIdleMs() / 60000);
+    const hrs = Math.floor(mins / 60);
+    const ago = hrs >= 1 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+    el.innerHTML = `<i class="ti ti-clock-exclamation" style="color:var(--amber,#e8842a);font-size:18px;flex:0 0 auto;"></i>
+      <span style="flex:1;">The opener hasn't replied for <strong>${ago}</strong>.</span>
+      <button class="btn btn-ghost btn-sm" style="color:var(--amber,#e8842a);" onclick="sdCloseInactive()"><i class="ti ti-lock"></i> Close for inactivity</button>`;
+  }
+  window.sdCloseInactive = async function () {
+    const tid = curT && curT.id; if (!tid) return;
+    if (!(await uiConfirm('Send the automatic "closed due to inactivity" message and close this ticket?'))) return;
+    try {
+      await api('/api/support/tickets/' + tid + '/close', { method: 'POST', body: JSON.stringify({ inactive: true }) });
+      showToast('Closed for inactivity', 'success'); sdSound('closed');
+      await reloadTicket(); refreshQueue();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
 
   function renderToolbar(t) {
     const c = t.caps || {};
@@ -804,7 +837,7 @@
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (!_sdPinned) sdShowJumpPill(); if (m.authorId) sdClearTyperById(m.authorId); } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (!_sdPinned) sdShowJumpPill(); if (m.authorId) sdClearTyperById(m.authorId); if (curT && (m.authorKind || '').toUpperCase() === 'OPENER') { curT.lastOpenerAt = new Date(m.createdAt || Date.now()).getTime(); sdRenderInactivity(); } } catch (e) {}
       });
       sdES.addEventListener('typing', ev => { try { sdOnTyping(JSON.parse(ev.data)); } catch (e) {} });
       sdES.addEventListener('update', () => { reloadTicket(true); refreshQueue(); });
@@ -817,10 +850,15 @@
     } catch (e) {}
     // Polling fallback — append any new messages even if SSE is buffered.
     sdPoll = setInterval(() => sdRefresh(id), 5000);
+    // Re-check the inactivity offer every minute so it appears once the opener
+    // has been quiet for an hour, even while the ticket stays open on screen.
+    sdInactiveTimer = setInterval(sdRenderInactivity, 60000);
   }
+  let sdInactiveTimer = null;
   function closeStream() {
     if (sdES) { sdES.close(); sdES = null; }
     if (sdPoll) { clearInterval(sdPoll); sdPoll = null; }
+    if (sdInactiveTimer) { clearInterval(sdInactiveTimer); sdInactiveTimer = null; }
   }
   async function sdRefresh(id) {
     if (!curT || curT.id !== id) return;

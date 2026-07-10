@@ -179,7 +179,18 @@ function serializeTicket(t, { full = false, user = null, avatarMap = null, opene
   let msgs = (t.messages || []).filter(m => !m.deletedAt);
   if (!staffView) msgs = msgs.filter(m => (m.authorKind || '') !== 'INTERNAL');
   const msgById = new Map(msgs.map(m => [m.id, m]));
-  return { ...base, intake, messages: msgs.map(m => serializeMessage(t.id, m, avatarMap, msgById)) };
+  // The last time the OPENER did anything on the ticket — so staff can offer an
+  // "auto-close for inactivity" once the opener has gone quiet (see the client).
+  // Falls back to when it was claimed / opened if they never replied.
+  let lastOpenerAt = null;
+  for (const m of (t.messages || [])) {
+    if ((m.authorKind || '') === 'OPENER' && m.createdAt) {
+      const ts = new Date(m.createdAt).getTime();
+      if (!lastOpenerAt || ts > lastOpenerAt) lastOpenerAt = ts;
+    }
+  }
+  if (!lastOpenerAt) lastOpenerAt = new Date(t.claimedAt || t.createdAt || Date.now()).getTime();
+  return { ...base, intake, lastOpenerAt, messages: msgs.map(m => serializeMessage(t.id, m, avatarMap, msgById)) };
 }
 
 // Build a Map(userId -> discordAvatar URL) for a set of user ids (openers/authors).
@@ -1115,7 +1126,11 @@ router.post('/tickets/:id/close', async (req, res) => {
     if (t.status === 'CLOSED') return res.status(400).json({ error: 'Already closed.' });
 
     const name = req.user.displayName || req.user.discordUsername;
-    const reason = req.body && req.body.reason ? String(req.body.reason).slice(0, 1000) : null;
+    // Inactivity close: an auto-worded message framed as an automatic shutdown,
+    // and a fixed reason — used by the "no reply for over an hour" desk option.
+    const inactive = !!(req.body && req.body.inactive);
+    const reason = inactive ? 'Automatically closed — inactivity'
+      : (req.body && req.body.reason ? String(req.body.reason).slice(0, 1000) : null);
     // Close atomically: only the request that actually flips OPEN/CLAIMED→CLOSED
     // runs the one-time side effects (bot messages, IA ticket-log with its own
     // TKT counter, Discord close log). Two concurrent closes otherwise each pass
@@ -1126,7 +1141,10 @@ router.post('/tickets/:id/close', async (req, res) => {
     });
     if (closed.count === 0) return res.status(400).json({ error: 'Already closed.' });
     const updated = await prisma.supportTicket.findUnique({ where: { id: t.id } });
-    const closeMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `This ticket was closed by ${name}.${reason ? ` Reason: ${reason}` : ''}` } });
+    const closeBody = inactive
+      ? "This ticket has been **automatically closed due to inactivity** — we didn't hear back for over an hour. If you still need help, you can reopen this ticket or open a new one and we'll be happy to assist."
+      : `This ticket was closed by ${name}.${reason ? ` Reason: ${reason}` : ''}`;
+    const closeMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: closeBody } });
     support.publish(t.id, 'message', serializeMessage(t.id, closeMsg));
     support.publish(t.id, 'update', { status: 'CLOSED' });
     // Dismiss any lingering "ready to claim" popup for this now-closed ticket.
