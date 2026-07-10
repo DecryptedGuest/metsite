@@ -325,10 +325,15 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
 .sup-msg.staff .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--green,#2ed896) 50%, transparent); }
 .sup-msg.internal .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber,#f5b730) 55%, transparent); }
 
-/* Topbar: pin the profile + Sign-out to the far right, whatever buttons the
-   topbar script injects (Menu / Support / Switch Division / badges). Flex order
-   keeps them last regardless of DOM insertion order, and a left auto-margin
-   spaces them clearly from the button cluster. */
+/* Topbar button order — deterministic + logical, independent of the order the
+   topbar script injects them. Left → right: Dashboard · Menu · Switch Division ·
+   Search · Support Desk (IA), then the profile + Sign-out pinned to the far right
+   (the auto-margin opens a clear gap before the identity cluster). */
+#met-dash-btn      { order: 10; }
+#met-pages         { order: 20; }  /* Menu ▾ */
+#met-switcher      { order: 30; }  /* Switch Division / My Divisions ▾ */
+#met-cmdk-btn      { order: 40; }  /* Search ⌘K */
+#met-support-pill  { order: 50; }  /* Support Desk (IA) alert pill */
 .met-topbar-user { order: 900; margin-left: auto; }
 .met-topbar-right > form { order: 901; }
 
