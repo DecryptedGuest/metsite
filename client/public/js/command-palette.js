@@ -53,7 +53,7 @@
     el.innerHTML = `<div style="margin-top:12vh;width:min(560px,92vw);background:var(--panel-solid,#151821);border:1px solid var(--border,#2a2a2a);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden;">
       <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border,#2a2a2a);">
         <i class="ti ti-search" style="font-size:18px;color:var(--text-muted);"></i>
-        <input id="cmdk-input" placeholder="Jump to… or search an officer" style="flex:1;background:none;border:none;outline:none;color:var(--text-primary,#fff);font-size:15px;" />
+        <input id="cmdk-input" placeholder="Jump to a page, division, or search an officer…" style="flex:1;background:none;border:none;outline:none;color:var(--text-primary,#fff);font-size:15px;" />
         <span style="font-size:10px;color:var(--text-muted);border:1px solid var(--border);border-radius:5px;padding:2px 6px;">ESC</span>
       </div>
       <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px;"></div></div>`;
@@ -90,20 +90,60 @@
     } catch (e) { /* ignore */ }
   }
 
+  // Fuzzy subsequence scorer: higher = better, -1 = no match. A contiguous
+  // substring beats a scattered subsequence; word-start hits score higher.
+  function fuzzyScore(q, text) {
+    if (!q) return 0;
+    q = q.toLowerCase(); text = String(text || '').toLowerCase();
+    const idx = text.indexOf(q);
+    if (idx >= 0) return 1000 - idx - text.length * 0.1;   // contiguous wins big
+    let ti = 0, score = 0, run = 0, prev = -2;
+    for (let qi = 0; qi < q.length; qi++) {
+      let found = -1;
+      for (; ti < text.length; ti++) { if (text[ti] === q[qi]) { found = ti; break; } }
+      if (found < 0) return -1;
+      run = (found === prev + 1) ? run + 1 : 0;
+      const boundary = found === 0 || /[\s\-_/·]/.test(text[found - 1] || '');
+      score += 10 + run * 5 + (boundary ? 8 : 0);
+      prev = found; ti = found + 1;
+    }
+    return score;
+  }
+
+  // The current dashboard's own sidebar pages — so the palette can jump between
+  // sections of the page you're on (uses each dashboard's own nav handler).
+  function pageItems() {
+    const badge = document.getElementById('met-division-badge');
+    const div = (badge && badge.textContent.trim()) || '';
+    return [].slice.call(document.querySelectorAll('.sidebar-nav .nav-item[data-page]'))
+      .filter(b => b.offsetParent !== null)   // skip hidden (role-gated) items
+      .map(b => {
+        const span = b.querySelector('span:not(.nav-badge):not(.nav-tag)');
+        const iconEl = b.querySelector('.nav-icon');
+        const icon = iconEl ? ([].slice.call(iconEl.classList).find(c => /^ti-/.test(c)) || 'ti-arrow-right') : 'ti-arrow-right';
+        return { label: (span ? span.textContent : b.textContent).trim(), sub: (div ? div + ' · ' : '') + 'Page',
+                 icon, page: b.dataset.page, pathname: location.pathname };
+      });
+  }
+
   function baseItems(q) {
-    const nav = NAV.filter(n => !q || n.label.toLowerCase().includes(q.toLowerCase()));
-    // With no query, surface recent pages first (skipping the page we're on).
+    // With no query, surface recent pages first (skipping the page we're on),
+    // then the destination/action list. Pages are only merged in when searching,
+    // so the empty view stays short.
     if (!q) {
       const here = location.pathname + location.hash;
       const recents = getRecents()
         .filter(r => r.url !== here)
         .map(r => ({ label: r.label, sub: 'Recent', icon: 'ti-history', url: r.url }));
-      if (recents.length) {
-        const recentUrls = new Set(recents.map(r => r.url));
-        return recents.concat(nav.filter(n => !n.url || !recentUrls.has(n.url)));
-      }
+      const recentUrls = new Set(recents.map(r => r.url));
+      return recents.concat(NAV.filter(n => !n.url || !recentUrls.has(n.url)));
     }
-    return nav;
+    // Fuzzy-rank NAV + the current dashboard's pages together.
+    return NAV.concat(pageItems())
+      .map(it => ({ it, s: fuzzyScore(q, it.label) }))
+      .filter(x => x.s >= 0)
+      .sort((a, b) => b.s - a.s)
+      .map(x => x.it);
   }
   function onType() {
     const q = input.value.trim();
@@ -132,6 +172,16 @@
     if (!it) return;
     close();
     if (it.action) return it.action();
+    // A page within a dashboard: switch in place if we're already on it (reusing
+    // the dashboard's own nav handler), otherwise deep-link via ?page=.
+    if (it.page) {
+      if (it.pathname === location.pathname) {
+        const btn = document.querySelector('.sidebar-nav .nav-item[data-page="' + it.page + '"]');
+        if (btn) { btn.click(); btn.scrollIntoView({ block: 'nearest' }); return; }
+      }
+      location.href = it.pathname + '?page=' + encodeURIComponent(it.page);
+      return;
+    }
     if (it.officerId && /\/hicomm\/dashboard/.test(location.pathname)) {
       // Already on HICOMM → open the officer inline.
       if (typeof window.hcOfficer === 'function') {
@@ -142,6 +192,37 @@
     }
     if (it.url) location.href = it.url;
   }
+
+  // Deep-link bootstrap: /<dash>?page=<key> activates that sidebar page on load
+  // (used by cross-dashboard palette jumps). Clicks the nav item so the
+  // dashboard's own switch logic runs; harmless if the dashboard already handles it.
+  function pageBootstrap() {
+    try {
+      const p = new URLSearchParams(location.search).get('page');
+      if (!p) return;
+      const btn = document.querySelector('.sidebar-nav .nav-item[data-page="' + p + '"]');
+      if (btn && !btn.classList.contains('active')) { btn.click(); btn.scrollIntoView({ block: 'nearest' }); }
+    } catch (e) { /* ignore */ }
+  }
+  if (document.readyState === 'complete') setTimeout(pageBootstrap, 150);
+  else window.addEventListener('load', () => setTimeout(pageBootstrap, 150));
+
+  // Keyboard: "g" then 1-9 jumps to the Nth sidebar page (Linear/Discord style).
+  let gArmed = false, gTimer = null;
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    if (typing || open || e.metaKey || e.ctrlKey || e.altKey) { gArmed = false; return; }
+    if (e.key === 'g' || e.key === 'G') { gArmed = true; clearTimeout(gTimer); gTimer = setTimeout(() => { gArmed = false; }, 900); return; }
+    if (gArmed && /^[1-9]$/.test(e.key)) {
+      gArmed = false;
+      const pages = document.querySelectorAll('.sidebar-nav .nav-item[data-page]');
+      const btn = pages[parseInt(e.key, 10) - 1];
+      if (btn) { e.preventDefault(); btn.click(); btn.scrollIntoView({ block: 'nearest' }); }
+      return;
+    }
+    gArmed = false;
+  });
   function openPalette() { build(); open = true; el.style.display = 'flex'; items = baseItems(''); sel = 0; render(); input.value = ''; setTimeout(() => input.focus(), 30); }
   function close() { open = false; if (el) el.style.display = 'none'; }
 

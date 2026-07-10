@@ -13,6 +13,34 @@ function metEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Loading skeletons — a calmer stand-in than a bare spinner. Returns HTML in the
+// shape of the content being loaded. shape: 'rows' | 'feed' | 'cards' | 'kpi'.
+window.metSkeleton = function (shape, count) {
+  const n = count || (shape === 'kpi' ? 4 : 5);
+  const rep = (fn) => Array.from({ length: n }, (_, i) => fn(i)).join('');
+  if (shape === 'kpi')   return '<div class="sk-kpi">' + rep(() => '<div class="sk-card"></div>') + '</div>';
+  if (shape === 'cards') return '<div class="sk-cards">' + rep(() => '<div class="sk-card"><div class="sk sk-line" style="width:55%"></div><div class="sk sk-line" style="width:88%"></div><div class="sk sk-line" style="width:38%"></div></div>') + '</div>';
+  if (shape === 'feed')  return rep(() => '<div class="sk-row"><div class="sk sk-av"></div><div class="sk-body"><div class="sk sk-line" style="width:38%"></div><div class="sk sk-line" style="width:72%"></div></div></div>');
+  return rep((i) => '<div class="sk-row"><div class="sk-body"><div class="sk sk-line" style="width:' + (45 + (i * 11) % 45) + '%"></div></div></div>');
+};
+
+// A friendly empty state: icon + title + optional sub + optional CTA. A link CTA
+// (href) needs no wiring; an in-page action passes onclick instead.
+window.metEmpty = function (o) {
+  o = o || {};
+  const icon = o.icon ? `<i class="ti ${o.icon} table-empty-icon"></i>` : '';
+  const title = `<div class="table-empty-text">${metEsc(o.title || 'Nothing here yet')}</div>`;
+  const sub = o.sub ? `<div class="met-empty-sub">${metEsc(o.sub)}</div>` : '';
+  let cta = '';
+  if (o.cta && (o.href || o.onclick)) {
+    const inner = `${o.ctaIcon ? `<i class="ti ${o.ctaIcon}"></i> ` : ''}${metEsc(o.cta)}`;
+    cta = o.href
+      ? `<a class="btn btn-primary btn-sm met-empty-cta" href="${o.href}">${inner}</a>`
+      : `<button class="btn btn-primary btn-sm met-empty-cta" onclick="${o.onclick}">${inner}</button>`;
+  }
+  return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}</div>`;
+};
+
 // A small overlapping Discord + Roblox avatar stack. Discord first, Roblox
 // tucked behind it to the right. Falls back to an initial when an avatar is
 // missing. `size` is the pixel diameter of each circle.
@@ -135,6 +163,77 @@ if (typeof document !== 'undefined' && !window.metTour && !document.getElementBy
   document.head.appendChild(_tourScript);
 }
 
+// ── Breadcrumb: "Division › Section" in the topbar ─────────────────────────
+// The Section tracks the active sidebar nav item live (dashboards toggle the
+// .active class on nav-items when switching pages), via a MutationObserver.
+function metInjectBreadcrumb(currentDivision) {
+  const titleEl = document.querySelector('.met-topbar-left .met-topbar-title');
+  if (!titleEl || document.getElementById('met-breadcrumb')) return;
+  const badge = document.getElementById('met-division-badge');
+  const div = (badge && badge.textContent) || DIVISION_LABEL[currentDivision] || currentDivision || '';
+  const bc = document.createElement('nav');
+  bc.id = 'met-breadcrumb'; bc.className = 'met-breadcrumb'; bc.setAttribute('aria-label', 'Breadcrumb');
+  bc.innerHTML = `<span class="bc-div">${metEsc(div)}</span><i class="ti ti-chevron-right bc-sep"></i><span class="bc-section" id="met-bc-section"></span>`;
+  titleEl.insertAdjacentElement('afterend', bc);
+  const sectionEl = document.getElementById('met-bc-section');
+  const syncSection = () => {
+    const a = document.querySelector('.sidebar-nav .nav-item.active span:not(.nav-badge):not(.nav-tag)');
+    const s = a ? a.textContent.trim() : '';
+    sectionEl.textContent = s;
+    bc.classList.toggle('has-section', !!s);
+  };
+  syncSection();
+  const nav = document.querySelector('.sidebar-nav');
+  if (nav && window.MutationObserver) {
+    const mo = new MutationObserver(syncSection);
+    mo.observe(nav, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  }
+}
+
+// ── Mobile nav drawer: a hamburger in the topbar turns the sidebar into an
+// off-canvas drawer under 640px (see dashboard.css). Injected centrally. ──
+function metInjectNavToggle() {
+  const left = document.querySelector('.met-topbar-left');
+  const layout = document.querySelector('.app-layout');
+  if (!left || !layout) return;
+  if (!document.getElementById('met-nav-toggle')) {
+    const h = document.createElement('button');
+    h.id = 'met-nav-toggle'; h.className = 'met-nav-toggle btn btn-icon btn-ghost';
+    h.setAttribute('aria-label', 'Open menu'); h.setAttribute('aria-expanded', 'false');
+    h.innerHTML = '<i class="ti ti-menu-2"></i>';
+    left.insertBefore(h, left.firstChild);
+    const closeNav = () => { layout.classList.remove('nav-open'); document.body.classList.remove('nav-locked'); h.setAttribute('aria-expanded', 'false'); };
+    const openNav  = () => { layout.classList.add('nav-open'); document.body.classList.add('nav-locked'); h.setAttribute('aria-expanded', 'true'); };
+    h.addEventListener('click', (e) => { e.stopPropagation(); layout.classList.contains('nav-open') ? closeNav() : openNav(); });
+    if (!layout.querySelector('.sidebar-scrim')) {
+      const s = document.createElement('div'); s.className = 'sidebar-scrim';
+      layout.appendChild(s); s.addEventListener('click', closeNav);
+    }
+    // Close after picking a page, and on Escape.
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.addEventListener('click', (e) => { if (e.target.closest('.nav-item')) closeNav(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNav(); });
+  }
+}
+
+// ── Back-to-top: appears on the scrolling content once you're down the page. ──
+function metInjectBackToTop() {
+  const main = document.querySelector('.main-content');
+  if (!main || document.getElementById('met-to-top')) return;
+  const btn = document.createElement('button');
+  btn.id = 'met-to-top'; btn.className = 'met-to-top'; btn.type = 'button';
+  btn.setAttribute('aria-label', 'Back to top'); btn.title = 'Back to top';
+  btn.innerHTML = '<i class="ti ti-arrow-up"></i>';
+  document.body.appendChild(btn);
+  // Whichever element actually scrolls (main-content usually; body as a fallback).
+  const scroller = main.scrollHeight > main.clientHeight + 40 ? main : (document.scrollingElement || document.documentElement);
+  const onScroll = () => { btn.classList.toggle('show', (scroller.scrollTop || 0) > 400); };
+  scroller.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('scroll', onScroll, { passive: true });
+  btn.addEventListener('click', () => { try { scroller.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { scroller.scrollTop = 0; } });
+  onScroll();
+}
+
 async function initMetTopbar(currentDivision) {
   setSiteChrome(currentDivision);
   const badge = document.getElementById('met-division-badge');
@@ -196,45 +295,64 @@ async function initMetTopbar(currentDivision) {
 
   const right = document.querySelector('.met-topbar-right');
 
-  // Inject the consistent main buttons (My Dashboard, Menu, Search) into the
-  // topbar-right on every page that has one — same set everywhere.
+  // Breadcrumb (Division › Section), mobile nav drawer + back-to-top — injected
+  // centrally so every dashboard gets them without per-view markup.
+  try { metInjectBreadcrumb(currentDivision); } catch (e) {}
+  try { metInjectNavToggle(); } catch (e) {}
+  try { metInjectBackToTop(); } catch (e) {}
+
+  // Decluttered topbar: instead of a flat row of ~7 loose buttons, the right side
+  // reads as a few obvious GROUPS — [Search] · [Menu ▾] (navigation + personal
+  // pages + help, all folded in) · [Switch Division ▾] · (IA) Support Desk pill ·
+  // profile · Sign out. My Dashboard / Support / Tour now live inside Menu.
   try {
     if (right && !document.getElementById('met-pages')) {
-      const PAGES = [
-        { href: '/loa',       icon: 'ti-calendar-off',   label: 'Leave of Absence' },
-        // Final Exam only appears for cadets who hold the final-exam role.
-        ...(examEligible ? [{ href: '/exam', icon: 'ti-writing', label: 'Final Exam' }] : []),
-        { href: '/app',       icon: 'ti-device-mobile',  label: 'Mobile App' },
-      ];
       const switcherEl = document.getElementById('met-switcher');
 
-      // Menu dropdown (top-level pages) — reuses the switcher's markup + CSS.
+      const GROUPS = [
+        { label: 'Navigate', items: [
+          { href: '/dashboard', icon: 'ti-layout-dashboard', label: 'My Dashboard', match: ['/dashboard', '/profile'] },
+          { href: '/support',   icon: 'ti-lifebuoy',         label: 'Support' },
+        ] },
+        { label: 'You', items: [
+          { href: '/loa', icon: 'ti-calendar-off', label: 'Leave of Absence' },
+          // Final Exam only appears for cadets who hold the final-exam role.
+          ...(examEligible ? [{ href: '/exam', icon: 'ti-writing', label: 'Final Exam' }] : []),
+          { href: '/app', icon: 'ti-device-mobile', label: 'Mobile App' },
+        ] },
+      ];
+      const isHere = (it) => (it.match || [it.href]).some(h => h === HERE);
+      const onSupport = /^\/support/.test(location.pathname);
+      const menuHtml =
+        GROUPS.map(g =>
+          `<div class="met-menu-label">${g.label}</div>` +
+          g.items.map(it => `<a href="${it.href}" class="met-switcher-item${isHere(it) ? ' current' : ''}"><span><i class="ti ${it.icon}"></i> ${it.label}</span></a>`).join('')
+        ).join('') +
+        '<div class="met-menu-label">Help</div>' +
+        `<a class="met-switcher-item" data-act="tour"><span><i class="ti ti-help-circle"></i> ${onSupport ? 'How support works' : 'Take a tour'}</span></a>`;
+
+      // Menu dropdown — reuses the switcher's markup + CSS.
       const wrap = document.createElement('div');
       wrap.className = 'met-switcher';
       wrap.id = 'met-pages';
       wrap.innerHTML =
-        '<button class="btn btn-ghost btn-sm" id="met-pages-btn"><i class="ti ti-menu-2"></i> Menu</button>' +
-        '<div class="met-switcher-menu">' +
-        PAGES.map(p => `<a href="${p.href}" class="met-switcher-item${HERE === p.href ? ' current' : ''}"><span><i class="ti ${p.icon}"></i> ${p.label}</span></a>`).join('') +
-        '</div>';
+        '<button class="btn btn-ghost btn-sm" id="met-pages-btn" title="Menu — dashboard, support, your pages & tour"><i class="ti ti-menu-2"></i> Menu</button>' +
+        '<div class="met-switcher-menu met-menu-wide">' + menuHtml + '</div>';
       if (switcherEl) right.insertBefore(wrap, switcherEl); else right.appendChild(wrap);
       const pBtn = wrap.querySelector('#met-pages-btn');
       pBtn.addEventListener('click', (e) => { e.stopPropagation(); closeOtherDropdowns(wrap); wrap.classList.toggle('open'); });
       document.addEventListener('click', () => wrap.classList.remove('open'));
-      if (PAGES.some(p => p.href === HERE)) markHere(pBtn);
-
-      // A direct "Support" button for EVERYONE (members + IA) — takes them
-      // straight to the /support page. The IA "Support Desk" pill below is the
-      // separate, IA-only staff panel.
-      if (!document.getElementById('met-support-link')) {
-        const sup = document.createElement('a');
-        sup.id = 'met-support-link';
-        sup.href = '/support';
-        sup.className = 'btn btn-ghost btn-sm';
-        sup.innerHTML = '<i class="ti ti-lifebuoy"></i> Support';
-        if (switcherEl) right.insertBefore(sup, switcherEl); else right.appendChild(sup);
-        if (HERE === '/support') markHere(sup);
-      }
+      // Tour is an action (not a link) inside the menu — lazy-load the engine.
+      const tourItem = wrap.querySelector('[data-act="tour"]');
+      if (tourItem) tourItem.addEventListener('click', (e) => {
+        e.preventDefault(); wrap.classList.remove('open');
+        if (window.metTour) return window.metTour.start();
+        const s = document.createElement('script'); s.src = '/js/tutorial.js';
+        s.onload = function () { if (window.metTour) window.metTour.start(); };
+        document.head.appendChild(s);
+      });
+      const allHrefs = GROUPS.reduce((a, g) => a.concat(g.items.reduce((b, it) => b.concat(it.match || [it.href]), [])), []);
+      if (allHrefs.indexOf(HERE) >= 0) markHere(pBtn);
 
       // Live unclaimed-ticket counter — a topbar pill that only appears for IA
       // staff (the queue endpoint 403s for everyone else) and PULSES when the
@@ -268,44 +386,24 @@ async function initMetTopbar(currentDivision) {
       window.loadSupportBadge();
       setInterval(() => window.loadSupportBadge(), 60000);
 
-      // Search (⌘K / Ctrl-K) — only if the command palette is on this page.
-      if (typeof window.openCommandPalette === 'function' && !document.getElementById('met-cmdk-btn')) {
+      // Search (⌘K / Ctrl-K) — the leftmost control in the group. Always shown;
+      // if the command palette isn't loaded on this page yet, it's fetched on
+      // demand so search works everywhere.
+      if (!document.getElementById('met-cmdk-btn')) {
         const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
         const sBtn = document.createElement('button');
         sBtn.id = 'met-cmdk-btn';
         sBtn.className = 'btn btn-ghost btn-sm';
         sBtn.title = 'Search (' + (isMac ? '⌘K' : 'Ctrl + K') + ')';
         sBtn.innerHTML = `<i class="ti ti-search"></i> <span style="margin:0 2px;">Search</span> <span class="cmdk-kbd" style="opacity:.6;font-size:11px;">${isMac ? '⌘K' : 'Ctrl + K'}</span>`;
-        sBtn.addEventListener('click', function () { window.openCommandPalette(); });
-        right.insertBefore(sBtn, right.firstChild);
-      }
-
-      // Tour — always available (even after it's been seen), launches the
-      // page walkthrough. Loads the engine on demand if it isn't in yet.
-      if (!document.getElementById('met-tour-btn')) {
-        const onSupport = /^\/support/.test(location.pathname);
-        const tBtn = document.createElement('button');
-        tBtn.id = 'met-tour-btn';
-        tBtn.className = 'btn btn-ghost btn-sm';
-        tBtn.title = onSupport ? 'How the support desk works' : 'Take a tour of this page';
-        tBtn.innerHTML = onSupport ? '<i class="ti ti-help-circle"></i> How support works' : '<i class="ti ti-help-circle"></i> Tour';
-        tBtn.addEventListener('click', function () {
-          if (window.metTour) return window.metTour.start();
-          const s = document.createElement('script'); s.src = '/js/tutorial.js';
-          s.onload = function () { if (window.metTour) window.metTour.start(); };
+        sBtn.addEventListener('click', function () {
+          if (typeof window.openCommandPalette === 'function') return window.openCommandPalette();
+          const s = document.createElement('script'); s.src = '/js/command-palette.js';
+          s.onload = function () { if (typeof window.openCommandPalette === 'function') window.openCommandPalette(); };
           document.head.appendChild(s);
         });
-        right.insertBefore(tBtn, right.firstChild);
+        right.insertBefore(sBtn, right.firstChild);
       }
-
-      // My Dashboard — a persistent main button (leftmost), highlighted when here.
-      const dashBtn = document.createElement('a');
-      dashBtn.id = 'met-dash-btn';
-      dashBtn.href = '/dashboard';
-      dashBtn.className = 'btn btn-ghost btn-sm';
-      dashBtn.innerHTML = '<i class="ti ti-layout-dashboard"></i> My Dashboard';
-      right.insertBefore(dashBtn, right.firstChild);
-      if (HERE === '/dashboard' || HERE === '/profile') markHere(dashBtn);
     }
   } catch (e) { /* cosmetic */ }
 
@@ -321,6 +419,9 @@ async function initMetTopbar(currentDivision) {
     });
     document.addEventListener('click', () => switcher.classList.remove('open'));
   }
+
+  // On long sidebars, make sure the active nav item is visible on load.
+  try { const a = document.querySelector('.sidebar-nav .nav-item.active'); if (a) a.scrollIntoView({ block: 'nearest' }); } catch (e) {}
 }
 
 // Close every topbar dropdown except the one passed in, so only one of the

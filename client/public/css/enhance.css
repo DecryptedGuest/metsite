@@ -91,7 +91,11 @@ a { transition: color .15s ease, opacity .15s ease; }
 /* Section dots (panel headers / "MY ACTIVITY"-style labels): glow + soft pulse
    so each section reads with its own colour, like the member dashboard. */
 @keyframes met-dot-pulse { 0%,100% { box-shadow: 0 0 0 0 currentColor; } 50% { box-shadow: 0 0 8px 1px currentColor; } }
-.panel-dot { animation: met-dot-pulse 2.6s ease-in-out infinite; }
+/* Calm by default: every section dot gets a soft static glow, but only dots that
+   demand attention (.pending / .pulse-anim) actually pulse — so a screen full of
+   panels isn't a wall of blinking dots competing for the eye. */
+.panel-dot { box-shadow: 0 0 6px 0 currentColor; }
+.panel-dot.pending, .panel-dot.pulse-anim { animation: met-dot-pulse 2.6s ease-in-out infinite; }
 .panel-dot.blue  { color: var(--blue,   #4a8fff); }
 .panel-dot.green { color: var(--green,  #22c55e); }
 .panel-dot.red   { color: var(--red,    #e0503a); }
@@ -113,7 +117,13 @@ a { transition: color .15s ease, opacity .15s ease; }
 .stat-card.green::before  { background: linear-gradient(90deg, var(--green,#2ed896), transparent 85%); }
 .stat-card.red::before    { background: linear-gradient(90deg, var(--red,#f04f5e), transparent 85%); }
 .stat-card.purple::before { background: linear-gradient(90deg, #9b6dff, transparent 85%); }
-.cc-stat .v, .stat-card .stat-value { text-shadow: 0 0 18px currentColor; }
+.stat-card.blue::before   { background: linear-gradient(90deg, var(--blue,#4a8fff), transparent 85%); }
+/* Number glow is a spotlight — reserve it for the lead/alert tiles so a KPI wall
+   doesn't have every number shouting. A card opts in with .lead (or a semantic
+   colour class); plain cards get a crisp, un-glowing number. */
+.cc-stat.lead .v, .stat-card.lead .stat-value,
+.cc-stat.amber .v, .cc-stat.red .v,
+.stat-card.amber .stat-value, .stat-card.red .stat-value { text-shadow: 0 0 18px currentColor; }
 
 /* Coloured section accents you can drop on any panel via a class. */
 .accent-blue  { box-shadow: inset 3px 0 0 var(--blue,#4a8fff); }
@@ -129,6 +139,9 @@ a { transition: color .15s ease, opacity .15s ease; }
    HICOMM keep their gold. */
 .div-ia   { --dc: #c2701f; } .div-met  { --dc: #4a8fff; } .div-sco19 { --dc: #4b5563; }
 .div-cid  { --dc: #e8842a; } .div-flp  { --dc: #5cc0ff; } .div-hpc   { --dc: #e8eef7; }
+/* Developer tools + MET HICOMM keep their gold identity, so their pages key off
+   one accent (active nav rail, breadcrumb, KPI bars) just like the divisions. */
+.div-dev  { --dc: #f5c518; } .div-hicomm { --dc: #f5c518; }
 .div-chip { border-color: color-mix(in srgb, var(--dc,#8b93a1) 55%, transparent) !important;
   color: var(--dc,#8b93a1) !important; }
 
@@ -142,9 +155,10 @@ a { transition: color .15s ease, opacity .15s ease; }
 
 /* Nav: the active item gets a coloured left rail + glow so wayfinding is clear. */
 .nav-item.active { position: relative; }
+/* Solid, glowing division-colour left rail (thicker than a plain accent). */
 .nav-item.active::before {
-  content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 3px; border-radius: 3px;
-  background: var(--dc, var(--blue,#4a8fff)); box-shadow: 0 0 10px var(--dc, var(--blue,#4a8fff));
+  content: ""; position: absolute; left: 0; top: 12%; bottom: 12%; width: 4px; border-radius: 0 4px 4px 0;
+  background: var(--dc, var(--blue,#4a8fff)); box-shadow: 0 0 12px color-mix(in srgb, var(--dc,#4a8fff) 85%, transparent);
 }
 
 /* Page sections fade/slide in on first paint so navigating feels alive. */
@@ -171,7 +185,17 @@ a { transition: color .15s ease, opacity .15s ease; }
    hover/active. Pairs with the glowing active rail added in the colour pass. */
 .nav-item { color: rgba(190,214,255,0.82) !important; font-weight: 500; }
 .nav-item:hover { color: #eaf2ff !important; background: rgba(40,90,220,0.18) !important; }
-.nav-item.active { color: #fff !important; background: rgba(40,100,235,0.26) !important; border-color: rgba(70,130,255,0.45) !important; font-weight: 600; }
+/* Active nav item — ONE unmistakable, division-coloured state: filled --dc tint,
+   --dc border, glowing --dc rail (above) + accented icon + #fff label. Even a dim
+   --dc (SCO-19 gunmetal) stays legible via the filled tint + white text. */
+.nav-item.active {
+  color: #fff !important; font-weight: 700; scroll-margin: 12px;
+  background: linear-gradient(90deg,
+      color-mix(in srgb, var(--dc, #4a8fff) 34%, transparent),
+      color-mix(in srgb, var(--dc, #4a8fff) 14%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--dc, #4a8fff) 55%, transparent) !important;
+}
+.nav-item.active .nav-icon { color: color-mix(in srgb, var(--dc, #4a8fff) 55%, #ffffff) !important; }
 .nav-icon { color: inherit; }
 .nav-section-label { color: rgba(150,185,240,0.6) !important; letter-spacing: .08em; }
 
@@ -380,3 +404,29 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
 .cc-stat { padding: 18px 20px; }
 .cc-stat .v { font-size: 34px; }
 .cc-stat .l { font-size: 11.5px; }
+
+/* ── Loading skeletons ─────────────────────────────────────────────────────
+   A calmer stand-in than a bare spinner: grey shimmer blocks in the shape of the
+   content that's loading. Build via window.metSkeleton('rows'|'cards'|'feed'|
+   'kpi', count) or drop .sk elements directly. Reduce-motion stops the shimmer. */
+@keyframes met-sk-shimmer { 0% { background-position: -420px 0; } 100% { background-position: 420px 0; } }
+.sk { border-radius: 8px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+  background-size: 840px 100%; animation: met-sk-shimmer 1.3s linear infinite; }
+.sk-line { height: 12px; margin: 8px 0; }
+.sk-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border-dim, rgba(255,255,255,.06)); }
+.sk-row .sk-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; }
+.sk-row .sk-body { flex: 1; }
+.sk-card { border: 1px solid var(--border-dim, rgba(255,255,255,.06)); border-radius: 12px; padding: 16px; }
+.sk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.sk-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+.sk-kpi .sk-card { height: 84px; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* Friendly empty states (window.metEmpty): centred icon + title + sub + a CTA so
+   a blank panel is never a dead end. */
+.met-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 30px 18px; gap: 2px; }
+.met-empty .table-empty-icon { margin-bottom: 6px; }
+.met-empty-sub { font-size: 12.5px; color: var(--text-muted, #8b93a1); max-width: 340px; margin-top: 2px; }
+.met-empty-cta { margin-top: 14px; }

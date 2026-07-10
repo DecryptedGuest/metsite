@@ -646,9 +646,26 @@
 
 @media (max-width: 640px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
-  .app-layout { flex-direction: column; }
-  .sidebar { width: 100%; min-height: auto; height: auto; position: static; }
+  /* Sidebar becomes an off-canvas DRAWER (toggled by the topbar hamburger), so
+     content spans the full width instead of scrolling past a tall nav list. */
+  .met-nav-toggle { display: inline-flex; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; height: 100dvh;
+    width: min(84vw, 300px); transform: translateX(-100%);
+    transition: transform .25s ease; z-index: 60; box-shadow: none;
+  }
+  .app-layout.nav-open .sidebar { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.6); }
+  .sidebar-scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 55;
+  }
+  .app-layout.nav-open .sidebar-scrim { opacity: 1; pointer-events: auto; }
+  body.nav-locked { overflow: hidden; }
+  .main-content { width: 100%; }
 }
+/* The scrim element only matters inside the drawer breakpoint. */
+.sidebar-scrim { display: block; }
+@media (min-width: 641px) { .sidebar-scrim { display: none; } }
 
 /* ── Brand logo in sidebar ──────────────────────────────────────── */
 .brand-logo {
