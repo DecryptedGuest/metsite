@@ -207,10 +207,23 @@ a { transition: color .15s ease, opacity .15s ease; }
 body[class*="div-"] .brand-name { color: var(--dc, #7aacff); }
 body[class*="div-"] .brand-logo { box-shadow: 0 0 16px color-mix(in srgb, var(--dc,#3050dc) 34%, transparent);
   border-color: color-mix(in srgb, var(--dc,#3264ff) 45%, transparent); }
+/* The division tag under the brand — a clean, legible "chip" with a glowing
+   status dot and a brighter label (mixing the division colour toward white so
+   deep hues like CID orange read clearly on the dark bar). */
 .met-topbar-division {
-  background: color-mix(in srgb, var(--dc,#4a8fff) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 45%, transparent);
-  color: var(--dc,#4a8fff) !important; padding: 2px 10px; border-radius: 999px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 6px; width: fit-content; margin-top: 3px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--dc,#4a8fff) 20%, transparent),
+    color-mix(in srgb, var(--dc,#4a8fff) 10%, transparent)) !important;
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 50%, transparent) !important;
+  color: color-mix(in srgb, var(--dc,#4a8fff) 55%, #ffffff) !important;
+  padding: 3px 10px 3px 9px; border-radius: 8px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  box-shadow: 0 2px 10px -4px var(--dc,#4a8fff), inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+.met-topbar-division::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--dc,#4a8fff); box-shadow: 0 0 7px var(--dc,#4a8fff);
 }
 /* Division-tinted panel headers so each portal reads with its own colour. */
 body[class*="div-"] .panel-title { color: color-mix(in srgb, var(--dc,#7aacff) 78%, #d8eaff); }
@@ -281,3 +294,55 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
    spaces them clearly from the button cluster. */
 .met-topbar-user { order: 900; margin-left: auto; }
 .met-topbar-right > form { order: 901; }
+
+/* ── Dual Discord + Roblox avatars (topbar cluster) ─────────────────────
+   The Roblox avatar tucks slightly behind the Discord one; both get a ring in
+   the current division colour so the identity reads at a glance. */
+.met-topbar-user.has-dual { gap: 10px; }
+.met-topbar-user.has-dual #met-user-avatar,
+.met-topbar-user.has-dual #met-user-avatar-fallback { position: relative; z-index: 2; }
+.met-user-roblox {
+  width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+  margin-left: -12px; z-index: 1;
+  background: var(--bg-deep,#0a1020);
+  box-shadow: 0 0 0 2px var(--bg-panel,#0e1730), 0 0 0 3px color-mix(in srgb, var(--dc,#4a8fff) 55%, transparent);
+}
+.met-topbar-user.has-dual #met-user-avatar,
+.met-topbar-user.has-dual #met-user-avatar-fallback {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dc,#4a8fff) 60%, transparent);
+}
+
+/* ── Avatar stack primitive (sidebar footer + anywhere else) ───────────── */
+.idv-stack { display: inline-flex; align-items: center; flex-shrink: 0; }
+.idv-av { border-radius: 50%; object-fit: cover; background: var(--bg-deep,#0a1020); }
+.idv-av.idv-fallback {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #fff;
+  background: color-mix(in srgb, var(--dc,#4a8fff) 40%, #1a2340);
+}
+.idv-disc { position: relative; z-index: 2; box-shadow: 0 0 0 2px color-mix(in srgb, var(--dc,#4a8fff) 60%, transparent); }
+.idv-rob  { margin-left: -14px; z-index: 1;
+  box-shadow: 0 0 0 2px var(--bg-panel,#0e1730), 0 0 0 3px color-mix(in srgb, var(--dc,#4a8fff) 45%, transparent); }
+
+/* ── Sidebar identity footer (division dashboards) ─────────────────────── */
+.sidebar-user { margin-top: auto; padding: 0 0.75rem 0.9rem; }
+.sidebar-user .sidebar-divider { margin: 0 0 0.75rem; }
+.siu-card {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 12px; border-radius: 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dc,#4a8fff) 9%, transparent), transparent);
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 22%, var(--border-mid,rgba(255,255,255,0.08)));
+}
+.siu-info { min-width: 0; flex: 1; }
+.siu-name { font-size: 13px; font-weight: 700; color: var(--text-primary,#eaf1ff);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.siu-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.siu-rank {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--dc,#4a8fff) 60%, #ffffff);
+  background: color-mix(in srgb, var(--dc,#4a8fff) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 40%, transparent);
+  padding: 1px 7px; border-radius: 999px; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.siu-sub { font-size: 11px; color: var(--text-muted,#8b93a1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

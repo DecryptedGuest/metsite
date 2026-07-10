@@ -359,19 +359,28 @@ async function getRobloxIdFromUsername(username) {
 
 /**
  * Fetch a Roblox user's headshot thumbnail URL. Public API, no auth.
- * Returns a PNG URL or null.
+ * Returns a PNG URL or null. Cached per user id (headshots change rarely) so the
+ * topbar/sidebar don't re-hit Roblox on every dashboard load.
  */
+const headshotCache = new Map(); // robloxUserId → { url, expires }
+const HEADSHOT_TTL = 6 * 60 * 60 * 1000; // 6h
 async function getRobloxAvatarHeadshot(robloxUserId) {
+  if (!robloxUserId) return null;
+  const key = String(robloxUserId);
+  const hit = headshotCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.url;
   try {
     const res = await fetch(
-      `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${robloxUserId}&size=150x150&format=Png&isCircular=false`,
+      `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${key}&size=150x150&format=Png&isCircular=false`,
     );
-    if (!res.ok) return null;
+    if (!res.ok) return hit ? hit.url : null;
     const data = await res.json();
-    return (data.data && data.data[0] && data.data[0].imageUrl) || null;
+    const url = (data.data && data.data[0] && data.data[0].imageUrl) || null;
+    headshotCache.set(key, { url, expires: Date.now() + HEADSHOT_TTL });
+    return url;
   } catch (err) {
     console.error('Roblox avatar lookup error:', err.message);
-    return null;
+    return hit ? hit.url : null;
   }
 }
 

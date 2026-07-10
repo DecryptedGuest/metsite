@@ -728,14 +728,40 @@ function mergePerms(...lists) {
   return out;
 }
 
+// The signed-in user's identity card — dual avatars (Discord + Roblox), the MET
+// server nickname and their names. Powers the topbar user cluster and the
+// sidebar footer. Roblox avatar + nickname are best-effort so this never blocks.
+async function meIdentity(user) {
+  let robloxAvatar = null;
+  if (user.robloxId) {
+    try { robloxAvatar = await require('./lib/roblox').getRobloxAvatarHeadshot(user.robloxId); } catch (e) {}
+  }
+  let metNickname = null;
+  try {
+    const p = await dbPrisma.metMemberProfile.findUnique({ where: { discordId: user.discordId }, select: { metNickname: true } });
+    metNickname = p && p.metNickname ? p.metNickname : null;
+  } catch (e) { metNickname = null; }
+  return {
+    displayName:     user.displayName || user.discordUsername || null,
+    discordUsername: user.discordUsername || null,
+    discordAvatar:   user.discordAvatar || null,
+    robloxUsername:  user.robloxUsername || null,
+    robloxAvatar,
+    metNickname,
+  };
+}
+
 app.get('/api/me/divisions', requireAuth, async (req, res) => {
   const { mine, icon } = await computeMyDivisions(req.user);
   let metIcon = null;
   try { const cfg = await getDivisionConfig(); metIcon = cfg.MET ? cfg.MET.icon : null; } catch (e) {}
+  let identity = null;
+  try { identity = await meIdentity(req.user); } catch (e) { identity = null; }
   res.json({
     all:  allDivisionMeta().map(m => ({ ...m, icon: icon(m.division) })),
     mine,
     metIcon,
+    identity,
   });
 });
 

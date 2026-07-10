@@ -9,6 +9,80 @@ function metInitials(name) {
   return (name || '?').trim().slice(0, 1).toUpperCase();
 }
 
+function metEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// A small overlapping Discord + Roblox avatar stack. Discord first, Roblox
+// tucked behind it to the right. Falls back to an initial when an avatar is
+// missing. `size` is the pixel diameter of each circle.
+function metAvatarStack(identity, size) {
+  const d = identity || {};
+  const s = size || 30;
+  const st = `width:${s}px;height:${s}px;`;
+  const disc = d.discordAvatar
+    ? `<img class="idv-av idv-disc" src="${metEsc(d.discordAvatar)}" alt="Discord" title="Discord${d.discordUsername ? ': ' + metEsc(d.discordUsername) : ''}" style="${st}">`
+    : `<span class="idv-av idv-disc idv-fallback" style="${st}" title="Discord">${metEsc(metInitials(d.displayName || d.discordUsername))}</span>`;
+  const rob = d.robloxAvatar
+    ? `<img class="idv-av idv-rob" src="${metEsc(d.robloxAvatar)}" alt="Roblox" title="Roblox${d.robloxUsername ? ': @' + metEsc(d.robloxUsername) : ''}" style="${st}">`
+    : (d.robloxUsername ? `<span class="idv-av idv-rob idv-fallback" style="${st}" title="Roblox: @${metEsc(d.robloxUsername)}">${metEsc(metInitials(d.robloxUsername))}</span>` : '');
+  return `<span class="idv-stack">${disc}${rob}</span>`;
+}
+
+// Show the Roblox avatar alongside the existing Discord avatar in the topbar
+// user cluster (turns the single avatar into a Discord+Roblox stack).
+function metTopbarAvatars(identity) {
+  const d = identity || {};
+  const user = document.querySelector('.met-topbar-user');
+  if (!user || !d.robloxAvatar) return;
+  let rob = document.getElementById('met-user-roblox');
+  if (!rob) {
+    rob = document.createElement('img');
+    rob.id = 'met-user-roblox';
+    rob.className = 'met-user-avatar met-user-roblox';
+    rob.alt = 'Roblox';
+    const nameEl = document.getElementById('met-user-name');
+    user.insertBefore(rob, nameEl || null);
+  }
+  rob.src = d.robloxAvatar;
+  rob.title = 'Roblox' + (d.robloxUsername ? ': @' + d.robloxUsername : '');
+  user.classList.add('has-dual');
+}
+
+// Build (once) the sidebar identity footer: dual avatars, MET server nickname
+// and the rank in the division being viewed. Injected only on dashboards that
+// don't already ship their own user-card footer (division dashboards).
+function metSidebarIdentity(identity, currentDivision, mine) {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar || sidebar.querySelector('.user-card')) return;
+  const d = identity || {};
+  // The switcher/mine list keys HICOMM as METHICOMM and the dev tools as DEV.
+  const KEY = { 'HIGH COMMAND': 'METHICOMM', DEVELOPER: 'DEV' };
+  const divKey = KEY[currentDivision] || currentDivision;
+  const entry = (mine || []).find(x => x.division === divKey);
+  const rankName = entry ? (entry.rankName || entry.rankTierLabel || entry.tier || '') : '';
+  const nick = d.metNickname || d.displayName || d.discordUsername || '—';
+  let foot = document.getElementById('met-sidebar-id');
+  if (!foot) {
+    foot = document.createElement('div');
+    foot.id = 'met-sidebar-id';
+    foot.className = 'sidebar-bottom sidebar-user';
+    sidebar.appendChild(foot);
+  }
+  foot.innerHTML = `
+    <div class="sidebar-divider"></div>
+    <div class="siu-card">
+      ${metAvatarStack(d, 36)}
+      <div class="siu-info">
+        <div class="siu-name" title="${metEsc(nick)}">${metEsc(nick)}</div>
+        <div class="siu-meta">
+          ${rankName ? `<span class="siu-rank">${metEsc(rankName)}</span>` : ''}
+          ${d.robloxUsername ? `<span class="siu-sub">@${metEsc(d.robloxUsername)}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
 // ── Tab title + favicon, matched to the current division ─────────────
 // Title: "MET Dashboard" (misc) or "MET Dashboard - CID" (a division). Favicon:
 // the division's icon (else the MET icon), rounded on a canvas so it looks neat
@@ -92,6 +166,10 @@ async function initMetTopbar(currentDivision) {
   try {
     const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     hasIADivision = !!(data && Array.isArray(data.mine) && data.mine.some(d => d.division === 'IA'));
+    if (data && data.identity) {
+      try { metTopbarAvatars(data.identity); } catch (e) {}
+      try { metSidebarIdentity(data.identity, currentDivision, data.mine || []); } catch (e) {}
+    }
     const menu = document.getElementById('met-switcher-menu');
     if (data && menu) {
       menu.innerHTML = '';
