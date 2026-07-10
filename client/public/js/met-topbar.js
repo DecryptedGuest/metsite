@@ -216,6 +216,41 @@ function metInjectNavToggle() {
   }
 }
 
+// ── Live support chat launcher: a floating button in the bottom-left corner that
+// opens a small card offering to start a support chat. Redundant on /support, so
+// it's skipped there. ──
+function metInjectSupportChat() {
+  if (/^\/support/.test(location.pathname)) return;   // already on the chat
+  if (!document.querySelector('.met-topbar')) return; // portal-chrome pages only
+  if (document.getElementById('met-chat-fab')) return;
+
+  const fab = document.createElement('button');
+  fab.id = 'met-chat-fab'; fab.type = 'button'; fab.className = 'met-chat-fab';
+  fab.setAttribute('aria-label', 'Live support chat'); fab.setAttribute('aria-expanded', 'false');
+  fab.title = 'Live support chat';
+  fab.innerHTML = '<i class="ti ti-message-chatbot"></i>';
+  document.body.appendChild(fab);
+
+  const pop = document.createElement('div');
+  pop.id = 'met-chat-pop'; pop.className = 'met-chat-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'MET Support');
+  pop.innerHTML =
+    '<div class="met-chat-head">' +
+      '<span class="met-chat-title"><i class="ti ti-headset"></i> MET Support</span>' +
+      '<button class="met-chat-x" type="button" aria-label="Close" title="Close"><i class="ti ti-x"></i></button>' +
+    '</div>' +
+    '<div class="met-chat-body">Need a hand? Open a support ticket and chat with our team in real time — you’ll get live replies and can attach screenshots.</div>' +
+    '<a class="btn btn-primary btn-sm met-chat-cta" href="/support"><i class="ti ti-message-2"></i> Start a support chat</a>' +
+    '<a class="met-chat-alt" href="/support">View my tickets</a>';
+  document.body.appendChild(pop);
+
+  const close = () => { pop.classList.remove('open'); fab.classList.remove('active'); fab.setAttribute('aria-expanded', 'false'); };
+  const open  = () => { pop.classList.add('open'); fab.classList.add('active'); fab.setAttribute('aria-expanded', 'true'); };
+  fab.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.contains('open') ? close() : open(); });
+  pop.querySelector('.met-chat-x').addEventListener('click', close);
+  document.addEventListener('click', (e) => { if (pop.classList.contains('open') && !pop.contains(e.target) && e.target !== fab) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
 // ── Back-to-top: appears on the scrolling content once you're down the page. ──
 function metInjectBackToTop() {
   const main = document.querySelector('.main-content');
@@ -304,6 +339,7 @@ async function initMetTopbar(currentDivision) {
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
   try { metInjectBackToTop(); } catch (e) {}
+  try { metInjectSupportChat(); } catch (e) {}
 
   // Decluttered topbar: instead of a flat row of ~7 loose buttons, the right side
   // reads as a few obvious GROUPS — [Search] · [Menu ▾] (navigation + personal
