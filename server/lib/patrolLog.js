@@ -483,16 +483,45 @@ async function awardEventPoint(log, division = 'MET') {
 //   FLP (default) | MET | BOTH. Best-effort across each target; returns the
 //   primary (first successful, else first) result plus a `results` array so
 //   callers can see per-division outcomes.
+// Approved EVENT logs award points through the division quota WEBHOOKS (so they
+// work with the same setup the panels use — no service-account sharing needed):
+//   • the HOST gets +EVENT_HOST_POINTS (default 1) in the FLP database
+//   • every ATTENDEE listed on the log gets +EVENT_ATTENDEE_POINTS (default 1) in
+//     the MET database
+// Best-effort per person; a member who can't be matched on the sheet is skipped.
 async function awardEventPoints(log) {
-  const target = (process.env.EVENT_POINT_TARGET || 'FLP').toString().trim().toUpperCase();
-  const divisions = target === 'BOTH' ? ['FLP', 'MET'] : (target === 'MET' ? ['MET'] : ['FLP']);
-  const results = [];
-  for (const d of divisions) {
-    const r = await awardEventPoint(log, d).catch(e => ({ ok: false, reason: e.message, division: d }));
-    results.push(r);
+  const q = require('./quota');
+  const meta = (log && log.eventMeta) || {};
+  const HOST_POINTS = Number(process.env.EVENT_HOST_POINTS) || 1;
+  const ATT_POINTS  = Number(process.env.EVENT_ATTENDEE_POINTS) || 1;
+
+  const out = { host: null, hostDivision: 'FLP', attendeeDivision: 'MET', attendees: [] };
+
+  // Host → FLP database.
+  const host = meta.host || null;
+  const hostDiscordId = (host && host.id) || log.submitterDiscordId || null;
+  const hostRoblox    = (host && host.roblox) || null;
+  if (hostDiscordId || hostRoblox) {
+    try {
+      out.host = !!(await q.addQuotaPoints({ discordId: hostDiscordId, robloxUsername: hostRoblox }, HOST_POINTS, 'event host', 'FLP'));
+    } catch (e) { out.host = false; }
   }
-  const primary = results.find(r => r && r.ok) || results[0] || { ok: false, reason: 'no target division' };
-  return { ...primary, results };
+
+  // Attendees → MET database (one point each, de-duplicated).
+  const seen = new Set();
+  for (const a of (Array.isArray(meta.attendees) ? meta.attendees : [])) {
+    if (!a || (!a.id && !a.roblox)) continue;
+    const key = (a.id || a.roblox || '').toString().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let ok = false;
+    try { ok = !!(await q.addQuotaPoints({ discordId: a.id || null, robloxUsername: a.roblox || null }, ATT_POINTS, 'event attendee', 'MET')); } catch (e) { ok = false; }
+    out.attendees.push({ id: a.id || null, roblox: a.roblox || null, ok });
+  }
+
+  out.ok = out.host === true || out.attendees.some(x => x.ok);
+  out.attendeesAwarded = out.attendees.filter(x => x.ok).length;
+  return out;
 }
 
 // Back-compat: original name kept (writes to the MET database).
