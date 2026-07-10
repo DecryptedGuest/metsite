@@ -667,7 +667,7 @@
         const list = (p.divisions || []);
         divs = `<div style="margin-top:14px;">
           <div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Divisions & rank</div>
-          ${list.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${list.map(d => `<span class="met-chip">${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}</span>`).join('')}</div>`
+          ${list.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${list.map(d => `<span class="met-chip div-chip div-${esc(String(d.division || '').toLowerCase())}">${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}</span>`).join('')}</div>`
             : '<div style="font-size:12px;color:var(--text-muted);">No divisions.</div>'}
         </div>`;
         // Live MET Discord roles, rendered as Discord-style pills.

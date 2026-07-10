@@ -378,9 +378,15 @@ router.get('/officer/:id/timeline', async (req, res) => {
 
     events.sort((a, b) => new Date(b.at) - new Date(a.at));
 
+    // Roblox headshot so the card can show a proper Roblox profile block (like the
+    // ticket profile card). Best-effort + cached; never blocks the timeline.
+    let robloxHeadshot = null;
+    if (rid) { try { robloxHeadshot = await require('../lib/roblox').getRobloxAvatarHeadshot(rid); } catch (e) {} }
+
     res.json({
       officer: { id: u.id, name: u.displayName || u.discordUsername, discordUsername: u.discordUsername,
         discordId: u.discordId, robloxUsername: u.robloxUsername, robloxId: u.robloxId, avatar: u.discordAvatar, role: u.role,
+        robloxHeadshot,
         joinedAt: u.createdAt, lastLogin: u.lastLogin },
       counts: { cases: cases.length, punishments: punishments.length, hosted: hosted.length, patrols: patrols.length, tickets: tickets.length },
       events: events.slice(0, 200),

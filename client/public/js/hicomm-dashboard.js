@@ -166,6 +166,20 @@
       }).join('') || '<div class="table-empty-text">No officers found.</div>';
     }, 120);
   };
+  // Dual profile avatar block (Discord + Roblox) — mirrors the ticket profile card.
+  function hcAvatarBlock(url, label, color, icon) {
+    const img = url
+      ? `<img src="${esc(url)}" alt="" style="width:60px;height:60px;border-radius:14px;object-fit:cover;background:#111;border:2px solid ${color};">`
+      : `<div style="width:60px;height:60px;border-radius:14px;background:#1a1f2b;display:flex;align-items:center;justify-content:center;color:#5d6675;font-size:22px;border:2px solid ${color}55;"><i class="ti ${icon}"></i></div>`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:5px;">${img}
+      <span style="font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:${color};display:flex;align-items:center;gap:3px;"><i class="ti ${icon}"></i>${esc(label)}</span></div>`;
+  }
+  // Copyable ID chip with an "open profile" link (Discord/Roblox).
+  function hcIdChip(label, val, icon, link) {
+    const copy = `<button type="button" class="met-chip" title="Copy ${esc(label)}" onclick="window.copyText&&copyText('${esc(String(val))}','${esc(label)}')" style="cursor:pointer;background:none;font:inherit;"><i class="ti ${icon}"></i> ${esc(label)}: ${esc(String(val))} <i class="ti ti-copy" style="opacity:.6;"></i></button>`;
+    const open = link ? `<a class="met-chip" href="${esc(link)}" target="_blank" rel="noopener" title="Open profile" style="text-decoration:none;"><i class="ti ti-external-link"></i></a>` : '';
+    return copy + open;
+  }
   window.hcOfficer = async function (id) {
     const wrap = $('hc-off-detail');
     wrap.innerHTML = '<div class="panel glass"><div class="table-loading"><div class="spinner"></div></div></div>';
@@ -173,11 +187,21 @@
     const o = d.officer;
     const chip = (n, l, c) => `<div class="cc-stat" style="text-align:center;"><div class="v" style="color:${c};font-size:22px;">${n}</div><div class="l">${l}</div></div>`;
     wrap.innerHTML = `
-      <div class="panel glass fade-up" style="margin-bottom:16px;"><div style="padding:18px;display:flex;gap:16px;align-items:center;">
-        ${o.avatar ? `<img src="${esc(o.avatar)}" style="width:64px;height:64px;border-radius:50%;">` : ''}
-        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">${esc(o.name)}</div>
-        <div style="font-size:12px;color:var(--text-muted);">@${esc(o.discordUsername || '')}${o.robloxUsername ? ' · Roblox: ' + esc(o.robloxUsername) : ''} · ${esc(o.role || '')}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Joined ${fmtWhen(o.joinedAt)}${o.lastLogin ? ' · last seen ' + ago(o.lastLogin) : ''}</div></div>
+      <div class="panel glass fade-up hc-officer-hero" style="margin-bottom:16px;"><div style="padding:20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;gap:12px;">
+          ${hcAvatarBlock(o.avatar, 'Discord', '#5865F2', 'ti-brand-discord')}
+          ${hcAvatarBlock(o.robloxHeadshot, 'Roblox', '#e2231a', 'ti-brand-roblox')}
+        </div>
+        <div style="flex:1;min-width:220px;">
+          <div style="font-size:22px;font-weight:800;">${esc(o.name)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">@${esc(o.discordUsername || '')}${o.robloxUsername ? ' · Roblox: ' + esc(o.robloxUsername) : ''}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+            ${o.role ? `<span class="met-chip" style="border-color:var(--blue);color:var(--blue);">${esc(o.role)}</span>` : ''}
+            ${o.discordId ? hcIdChip('Discord ID', o.discordId, 'ti-brand-discord', 'https://discord.com/users/' + encodeURIComponent(o.discordId)) : ''}
+            ${o.robloxId ? hcIdChip('Roblox ID', o.robloxId, 'ti-brand-roblox', 'https://www.roblox.com/users/' + encodeURIComponent(o.robloxId) + '/profile') : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Joined ${fmtWhen(o.joinedAt)}${o.lastLogin ? ' · last seen ' + ago(o.lastLogin) : ''}</div>
+        </div>
         <div style="display:flex;flex-direction:column;gap:8px;">
           <button class="btn btn-ghost btn-sm" onclick="hcViewAs('${o.id}')"><i class="ti ti-eye-search"></i> View access</button>
           <button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="hcForceReauth('${o.id}','${jsAttr(o.name)}')"><i class="ti ti-logout-2"></i> Force re-auth</button>
@@ -219,7 +243,7 @@
       ? (window.renderDiscordRoles ? window.renderDiscordRoles(d.roles)
           : d.roles.map(r => `<span class="met-chip" style="${r.color ? 'border-color:' + esc(r.color) + ';color:' + esc(r.color) + ';' : ''}">${esc(r.name)}</span>`).join(' '))
       : '<span style="color:var(--text-muted);font-size:12px;">No MET server roles found.</span>';
-    const metRank = p.metRank ? `<span class="met-chip" style="border-color:var(--blue);color:var(--blue);">MET: ${esc(p.metRank.name)} (rank ${esc(String(p.metRank.rank))})</span>` : '';
+    const metRank = p.metRank ? `<span class="met-chip" style="border-color:var(--blue);color:var(--blue);">MET ${esc(p.metRank.name)}</span>` : '';
     const groupRows = groups.length
       ? groups.map(g => `<tr><td>${esc(g.group.name)}</td><td style="color:var(--text-secondary);">${esc(g.role.name)}</td><td style="text-align:right;color:var(--text-muted);">${esc(String(g.role.rank))}</td></tr>`).join('')
       : '<tr><td colspan="3" class="table-empty-text" style="padding:10px;">No Roblox groups found (or Roblox not linked).</td></tr>';
@@ -381,7 +405,7 @@
     try {
       const c = await api('/api/hicomm/context');
       const parts = [];
-      if (c.metRank) parts.push(`${c.metRank.name} (rank ${c.metRank.rank})`);
+      if (c.metRank) parts.push(`MET ${c.metRank.name}`);
       if (c.minRank != null) parts.push(`HICOMM ≥ ${c.minRank}`);
       $('hc-rank').textContent = parts.join(' · ');
     } catch (e) {}

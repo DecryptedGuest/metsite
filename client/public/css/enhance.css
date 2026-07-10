@@ -81,3 +81,65 @@ a { transition: color .15s ease, opacity .15s ease; }
 
 /* ── Spinner: a touch smoother ──────────────────────────────────────── */
 .spinner { transition: opacity .2s ease; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   COLOUR + LIFE PASS — site-wide, additive (shadows/pseudo-elements/anim
+   only, never layout) so every dashboard gets the polished, colourful
+   member-dashboard look. Reduce-motion still zeroes all animation.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Section dots (panel headers / "MY ACTIVITY"-style labels): glow + soft pulse
+   so each section reads with its own colour, like the member dashboard. */
+@keyframes met-dot-pulse { 0%,100% { box-shadow: 0 0 0 0 currentColor; } 50% { box-shadow: 0 0 8px 1px currentColor; } }
+.panel-dot { animation: met-dot-pulse 2.6s ease-in-out infinite; }
+.panel-dot.blue  { color: var(--blue,   #4a8fff); }
+.panel-dot.green { color: var(--green,  #22c55e); }
+.panel-dot.red   { color: var(--red,    #e0503a); }
+.panel-dot.amber { color: var(--amber,  #e8842a); }
+.panel-dot.purple{ color: #9b6dff; }
+
+/* Stat / KPI cards: a coloured accent bar along the top + a lift, so numbers
+   pop (matches the member dashboard's My Activity tiles). */
+.stat-card, .cc-stat { position: relative; overflow: hidden; }
+.stat-card::before, .cc-stat::before {
+  content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--blue,#4a8fff), transparent 85%);
+  opacity: .85;
+}
+.cc-stat .v, .stat-card .stat-value { text-shadow: 0 0 18px currentColor; }
+
+/* Coloured section accents you can drop on any panel via a class. */
+.accent-blue  { box-shadow: inset 3px 0 0 var(--blue,#4a8fff); }
+.accent-green { box-shadow: inset 3px 0 0 var(--green,#22c55e); }
+.accent-red   { box-shadow: inset 3px 0 0 var(--red,#e0503a); }
+.accent-amber { box-shadow: inset 3px 0 0 var(--amber,#e8842a); }
+.accent-purple{ box-shadow: inset 3px 0 0 #9b6dff; }
+
+/* Division colour system — a consistent accent per division, usable anywhere
+   (chips, cards) via .div-<name>. */
+.div-ia   { --dc: #9b6dff; } .div-met  { --dc: #22c55e; } .div-sco19 { --dc: #4a8fff; }
+.div-cid  { --dc: #e0503a; } .div-flp  { --dc: #22d3ee; } .div-hpc   { --dc: #e8842a; }
+.div-chip { border-color: color-mix(in srgb, var(--dc,#8b93a1) 55%, transparent) !important;
+  color: var(--dc,#8b93a1) !important; }
+
+/* Officer Lookup hero: a slow, subtle animated colour sheen across the card. */
+@keyframes met-hero-sheen { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+.hc-officer-hero {
+  background-image: linear-gradient(115deg, rgba(74,143,255,.10), rgba(155,109,255,.08) 40%, rgba(34,197,94,.07) 70%, rgba(74,143,255,.10));
+  background-size: 200% 100%; animation: met-hero-sheen 14s linear infinite;
+  border-color: rgba(74,143,255,.28);
+}
+
+/* Nav: the active item gets a coloured left rail + glow so wayfinding is clear. */
+.nav-item.active { position: relative; }
+.nav-item.active::before {
+  content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 3px; border-radius: 3px;
+  background: var(--blue,#4a8fff); box-shadow: 0 0 10px var(--blue,#4a8fff);
+}
+
+/* Page sections fade/slide in on first paint so navigating feels alive. */
+.page.active > .page-header,
+.page.active > .panel { animation: met-fade-up .4s cubic-bezier(.2,.7,.3,1) both; }
+.page.active > .panel:nth-of-type(2) { animation-delay: .05s; }
+.page.active > .panel:nth-of-type(3) { animation-delay: .1s; }
+.page.active > .panel:nth-of-type(4) { animation-delay: .15s; }
