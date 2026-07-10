@@ -89,7 +89,7 @@
   // For elevated roles: register the SW on load so push delivery + click-to-open
   // work for already-subscribed users. No permission prompt here.
   async function initForStaff(role) {
-    if (!['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(role)) return;
+    if (!['IA', 'HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(role)) return;
     await registerSW();
     // Refresh an existing subscription server-side (in case the row was pruned)
     try {

@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (isDevContext() && currentUser && currentUser.role === 'DEVELOPER') navigateTo('admin');
   else loadDashboard();
   startNavBadgePolling();   // keep the pending case/ticket badges current
-  showClassifiedNotice();
+  maybeShowNotifyOptIn();   // offer to turn on ticket notifications (once)
   startSessionHeartbeat();
   handleNotificationLaunch(); // open a case/ticket if arriving from a notification
 });
@@ -138,25 +138,6 @@ function startSessionHeartbeat() {
   }, 20000);
 }
 
-// ── Classified information notice (shown once per session) ────────
-function showClassifiedNotice() {
-  let alreadyAcked = false;
-  try { alreadyAcked = sessionStorage.getItem('iacms_classified_ack') === '1'; } catch (e) {}
-  if (alreadyAcked) {
-    // Rules already acknowledged this session — go straight to the opt-in check.
-    maybeShowNotifyOptIn();
-    return;
-  }
-  const btn = document.getElementById('btn-ack-classified');
-  if (btn) {
-    btn.onclick = () => {
-      try { sessionStorage.setItem('iacms_classified_ack', '1'); } catch (e) {}
-      closeModal('modal-classified');
-      maybeShowNotifyOptIn(); // ask about notifications once the rules are accepted
-    };
-  }
-  openModal('modal-classified');
-}
 
 // ── Load current user ─────────────────────────────────────────────
 async function loadCurrentUser() {
@@ -201,7 +182,7 @@ async function loadCurrentUser() {
 
 // ── One-time notification opt-in prompt (after rules acknowledged) ──
 async function maybeShowNotifyOptIn() {
-  if (!currentUser || !['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) return;
+  if (!currentUser || !['IA', 'HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) return;
   if (!window.pushClient || !window.pushClient.supported()) return;
   let state;
   try { state = await api('/api/notifications/me'); } catch { return; }

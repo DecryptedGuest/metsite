@@ -608,10 +608,29 @@
         </select>
         <button type="button" class="btn btn-ghost btn-sm" onclick="window.metSnoozeAlerts(30)"><i class="ti ti-bell-off"></i> Mute alerts 30 min</button>
         <button type="button" class="btn btn-ghost btn-sm" onclick="window.metClearSnooze&amp;&amp;window.metClearSnooze();showToast('Mute cleared','info')"><i class="ti ti-bell"></i> Clear mute</button>
-      </div>`;
+      </div>
+      <div style="font-size:13px;font-weight:700;margin:16px 0 6px;"><i class="ti ti-device-desktop"></i> Desktop notifications</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Get a real OS notification for new tickets &amp; @mentions even when this tab is in the background.</div>
+      <div id="sd-desktop-notif"></div>`;
+    sdRenderDesktopNotif();
     openModal('modal-sd-settings');
     // Reflect the saved sound mode in the selector.
     try { const s = $('sd-set-sound'); if (s && window.metSoundMode) s.value = window.metSoundMode(); } catch (e) {}
+  };
+  // Render the Enable/Disable desktop-notification control from the live state.
+  window.sdRenderDesktopNotif = function () {
+    const box = $('sd-desktop-notif'); if (!box) return;
+    const st = window.metNotifState ? window.metNotifState() : { supported: false };
+    if (!st.supported) { box.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">Not supported on this device.</span>'; return; }
+    if (st.permission === 'denied') {
+      box.innerHTML = '<span style="font-size:12px;color:var(--amber,#e8842a);"><i class="ti ti-bell-x"></i> Blocked in your browser — allow notifications for this site in the address-bar site settings, then reload.</span>';
+      return;
+    }
+    const on = st.permission === 'granted' && !st.muted;
+    box.innerHTML = on
+      ? `<span style="font-size:12px;color:var(--green,#22c55e);"><i class="ti ti-bell-check"></i> On</span>
+         <button type="button" class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="window.metDisableNotifications();sdRenderDesktopNotif();"><i class="ti ti-bell-off"></i> Turn off</button>`
+      : `<button type="button" class="btn btn-primary btn-sm" onclick="window.metEnableNotifications().then(sdRenderDesktopNotif)"><i class="ti ti-bell"></i> Enable desktop notifications</button>`;
   };
   window.sdSaveSettings = async function () {
     const greetings = {};

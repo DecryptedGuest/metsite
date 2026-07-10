@@ -119,6 +119,48 @@
   // Back-compat: the loud new-ticket alarm.
   function chime() { window.metSound('ticket_new'); }
 
+  // ── Native desktop notifications ──────────────────────────────────────
+  // Real OS notifications for ticket events, on top of the in-page popup + sound.
+  // Fired only when the tab is BACKGROUNDED (a focused tab already shows the
+  // popup), when permission is granted and the staffer hasn't turned them off.
+  function desktopMuted() { try { return localStorage.getItem('metDesktopOff') === '1'; } catch (e) { return false; } }
+  function desktopNotify(title, body, url) {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted' || desktopMuted()) return;
+      if (!document.hidden) return; // focused → the on-screen popup covers it
+      var n = new Notification(title, { body: body || '', tag: 'met-ticket-' + (url || ''), icon: '/img/divisions/met.png', badge: '/img/divisions/met.png', renotify: true });
+      n.onclick = function () { try { window.focus(); } catch (e) {} if (url) location.href = url; try { n.close(); } catch (e) {} };
+    } catch (e) {}
+  }
+  window.metDesktopNotify = desktopNotify;
+  // Easy enable/disable for staff (used by the prompt + the settings toggle).
+  window.metEnableNotifications = async function () {
+    try { localStorage.removeItem('metDesktopOff'); } catch (e) {}
+    if (window.pushClient && window.pushClient.requestPushPermission) {
+      var r = await window.pushClient.requestPushPermission();
+      if (typeof window.showToast === 'function') window.showToast(
+        r === 'granted' ? 'Desktop notifications enabled.'
+        : r === 'denied' ? 'Notifications are blocked — allow them in your browser’s site settings.'
+        : 'Notifications aren’t available on this device.',
+        r === 'granted' ? 'success' : 'info');
+      return r;
+    }
+    if ('Notification' in window) return await Notification.requestPermission();
+    return 'unsupported';
+  };
+  window.metDisableNotifications = function () {
+    try { localStorage.setItem('metDesktopOff', '1'); } catch (e) {}
+    if (window.pushClient && window.pushClient.removePushSubscription) window.pushClient.removePushSubscription();
+    if (typeof window.showToast === 'function') window.showToast('Desktop notifications turned off.', 'info');
+  };
+  window.metNotifState = function () {
+    return {
+      supported: ('Notification' in window),
+      permission: ('Notification' in window) ? Notification.permission : 'unsupported',
+      muted: desktopMuted(),
+    };
+  };
+
   // ── On-screen "new ticket, ready to claim" popup with a big claim CTA ──
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   var _popupWrap = null, _seen = {};
@@ -185,6 +227,9 @@
     wrap.appendChild(card);
     _ticketCards[d.ticketId] = card;
     chime();
+    desktopNotify('New ticket · Internal Affairs',
+      (d.typeLabel || 'Support ticket') + (d.openerName ? ' — ' + d.openerName : '') + (d.preview ? '\n' + d.preview : ''),
+      viewUrl);
     setTimeout(remove, 60000); // stays a full minute; the web push is the durable copy
   }
   window.metShowTicketAlert = showTicketAlert;
@@ -225,6 +270,8 @@
     });
     wrap.appendChild(card);
     window.metSound('mention'); // softer, distinct from the loud new-ticket alarm
+    desktopNotify('You were mentioned · ' + (d.typeLabel || 'ticket'),
+      (d.by || 'Someone') + ': ' + (d.preview || 'mentioned you'), d.url);
     setTimeout(remove, 60000);
   }
   window.metShowMentionAlert = showMentionAlert;
