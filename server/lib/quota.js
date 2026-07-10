@@ -551,12 +551,14 @@ async function getAllMembersViaWebhook(cfg) {
       else console.warn(`[quota] members webhook (${cfg.division}): old deployment without the 'members' action — re-deploy the Apps Script.`);
       return null;
     }
+    // IA's Investigator-of-the-Week quota reduction still applies on the webhook path.
+    const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null;
     const seen = new Set();
     const out = [];
     for (const tab of data.tabs) {
       const rows = Array.isArray(tab && tab.values) ? tab.values : [];
       // The tab name is the rank fallback for split-by-rank databases (MET).
-      for (const m of buildMembersFromRows(rows, cfg, null, tab && tab.name)) {
+      for (const m of buildMembersFromRows(rows, cfg, reductionHolders, tab && tab.name)) {
         const key = (m.username || '').toLowerCase();
         if (key && !seen.has(key)) { seen.add(key); out.push(m); }
       }
