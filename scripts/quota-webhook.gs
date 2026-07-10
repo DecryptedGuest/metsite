@@ -122,8 +122,9 @@ function handlePost(e) {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.secret !== SECRET) return json({ ok: false, error: 'bad secret' });
 
-    if (body.action === 'reset')  return resetAll();
-    if (body.action === 'exempt') return setExempt((body.username || '').toString().trim(), (body.marker || 'EX').toString());
+    if (body.action === 'reset')   return resetAll();
+    if (body.action === 'exempt')  return setExempt((body.username || '').toString().trim(), (body.marker || 'EX').toString());
+    if (body.action === 'members') return listMembers();
 
     var points         = Number(body.points) || 0;
     var discordId      = (body.discordId || '').toString().trim();
@@ -292,6 +293,25 @@ function setExempt(username, marker) {
     return json({ ok: true, tab: sheet.getName() });
   }
   return json({ ok: false, error: 'member not found' });
+}
+
+// Return the raw grid of every personnel tab so the SITE can parse members
+// (username / discord id / rank / day columns) itself — this powers the Quota
+// Check panel WITHOUT needing a service account shared on the sheet. The site
+// posts { secret, action: 'members' } and gets { ok, tabs: [{ name, values }] }.
+function listMembers() {
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = resolveSheets(ss);
+  if (!sheets.length) return json({ ok: false, error: 'no sheets found' });
+  var tabs = [];
+  for (var si = 0; si < sheets.length; si++) {
+    var sheet  = sheets[si];
+    var values = sheet.getDataRange().getDisplayValues();
+    var cols   = locateColumns(values);
+    if (cols.userCol < 0 && cols.discCol < 0) continue; // not a personnel tab — skip
+    tabs.push({ name: sheet.getName(), values: values });
+  }
+  return json({ ok: true, tabs: tabs });
 }
 
 // Lets you sanity-check the deployment by visiting the /exec URL in a browser.

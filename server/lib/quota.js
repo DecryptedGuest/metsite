@@ -472,64 +472,109 @@ const NON_MEMBER = new Set([
  * Returns an array of { username, discordId, rank, quota, total, days, met }
  * or null if the read path (service account) isn't configured.
  */
-async function getAllMembersPoints(division = 'IA') {
+// Parse a sheet's raw grid (rows of cells) into member objects — shared by the
+// service-account read and the webhook read so both produce identical results.
+function buildMembersFromRows(rows, cfg, reductionHolders) {
+  const cols = findColumns(rows);
+  if (cols.username == null && cols.rank == null) return [];
+  const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const members = [];
+  for (let r = 0; r < rows.length; r++) {
+    const uname = cols.username  != null ? (rows[r][cols.username]  || '').toString().trim() : '';
+    const rank  = cols.rank      != null ? (rows[r][cols.rank]      || '').toString().trim() : '';
+    const did   = cols.discordId != null ? (rows[r][cols.discordId] || '').toString().trim() : '';
+    if (!uname || NON_MEMBER.has(uname.toLowerCase())) continue;
+    if (!rank  || NON_MEMBER.has(rank.toLowerCase()))   continue; // member rows carry a rank
+
+    let total = 0;
+    const days = {};
+    for (let d = 0; d < 7; d++) {
+      const col = cols.days[d];
+      const raw = col != null ? (rows[r][col] || '').toString().trim() : '';
+      const num = parseFloat(raw);
+      if (Number.isFinite(num)) total += num;
+      days[labels[d]] = raw && isNaN(num) ? raw : (Number.isFinite(num) ? num : 0);
+    }
+    let quota = cfg.targets(rank);
+    if (cfg.division === 'IA' && holdsReductionRole(reductionHolders, did)) quota = applyQuotaReduction(quota);
+    members.push({
+      username: uname, discordId: did || null, rank, quota, total, days,
+      met: quota.exempt ? true : (quota.target != null ? total >= quota.target : null),
+    });
+  }
+  return members;
+}
+
+// Read every member's points via the Google Sheets API (service account). Needs
+// the sheet SHARED with the service account. Returns members, [] or null.
+async function getAllMembersViaServiceAccount(cfg) {
   try {
     const sheets = getSheetsClient();
     if (!sheets) return null;
-
-    const cfg = quotaConfig(division);
     const spreadsheetId = cfg.sheetId;
+    if (!spreadsheetId) return null;
     let sheetName = cfg.sheetName;
     if (!sheetName) {
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
       sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
     }
-
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
     });
     const rows = resp.data.values || [];
-    const cols = findColumns(rows);
-    if (cols.username == null && cols.rank == null) return [];
-
-    // Quota-reduction role is IA-only (Investigator of the Week).
-    const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null; // null if unavailable
-
-    const labels  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const members = [];
-    for (let r = 0; r < rows.length; r++) {
-      const uname = cols.username  != null ? (rows[r][cols.username]  || '').toString().trim() : '';
-      const rank  = cols.rank      != null ? (rows[r][cols.rank]      || '').toString().trim() : '';
-      const did   = cols.discordId != null ? (rows[r][cols.discordId] || '').toString().trim() : '';
-      if (!uname || NON_MEMBER.has(uname.toLowerCase())) continue;
-      if (!rank  || NON_MEMBER.has(rank.toLowerCase()))   continue; // member rows carry a rank
-
-      let total = 0;
-      const days = {};
-      for (let d = 0; d < 7; d++) {
-        const col = cols.days[d];
-        const raw = col != null ? (rows[r][col] || '').toString().trim() : '';
-        const num = parseFloat(raw);
-        if (Number.isFinite(num)) total += num;
-        days[labels[d]] = raw && isNaN(num) ? raw : (Number.isFinite(num) ? num : 0);
-      }
-      let quota = cfg.targets(rank);
-      if (cfg.division === 'IA' && holdsReductionRole(reductionHolders, did)) quota = applyQuotaReduction(quota);
-      members.push({
-        username: uname,
-        discordId: did || null,
-        rank,
-        quota,
-        total,
-        days,
-        met: quota.exempt ? true : (quota.target != null ? total >= quota.target : null),
-      });
-    }
-    return members;
+    const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null;
+    return buildMembersFromRows(rows, cfg, reductionHolders);
   } catch (err) {
-    console.error('[quota] getAllMembersPoints failed:', err.message);
+    console.warn('[quota] service-account read failed:', err.message);
     return null;
   }
+}
+
+// Read every member's points via the Apps Script webhook (action:'members').
+// No service-account sharing needed — the bound script already has sheet access.
+// Requires the webhook to be re-deployed with the 'members' action (see the .gs).
+async function getAllMembersViaWebhook(cfg) {
+  if (!cfg.webhookUrl) return null;
+  try {
+    const fetch = require('node-fetch');
+    const res = await fetch(cfg.webhookUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
+      body: JSON.stringify({ secret: cfg.webhookSecret, action: 'members' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data || !data.ok || !Array.isArray(data.tabs)) {
+      if (data && data.error) console.warn(`[quota] members webhook (${cfg.division}): ${data.error}`);
+      else console.warn(`[quota] members webhook (${cfg.division}): old deployment without the 'members' action — re-deploy the Apps Script.`);
+      return null;
+    }
+    const seen = new Set();
+    const out = [];
+    for (const tab of data.tabs) {
+      const rows = Array.isArray(tab && tab.values) ? tab.values : [];
+      for (const m of buildMembersFromRows(rows, cfg, null)) {
+        const key = (m.username || '').toLowerCase();
+        if (key && !seen.has(key)) { seen.add(key); out.push(m); }
+      }
+    }
+    return out;
+  } catch (err) {
+    console.error('[quota] members webhook error:', err.message);
+    return null;
+  }
+}
+
+// Every member with rank / weekly total / quota target. Tries the service account
+// first (IA), then falls back to the division's Apps Script webhook — so a
+// division only needs its webhook configured, not a shared service account.
+async function getAllMembersPoints(division = 'IA') {
+  const cfg = quotaConfig(division);
+  const viaSA = await getAllMembersViaServiceAccount(cfg);
+  if (viaSA && viaSA.length) return viaSA;      // service-account read worked
+  if (cfg.webhookUrl) {
+    const viaWH = await getAllMembersViaWebhook(cfg);
+    if (viaWH != null) return viaWH;            // webhook read worked (may be [])
+  }
+  return viaSA;                                 // null (not configured) or []
 }
 
 /**

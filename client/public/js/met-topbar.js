@@ -257,14 +257,18 @@ function metInjectSupportChat() {
   }
   function anchorPoints() {
     const w = fab.offsetWidth || 62, h = fab.offsetHeight || 62;
-    const maxL = Math.max(SNAP_M, window.innerWidth - w - SNAP_M);
-    const maxT = Math.max(SNAP_M, window.innerHeight - h - SNAP_M);
-    const midL = Math.round((window.innerWidth - w) / 2);
+    const left = SNAP_M;
+    const right = Math.max(SNAP_M, window.innerWidth - w - SNAP_M);
+    // Top row sits BELOW the topbar so the button never overlaps it.
+    const tb = document.querySelector('.met-topbar');
+    const topT = Math.round((tb ? tb.getBoundingClientRect().height : 56) + 14);
     const midT = Math.round((window.innerHeight - h) / 2);
+    const botT = Math.max(topT, window.innerHeight - h - SNAP_M);
+    // Six anchors: left + right columns × top / middle / bottom rows.
     return [
-      { k: 'tl', left: SNAP_M, top: SNAP_M }, { k: 'tc', left: midL, top: SNAP_M }, { k: 'tr', left: maxL, top: SNAP_M },
-      { k: 'rm', left: maxL, top: midT }, { k: 'lm', left: SNAP_M, top: midT },
-      { k: 'bl', left: SNAP_M, top: maxT }, { k: 'bc', left: midL, top: maxT }, { k: 'br', left: maxL, top: maxT },
+      { k: 'tl', left, top: topT }, { k: 'tr', left: right, top: topT },
+      { k: 'lm', left, top: midT }, { k: 'rm', left: right, top: midT },
+      { k: 'bl', left, top: botT }, { k: 'br', left: right, top: botT },
     ];
   }
   function applyAnchor(key, animate) {
