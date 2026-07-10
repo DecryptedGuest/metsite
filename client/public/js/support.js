@@ -82,15 +82,42 @@
   }
 
   // ── Landing: panels ────────────────────────────────────────────
-  function renderPanels() {
-    $('sup-panels').innerHTML = CFG.types.map(t => `
-      <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}">
+  // Show the first three everyday options; tuck any extra (the restricted IA
+  // Complaint) behind a "Show more" toggle so the landing page stays uncluttered.
+  const PANELS_VISIBLE = 3;
+  function panelCard(t, i) {
+    const extra = i >= PANELS_VISIBLE ? ' sup-panel-extra sup-hidden' : '';
+    return `
+      <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}${extra}">
         <h3><i class="ti ${esc(t.icon)}"></i> ${esc(t.label)}</h3>
         <p>${esc(t.blurb)}</p>
         ${t.restricted ? '<div class="sup-locknote"><i class="ti ti-lock"></i> Reviewed by IA HICOMM only</div>' : ''}
         <button class="btn btn-primary btn-sm" onclick="supOpenNew('${t.key}')"><i class="ti ti-plus"></i> ${esc(t.button)}</button>
-      </div>`).join('');
+      </div>`;
   }
+  function renderPanels() {
+    const types = CFG.types || [];
+    $('sup-panels').innerHTML = types.map(panelCard).join('');
+    // Add a Show more / less toggle under the grid when there are extra cards.
+    const old = $('sup-panels-more-btn'); if (old) old.remove();
+    if (types.length > PANELS_VISIBLE) {
+      const bar = document.createElement('div');
+      bar.id = 'sup-panels-more-btn';
+      bar.style.cssText = 'grid-column:1/-1;display:flex;justify-content:center;margin-top:2px;';
+      bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" onclick="supTogglePanels()"><i class="ti ti-chevron-down"></i> Show more options</button>`;
+      $('sup-panels').appendChild(bar);
+    }
+  }
+  window.supTogglePanels = function () {
+    const extras = document.querySelectorAll('#sup-panels .sup-panel-extra');
+    if (!extras.length) return;
+    const nowHidden = !extras[0].classList.contains('sup-hidden'); // state AFTER this toggle
+    extras.forEach(el => el.classList.toggle('sup-hidden', nowHidden));
+    const btn = $('sup-panels-more-btn');
+    if (btn) btn.querySelector('button').innerHTML = nowHidden
+      ? '<i class="ti ti-chevron-down"></i> Show more options'
+      : '<i class="ti ti-chevron-up"></i> Show fewer options';
+  };
 
   function ticketRow(t, staff) {
     const who = staff ? esc(t.openerName) : esc(t.typeLabel);

@@ -51,11 +51,11 @@ const TYPES = {
     ],
   },
   GENERAL_SUPPORT: {
-    // Import-only: website support tickets are NOT opened on the support page —
-    // they arrive by importing their Tickety Discord transcripts. Kept here so
-    // imports/close-logs classify to this type and display as "Website Support".
+    // General help: clicking this opens the FAQ assistant (join / tryouts /
+    // requirements). If it can't answer, "Talk to an investigator" escalates into
+    // a real Website Support ticket. Also the type imported Tickety Discord
+    // transcripts classify to (displayed site-wide as "Website Support").
     key: 'GENERAL_SUPPORT', label: 'Website Support', button: 'Ask a question', icon: 'ti-lifebuoy', helpBot: true,
-    importOnly: true,
     blurb: 'Ask a question or get help — how to join, tryouts, anything.',
     roles: IA_STAFF,
     questions: [
@@ -229,13 +229,18 @@ function canView(user, ticket) {
 }
 
 // Public (client-safe) view of the type catalogue for the landing page.
-// Import-only types (e.g. Website Support) are excluded — they can't be opened
-// from the support page, only imported from Discord.
+// Import-only types are excluded (openable only via Discord transcript import).
+// Order is fixed for the landing page: the three everyday options first, then
+// the restricted IA Complaint last (the client tucks it behind "Show more").
+const CATALOGUE_ORDER = ['OFFICER_COMPLAINT', 'DISCIPLINARY_APPEAL', 'GENERAL_SUPPORT', 'IA_COMPLAINT'];
 function publicCatalogue() {
   return Object.values(TYPES).filter(t => !t.importOnly).map(t => ({
     key: t.key, label: t.label, button: t.button, blurb: t.blurb, icon: t.icon,
     restricted: !!t.restricted, helpBot: !!t.helpBot, questions: t.questions,
-  }));
+  })).sort((a, b) => {
+    const ia = CATALOGUE_ORDER.indexOf(a.key), ib = CATALOGUE_ORDER.indexOf(b.key);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
 }
 
 // ── In-process SSE hub ───────────────────────────────────────────────
