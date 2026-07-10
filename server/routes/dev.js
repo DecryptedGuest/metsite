@@ -167,4 +167,93 @@ router.delete('/patrol-logs/:id', async (req, res) => {
   }
 });
 
+// ── Emergency alerts ─────────────────────────────────────────────────
+// Push a full-screen, sound‑playing "Emergency Alert" overlay to people who are
+// currently on the site (an open SSE connection), targeted at everyone, one or
+// more divisions, or specific users. Delivery is live-only (SSE), so it reaches
+// exactly the people currently online. DEVELOPER only; every send is audited.
+
+// The site divisions a member can be targeted by (matches the cached
+// user.divisions[].division values + the synthetic MET High Command entry).
+const ALERT_DIVISIONS = ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'];
+function userDivisionNames(u) {
+  const out = new Set();
+  const divs = Array.isArray(u.divisions) ? u.divisions : [];
+  for (const d of divs) { if (d && d.division) out.add(String(d.division).toUpperCase()); }
+  // Site role IA/SUPERVISOR/HICOMM implies the IA division for targeting.
+  if (['IA', 'SUPERVISOR', 'HICOMM'].includes(u.role)) out.add('IA');
+  return out;
+}
+
+// GET /api/dev/online — everyone with a live page open right now, for the picker.
+router.get('/online', async (req, res) => {
+  try {
+    const events = require('../lib/events');
+    const ids = events.connectedUserIds();
+    if (!ids.length) return res.json({ users: [] });
+    const users = await prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, displayName: true, discordUsername: true, role: true, divisions: true },
+    });
+    res.json({
+      divisions: ALERT_DIVISIONS,
+      users: users.map(u => ({
+        id: u.id,
+        name: u.displayName || u.discordUsername,
+        role: u.role,
+        divisions: [...userDivisionNames(u)],
+      })).sort((a, b) => a.name.localeCompare(b.name)),
+    });
+  } catch (e) {
+    console.error('[Dev] online list failed:', e.message);
+    res.status(500).json({ error: 'Failed to load online users.' });
+  }
+});
+
+// POST /api/dev/emergency-alert { target:'everyone'|'divisions'|'users', message, divisions?, userIds? }
+router.post('/emergency-alert', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const message = String(body.message || '').trim().slice(0, 1000);
+    if (!message) return res.status(400).json({ error: 'A message is required.' });
+    const target = ['everyone', 'divisions', 'users'].includes(body.target) ? body.target : 'everyone';
+    const events = require('../lib/events');
+    const payload = {
+      message,
+      by: req.user.displayName || req.user.discordUsername || 'Developer',
+      at: new Date().toISOString(),
+    };
+
+    let sent = 0, recipients = 0;
+    if (target === 'everyone') {
+      sent = events.broadcast('emergency_alert', payload);
+      recipients = events.connectedUserIds().length;
+    } else if (target === 'divisions') {
+      const wanted = new Set((Array.isArray(body.divisions) ? body.divisions : []).map(d => String(d).toUpperCase()).filter(d => ALERT_DIVISIONS.includes(d)));
+      if (!wanted.size) return res.status(400).json({ error: 'Pick at least one division.' });
+      const ids = events.connectedUserIds();
+      if (ids.length) {
+        const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, divisions: true } });
+        for (const u of users) {
+          const names = userDivisionNames(u);
+          if ([...wanted].some(w => names.has(w))) { recipients++; sent += events.publishToUser(u.id, 'emergency_alert', payload); }
+        }
+      }
+    } else { // specific users
+      const ids = [...new Set((Array.isArray(body.userIds) ? body.userIds : []).map(String).filter(Boolean))];
+      if (!ids.length) return res.status(400).json({ error: 'Select at least one recipient.' });
+      for (const id of ids) { const n = events.publishToUser(id, 'emergency_alert', payload); if (n) recipients++; sent += n; }
+    }
+
+    audit.log(req.user, {
+      category: 'DEV', action: 'EMERGENCY_ALERT',
+      summary: `Sent an emergency alert (${target}) to ${recipients} online recipient(s): "${message.slice(0, 120)}"`,
+    });
+    res.json({ ok: true, sent, recipients });
+  } catch (e) {
+    console.error('[Dev] emergency alert failed:', e.message);
+    res.status(500).json({ error: 'Failed to send emergency alert.' });
+  }
+});
+
 module.exports = router;

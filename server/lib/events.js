@@ -77,4 +77,8 @@ function connectionCount() {
   return n;
 }
 
-module.exports = { subscribe, publishToUser, broadcast, connectionCount };
+// The distinct user ids with at least one live SSE connection right now — i.e.
+// everyone currently "on the site" with an open page.
+function connectedUserIds() { return [...clients.keys()]; }
+
+module.exports = { subscribe, publishToUser, broadcast, connectionCount, connectedUserIds };

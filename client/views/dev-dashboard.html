@@ -154,6 +154,9 @@
         <button class="nav-item dev-only" data-page="send-notif" style="display:none;">
           <i class="ti ti-send nav-icon"></i><span>Send Notification</span><span class="nav-tag">DEV</span>
         </button>
+        <button class="nav-item dev-only" data-page="emergency-alert" style="display:none;">
+          <i class="ti ti-alert-triangle nav-icon"></i><span>Emergency Alert</span><span class="nav-tag">DEV</span>
+        </button>
         <button class="nav-item dev-only" data-page="media-admin" style="display:none;">
           <i class="ti ti-folder-cog nav-icon"></i><span>Media Admin</span><span class="nav-tag">DEV</span>
         </button>
@@ -963,6 +966,48 @@
           <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only users who have enabled notifications and have an active device will receive the message. A <i class="ti ti-bell"></i> means they're reachable.</p>
         </div>
       </div>
+    </section>
+
+    <!-- EMERGENCY ALERT (DEV) -->
+    <section class="page" id="page-emergency-alert">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Emergency Alert</h1>
+          <p class="page-sub">Developer &middot; Full-screen alert to people on the site right now</p>
+        </div>
+        <button class="btn btn-danger" onclick="sendEmergencyAlert()"><i class="ti ti-alert-triangle"></i> Send Emergency Alert</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Message</div></div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Alert message</label>
+            <textarea class="form-control" id="ea-message" rows="3" placeholder="e.g. All units return to the main server immediately." maxlength="1000"></textarea>
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">This takes over the whole screen with a warning icon, plays a loud klaxon (overrides mute), and shows exactly this text. It reaches only people with the site open <strong>right now</strong>.</p>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#9b6dff;box-shadow:0 0 7px #9b6dff;"></span>Who receives it</div></div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="ea-seg"><input type="radio" name="ea-target" value="everyone" checked onchange="renderEmergencyTarget()" /> Everyone on the site</label>
+            <label class="ea-seg"><input type="radio" name="ea-target" value="divisions" onchange="renderEmergencyTarget()" /> Divisions</label>
+            <label class="ea-seg"><input type="radio" name="ea-target" value="users" onchange="renderEmergencyTarget()" /> Specific people</label>
+          </div>
+          <div id="ea-divisions" style="display:none;flex-wrap:wrap;gap:8px;"></div>
+          <div id="ea-users" style="display:none;flex-direction:column;gap:.4rem;max-height:340px;overflow:auto;"></div>
+          <div id="ea-online-note" style="font-size:12px;color:var(--text-secondary);"></div>
+        </div>
+      </div>
+      <style>
+        .ea-seg{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1px solid var(--border,#2a3040);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;}
+        .ea-seg input{accent-color:var(--red,#e2231a);}
+        .ea-div-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid var(--border,#2a3040);border-radius:10px;cursor:pointer;font-size:13px;}
+        .ea-div-chip input{accent-color:var(--red,#e2231a);}
+      </style>
     </section>
 
     <!-- MEDIA LIBRARY (ALL IA) -->

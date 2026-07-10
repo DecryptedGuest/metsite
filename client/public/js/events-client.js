@@ -229,6 +229,67 @@
   }
   window.metShowMentionAlert = showMentionAlert;
 
+  // ── Emergency alert (full-screen takeover) ────────────────────────────
+  // A loud alternating klaxon that DELIBERATELY ignores the snooze/mute — an
+  // emergency should always be heard (dev-only to send).
+  function emergencySiren() {
+    var ctx = ensureAudio(); if (!ctx) return;
+    var now = ctx.currentTime;
+    for (var i = 0; i < 6; i++) {
+      (function (k) {
+        var at = now + k * 0.44;
+        try {
+          var o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'sawtooth';
+          o.frequency.setValueAtTime(k % 2 ? 660 : 440, at);
+          o.frequency.linearRampToValueAtTime(k % 2 ? 440 : 660, at + 0.4);
+          g.gain.setValueAtTime(0.0001, at);
+          g.gain.exponentialRampToValueAtTime(0.6, at + 0.03);
+          g.gain.exponentialRampToValueAtTime(0.0001, at + 0.42);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(at); o.stop(at + 0.44);
+        } catch (e) {}
+      })(i);
+    }
+  }
+  function ensureEmergencyCss() {
+    if (document.getElementById('met-emergency-css')) return;
+    var st = document.createElement('style'); st.id = 'met-emergency-css';
+    st.textContent =
+      '@keyframes mePulse{0%,100%{box-shadow:0 0 0 0 rgba(226,35,26,.5),0 24px 80px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 14px rgba(226,35,26,0),0 24px 80px rgba(0,0,0,.7)}}'
+      + '@keyframes meIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}'
+      + '@keyframes meBg{from{opacity:0}to{opacity:1}}'
+      + '@keyframes meShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}'
+      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;padding:24px;'
+      + 'background:radial-gradient(circle at 50% 40%,rgba(120,10,10,.86),rgba(6,8,12,.94));backdrop-filter:blur(6px);animation:meBg .18s ease both;}'
+      + '.met-emerg .me-card{max-width:560px;width:100%;text-align:center;background:#14171d;border:2px solid #e2231a;border-radius:20px;padding:34px 30px 28px;animation:meIn .22s ease both,mePulse 1.6s ease-in-out infinite;}'
+      + '.met-emerg .me-icon{font-size:66px;color:#ff4438;line-height:1;animation:meShake 1.2s ease-in-out infinite;}'
+      + '.met-emerg .me-title{margin-top:10px;font-size:13px;letter-spacing:.28em;text-transform:uppercase;font-weight:800;color:#ff6a5e;}'
+      + '.met-emerg .me-msg{margin-top:16px;font-size:20px;line-height:1.5;font-weight:600;color:#f4f6fa;white-space:pre-wrap;word-wrap:break-word;}'
+      + '.met-emerg .me-by{margin-top:14px;font-size:12px;color:#9aa3b2;}'
+      + '.met-emerg .me-dismiss{margin-top:24px;padding:12px 26px;border:none;border-radius:11px;background:#e2231a;color:#fff;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.02em;}'
+      + '.met-emerg .me-dismiss:hover{filter:brightness(1.1);}';
+    document.head.appendChild(st);
+  }
+  function showEmergencyAlert(d) {
+    if (!d || !d.message) return;
+    ensureEmergencyCss();
+    var old = document.getElementById('met-emergency'); if (old) { try { old.remove(); } catch (e) {} }
+    var ov = document.createElement('div'); ov.id = 'met-emergency'; ov.className = 'met-emerg';
+    ov.innerHTML =
+      '<div class="me-card" role="alertdialog" aria-label="Emergency Alert">'
+      +   '<div class="me-icon"><i class="ti ti-alert-triangle"></i></div>'
+      +   '<div class="me-title">Emergency Alert</div>'
+      +   '<div class="me-msg">' + esc(d.message) + '</div>'
+      +   (d.by ? '<div class="me-by">Issued by ' + esc(d.by) + '</div>' : '')
+      +   '<button class="me-dismiss" type="button"><i class="ti ti-check"></i> Dismiss</button>'
+      + '</div>';
+    document.body.appendChild(ov);
+    ov.querySelector('.me-dismiss').addEventListener('click', function () { try { ov.remove(); } catch (e) {} });
+    emergencySiren();
+  }
+  window.metShowEmergencyAlert = showEmergencyAlert;
+
   function connect() {
     var es;
     try { es = new EventSource('/api/events', { withCredentials: true }); }
@@ -266,9 +327,20 @@
       var d = parse(ev); if (d && d.ticketId) dismissTicketAlert(d.ticketId);
     });
 
+    // Dev-issued emergency alert — full-screen takeover + loud klaxon.
+    es.addEventListener('emergency_alert', function (ev) { showEmergencyAlert(parse(ev)); });
+
     es.addEventListener('notification', function (ev) {
       var d = parse(ev);
-      if (d.message) toast(d.message, d.kind || 'info');
+      if (d.message) { toast(d.message, d.kind || 'info'); window.metSound(d.kind === 'error' ? 'error' : 'incoming'); }
+    });
+
+    // An LOA request was decided — soft feedback so the member notices.
+    es.addEventListener('loa_decided', function (ev) {
+      var d = parse(ev);
+      if (d.message) toast(d.message, d.status === 'APPROVED' ? 'success' : 'info');
+      window.metSound(d.status === 'APPROVED' ? 'reopened' : 'closed');
+      call('loadLoaStatus');
     });
 
     // Browser auto-reconnects on error; nothing to do. If the server is gone the

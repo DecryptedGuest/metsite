@@ -287,6 +287,7 @@ function navigateTo(pageId) {
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
     'send-notif':    loadDevNotifSender,
+    'emergency-alert': (typeof loadEmergencyAlert === 'function' ? loadEmergencyAlert : null),
     media:           (typeof loadMedia === 'function' ? loadMedia : null),
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
     gamelogs:        loadDevGameLogs,
@@ -1837,6 +1838,54 @@ function toggleDevRecipientList() {
   const all = document.getElementById('dn-all')?.checked;
   const box = document.getElementById('dn-recipients');
   if (box) { box.style.opacity = all ? '.4' : '1'; box.style.pointerEvents = all ? 'none' : 'auto'; }
+}
+
+// ── Emergency alert (dev) ───────────────────────────────────────────────
+let eaOnline = { users: [], divisions: [] };
+async function loadEmergencyAlert() {
+  try { eaOnline = await api('/api/dev/online'); } catch { eaOnline = { users: [], divisions: ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'] }; }
+  renderEmergencyTarget();
+}
+function eaTarget() { const el = document.querySelector('input[name="ea-target"]:checked'); return el ? el.value : 'everyone'; }
+function renderEmergencyTarget() {
+  const t = eaTarget();
+  const divBox = document.getElementById('ea-divisions');
+  const userBox = document.getElementById('ea-users');
+  const note = document.getElementById('ea-online-note');
+  if (!divBox || !userBox) return;
+  divBox.style.display = t === 'divisions' ? 'flex' : 'none';
+  userBox.style.display = t === 'users' ? 'flex' : 'none';
+  const divisions = eaOnline.divisions || ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'];
+  divBox.innerHTML = divisions.map(d =>
+    `<label class="ea-div-chip"><input type="checkbox" class="ea-div" value="${escapeHtml(d)}"> ${escapeHtml(d)}</label>`).join('');
+  const users = eaOnline.users || [];
+  userBox.innerHTML = users.length
+    ? users.map(u => `<label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;padding:6px 8px;border-radius:6px;border:1px solid var(--border-dim);">
+        <input type="checkbox" class="ea-user" value="${escapeHtml(u.id)}" style="accent-color:var(--red,#e2231a);">
+        <span style="flex:1;">${escapeHtml(u.name)} <span style="color:var(--text-muted);font-size:11px;">· ${escapeHtml((u.divisions || []).join(', ') || u.role || '')}</span></span>
+      </label>`).join('')
+    : '<p style="color:var(--text-secondary);">Nobody is on the site right now.</p>';
+  if (note) note.textContent = `${users.length} ${users.length === 1 ? 'person is' : 'people are'} on the site right now.`;
+}
+async function sendEmergencyAlert() {
+  const message = (document.getElementById('ea-message')?.value || '').trim();
+  if (!message) { showToast('Enter an alert message.', 'error'); return; }
+  const target = eaTarget();
+  const payload = { target, message };
+  if (target === 'divisions') {
+    payload.divisions = Array.from(document.querySelectorAll('.ea-div')).filter(c => c.checked).map(c => c.value);
+    if (!payload.divisions.length) { showToast('Pick at least one division.', 'error'); return; }
+  } else if (target === 'users') {
+    payload.userIds = Array.from(document.querySelectorAll('.ea-user')).filter(c => c.checked).map(c => c.value);
+    if (!payload.userIds.length) { showToast('Select at least one person.', 'error'); return; }
+  }
+  const who = target === 'everyone' ? 'everyone on the site' : (target === 'divisions' ? payload.divisions.join(', ') : `${payload.userIds.length} person(s)`);
+  if (!(await uiConfirm(`Send a full-screen EMERGENCY ALERT to ${who} right now?`))) return;
+  try {
+    const r = await api('/api/dev/emergency-alert', { method: 'POST', body: JSON.stringify(payload) });
+    showToast(`Emergency alert sent to ${r.recipients} recipient(s).`, 'success');
+    const m = document.getElementById('ea-message'); if (m) m.value = '';
+  } catch (e) { showToast(e.message || 'Failed to send.', 'error'); }
 }
 
 async function sendDevNotification() {
