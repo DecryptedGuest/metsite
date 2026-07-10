@@ -15,6 +15,10 @@ const router = express.Router();
 
 function gameSecret()        { return process.env.TRYOUT_GAME_SECRET || null; }
 function gameSigningSecret() { return process.env.TRYOUT_GAME_SIGNING_SECRET || null; }
+// Tryout "test mode" (announce without pinging) is DISABLED by default so every
+// tryout actually pings its notification roles. Set TRYOUT_TEST_MODE=1 to honour
+// the game's suppressPings flag again.
+function tryoutTestMode() { return process.env.TRYOUT_TEST_MODE === '1'; }
 
 // Constant-time string compare (avoids leaking length/where via early-exit).
 function safeEqual(a, b) {
@@ -476,7 +480,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
       status:            'LIVE',
       lockState:         parseLockState(body) || 'UNLOCKED', // reflect the real state now (default: open)
-      suppressPings:     !!body.suppressPings, // test mode → announce without pinging
+      suppressPings:     tryoutTestMode() && !!body.suppressPings, // test mode disabled → always ping
       privateServerId:   body.privateServerId ? String(body.privateServerId) : null,
       accessCode:        body.accessCode ? String(body.accessCode) : null,
       privateServerLink: body.privateServerLink || null,
@@ -515,7 +519,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       hostRobloxName:  (body.host && body.host.username) || t.hostRobloxName || hostUser.robloxUsername || null,
       coHostName:      coHost.username || coHost.name || t.coHostName,
       lockState:       parseLockState(body) || t.lockState || 'UNLOCKED', // real state now (default: open)
-      suppressPings:   ('suppressPings' in body) ? !!body.suppressPings : t.suppressPings,
+      suppressPings:   tryoutTestMode() ? (('suppressPings' in body) ? !!body.suppressPings : t.suppressPings) : false,
       privateServerId: body.privateServerId ? String(body.privateServerId) : t.privateServerId,
       accessCode:      body.accessCode ? String(body.accessCode) : t.accessCode,
       serverCreatedAt: t.serverCreatedAt || new Date(),

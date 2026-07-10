@@ -118,6 +118,16 @@ a { transition: color .15s ease, opacity .15s ease; }
 .stat-card.red::before    { background: linear-gradient(90deg, var(--red,#f04f5e), transparent 85%); }
 .stat-card.purple::before { background: linear-gradient(90deg, #9b6dff, transparent 85%); }
 .stat-card.blue::before   { background: linear-gradient(90deg, var(--blue,#4a8fff), transparent 85%); }
+
+/* OVERLAP FIX: .stat-card itself has no padding — the padding lives on an inner
+   .stat-card-inner wrapper. But many KPI tiles across the site (live-tryout
+   stats, division analytics tiles, HPC stat tiles) drop .stat-value / .stat-label
+   straight into .stat-card with NO wrapper, so the content sits flush against the
+   edges and the 3px top accent bar cuts across the number. Give those wrapper-less
+   cards a proper, even inset (cards that DO use .stat-card-inner keep their own). */
+.stat-card:not(:has(.stat-card-inner)) { padding: 15px 16px 14px; }
+.stat-card:not(:has(.stat-card-inner)) .stat-value { line-height: 1.05; }
+.stat-card:not(:has(.stat-card-inner)) .stat-label { margin: 7px 0 0; }
 /* Number glow is a spotlight — reserve it for the lead/alert tiles so a KPI wall
    doesn't have every number shouting. A card opts in with .lead (or a semantic
    colour class); plain cards get a crisp, un-glowing number. */
