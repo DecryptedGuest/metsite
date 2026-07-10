@@ -227,7 +227,7 @@ function metInjectSupportChat() {
   const fab = document.createElement('button');
   fab.id = 'met-chat-fab'; fab.type = 'button'; fab.className = 'met-chat-fab';
   fab.setAttribute('aria-label', 'Live support chat'); fab.setAttribute('aria-expanded', 'false');
-  fab.title = 'Live support chat';
+  fab.title = 'Live support chat · drag to move';
   fab.innerHTML = '<i class="ti ti-message-chatbot"></i>';
   document.body.appendChild(fab);
 
@@ -244,10 +244,69 @@ function metInjectSupportChat() {
   document.body.appendChild(pop);
 
   const close = () => { pop.classList.remove('open'); fab.classList.remove('active'); fab.setAttribute('aria-expanded', 'false'); };
-  const open  = () => { pop.classList.add('open'); fab.classList.add('active'); fab.setAttribute('aria-expanded', 'true'); };
-  fab.addEventListener('click', (e) => { e.stopPropagation(); pop.classList.contains('open') ? close() : open(); });
+
+  // ── Draggable: clamp to the viewport, remember where it was dropped ──
+  function applyPos(left, top) {
+    const w = fab.offsetWidth || 54, h = fab.offsetHeight || 54;
+    left = Math.max(6, Math.min(left, window.innerWidth - w - 6));
+    top  = Math.max(6, Math.min(top, window.innerHeight - h - 6));
+    fab.style.left = left + 'px'; fab.style.top = top + 'px';
+    fab.style.right = 'auto'; fab.style.bottom = 'auto';
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('met_chat_pos') || 'null');
+    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') applyPos(saved.left, saved.top);
+  } catch (e) { /* default CSS corner */ }
+  window.addEventListener('resize', () => {
+    if (fab.style.left) { const r = fab.getBoundingClientRect(); applyPos(r.left, r.top); }
+  });
+
+  // Anchor the popup next to the FAB's current spot (above if there's room,
+  // else below; aligned to whichever side of the screen the FAB sits on).
+  function positionPop() {
+    const r = fab.getBoundingClientRect();
+    const pw = pop.offsetWidth || 300, ph = pop.offsetHeight || 190, gap = 12;
+    let top = r.top - ph - gap;
+    if (top < 8) top = Math.min(r.bottom + gap, window.innerHeight - ph - 8);
+    let left = (r.left + r.width / 2 > window.innerWidth / 2) ? (r.right - pw) : r.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    top  = Math.max(8, Math.min(top, window.innerHeight - ph - 8));
+    pop.style.left = left + 'px'; pop.style.top = top + 'px'; pop.style.right = 'auto'; pop.style.bottom = 'auto';
+  }
+  const openPop = () => { positionPop(); pop.classList.add('open'); fab.classList.add('active'); fab.setAttribute('aria-expanded', 'true'); };
+
+  let dragging = false, moved = false, ox = 0, oy = 0, sx = 0, sy = 0;
+  fab.addEventListener('pointerdown', (e) => {
+    if (e.button && e.button !== 0) return;
+    dragging = true; moved = false;
+    const r = fab.getBoundingClientRect();
+    ox = e.clientX - r.left; oy = e.clientY - r.top; sx = e.clientX; sy = e.clientY;
+    try { fab.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+  fab.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    if (!moved && (Math.abs(e.clientX - sx) > 4 || Math.abs(e.clientY - sy) > 4)) {
+      moved = true; fab.classList.add('dragging'); close();
+    }
+    if (moved) applyPos(e.clientX - ox, e.clientY - oy);
+  });
+  const endDrag = (e) => {
+    if (!dragging) return;
+    dragging = false; fab.classList.remove('dragging');
+    try { fab.releasePointerCapture(e.pointerId); } catch (x) {}
+    if (moved) { const r = fab.getBoundingClientRect(); try { localStorage.setItem('met_chat_pos', JSON.stringify({ left: r.left, top: r.top })); } catch (x) {} }
+  };
+  fab.addEventListener('pointerup', endDrag);
+  fab.addEventListener('pointercancel', endDrag);
+  // A tap (no drag) toggles the popup; a click that ended a drag is ignored.
+  fab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (moved) { moved = false; return; }
+    pop.classList.contains('open') ? close() : openPop();
+  });
+
   pop.querySelector('.met-chat-x').addEventListener('click', close);
-  document.addEventListener('click', (e) => { if (pop.classList.contains('open') && !pop.contains(e.target) && e.target !== fab) close(); });
+  document.addEventListener('click', (e) => { if (pop.classList.contains('open') && !pop.contains(e.target) && !fab.contains(e.target)) close(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 }
 
