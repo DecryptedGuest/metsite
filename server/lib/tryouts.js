@@ -281,14 +281,26 @@ function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   ].join('\n');
 }
 
+// Divisions whose host must paste their OWN private-server link (via a button +
+// form in the host DM) instead of the site auto-provisioning one. Per request:
+// CID and MET (the general MET tryout, run from the HPC config). SCO-19 keeps
+// auto-provisioning.
+function tryoutManualLink(division) {
+  const d = String(division || '').toUpperCase();
+  return d === 'CID' || d === 'HPC' || d === 'MET';
+}
+
 // Provision (or reuse) a Roblox private server link for the tryout.
 // Strategy, in order:
+//   0. Manual-link divisions (CID / MET) — never auto-provision; the host sets
+//      their own link from the DM button.
 //   1. TRYOUT_PRIVATE_SERVER_LINK — a fixed reusable private-server link MET
 //      created in-game once. Simplest and reliable; returned as-is.
 //   2. Roblox authenticated API (roblox.createPrivateServer) — dynamic per
 //      tryout; only if configured (place with private servers + ROBLOX_COOKIE).
 // Returns { link, id } or { link:null } if nothing is configured yet.
 async function getServerLink(tryout) {
+  if (tryoutManualLink(tryout && tryout.division)) return { link: null, id: null };
   const fixed = process.env.TRYOUT_PRIVATE_SERVER_LINK;
   if (fixed) return { link: fixed, id: null };
   try {
@@ -401,5 +413,5 @@ module.exports = {
   formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
   isServerLocked, getServerLink, TRYOUT_PING_ROLE,
   divisionConfig, announceChannelId, reviewUrl,
-  tryoutJoinUrl, tryoutLaunchUrl, tryoutPlaceId,
+  tryoutJoinUrl, tryoutLaunchUrl, tryoutPlaceId, tryoutManualLink,
 };

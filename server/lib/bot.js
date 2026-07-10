@@ -4,7 +4,7 @@
 
 const { Client, GatewayIntentBits, Partials, SlashCommandBuilder,
         EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder,
-        StringSelectMenuBuilder,
+        StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
         GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel } = require('discord.js');
 
 // Per-division co-host restriction: a tryout co-host must be "staff" in that
@@ -95,7 +95,8 @@ async function onInteraction(interaction) {
   // Tryout DM buttons / co-host select menu.
   if (interaction.isButton()
       || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())
-      || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())) {
+      || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())
+      || (interaction.isModalSubmit && interaction.isModalSubmit())) {
     if ((interaction.customId || '').startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
     }
@@ -777,13 +778,32 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 // onInteraction (customIds prefixed "tryout_").
 // ───────────────────────────────────────────────────
 
-// The action buttons attached to a host's tryout DM: pick a co-host, and
-// post/update the channel announcement. The announce label reflects whether the
-// announcement has already gone out (the game flow auto-announces first).
+// The "Private server link" DM field. Manual-link divisions (CID / MET) prompt
+// the host to set their own link; SCO-19 shows the auto-provisioned one.
+function privateServerLinkField(tryout) {
+  const manual = require('./tryouts').tryoutManualLink(tryout.division);
+  if (tryout.privateServerLink) return { name: 'Private server link', value: String(tryout.privateServerLink).slice(0, 1000), inline: false };
+  if (manual) return { name: 'Private server link', value: '⚠️ **Not set** — click **Set Private Server Link** below and paste your own private-server link.', inline: false };
+  return { name: 'Private server link', value: 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false };
+}
+
+// The action buttons attached to a host's tryout DM: (set link,) pick a co-host,
+// and post/update the channel announcement. The announce label reflects whether
+// the announcement has already gone out (the game flow auto-announces first).
 function tryoutHostDmButtons(tryout) {
   const announced = !!tryout.announcementMsgId;
   const joinable  = !!tryout.joinable;
-  const row = new ActionRowBuilder().addComponents(
+  const manualLink = require('./tryouts').tryoutManualLink(tryout.division);
+  const row = new ActionRowBuilder();
+  // Manual-link divisions get a prominent "Set / Update Private Server Link" button.
+  if (manualLink) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`tryout_setlink_${tryout.id}`)
+      .setLabel(tryout.privateServerLink ? 'Update Server Link' : 'Set Private Server Link')
+      .setStyle(tryout.privateServerLink ? ButtonStyle.Secondary : ButtonStyle.Primary)
+      .setEmoji('🔗'));
+  }
+  row.addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
   );
   // No manual "Update Announcement" — once posted, the announcement updates
@@ -807,7 +827,7 @@ async function sendTryoutHostDM(tryout) {
       .setTitle(cfg.dmTitle)
       .setDescription(`Your scheduled ${cfg.eventType} has started. Pick a co-host (if applicable), then post the announcement when you\'re ready.`)
       .addFields(
-        { name: 'Private server link', value: tryout.privateServerLink || 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
+        privateServerLinkField(tryout),
         { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
       );
     const msg = await user.send({ embeds: [embed], components: [tryoutHostDmButtons(tryout)] });
@@ -1113,6 +1133,7 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
     .setTitle(cfg.dmTitle)
     .setDescription(`Your tryout has started and been announced. Run it in-game from the ${cfg.panelName}, then conclude it to log the results.`)
     .addFields(
+      privateServerLinkField(tryout),
       { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
       { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the link below' : '🔴 Closed', inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
@@ -1403,6 +1424,46 @@ async function handleTryoutComponent(interaction) {
   const prisma = require('./db');
   const id = interaction.customId || '';
 
+  // "Set / Update Private Server Link" → open a form for the host to paste theirs.
+  if (id.startsWith('tryout_setlink_') && interaction.isButton()) {
+    const tryoutId = id.slice('tryout_setlink_'.length);
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId }, select: { privateServerLink: true, status: true } }).catch(() => null);
+    if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
+      return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
+    }
+    const input = new TextInputBuilder()
+      .setCustomId('link')
+      .setLabel('Private server link')
+      .setPlaceholder('https://www.roblox.com/games/...?privateServerLinkCode=...')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(500);
+    if (t.privateServerLink) input.setValue(String(t.privateServerLink).slice(0, 500));
+    const modal = new ModalBuilder()
+      .setCustomId(`tryout_setlinkmodal_${tryoutId}`)
+      .setTitle('Private server link')
+      .addComponents(new ActionRowBuilder().addComponents(input));
+    return interaction.showModal(modal);
+  }
+
+  // Host submitted the private-server-link form → validate, save, re-render.
+  if (id.startsWith('tryout_setlinkmodal_') && interaction.isModalSubmit && interaction.isModalSubmit()) {
+    const tryoutId = id.slice('tryout_setlinkmodal_'.length);
+    const link = (interaction.fields.getTextInputValue('link') || '').trim();
+    if (!/^https?:\/\/(www\.)?roblox\.com\//i.test(link)) {
+      return interaction.reply({ content: '⚠️ That doesn’t look like a Roblox link. Paste the full private-server link (it starts with `https://www.roblox.com/…`).', flags: 64 });
+    }
+    const updated = await prisma.tryout.update({ where: { id: tryoutId }, data: { privateServerLink: link.slice(0, 500) } }).catch(() => null);
+    if (!updated) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    if (updated.announcementMsgId) await editTryoutAnnouncement(updated).catch(() => {});
+    await editTryoutHostDM(updated).catch(() => {});
+    return interaction.reply({
+      content: '✅ Private server link saved — it’s now in your tryout details' + (updated.announcementMsgId ? ' and the announcement has been updated.' : '. Post the announcement when you’re ready.'),
+      flags: 64,
+    });
+  }
+
   // "Pick Co-Host" → show a member picker.
   if (id.startsWith('tryout_cohost_') && interaction.isButton()) {
     const tryoutId = id.slice('tryout_cohost_'.length);
@@ -1506,7 +1567,12 @@ async function handleTryoutComponent(interaction) {
     if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
       return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
     }
-    const { announceChannelId } = require('./tryouts');
+    const { announceChannelId, tryoutManualLink } = require('./tryouts');
+    // Manual-link divisions must have their private-server link set before the
+    // announcement goes out (so it isn't posted with a "TBA" link).
+    if (tryoutManualLink(t.division) && !t.privateServerLink) {
+      return interaction.reply({ content: '⚠️ Set your **private server link** first (click **Set Private Server Link** above), then post the announcement.', flags: 64 });
+    }
     if (!announceChannelId(t)) {
       return interaction.reply({ content: '⚠️ No announcement channel configured for this division.', flags: 64 });
     }
