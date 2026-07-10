@@ -185,47 +185,51 @@ a { transition: color .15s ease, opacity .15s ease; }
    ══════════════════════════════════════════════════════════════════════ */
 
 /* Sidebar: a distinct, slightly raised surface with a clear edge + shadow so it
-   reads as its own panel instead of blending into the page. */
-.sidebar {
+   reads as its own panel. The dark surface is scoped to dark mode so the light
+   theme (main.css) isn't overridden; the shadow is theme-agnostic. */
+.sidebar { box-shadow: 4px 0 24px rgba(0,0,0,0.25); }
+html:not([data-theme="light"]) .sidebar {
   background: linear-gradient(180deg, rgba(10,20,46,0.95), rgba(6,13,34,0.95)) !important;
   border-right: 1px solid rgba(60,120,255,0.30) !important;
-  box-shadow: 4px 0 24px rgba(0,0,0,0.35);
 }
-/* Nav items: brighter default text (was ~55% alpha → hard to read) + clearer
-   hover/active. Pairs with the glowing active rail added in the colour pass. */
-.nav-item { color: rgba(190,214,255,0.82) !important; font-weight: 500; }
-.nav-item:hover { color: #eaf2ff !important; background: rgba(40,90,220,0.18) !important; }
+/* Nav items: brighter default text (dark) + clearer hover/active. */
+.nav-item { font-weight: 500; }
+html:not([data-theme="light"]) .nav-item { color: rgba(190,214,255,0.82) !important; }
+html:not([data-theme="light"]) .nav-item:hover { color: #eaf2ff !important; background: rgba(40,90,220,0.18) !important; }
 /* Active nav item — ONE unmistakable, division-coloured state: filled --dc tint,
-   --dc border, glowing --dc rail (above) + accented icon + #fff label. Even a dim
-   --dc (SCO-19 gunmetal) stays legible via the filled tint + white text. */
+   --dc border, glowing --dc rail (above) + accented icon. The label colour flips
+   with the theme so it stays legible on both. */
 .nav-item.active {
-  color: #fff !important; font-weight: 700; scroll-margin: 12px;
+  font-weight: 700; scroll-margin: 12px;
   background: linear-gradient(90deg,
-      color-mix(in srgb, var(--dc, #4a8fff) 34%, transparent),
-      color-mix(in srgb, var(--dc, #4a8fff) 14%, transparent)) !important;
+      color-mix(in srgb, var(--dc, #4a8fff) 30%, transparent),
+      color-mix(in srgb, var(--dc, #4a8fff) 12%, transparent)) !important;
   border-color: color-mix(in srgb, var(--dc, #4a8fff) 55%, transparent) !important;
 }
-.nav-item.active .nav-icon { color: color-mix(in srgb, var(--dc, #4a8fff) 55%, #ffffff) !important; }
+html:not([data-theme="light"]) .nav-item.active { color: #fff !important; }
+html[data-theme="light"] .nav-item.active { color: color-mix(in srgb, var(--dc,#4a8fff) 40%, #0d1b3e) !important; }
+.nav-item.active .nav-icon { color: color-mix(in srgb, var(--dc, #4a8fff) 55%, currentColor) !important; }
 .nav-icon { color: inherit; }
-.nav-section-label { color: rgba(150,185,240,0.6) !important; letter-spacing: .08em; }
+.nav-section-label { letter-spacing: .08em; }
+html:not([data-theme="light"]) .nav-section-label { color: rgba(150,185,240,0.6) !important; }
 
-/* Topbar: give it a visible surface + a crisp bottom border and shadow so it
-   separates from the content beneath. */
-.met-topbar {
+/* Topbar: give it a visible surface + a crisp bottom border and shadow. Dark
+   surface scoped to dark mode; the light theme gets its own below. */
+.met-topbar { box-shadow: 0 6px 22px rgba(0,0,0,0.22); }
+html:not([data-theme="light"]) .met-topbar {
   background: linear-gradient(180deg, rgba(9,17,38,0.92), rgba(7,13,30,0.88)) !important;
   border-bottom: 1px solid rgba(60,120,255,0.28) !important;
-  box-shadow: 0 6px 22px rgba(0,0,0,0.28);
 }
-.met-topbar-brand { color: #cfe0ff !important; }
+html:not([data-theme="light"]) .met-topbar-brand { color: #cfe0ff !important; }
 
-/* Buttons: bigger tap targets, bolder text, and stronger borders so actions are
-   obvious and easy to hit (accessibility). */
+/* Buttons: bigger tap targets + bolder text (theme-agnostic). The dark colour
+   tweaks are scoped so the light theme keeps its own contrast. */
 .btn { min-height: 38px; font-weight: 600; }
 .btn-sm { min-height: 30px; font-size: 12px; padding: 0.34rem 0.8rem; }
 .btn-icon { min-height: 36px; }
-.btn-primary { color: #eaf3ff !important; }
-.btn-ghost { border-color: rgba(90,140,240,0.38) !important; color: rgba(200,222,255,0.9) !important; }
-.btn-ghost:hover { border-color: rgba(110,160,255,0.6) !important; color: #fff !important; background: rgba(40,90,220,0.2) !important; }
+html:not([data-theme="light"]) .btn-primary { color: #eaf3ff !important; }
+html:not([data-theme="light"]) .btn-ghost { border-color: rgba(90,140,240,0.38) !important; color: rgba(200,222,255,0.9) !important; }
+html:not([data-theme="light"]) .btn-ghost:hover { border-color: rgba(110,160,255,0.6) !important; color: #fff !important; background: rgba(40,90,220,0.2) !important; }
 
 /* Bigger, comfier focus + hover targets on small icon/close controls. */
 .btn-icon, .modal-close, .theme-toggle { border-radius: 9px; }
@@ -445,3 +449,53 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
 .met-empty .table-empty-icon { margin-bottom: 6px; }
 .met-empty-sub { font-size: 12.5px; color: var(--text-muted, #8b93a1); max-width: 340px; margin-top: 2px; }
 .met-empty-cta { margin-top: 14px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   LIGHT THEME — make the chrome and every floating / injected component follow
+   the theme too (topbar, breadcrumb, chat FAB/popup, back-to-top, dropdown
+   menus, command palette, skeletons). Loads last, so it wins over the dark
+   defaults baked into those components.
+   ══════════════════════════════════════════════════════════════════════ */
+html[data-theme="light"] .met-topbar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(236,243,255,0.92)) !important;
+  border-bottom: 1px solid rgba(80,120,200,0.22) !important;
+  box-shadow: 0 4px 18px rgba(40,80,200,0.08);
+}
+html[data-theme="light"] .met-topbar-brand { color: #16305e !important; }
+html[data-theme="light"] .met-topbar-division { color: color-mix(in srgb, var(--dc,#4a8fff) 45%, #0d1b3e) !important; }
+html[data-theme="light"] .met-breadcrumb { border-left-color: rgba(80,120,200,0.25); }
+html[data-theme="light"] .met-breadcrumb .bc-section { color: color-mix(in srgb, var(--dc,#4a8fff) 45%, #0d1b3e); }
+html[data-theme="light"] .siu-rank { color: color-mix(in srgb, var(--dc,#4a8fff) 45%, #0d1b3e); }
+html[data-theme="light"] .siu-name { color: #16305e; }
+
+/* Floating widgets */
+html[data-theme="light"] .met-chat-pop {
+  background: rgba(255,255,255,0.99);
+  border-color: color-mix(in srgb, var(--dc,#4a8fff) 26%, rgba(80,120,200,0.30));
+  box-shadow: 0 18px 50px rgba(40,80,200,0.22);
+}
+html[data-theme="light"] .met-to-top {
+  background: color-mix(in srgb, var(--dc,#4a8fff) 15%, #ffffff);
+  color: #12224a; border-color: color-mix(in srgb, var(--dc,#4a8fff) 40%, transparent);
+  box-shadow: 0 8px 24px rgba(40,80,200,0.18);
+}
+html[data-theme="light"] .met-to-top:hover { background: color-mix(in srgb, var(--dc,#4a8fff) 26%, #ffffff); }
+
+/* Dropdowns / menus / cards that ship a dark background */
+html[data-theme="light"] .met-switcher-menu,
+html[data-theme="light"] .rc-ac,
+html[data-theme="light"] .dc-mention-card,
+html[data-theme="light"] #cmdk > div {
+  background: rgba(255,255,255,0.99) !important;
+  border-color: rgba(80,120,200,0.28) !important;
+  color: #12224a;
+}
+html[data-theme="light"] .met-menu-empty,
+html[data-theme="light"] #cmdk-list > div { color: #1a2f60; }
+
+/* Skeleton shimmer — dark-tinted blocks on a light page (the white shimmer was
+   invisible on white). */
+html[data-theme="light"] .sk {
+  background: linear-gradient(90deg, rgba(20,50,120,0.06) 25%, rgba(20,50,120,0.13) 37%, rgba(20,50,120,0.06) 63%);
+  background-size: 840px 100%;
+}
