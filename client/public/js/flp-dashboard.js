@@ -38,13 +38,13 @@ async function loadFlpOverview() {
   const act = d.activity || { series: [] };
   const rangeLabel = d.allTime ? 'all time' : (d.days || 30) + 'd';
   const tot = act.series.reduce((a, s) => ({ p: a.p + s.patrols, e: a.e + s.events }), { p: 0, e: 0 });
-  const tile = (v, l, c) => `<div class="panel glass" style="padding:1rem 1.1rem;flex:1;min-width:140px;">
-      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);">${l}</div>
-      <div style="font-size:28px;font-weight:800;line-height:1.1;margin-top:4px;color:${c};">${v}</div></div>`;
+  const tile = (v, l, c) => `<div class="stat-card" style="flex:1;min-width:140px;text-align:left;${c ? '--cc:' + c + ';' : ''}">
+      <div class="stat-value" style="font-size:28px;color:${c};">${v}</div>
+      <div class="stat-label">${l}</div></div>`;
   kpis.innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
       ${tile(tot.p, 'Patrol logs', 'var(--green,#22c55e)')}
       ${tile(tot.e, 'Event logs', 'var(--amber,#e8842a)')}
-      ${tile(tot.p + tot.e, 'Total logs (' + rangeLabel + ')', 'var(--text-primary)')}
+      ${tile(tot.p + tot.e, 'Total logs (' + rangeLabel + ')', 'var(--dc,#22d3ee)')}
     </div>`;
   if (chart && window.MetCharts && act.series.length) {
     const labels = act.series.map(s => s.day.slice(5));

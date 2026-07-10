@@ -8,9 +8,9 @@
   const nf = (n) => (window.MetCharts ? MetCharts.nfmt(n) : String(n || 0));
 
   function tile(label, value, sub, color) {
-    return `<div class="panel glass" style="padding:1rem 1.1rem;flex:1;min-width:150px;">
-      <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);">${esc(label)}</div>
-      <div style="font-size:28px;font-weight:800;line-height:1.1;margin-top:4px;color:${color || 'var(--text-primary)'};">${esc(value)}</div>
+    return `<div class="stat-card" style="flex:1;min-width:150px;text-align:left;${color ? '--cc:' + color + ';' : ''}">
+      <div class="stat-value" style="font-size:28px;color:${color || 'var(--text-primary)'};">${esc(value)}</div>
+      <div class="stat-label">${esc(label)}</div>
       ${sub ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${esc(sub)}</div>` : ''}
     </div>`;
   }
