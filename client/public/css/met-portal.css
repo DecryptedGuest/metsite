@@ -58,6 +58,13 @@
 .met-menu-label:first-child { padding-top: 4px; }
 .met-menu-empty { font-size: 12px; color: var(--text-muted, #8b93a1); padding: 10px; text-align: center; }
 
+/* Closed-ticket notice (shown where the composer would be — nobody speaks in a
+   closed ticket until it's reopened). */
+.sd-closed-notice { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 14px; padding: 10px 14px;
+  border-radius: 10px; background: rgba(240,79,94,0.08); border: 1px solid rgba(240,79,94,0.25);
+  color: var(--text-secondary, #b7c0d0); font-size: 13px; }
+.sd-closed-notice > i.ti-lock { color: var(--red, #f04f5e); }
+
 /* Hamburger (mobile only — shown by the <640px rule below). */
 .met-nav-toggle { display: none; margin-right: 2px; }
 

@@ -50,20 +50,24 @@ function clientNet(req) {
     ua: (req.get('user-agent') || '').slice(0, 400) || null,
   };
 }
-// Is this requester currently ticket-blacklisted (by IP or browser fingerprint)?
+// Is this requester currently ticket-blacklisted? Matches a logged-in user by id
+// (ticket-only ban — doesn't touch site access), and a guest by IP / browser
+// fingerprint.
 async function blacklistMatch(req) {
   const { ip, fp } = clientNet(req);
   const or = [];
+  if (req.user && req.user.id) or.push({ userId: String(req.user.id) });
   if (ip) or.push({ ip });
   if (fp) or.push({ fingerprint: fp });
   if (!or.length) return null;
   try { return await prisma.supportBlacklist.findFirst({ where: { active: true, OR: or } }); }
   catch (e) { return null; }
 }
-// Is the OPENER of THIS ticket currently ticket-blacklisted? Matches the
-// ticket's stored opener IP/fingerprint against the active blacklist — used to
-// stop a blacklisted opener from posting further in their own ticket, and to
-// tell their client to lock the composer. (Also honours an account-level ban.)
+// Is the OPENER of THIS ticket currently ticket-blacklisted? Matches the ticket's
+// stored opener (userId for members, IP/fingerprint for guests) against the active
+// blacklist — used to stop a blacklisted opener from posting further in their own
+// ticket, and to tell their client to lock the composer. (Also honours a broad
+// account-level ban, which is separate and blocks the whole site.)
 async function openerIsBlacklisted(t) {
   if (t.openerId) {
     try {
@@ -72,6 +76,7 @@ async function openerIsBlacklisted(t) {
     } catch (e) { /* ignore */ }
   }
   const or = [];
+  if (t.openerId) or.push({ userId: String(t.openerId) });
   if (t.openerIp) or.push({ ip: t.openerIp });
   if (t.openerFp) or.push({ fingerprint: t.openerFp });
   if (!or.length) return false;
@@ -141,15 +146,17 @@ function ticketCaps(user, t) {
     canRelease:     (claimant || hic) && t.status === 'CLAIMED',
     canClose:       (claimant || hic) && open,
     canReply:       handler && open && claimGate,
-    canInternalNote: handler && claimGate,
+    // A CLOSED ticket is locked — nobody speaks in it (internal notes included);
+    // reopen to continue.
+    canInternalNote: handler && open && claimGate,
     canPriority:    (claimant || hic) && open,
     canReassign:    (claimant || hic) && open,
     canEscalate:    handler && open && !t.escalated,
     canDeEscalate:  hic && t.escalated,
     canDelete:      hic,
-    // Guest openers only (no linked account) with a captured IP/fingerprint can
-    // be ticket-blacklisted. HICOMM can always lift.
-    canBlacklist:   (claimant || hic) && !t.openerId && !!(t.openerIp || t.openerFp),
+    // Any opener with an identifier (a logged-in member by user id, or a guest by
+    // IP/fingerprint) can be ticket-blacklisted — a TICKET-ONLY ban. HICOMM lifts.
+    canBlacklist:   (claimant || hic) && !!(t.openerId || t.openerIp || t.openerFp),
     isGuestOpener:  !t.openerId,
   };
 }
@@ -377,13 +384,12 @@ router.post('/tickets', async (req, res) => {
   // Import-only types can't be opened here — they arrive via Discord transcript
   // import only.
   if (cfg.importOnly) return res.status(400).json({ error: 'This ticket type cannot be opened here.' });
-  // An account-blacklisted member can't open tickets at all (they'd otherwise
-  // spawn orphan INTAKE shells + bot messages before being blocked at submit).
+  // An account-blacklisted member (broad site ban) can't open tickets at all.
   if (req.user && req.user.isBlacklisted) return res.status(403).json({ error: 'You have been blocked from opening support tickets by Internal Affairs.' });
-  // Refuse blacklisted GUESTS (matched by IP/fingerprint). Signed-in members are
-  // accountable via their openerId and handled by account-level isBlacklisted,
-  // so the IP/fingerprint blacklist never applies to them.
-  const bl = req.user ? null : await blacklistMatch(req);
+  // Refuse anyone on the ticket-blacklist — a logged-in member by their user id
+  // (a ticket-ONLY ban; their site access is unaffected) or a guest by
+  // IP/fingerprint.
+  const bl = await blacklistMatch(req);
   if (bl) return res.status(403).json({ error: 'You have been blacklisted from opening support tickets.' });
   try {
     // Anonymous openers get a per-ticket token; logged-in openers are matched by id.
@@ -1381,10 +1387,13 @@ router.post('/tickets/:id/blacklist', async (req, res) => {
     const t = await loadHandlable(req, res); if (!t) return;
     const claimant = t.claimedById === req.user.id;
     if (!claimant && !support.isHicomm(req.user)) return res.status(403).json({ error: 'Only the claimant or IA HICOMM can blacklist.' });
-    if (t.openerId) return res.status(400).json({ error: 'This opener is a logged-in member — blacklisting is for guest openers only.' });
-    if (!t.openerIp && !t.openerFp) return res.status(400).json({ error: 'No IP or browser fingerprint was captured for this opener.' });
+    // Works for a logged-in opener (banned by user id) OR a guest (IP/fingerprint).
+    // This is a TICKET-ONLY ban — it only stops them opening support tickets and
+    // never touches their MET/site access.
+    if (!t.openerId && !t.openerIp && !t.openerFp) return res.status(400).json({ error: 'No account, IP or browser fingerprint was captured for this opener.' });
 
     const or = [];
+    if (t.openerId) or.push({ userId: String(t.openerId) });
     if (t.openerIp) or.push({ ip: t.openerIp });
     if (t.openerFp) or.push({ fingerprint: t.openerFp });
     const name = req.user.displayName || req.user.discordUsername;
@@ -1406,15 +1415,16 @@ router.post('/tickets/:id/blacklist', async (req, res) => {
     if (!existing) {
       const reason = req.body && req.body.reason ? String(req.body.reason).slice(0, 500) : null;
       await prisma.supportBlacklist.create({ data: {
+        userId: t.openerId || null,
         ip: t.openerIp || null, fingerprint: t.openerFp || null, ua: t.openerUa || null,
         ticketId: t.id, openerName: t.openerName, openerDiscordId: t.openerDiscordId || null,
         reason, issuedById: req.user.id, issuedByName: name,
       } });
     }
-    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'INTERNAL', authorId: req.user.id, authorName: name, body: `${t.openerName} was ticket-blacklisted by ${name}${req.body && req.body.reason ? `: ${String(req.body.reason).slice(0, 500)}` : ''}. They can no longer open support tickets from this IP/browser.` } });
+    const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'INTERNAL', authorId: req.user.id, authorName: name, body: `${t.openerName} was ticket-blacklisted by ${name}${req.body && req.body.reason ? `: ${String(req.body.reason).slice(0, 500)}` : ''}. They can no longer open support tickets (this does not affect their other MET access).` } });
     support.publish(t.id, 'message', serializeMessage(t.id, bm), { staffOnly: true });
     support.publish(t.id, 'update', { openerBlacklisted: true });
-    require('../lib/audit').log(req.user, { category: 'SUPPORT', action: 'BLACKLIST', target: { type: 'support_guest', id: t.id, name: t.openerName }, summary: `Ticket-blacklisted guest ${t.openerName}` });
+    require('../lib/audit').log(req.user, { category: 'SUPPORT', action: 'BLACKLIST', target: { type: 'support_opener', id: t.id, name: t.openerName }, summary: `Ticket-blacklisted ${t.openerName}` });
     res.json({ ok: true, blacklisted: true });
   } catch (e) {
     console.error('[Support] blacklist failed:', e.message);

@@ -253,8 +253,28 @@
     // The investigator (claimant) card renders inline at the "claimed" message
     // (see sdTransitionPanel), matching the member view — no separate top card.
     const composer = $('sd-composer');
-    if (composer) composer.style.display = (t.caps && (t.caps.canReply || t.caps.canInternalNote)) ? '' : 'none';
+    const canPost = !!(t.caps && (t.caps.canReply || t.caps.canInternalNote));
+    if (composer) composer.style.display = canPost ? '' : 'none';
+    // A closed ticket is locked to everyone — show a clear notice (with the Reopen
+    // action) in place of the composer instead of just hiding it silently.
+    sdRenderClosedNotice(t, canPost);
     sdRenderInactivity();
+  }
+
+  // Notice shown where the composer would be when a ticket is CLOSED (nobody can
+  // speak until it's reopened).
+  function sdRenderClosedNotice(t, canPost) {
+    let el = document.getElementById('sd-closed-notice');
+    const show = !!(t && t.status === 'CLOSED');
+    if (!show) { if (el) el.remove(); return; }
+    if (!el) {
+      const composer = $('sd-composer'); if (!composer || !composer.parentNode) return;
+      el = document.createElement('div'); el.id = 'sd-closed-notice'; el.className = 'sd-closed-notice';
+      composer.parentNode.insertBefore(el, composer);
+    }
+    const canReopen = !!(t.caps && (t.caps.isHicomm || t.canManage));
+    el.innerHTML = `<i class="ti ti-lock"></i> This ticket is closed — nobody can reply until it's reopened.` +
+      (canReopen ? ` <button class="btn btn-primary btn-sm" style="margin-left:8px;" onclick="sdReopen()"><i class="ti ti-rotate"></i> Reopen</button>` : '');
   }
 
   // ── Inactivity auto-close ────────────────────────────────────────────
@@ -315,11 +335,13 @@
     if (t.status === 'CLOSED' && (c.isHicomm || t.canManage)) b.push(`<button class="btn btn-primary btn-sm" onclick="sdReopen()"><i class="ti ti-rotate"></i> Reopen</button>`);
     // Download an HTML transcript (staff view includes internal notes).
     b.push(`<a class="btn btn-ghost btn-sm" href="/api/support/tickets/${t.id}/transcript" target="_blank" rel="noopener"><i class="ti ti-download"></i> Transcript</a>`);
-    // Guest ticket-blacklist: block/allow this guest opener's IP + browser.
+    // Ticket blacklist: block/allow this opener from opening support tickets.
+    // Works for a logged-in member (by account) or a guest (by IP/browser) — it
+    // ONLY blocks opening tickets, nothing else.
     if (t.openerBlacklisted && (c.isHicomm || c.canBlacklist)) {
-      b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--green);" onclick="sdBlacklist(true)" title="Lift the ticket blacklist on this guest"><i class="ti ti-shield-check"></i> Blacklisted — lift</button>`);
+      b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--green);" onclick="sdBlacklist(true)" title="Lift the ticket blacklist on this opener"><i class="ti ti-shield-check"></i> Blacklisted — lift</button>`);
     } else if (c.canBlacklist) {
-      b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdBlacklist(false)" title="Blacklist this guest's IP/browser from opening tickets"><i class="ti ti-ban"></i> Blacklist guest</button>`);
+      b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdBlacklist(false)" title="Block this opener from opening support tickets (does not affect their other MET access)"><i class="ti ti-ban"></i> Ticket Blacklist</button>`);
     }
     if (c.canDelete) b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdDelete()" title="Delete ticket" aria-label="Delete ticket"><i class="ti ti-trash"></i></button>`);
     $('sd-toolbar').innerHTML = b.join(' ');
@@ -540,16 +562,16 @@
   };
   window.sdBlacklist = async function (off) {
     if (off) {
-      if (!(await uiConfirm('Lift the ticket blacklist on this guest? They will be able to open support tickets again.'))) return;
+      if (!(await uiConfirm('Lift the ticket blacklist on this opener? They will be able to open support tickets again.'))) return;
       api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ off: true }) })
         .then(() => { showToast('Blacklist lifted', 'success'); reloadTicket(); })
         .catch(e => showToast(e.message, 'error'));
       return;
     }
-    const reason = await uiPrompt("Blacklist this guest — blocks their IP and browser from opening new support tickets. Reason (optional).",
-      { title: 'Blacklist guest', confirmText: 'Blacklist', placeholder: 'Reason (optional)…', multiline: true, danger: true });
+    const reason = await uiPrompt("Ticket-blacklist this opener — blocks them from opening new support tickets ONLY. This does not affect their MET or site access. Reason (optional).",
+      { title: 'Ticket Blacklist', confirmText: 'Blacklist from tickets', placeholder: 'Reason (optional)…', multiline: true, danger: true });
     if (reason === null) return;
-    try { await api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Guest blacklisted', 'success'); await reloadTicket(); }
+    try { await api('/api/support/tickets/' + curT.id + '/blacklist', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Opener blacklisted from tickets', 'success'); await reloadTicket(); }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.sdDelete = async function () {

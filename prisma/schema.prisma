@@ -232,22 +232,22 @@ model SystemSetting {
 // Permanently-hosted images/videos uploaded by IA members. Stored in the DB so
 // they survive deploys (Railway's filesystem is ephemeral). Served via /media/:id.
 model Media {
-  id         String   @id @default(uuid())
-  title      String?
-  filename   String
-  mimeType   String
-  size       Int
-  data       Bytes
-  kind       String // 'image' | 'video'
-  visibility String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
-  uploaderId String?  // null for guest (anonymous) support-ticket uploads
+  id              String   @id @default(uuid())
+  title           String?
+  filename        String
+  mimeType        String
+  size            Int
+  data            Bytes
+  kind            String // 'image' | 'video'
+  visibility      String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
+  uploaderId      String? // null for guest (anonymous) support-ticket uploads
   supportTicketId String? // support ticket this media was uploaded to (access-scopes serving)
-  views      Int      @default(0)
-  width      Int? // pixel dimensions (for video/image OG embeds)
-  height     Int?
-  poster     Bytes? // JPEG poster frame for videos (used as the embed thumbnail)
-  posterMime String? // e.g. 'image/jpeg'; presence signals a poster exists
-  createdAt  DateTime @default(now())
+  views           Int      @default(0)
+  width           Int? // pixel dimensions (for video/image OG embeds)
+  height          Int?
+  poster          Bytes? // JPEG poster frame for videos (used as the embed thumbnail)
+  posterMime      String? // e.g. 'image/jpeg'; presence signals a poster exists
+  createdAt       DateTime @default(now())
 
   uploader User? @relation(fields: [uploaderId], references: [id])
 
@@ -635,7 +635,7 @@ model PatrolLog {
   shiftEnd             String? // 24h "HH:MM"
   totalMinutes         Int? // computed from start→end
   logDate              DateTime? // the shift's date: parsed from the log if present, else the message-sent date
-  crossedMidnight      Boolean  @default(false) // shift ran past 00:00 (started the previous night)
+  crossedMidnight      Boolean   @default(false) // shift ran past 00:00 (started the previous night)
   images               Json? // attachment image URLs
   eventMeta            Json? // EVENT logs: parsed + Discord-resolved { eventType, rank, host, coHost, attendees[], notesText, noteMembers[] }
   rawContent           String?
@@ -745,6 +745,7 @@ model SupportTicket {
 // when it tries to open a new support ticket.
 model SupportBlacklist {
   id              String    @id @default(uuid())
+  userId          String? // ticket-blacklisted logged-in opener — blocks opening tickets ONLY, site access is unaffected
   ip              String?
   fingerprint     String? // per-browser localStorage id (x-support-fp)
   ua              String? // user-agent snapshot at time of issue
@@ -760,6 +761,7 @@ model SupportBlacklist {
   liftedAt        DateTime?
   createdAt       DateTime  @default(now())
 
+  @@index([userId])
   @@index([ip])
   @@index([fingerprint])
   @@index([active])
@@ -797,19 +799,19 @@ model AuditLog {
 // Backs the passwordless login options: a 6-digit code DM'd via the bot, and a
 // QR approved from a logged-in device. Short-lived + single-use.
 model LoginChallenge {
-  id        String   @id @default(uuid())
-  method    String   // CODE | QR
-  code      String?  // 6-digit code (CODE method)
-  discordId String?  // DM target (CODE method)
-  userId    String?  // resolved account (CODE: at request; QR: at approval)
-  status    String   @default("PENDING") // PENDING | APPROVED | CONSUMED
-  attempts  Int      @default(0)
-  ip        String?
-  userAgent String?  // QR: the initiating device, shown to the approver for context
-  matchCode String?  // QR: 2-digit number-match code the approver must confirm
+  id         String   @id @default(uuid())
+  method     String // CODE | QR
+  code       String? // 6-digit code (CODE method)
+  discordId  String? // DM target (CODE method)
+  userId     String? // resolved account (CODE: at request; QR: at approval)
+  status     String   @default("PENDING") // PENDING | APPROVED | CONSUMED
+  attempts   Int      @default(0)
+  ip         String?
+  userAgent  String? // QR: the initiating device, shown to the approver for context
+  matchCode  String? // QR: 2-digit number-match code the approver must confirm
   secretHash String? // QR: sha256 of the initiator secret (binds status polling)
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
 
   @@index([status])
   @@index([expiresAt])
@@ -924,17 +926,17 @@ model PendingApproval {
 }
 
 model SupportMessage {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   ticketId    String
   authorId    String? // null for BOT / system
   authorName  String
-  authorKind  String   @default("STAFF") // OPENER | STAFF | BOT
+  authorKind  String    @default("STAFF") // OPENER | STAFF | BOT
   body        String?
   attachments Json? // [{ mediaId, kind, name }]
   replyToId   String? // id of the SupportMessage this one replies to (Discord-style)
   editedAt    DateTime? // set when the author edits their message (shows an [edited] marker)
   deletedAt   DateTime? // soft-delete: hidden from the thread but kept for the audit trail
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
