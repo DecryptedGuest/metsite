@@ -45,7 +45,7 @@ async function loadHpcAnalytics() {
       <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Tryout Performance</div></div><div style="padding:12px 16px;">${line}</div></div>
       <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Recruitment Funnel</div></div><div style="padding:20px 16px;">${C.funnel(d.funnel.stages)}<div style="text-align:center;margin-top:14px;">${C.gauge(d.funnel.conversion, 'conversion', '#22c55e')}</div></div></div>
     </div>
-    <div class="panel glass" style="margin-top:16px;"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Host Leaderboard</div></div><div style="padding:16px;">${t.leaderboard.length ? board : '<div class="table-empty-text">No tryouts in this period.</div>'}</div></div>`;
+    <div class="panel glass" style="margin-top:16px;"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Host Leaderboard</div></div><div style="padding:16px;">${t.leaderboard.length ? board : (window.metEmpty ? window.metEmpty({ icon: 'ti-trophy', title: 'No tryouts in this period', sub: 'The host leaderboard will build up over time.' }) : '<div class="table-empty-text">No tryouts in this period.</div>')}</div></div>`;
 }
 function statCard(v, l, c) { return `<div style="padding:14px 16px;border-radius:12px;border:1px solid var(--border,#2a2a2a);"><div style="font-size:26px;font-weight:800;${c ? 'color:' + c + ';' : ''}">${v}</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;">${l}</div></div>`; }
 
@@ -141,12 +141,13 @@ document.getElementById('hpc-filter-tabs').addEventListener('click', (e) => {
 
 async function loadSubmissions() {
   const tbody = document.getElementById('hpc-subs-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  tbody.innerHTML = window.metSkeleton ? '<tr><td colspan="6">' + window.metSkeleton('rows', 6) + '</td></tr>' : '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const q = hpcFilter === 'all' ? '' : '?status=' + hpcFilter;
     const subs = await api('/api/hpc/exam/submissions' + q);
+    const EMPTY = window.metEmpty ? window.metEmpty({ icon: 'ti-inbox', title: 'No submissions here', sub: 'Exams awaiting marking will appear in this list.' }) : `<div class="table-empty-text">No submissions here.</div>`;
     tbody.innerHTML = subs.length ? subs.map(subRow).join('')
-      : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No submissions here.</div></td></tr>`;
+      : `<tr><td colspan="6" class="table-empty">${EMPTY}</td></tr>`;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
@@ -343,7 +344,7 @@ async function loadResults() {
         <td>${esc(r.markedByName || '—')}</td>
         <td>${formatDate(r.createdAt)} <i class="ti ti-chevron-right" style="color:var(--text-muted);font-size:13px;vertical-align:middle;"></i></td>
       </tr>`).join('')
-      : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No exams submitted yet.</div></td></tr>`;
+      : (window.metEmpty ? `<tr><td colspan="7">${window.metEmpty({ icon: 'ti-file-off', title: 'No exams submitted yet', sub: 'Cadet final exams will appear here once submitted.' })}</td></tr>` : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No exams submitted yet.</div></td></tr>`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
@@ -424,7 +425,7 @@ async function loadTryouts() {
         <td>${btns.length ? `<div style="display:flex;gap:6px;justify-content:flex-end;">${btns.join('')}</div>` : ''}</td>
       </tr>`;
     }).join('')
-      : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts scheduled. Click “Schedule Tryout”.</div></td></tr>`;
+      : (window.metEmpty ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-calendar-off', title: 'No tryouts scheduled', sub: 'Schedule a college entrance tryout to get started.', cta: 'Schedule Tryout', ctaIcon: 'ti-calendar-plus', onclick: 'openScheduleTryout()' })}</td></tr>` : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts scheduled. Click “Schedule Tryout”.</div></td></tr>`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
@@ -538,7 +539,7 @@ async function loadMyTryoutLogs() {
       <td>${l.totalAttendees}</td><td>${l.passedCount}</td><td>${l.failedCount}</td><td>${l.strikeCount}</td>
       <td>${TLOG_STATUS[l.status] || esc(l.status)}</td>
       <td><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openTryoutLog('${l.id}')">${l.status === 'DRAFT' ? '<i class="ti ti-edit"></i> Review &amp; Post' : '<i class="ti ti-eye"></i> View'}</button>${hpcCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="event.stopPropagation();hpcDeleteTryoutLog('${l.id}')"><i class="ti ti-trash"></i></button>` : ''}</div></td>
-    </tr>`).join('') : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tryout logs yet. Conclude a tryout in-game and it'll appear here to post.</div></td></tr>`;
+    </tr>`).join('') : (window.metEmpty ? `<tr><td colspan="7">${window.metEmpty({ icon: 'ti-clipboard-off', title: 'No tryout logs yet', sub: "Conclude a tryout in-game and it'll appear here to post." })}</td></tr>` : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tryout logs yet. Conclude a tryout in-game and it'll appear here to post.</div></td></tr>`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
@@ -553,7 +554,7 @@ async function loadReviewLogs() {
       <td>${l.totalAttendees}</td><td>${l.passedCount}</td><td>${l.failedCount}</td><td>${l.strikeCount}</td>
       <td>${TLOG_STATUS[l.status] || esc(l.status)}</td>
       <td><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openTryoutLog('${l.id}')"><i class="ti ti-clipboard-check"></i> Open</button>${hpcCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="event.stopPropagation();hpcDeleteTryoutLog('${l.id}')"><i class="ti ti-trash"></i></button>` : ''}</div></td>
-    </tr>`).join('') : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">Nothing here.</div></td></tr>`;
+    </tr>`).join('') : (window.metEmpty ? `<tr><td colspan="7">${window.metEmpty({ icon: 'ti-clipboard-check', title: 'Nothing to review', sub: 'Tryout logs matching this filter will appear here.' })}</td></tr>` : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">Nothing here.</div></td></tr>`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(err.message)}</div></td></tr>`;
   }
@@ -615,7 +616,7 @@ function renderTryoutLog(l) {
     <td>${resultSelect(a, i)}</td>
     <td>${strikesCell(a, i)}</td>
     <td>${a.note ? esc(a.note) : ''}${quizChip(a)}${copyChip(a)}${(!a.note && !a.quiz) ? '—' : ''}</td>
-  </tr>`).join('') || `<tr><td colspan="4" class="table-empty-text">No attendees recorded.</td></tr>`;
+  </tr>`).join('') || (window.metEmpty ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No attendees recorded', sub: 'Attendees reported by the in-game panel will appear here.' })}</td></tr>` : `<tr><td colspan="4" class="table-empty-text">No attendees recorded.</td></tr>`);
 
   const summary = `<div class="chip-row" style="margin-bottom:14px;">
       <span class="met-chip"><i class="ti ti-users"></i> ${l.totalAttendees} attended</span>
@@ -726,7 +727,8 @@ async function loadLive() {
   if (status) status.outerHTML = `<span class="badge ${live.length ? 'badge-approved' : 'badge-pending'}" id="hpc-live-status"><span class="badge-dot"></span>${live.length ? 'Live · ' + live.length : 'No live tryouts'}</span>`;
 
   if (!live.length) {
-    wrap.innerHTML = `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">No tryouts are running right now. This page updates automatically when one goes live.</div></div></div>`;
+    const EMPTY = window.metEmpty ? window.metEmpty({ icon: 'ti-broadcast', title: 'No live tryouts', sub: 'This page updates automatically when a tryout goes live.' }) : '<div class="table-empty-text">No tryouts are running right now. This page updates automatically when one goes live.</div>';
+    wrap.innerHTML = `<div class="panel glass"><div class="profile-section">${EMPTY}</div></div>`;
     return;
   }
 

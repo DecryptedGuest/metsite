@@ -78,7 +78,7 @@
       <td style="max-width:280px;">${esc(r.reason || '—')}</td>
       <td>${badge(r.status)}</td>
       <td style="text-align:right;">${r.status === 'PENDING' ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="cancelLoa('${r.id}')"><i class="ti ti-x"></i> Cancel</button>` : ''}</td>
-    </tr>`).join('') : '<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No requests yet.</div></td></tr>';
+    </tr>`).join('') : (window.metEmpty ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-calendar-off', title: 'No LOA requests yet', sub: 'Submit a request above and it will appear here.' })}</td></tr>` : '<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No requests yet.</div></td></tr>');
   }
 
   window.cancelLoa = async function (id) {
@@ -97,9 +97,9 @@
       <td style="max-width:240px;">${esc(r.reason || '—')}</td>
       <td>${badge(r.status)}</td>
       <td style="text-align:right;white-space:nowrap;">${r.status === 'PENDING' ? `
-        <button class="btn btn-ghost btn-sm" style="color:var(--green);" onclick="decideLoa('${r.id}','approve')"><i class="ti ti-check"></i></button>
-        <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="decideLoa('${r.id}','deny')"><i class="ti ti-x"></i></button>` : (r.reviewerName ? `<span style="font-size:11px;color:var(--text-muted);">${esc(r.reviewerName)}</span>` : '')}</td>
-    </tr>`).join('') : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">Nothing to review.</div></td></tr>';
+        <button class="btn btn-ghost btn-sm" style="color:var(--green);" title="Approve request" aria-label="Approve request" onclick="decideLoa('${r.id}','approve')"><i class="ti ti-check"></i></button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Deny request" aria-label="Deny request" onclick="decideLoa('${r.id}','deny')"><i class="ti ti-x"></i></button>` : (r.reviewerName ? `<span style="font-size:11px;color:var(--text-muted);">${esc(r.reviewerName)}</span>` : '')}</td>
+    </tr>`).join('') : (window.metEmpty ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-inbox', title: 'Nothing to review', sub: 'LOA requests awaiting your decision will appear here.' })}</td></tr>` : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">Nothing to review.</div></td></tr>');
   };
 
   window.decideLoa = async function (id, action) {

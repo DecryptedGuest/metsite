@@ -37,11 +37,14 @@
       { name: 'Passed', color: '#22c55e', points: series.map(d => d.passed || 0) },
       { name: 'Tryouts', color: '#8b5cf6', points: series.map(d => d.tryouts || 0) },
     ];
-    const chart = window.MetCharts && series.length ? MetCharts.lineChart(lineSeries, labels, { height: 210 }) : '<div style="color:var(--text-muted);font-size:13px;padding:1rem;">No tryout data in this window yet.</div>';
+    const noChart = window.metEmpty ? window.metEmpty({ icon: 'ti-calendar-off', title: 'No tryout data in this window yet.', sub: 'Logged tryout sessions will chart here.' }) : '<div style="color:var(--text-muted);font-size:13px;padding:1rem;">No tryout data in this window yet.</div>';
+    const chart = window.MetCharts && series.length ? MetCharts.lineChart(lineSeries, labels, { height: 210 }) : noChart;
     const leaders = (t.leaderboard || []).map(h => ({ label: h.hostName || 'Unknown', value: h.tryouts, sub: `${nf(h.attendees)} cand · ${h.passRate}% pass`, color: 'var(--blue,#3b82f6)' }));
-    const leaderHtml = window.MetCharts && leaders.length ? MetCharts.barList(leaders) : '<div style="color:var(--text-muted);font-size:13px;">No hosts yet.</div>';
+    const noLeaders = window.metEmpty ? window.metEmpty({ icon: 'ti-users', title: 'No hosts yet.' }) : '<div style="color:var(--text-muted);font-size:13px;">No hosts yet.</div>';
+    const leaderHtml = window.MetCharts && leaders.length ? MetCharts.barList(leaders) : noLeaders;
     const stages = (data.funnel && data.funnel.stages) || [];
-    const funnelHtml = window.MetCharts && stages.length ? MetCharts.funnel(stages.map(s => ({ label: s.label, value: s.value }))) : '<div style="color:var(--text-muted);font-size:13px;">No funnel data.</div>';
+    const noFunnel = window.metEmpty ? window.metEmpty({ icon: 'ti-users-group', title: 'No funnel data.' }) : '<div style="color:var(--text-muted);font-size:13px;">No funnel data.</div>';
+    const funnelHtml = window.MetCharts && stages.length ? MetCharts.funnel(stages.map(s => ({ label: s.label, value: s.value }))) : noFunnel;
     const gaugeHtml = window.MetCharts ? MetCharts.gauge(t.totals ? t.totals.passRate : 0, 'pass rate', (t.totals && t.totals.passRate >= 50) ? '#22c55e' : '#e8842a') : '';
     const flags = (data.integrity && data.integrity.flags) || [];
     const flagsHtml = flags.length ? `<div class="panel glass" style="margin-top:1rem;">

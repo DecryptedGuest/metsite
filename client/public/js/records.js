@@ -40,8 +40,12 @@ function recStatusBadge(s) {
 }
 
 function recCaseRows(list, emptyText) {
-  if (!list || !list.length)
-    return "<tr><td colspan=\"5\" class=\"table-empty\"><span class=\"table-empty-text\">" + emptyText + "</span></td></tr>";
+  if (!list || !list.length) {
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-folder-off", title: emptyText })
+      : "<span class=\"table-empty-text\">" + emptyText + "</span>";
+    return "<tr><td colspan=\"5\" class=\"table-empty\">" + EMPTY + "</td></tr>";
+  }
   return list.map(function (c) {
     var act = c.actions && c.actions.length
       ? c.actions.map(function (a) { return escapeHtml(a.action); }).join(", ")
@@ -88,8 +92,11 @@ function renderRecord(d) {
       ? "<ul style=\"margin:.6rem 0 0;padding-left:1.1rem;color:var(--text-secondary);font-size:12px;\">"
         + d.notes.map(function (n) { return "<li>" + escapeHtml(n) + "</li>"; }).join("") + "</ul>"
       : "";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-user-off", title: "No matching user found.", sub: "Check the spelling, or try a Roblox/Discord username or ID." })
+      : "<div style=\"font-weight:600;color:var(--text-primary);\">No matching user found.</div>";
     out.innerHTML = "<div class=\"panel glass\" style=\"margin-top:1.1rem;padding:1.4rem;\">"
-      + "<div style=\"font-weight:600;color:var(--text-primary);\">No matching user found.</div>" + noteHtml + "</div>";
+      + EMPTY + noteHtml + "</div>";
     return;
   }
 

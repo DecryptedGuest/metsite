@@ -201,7 +201,7 @@
       <div id="group-debug-output" style="display:none;background:rgba(0,0,0,0.4);border:1px solid var(--border-dim);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <span style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:0.06em;">RAW ROBLOX API DEBUG</span>
-          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'"><i class="ti ti-x"></i></button>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'" title="Hide debug output" aria-label="Hide debug output"><i class="ti ti-x"></i></button>
         </div>
         <pre id="group-debug-pre" style="font-size:10px;color:var(--text-secondary);overflow:auto;max-height:280px;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
@@ -246,7 +246,7 @@
   <div class="modal glass-bright" style="max-width:760px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-file-search" style="font-size:18px;"></i> <span id="hc-entity-title">Detail</span></div>
-      <button class="modal-close" onclick="closeModal('modal-hc-entity')"><i class="ti ti-x"></i></button>
+      <button class="modal-close" onclick="closeModal('modal-hc-entity')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="hc-entity-body"><div class="table-loading"><div class="spinner"></div></div></div>
     <div class="modal-footer" id="hc-entity-footer"></div>

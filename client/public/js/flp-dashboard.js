@@ -135,7 +135,7 @@ async function loadPatrols() {
   const wrap = document.getElementById('flp-patrols-wrap');
   try {
     const rows = await api('/api/flp/patrols?status=' + patrolFilter);
-    if (!rows.length) { wrap.innerHTML = `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">Nothing here.</div></div></div>`; return; }
+    if (!rows.length) { wrap.innerHTML = window.metEmpty ? `<div class="panel glass"><div class="profile-section">${window.metEmpty({ icon: 'ti-clipboard-check', title: 'No patrol logs', sub: 'Shift logs from the patrol-logs channel will appear here.' })}</div></div>` : `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">Nothing here.</div></div></div>`; return; }
     wrap.innerHTML = rows.map(renderPatrol).join('');
   } catch (err) {
     wrap.innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${fesc(err.message)}</div>`;
@@ -308,7 +308,7 @@ async function loadEvents() {
   const wrap = document.getElementById('flp-events-wrap');
   try {
     const rows = await api('/api/flp/patrols?type=EVENT&status=' + eventFilter);
-    if (!rows.length) { wrap.innerHTML = `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">Nothing here.</div></div></div>`; return; }
+    if (!rows.length) { wrap.innerHTML = window.metEmpty ? `<div class="panel glass"><div class="profile-section">${window.metEmpty({ icon: 'ti-calendar-off', title: 'No event logs', sub: 'Event logs from Discord will appear here once posted.' })}</div></div>` : `<div class="panel glass"><div class="profile-section"><div class="table-empty-text">Nothing here.</div></div></div>`; return; }
     wrap.innerHTML = rows.map(renderPatrol).join('');
   } catch (err) {
     wrap.innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${fesc(err.message)}</div>`;
@@ -345,7 +345,7 @@ async function loadFlpPending() {
         <div style="flex:1;"><strong>${fesc(r.username)}</strong> <span style="color:var(--text-muted);font-size:11px;">#${fesc(r.userId)}</span></div>
         <button class="btn btn-success btn-sm" onclick="flpJoinReq('${r.userId}','approve')"><i class="ti ti-check"></i> Approve</button>
         <button class="btn btn-danger btn-sm" onclick="flpJoinReq('${r.userId}','decline')"><i class="ti ti-x"></i> Decline</button>
-      </div>`).join('') : `<div class="table-empty-text">No pending join requests.</div>`;
+      </div>`).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-inbox', title: 'No pending join requests', sub: 'New group join requests will appear here.' }) : `<div class="table-empty-text">No pending join requests.</div>`);
   } catch (err) {
     el.innerHTML = `<div class="error-banner"><i class="ti ti-alert-triangle"></i> ${fesc(err.message)}</div>`;
   }
@@ -397,7 +397,7 @@ function renderFlpMembers() {
   const q = (document.getElementById('flp-member-search')?.value || '').toLowerCase().trim();
   let list = q ? flpMembers.filter(m => (m.username || '').toLowerCase().includes(q) || String(m.userId).includes(q)) : flpMembers.slice();
   list = list.slice().sort((a, b) => (Number(b.roleRank) || 0) - (Number(a.roleRank) || 0)); // highest rank first
-  if (!list.length) { tbody.innerHTML = `<tr><td colspan="4" class="table-empty"><div class="table-empty-text">No members.</div></td></tr>`; return; }
+  if (!list.length) { tbody.innerHTML = window.metEmpty ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No members found', sub: 'Try a different search.' })}</td></tr>` : `<tr><td colspan="4" class="table-empty"><div class="table-empty-text">No members.</div></td></tr>`; return; }
   const ceil = flpCeiling();
   const botRank = flpBotRank();
   tbody.innerHTML = list.slice(0, 300).map(m => {

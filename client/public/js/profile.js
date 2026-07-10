@@ -128,7 +128,9 @@ async function loadProfile() {
       </a>`;
     }).join('')}</div>`;
   } else {
-    divEl.innerHTML = `<div class="table-empty-text">You're not a member of any division yet.</div>`;
+    divEl.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-shield', title: 'No divisions yet', sub: "You're not a member of any division yet." })
+      : `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
 
   // ── Rank history — promotion/demotion timeline ──
@@ -168,7 +170,9 @@ async function loadProfile() {
       <td>${formatDate(p.issuedAt)}</td>
     </tr>`).join('');
   } else {
-    pun.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No punishments on record.</div></td></tr>`;
+    pun.innerHTML = window.metEmpty
+      ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-shield-check', title: 'No punishments on record', sub: 'Your record is clean.' })}</td></tr>`
+      : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No punishments on record.</div></td></tr>`;
   }
 }
 
@@ -349,7 +353,9 @@ async function loadPasskeys() {
   try { data = await api('/api/webauthn/passkeys'); } catch (e) { el.innerHTML = '<div class="table-empty-text">Could not load passkeys.</div>'; return; }
   const list = data.passkeys || [];
   if (!list.length) {
-    el.innerHTML = '<div class="table-empty-text">No passkeys yet. Add one to enable step-up verification.</div>';
+    el.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-fingerprint', title: 'No passkeys yet', sub: 'Add one to enable step-up verification.', cta: 'Add a passkey', ctaIcon: 'ti-fingerprint', onclick: 'addPasskey()' })
+      : '<div class="table-empty-text">No passkeys yet. Add one to enable step-up verification.</div>';
     return;
   }
   el.innerHTML = list.map(p => `
@@ -359,7 +365,7 @@ async function loadPasskeys() {
         <div style="font-size:13px;font-weight:600;">${escHtml(p.name || 'Passkey')}${p.backedUp ? ' <span class="badge badge-approved" style="margin-left:6px;"><span class="badge-dot"></span>Synced</span>' : ''}</div>
         <div style="font-size:11px;color:var(--text-muted);">Added ${formatDate(p.createdAt)}${p.lastUsedAt ? '  ·  Last used ' + formatDate(p.lastUsedAt) : ''}</div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="deletePasskey('${p.id}')"><i class="ti ti-trash"></i></button>
+      <button class="btn btn-ghost btn-sm" onclick="deletePasskey('${p.id}')" title="Remove passkey" aria-label="Remove passkey"><i class="ti ti-trash"></i></button>
     </div>`).join('');
 }
 

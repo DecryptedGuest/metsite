@@ -97,7 +97,7 @@
   async function loadPendingRequests() {
     const container = document.getElementById('pending-requests-container');
     if (!container) return;
-    container.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    container.innerHTML = window.metSkeleton ? window.metSkeleton('rows', 4) : '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       pendingCache = [];
       let token = null, pages = 0;
@@ -119,7 +119,7 @@
     if (q) list = list.filter(r => (r.username || '').toLowerCase().includes(q) || (r.displayName || '').toLowerCase().includes(q) || String(r.userId).includes(q));
     const countEl = document.getElementById('pending-count');
     if (countEl) countEl.textContent = `(${list.length})`;
-    if (!list.length) { container.innerHTML = `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`; return; }
+    if (!list.length) { container.innerHTML = window.metEmpty ? window.metEmpty({ icon: 'ti-inbox', title: 'No pending join requests', sub: 'New requests to join the group will appear here.' }) : `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`; return; }
     container.innerHTML = `<div class="join-request-list">${list.map(r => `
       <div class="join-request-row">
         <div class="join-request-info">
@@ -147,7 +147,7 @@
   async function loadGroupMembers() {
     const tbody = document.getElementById('group-members-tbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr>';
+    tbody.innerHTML = window.metSkeleton ? `<tr><td colspan="4">${window.metSkeleton('rows', 6)}</td></tr>` : '<tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       membersCache = [];
       let token = null, pages = 0;
@@ -188,7 +188,7 @@
     if (q) list = list.filter(m => (m.username || '').toLowerCase().includes(q) || (m.displayName || '').toLowerCase().includes(q) || String(m.userId).includes(q));
     const countEl = document.getElementById('members-count');
     if (countEl) countEl.textContent = `(${list.length}${list.length !== membersCache.length ? ' / ' + membersCache.length : ''})`;
-    if (!list.length) { tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:1.2rem;">No members found.</td></tr>`; return; }
+    if (!list.length) { tbody.innerHTML = window.metEmpty ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No members found', sub: 'Try clearing the search or rank filter.' })}</td></tr>` : `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:1.2rem;">No members found.</td></tr>`; return; }
     const assignable = roles.filter(r => r.rank < threshold).sort((a, b) => b.rank - a.rank);
     const roleOptions = (cur) => assignable.map(r => `<option value="${esc(String(r.id))}" ${String(r.id) === String(cur) ? 'selected' : ''}>${esc(r.name)}</option>`).join('') || '<option value="">No assignable ranks</option>';
     tbody.innerHTML = list.map(m => {

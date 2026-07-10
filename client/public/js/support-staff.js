@@ -68,7 +68,7 @@
   async function refreshQueue() {
     const tb = $('sd-tbody');
     if (!tb) return;
-    tb.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
+    tb.innerHTML = window.metSkeleton ? `<tr><td colspan="7">${window.metSkeleton('rows', 6)}</td></tr>` : '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
     const q = new URLSearchParams();
     if (sdFilter === 'CLOSED') q.set('status', 'CLOSED');
     else if (sdFilter === 'unclaimed') q.set('unclaimed', '1');
@@ -81,7 +81,7 @@
       // the server's escalated/priority/newest order within each group.
       const myId = (window.currentUser && window.currentUser.id) || null;
       if (myId) rows.sort((a, b) => (b.claimedById === myId ? 1 : 0) - (a.claimedById === myId ? 1 : 0));
-      if (!rows.length) { tb.innerHTML = '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tickets here.</div></td></tr>'; }
+      if (!rows.length) { tb.innerHTML = window.metEmpty ? `<tr><td colspan="7">${window.metEmpty({ icon: 'ti-inbox', title: 'No tickets here', sub: 'New and matching tickets show up in this queue.' })}</td></tr>` : '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tickets here.</div></td></tr>'; }
       else tb.innerHTML = rows.map(rowHtml).join('');
       // Nav badge: count of unclaimed active tickets.
       const badge = document.getElementById('nav-badge-support');
@@ -321,7 +321,7 @@
     } else if (c.canBlacklist) {
       b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdBlacklist(false)" title="Blacklist this guest's IP/browser from opening tickets"><i class="ti ti-ban"></i> Blacklist guest</button>`);
     }
-    if (c.canDelete) b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdDelete()"><i class="ti ti-trash"></i></button>`);
+    if (c.canDelete) b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="sdDelete()" title="Delete ticket" aria-label="Delete ticket"><i class="ti ti-trash"></i></button>`);
     $('sd-toolbar').innerHTML = b.join(' ');
   }
 
@@ -741,7 +741,7 @@
     $('sd-pending').innerHTML = sdPending.map(p => {
       const thumb = p.previewUrl ? `<img src="${esc(p.previewUrl)}" style="width:38px;height:38px;object-fit:cover;border-radius:7px;">` : `<i class="ti ti-file"></i>`;
       const spin = p.status === 'loading' ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;"><div class="spinner" style="width:16px;height:16px;"></div></div>' : '';
-      return `<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border,#333);border-radius:8px;padding:4px 6px;"><div style="position:relative;width:38px;height:38px;border-radius:7px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.05);">${thumb}${spin}</div><span style="font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</span><a onclick="sdRm(${p.uid})" style="cursor:pointer;color:var(--text-muted);"><i class="ti ti-x"></i></a></div>`;
+      return `<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border,#333);border-radius:8px;padding:4px 6px;"><div style="position:relative;width:38px;height:38px;border-radius:7px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.05);">${thumb}${spin}</div><span style="font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</span><a onclick="sdRm(${p.uid})" style="cursor:pointer;color:var(--text-muted);" title="Remove" aria-label="Remove"><i class="ti ti-x"></i></a></div>`;
     }).join('');
   }
   window.sdRm = function (uid) { const i = sdPending.findIndex(p => p.uid === uid); if (i >= 0) { if (sdPending[i].previewUrl) try { URL.revokeObjectURL(sdPending[i].previewUrl); } catch (e) {} sdPending.splice(i, 1); renderPending(); } };

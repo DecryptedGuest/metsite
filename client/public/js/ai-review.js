@@ -65,7 +65,9 @@ function renderAiResults(d) {
 
   var body;
   if (!offs.length) {
-    body = '<div class="panel glass" style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No matching active offences were identified.</div>';
+    body = window.metEmpty
+      ? '<div class="panel glass">' + window.metEmpty({ icon: 'ti-shield-check', title: 'No matching offences identified', sub: 'The AI did not match this description to any active catalogue offence.' }) + '</div>'
+      : '<div class="panel glass" style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No matching active offences were identified.</div>';
   } else {
     body = '<div class="panel glass fade-up stagger-1"><div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Suggested Offences (' + offs.length + ')</div></div>'
       + '<div style="padding:0.6rem 1rem 1.1rem;display:flex;flex-direction:column;gap:10px;">'

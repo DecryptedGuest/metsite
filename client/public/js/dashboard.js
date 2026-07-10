@@ -297,7 +297,9 @@ async function loadDevGameLogs() {
       <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '—'}</td>
       <td>${escapeHtml(g.target || '—')}</td>
       <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
-  }).join('') : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>';
+  }).join('') : (window.metEmpty
+    ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-file-off', title: 'No game logs yet', sub: 'In-game activity will appear here.' })}</td></tr>`
+    : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
 }
 let _devGlT = null;
 document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
@@ -524,13 +526,13 @@ function renderEvidenceList() {
       return `<div style="display:flex;gap:6px;align-items:center;">
         <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
         <input type="text" class="form-control" style="flex:1;font-size:12px;padding:5px 8px;" placeholder="https://medal.tv/… or any link" value="${escapeHtml(e.url || '')}" oninput="aiEvidence[${i}].url=this.value" />
-        <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})" title="Remove evidence" aria-label="Remove evidence"><i class="ti ti-x"></i></button>
       </div>`;
     }
     return `<div style="display:flex;gap:6px;align-items:center;">
       <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
       <span style="flex:1;font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="ti ti-paperclip"></i> ${escapeHtml(e.name || e.filename)}</span>
-      <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})" title="Remove evidence" aria-label="Remove evidence"><i class="ti ti-x"></i></button>
     </div>`;
   }).join('') || '<div style="font-size:11px;color:var(--text-muted);">No evidence added yet.</div>';
 }
@@ -1165,7 +1167,13 @@ function renderDashTable() {
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
   const filtered   = dashFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === dashFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, 'No cases found'); return; }
+  if (!filtered.length) {
+    const _cols = isElevated ? 6 : 5;
+    tbody.innerHTML = window.metEmpty
+      ? `<tr><td colspan="${_cols}">${window.metEmpty({ icon: 'ti-folder', title: 'No cases to show', sub: 'Submit a case and it will appear here.', cta: 'Submit Case', ctaIcon: 'ti-plus', onclick: 'openNewCaseModal()' })}</td></tr>`
+      : emptyRow(_cols, 'No cases found');
+    return;
+  }
   tbody.innerHTML = filtered.map(c => `
     <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
@@ -1198,7 +1206,12 @@ function renderDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
   const filtered = dashTicketFilter === 'all' ? dashTicketsCache : dashTicketsCache.filter(t => t.status === dashTicketFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(5, 'No ticket logs found'); return; }
+  if (!filtered.length) {
+    tbody.innerHTML = window.metEmpty
+      ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-ticket', title: 'No ticket logs to show', sub: 'Submit a ticket log and it will appear here.', cta: 'Submit Ticket Log', ctaIcon: 'ti-plus', onclick: 'openTicketModal()' })}</td></tr>`
+      : emptyRow(5, 'No ticket logs found');
+    return;
+  }
   const TLmap = (typeof TL !== 'undefined') ? TL : {};
   const TCmap = (typeof TC !== 'undefined') ? TC : {};
   tbody.innerHTML = filtered.map(t => {
@@ -1222,7 +1235,12 @@ async function loadMyCases() {
   try {
     const cases = await api('/api/cases/my');
     allCasesCache = cases || [];
-    if (!cases?.length) { tbody.innerHTML = emptyRow(6, 'No cases submitted yet.'); return; }
+    if (!cases?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-folder', title: 'No cases submitted yet', sub: 'Cases you submit will appear here.', cta: 'Submit Case', ctaIcon: 'ti-plus', onclick: 'openNewCaseModal()' })}</td></tr>`
+        : emptyRow(6, 'No cases submitted yet.');
+      return;
+    }
     tbody.innerHTML = cases.map(c => `
       <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
         <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
@@ -1245,7 +1263,12 @@ async function loadReview() {
     const cases = await api('/api/cases/all?status=PENDING');
     allCasesCache = cases || [];
     if (label) label.textContent = `${cases?.length || 0} awaiting decision`;
-    if (!cases?.length) { tbody.innerHTML = emptyRow(8, 'No pending cases — all caught up.'); return; }
+    if (!cases?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="8">${window.metEmpty({ icon: 'ti-clipboard-check', title: 'No pending cases', sub: "You're all caught up — new submissions will appear here." })}</td></tr>`
+        : emptyRow(8, 'No pending cases — all caught up.');
+      return;
+    }
     tbody.innerHTML = cases.map(c => `
       <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
         <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${caseAwaitingChanges(c) ? '<br>' + changesBadge(c) : ''}</td>
@@ -1278,7 +1301,12 @@ function renderAllCasesTable() {
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
   const cols = isElevated ? 8 : 7;
   const filtered = allPageFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === allPageFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(cols, 'No cases found.'); return; }
+  if (!filtered.length) {
+    tbody.innerHTML = window.metEmpty
+      ? `<tr><td colspan="${cols}">${window.metEmpty({ icon: 'ti-database', title: 'No cases found', sub: 'No cases match this filter yet.' })}</td></tr>`
+      : emptyRow(cols, 'No cases found.');
+    return;
+  }
   tbody.innerHTML = filtered.map(c => `
     <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
@@ -1301,7 +1329,12 @@ async function loadAudit() {
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const actions = await api('/api/cases/audit');
-    if (!actions?.length) { tbody.innerHTML = emptyRow(5, 'No audit entries yet.'); return; }
+    if (!actions?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-list-details', title: 'No audit entries yet', sub: 'Case actions will be recorded here.' })}</td></tr>`
+        : emptyRow(5, 'No audit entries yet.');
+      return;
+    }
     const actionBadges = {
       CREATED:       '<span class="badge badge-ia"><span class="badge-dot"></span>Created</span>',
       APPROVED:      '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
@@ -1331,7 +1364,12 @@ async function loadAccessGrants() {
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const grants = await api('/api/admin/access-grants');
-    if (!grants?.length) { tbody.innerHTML = emptyRow(5, 'No authorised users yet.'); return; }
+    if (!grants?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-users', title: 'No authorised users yet', sub: 'Grant access using the form above.' })}</td></tr>`
+        : emptyRow(5, 'No authorised users yet.');
+      return;
+    }
     const roleLabel = { IA: 'Internal Affairs', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', DEVELOPER: 'Developer' };
     tbody.innerHTML = grants.map(g => `
       <tr>
@@ -1439,7 +1477,12 @@ async function loadAdminUsers() {
   tbody.innerHTML = '<tr><td colspan="10" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const [users, metRoles] = await Promise.all([api('/api/admin/users'), metRolesOnce()]);
-    if (!users?.length) { tbody.innerHTML = emptyRow(10, 'No users found.'); return; }
+    if (!users?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="10">${window.metEmpty({ icon: 'ti-users', title: 'No users found', sub: 'No accounts match yet.' })}</td></tr>`
+        : emptyRow(10, 'No users found.');
+      return;
+    }
     const roleOptions = r => ['NONE','IA','SUPERVISOR','HICOMM','DEVELOPER'].map(v =>
       `<option value="${v}" ${r === v ? 'selected' : ''}>${v}</option>`).join('');
     tbody.innerHTML = users.map(u => `
@@ -1491,7 +1534,12 @@ async function loadVisits() {
     const visits = await api('/api/admin/visits');
     const badge  = document.getElementById('visits-count-badge');
     if (badge) badge.textContent = `${visits?.length || 0} recent visit(s)`;
-    if (!visits?.length) { tbody.innerHTML = emptyRow(5, 'No visits recorded yet.'); return; }
+    if (!visits?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-world-search', title: 'No visits recorded yet', sub: 'Visitor activity will appear here.' })}</td></tr>`
+        : emptyRow(5, 'No visits recorded yet.');
+      return;
+    }
 
     tbody.innerHTML = visits.map(v => {
       const discord = v.discordUsername || v.discordId
@@ -1535,7 +1583,12 @@ async function loadSecurity() {
     securityCache = logs || [];
     const badge = document.getElementById('security-count-badge');
     if (badge) badge.textContent = `${logs?.length || 0} event(s)`;
-    if (!logs?.length) { tbody.innerHTML = emptyRow(8, 'No capture events recorded.'); return; }
+    if (!logs?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="8">${window.metEmpty({ icon: 'ti-shield', title: 'No capture events recorded', sub: 'Screenshot attempts will be logged here.' })}</td></tr>`
+        : emptyRow(8, 'No capture events recorded.');
+      return;
+    }
 
     tbody.innerHTML = logs.map(v => {
       const user = v.discordUsername || v.discordId || v.robloxUsername
@@ -2003,7 +2056,7 @@ function botRankThreshold() {
 async function loadPendingRequests() {
   const container = document.getElementById('pending-requests-container');
   if (!container) return;
-  container.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  container.innerHTML = window.metSkeleton ? window.metSkeleton('feed', 4) : '<div class="table-loading"><div class="spinner"></div></div>';
   try {
     pendingCache = [];
     let token = null, pages = 0;
@@ -2035,7 +2088,9 @@ function renderPendingRequests() {
   if (countEl) countEl.textContent = `(${list.length})`;
 
   if (!list.length) {
-    container.innerHTML = `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`;
+    container.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-inbox', title: 'No pending join requests', sub: 'New group join requests will appear here.' })
+      : `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`;
     return;
   }
 
@@ -2151,7 +2206,12 @@ function renderGroupMembers() {
   const countEl = document.getElementById('members-count');
   if (countEl) countEl.textContent = `(${list.length}${list.length !== groupMembersCache.length ? ' / ' + groupMembersCache.length : ''})`;
 
-  if (!list.length) { tbody.innerHTML = emptyRow(4, 'No members found.'); return; }
+  if (!list.length) {
+    tbody.innerHTML = window.metEmpty
+      ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No members found', sub: 'Try a different search or rank filter.' })}</td></tr>`
+      : emptyRow(4, 'No members found.');
+    return;
+  }
 
   // Only ranks strictly below the bot's rank can be assigned
   const assignable = roles.filter(r => r.rank < threshold).sort((a, b) => b.rank - a.rank);

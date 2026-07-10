@@ -178,7 +178,7 @@ async function submitTicket(){
 }
 async function loadTickets(){
   var tbody=document.getElementById("tickets-tbody");if(!tbody)return;
-  tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
+  tbody.innerHTML=window.metSkeleton?"<tr><td colspan=\"8\">"+window.metSkeleton("rows",6)+"</td></tr>":"<tr><td colspan=\"8\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
   try{ticketsCache=await api("/api/tickets")||[];renderTicketsTable();updateTicketNavBadge();}
   catch(e){tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-empty\"><span class=\"table-empty-text\">Failed to load tickets.</span></td></tr>";}
 }
@@ -210,7 +210,7 @@ function renderTicketsTable(){
   var elev=currentUser&&["HICOMM","SUPERVISOR","DEVELOPER"].indexOf(currentUser.role)>=0;
   var cols=elev?8:6;
   var filt=ticketFilter==="all"?ticketsCache:ticketsCache.filter(function(t){return t.status===ticketFilter;});
-  if(!filt.length){tbody.innerHTML="<tr><td colspan=\""+cols+"\" class=\"table-empty\"><span class=\"table-empty-text\">No tickets found.</span></td></tr>";return;}
+  if(!filt.length){tbody.innerHTML=window.metEmpty?"<tr><td colspan=\""+cols+"\">"+window.metEmpty({icon:"ti-ticket",title:"No ticket logs yet",sub:"Submit a ticket log and it will appear here.",cta:"Submit Ticket Log",ctaIcon:"ti-plus",onclick:"openTicketModal()"})+"</td></tr>":"<tr><td colspan=\""+cols+"\" class=\"table-empty\"><span class=\"table-empty-text\">No tickets found.</span></td></tr>";return;}
   tbody.innerHTML=filt.map(function(t){
     var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
     var pc=t.proofCount>0?"<i class=\"ti ti-photo\"></i> "+t.proofCount:"&mdash;";
@@ -255,7 +255,7 @@ async function deleteTicket(ticketId){
 // ── All Tickets (read-only for IA, decision controls for HICOMM) ──
 async function loadAllTickets(){
   var tbody=document.getElementById("all-tickets-tbody");if(!tbody)return;
-  tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
+  tbody.innerHTML=window.metSkeleton?"<tr><td colspan=\"8\">"+window.metSkeleton("rows",6)+"</td></tr>":"<tr><td colspan=\"8\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
   try{allTicketsCache=await api("/api/tickets/all")||[];renderAllTicketsTable();}
   catch(e){tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-empty\"><span class=\"table-empty-text\">Failed to load tickets.</span></td></tr>";}
 }
@@ -264,7 +264,7 @@ function renderAllTicketsTable(){
   var elev=currentUser&&["HICOMM","SUPERVISOR","DEVELOPER"].indexOf(currentUser.role)>=0;
   var cols=elev?8:7;
   var filt=allTicketFilter==="all"?allTicketsCache:allTicketsCache.filter(function(t){return t.status===allTicketFilter;});
-  if(!filt.length){tbody.innerHTML="<tr><td colspan=\""+cols+"\" class=\"table-empty\"><span class=\"table-empty-text\">No tickets found.</span></td></tr>";return;}
+  if(!filt.length){tbody.innerHTML=window.metEmpty?"<tr><td colspan=\""+cols+"\">"+window.metEmpty({icon:"ti-ticket",title:"No tickets found",sub:"No tickets match this filter yet."})+"</td></tr>":"<tr><td colspan=\""+cols+"\" class=\"table-empty\"><span class=\"table-empty-text\">No tickets found.</span></td></tr>";return;}
   tbody.innerHTML=filt.map(function(t){
     var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
     var pc=t.proofCount>0?"<i class=\"ti ti-photo\"></i> "+t.proofCount:"&mdash;";
@@ -286,12 +286,12 @@ async function loadTicketReview(){
   var tbody=document.getElementById("ticket-review-tbody");
   var label=document.getElementById("ticket-pending-count-label");
   if(!tbody)return;
-  tbody.innerHTML="<tr><td colspan=\"7\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
+  tbody.innerHTML=window.metSkeleton?"<tr><td colspan=\"7\">"+window.metSkeleton("rows",6)+"</td></tr>":"<tr><td colspan=\"7\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
   try{
     // ALL pending tickets (every user's), not just the reviewer's own
     var tickets=await api("/api/tickets/all?status=PENDING")||[];
     if(label)label.textContent=tickets.length+" awaiting decision";
-    if(!tickets.length){tbody.innerHTML="<tr><td colspan=\"7\" class=\"table-empty\"><span class=\"table-empty-text\">No pending tickets — all caught up.</span></td></tr>";return;}
+    if(!tickets.length){tbody.innerHTML=window.metEmpty?"<tr><td colspan=\"7\">"+window.metEmpty({icon:"ti-clipboard-check",title:"No pending tickets",sub:"You're all caught up — new submissions will appear here."})+"</td></tr>":"<tr><td colspan=\"7\" class=\"table-empty\"><span class=\"table-empty-text\">No pending tickets — all caught up.</span></td></tr>";return;}
     tbody.innerHTML=tickets.map(function(t){
       var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
       var inv=(typeof investigatorCell==="function")?investigatorCell(t.user):escapeHtml((t.user&&(t.user.displayName||t.user.discordUsername))||"—");

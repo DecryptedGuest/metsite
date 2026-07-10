@@ -43,14 +43,14 @@
         ['Multi-IP users', alerts.multiIp.length, alerts.multiIp.length ? 'var(--red)' : 'var(--green)'],
         ['2FA compliant', `${comp.compliant}/${comp.total}`, 'var(--green)'],
       ].map(([l, v, c]) => `<div class="sec-stat"><div class="v" style="color:${c};">${v}</div><div class="l">${l}</div></div>`).join('');
-      $('sec-overview-feed').innerHTML = alerts.events.length ? alerts.events.slice(0, 20).map(evLine).join('') : '<div class="table-empty-text" style="padding:16px;">No recent security events.</div>';
+      $('sec-overview-feed').innerHTML = alerts.events.length ? alerts.events.slice(0, 20).map(evLine).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-shield-check', title: 'No recent security events' }) : '<div class="table-empty-text" style="padding:16px;">No recent security events.</div>');
       const b = $('sec-alert-badge'); if (b) { const n = alerts.multiIp.length + (alerts.suspicious24h || 0); b.style.display = n ? 'inline-flex' : 'none'; b.textContent = n; }
     } catch (e) { $('sec-stats').innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
 
   // ── Sessions ──
   function renderSessionRows(rows, tb) {
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">Nothing to show.</div></td></tr>'; return; }
+    if (!rows.length) { const EMPTY = window.metEmpty ? window.metEmpty({ icon: 'ti-user-off', title: 'Nothing to show' }) : '<div class="table-empty-text">Nothing to show.</div>'; tb.innerHTML = '<tr><td colspan="6" class="table-empty">' + EMPTY + '</td></tr>'; return; }
     tb.innerHTML = rows.map(s => {
       const vpnBadge = s.ipVpn ? ' <span class="badge badge-denied" style="font-size:9px;"><span class="badge-dot"></span>VPN</span>' : '';
       const org = s.ipOrg ? `<div style="color:var(--text-muted);font-size:10px;">${esc(s.ipOrg)}</div>` : '';
@@ -74,10 +74,10 @@
   }
   window.secLoadSessions = async function () {
     const tb = $('sec-sessions-tbody');
-    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+    tb.innerHTML = window.metSkeleton ? '<tr><td colspan="6">' + window.metSkeleton('rows', 6) + '</td></tr>' : '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       const rows = await api('/api/dev/security/sessions');
-      if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No active sessions.</div></td></tr>'; return; }
+      if (!rows.length) { const EMPTY = window.metEmpty ? window.metEmpty({ icon: 'ti-plug-off', title: 'No active sessions' }) : '<div class="table-empty-text">No active sessions.</div>'; tb.innerHTML = '<tr><td colspan="6" class="table-empty">' + EMPTY + '</td></tr>'; return; }
       renderSessionRows(rows, tb);
     } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
   };
@@ -106,13 +106,13 @@
 
   // ── Alerts ──
   window.secLoadAlerts = async function () {
-    $('sec-alerts-feed').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    $('sec-alerts-feed').innerHTML = window.metSkeleton ? window.metSkeleton('feed', 5) : '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const a = await api('/api/dev/security/alerts');
       $('sec-multi-ip').innerHTML = a.multiIp.length
         ? `<div class="panel glass fade-up" style="margin-bottom:14px;border-left:3px solid var(--red);"><div style="padding:12px 16px;font-size:13px;"><strong style="color:var(--red);"><i class="ti ti-map-pin-exclamation"></i> Multiple IPs in the last hour:</strong> ${a.multiIp.map(m => `${esc(m.name)} (${m.ips.length})`).join(' · ')}</div></div>`
         : '';
-      $('sec-alerts-feed').innerHTML = a.events.length ? a.events.map(evLine).join('') : '<div class="table-empty-text" style="padding:16px;">No security events in the last 7 days.</div>';
+      $('sec-alerts-feed').innerHTML = a.events.length ? a.events.map(evLine).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-shield-check', title: 'No security events', sub: 'None in the last 7 days.' }) : '<div class="table-empty-text" style="padding:16px;">No security events in the last 7 days.</div>');
     } catch (e) { $('sec-alerts-feed').innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
 
@@ -170,7 +170,7 @@
   // ── Compliance ──
   window.secLoadCompliance = async function () {
     secLoadEnforce();
-    $('sec-compliance').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    $('sec-compliance').innerHTML = window.metSkeleton ? window.metSkeleton('rows', 5) : '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const c = await api('/api/dev/security/passkey-compliance');
       $('sec-compliance').innerHTML = `<div style="padding:6px 10px 14px;font-size:13px;color:var(--text-muted);">${c.compliant} of ${c.total} staff have a passkey enrolled.</div>
@@ -184,7 +184,7 @@
   // ── Live presence ──
   window.secLoadPresence = async function () {
     const box = $('sec-presence');
-    box.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    box.innerHTML = window.metSkeleton ? window.metSkeleton('cards', 5) : '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const r = await api('/api/dev/security/presence');
       const b = $('sec-presence-badge'); if (b) { b.style.display = r.online.length ? 'inline-flex' : 'none'; b.textContent = r.online.length; }
@@ -193,7 +193,7 @@
           <div style="position:relative;">${u.avatar ? `<img src="${esc(u.avatar)}" style="width:36px;height:36px;border-radius:50%;">` : `<div style="width:36px;height:36px;border-radius:50%;background:#222;"></div>`}
             <span style="position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--panel-solid,#151821);"></span></div>
           <div><div style="font-size:13px;font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(u.role || '')} · ${esc(u.ip || '')}</div></div>
-        </div>`).join('')}</div>` : '<div class="table-empty-text">Nobody is active right now.</div>';
+        </div>`).join('')}</div>` : (window.metEmpty ? window.metEmpty({ icon: 'ti-users', title: 'Nobody is active right now' }) : '<div class="table-empty-text">Nobody is active right now.</div>');
     } catch (e) { box.innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
 
@@ -226,7 +226,7 @@
   };
   window.secLoadApprovals = async function () {
     const box = $('sec-approvals');
-    box.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    box.innerHTML = window.metSkeleton ? window.metSkeleton('feed', 5) : '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const rows = await api('/api/dev/security/approvals');
       const b = $('sec-approvals-badge'); if (b) { b.style.display = rows.length ? 'inline-flex' : 'none'; b.textContent = rows.length; }
@@ -236,8 +236,8 @@
             <div style="font-size:12px;color:var(--text-muted);">by ${esc(a.requestedByName || '')}${a.reason ? ' · ' + esc(a.reason) : ''} · ${fmt(a.createdAt)}</div></div>
           ${a.mine ? '<span class="badge badge-pending"><span class="badge-dot"></span>Your proposal — needs another dev</span>'
             : `<button class="btn btn-primary btn-sm" onclick="secApprove('${a.id}')"><i class="ti ti-check"></i> Approve</button>
-               <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="secReject('${a.id}')"><i class="ti ti-x"></i></button>`}
-        </div>`).join('') : '<div class="table-empty-text">No pending approvals.</div>';
+               <button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Reject" aria-label="Reject" onclick="secReject('${a.id}')"><i class="ti ti-x"></i></button>`}
+        </div>`).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-checklist', title: 'No pending approvals' }) : '<div class="table-empty-text">No pending approvals.</div>');
     } catch (e) { box.innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
   window.secApprove = async function (id) {

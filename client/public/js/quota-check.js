@@ -47,7 +47,10 @@ async function loadQuotaCheck() {
   try {
     var d = await api("/api/quota/members");
     if (!d || !d.configured) {
-      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span></td></tr>";
+      var CFG = window.metEmpty
+        ? window.metEmpty({ icon: "ti-alert-triangle", title: "Quota sheet not configured", sub: "Read access needs the Google service account." })
+        : "<span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span>";
+      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + CFG + "</td></tr>";
       return;
     }
     quotaMembersCache = d.members || [];
@@ -63,7 +66,10 @@ function renderQuotaCheck() {
   var countEl = document.getElementById("quota-check-count");
   if (!tbody) return;
   if (!quotaMembersCache.length) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>No members found in the sheet.</span></td></tr>";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
+      : "<span class='table-empty-text'>No members found in the sheet.</span>";
+    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + EMPTY + "</td></tr>";
     if (countEl) countEl.textContent = "";
     return;
   }

@@ -22,10 +22,15 @@
   async function search() {
     const q = $('iap-search').value.trim();
     const box = $('iap-results');
-    box.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    box.innerHTML = window.metSkeleton ? window.metSkeleton('feed', 6) : '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const rows = await api('/api/ia-profiles/search?q=' + encodeURIComponent(q));
-      if (!rows.length) { box.innerHTML = '<div class="table-empty"><div class="table-empty-text">No IA members found.</div></div>'; return; }
+      if (!rows.length) {
+        box.innerHTML = window.metEmpty
+          ? window.metEmpty({ icon: 'ti-users', title: 'No IA members found.', sub: 'Try a different name or Discord/Roblox handle.' })
+          : '<div class="table-empty"><div class="table-empty-text">No IA members found.</div></div>';
+        return;
+      }
       box.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px;">${rows.map(rowHtml).join('')}</div>`;
     } catch (e) {
       box.innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message || 'Search failed')}</div></div>`;
@@ -89,7 +94,7 @@
       <td>${esc(c.action || '—')}</td>
       <td>${statusBadge(c.status)}</td>
       <td class="date-cell">${esc(fmtDate(c.createdAt))}</td>
-      <td>${c.caseLink ? `<a href="${esc(c.caseLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-external-link"></i></a>` : ''}</td>
+      <td>${c.caseLink ? `<a href="${esc(c.caseLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open case in new tab" aria-label="Open case in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
     </tr>`;
   }
   function ticketRowHtml(t) {
@@ -99,7 +104,7 @@
       <td>${esc(t.robloxUsername || '—')}</td>
       <td>${statusBadge(t.status)}</td>
       <td class="date-cell">${esc(fmtDate(t.createdAt))}</td>
-      <td>${t.transcriptLink ? `<a href="${esc(t.transcriptLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-external-link"></i></a>` : ''}</td>
+      <td>${t.transcriptLink ? `<a href="${esc(t.transcriptLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ticket transcript in new tab" aria-label="Open ticket transcript in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
     </tr>`;
   }
 
@@ -107,9 +112,13 @@
     const cases = p.cases || { total: 0, byStatus: {}, items: [] };
     const tickets = p.tickets || { total: 0, byStatus: {}, items: [] };
     const caseRows = cases.items.length ? cases.items.map(caseRowHtml).join('')
-      : '<tr><td colspan="6" class="table-empty-text" style="padding:12px;">No cases investigated.</td></tr>';
+      : (window.metEmpty
+          ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-folder-off', title: 'No cases investigated.' })}</td></tr>`
+          : '<tr><td colspan="6" class="table-empty-text" style="padding:12px;">No cases investigated.</td></tr>');
     const ticketRows = tickets.items.length ? tickets.items.map(ticketRowHtml).join('')
-      : '<tr><td colspan="6" class="table-empty-text" style="padding:12px;">No ticket logs.</td></tr>';
+      : (window.metEmpty
+          ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-ticket', title: 'No ticket logs.' })}</td></tr>`
+          : '<tr><td colspan="6" class="table-empty-text" style="padding:12px;">No ticket logs.</td></tr>');
     return `
       <div class="panel glass fade-up" style="margin-bottom:1.2rem;"><div style="padding:1.1rem 1.3rem;">${idCardHtml(p)}</div></div>
       <div class="panel glass fade-up" style="margin-bottom:1.2rem;">

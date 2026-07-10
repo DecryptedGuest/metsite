@@ -52,11 +52,11 @@
   // ── Tryouts list ───────────────────────────────────────────────────
   window.cidLoadTryouts = async function () {
     const tb = document.getElementById('cid-tryouts-tbody');
-    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+    tb.innerHTML = window.metSkeleton ? '<tr><td colspan="6">' + window.metSkeleton('rows', 6) + '</td></tr>' : '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       const rows = await api('/api/cid/tryouts');
       cidTryoutsById = {}; rows.forEach(t => { cidTryoutsById[t.id] = t; });
-      if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts yet. Schedule one to get started.</div></td></tr>'; return; }
+      if (!rows.length) { tb.innerHTML = window.metEmpty ? '<tr><td colspan="6">' + window.metEmpty({ icon: 'ti-calendar-off', title: 'No tryouts scheduled', sub: 'Schedule one to get started.', cta: 'Schedule Tryout', ctaIcon: 'ti-calendar-plus', onclick: 'cidOpenSchedule()' }) + '</td></tr>' : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No tryouts yet. Schedule one to get started.</div></td></tr>'; return; }
       tb.innerHTML = rows.map(t => {
         const linkUrl = t.privateServerLink || t.joinUrl;
         const link = linkUrl ? `<a href="${esc(linkUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" style="color:var(--blue);">Link</a>` : '<span style="color:var(--text-muted);">TBA</span>';
@@ -146,7 +146,7 @@
       const live = await api('/api/cid/tryouts/live');
       if (badge) { badge.style.display = live.length ? 'inline-flex' : 'none'; badge.textContent = live.length; }
       if (statusEl) statusEl.innerHTML = `<span class="badge-dot"></span>${live.length ? live.length + ' live' : 'No live tryouts'}`;
-      if (!live.length) { wrap.innerHTML = '<div class="panel glass"><div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div></div>'; return; }
+      if (!live.length) { wrap.innerHTML = window.metEmpty ? '<div class="panel glass">' + window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) + '</div>' : '<div class="panel glass"><div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div></div>'; return; }
       wrap.innerHTML = live.map(renderLiveCard).join('');
     } catch (e) {
       if (statusEl) statusEl.innerHTML = `<span class="badge-dot"></span>${esc(e.message)}`;
@@ -209,10 +209,10 @@
   // ── My tryout logs ─────────────────────────────────────────────────
   window.cidLoadMyLogs = async function () {
     const tb = document.getElementById('cid-mylogs-tbody');
-    tb.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
+    tb.innerHTML = window.metSkeleton ? '<tr><td colspan="7">' + window.metSkeleton('rows', 6) + '</td></tr>' : '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       const logs = await api('/api/cid/tryout-logs/mine');
-      if (!logs.length) { tb.innerHTML = '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tryout logs yet. Conclude a tryout in-game and it appears here.</div></td></tr>'; return; }
+      if (!logs.length) { tb.innerHTML = window.metEmpty ? '<tr><td colspan="7">' + window.metEmpty({ icon: 'ti-clipboard-list', title: 'No tryout logs yet', sub: 'Conclude a tryout in-game and it appears here.' }) + '</td></tr>' : '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tryout logs yet. Conclude a tryout in-game and it appears here.</div></td></tr>'; return; }
       tb.innerHTML = logs.map(l => logRow(l, false)).join('');
     } catch (e) { tb.innerHTML = `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
   };
@@ -221,10 +221,10 @@
   window.cidLoadReviewLogs = async function () {
     const tb = document.getElementById('cid-reviewlogs-tbody');
     if (!tb) return;
-    tb.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
+    tb.innerHTML = window.metSkeleton ? '<tr><td colspan="7">' + window.metSkeleton('rows', 6) + '</td></tr>' : '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
       const logs = await api('/api/cid/tryout-logs/pending?status=' + encodeURIComponent(logFilter));
-      if (!logs.length) { tb.innerHTML = '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">Nothing here.</div></td></tr>'; return; }
+      if (!logs.length) { tb.innerHTML = window.metEmpty ? '<tr><td colspan="7">' + window.metEmpty({ icon: 'ti-clipboard-check', title: 'Nothing to review', sub: 'Tryout logs awaiting a decision will appear here.' }) + '</td></tr>' : '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">Nothing here.</div></td></tr>'; return; }
       tb.innerHTML = logs.map(l => logRow(l, true)).join('');
       const badge = document.getElementById('cid-review-badge');
       if (badge && logFilter === 'PENDING') { badge.style.display = logs.length ? 'inline-flex' : 'none'; badge.textContent = logs.length; }

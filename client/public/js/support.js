@@ -140,7 +140,7 @@
 
   async function loadMine() {
     const el = $('sup-mytickets');
-    el.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    el.innerHTML = window.metSkeleton ? window.metSkeleton('rows', 4) : '<div class="table-loading"><div class="spinner"></div></div>';
     const seen = new Set(); const rows = [];
     try { (await api('/api/support/tickets/mine') || []).forEach(t => { if (!seen.has(t.id)) { seen.add(t.id); rows.push(t); } }); } catch (e) {}
     for (const st of stored()) {
@@ -148,8 +148,10 @@
       try { const t = await api(tok('/api/support/tickets/' + st.id, st.id)); seen.add(t.id); rows.push(t); } catch (e) {}
     }
     rows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    el.innerHTML = rows.length ? rows.map(t => ticketRow(t, false)).join('')
+    const EMPTY_MINE = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-ticket', title: 'No tickets yet', sub: 'Pick an option above to get help.' })
       : '<div class="table-empty"><div class="table-empty-text">You have no tickets yet. Pick an option above to get help.</div></div>';
+    el.innerHTML = rows.length ? rows.map(t => ticketRow(t, false)).join('') : EMPTY_MINE;
   }
 
   function wireQueueTabs() {
@@ -164,8 +166,10 @@
     try {
       const q = queueStatus === 'active' ? '' : '?status=' + encodeURIComponent(queueStatus);
       const rows = await api('/api/support/tickets/queue' + q);
-      $('sup-queue').innerHTML = rows.length ? rows.map(t => ticketRow(t, true)).join('')
+      const EMPTY_QUEUE = window.metEmpty
+        ? window.metEmpty({ icon: 'ti-inbox', title: 'Queue empty', sub: 'Tickets waiting to be handled will appear here.' })
         : '<div class="table-empty"><div class="table-empty-text">Nothing here.</div></div>';
+      $('sup-queue').innerHTML = rows.length ? rows.map(t => ticketRow(t, true)).join('') : EMPTY_QUEUE;
     } catch (e) { $('sup-queue').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
   }
 
@@ -635,7 +639,7 @@
         <p style="font-size:13px;color:var(--text-secondary);margin-top:12px;line-height:1.6;">I collect the details for your ticket and hand you to the right Internal Affairs team.</p>`;
       return;
     }
-    if (!authorId) { body.innerHTML = '<div class="table-empty"><div class="table-empty-text">No profile available.</div></div>'; return; }
+    if (!authorId) { body.innerHTML = window.metEmpty ? window.metEmpty({ icon: 'ti-user-off', title: 'No profile available' }) : '<div class="table-empty"><div class="table-empty-text">No profile available.</div></div>'; return; }
     body.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     try {
       const p = await api('/api/support/user-profile?userId=' + encodeURIComponent(authorId));

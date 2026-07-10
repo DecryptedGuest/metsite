@@ -152,7 +152,7 @@
           <div class="form-control rc-editor" id="sup-input" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Type a message…"></div>
           <input type="file" id="sup-file" accept="image/*,video/*" multiple class="sup-hidden" />
           <button class="btn btn-ghost btn-icon" id="sup-attach-btn" title="Attach"><i class="ti ti-paperclip"></i></button>
-          <button class="btn btn-primary" id="sup-send-btn"><i class="ti ti-send"></i></button>
+          <button class="btn btn-primary" id="sup-send-btn" title="Send message" aria-label="Send message"><i class="ti ti-send"></i></button>
         </div>
         <div class="sup-hint" id="sup-hint"></div>
       </div>
@@ -165,7 +165,7 @@
   <div class="modal glass-bright" style="max-width:420px;">
     <div class="modal-header">
       <div class="modal-title" id="sup-prof-title">Profile</div>
-      <button class="modal-close" onclick="closeModal('modal-sup-profile')"><i class="ti ti-x"></i></button>
+      <button class="modal-close" onclick="closeModal('modal-sup-profile')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="sup-prof-body"></div>
   </div>

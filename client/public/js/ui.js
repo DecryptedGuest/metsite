@@ -727,6 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
     b.id = 'back-to-top';
     b.type = 'button';
     b.setAttribute('aria-label', 'Back to top');
+    b.setAttribute('title', 'Back to top');
     b.innerHTML = '<i class="ti ti-arrow-up"></i>';
     b.style.cssText =
       'position:fixed;right:18px;bottom:18px;z-index:9400;width:42px;height:42px;' +

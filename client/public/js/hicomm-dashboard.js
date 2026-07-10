@@ -52,9 +52,9 @@
         <div><div style="font-weight:700;">${esc(t.hostName || 'Tryout')} <span class="met-chip div-chip div-${esc(String(t.division || '').toLowerCase())}" style="font-size:9px;">${esc(t.division)}</span></div>
         <div style="font-size:11px;color:var(--text-muted);">${t.coHostName ? 'co: ' + esc(t.coHostName) + ' · ' : ''}${t.attendees} attending</div></div>
         <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? 'Unlocked' : 'Locked'}</span></div>`;
-    }).join('') : '<div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div>';
+    }).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) : '<div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div>');
     // audit feed
-    $('hc-audit-feed').innerHTML = d.audit.length ? d.audit.map(auditRow).join('') : '<div class="table-empty"><div class="table-empty-text">No recorded actions yet.</div></div>';
+    $('hc-audit-feed').innerHTML = d.audit.length ? d.audit.map(auditRow).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-history', title: 'No recent activity', sub: 'Privileged actions will show up here.' }) : '<div class="table-empty"><div class="table-empty-text">No recorded actions yet.</div></div>');
   };
 
   const CAT_ICON = { GROUP: ['ti-users-group', '#3b82f6'], SUPPORT: ['ti-lifebuoy', '#8b93a1'], TRYOUT: ['ti-clipboard-check', '#22c55e'], CASE: ['ti-gavel', '#e0503a'], TICKET: ['ti-ticket', '#8b5cf6'], ACCESS: ['ti-key', '#e8842a'], SECURITY: ['ti-shield-lock', '#ef4444'], DEV: ['ti-code', '#f5c518'] };
@@ -103,7 +103,7 @@
         <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Recruitment Funnel</div></div><div style="padding:20px 16px;">${C.funnel(d.funnel.stages)}<div style="text-align:center;margin-top:14px;">${C.gauge(d.funnel.conversion, 'conversion', '#22c55e')}</div></div></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:16px;margin-top:16px;">
-        <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Host Leaderboard</div></div><div style="padding:16px;">${t.leaderboard.length ? board : '<div class="table-empty-text">No tryouts yet.</div>'}</div></div>
+        <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Host Leaderboard</div></div><div style="padding:16px;">${t.leaderboard.length ? board : (window.metEmpty ? window.metEmpty({ icon: 'ti-trophy', title: 'No tryouts yet', sub: 'The host leaderboard will build up over time.' }) : '<div class="table-empty-text">No tryouts yet.</div>')}</div></div>
         <div class="panel glass"><div class="panel-header"><div class="panel-title"><span class="panel-dot"></span>MET Activity</div></div><div style="padding:12px 16px;">${actLine}</div></div>
       </div>`;
   }
@@ -163,7 +163,7 @@
           ${avatarBox(u)}
           <div><div style="font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">@${esc(u.discordUsername || '')}${u.robloxUsername ? ' · ' + esc(u.robloxUsername) : ''} · ${esc(u.role || '')}</div></div>
         </div>`;
-      }).join('') || '<div class="table-empty-text">No officers found.</div>';
+      }).join('') || (window.metEmpty ? window.metEmpty({ icon: 'ti-user-search', title: 'No officers found', sub: 'Try a different Discord or Roblox name.' }) : '<div class="table-empty-text">No officers found.</div>');
     }, 120);
   };
   // Dual profile avatar block (Discord + Roblox) — mirrors the ticket profile card.
@@ -223,7 +223,7 @@
           <div style="flex:1;"><div style="font-size:13px;font-weight:600;">${esc(e.title)} ${e.status ? `<span class="badge badge-pending" style="font-size:9px;">${esc(e.status)}</span>` : ''}</div>
           ${e.detail ? `<div style="font-size:12px;color:var(--text-secondary);">${esc(e.detail)}</div>` : ''}
           <div style="font-size:11px;color:var(--text-muted);">${fmtWhen(e.at)}</div></div>${chevron}</div>`;
-        }).join('') : '<div class="table-empty-text">No recorded history.</div>'}</div>
+        }).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-history', title: 'No recorded history', sub: 'Actions, tryouts, patrols and cases will appear here.' }) : '<div class="table-empty-text">No recorded history.</div>')}</div>
       </div>`;
 
     // Lazily enrich with live MET Discord roles + Roblox groups (never blocks the
@@ -357,7 +357,7 @@
     const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}${d.tier === 'LEAD' ? ' (lead)' : ''}`).join('<br>') || '—';
     const standing = p.standing.blacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : (p.standing.mustReauth ? '<span class="badge badge-pending"><span class="badge-dot"></span>Must re-auth</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Good standing</span>');
     box.innerHTML = `<div class="panel glass fade-up" style="margin-bottom:16px;border-left:3px solid var(--blue);"><div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Viewing as ${esc(p.officer.name)} — read only</div>
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hc-viewas').innerHTML=''"><i class="ti ti-x"></i></button></div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hc-viewas').innerHTML=''" title="Close access preview" aria-label="Close access preview"><i class="ti ti-x"></i></button></div>
       <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;">
         <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Site role</div>${esc(p.role)}${p.metHicomm ? ' · MET HICOMM' : ''}</div>
         <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Standing</div>${standing}</div>
@@ -380,7 +380,7 @@
         <td><span class="met-chip" style="border-color:${col}55;color:${col};font-size:11px;"><i class="ti ${ic}"></i> ${esc(a.category)}</span></td>
         <td><span class="mono" style="font-size:11px;">${esc(a.action)}</span></td>
         <td>${esc(a.actorName || 'System')}</td><td>${esc(a.summary || '')}</td></tr>`;
-    }).join('') : '<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No matching actions.</div></td></tr>';
+    }).join('') : (window.metEmpty ? '<tr><td colspan="5">' + window.metEmpty({ icon: 'ti-search-off', title: 'No matching actions', sub: 'Adjust the category filter or search terms.' }) + '</td></tr>' : '<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No matching actions.</div></td></tr>');
   };
 
   // ── Game logs ──
@@ -400,7 +400,7 @@
         <td>${g.action ? `<span class="mono" style="font-size:11px;">${esc(g.action)}</span>` : '—'}</td>
         <td>${esc(g.target || '—')}</td>
         <td style="max-width:360px;">${esc(g.message || '')}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>';
+    }).join('') : (window.metEmpty ? '<tr><td colspan="6">' + window.metEmpty({ icon: 'ti-device-gamepad-2', title: 'No game logs yet', sub: 'Adonis actions, joins, leaves and chat will appear here.' }) + '</td></tr>' : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
   };
   let glT = null;
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'hc-gl-q') { clearTimeout(glT); glT = setTimeout(hcLoadGameLogs, 250); } });

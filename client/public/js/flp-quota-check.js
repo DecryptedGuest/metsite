@@ -19,7 +19,10 @@ async function flpQuotaLoad(scope) {
     var d = await api("/api/flp/quota/members?scope=" + scope);
     if (!d || !d.configured) {
       flpQuotaCache[scope] = [];
-      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Quota sheet read access isn't configured for " + scope + " (needs the Google service account and the " + scope + " sheet id).</span></td></tr>";
+      var CFG = window.metEmpty
+        ? window.metEmpty({ icon: "ti-alert-triangle", title: "Quota sheet not configured", sub: "Read access for " + scope + " needs the Google service account and the " + scope + " sheet id." })
+        : "<span class='table-empty-text'>Quota sheet read access isn't configured for " + scope + " (needs the Google service account and the " + scope + " sheet id).</span>";
+      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + CFG + "</td></tr>";
       return;
     }
     flpQuotaCache[scope] = d.members || [];
@@ -35,7 +38,10 @@ function flpQuotaRender(scope) {
   var list = flpQuotaCache[scope] || [];
   if (!tbody) return;
   if (!list.length) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>No members found in the sheet.</span></td></tr>";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
+      : "<span class='table-empty-text'>No members found in the sheet.</span>";
+    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + EMPTY + "</td></tr>";
     if (countEl) countEl.textContent = "";
     return;
   }
