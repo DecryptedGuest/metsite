@@ -333,7 +333,6 @@
       +   '<div class="me-icon"><i class="ti ti-alert-triangle"></i></div>'
       +   '<div class="me-title">Emergency Alert</div>'
       +   '<div class="me-msg">' + esc(d.message) + '</div>'
-      +   (d.by ? '<div class="me-by">Issued by ' + esc(d.by) + '</div>' : '')
       +   '<button class="me-dismiss" type="button"><i class="ti ti-check"></i> Dismiss</button>'
       + '</div>';
     document.body.appendChild(ov);
