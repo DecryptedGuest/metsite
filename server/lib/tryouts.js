@@ -106,6 +106,19 @@ function tryoutJoinUrl(tryout) {
   return `https://www.roblox.com/games/start?placeId=${pid}&launchData=${launch}`;
 }
 
+// The privacy-INDEPENDENT launch link for the member "Join" button: it opens the
+// game's own place and the in-game router teleports the player into the reserved
+// server via its access code (TeleportService), so it never depends on any
+// account's private-server/friend privacy settings the way a raw shared
+// private-server link does. Same as tryoutJoinUrl but without the `joinable`
+// gate (the member /join route already gates on LIVE). Null when no place id set.
+function tryoutLaunchUrl(tryout) {
+  const pid = tryoutPlaceId();
+  if (!pid || !tryout) return null;
+  const launch = encodeURIComponent(JSON.stringify({ t: tryout.id, d: divisionConfig(tryout.division).division }));
+  return `https://www.roblox.com/games/start?placeId=${pid}&launchData=${launch}`;
+}
+
 // Format the scheduled start as HH:MM in the configured timezone (for CID's
 // "Starting at" line). Falls back to the literal placeholder if unparseable.
 function fmtStartAt(tryout) {
@@ -388,5 +401,5 @@ module.exports = {
   formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
   isServerLocked, getServerLink, TRYOUT_PING_ROLE,
   divisionConfig, announceChannelId, reviewUrl,
-  tryoutJoinUrl, tryoutPlaceId,
+  tryoutJoinUrl, tryoutLaunchUrl, tryoutPlaceId,
 };

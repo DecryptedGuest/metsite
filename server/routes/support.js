@@ -303,6 +303,16 @@ router.patch('/settings', async (req, res) => {
 // ── GET /api/support/tryouts — upcoming MET (HPC) tryouts, for the help bot ──
 router.get('/tryouts', async (req, res) => {
   try {
+    // These are MET-recruitment (HPC) tryouts — for people who still need to JOIN
+    // the MET. A signed-in member who's already in the MET group or holds the
+    // final-exam role is past recruitment and shouldn't see them (guests still do).
+    if (req.user && req.user.role !== 'DEVELOPER') {
+      let rank = 0;
+      try { const r = await require('../lib/metRank').metRole(req.user.robloxId); if (r) rank = Number(r.rank) || 0; } catch (e) {}
+      let finalExam = false;
+      try { finalExam = await require('../middleware/division').userHasFinalExamRole(req.user); } catch (e) {}
+      if (rank > 0 || finalExam) return res.json([]);
+    }
     const { isServerLocked } = require('../lib/tryouts');
     const rows = await prisma.tryout.findMany({
       where: { division: 'HPC', status: { in: ['SCHEDULED', 'LIVE'] }, scheduledAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
