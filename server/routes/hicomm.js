@@ -318,12 +318,18 @@ function metRelatedGroupIds() {
     return new Set([div.metGroupId(), ...div.ALL.map(d => div.explicitGroupId(d))].filter(Boolean).map(String));
   } catch (e) { return new Set(); }
 }
+// A group whose name starts with another community's bracketed tag — e.g.
+// "{WL} Metropolitan Police", "[XYZ] Met Police". These belong to OTHER servers
+// and only share a generic name, so they're never relevant here.
+const FOREIGN_COMMUNITY_TAG = /^\s*[{[][^}\]]*[}\]]/;
 function filterMetGroups(groups) {
   const ids = metRelatedGroupIds();
   return (groups || []).filter(g => {
     const gid = g && g.group && String(g.group.id);
     const name = (g && g.group && g.group.name) || '';
-    return (gid && ids.has(gid)) || MET_GROUP_NAME.test(name);
+    if (gid && ids.has(gid)) return true;              // a configured group id is authoritative
+    if (FOREIGN_COMMUNITY_TAG.test(name)) return false; // another community's group — drop it
+    return MET_GROUP_NAME.test(name);
   });
 }
 
