@@ -493,6 +493,15 @@ html[data-theme="light"] #cmdk > div {
 html[data-theme="light"] .met-menu-empty,
 html[data-theme="light"] #cmdk-list > div { color: #1a2f60; }
 
+/* ── Command palette (search menu): hover slide + click press ─────────────── */
+.cmdk-row { transition: transform .13s cubic-bezier(.2,.7,.3,1), background-color .13s ease, box-shadow .15s ease; }
+.cmdk-row:hover { transform: translateX(4px); background: var(--hover, rgba(74,143,255,.10)) !important;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc, var(--blue,#4a8fff)) 70%, transparent); }
+.cmdk-row:hover i { transform: scale(1.12); transition: transform .13s cubic-bezier(.2,.7,.3,1); }
+.cmdk-row:active { transform: translateX(4px) scale(.975); }
+@keyframes cmdk-list-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+#cmdk-list { animation: cmdk-list-in .16s ease both; }
+
 /* Skeleton shimmer — dark-tinted blocks on a light page (the white shimmer was
    invisible on white). */
 html[data-theme="light"] .sk {

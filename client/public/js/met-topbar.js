@@ -245,21 +245,50 @@ function metInjectSupportChat() {
 
   const close = () => { pop.classList.remove('open'); fab.classList.remove('active'); fab.setAttribute('aria-expanded', 'false'); };
 
-  // ── Draggable: clamp to the viewport, remember where it was dropped ──
+  // ── Draggable + snap: free-drag, then snap to the nearest edge/corner anchor
+  // (4 corners + 4 edge midpoints), remembered per browser. ──
+  const SNAP_M = 18; // margin from the viewport edges
   function applyPos(left, top) {
-    const w = fab.offsetWidth || 54, h = fab.offsetHeight || 54;
+    const w = fab.offsetWidth || 62, h = fab.offsetHeight || 62;
     left = Math.max(6, Math.min(left, window.innerWidth - w - 6));
     top  = Math.max(6, Math.min(top, window.innerHeight - h - 6));
     fab.style.left = left + 'px'; fab.style.top = top + 'px';
     fab.style.right = 'auto'; fab.style.bottom = 'auto';
   }
-  try {
-    const saved = JSON.parse(localStorage.getItem('met_chat_pos') || 'null');
-    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') applyPos(saved.left, saved.top);
-  } catch (e) { /* default CSS corner */ }
-  window.addEventListener('resize', () => {
-    if (fab.style.left) { const r = fab.getBoundingClientRect(); applyPos(r.left, r.top); }
-  });
+  function anchorPoints() {
+    const w = fab.offsetWidth || 62, h = fab.offsetHeight || 62;
+    const maxL = Math.max(SNAP_M, window.innerWidth - w - SNAP_M);
+    const maxT = Math.max(SNAP_M, window.innerHeight - h - SNAP_M);
+    const midL = Math.round((window.innerWidth - w) / 2);
+    const midT = Math.round((window.innerHeight - h) / 2);
+    return [
+      { k: 'tl', left: SNAP_M, top: SNAP_M }, { k: 'tc', left: midL, top: SNAP_M }, { k: 'tr', left: maxL, top: SNAP_M },
+      { k: 'rm', left: maxL, top: midT }, { k: 'lm', left: SNAP_M, top: midT },
+      { k: 'bl', left: SNAP_M, top: maxT }, { k: 'bc', left: midL, top: maxT }, { k: 'br', left: maxL, top: maxT },
+    ];
+  }
+  function applyAnchor(key, animate) {
+    const pts = anchorPoints();
+    const p = pts.find(a => a.k === key) || pts.find(a => a.k === 'br');
+    if (animate) { fab.style.transition = 'left .24s cubic-bezier(.2,.7,.3,1), top .24s cubic-bezier(.2,.7,.3,1)'; setTimeout(() => { fab.style.transition = ''; }, 280); }
+    applyPos(p.left, p.top);
+    savedAnchor = p.k;
+  }
+  function nearestAnchor() {
+    const r = fab.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, w = r.width, h = r.height;
+    let best = 'br', bd = Infinity;
+    for (const p of anchorPoints()) {
+      const d = Math.pow(p.left + w / 2 - cx, 2) + Math.pow(p.top + h / 2 - cy, 2);
+      if (d < bd) { bd = d; best = p.k; }
+    }
+    return best;
+  }
+  let savedAnchor = 'br';
+  try { const k = localStorage.getItem('met_chat_anchor'); if (k) savedAnchor = k; } catch (e) {}
+  // Position on the saved anchor once the FAB has a measured size.
+  requestAnimationFrame(() => applyAnchor(savedAnchor, false));
+  window.addEventListener('resize', () => applyAnchor(savedAnchor, false));
 
   // Anchor the popup next to the FAB's current spot (above if there's room,
   // else below; aligned to whichever side of the screen the FAB sits on).
@@ -294,7 +323,11 @@ function metInjectSupportChat() {
     if (!dragging) return;
     dragging = false; fab.classList.remove('dragging');
     try { fab.releasePointerCapture(e.pointerId); } catch (x) {}
-    if (moved) { const r = fab.getBoundingClientRect(); try { localStorage.setItem('met_chat_pos', JSON.stringify({ left: r.left, top: r.top })); } catch (x) {} }
+    if (moved) {
+      const key = nearestAnchor();
+      applyAnchor(key, true);   // smooth snap to the nearest edge/corner
+      try { localStorage.setItem('met_chat_anchor', key); } catch (x) {}
+    }
   };
   fab.addEventListener('pointerup', endDrag);
   fab.addEventListener('pointercancel', endDrag);
