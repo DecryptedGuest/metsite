@@ -1069,15 +1069,46 @@ async function resolveMentionProfile(discordId) {
 }
 
 // ── GET /api/support/mention-search?q= — @-autocomplete suggestions ──
-// Signed-in staff only. Searches the MET server's members (like Discord).
+// Signed-in staff only. Matches by Discord username/nickname AND Roblox username,
+// so typing someone's Roblox name finds them (MET nicknames are "RANK | RobloxName",
+// so the Roblox name sits mid-nickname and Discord's prefix query alone misses it).
+// The inserted <@id> still renders their MET server nickname via enrichment.
 router.get('/mention-search', async (req, res) => {
   try {
     if (!req.user) return res.json({ users: [] });
     const q = String(req.query.q || '').trim();
     if (!q) return res.json({ users: [] });
+
+    const out = [];
+    const seen = new Set();
+    const push = (u) => { if (u && u.id && !seen.has(u.id)) { seen.add(u.id); out.push(u); } };
+
+    // 1) Discord member search — prefix query + a nickname substring pass.
     let members = [];
-    try { members = await require('../lib/bot').searchGuildMembers(q, 8, process.env.DISCORD_GUILD_ID); } catch (e) { members = []; }
-    res.json({ users: (members || []).filter(m => !m.isBot).slice(0, 8).map(m => ({ id: m.id, name: m.displayName, username: m.username, avatar: m.avatar })) });
+    try { members = await require('../lib/bot').searchGuildMembers(q, 12, process.env.DISCORD_GUILD_ID); } catch (e) { members = []; }
+    for (const m of (members || [])) { if (m && !m.isBot) push({ id: m.id, name: m.displayName, username: m.username, avatar: m.avatar }); }
+
+    // 2) Site users by ROBLOX username (and names) — the reliable path for linked
+    //    members: search the DB and hand back their Discord id.
+    if (q.length >= 2 && out.length < 8) {
+      try {
+        const users = await prisma.user.findMany({
+          where: {
+            discordId: { not: null },
+            OR: [
+              { robloxUsername:  { contains: q, mode: 'insensitive' } },
+              { displayName:     { contains: q, mode: 'insensitive' } },
+              { discordUsername: { contains: q, mode: 'insensitive' } },
+            ],
+          },
+          take: 8,
+          select: { discordId: true, displayName: true, discordUsername: true, robloxUsername: true, discordAvatar: true },
+        });
+        for (const u of users) push({ id: u.discordId, name: u.displayName || u.discordUsername, username: u.robloxUsername || u.discordUsername, avatar: u.discordAvatar || null });
+      } catch (e) { /* DB search best-effort */ }
+    }
+
+    res.json({ users: out.slice(0, 8) });
   } catch (e) { res.json({ users: [] }); }
 });
 

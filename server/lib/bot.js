@@ -1556,8 +1556,27 @@ async function searchGuildMembers(query, limit = 25, guildId) {
     }
   }
 
-  const results = await guild.members.fetch({ query: String(query || '').trim(), limit: Math.min(limit, 100) });
-  return [...results.values()].slice(0, limit).map(memberSummary);
+  const q = String(query || '').trim();
+  const out = new Map();
+  try {
+    const results = await guild.members.fetch({ query: q, limit: Math.min(limit, 100) });
+    for (const m of results.values()) out.set(m.id, m);
+  } catch (e) { /* fall through to the cache pass */ }
+
+  // Substring pass over the cached members. Discord's `query` search only matches
+  // the START of a username/nickname, so a Roblox name that sits mid-nickname
+  // (RoVer nicknames are "RANK | RobloxName") is never returned. Scanning the
+  // cache for a substring match catches those.
+  const ql = q.toLowerCase();
+  if (ql.length >= 2) {
+    for (const m of guild.members.cache.values()) {
+      if (out.has(m.id)) continue;
+      const hay = ((m.nickname || '') + ' ' + ((m.user && m.user.username) || '') + ' ' + (m.displayName || '')).toLowerCase();
+      if (hay.includes(ql)) out.set(m.id, m);
+      if (out.size >= limit * 4) break;
+    }
+  }
+  return [...out.values()].slice(0, limit).map(memberSummary);
 }
 
 function memberSummary(member) {

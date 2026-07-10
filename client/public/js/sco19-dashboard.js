@@ -36,7 +36,7 @@
       wrap.innerHTML = [
         kpi(sco ? (sco.rankName || ('Rank ' + sco.rank)) : 'Not a member', 'Your SCO-19 rank', '', 'ti-shield-half-filled'),
         kpi(tier, 'Access tier', tier === 'Command' ? 'Assistant Commander and above' : 'Authorised firearms officer', 'ti-target-arrow'),
-        kpi('Specialist Firearms', 'Division', '', 'ti-building-fortress'),
+        kpi('Specialist Firearms Command', 'Division', '', 'ti-building-fortress'),
       ].join('');
     } catch (e) {
       wrap.innerHTML = '<div class="table-empty"><div class="table-empty-text">Couldn\'t load your SCO-19 standing.</div></div>';
