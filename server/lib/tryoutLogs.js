@@ -419,8 +419,46 @@ async function notifyTryoutApprovers(log) {
   } catch (e) { console.error('[tryoutLog] notifyTryoutApprovers failed:', e.message); }
 }
 
+// ── On MET-tryout approval: give everyone who PASSED the final-exam role in the
+// MET server, so they can sit the exam. Best-effort per attendee — a member who
+// can't be resolved to a Discord id (never linked, not in the server) is skipped.
+// Returns { granted, total } for logging. ──
+async function grantFinalExamRoleToPassers(log) {
+  const out = { granted: 0, total: 0 };
+  try {
+    // Only MET tryouts (division HPC = the general MET tryout).
+    if (!log || String(log.division || '').toUpperCase() !== 'HPC') return out;
+    const { hpcExamRoleId } = require('./divisions');
+    const roleId = hpcExamRoleId();
+    if (!roleId) return out;
+    const bot = require('./bot');
+    const roblox = require('./roblox');
+    const passers = (Array.isArray(log.attendees) ? log.attendees : []).filter(a => a && a.result === 'PASS' && !a.kicked);
+    out.total = passers.length;
+    for (const a of passers) {
+      let discordId = null;
+      // 1) A linked site user with this Roblox id.
+      if (a.robloxId) {
+        const u = await prisma.user.findFirst({ where: { robloxId: String(a.robloxId) }, select: { discordId: true } }).catch(() => null);
+        if (u && u.discordId) discordId = String(u.discordId);
+      }
+      // 2) RoVer: Roblox id → Discord id.
+      if (!discordId && a.robloxId) {
+        try { const d = await roblox.getDiscordFromRoblox(String(a.robloxId)); if (d) discordId = String(d); } catch (e) {}
+      }
+      // 3) A guild member whose RoVer nickname matches the Roblox username.
+      if (!discordId && a.username && a.username !== 'Unknown') {
+        try { const m = await bot.findMemberByRobloxNick(a.username); if (m && m.id) discordId = String(m.id); } catch (e) {}
+      }
+      if (!discordId) continue;
+      try { const ok = await bot.assignRole(discordId, roleId); if (ok) out.granted++; } catch (e) {}
+    }
+  } catch (e) { console.error('[tryoutLog] grantFinalExamRoleToPassers failed:', e.message); }
+  return out;
+}
+
 module.exports = {
   normaliseAttendees, normaliseEvents, countsFor, resolveHostUser,
   createFromGamePayload, serialize, awardHpcPoint, awardCidEventPoint,
-  syncAttendanceToSheet, notifyTryoutApprovers,
+  syncAttendanceToSheet, notifyTryoutApprovers, grantFinalExamRoleToPassers,
 };

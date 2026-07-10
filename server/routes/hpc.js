@@ -615,6 +615,11 @@ router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) 
       },
     });
     await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
+    // Everyone who PASSED this MET tryout gets the final-exam role in the MET
+    // server so they can sit the exam. Fire-and-forget — never blocks approval.
+    tryoutLogsLib.grantFinalExamRoleToPassers(updated)
+      .then(r => { if (r && r.total) console.log(`[HPC] final-exam role granted to ${r.granted}/${r.total} passers of tryout ${updated.id}`); })
+      .catch(() => {});
     res.json({ success: true, status: 'APPROVED', pointAwarded: award.ok, pointReason: award.reason, pointDetail: award.detail });
   } catch (err) {
     console.error('[HPC] approve tryout log failed:', err.message);
