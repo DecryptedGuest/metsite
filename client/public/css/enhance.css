@@ -143,3 +143,48 @@ a { transition: color .15s ease, opacity .15s ease; }
 .page.active > .panel:nth-of-type(2) { animation-delay: .05s; }
 .page.active > .panel:nth-of-type(3) { animation-delay: .1s; }
 .page.active > .panel:nth-of-type(4) { animation-delay: .15s; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CLARITY PASS — make the sidebar + topbar clearly visible and buttons more
+   accessible/legible. Component-level overrides (loads last) so the theme
+   tokens are untouched and light/dark both stay intact.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: a distinct, slightly raised surface with a clear edge + shadow so it
+   reads as its own panel instead of blending into the page. */
+.sidebar {
+  background: linear-gradient(180deg, rgba(10,20,46,0.95), rgba(6,13,34,0.95)) !important;
+  border-right: 1px solid rgba(60,120,255,0.30) !important;
+  box-shadow: 4px 0 24px rgba(0,0,0,0.35);
+}
+/* Nav items: brighter default text (was ~55% alpha → hard to read) + clearer
+   hover/active. Pairs with the glowing active rail added in the colour pass. */
+.nav-item { color: rgba(190,214,255,0.82) !important; font-weight: 500; }
+.nav-item:hover { color: #eaf2ff !important; background: rgba(40,90,220,0.18) !important; }
+.nav-item.active { color: #fff !important; background: rgba(40,100,235,0.26) !important; border-color: rgba(70,130,255,0.45) !important; font-weight: 600; }
+.nav-icon { color: inherit; }
+.nav-section-label { color: rgba(150,185,240,0.6) !important; letter-spacing: .08em; }
+
+/* Topbar: give it a visible surface + a crisp bottom border and shadow so it
+   separates from the content beneath. */
+.met-topbar {
+  background: linear-gradient(180deg, rgba(9,17,38,0.92), rgba(7,13,30,0.88)) !important;
+  border-bottom: 1px solid rgba(60,120,255,0.28) !important;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.28);
+}
+.met-topbar-brand { color: #cfe0ff !important; }
+
+/* Buttons: bigger tap targets, bolder text, and stronger borders so actions are
+   obvious and easy to hit (accessibility). */
+.btn { min-height: 38px; font-weight: 600; }
+.btn-sm { min-height: 30px; font-size: 12px; padding: 0.34rem 0.8rem; }
+.btn-icon { min-height: 36px; }
+.btn-primary { color: #eaf3ff !important; }
+.btn-ghost { border-color: rgba(90,140,240,0.38) !important; color: rgba(200,222,255,0.9) !important; }
+.btn-ghost:hover { border-color: rgba(110,160,255,0.6) !important; color: #fff !important; background: rgba(40,90,220,0.2) !important; }
+
+/* Bigger, comfier focus + hover targets on small icon/close controls. */
+.btn-icon, .modal-close, .theme-toggle { border-radius: 9px; }
+
+/* Panels: a hair more separation from the page so the layout reads cleanly. */
+.panel, .glass { border-color: rgba(50,110,235,0.20); }
