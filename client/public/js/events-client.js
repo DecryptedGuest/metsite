@@ -51,24 +51,73 @@
   window.metClearSnooze = function () { try { localStorage.removeItem('metAlertsSnooze'); } catch (e) {} };
   window.metAlertsSnoozedUntil = snoozedUntil;
 
-  function chime() {
-    if (isSnoozed()) return;
+  // ── Sound engine (procedural WebAudio, no assets) ─────────────────────
+  // One shared voice table so every event across the site sounds like one
+  // system, respects the snooze, and honours a persistent Off/Subtle/Full mode.
+  //   rising = arrived / good · falling = closed / negative · single soft = neutral
+  //   repeated rising triads = URGENT (a new claimable ticket — the only alarm).
+  function soundMode() { try { return localStorage.getItem('metSoundMode') || 'full'; } catch (e) { return 'full'; } }
+  window.metSoundMode = soundMode;
+  window.metSetSoundMode = function (m) {
+    if (['off', 'subtle', 'full'].indexOf(m) < 0) m = 'full';
+    try { localStorage.setItem('metSoundMode', m); } catch (e) {}
+    if (m !== 'off') { window.metSound('claim_you'); } // little confirmation preview
+  };
+
+  // A "voice" is a list of tones: { f:Hz, at:sec-offset, dur:sec, type, gain, detune }.
+  var VOICES = {
+    // The one loud alarm — a new ticket ready to claim. Two urgent rising triads.
+    ticket_new: [880, 1175, 1568].concat([880, 1175, 1568]).map(function (f, i) {
+      var base = i < 3 ? 0 : 0.62, k = i % 3;
+      return { f: f, at: base + k * 0.13, dur: 0.26, type: 'triangle', gain: 0.7 };
+    }),
+    // Directed @mention — softer two-note "attention" (988 → 1319).
+    mention:   [{ f: 988, at: 0, dur: 0.14, type: 'triangle', gain: 0.34 }, { f: 1319, at: 0.12, dur: 0.16, type: 'triangle', gain: 0.34 }],
+    // Incoming message in an open ticket — gentle two-tone rise (523 → 659).
+    incoming:  [{ f: 523, at: 0, dur: 0.1, type: 'sine', gain: 0.13 }, { f: 659, at: 0.07, dur: 0.14, type: 'sine', gain: 0.13 }],
+    // Your own message sent — short soft downward click (440 → 330).
+    sent:      [{ f: 440, at: 0, dur: 0.05, type: 'sine', gain: 0.1 }, { f: 330, at: 0.04, dur: 0.06, type: 'sine', gain: 0.1 }],
+    // You claimed a ticket — confirming up-third (587 → 784).
+    claim_you: [{ f: 587, at: 0, dur: 0.1, type: 'triangle', gain: 0.3 }, { f: 784, at: 0.09, dur: 0.16, type: 'triangle', gain: 0.3 }],
+    // A popup auto-dismissed (claimed by someone else) — tiny neutral tick.
+    tick:      [{ f: 880, at: 0, dur: 0.06, type: 'sine', gain: 0.12 }],
+    // Ticket closed / resolved — soft falling two-note (659 → 440).
+    closed:    [{ f: 659, at: 0, dur: 0.12, type: 'sine', gain: 0.25 }, { f: 440, at: 0.1, dur: 0.18, type: 'sine', gain: 0.25 }],
+    // Ticket reopened — rising two-note (440 → 659), the inverse of close.
+    reopened:  [{ f: 440, at: 0, dur: 0.12, type: 'sine', gain: 0.25 }, { f: 659, at: 0.1, dur: 0.18, type: 'sine', gain: 0.25 }],
+    // Blocked / rate-limited / error — low muted detuned buzz (220 Hz).
+    error:     [{ f: 220, at: 0, dur: 0.16, type: 'sawtooth', gain: 0.2 }, { f: 220, at: 0, dur: 0.16, type: 'sawtooth', gain: 0.2, detune: 14 }],
+    // Exam PASS — bright rising major arpeggio (523-659-784).
+    exam_pass: [{ f: 523, at: 0, dur: 0.14, type: 'triangle', gain: 0.35 }, { f: 659, at: 0.12, dur: 0.14, type: 'triangle', gain: 0.35 }, { f: 784, at: 0.24, dur: 0.22, type: 'triangle', gain: 0.35 }],
+    // Exam FAIL — gentle falling minor two-note (523 → 415).
+    exam_fail: [{ f: 523, at: 0, dur: 0.14, type: 'sine', gain: 0.25 }, { f: 415, at: 0.13, dur: 0.2, type: 'sine', gain: 0.25 }],
+    // Tryout going LIVE — distinct two-note call to action (698 → 880).
+    tryout_live: [{ f: 698, at: 0, dur: 0.14, type: 'triangle', gain: 0.3 }, { f: 880, at: 0.13, dur: 0.2, type: 'triangle', gain: 0.3 }],
+    // Escalation to HICOMM — single low urgent pulse (330 Hz ×2).
+    escalate:  [{ f: 330, at: 0, dur: 0.16, type: 'square', gain: 0.32 }, { f: 330, at: 0.2, dur: 0.16, type: 'square', gain: 0.32 }],
+  };
+
+  window.metSound = function (name) {
+    var mode = soundMode();
+    if (mode === 'off' || isSnoozed()) return;   // muted, or Do-Not-Disturb
+    var voice = VOICES[name]; if (!voice) return;
     var ctx = ensureAudio(); if (!ctx) return;
-    var now = ctx.currentTime;
-    function beep(freq, at) {
+    var mult = mode === 'subtle' ? 0.4 : 1, now = ctx.currentTime;
+    voice.forEach(function (s) {
       try {
         var o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'triangle'; o.frequency.value = freq;
-        g.gain.setValueAtTime(0.0001, now + at);
-        g.gain.exponentialRampToValueAtTime(0.7, now + at + 0.02); // loud
-        g.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.26);
+        o.type = s.type || 'sine'; o.frequency.value = s.f; if (s.detune) o.detune.value = s.detune;
+        var at = now + (s.at || 0), dur = s.dur || 0.18, peak = Math.max(0.0001, (s.gain || 0.2) * mult);
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.exponentialRampToValueAtTime(peak, at + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
         o.connect(g); g.connect(ctx.destination);
-        o.start(now + at); o.stop(now + at + 0.28);
+        o.start(at); o.stop(at + dur + 0.03);
       } catch (e) {}
-    }
-    // Two urgent rising triads (attention-grabbing).
-    [0, 0.62].forEach(function (base) { beep(880, base); beep(1175, base + 0.13); beep(1568, base + 0.26); });
-  }
+    });
+  };
+  // Back-compat: the loud new-ticket alarm.
+  function chime() { window.metSound('ticket_new'); }
 
   // ── On-screen "new ticket, ready to claim" popup with a big claim CTA ──
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
@@ -144,7 +193,7 @@
   // someone else) — or all of them (when muting).
   function dismissTicketAlert(ticketId) {
     var c = _ticketCards[ticketId];
-    if (c) { try { c.remove(); } catch (e) {} delete _ticketCards[ticketId]; }
+    if (c) { try { c.remove(); } catch (e) {} delete _ticketCards[ticketId]; window.metSound('tick'); }
     delete _seen[ticketId]; // allow a genuine re-open to alert again later
   }
   function dismissAllTicketAlerts() { Object.keys(_ticketCards).forEach(dismissTicketAlert); }
@@ -175,7 +224,7 @@
       else window.location.href = d.url || ('/ia/dashboard?supportTicket=' + encodeURIComponent(d.ticketId));
     });
     wrap.appendChild(card);
-    chime();
+    window.metSound('mention'); // softer, distinct from the loud new-ticket alarm
     setTimeout(remove, 60000);
   }
   window.metShowMentionAlert = showMentionAlert;
@@ -188,12 +237,14 @@
     es.addEventListener('exam_marked', function (ev) {
       var d = parse(ev);
       toast(d.message || 'Your exam has been marked.', d.status === 'PASSED' ? 'success' : 'info');
+      window.metSound(d.status === 'PASSED' ? 'exam_pass' : 'exam_fail');
       call('loadExamStatus');   // profile page — refresh the exam panel if present
     });
 
     es.addEventListener('tryout_live', function (ev) {
       var d = parse(ev);
       toast(d.message || 'A MET tryout is now live!', 'info');
+      window.metSound('tryout_live');
       call('loadTryouts');      // profile page — refresh the tryouts panel if present
     });
 

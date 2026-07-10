@@ -455,7 +455,7 @@
     try {
       const body = action === 'deescalate' ? JSON.stringify({ off: true }) : undefined;
       const r = await api('/api/support/tickets/' + tid + '/' + map[action], { method: 'POST', body });
-      showToast('Done', 'success'); await reloadTicket(); refreshQueue();
+      showToast('Done', 'success'); if (action === 'claim') sdSound('claim_you'); await reloadTicket(); refreshQueue();
       // On claim, prefill the composer with the investigator's greeting (they
       // review/edit and send it themselves). Only if we're STILL on that ticket
       // and its composer is empty — never paste it into a different ticket.
@@ -470,7 +470,7 @@
     const tid = curT && curT.id; if (!tid) return;
     try {
       const r = await api('/api/support/tickets/' + tid + '/reopen', { method: 'POST', body: JSON.stringify({}) });
-      showToast('Ticket reopened', 'success');
+      showToast('Ticket reopened', 'success'); sdSound('reopened');
       if (curT && curT.id === tid) { curT = r.ticket; renderWorkspace(r.ticket); }
       refreshQueue();
     } catch (e) { showToast(e.message, 'error'); }
@@ -486,14 +486,14 @@
     const note = await uiPrompt('Escalate this ticket up to IA High Command. Add a note (optional).',
       { title: 'Escalate to IA HICOMM', confirmText: 'Escalate', placeholder: 'Reason (optional)…', multiline: true });
     if (note === null) return;
-    try { await api('/api/support/tickets/' + curT.id + '/escalate', { method: 'POST', body: JSON.stringify({ note }) }); showToast('Escalated', 'success'); await reloadTicket(); refreshQueue(); }
+    try { await api('/api/support/tickets/' + curT.id + '/escalate', { method: 'POST', body: JSON.stringify({ note }) }); showToast('Escalated', 'success'); sdSound('escalate'); await reloadTicket(); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.sdClose = async function () {
     const reason = await uiPrompt('Close this ticket. Add a close reason (optional) — an IA ticket log is auto-filed for HICOMM.',
       { title: 'Close ticket', confirmText: 'Close ticket', cancelText: 'Cancel', placeholder: 'Close reason (optional)…', multiline: true, danger: true });
     if (reason === null) return; // Cancel / Escape / backdrop → do NOT close
-    try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); await reloadTicket(); refreshQueue(); }
+    try { await api('/api/support/tickets/' + curT.id + '/close', { method: 'POST', body: JSON.stringify({ reason }) }); showToast('Closed', 'success'); sdSound('closed'); await reloadTicket(); refreshQueue(); }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.sdBlacklist = async function (off) {
@@ -564,8 +564,21 @@
       ${greetFields}
       <div style="font-size:13px;font-weight:700;margin:16px 0 6px;"><i class="ti ti-message-2-bolt"></i> Quick replies</div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">One per line. These appear in the Quick replies picker.</div>
-      <textarea class="form-control" id="sd-set-canned" rows="8" style="font-size:13px;">${esc(CANNED.join('\n'))}</textarea>`;
+      <textarea class="form-control" id="sd-set-canned" rows="8" style="font-size:13px;">${esc(CANNED.join('\n'))}</textarea>
+      <div style="font-size:13px;font-weight:700;margin:16px 0 6px;"><i class="ti ti-volume"></i> Sound &amp; alerts</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Controls every desk sound on this device (new-ticket alarm, replies, mentions, claim/close, exam results…).</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <select class="form-control" id="sd-set-sound" style="width:auto;font-size:13px;" onchange="window.metSetSoundMode(this.value)">
+          <option value="full">Full volume</option>
+          <option value="subtle">Subtle</option>
+          <option value="off">Off (silent)</option>
+        </select>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="window.metSnoozeAlerts(30)"><i class="ti ti-bell-off"></i> Mute alerts 30 min</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="window.metClearSnooze&amp;&amp;window.metClearSnooze();showToast('Mute cleared','info')"><i class="ti ti-bell"></i> Clear mute</button>
+      </div>`;
     openModal('modal-sd-settings');
+    // Reflect the saved sound mode in the selector.
+    try { const s = $('sd-set-sound'); if (s && window.metSoundMode) s.value = window.metSoundMode(); } catch (e) {}
   };
   window.sdSaveSettings = async function () {
     const greetings = {};
@@ -725,7 +738,8 @@
       sdReplyTo = null; renderSdReplyBar();
       const _ic = $('sd-internal'); if (_ic) _ic.checked = false; // reset so the NEXT reply isn't silently internal
       window.supFmtPreviewClear('sd-fmt-preview');
-    } catch (e) { showToast(e.message, 'error'); }
+      sdSound('sent');
+    } catch (e) { showToast(e.message, 'error'); sdSound('error'); }
     finally { _sdSending = false; const sb = $('sd-send'); if (sb) sb.disabled = false; }
   }
 
@@ -773,23 +787,10 @@
 
   // ── Realtime (SSE + polling fallback) ────────────────────────────────
   let sdPoll = null;
-  // Soft, quiet blip when a message arrives in the open ticket (browser autoplay
-  // rule needs a prior gesture — staff are clicking around the desk, so it's on).
-  let _msgActx = null;
-  function msgBlip() {
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-      if (!_msgActx) _msgActx = new AC();
-      if (_msgActx.state === 'suspended') _msgActx.resume().catch(() => {});
-      const ctx = _msgActx, now = ctx.currentTime;
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'sine'; o.frequency.value = 620;
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.13, now + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-      o.connect(g); g.connect(ctx.destination); o.start(now); o.stop(now + 0.2);
-    } catch (e) { /* audio unavailable */ }
-  }
+  // Incoming-message blip + all desk sounds now route through the shared engine
+  // (metSound) so they're consistent site-wide and honour the mute/snooze/mode.
+  function msgBlip() { if (window.metSound) window.metSound('incoming'); }
+  function sdSound(name) { if (window.metSound) window.metSound(name); }
 
   function openStream(id) {
     closeStream();

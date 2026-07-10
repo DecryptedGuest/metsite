@@ -250,6 +250,7 @@
       const r = await api(tok('/api/support/tickets/' + cur.id + '/reopen', cur.id), { method: 'POST', body: JSON.stringify({}) });
       cur = r.ticket; renderTicketHeader(cur); setComposerEnabled(cur); openStream(cur.id);
       showToast('Ticket reopened — an investigator will be with you shortly.', 'success');
+      supSound('reopened');
     } catch (e) { showToast(e.message, 'error'); }
   };
 
@@ -1086,8 +1087,10 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (cur && cur.id === tid && !document.querySelector(`[data-mid="${msg.id}"]`)) { _supPinned = true; appendBubble(msg); } // own send → jump to bottom
       $('sup-input').value = ''; clearDraft(tid); clearPending(); replyTo = null; renderReplyBar();
+      supSound('sent');
     } catch (e) {
       showToast(e.message, 'error');
+      supSound('error');
       // If the send was refused because we've just been blocked, re-sync so the
       // composer locks itself immediately.
       if (/block|blacklist/i.test(e.message || '')) refreshTicket(cur.id);
@@ -1098,21 +1101,10 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   // A soft, quiet blip when a message arrives (distinct from the loud new-ticket
   // alert). Needs a prior user gesture to sound (browser autoplay rule) — the
   // opener is interacting with the ticket, so it's unlocked.
-  let _msgActx = null;
-  function msgBlip() {
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-      if (!_msgActx) _msgActx = new AC();
-      if (_msgActx.state === 'suspended') _msgActx.resume().catch(() => {});
-      const ctx = _msgActx, now = ctx.currentTime;
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'sine'; o.frequency.value = 620;
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.13, now + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-      o.connect(g); g.connect(ctx.destination); o.start(now); o.stop(now + 0.2);
-    } catch (e) { /* audio unavailable */ }
-  }
+  // Incoming-message blip now goes through the shared sound engine (metSound),
+  // so it stays consistent with the rest of the site and honours the mute/snooze.
+  function msgBlip() { if (window.metSound) window.metSound('incoming'); }
+  function supSound(name) { if (window.metSound) window.metSound(name); }
 
   // ── Realtime (SSE + polling fallback) ───────────────────────────────────
   let pollTimer = null;
@@ -1139,7 +1131,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       es.addEventListener('update', ev => {
         // Grab the claimant card synchronously (before the 'claimed' message event
         // is processed) so the panel renders with the investigator's avatars.
-        try { const d = JSON.parse(ev.data || '{}'); if (d && d.claimant && cur) cur.claimant = d.claimant; } catch (e) {}
+        try { const d = JSON.parse(ev.data || '{}'); if (d && d.claimant && cur) cur.claimant = d.claimant; if (d && d.status === 'CLOSED') supSound('closed'); } catch (e) {}
         refreshTicket(ticketId);
       });
       // A message removed server-side (e.g. a claim-race message auto-deleted).
