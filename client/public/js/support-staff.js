@@ -106,8 +106,26 @@
   }
 
   // ── Ticket workspace ────────────────────────────────────────────────
+  // Per-ticket composer drafts (body + reply-to + internal flag), so switching
+  // between tickets doesn't discard a half-typed reply.
+  const _sdDrafts = {};
+  function saveSdDraft(id) {
+    if (!id) return;
+    const inp = $('sd-input'); const body = inp ? inp.value : '';
+    const internal = $('sd-internal') ? $('sd-internal').checked : false;
+    if ((body && body.trim()) || sdReplyTo || internal) _sdDrafts[id] = { body, replyTo: sdReplyTo, internal };
+    else delete _sdDrafts[id];
+  }
+  function restoreSdDraft(id) {
+    const d = _sdDrafts[id]; if (!d) return;
+    const inp = $('sd-input'); if (inp) inp.value = d.body || '';
+    sdReplyTo = d.replyTo || null; renderSdReplyBar();
+    const ic = $('sd-internal'); if (ic) ic.checked = !!d.internal;
+  }
   let _sdOpenSeq = 0;
   window.sdOpen = async function (id) {
+    // Stash the outgoing ticket's draft before we tear the composer down.
+    if (curT && curT.id && curT.id !== id) saveSdDraft(curT.id);
     // Make the Support Desk tab the active page behind the workspace, so "Go to
     // ticket" / "Claim ticket" from the alert always land on the desk (not
     // whatever page happened to be open). Only navigate if not already there.
@@ -135,7 +153,7 @@
     try {
       const t = await api('/api/support/tickets/' + id);
       if (seq !== _sdOpenSeq) return;    // a newer sdOpen superseded this one
-      curT = t; renderWorkspace(t); openStream(id);
+      curT = t; renderWorkspace(t); restoreSdDraft(id); openStream(id);
     } catch (e) {
       if (seq !== _sdOpenSeq) return;
       $('sd-log').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`;
@@ -254,6 +272,10 @@
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdCanned()"><i class="ti ti-message-2-bolt"></i> Quick replies</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdSettings()" title="Support desk settings — edit your claim greetings and quick replies"><i class="ti ti-settings"></i></button>`);
     if (c.canClose)  b.push(`<button class="btn btn-danger btn-sm" onclick="sdClose()"><i class="ti ti-lock"></i> Close</button>`);
+    // Reopen a closed ticket back into the queue.
+    if (t.status === 'CLOSED' && (c.isHicomm || t.canManage)) b.push(`<button class="btn btn-primary btn-sm" onclick="sdReopen()"><i class="ti ti-rotate"></i> Reopen</button>`);
+    // Download an HTML transcript (staff view includes internal notes).
+    b.push(`<a class="btn btn-ghost btn-sm" href="/api/support/tickets/${t.id}/transcript" target="_blank" rel="noopener"><i class="ti ti-download"></i> Transcript</a>`);
     // Guest ticket-blacklist: block/allow this guest opener's IP + browser.
     if (t.openerBlacklisted && (c.isHicomm || c.canBlacklist)) {
       b.push(`<button class="btn btn-ghost btn-sm" style="color:var(--green);" onclick="sdBlacklist(true)" title="Lift the ticket blacklist on this guest"><i class="ti ti-shield-check"></i> Blacklisted — lift</button>`);
@@ -310,11 +332,18 @@
       : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}"></a>`).join('');
     const nameClick = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
     const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && curT && curT.status !== 'CLOSED';
+    const edited = m.editedAt ? '<span class="sup-edited" title="Edited">(edited)</span>' : '';
+    const mine = !!(m.id && SDC && SDC.me && m.authorId && m.authorId === SDC.me.id && kind !== 'bot');
+    // Moderators (claimant / IA HICOMM) may delete any non-system message.
+    const isMod = !!(curT && curT.caps && (curT.caps.isHicomm || (SDC && SDC.me && curT.claimedById === SDC.me.id)));
+    let ownActs = '';
+    if (mine) ownActs += `<button class="sup-msg-act" title="Edit" onclick="sdEditMsg('${esc(m.id)}')"><i class="ti ti-pencil"></i></button>`;
+    if (mine || (isMod && kind !== 'bot' && m.id)) ownActs += `<button class="sup-msg-act" title="Delete" onclick="sdDeleteMsg('${esc(m.id)}')"><i class="ti ti-trash"></i></button>`;
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
         ${replyRefSd(m)}
-        <div class="sup-meta"><span class="sup-name"${nameClick}${sdNameUid(m)}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="sdReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
+        <div class="sup-meta"><span class="sup-name"${nameClick}${sdNameUid(m)}>${esc(m.authorName || '')}</span>${internal ? '<span class="sup-note-tag">· internal note</span>' : ''}<span class="sup-time">${window.formatDateTime ? window.formatDateTime(m.createdAt) : ''}</span>${edited}${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="sdReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}${ownActs}</div>
         ${m.body ? `<div class="sup-text">${mdInlineSd(m.body)}</div>` : ''}
         ${m.identity ? idCard(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
@@ -336,7 +365,42 @@
   // isn't yanked back down by the 5s poll / incoming messages / updates.
   let _sdPinned = true;
   function sdNearBottom(l) { return !l || (l.scrollHeight - l.scrollTop - l.clientHeight) < 140; }
-  function sdScroll(force) { const l = $('sd-log'); if (!l) return; if (force) _sdPinned = true; if (_sdPinned) l.scrollTop = l.scrollHeight; }
+  function sdScroll(force) { const l = $('sd-log'); if (!l) return; if (force) _sdPinned = true; if (_sdPinned) { l.scrollTop = l.scrollHeight; sdHideJumpPill(); } }
+  // "↓ New messages" jump pill (staff side).
+  function sdJumpPillEl() {
+    let p = document.getElementById('sd-jump-pill');
+    if (!p) {
+      const log = document.getElementById('sd-log'); if (!log || !log.parentNode) return null;
+      p = document.createElement('button'); p.id = 'sd-jump-pill'; p.className = 'sup-jump-pill'; p.type = 'button';
+      p.innerHTML = '<i class="ti ti-arrow-down"></i> New messages'; p.style.display = 'none';
+      p.addEventListener('click', () => sdScroll(true));
+      if (getComputedStyle(log.parentNode).position === 'static') log.parentNode.style.position = 'relative';
+      log.parentNode.appendChild(p);
+    }
+    return p;
+  }
+  function sdShowJumpPill() { const p = sdJumpPillEl(); if (p) p.style.display = ''; }
+  function sdHideJumpPill() { const p = document.getElementById('sd-jump-pill'); if (p) p.style.display = 'none'; }
+  // Replace a message bubble in place (used by the 'edit' SSE event).
+  function sdApplyEdit(m) {
+    if (!m || !m.id) return;
+    const el = document.querySelector(`[data-mid="${(m.id || '').replace(/"/g, '')}"]`); if (!el) return;
+    const wrap = document.createElement('div'); wrap.innerHTML = msgHtml(m);
+    const fresh = wrap.firstElementChild; if (fresh) { el.replaceWith(fresh); sdEnrichMentions(); }
+  }
+  window.sdEditMsg = async function (mid) {
+    if (!curT) return;
+    const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"] .sup-text`);
+    const next = window.prompt('Edit your message:', el ? el.textContent : '');
+    if (next == null) return; const body = next.trim(); if (!body) return;
+    try { const m = await api('/api/support/tickets/' + curT.id + '/messages/' + mid, { method: 'PATCH', body: JSON.stringify({ body }) }); sdApplyEdit(m); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
+  window.sdDeleteMsg = async function (mid) {
+    if (!curT || !window.confirm('Delete this message?')) return;
+    try { await api('/api/support/tickets/' + curT.id + '/messages/' + mid, { method: 'DELETE' }); const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"]`); if (el) el.remove(); }
+    catch (e) { showToast(e.message, 'error'); }
+  };
   // Resolve <@id> mentions in the log into MET nicknames + a profile card.
   function sdEnrichMentions() {
     if (!window.enrichMentions || !curT) return;
@@ -348,7 +412,7 @@
       },
     });
   }
-  (function () { const l = document.getElementById('sd-log'); if (l) l.addEventListener('scroll', () => { _sdPinned = sdNearBottom(l); }, { passive: true }); })();
+  (function () { const l = document.getElementById('sd-log'); if (l) l.addEventListener('scroll', () => { _sdPinned = sdNearBottom(l); if (_sdPinned) sdHideJumpPill(); }, { passive: true }); })();
 
   function renderLog(t) {
     const msgs = t.messages || [];
@@ -401,6 +465,15 @@
       }
       return true;
     } catch (e) { showToast(e.message, 'error'); return false; }
+  };
+  window.sdReopen = async function () {
+    const tid = curT && curT.id; if (!tid) return;
+    try {
+      const r = await api('/api/support/tickets/' + tid + '/reopen', { method: 'POST', body: JSON.stringify({}) });
+      showToast('Ticket reopened', 'success');
+      if (curT && curT.id === tid) { curT = r.ticket; renderWorkspace(r.ticket); }
+      refreshQueue();
+    } catch (e) { showToast(e.message, 'error'); }
   };
   window.sdSetPriority = async function (p) {
     try { await api('/api/support/tickets/' + curT.id + '/priority', { method: 'POST', body: JSON.stringify({ priority: p }) }); showToast('Priority set', 'success'); await reloadTicket(); refreshQueue(); }
@@ -648,7 +721,7 @@
       const msg = await api('/api/support/tickets/' + tid + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal, replyToId }) });
       // Only paint into the log if we're still on the ticket we sent to.
       if (curT && curT.id === tid && !document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); sdScroll(true); sdEnrichMentions(); }
-      $('sd-input').value = ''; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
+      $('sd-input').value = ''; delete _sdDrafts[tid]; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
       sdReplyTo = null; renderSdReplyBar();
       const _ic = $('sd-internal'); if (_ic) _ic.checked = false; // reset so the NEXT reply isn't silently internal
       window.supFmtPreviewClear('sd-fmt-preview');
@@ -723,14 +796,16 @@
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (m.authorId) sdClearTyperById(m.authorId); } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (!_sdPinned) sdShowJumpPill(); if (m.authorId) sdClearTyperById(m.authorId); } catch (e) {}
       });
       sdES.addEventListener('typing', ev => { try { sdOnTyping(JSON.parse(ev.data)); } catch (e) {} });
       sdES.addEventListener('update', () => { reloadTicket(true); refreshQueue(); });
-      // A message removed server-side (e.g. a claim-race message auto-deleted).
+      // A message removed server-side (e.g. a claim-race / moderated message).
       sdES.addEventListener('delete', ev => {
         try { const d = JSON.parse(ev.data); if (d && d.id) { const el = document.querySelector(`[data-mid="${d.id}"]`); if (el) el.remove(); } } catch (e) {}
       });
+      // A message edited by its author — swap the bubble in place.
+      sdES.addEventListener('edit', ev => { try { sdApplyEdit(JSON.parse(ev.data)); } catch (e) {} });
     } catch (e) {}
     // Polling fallback — append any new messages even if SSE is buffered.
     sdPoll = setInterval(() => sdRefresh(id), 5000);

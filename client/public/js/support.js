@@ -205,6 +205,7 @@
       } else {
         mode = 'chat';
         setComposerEnabled(t);
+        restoreDraft(t.id);   // bring back any reply typed here earlier
         openStream(t.id);
       }
     } catch (e) { showToast(e.message, 'error'); }
@@ -236,8 +237,21 @@
     const acts = [];
     if (t.canManage && t.status === 'OPEN')   acts.push(`<button class="btn btn-primary btn-sm" onclick="supClaim()"><i class="ti ti-hand-stop"></i> Claim</button>`);
     if (t.canManage && t.status !== 'CLOSED') acts.push(`<button class="btn btn-ghost btn-sm" onclick="supClose()"><i class="ti ti-lock"></i> Close</button>`);
+    // Reopen a closed ticket — the opener (follow-up) or handling staff.
+    if (t.status === 'CLOSED' && (t.isMine || t.canManage)) acts.push(`<button class="btn btn-primary btn-sm" onclick="supReopen()"><i class="ti ti-rotate"></i> Reopen</button>`);
+    // Download a transcript — anyone who can see the ticket.
+    acts.push(`<a class="btn btn-ghost btn-sm" href="${tok('/api/support/tickets/' + t.id + '/transcript', t.id)}" target="_blank" rel="noopener"><i class="ti ti-download"></i> Transcript</a>`);
     $('sup-t-actions').innerHTML = acts.join('');
   }
+  // Reopen a closed ticket (opener follow-up).
+  window.supReopen = async function () {
+    if (!cur) return;
+    try {
+      const r = await api(tok('/api/support/tickets/' + cur.id + '/reopen', cur.id), { method: 'POST', body: JSON.stringify({}) });
+      cur = r.ticket; renderTicketHeader(cur); setComposerEnabled(cur); openStream(cur.id);
+      showToast('Ticket reopened — an investigator will be with you shortly.', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+  };
 
   // Chronological: greeting first, then the intake Q/A (which happened between
   // greeting and the "ticket open" summary), then the rest of the thread.
@@ -344,11 +358,16 @@
         : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(a.name || '')}" /></a>`;
     }).join('');
     const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && cur && cur.status !== 'CLOSED';
+    // The opener may edit/delete their OWN messages (signed-in only — guests have
+    // no account to authenticate the edit).
+    const mine = !!(m.id && CFG.me && m.authorId && m.authorId === CFG.me.id && kind !== 'bot');
+    const edited = m.editedAt ? '<span class="sup-edited" title="Edited">(edited)</span>' : '';
+    const ownActs = mine ? `<button class="sup-msg-act" title="Edit" onclick="supEditMsg('${esc(m.id)}')"><i class="ti ti-pencil"></i></button><button class="sup-msg-act" title="Delete" onclick="supDeleteMsg('${esc(m.id)}')"><i class="ti ti-trash"></i></button>` : '';
     return `<div class="sup-msg ${kind}"${m.id ? ` data-mid="${esc(m.id)}"` : ''}>
       ${avatarHtml(m)}
       <div class="sup-body">
         ${replyRefHtml(m)}
-        <div class="sup-meta"><span class="sup-name"${profileClick(m)}${nameUid(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span>${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="supReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}</div>
+        <div class="sup-meta"><span class="sup-name"${profileClick(m)}${nameUid(m)}>${esc(m.authorName || '')}</span><span class="sup-time">${fmtTime(m.createdAt)}</span>${edited}${canReply ? `<button class="sup-reply-btn" title="Reply" onclick="supReply('${esc(m.id)}')"><i class="ti ti-arrow-back-up"></i></button>` : ''}${ownActs}</div>
         ${m.body ? `<div class="sup-text">${mdInline(m.body)}</div>` : ''}
         ${m.identity ? identityCardHtml(m.identity) : ''}
         ${atts ? `<div class="sup-atts">${atts}</div>` : ''}
@@ -378,10 +397,27 @@
   // read history isn't yanked back down by incoming messages / polling.
   let _supPinned = true;
   function nearBottom(l) { return !l || (l.scrollHeight - l.scrollTop - l.clientHeight) < 140; }
-  function scrollLog(force) { const l = $('sup-log'); if (!l) return; if (force) _supPinned = true; if (_supPinned) l.scrollTop = l.scrollHeight; }
+  function scrollLog(force) { const l = $('sup-log'); if (!l) return; if (force) _supPinned = true; if (_supPinned) { l.scrollTop = l.scrollHeight; hideJumpPill(); } }
+  // "↓ New messages" pill — shown when a message arrives while the user has
+  // scrolled up to read history; clicking it jumps back to the newest message.
+  function jumpPillEl() {
+    let p = document.getElementById('sup-jump-pill');
+    if (!p) {
+      const log = document.getElementById('sup-log'); if (!log || !log.parentNode) return null;
+      p = document.createElement('button'); p.id = 'sup-jump-pill'; p.className = 'sup-jump-pill'; p.type = 'button';
+      p.innerHTML = '<i class="ti ti-arrow-down"></i> New messages';
+      p.style.display = 'none';
+      p.addEventListener('click', () => { scrollLog(true); });
+      if (getComputedStyle(log.parentNode).position === 'static') log.parentNode.style.position = 'relative';
+      log.parentNode.appendChild(p);
+    }
+    return p;
+  }
+  function showJumpPill() { const p = jumpPillEl(); if (p) p.style.display = ''; }
+  function hideJumpPill() { const p = document.getElementById('sup-jump-pill'); if (p) p.style.display = 'none'; }
   (function wireScrollPin() {
     const l = document.getElementById('sup-log');
-    if (l) l.addEventListener('scroll', () => { _supPinned = nearBottom(l); }, { passive: true });
+    if (l) l.addEventListener('scroll', () => { _supPinned = nearBottom(l); if (_supPinned) hideJumpPill(); }, { passive: true });
   })();
 
   // ── Intake flow ────────────────────────────────────────────────
@@ -632,7 +668,36 @@
     } catch (e) { showToast(e.message, 'error'); }
   }
 
-  function appendBubble(m) { $('sup-log').insertAdjacentHTML('beforeend', renderMsg(m)); scrollLog(); enrichLogMentions(); }
+  function appendBubble(m) { $('sup-log').insertAdjacentHTML('beforeend', renderMsg(m)); scrollLog(); enrichLogMentions(); if (!_supPinned) showJumpPill(); }
+  // Replace a rendered message bubble in place (used by the 'edit' SSE event).
+  function applyEdit(m) {
+    if (!m || !m.id) return;
+    const el = document.querySelector(`[data-mid="${(m.id || '').replace(/"/g, '')}"]`);
+    if (!el) return;
+    const wrap = document.createElement('div'); wrap.innerHTML = renderMsg(m);
+    const fresh = wrap.firstElementChild;
+    if (fresh) { el.replaceWith(fresh); enrichLogMentions(); }
+  }
+  // Edit your own message: prefill the composer-style prompt inline.
+  window.supEditMsg = async function (mid) {
+    const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"] .sup-text`);
+    const current = el ? el.textContent : '';
+    const next = window.prompt('Edit your message:', current);
+    if (next == null) return;
+    const body = next.trim(); if (!body) return;
+    try {
+      const m = await api(tok('/api/support/tickets/' + cur.id + '/messages/' + mid, cur.id), { method: 'PATCH', body: JSON.stringify({ body }) });
+      applyEdit(m);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+  // Delete your own message.
+  window.supDeleteMsg = async function (mid) {
+    if (!window.confirm('Delete this message?')) return;
+    try {
+      await api(tok('/api/support/tickets/' + cur.id + '/messages/' + mid, cur.id), { method: 'DELETE' });
+      const el = document.querySelector(`[data-mid="${(mid || '').replace(/"/g, '')}"]`); if (el) el.remove();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
   // Resolve <@id> mentions in the log into MET nicknames + a profile card.
   function enrichLogMentions() {
     if (!window.enrichMentions || !cur) return;
@@ -847,8 +912,21 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     if (window.initRichComposer) window.initRichComposer($('sup-input'), {
       mentionSearch: async (q) => { if (!q) return []; try { const r = await api('/api/support/mention-search?q=' + encodeURIComponent(q)); return r.users || []; } catch (e) { return []; } },
     });
-    $('sup-input').addEventListener('input', sendTyping);
+    $('sup-input').addEventListener('input', () => { sendTyping(); saveDraft(); });
   }
+
+  // ── Per-ticket composer draft persistence ────────────────────────────
+  // A reply typed on one ticket survives a reload / navigating away and back.
+  function draftKey(id) { return 'supDraft:' + id; }
+  function saveDraft() {
+    try {
+      if (!cur || !cur.id || mode !== 'chat') return;
+      const v = $('sup-input').value;
+      if (v && v.trim()) localStorage.setItem(draftKey(cur.id), v); else localStorage.removeItem(draftKey(cur.id));
+    } catch (e) {}
+  }
+  function restoreDraft(id) { try { const v = localStorage.getItem(draftKey(id)); if (v != null && $('sup-input')) $('sup-input').value = v; } catch (e) {} }
+  function clearDraft(id) { try { localStorage.removeItem(draftKey(id)); } catch (e) {} }
 
   // ── Typing indicator ─────────────────────────────────────────────
   let _lastTypingPing = 0;
@@ -1007,7 +1085,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       const msg = await api(tok('/api/support/tickets/' + tid + '/messages', tid), { method: 'POST', body: JSON.stringify({ body, attachments: atts, replyToId }) });
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
       if (cur && cur.id === tid && !document.querySelector(`[data-mid="${msg.id}"]`)) { _supPinned = true; appendBubble(msg); } // own send → jump to bottom
-      $('sup-input').value = ''; clearPending(); replyTo = null; renderReplyBar();
+      $('sup-input').value = ''; clearDraft(tid); clearPending(); replyTo = null; renderReplyBar();
     } catch (e) {
       showToast(e.message, 'error');
       // If the send was refused because we've just been blocked, re-sync so the
@@ -1068,6 +1146,8 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       es.addEventListener('delete', ev => {
         try { const d = JSON.parse(ev.data); if (d && d.id) { const el = document.querySelector(`[data-mid="${d.id}"]`); if (el) el.remove(); } } catch (e) {}
       });
+      // A message edited by its author — swap the bubble in place.
+      es.addEventListener('edit', ev => { try { applyEdit(JSON.parse(ev.data)); } catch (e) {} });
       es.addEventListener('typing', ev => { try { onTyping(JSON.parse(ev.data)); } catch (e) {} });
       es.onerror = () => { /* browser auto-reconnects */ };
     } catch (e) { /* SSE unsupported → the poll below still updates the chat */ }

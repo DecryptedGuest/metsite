@@ -32,3 +32,16 @@
 .sup-idcard:hover { border-color: var(--blue, #4a8fff); }
 
 .sup-av[onclick]:hover, .sup-name[onclick]:hover { filter: brightness(1.15); text-decoration: underline; cursor: pointer; }
+
+/* Edited marker + own-message actions (edit / delete) */
+.sup-edited { font-size: 10px; color: var(--text-muted, #8b93a1); margin-left: 6px; font-style: italic; }
+.sup-msg-act { background: none; border: none; color: var(--text-muted, #8b93a1); cursor: pointer; font-size: 12px; padding: 1px 4px; margin-left: 2px; opacity: .55; transition: opacity .12s ease, color .12s ease; }
+.sup-msg:hover .sup-msg-act { opacity: 1; }
+.sup-msg-act:hover { color: var(--text-primary, #e8edf5); }
+
+/* "New messages" jump pill (shown when scrolled up and a message arrives) */
+.sup-jump-pill { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 20;
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px;
+  background: var(--blue, #4a8fff); color: #fff; border: none; font-size: 12px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.sup-jump-pill:hover { filter: brightness(1.08); }

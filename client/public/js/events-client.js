@@ -39,7 +39,20 @@
     window.addEventListener(ev, ensureAudio, { passive: true });
   });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) ensureAudio(); });
+  // ── Do-Not-Disturb / snooze ──────────────────────────────────────────
+  // A per-staffer mute (persisted) that silences the chime and the "ready to
+  // claim" popups for a while. Directed mention popups still appear (silently).
+  function snoozedUntil() { try { return parseInt(localStorage.getItem('metAlertsSnooze') || '0', 10) || 0; } catch (e) { return 0; } }
+  function isSnoozed() { return Date.now() < snoozedUntil(); }
+  window.metSnoozeAlerts = function (mins) {
+    try { localStorage.setItem('metAlertsSnooze', String(Date.now() + Math.max(1, mins || 30) * 60000)); } catch (e) {}
+    if (typeof window.showToast === 'function') window.showToast('Ticket alerts muted for ' + (mins || 30) + ' min.', 'info');
+  };
+  window.metClearSnooze = function () { try { localStorage.removeItem('metAlertsSnooze'); } catch (e) {} };
+  window.metAlertsSnoozedUntil = snoozedUntil;
+
   function chime() {
+    if (isSnoozed()) return;
     var ctx = ensureAudio(); if (!ctx) return;
     var now = ctx.currentTime;
     function beep(freq, at) {
@@ -79,13 +92,16 @@
         + '.met-alert .ma-btn,.met-alert .ma-go{display:flex;align-items:center;justify-content:center;gap:6px;flex:1;padding:11px 12px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;transition:filter .15s ease,transform .05s ease;border:1px solid transparent;}'
         + '.met-alert .ma-btn{background:var(--blue,#4a8fff);color:#fff;border:none;}'
         + '.met-alert .ma-go{background:transparent;color:var(--text-primary,#e8edf5);border:1px solid var(--border,#3a4150);}'
-        + '.met-alert .ma-btn:hover,.met-alert .ma-go:hover{filter:brightness(1.1);} .met-alert .ma-btn:active,.met-alert .ma-go:active{transform:translateY(1px);}';
+        + '.met-alert .ma-btn:hover,.met-alert .ma-go:hover{filter:brightness(1.1);} .met-alert .ma-btn:active,.met-alert .ma-go:active{transform:translateY(1px);}'
+        + '.met-alert .ma-mute{margin-top:8px;width:100%;background:none;border:none;color:var(--text-muted,#8b93a1);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;padding:4px;} .met-alert .ma-mute:hover{color:var(--text-secondary,#aeb6c2);}';
       document.head.appendChild(st);
     }
     return _popupWrap;
   }
+  var _ticketCards = {}; // ticketId -> card element (so it can be auto-dismissed)
   function showTicketAlert(d) {
     if (!d || !d.ticketId || _seen[d.ticketId]) return;   // de-dupe repeat events
+    if (isSnoozed()) return;                                // staffer muted alerts
     _seen[d.ticketId] = true;
     var wrap = ensureWrap();
     var card = document.createElement('div');
@@ -102,8 +118,9 @@
       + '<div class="ma-actions">'
       +   '<button class="ma-btn"><i class="ti ti-hand-stop"></i> Claim ticket</button>'
       +   '<button class="ma-go"><i class="ti ti-arrow-right"></i> Go to ticket</button>'
-      + '</div>';
-    var remove = function () { try { card.remove(); } catch (e) {} };
+      + '</div>'
+      + '<button class="ma-mute" title="Mute ticket alerts for 30 minutes"><i class="ti ti-bell-off"></i> Mute 30m</button>';
+    var remove = function () { try { card.remove(); } catch (e) {} delete _ticketCards[d.ticketId]; };
     card.querySelector('.ma-x').addEventListener('click', remove);
     // Claim ticket → open + auto-claim in place on the desk; else deep-link + claim.
     card.querySelector('.ma-btn').addEventListener('click', function () {
@@ -115,11 +132,22 @@
       if (typeof window.sdOpen === 'function') { window.sdOpen(d.ticketId); remove(); }
       else window.location.href = viewUrl;
     });
+    card.querySelector('.ma-mute').addEventListener('click', function () { window.metSnoozeAlerts(30); dismissAllTicketAlerts(); });
     wrap.appendChild(card);
+    _ticketCards[d.ticketId] = card;
     chime();
     setTimeout(remove, 60000); // stays a full minute; the web push is the durable copy
   }
   window.metShowTicketAlert = showTicketAlert;
+
+  // Dismiss the "ready to claim" popup for one ticket (it was claimed/closed by
+  // someone else) — or all of them (when muting).
+  function dismissTicketAlert(ticketId) {
+    var c = _ticketCards[ticketId];
+    if (c) { try { c.remove(); } catch (e) {} delete _ticketCards[ticketId]; }
+    delete _seen[ticketId]; // allow a genuine re-open to alert again later
+  }
+  function dismissAllTicketAlerts() { Object.keys(_ticketCards).forEach(dismissTicketAlert); }
 
   // ── "You were mentioned in a ticket" popup ────────────────────────────
   // Fired when someone @-mentions you in a ticket you can see. Chime + a card
@@ -180,6 +208,11 @@
     // You were @-mentioned in a ticket you can see — sound + popup.
     es.addEventListener('ticket_mention', function (ev) {
       showMentionAlert(parse(ev));
+    });
+
+    // A ticket was claimed/closed by someone else — dismiss its stale "claim" popup.
+    es.addEventListener('ticket_taken', function (ev) {
+      var d = parse(ev); if (d && d.ticketId) dismissTicketAlert(d.ticketId);
     });
 
     es.addEventListener('notification', function (ev) {
