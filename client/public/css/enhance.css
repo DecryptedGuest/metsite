@@ -101,11 +101,18 @@ a { transition: color .15s ease, opacity .15s ease; }
 /* Stat / KPI cards: a coloured accent bar along the top + a lift, so numbers
    pop (matches the member dashboard's My Activity tiles). */
 .stat-card, .cc-stat { position: relative; overflow: hidden; }
+/* The accent bar follows the card's own colour: an explicit --cc/--dc, then a
+   semantic .amber/.green/.red/.purple class, else the page's division (--dc),
+   else blue. So an amber "Awaiting" card gets an amber bar, not a fighting blue one. */
 .stat-card::before, .cc-stat::before {
   content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, var(--blue,#4a8fff), transparent 85%);
+  background: linear-gradient(90deg, var(--cc, var(--dc, var(--blue,#4a8fff))), transparent 85%);
   opacity: .85;
 }
+.stat-card.amber::before  { background: linear-gradient(90deg, var(--amber,#f5b730), transparent 85%); }
+.stat-card.green::before  { background: linear-gradient(90deg, var(--green,#2ed896), transparent 85%); }
+.stat-card.red::before    { background: linear-gradient(90deg, var(--red,#f04f5e), transparent 85%); }
+.stat-card.purple::before { background: linear-gradient(90deg, #9b6dff, transparent 85%); }
 .cc-stat .v, .stat-card .stat-value { text-shadow: 0 0 18px currentColor; }
 
 /* Coloured section accents you can drop on any panel via a class. */
@@ -134,7 +141,7 @@ a { transition: color .15s ease, opacity .15s ease; }
 .nav-item.active { position: relative; }
 .nav-item.active::before {
   content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 3px; border-radius: 3px;
-  background: var(--blue,#4a8fff); box-shadow: 0 0 10px var(--blue,#4a8fff);
+  background: var(--dc, var(--blue,#4a8fff)); box-shadow: 0 0 10px var(--dc, var(--blue,#4a8fff));
 }
 
 /* Page sections fade/slide in on first paint so navigating feels alive. */
@@ -188,3 +195,79 @@ a { transition: color .15s ease, opacity .15s ease; }
 
 /* Panels: a hair more separation from the page so the layout reads cleanly. */
 .panel, .glass { border-color: rgba(50,110,235,0.20); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   DIVISION IDENTITY + COMPONENT COLOUR (from the UI-map). Everything keys off
+   --dc, which is set on a page via <body class="div-hpc"> etc. and defaults to
+   blue everywhere else, so IA and shared pages are untouched.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* The whole division portal picks up its colour: brand name, logo glow, and the
+   topbar division badge become a coloured pill. */
+body[class*="div-"] .brand-name { color: var(--dc, #7aacff); }
+body[class*="div-"] .brand-logo { box-shadow: 0 0 16px color-mix(in srgb, var(--dc,#3050dc) 34%, transparent);
+  border-color: color-mix(in srgb, var(--dc,#3264ff) 45%, transparent); }
+.met-topbar-division {
+  background: color-mix(in srgb, var(--dc,#4a8fff) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 45%, transparent);
+  color: var(--dc,#4a8fff) !important; padding: 2px 10px; border-radius: 999px; font-weight: 700;
+}
+/* Division-tinted panel headers so each portal reads with its own colour. */
+body[class*="div-"] .panel-title { color: color-mix(in srgb, var(--dc,#7aacff) 78%, #d8eaff); }
+
+/* .div-chip: a filled, tinted chip (used for division/type tags in tables etc.) */
+.div-chip { background: color-mix(in srgb, var(--dc,#8b93a1) 12%, transparent) !important; }
+.div-chip::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dc,#8b93a1); margin-right: 6px; vertical-align: middle; box-shadow: 0 0 6px var(--dc,#8b93a1); }
+
+/* cc-stat (Command Center KPI tiles): gradient tint, hover lift, brighter number. */
+.cc-stat { background: linear-gradient(180deg, rgba(74,143,255,.06), transparent) !important;
+  transition: transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease, border-color .2s ease; }
+.cc-stat:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,.28); border-color: var(--blue-dim, rgba(74,143,255,.4)); }
+.cc-stat .v { font-weight: 800; }
+
+/* Command-Center timeline (Officer Lookup / audit): comfy rows + glowing dots. */
+.tl-item { border-radius: 9px; padding: 10px 12px; margin: 2px 0; transition: background .15s ease; }
+.tl-item:hover { background: var(--hover, rgba(74,143,255,.08)); }
+.tl-dot { box-shadow: 0 0 12px -2px currentColor; }
+
+/* Dev panels: gold section dot + a reusable DEV pill. */
+.panel-dot.gold { background: #f5c518; color: #f5c518; box-shadow: 0 0 8px #f5c518; }
+.accent-gold { box-shadow: inset 3px 0 0 #f5c518; }
+.dev-pill { font-size: 11px; background: rgba(245,197,24,.12); color: #f5c518;
+  border: 1px solid rgba(245,197,24,.32); border-radius: 5px; padding: .28rem .7rem; font-weight: 700; letter-spacing: .04em; }
+
+/* Officer-lookup search result rows: hover lift. */
+.hc-off-row:hover { transform: translateY(-2px); border-color: var(--blue-dim, rgba(74,143,255,.45)) !important; }
+
+/* ── Ticket TYPE + PRIORITY + STATUS colour system (support desk) ──────── */
+.tkt-general_support { --dc: var(--blue,#4a8fff); }
+.tkt-disciplinary_appeal { --dc: var(--amber,#f5b730); }
+.tkt-officer_complaint { --dc: var(--red,#f04f5e); }
+.tkt-ia_complaint { --dc: #9b6dff; }
+/* Type-coloured left rail on ticket rows/cards + coloured heading icon. */
+.tkt-row > td:first-child, .sup-panel[class*="tkt-"]::after { }
+.sup-panel[class*="tkt-"] { position: relative; }
+.sup-panel[class*="tkt-"]::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background: var(--dc,#4a8fff); border-radius: 3px 0 0 3px; opacity:.9; }
+.sup-panel[class*="tkt-"] h3 i { color: var(--dc,#4a8fff); }
+.tkt-row { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc,#4a8fff) 70%, transparent); }
+
+/* Priority badges (token-driven, replaces inline hex). */
+.badge-prio-urgent { background: var(--red-dim,rgba(240,79,94,.14)) !important; color: var(--red,#f04f5e) !important; border: 1px solid rgba(240,79,94,.4) !important; }
+.badge-prio-high   { background: var(--amber-dim,rgba(245,183,48,.14)) !important; color: var(--amber,#f5b730) !important; border: 1px solid rgba(245,183,48,.4) !important; }
+.badge-prio-normal { background: var(--blue-dim,rgba(74,143,255,.14)) !important; color: var(--blue,#4a8fff) !important; border: 1px solid rgba(74,143,255,.3) !important; }
+.badge-prio-low    { background: rgba(140,150,170,.12) !important; color: var(--text-muted,#8b93a1) !important; }
+
+/* Empty-state icon (already-referenced class, now defined). */
+.table-empty-icon { display:block; font-size: 30px; color: var(--text-muted,#8b93a1); opacity:.5; margin: 0 auto 8px; }
+
+/* Landing/login division tiles. */
+.div-tile { position: relative; border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 38%, var(--border-mid)) !important;
+  box-shadow: inset 3px 0 0 var(--dc,#4a8fff); transition: transform .16s ease, border-color .2s ease, box-shadow .2s ease; }
+.div-tile:hover { transform: translateY(-3px); border-color: var(--dc,#4a8fff) !important; box-shadow: inset 3px 0 0 var(--dc,#4a8fff), 0 12px 30px rgba(0,0,0,.3); }
+
+/* Message avatar role rings in chat (kind class already on .sup-msg). */
+.sup-msg.bot .sup-av   { box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue,#4a8fff) 55%, transparent); }
+.sup-msg.staff .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--green,#2ed896) 50%, transparent); }
+.sup-msg.internal .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber,#f5b730) 55%, transparent); }

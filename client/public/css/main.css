@@ -55,6 +55,15 @@
 
   --transition:     0.18s ease;
   --transition-slow: 0.35s ease;
+
+  /* Compatibility aliases — several components use these bare token names; without
+     them they fell back to browser defaults (grey), which is what made the HICOMM
+     panels look dead. They reference themed tokens so they adapt to light/dark. */
+  --border:    var(--border-mid);
+  --panel:     var(--bg-panel);
+  --surface:   var(--bg-deep);
+  --surface-1: var(--bg-panel);
+  --hover:     var(--blue-dim);
 }
 
 html, body {
