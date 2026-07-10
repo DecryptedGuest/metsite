@@ -106,6 +106,7 @@
   }
 
   // ── Ticket workspace ────────────────────────────────────────────────
+  let _sdOpenSeq = 0;
   window.sdOpen = async function (id) {
     // Make the Support Desk tab the active page behind the workspace, so "Go to
     // ticket" / "Claim ticket" from the alert always land on the desk (not
@@ -114,6 +115,12 @@
       const deskPage = document.getElementById('page-support-tickets');
       if (deskPage && !deskPage.classList.contains('active') && typeof window.navigateTo === 'function') window.navigateTo('support-tickets');
     } catch (e) { /* non-fatal */ }
+    // Sequence token + hard reset: tear down the previous ticket's stream/poll and
+    // drop curT immediately, so a failed load or an out-of-order resolution can't
+    // leave the composer/actions pointed at the wrong (or a stale) ticket.
+    const seq = ++_sdOpenSeq;
+    closeStream();
+    curT = null;
     openModal('modal-sd-ticket');
     $('sd-log').innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     $('sd-toolbar').innerHTML = ''; sdPending = []; renderPending();
@@ -123,11 +130,16 @@
     const _inp = $('sd-input'); if (_inp) _inp.value = '';
     sdReplyTo = null; renderSdReplyBar();
     const _ic = $('sd-internal'); if (_ic) _ic.checked = false;
+    const _comp = $('sd-composer'); if (_comp) _comp.style.display = 'none'; // stays hidden until load succeeds
     sdClearTypers(); _sdPinned = true;   // fresh ticket → start pinned to newest
     try {
       const t = await api('/api/support/tickets/' + id);
+      if (seq !== _sdOpenSeq) return;    // a newer sdOpen superseded this one
       curT = t; renderWorkspace(t); openStream(id);
-    } catch (e) { $('sd-log').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`; }
+    } catch (e) {
+      if (seq !== _sdOpenSeq) return;
+      $('sd-log').innerHTML = `<div class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></div>`;
+    }
   };
 
   // Open a ticket and immediately claim it (used by the pop-up alert's big
@@ -352,7 +364,27 @@
   }
 
   // ── Actions ─────────────────────────────────────────────────────────
-  async function reloadTicket() { try { const t = await api('/api/support/tickets/' + curT.id); curT = t; renderWorkspace(t); } catch (e) {} }
+  // chromeOnly=true refreshes just the title/toolbar/composer-visibility WITHOUT
+  // rebuilding the message log — used for passive 'update' events (someone else
+  // claimed/escalated/changed priority) so your scroll position isn't yanked and
+  // the composer live-locks the instant another investigator claims it.
+  async function reloadTicket(chromeOnly) {
+    if (!curT) return;
+    const id = curT.id;
+    try {
+      const t = await api('/api/support/tickets/' + id);
+      if (!curT || curT.id !== id) return; // switched tickets mid-fetch
+      curT = t;
+      if (chromeOnly) {
+        $('sd-title').textContent = `${t.typeLabel} · ${t.openerName}`;
+        renderToolbar(t);
+        const composer = $('sd-composer');
+        if (composer) composer.style.display = (t.caps && (t.caps.canReply || t.caps.canInternalNote)) ? '' : 'none';
+      } else {
+        renderWorkspace(t);
+      }
+    } catch (e) {}
+  }
   window.sdAct = async function (action) {
     const map = { claim: 'claim', release: 'release', deescalate: 'escalate' };
     const tid = curT && curT.id;   // the ticket this action targets
@@ -599,20 +631,29 @@
       <button class="sup-replybar-x" title="Cancel reply" onclick="sdCancelReply()"><i class="ti ti-x"></i></button>`;
   }
 
+  let _sdSending = false;
   async function onSend() {
+    if (_sdSending) return;                     // guard against double-send (double Enter / click)
+    if (!curT) return;
     if (sdPending.some(p => p.status === 'loading')) return showToast('Wait for uploads to finish.', 'warning');
     const body = $('sd-input').value.trim();
     const internal = $('sd-internal').checked;
     const atts = sdPending.filter(p => p.status === 'done').map(p => ({ mediaId: p.mediaId, kind: p.kind, name: p.name }));
     if (!body && !atts.length) return;
     const replyToId = sdReplyTo ? sdReplyTo.id : null;
+    const tid = curT.id;
+    _sdSending = true;
+    const sendBtn = $('sd-send'); if (sendBtn) sendBtn.disabled = true;
     try {
-      const msg = await api('/api/support/tickets/' + curT.id + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal, replyToId }) });
-      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); sdScroll(true); sdEnrichMentions(); }
+      const msg = await api('/api/support/tickets/' + tid + '/messages', { method: 'POST', body: JSON.stringify({ body, attachments: atts, internal, replyToId }) });
+      // Only paint into the log if we're still on the ticket we sent to.
+      if (curT && curT.id === tid && !document.querySelector(`[data-mid="${msg.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(msg)); sdScroll(true); sdEnrichMentions(); }
       $('sd-input').value = ''; sdPending.forEach(p => { if (p.previewUrl) try { URL.revokeObjectURL(p.previewUrl); } catch (e) {} }); sdPending = []; renderPending();
       sdReplyTo = null; renderSdReplyBar();
+      const _ic = $('sd-internal'); if (_ic) _ic.checked = false; // reset so the NEXT reply isn't silently internal
       window.supFmtPreviewClear('sd-fmt-preview');
     } catch (e) { showToast(e.message, 'error'); }
+    finally { _sdSending = false; const sb = $('sd-send'); if (sb) sb.disabled = false; }
   }
 
   // ── Typing indicator ─────────────────────────────────────────────
@@ -625,17 +666,26 @@
     _sdLastTyping = now;
     try { fetch('/api/support/tickets/' + curT.id + '/typing', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); } catch (e) {}
   }
+  // Keyed by the typer's USER id (not display name) so two people sharing a name
+  // don't clobber each other's indicator. Each value carries the display name.
   const _sdTypers = {};
+  function sdTyperKey(d) { return d.userId || ('name:' + d.name); }
   function sdOnTyping(d) {
     if (!d || !d.name) return;
     if (d.userId && SDC && SDC.me && d.userId === SDC.me.id) return;   // ignore my own
-    if (_sdTypers[d.name]) clearTimeout(_sdTypers[d.name]);
-    _sdTypers[d.name] = setTimeout(() => { delete _sdTypers[d.name]; sdRenderTypers(); }, 4500);
+    const key = sdTyperKey(d);
+    if (_sdTypers[key]) clearTimeout(_sdTypers[key].timer);
+    _sdTypers[key] = { name: d.name, timer: setTimeout(() => { delete _sdTypers[key]; sdRenderTypers(); }, 4500) };
     sdRenderTypers();
+  }
+  // Clear a typer by their user id (called when their message lands).
+  function sdClearTyperById(userId) {
+    if (!userId || !_sdTypers[userId]) return;
+    clearTimeout(_sdTypers[userId].timer); delete _sdTypers[userId]; sdRenderTypers();
   }
   function sdRenderTypers() {
     let el = document.getElementById('sd-typing');
-    const names = Object.keys(_sdTypers);
+    const names = Object.values(_sdTypers).map(v => v.name);
     if (!names.length) { if (el) { el.style.display = 'none'; el.innerHTML = ''; } return; }
     if (!el) {
       const composer = $('sd-composer'); if (!composer || !composer.parentNode) return;
@@ -646,7 +696,7 @@
     const label = names.length === 1 ? `${names[0]} is typing` : `${names.slice(0, 2).join(', ')}${names.length > 2 ? ' and others' : ''} are typing`;
     el.innerHTML = `<span class="sup-typing-dots"><span></span><span></span><span></span></span> ${esc(label)}…`;
   }
-  function sdClearTypers() { Object.keys(_sdTypers).forEach(k => clearTimeout(_sdTypers[k])); Object.keys(_sdTypers).forEach(k => delete _sdTypers[k]); sdRenderTypers(); }
+  function sdClearTypers() { Object.values(_sdTypers).forEach(v => clearTimeout(v.timer)); Object.keys(_sdTypers).forEach(k => delete _sdTypers[k]); sdRenderTypers(); }
 
   // ── Realtime (SSE + polling fallback) ────────────────────────────────
   let sdPoll = null;
@@ -673,10 +723,10 @@
     try {
       sdES = new EventSource('/api/support/tickets/' + id + '/stream');
       sdES.addEventListener('message', ev => {
-        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (m.authorName) { if (_sdTypers[m.authorName]) { clearTimeout(_sdTypers[m.authorName]); delete _sdTypers[m.authorName]; sdRenderTypers(); } } } catch (e) {}
+        try { const m = JSON.parse(ev.data); if (!m || !m.id || document.querySelector(`[data-mid="${m.id}"]`)) return; if (curT && SDC && SDC.me && curT.claimedById && curT.claimedById === SDC.me.id) msgBlip(); /* only the claimant hears it */ $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); sdScroll(); sdEnrichMentions(); if (m.authorId) sdClearTyperById(m.authorId); } catch (e) {}
       });
       sdES.addEventListener('typing', ev => { try { sdOnTyping(JSON.parse(ev.data)); } catch (e) {} });
-      sdES.addEventListener('update', () => { reloadTicket(); refreshQueue(); });
+      sdES.addEventListener('update', () => { reloadTicket(true); refreshQueue(); });
       // A message removed server-side (e.g. a claim-race message auto-deleted).
       sdES.addEventListener('delete', ev => {
         try { const d = JSON.parse(ev.data); if (d && d.id) { const el = document.querySelector(`[data-mid="${d.id}"]`); if (el) el.remove(); } } catch (e) {}
@@ -692,6 +742,7 @@
   async function sdRefresh(id) {
     if (!curT || curT.id !== id) return;
     let t; try { t = await api('/api/support/tickets/' + id); } catch (e) { return; }
+    if (!curT || curT.id !== id) return; // re-check: the ticket may have switched during the await
     (t.messages || []).forEach(m => {
       if (m.id && !document.querySelector(`[data-mid="${m.id}"]`)) { $('sd-log').insertAdjacentHTML('beforeend', msgHtml(m)); }
     });

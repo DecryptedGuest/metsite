@@ -121,7 +121,15 @@ function fillGreeting(template, { rank, username, isProbationary } = {}) {
   if (out.includes('{supervision}')) {
     out = out.replace(/\{supervision\}/g, clause);
   } else if (clause) {
-    out = out.replace(/Internal Affairs/i, m => m + clause); // auto-insert for PINV
+    // Auto-insert after the first "Internal Affairs" mention; if a customised
+    // template never says it, append the clause to the first sentence so the
+    // mandatory supervision disclosure is NEVER silently dropped for a PINV.
+    if (/Internal Affairs/i.test(out)) {
+      out = out.replace(/Internal Affairs/i, m => m + clause);
+    } else {
+      const dot = out.indexOf('.');
+      out = dot >= 0 ? out.slice(0, dot) + clause + out.slice(dot) : out + clause;
+    }
   }
   return out
     .replace(/ {2,}/g, ' ')          // collapse doubled spaces (e.g. empty rank)
@@ -160,7 +168,12 @@ function canOverrideClaimLock(user) {
   // ("SUPERVISOR"), which is ambiguous — a Senior Investigator (rank 15) also has
   // the SUPERVISOR site role — so we ignore that placeholder and stay locked.
   const name = (e && e.rankName ? String(e.rankName) : '');
-  if (!name || name.toUpperCase() === String(user.role || '').toUpperCase()) return false;
+  // The placeholder is the bare site-role token in EXACT case (e.g. "SUPERVISOR")
+  // set before enrichment — a Senior Investigator (rank 15) carries it too, so it
+  // must not grant override. Compare case-SENSITIVELY: a real IA group rank name
+  // is title-case ("Supervisor"), so a genuine Supervisor still matches the regex
+  // below and isn't wrongly locked out.
+  if (!name || name === String(user.role || '')) return false;
   return /supervisor|assistant\s*director|deputy\s*director|\bdirector\b|administration|hicom|overseer|met hicomm/i.test(name);
 }
 
@@ -187,11 +200,18 @@ function isSubjectOfReport(user, ticket) {
   if (!user || !ticket) return false;
   if (ticket.type !== 'OFFICER_COMPLAINT' && ticket.type !== 'IA_COMPLAINT') return false;
   const intake = Array.isArray(ticket.intake) ? ticket.intake : [];
+  const norm = s => String(s || '').trim().toLowerCase();
+  const uDiscordName = norm(user.discordUsername);
+  const uRobloxName  = norm(user.robloxUsername);
   for (const q of intake) {
     const id = q && q.identity;
     if (!id) continue;
     if (id.discordId && user.discordId && String(id.discordId) === String(user.discordId)) return true;
     if (id.robloxId && user.robloxId && String(id.robloxId) === String(user.robloxId)) return true;
+    // Also match by username: intake may resolve only one id type while the
+    // subject's account is linked by the other, so an id-only compare can miss.
+    if (id.robloxUsername && uRobloxName && norm(id.robloxUsername) === uRobloxName) return true;
+    if (id.discordUsername && uDiscordName && norm(id.discordUsername) === uDiscordName) return true;
   }
   return false;
 }
@@ -221,7 +241,9 @@ function handleableTypes(user) {
 // Can this user VIEW this ticket at all? Opener, or handling staff.
 function canView(user, ticket) {
   if (!user || !ticket) return false;
-  if (ticket.openerId === user.id) return true;
+  // Guard truthiness so a null openerId (guest / imported ticket) can't match a
+  // nullish user id and fail open — same rule as canHandleTicket.
+  if (ticket.openerId && ticket.openerId === user.id) return true;
   // A named subject of a report can't even view the report filed about them
   // (except DEVELOPER, for testing) — same integrity rule as canHandleTicket.
   if (user.role !== 'DEVELOPER' && isSubjectOfReport(user, ticket)) return false;
@@ -285,7 +307,7 @@ async function broadcastOpenTicket(ticket) {
     const events = require('./events');
     const staff = await prisma.user.findMany({
       where: { role: { in: roles }, isBlacklisted: false },
-      select: { id: true },
+      select: { id: true, role: true, discordId: true, robloxId: true, discordUsername: true, robloxUsername: true },
     });
     // A one-line preview from the opener's first non-empty intake answer.
     let preview = null;
@@ -301,8 +323,12 @@ async function broadcastOpenTicket(ticket) {
       preview,
       url: `/ia/dashboard?supportTicket=${idEnc}&claim=1`,
     };
-    // Never alert the opener about their own ticket.
-    const targetIds = staff.map(s => s.id).filter(id => !(ticket.openerId && id === ticket.openerId));
+    // Never alert the opener about their own ticket — nor the person a report
+    // NAMES as its subject (they must not even learn a complaint about them exists).
+    const targetIds = staff
+      .filter(s => !(ticket.openerId && s.id === ticket.openerId))
+      .filter(s => !isSubjectOfReport(s, ticket))
+      .map(s => s.id);
     // Instant in-page popup + loud chime for any eligible staffer on the site now.
     for (const id of targetIds) events.publishToUser(id, 'support_open', payload);
     // Durable web push to the same IA set (phone + desktop) with action buttons,
@@ -330,11 +356,12 @@ async function broadcastOpenTicket(ticket) {
       if (dmRoles.length && base) {
         const dmStaff = await prisma.user.findMany({
           where: { role: { in: dmRoles }, isBlacklisted: false, discordId: { not: null } },
-          select: { id: true, discordId: true, notifyPrefs: true },
+          select: { id: true, discordId: true, robloxId: true, role: true, discordUsername: true, robloxUsername: true, notifyPrefs: true },
         });
         const bot = require('./bot');
         for (const u of dmStaff) {
           if (ticket.openerId && u.id === ticket.openerId) continue; // never DM the opener
+          if (isSubjectOfReport(u, ticket)) continue;               // never DM the reported subject
           const prefs = (u.notifyPrefs && typeof u.notifyPrefs === 'object') ? u.notifyPrefs : {};
           if (prefs.ticketDM === false) continue; // opted out
           bot.dmTicketAlert(u.discordId, {

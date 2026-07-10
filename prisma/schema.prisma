@@ -241,6 +241,7 @@ model Media {
   kind       String // 'image' | 'video'
   visibility String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
   uploaderId String?  // null for guest (anonymous) support-ticket uploads
+  supportTicketId String? // support ticket this media was uploaded to (access-scopes serving)
   views      Int      @default(0)
   width      Int? // pixel dimensions (for video/image OG embeds)
   height     Int?
@@ -251,6 +252,7 @@ model Media {
   uploader User? @relation(fields: [uploaderId], references: [id])
 
   @@index([createdAt])
+  @@index([supportTicketId])
   @@map("media")
 }
 

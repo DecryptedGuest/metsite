@@ -213,6 +213,9 @@
   function enterTicketView() {
     closeStream();
     pending = []; renderPending();
+    // Clear the previous ticket's messages so a failed load of the new ticket
+    // can't strand the user looking at another ticket's transcript.
+    const log = $('sup-log'); if (log) log.innerHTML = '';
     $('sup-landing').classList.add('sup-hidden');
     $('sup-ticket').classList.remove('sup-hidden');
   }
@@ -519,6 +522,7 @@
   }
   function submitIntakeStep() {
     const q = intakeQs[0];
+    if (!q) return; // last answer is still finishing (async) — ignore stray Enter
     const answer = $('sup-input').value.trim();
     if (q.kind === 'identity' && answer) return resolveAndConfirm(q, answer);
     if (anyUploading()) return showToast('Please wait for uploads to finish.', 'warning');
@@ -752,17 +756,29 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       scrollLog();
     });
   }
+  let _handoffTicket = null, _handoffBusy = false;
   async function helpHandoff(freeText) {
+    if (_handoffBusy) return;
+    _handoffBusy = true;
     appendBotTyping('Connecting you to an Internal Affairs investigator…', async () => {
       try {
-        const r = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({ type: 'GENERAL_SUPPORT' }) });
-        if (r.token) remember(r.ticket.id, r.token);
-        cur = r.ticket; helpMode = false; mode = 'chat';
+        // Reuse an already-created handoff ticket on retry instead of spawning a
+        // new orphan INTAKE ticket each time the escalation is clicked.
+        if (!_handoffTicket) {
+          const r = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({ type: 'GENERAL_SUPPORT' }) });
+          if (r.token) remember(r.ticket.id, r.token);
+          _handoffTicket = r.ticket;
+        }
+        cur = _handoffTicket; helpMode = false; mode = 'chat';
         const question = (freeText || '').trim() || 'Requested to speak with an investigator.';
         await api(tok('/api/support/tickets/' + cur.id + '/submit-intake', cur.id), { method: 'POST', body: JSON.stringify({ answers: [{ id: 'issue', answer: question }] }) });
         const full = await api(tok('/api/support/tickets/' + cur.id, cur.id));
-        cur = full; renderTicketHeader(full); renderLog(full); setComposerEnabled(full); openStream(full.id);
-      } catch (e) { showToast(e.message, 'error'); helpMode = true; }
+        cur = full; _handoffTicket = null; renderTicketHeader(full); renderLog(full); setComposerEnabled(full); openStream(full.id);
+      } catch (e) {
+        // Don't strand the user pointing at an invisible INTAKE ticket — drop back
+        // to help mode; the created ticket (if any) is reused on the next attempt.
+        showToast(e.message, 'error'); helpMode = true; cur = null;
+      } finally { _handoffBusy = false; }
     });
   }
 
@@ -973,18 +989,24 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       <button class="sup-replybar-x" title="Cancel reply" onclick="supCancelReply()"><i class="ti ti-x"></i></button>`;
   }
 
+  let _supSending = false;
   async function onSend() {
     if (mode === 'intake') return submitIntakeStep();
     if (helpMode) { const text = $('sup-input').value.trim(); if (!text) return; $('sup-input').value = ''; return helpFreeText(text); }
+    if (_supSending) return;                    // guard against double-send (double Enter / click)
+    if (!cur) return;
     if (anyUploading()) return showToast('Please wait for uploads to finish.', 'warning');
     const body = $('sup-input').value.trim();
     const atts = readyAttachments();
     if (!body && !atts.length) return;
     const replyToId = replyTo ? replyTo.id : null;
+    const tid = cur.id;
+    _supSending = true;
+    const sendBtn = $('sup-send-btn'); if (sendBtn) sendBtn.disabled = true;
     try {
-      const msg = await api(tok('/api/support/tickets/' + cur.id + '/messages', cur.id), { method: 'POST', body: JSON.stringify({ body, attachments: atts, replyToId }) });
+      const msg = await api(tok('/api/support/tickets/' + tid + '/messages', tid), { method: 'POST', body: JSON.stringify({ body, attachments: atts, replyToId }) });
       // SSE will echo it to everyone (incl. us); append now and let SSE dedupe by id.
-      if (!document.querySelector(`[data-mid="${msg.id}"]`)) { _supPinned = true; appendBubble(msg); } // own send → jump to bottom
+      if (cur && cur.id === tid && !document.querySelector(`[data-mid="${msg.id}"]`)) { _supPinned = true; appendBubble(msg); } // own send → jump to bottom
       $('sup-input').value = ''; clearPending(); replyTo = null; renderReplyBar();
     } catch (e) {
       showToast(e.message, 'error');
@@ -992,6 +1014,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       // composer locks itself immediately.
       if (/block|blacklist/i.test(e.message || '')) refreshTicket(cur.id);
     }
+    finally { _supSending = false; const sb = $('sup-send-btn'); if (sb) sb.disabled = false; }
   }
 
   // A soft, quiet blip when a message arrives (distinct from the loud new-ticket
@@ -1055,6 +1078,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   function closeStream() {
     if (es) { es.close(); es = null; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    clearTypers(); // don't let a "typing…" indicator from the old ticket linger
   }
   // Pull the ticket and append any messages we don't already show; sync status.
   async function refreshTicket(ticketId) {

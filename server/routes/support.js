@@ -60,10 +60,12 @@ function isOpener(req, t) {
   return !!(tok && t.openerToken && String(tok) === String(t.openerToken));
 }
 function isHandler(req, t) { return !!req.user && support.canHandleTicket(req.user, t); }
-// Can the requester SEE this ticket? The opener, or staff who handle the type.
+// Can the requester SEE this ticket? The opener, or staff who handle the type —
+// but NEVER the named subject of a report about themselves (canView enforces the
+// same integrity rule as canHandleTicket, which plain canHandle skips).
 function canSee(req, t) {
   if (isOpener(req, t)) return true;
-  return req.user ? support.canHandle(req.user, t.type) : false;
+  return req.user ? support.canView(req.user, t) : false;
 }
 
 // ── serialisers ──────────────────────────────────────────────────────
@@ -321,6 +323,9 @@ router.post('/tickets', async (req, res) => {
   // Import-only types (Website Support) can't be opened here — they arrive via
   // Discord transcript import.
   if (cfg.importOnly) return res.status(400).json({ error: 'This ticket type cannot be opened here.' });
+  // An account-blacklisted member can't open tickets at all (they'd otherwise
+  // spawn orphan INTAKE shells + bot messages before being blocked at submit).
+  if (req.user && req.user.isBlacklisted) return res.status(403).json({ error: 'You have been blocked from opening support tickets by Internal Affairs.' });
   // Refuse blacklisted GUESTS (matched by IP/fingerprint). Signed-in members are
   // accountable via their openerId and handled by account-level isBlacklisted,
   // so the IP/fingerprint blacklist never applies to them.
@@ -383,6 +388,7 @@ router.post('/tickets/:id/upload', rawUpload, async (req, res) => {
       title: null, filename, mimeType, size: buf.length, data: buf,
       kind: isVideo ? 'video' : 'image', visibility: 'DEVELOPER',
       uploaderId: req.user ? req.user.id : null, // guest openers have no account
+      supportTicketId: t.id, // bind to this ticket so it can't be served on another
     } });
     res.status(201).json({ mediaId: m.id, kind: m.kind, name: filename, url: `/api/support/tickets/${t.id}/media/${m.id}` });
   } catch (e) {
@@ -409,8 +415,13 @@ router.get('/tickets/:id/media/:mediaId', async (req, res) => {
       for (const a of (Array.isArray(msg.attachments) ? msg.attachments : []))
         if (a && a.mediaId) allowed.add(String(a.mediaId));
     if (!allowed.has(String(req.params.mediaId))) return res.status(404).end();
-    const m = await prisma.media.findUnique({ where: { id: req.params.mediaId }, select: { data: true, mimeType: true } });
+    const m = await prisma.media.findUnique({ where: { id: req.params.mediaId }, select: { data: true, mimeType: true, supportTicketId: true } });
     if (!m) return res.status(404).end();
+    // Defence against a cross-ticket IDOR: media bound to a DIFFERENT ticket is
+    // never served here, even if its id was smuggled into this ticket's message
+    // attachments. (Legacy rows predating this column have a null binding and
+    // fall back to the allowed-set check above — their ids are unguessable uuids.)
+    if (m.supportTicketId && m.supportTicketId !== t.id) return res.status(404).end();
     // Never render svg/html/xml inline on our origin (stored-XSS vector).
     const unsafeInline = /svg|html|xml/i.test(m.mimeType || '');
     res.set('Content-Type', unsafeInline ? 'text/plain; charset=utf-8' : m.mimeType);
@@ -794,7 +805,11 @@ router.post('/tickets/:id/messages', async (req, res) => {
     const wantReply = req.body && req.body.replyToId ? String(req.body.replyToId) : '';
     if (wantReply) {
       replyParent = await prisma.supportMessage.findFirst({ where: { id: wantReply, ticketId: t.id } });
-      if (replyParent && !(opener && (replyParent.authorKind || '') === 'INTERNAL')) replyToId = replyParent.id;
+      // A reply may quote an INTERNAL note ONLY when the new message is itself an
+      // internal note. Otherwise the parent's snippet would ride the public
+      // 'message' SSE frame straight to the opener (an internal-note content leak).
+      const parentInternal = replyParent && (replyParent.authorKind || '') === 'INTERNAL';
+      if (replyParent && !(parentInternal && !internal)) replyToId = replyParent.id;
       else replyParent = null;
     }
 
@@ -810,11 +825,17 @@ router.post('/tickets/:id/messages', async (req, res) => {
     out.replyTo = replyParent ? replyPreview(replyParent) : null;          // self-contained for SSE
     support.publish(t.id, 'message', out, { staffOnly: internal });
 
+    // Ping anyone @-mentioned in the body who can see this ticket. Returns the set
+    // of site-user ids it notified, so the claimant reply-notify below doesn't
+    // double up when the claimant was the one mentioned.
+    const mentionedIds = await notifyMentioned(t, body, req.user, internal).catch(() => new Set());
+
     // Notify the claimant when someone else speaks in a ticket they claimed
-    // (respects their notifications toggle in the IA notifications tab).
+    // (respects their notifications toggle in the IA notifications tab). Skipped
+    // when the claimant was @-mentioned — they already got the mention ping.
     try {
       const authorId = req.user ? req.user.id : null;
-      if (t.claimedById && t.claimedById !== authorId) {
+      if (t.claimedById && t.claimedById !== authorId && !mentionedIds.has(t.claimedById) && !internal) {
         const cfg = support.typeConfig(t.type);
         const who = req.user ? (req.user.displayName || req.user.discordUsername) : (t.openerName || 'Someone');
         const preview = body ? body.slice(0, 100) : (attachments.length ? '📎 Attachment' : 'New activity');
@@ -822,13 +843,10 @@ router.post('/tickets/:id/messages', async (req, res) => {
           userIds: [t.claimedById],
           title: `New reply · ${cfg ? cfg.label : t.type}`,
           body: `${who}: ${preview}`,
-          url: `/support?ticket=${t.id}`,
+          url: `/ia/dashboard?supportTicket=${t.id}`, // claimant is staff → the desk
         }).catch(() => {});
       }
     } catch (e) { /* notification is best-effort */ }
-
-    // Ping anyone @-mentioned in the body who has access to see this ticket.
-    notifyMentioned(t, body, req.user, internal).catch(() => {});
 
     res.status(201).json(out);
   } catch (e) {
@@ -843,15 +861,17 @@ router.post('/tickets/:id/messages', async (req, res) => {
 // opener since they can't see internal notes. Fires a live SSE event (website
 // sound + popup) and a best-effort push notification. Never pings the author.
 async function notifyMentioned(t, body, author, internal) {
+  const notified = new Set();
   try {
     const ids = [...String(body || '').matchAll(/<@!?(\d{5,25})>/g)].map(m => m[1]);
     const uniq = [...new Set(ids)];
-    if (!uniq.length) return;
+    if (!uniq.length) return notified;
     const users = await prisma.user.findMany({
       where: { discordId: { in: uniq } },
-      select: { id: true, displayName: true, discordUsername: true },
+      // role + discord/roblox ids + usernames are needed by canHandleTicket / isSubjectOfReport.
+      select: { id: true, displayName: true, discordUsername: true, role: true, discordId: true, robloxId: true, robloxUsername: true },
     });
-    if (!users.length) return;
+    if (!users.length) return notified;
 
     const cfg = support.typeConfig(t.type);
     const typeLabel = cfg ? cfg.label : t.type;
@@ -862,9 +882,11 @@ async function notifyMentioned(t, body, author, internal) {
     for (const u of users) {
       if (authorId && u.id === authorId) continue; // never ping yourself
       const isTicketOpener = !!(t.openerId && u.id === t.openerId);
-      const canHandle = support.canHandle(u, t.type);
-      // Must be able to SEE the ticket. Internal notes are hidden from the
-      // opener, so an internal-note mention only reaches handling staff.
+      // canHandleTicket is FALSE for the opener AND for a report's named subject,
+      // so a mentioned report subject is never pinged about their own case.
+      const canHandle = support.canHandleTicket(u, t);
+      // Must be able to SEE the ticket. Internal notes are hidden from the opener,
+      // so an internal-note mention only reaches handling staff.
       if (!isTicketOpener && !canHandle) continue;
       if (internal && isTicketOpener && !canHandle) continue;
       const url = (isTicketOpener && !canHandle)
@@ -881,8 +903,10 @@ async function notifyMentioned(t, body, author, internal) {
         body: `${by}: ${preview}`,
         url,
       }).catch(() => {});
+      notified.add(u.id);
     }
   } catch (e) { /* best-effort */ }
+  return notified;
 }
 
 // ── POST /api/support/tickets/:id/typing — broadcast a "typing…" ping ──
@@ -1036,7 +1060,16 @@ router.post('/tickets/:id/close', async (req, res) => {
 
     const name = req.user.displayName || req.user.discordUsername;
     const reason = req.body && req.body.reason ? String(req.body.reason).slice(0, 1000) : null;
-    const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { status: 'CLOSED', closedById: req.user.id, closedByName: name, closeReason: reason, closedAt: new Date() } });
+    // Close atomically: only the request that actually flips OPEN/CLAIMED→CLOSED
+    // runs the one-time side effects (bot messages, IA ticket-log with its own
+    // TKT counter, Discord close log). Two concurrent closes otherwise each pass
+    // the read-time check and double every side effect.
+    const closed = await prisma.supportTicket.updateMany({
+      where: { id: t.id, status: { not: 'CLOSED' } },
+      data: { status: 'CLOSED', closedById: req.user.id, closedByName: name, closeReason: reason, closedAt: new Date() },
+    });
+    if (closed.count === 0) return res.status(400).json({ error: 'Already closed.' });
+    const updated = await prisma.supportTicket.findUnique({ where: { id: t.id } });
     const closeMsg = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `This ticket was closed by ${name}.${reason ? ` Reason: ${reason}` : ''}` } });
     support.publish(t.id, 'message', serializeMessage(t.id, closeMsg));
     support.publish(t.id, 'update', { status: 'CLOSED' });
@@ -1080,7 +1113,9 @@ router.post('/tickets/:id/reassign', async (req, res) => {
     if (t.status === 'CLOSED') return res.status(400).json({ error: 'This ticket is closed.' });
     const to = await prisma.user.findUnique({ where: { id: String((req.body && req.body.toUserId) || '') } });
     if (!to) return res.status(404).json({ error: 'Staff member not found.' });
-    if (!support.canHandle(to, t.type)) return res.status(400).json({ error: 'That member cannot handle this ticket type.' });
+    // canHandleTicket (not plain canHandle) so a report can't be reassigned to the
+    // opener or to the officer/subject the report names.
+    if (!support.canHandleTicket(to, t)) return res.status(400).json({ error: 'That member cannot handle this ticket.' });
     const toName = to.displayName || to.discordUsername;
     const updated = await prisma.supportTicket.update({ where: { id: t.id }, data: { status: 'CLAIMED', claimedById: to.id, claimedByName: toName, claimedAt: new Date() } });
     const bm = await prisma.supportMessage.create({ data: { ticketId: t.id, authorKind: 'BOT', authorName: support.BOT_NAME, body: `This ticket was reassigned to ${toName}.` } });

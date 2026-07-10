@@ -10,7 +10,10 @@
 const clients = new Map();
 let heartbeat = null;
 
-function subscribe(userId, res) {
+function subscribe(rawUserId, res) {
+  // Key by String so it always matches publishToUser (which stringifies) — a
+  // non-string id would otherwise subscribe under a key no publish ever hits.
+  const userId = String(rawUserId);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
