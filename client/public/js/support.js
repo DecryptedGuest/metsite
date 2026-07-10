@@ -87,8 +87,9 @@
   const PANELS_VISIBLE = 3;
   function panelCard(t, i) {
     const extra = i >= PANELS_VISIBLE ? ' sup-panel-extra sup-hidden' : '';
+    const tkt = t.key ? ' tkt-' + esc(String(t.key).toLowerCase()) : '';
     return `
-      <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}${extra}">
+      <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}${extra}${tkt}">
         <h3><i class="ti ${esc(t.icon)}"></i> ${esc(t.label)}</h3>
         <p>${esc(t.blurb)}</p>
         ${t.restricted ? '<div class="sup-locknote"><i class="ti ti-lock"></i> Reviewed by IA HICOMM only</div>' : ''}
@@ -122,7 +123,8 @@
   function ticketRow(t, staff) {
     const who = staff ? esc(t.openerName) : esc(t.typeLabel);
     const claim = t.claimedByName ? ` · claimed by ${esc(t.claimedByName)}` : '';
-    return `<div class="sup-row" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border,#242424);cursor:pointer;" onclick="supOpenTicket('${t.id}')">
+    const tkt = t.type ? ' tkt-row tkt-' + esc(String(t.type).toLowerCase()) : '';
+    return `<div class="sup-row${tkt}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border,#242424);cursor:pointer;" onclick="supOpenTicket('${t.id}')">
       <div style="flex:1;min-width:0;">
         <div style="font-weight:600;font-size:13px;">${esc(t.typeLabel)}</div>
         <div style="font-size:11px;color:var(--text-muted);">${who}${claim} · ${fmtTime(t.createdAt)}</div>

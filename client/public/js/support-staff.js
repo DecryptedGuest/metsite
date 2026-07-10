@@ -32,8 +32,9 @@
     return Math.round(s / 86400) + 'd';
   }
   function priorityBadge(p) {
-    const [c, label] = PRIO[p] || PRIO.NORMAL;
-    return `<span class="badge" style="background:${c};color:#fff;"><span class="badge-dot"></span>${label}</span>`;
+    const [, label] = PRIO[p] || PRIO.NORMAL;
+    const cls = 'badge-prio-' + String(p || 'NORMAL').toLowerCase();
+    return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
   }
   function statusBadge(s) {
     const map = { INTAKE: ['badge-pending', 'Intake'], OPEN: ['badge-pending', 'Unclaimed'], CLAIMED: ['badge-approved', 'Claimed'], CLOSED: ['badge-denied', 'Closed'] };
@@ -94,7 +95,12 @@
   function rowHtml(t) {
     const esc2 = esc;
     const flag = t.escalated ? '<i class="ti ti-flag-filled" style="color:var(--red);margin-left:4px;" title="Escalated"></i>' : '';
-    return `<tr style="cursor:pointer;" onclick="sdOpen('${t.id}')">
+    // Coloured left rail: red for urgent/escalated, amber for high, else the
+    // ticket type's colour — so the queue reads at a glance.
+    const railCls = (t.priority === 'URGENT' || t.escalated) ? ' tkt-row tkt-officer_complaint'
+      : t.priority === 'HIGH' ? ' tkt-row tkt-disciplinary_appeal'
+      : (t.type ? ' tkt-row tkt-' + esc2(String(t.type).toLowerCase()) : '');
+    return `<tr class="sd-queue-row${railCls}" style="cursor:pointer;" onclick="sdOpen('${t.id}')">
       <td>${priorityBadge(t.priority)}</td>
       <td>${esc2(t.typeLabel)}${flag}</td>
       <td><span style="cursor:pointer;text-decoration:underline dotted;" onclick="event.stopPropagation();sdProfile('${t.openerId}','${esc2(t.openerName)}')">${esc2(t.openerName)}</span></td>

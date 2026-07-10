@@ -15,8 +15,9 @@
     });
   });
 
-  function kpi(value, label, sub) {
+  function kpi(value, label, sub, icon) {
     return `<div class="stat-card" style="text-align:left;">
+      ${icon ? `<div style="font-size:20px;color:var(--dc,var(--blue,#4a8fff));margin-bottom:6px;"><i class="ti ${icon}"></i></div>` : ''}
       <div class="stat-value">${esc(value)}</div>
       <div class="stat-label">${esc(label)}</div>
       ${sub ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${esc(sub)}</div>` : ''}
@@ -33,9 +34,9 @@
       const tier = sco ? (sco.tier === 'LEAD' ? 'Command' : 'Officer') : '—';
       wrap.className = 'stat-grid fade-up';
       wrap.innerHTML = [
-        kpi(sco ? (sco.rankName || ('Rank ' + sco.rank)) : 'Not a member', 'Your SCO-19 rank'),
-        kpi(tier, 'Access tier', tier === 'Command' ? 'Assistant Commander and above' : 'Authorised firearms officer'),
-        kpi('Specialist Firearms', 'Division'),
+        kpi(sco ? (sco.rankName || ('Rank ' + sco.rank)) : 'Not a member', 'Your SCO-19 rank', '', 'ti-shield-half-filled'),
+        kpi(tier, 'Access tier', tier === 'Command' ? 'Assistant Commander and above' : 'Authorised firearms officer', 'ti-target-arrow'),
+        kpi('Specialist Firearms', 'Division', '', 'ti-building-fortress'),
       ].join('');
     } catch (e) {
       wrap.innerHTML = '<div class="table-empty"><div class="table-empty-text">Couldn\'t load your SCO-19 standing.</div></div>';

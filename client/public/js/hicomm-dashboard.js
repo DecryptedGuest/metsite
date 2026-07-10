@@ -44,12 +44,12 @@
   window.hcLoadOverview = async function () {
     let d; try { d = await api('/api/hicomm/overview'); } catch (e) { return; }
     $('hc-counters').innerHTML = COUNTERS.map(([k, l, c]) =>
-      `<div class="cc-stat"><div class="v" style="color:${c};">${(d.counters[k] ?? 0)}</div><div class="l">${l}</div></div>`).join('');
+      `<div class="cc-stat" style="--cc:${c};"><div class="v" style="color:${c};">${(d.counters[k] ?? 0)}</div><div class="l">${l}</div></div>`).join('');
     // live tryouts
     $('hc-live').innerHTML = d.live.length ? d.live.map(t => {
       const lock = ['UNLOCKED', 'UNSLOCKED'].includes(String(t.lockState || '').toUpperCase());
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border,#2a2a2a);">
-        <div><div style="font-weight:700;">${esc(t.hostName || 'Tryout')} <span class="badge badge-approved" style="font-size:9px;">${esc(t.division)}</span></div>
+        <div><div style="font-weight:700;">${esc(t.hostName || 'Tryout')} <span class="met-chip div-chip div-${esc(String(t.division || '').toLowerCase())}" style="font-size:9px;">${esc(t.division)}</span></div>
         <div style="font-size:11px;color:var(--text-muted);">${t.coHostName ? 'co: ' + esc(t.coHostName) + ' · ' : ''}${t.attendees} attending</div></div>
         <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? 'Unlocked' : 'Locked'}</span></div>`;
     }).join('') : '<div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div>';
@@ -123,7 +123,7 @@
       ${d.flags.map(f => `<div class="flag-card" style="border-left-color:${col[f.severity]};">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div><span class="badge ${f.severity === 'high' ? 'badge-denied' : f.severity === 'medium' ? 'badge-amber' : 'badge-pending'}" style="text-transform:capitalize;">${f.severity}</span>
-          <strong style="margin-left:8px;">${esc(f.kind.replace(/-/g, ' '))}</strong> ${f.division ? `<span class="badge badge-approved" style="font-size:9px;">${esc(f.division)}</span>` : ''}</div>
+          <strong style="margin-left:8px;">${esc(f.kind.replace(/-/g, ' '))}</strong> ${f.division ? `<span class="met-chip div-chip div-${esc(String(f.division).toLowerCase())}" style="font-size:9px;">${esc(f.division)}</span>` : ''}</div>
           ${f.logId ? `<a class="btn btn-ghost btn-sm" href="/${(f.division || 'hpc').toLowerCase() === 'sco19' ? 'sco19' : (f.division || 'hpc').toLowerCase()}/dashboard?tryoutLog=${f.logId}" target="_blank"><i class="ti ti-external-link"></i> Log</a>` : ''}
         </div>
         <div style="font-size:13px;margin-top:6px;">${esc(f.detail)}</div>
@@ -146,20 +146,20 @@
       $('hc-off-results').innerHTML = rows.map(u => {
         // Found in the MET Discord server but not a site user → open a live profile.
         if (u.discordOnly) return `
-        <div onclick="hcOpenSubject('discord','${esc(u.discordId)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
+        <div onclick="hcOpenSubject('discord','${esc(u.discordId)}')" class="hc-off-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
           ${avatarBox(u)}
           <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--blue);">MET server</span></div>
           <div style="font-size:11px;color:var(--text-muted);">${u.robloxUsername ? 'Roblox: ' + esc(u.robloxUsername) + ' · ' : ''}${u.roleCount || 0} roles · not a site user</div></div>
         </div>`;
         // Resolved on Roblox only → open a live Roblox/groups profile.
         if (u.noAccount) return `
-        <div onclick="hcOpenSubject('roblox','${esc(u.robloxId)}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px dashed var(--border,#2a2a2a);margin-bottom:6px;">
+        <div onclick="hcOpenSubject('roblox','${esc(u.robloxId)}')" class="hc-off-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px dashed var(--border,#2a2a2a);margin-bottom:6px;">
           <div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;"><i class="ti ti-brand-roblox"></i></div>
           <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--amber);">Roblox only</span></div>
           <div style="font-size:11px;color:var(--text-muted);">@${esc(u.robloxUsername || '')} · not a site user — view groups &amp; MET rank</div></div>
         </div>`;
         return `
-        <div onclick="hcOfficer('${u.id}')" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
+        <div onclick="hcOfficer('${u.id}')" class="hc-off-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
           ${avatarBox(u)}
           <div><div style="font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">@${esc(u.discordUsername || '')}${u.robloxUsername ? ' · ' + esc(u.robloxUsername) : ''} · ${esc(u.role || '')}</div></div>
         </div>`;
@@ -370,8 +370,8 @@
     let rows; try { rows = await api(`/api/hicomm/audit?category=${encodeURIComponent(cat)}&q=${encodeURIComponent(q)}`); } catch (e) { tb.innerHTML = `<tr><td colspan="5" class="table-empty-text">${esc(e.message)}</td></tr>`; return; }
     tb.innerHTML = rows.length ? rows.map(a => {
       const [ic, col] = CAT_ICON[a.category] || ['ti-point', '#888'];
-      return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${ago(a.createdAt)}</td>
-        <td><span style="color:${col};"><i class="ti ${ic}"></i> ${esc(a.category)}</span></td>
+      return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);box-shadow:inset 3px 0 0 ${col}55;">${ago(a.createdAt)}</td>
+        <td><span class="met-chip" style="border-color:${col}55;color:${col};font-size:11px;"><i class="ti ${ic}"></i> ${esc(a.category)}</span></td>
         <td><span class="mono" style="font-size:11px;">${esc(a.action)}</span></td>
         <td>${esc(a.actorName || 'System')}</td><td>${esc(a.summary || '')}</td></tr>`;
     }).join('') : '<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No matching actions.</div></td></tr>';

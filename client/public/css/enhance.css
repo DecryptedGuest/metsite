@@ -238,7 +238,8 @@ body[class*="div-"] .panel-title { color: color-mix(in srgb, var(--dc,#7aacff) 7
   border: 1px solid rgba(245,197,24,.32); border-radius: 5px; padding: .28rem .7rem; font-weight: 700; letter-spacing: .04em; }
 
 /* Officer-lookup search result rows: hover lift. */
-.hc-off-row:hover { transform: translateY(-2px); border-color: var(--blue-dim, rgba(74,143,255,.45)) !important; }
+.hc-off-row { transition: transform .15s ease, border-color .2s ease, box-shadow .2s ease; }
+.hc-off-row:hover { transform: translateY(-2px); border-color: var(--blue-dim, rgba(74,143,255,.55)) !important; box-shadow: 0 8px 22px rgba(0,0,0,.28); }
 
 /* ── Ticket TYPE + PRIORITY + STATUS colour system (support desk) ──────── */
 .tkt-general_support { --dc: var(--blue,#4a8fff); }
@@ -251,7 +252,9 @@ body[class*="div-"] .panel-title { color: color-mix(in srgb, var(--dc,#7aacff) 7
 .sup-panel[class*="tkt-"]::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
   background: var(--dc,#4a8fff); border-radius: 3px 0 0 3px; opacity:.9; }
 .sup-panel[class*="tkt-"] h3 i { color: var(--dc,#4a8fff); }
-.tkt-row { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc,#4a8fff) 70%, transparent); }
+/* Coloured left rail — div rows take it directly; table rows need it on the first cell. */
+div.tkt-row { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc,#4a8fff) 70%, transparent); }
+tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc,#4a8fff) 75%, transparent); }
 
 /* Priority badges (token-driven, replaces inline hex). */
 .badge-prio-urgent { background: var(--red-dim,rgba(240,79,94,.14)) !important; color: var(--red,#f04f5e) !important; border: 1px solid rgba(240,79,94,.4) !important; }
