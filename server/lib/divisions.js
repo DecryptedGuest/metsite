@@ -39,15 +39,16 @@ function localIcon(slug) {
 // `match` recognises the group by name during holder auto-discovery.
 // Roblox group ids are known/fixed (provided by MET), so they're the defaults;
 // the GROUP_* / IA_GROUP_ID env vars still override if ever needed.
-// `color` follows the MET Discord role colour scheme so each division renders
-// as a coloured role chip on the profile: FLP blue, SCO-19 grey, CID orange,
-// HPC white, IA teal (MI5 sky-blue is kept for when that division exists).
+// `color` renders each division as a coloured role chip on the profile.
+// Division accent colours (MET brief): CID orange, SCO-19 black (rendered as a
+// gunmetal so it stays visible on the dark theme), IA dark/administrative
+// orange, FLP light blue, HPC white. MET umbrella uses the standard MET blue.
 const META = {
   CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', color: '#e8842a', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
-  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       color: '#8b93a1', groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
-  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  color: '#14b8a6', groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
-  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                color: '#3b82f6', groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
-  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             color: '#e2e8f0', groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
+  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       color: '#4b5563', groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
+  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  color: '#c2701f', groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
+  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                color: '#5cc0ff', groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
+  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             color: '#e8eef7', groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
 };
 
 // Extra divisional colours for divisions that exist in the MET server but not

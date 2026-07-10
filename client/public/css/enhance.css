@@ -123,9 +123,12 @@ a { transition: color .15s ease, opacity .15s ease; }
 .accent-purple{ box-shadow: inset 3px 0 0 #9b6dff; }
 
 /* Division colour system — a consistent accent per division, usable anywhere
-   (chips, cards) via .div-<name>. */
-.div-ia   { --dc: #9b6dff; } .div-met  { --dc: #22c55e; } .div-sco19 { --dc: #4a8fff; }
-.div-cid  { --dc: #e0503a; } .div-flp  { --dc: #22d3ee; } .div-hpc   { --dc: #e8842a; }
+   (chips, cards) via .div-<name>. Per MET brief: CID orange, SCO-19 black
+   (gunmetal so it stays visible on the dark theme), IA dark/administrative
+   orange, FLP light blue, MET the standard MET blue, HPC white. Dev + MET
+   HICOMM keep their gold. */
+.div-ia   { --dc: #c2701f; } .div-met  { --dc: #4a8fff; } .div-sco19 { --dc: #4b5563; }
+.div-cid  { --dc: #e8842a; } .div-flp  { --dc: #5cc0ff; } .div-hpc   { --dc: #e8eef7; }
 .div-chip { border-color: color-mix(in srgb, var(--dc,#8b93a1) 55%, transparent) !important;
   color: var(--dc,#8b93a1) !important; }
 
@@ -346,3 +349,34 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .siu-sub { font-size: 11px; color: var(--text-muted,#8b93a1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   VIEWPORT AUTO-ZOOM — fixes the "some people see a perfectly-sized UI while
+   others get it tiny / zoomed out with black wasted space at the bottom".
+   That gap is display density: a 1440p / 4K monitor at 100% OS scaling renders
+   these pixel sizes physically small and leaves the page short. We scale the
+   WHOLE chrome up on large viewports (exactly like the browser's own zoom, but
+   automatic), so big screens get a bigger UI that fills the space, while normal
+   laptops (≤ ~1600px) are left untouched. Media queries read the real viewport,
+   so `zoom` here never feeds back into the breakpoints.
+   Applied to the topbar + app layout (not .bg-canvas, so the background always
+   covers the real viewport with no seams).
+   ══════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1700px) { .met-topbar, .app-layout { zoom: 1.10; } }
+@media (min-width: 2100px) { .met-topbar, .app-layout { zoom: 1.22; } }
+@media (min-width: 2560px) { .met-topbar, .app-layout { zoom: 1.34; } }
+@media (min-width: 3200px) { .met-topbar, .app-layout { zoom: 1.55; } }
+
+/* Firefox < 126 doesn't support `zoom`; fall back to a font-size bump so text at
+   least scales up (px-based boxes won't, but nothing shrinks or breaks). */
+@supports not (zoom: 1.1) {
+  @media (min-width: 1700px) { html { font-size: 17.5px; } }
+  @media (min-width: 2100px) { html { font-size: 19px; } }
+  @media (min-width: 2560px) { html { font-size: 21px; } }
+}
+
+/* Command Center: chunkier KPI numbers + roomier tiles so the top row reads
+   boldly at any size (pairs with the now full-width stacked panels below). */
+.cc-stat { padding: 18px 20px; }
+.cc-stat .v { font-size: 34px; }
+.cc-stat .l { font-size: 11.5px; }

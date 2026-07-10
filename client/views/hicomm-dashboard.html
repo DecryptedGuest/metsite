@@ -22,6 +22,7 @@
     .tl-dot{width:30px;height:30px;border-radius:8px;flex:0 0 30px;display:flex;align-items:center;justify-content:center;font-size:15px;}
     .flag-card{border-left:3px solid;padding:10px 14px;border-radius:9px;background:var(--panel,rgba(255,255,255,.02));margin-bottom:8px;}
   </style>
+  <link rel="stylesheet" href="/css/enhance.css" />
 </head>
 <body>
 <div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
@@ -82,14 +83,14 @@
         <button class="btn btn-ghost btn-sm" onclick="hcLoadOverview()"><i class="ti ti-refresh"></i> Refresh</button>
       </div>
       <div class="cc-grid fade-up stagger-1" id="hc-counters"></div>
-      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-top:16px;" id="hc-cc-cols">
+      <div style="display:flex;flex-direction:column;gap:18px;margin-top:18px;" id="hc-cc-cols">
         <div class="panel glass fade-up stagger-2">
           <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Live Tryouts</div></div>
-          <div id="hc-live" style="padding:8px 4px;"><div class="table-loading"><div class="spinner"></div></div></div>
+          <div id="hc-live" style="padding:10px 6px;min-height:120px;"><div class="table-loading"><div class="spinner"></div></div></div>
         </div>
         <div class="panel glass fade-up stagger-3">
           <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Recent Activity</div></div>
-          <div id="hc-audit-feed" style="padding:4px 14px;max-height:420px;overflow:auto;"><div class="table-loading"><div class="spinner"></div></div></div>
+          <div id="hc-audit-feed" style="padding:6px 16px;min-height:340px;max-height:none;"><div class="table-loading"><div class="spinner"></div></div></div>
         </div>
       </div>
     </section>
