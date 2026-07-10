@@ -437,7 +437,7 @@ async function awardEventPoint(log, division = 'MET') {
   const spreadsheetId = cfg.sheetId;
   if (!spreadsheetId) { console.warn(`[EventLog] no sheet configured for ${division} — skipping point.`); return { ok: false, reason: `${division} sheet not set`, division }; }
   try {
-    const sheets = q.getSheetsClient();
+    const sheets = q.getSheetsClient(cfg);
     if (!sheets) return { ok: false, reason: 'Google Sheets not configured', division };
     const tz = cfg.timezone;
 

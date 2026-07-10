@@ -119,12 +119,26 @@ function currentDayIndex(tz) {
   }
 }
 
-function getSheetsClient() {
+// Resolve the service-account key JSON for a division: its own
+// <PREFIX>GOOGLE_SERVICE_ACCOUNT_JSON if set, otherwise the shared, unprefixed
+// GOOGLE_SERVICE_ACCOUNT_JSON. This lets each division read its own sheet with a
+// dedicated service account (whose client_email is shared on that sheet) while
+// IA keeps using the original variable.
+function serviceAccountRaw(prefix) {
+  const p = prefix || '';
+  const varName = p ? `${p}GOOGLE_SERVICE_ACCOUNT_JSON` : 'GOOGLE_SERVICE_ACCOUNT_JSON';
+  return { raw: (process.env[varName] || process.env.GOOGLE_SERVICE_ACCOUNT_JSON || ''), varName };
+}
+
+// Accepts an optional cfg (from quotaConfig) or a prefix string so the right
+// division's service account is used. No arg → the shared IA account.
+function getSheetsClient(cfgOrPrefix) {
   if (!google) { console.warn('[quota] googleapis not installed — run npm install.'); return null; }
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) { console.warn('[quota] GOOGLE_SERVICE_ACCOUNT_JSON not set — quota disabled.'); return null; }
+  const prefix = cfgOrPrefix && typeof cfgOrPrefix === 'object' ? cfgOrPrefix.prefix : (cfgOrPrefix || '');
+  const { raw, varName } = serviceAccountRaw(prefix);
+  if (!raw) { console.warn(`[quota] ${varName} not set — quota disabled for this division.`); return null; }
   let creds;
-  try { creds = JSON.parse(raw); } catch (e) { console.warn('[quota] GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON'); return null; }
+  try { creds = JSON.parse(raw); } catch (e) { console.warn(`[quota] ${varName} is not valid JSON`); return null; }
   const auth = new google.auth.GoogleAuth({
     credentials: creds,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -287,10 +301,10 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
   if (viaWebhook !== null) return viaWebhook; // webhook configured (success or fail)
 
   try {
-    const sheets = getSheetsClient();
+    const cfg = quotaConfig(division);
+    const sheets = getSheetsClient(cfg);
     if (!sheets) return false; // not configured — silent no-op
 
-    const cfg = quotaConfig(division);
     const spreadsheetId = cfg.sheetId;
     const tz   = cfg.timezone;
 
@@ -408,10 +422,10 @@ async function setInvestigatorOfWeek(discordId) {
  */
 async function getMemberPoints(member, division = 'IA') {
   try {
-    const sheets = getSheetsClient();
+    const cfg = quotaConfig(division);
+    const sheets = getSheetsClient(cfg);
     if (!sheets) return null;
 
-    const cfg = quotaConfig(division);
     const spreadsheetId = cfg.sheetId;
     let sheetName = cfg.sheetName;
     if (!sheetName) {
@@ -513,7 +527,7 @@ function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank) {
 // the sheet SHARED with the service account. Returns members, [] or null.
 async function getAllMembersViaServiceAccount(cfg) {
   try {
-    const sheets = getSheetsClient();
+    const sheets = getSheetsClient(cfg);
     if (!sheets) return null;
     const spreadsheetId = cfg.sheetId;
     if (!spreadsheetId) return null;
@@ -612,7 +626,7 @@ async function resetAllQuota(division = 'IA') {
   }
 
   // 2) Service-account fallback
-  const sheets = getSheetsClient();
+  const sheets = getSheetsClient(cfg);
   if (sheets) {
     try {
       const spreadsheetId = cfg.sheetId;
@@ -690,7 +704,7 @@ async function setMemberMarker(username, marker, division = 'IA') {
   }
 
   // 2) Service-account fallback
-  const sheets = getSheetsClient();
+  const sheets = getSheetsClient(cfg);
   if (sheets) {
     try {
       const spreadsheetId = cfg.sheetId;
