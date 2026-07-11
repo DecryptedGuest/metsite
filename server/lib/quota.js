@@ -425,48 +425,56 @@ async function getMemberPoints(member, division = 'IA') {
     const cfg = quotaConfig(division);
     const sheets = getSheetsClient(cfg);
     if (!sheets) return null;
+    if (!cfg.sheetId) return null;
 
-    const spreadsheetId = cfg.sheetId;
-    let sheetName = cfg.sheetName;
-    if (!sheetName) {
-      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-      sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
-    }
-
-    const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
-    });
-    const rows = resp.data.values || [];
-    const cols = findColumns(rows);
-    const rowIdx = findMemberRow(rows, cols, member.discordId, member.robloxUsername);
-    if (rowIdx < 0) return { found: false };
-
+    // Resolve the member's live identity (RoVer) so renamed users still match,
+    // and search across every rank tab (MET-style split-by-rank databases put
+    // each member on exactly one tab, with no rank column of their own).
+    const resolved = await resolveMember(member);
+    const tabs = await resolveQuotaTabs(sheets, cfg);
+    const holders = cfg.division === 'IA' ? await getReductionHolders() : null;
     const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const days = {};
-    let total = 0;
-    for (let d = 0; d < 7; d++) {
-      const col = cols.days[d];
-      const raw = col != null ? (rows[rowIdx][col] || '').toString().trim() : '';
-      const num = parseFloat(raw);
-      const val = Number.isFinite(num) ? num : 0;
-      days[labels[d]] = raw && isNaN(num) ? raw : val; // keep "EX" etc. as-is
-      if (Number.isFinite(num)) total += num;
-    }
 
-    const rank  = cols.rank != null ? (rows[rowIdx][cols.rank] || '').toString().trim() : '';
-    let quota = cfg.targets(rank);
-    // Apply the quota-reduction role if this member holds it (IA only — the
-    // Investigator-of-the-Week reduction is an IA feature).
-    if (cfg.division === 'IA') {
-      const did = cols.discordId != null ? (rows[rowIdx][cols.discordId] || '').toString().trim() : (member.discordId || '');
-      const holders = await getReductionHolders();
-      if (holdsReductionRole(holders, did)) quota = applyQuotaReduction(quota);
-    }
-    const remaining = quota.exempt || quota.target == null
-      ? 0
-      : Math.max(0, quota.target - total);
+    for (const tab of tabs) {
+      let rows;
+      try {
+        const resp = await sheets.spreadsheets.values.get({
+          spreadsheetId: cfg.sheetId, range: tab, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+        });
+        rows = resp.data.values || [];
+      } catch (e) { continue; }
+      const cols = findColumns(rows);
+      const rowIdx = findMemberRow(rows, cols, resolved.discordId, resolved.robloxCandidates);
+      if (rowIdx < 0) continue;
 
-    return { found: true, rank, quota, remaining, days, total };
+      const days = {};
+      let total = 0, marked = false;
+      for (let d = 0; d < 7; d++) {
+        const col = cols.days[d];
+        const raw = col != null ? (rows[rowIdx][col] || '').toString().trim() : '';
+        const num = parseFloat(raw);
+        const val = Number.isFinite(num) ? num : 0;
+        days[labels[d]] = raw && isNaN(num) ? raw : val; // keep "EX"/"LOA" as-is
+        if (Number.isFinite(num)) total += num;
+        else if (raw && /^(ex|loa)$/i.test(raw)) marked = true; // exempt marker on the sheet
+      }
+
+      // Rank = the rank column if present, else the tab name (split-by-rank DBs).
+      let rank = cols.rank != null ? (rows[rowIdx][cols.rank] || '').toString().trim() : '';
+      if (!rank) rank = String(tab).trim();
+      let quota = cfg.targets(rank);
+      // IA quota-reduction role (Investigator of the Week) — IA only.
+      if (cfg.division === 'IA') {
+        const did = cols.discordId != null ? (rows[rowIdx][cols.discordId] || '').toString().trim() : (resolved.discordId || '');
+        if (holdsReductionRole(holders, did)) quota = applyQuotaReduction(quota);
+      }
+      // Exempt if the rank/target says so OR the sheet cells are marked EX/LOA.
+      const exempt = !!quota.exempt || marked;
+      quota = { ...quota, exempt };
+      const remaining = exempt || quota.target == null ? 0 : Math.max(0, quota.target - total);
+      return { found: true, rank, quota, remaining, days, total };
+    }
+    return { found: false };
   } catch (err) {
     console.error('[quota] read failed:', err.message);
     return null;
@@ -525,23 +533,45 @@ function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank) {
 
 // Read every member's points via the Google Sheets API (service account). Needs
 // the sheet SHARED with the service account. Returns members, [] or null.
+// Resolve which tabs to read for a division. A configured sheetName that EXACTLY
+// names one real tab restricts to it; IA stays single-tab (first tab) for
+// backward-compatibility; every other division reads + merges EVERY tab (MET-
+// style split-by-rank databases: Chief Inspector / Inspector / Sergeant /
+// Constable). This also means a bad/multi-value QUOTA_SHEET_NAME (e.g. a comma-
+// joined list Google can't parse as a range) no longer errors the whole read —
+// it's simply ignored and all tabs are read.
+async function resolveQuotaTabs(sheets, cfg) {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: cfg.sheetId, fields: 'sheets.properties.title' });
+  const allTabs = (meta.data.sheets || []).map(s => s.properties.title).filter(Boolean);
+  if (cfg.sheetName && allTabs.includes(cfg.sheetName)) return [cfg.sheetName];
+  if (cfg.division === 'IA') return allTabs.slice(0, 1);
+  return allTabs;
+}
+
 async function getAllMembersViaServiceAccount(cfg) {
   try {
     const sheets = getSheetsClient(cfg);
     if (!sheets) return null;
-    const spreadsheetId = cfg.sheetId;
-    if (!spreadsheetId) return null;
-    let sheetName = cfg.sheetName;
-    if (!sheetName) {
-      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-      sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
-    }
-    const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
-    });
-    const rows = resp.data.values || [];
+    if (!cfg.sheetId) return null;
+    const tabs = await resolveQuotaTabs(sheets, cfg);
     const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null;
-    return buildMembersFromRows(rows, cfg, reductionHolders);
+    const seen = new Set();
+    const out = [];
+    for (const tab of tabs) {
+      let rows;
+      try {
+        const resp = await sheets.spreadsheets.values.get({
+          spreadsheetId: cfg.sheetId, range: tab, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+        });
+        rows = resp.data.values || [];
+      } catch (e) { continue; } // skip an unreadable tab rather than failing the whole read
+      // The tab name is the rank fallback for split-by-rank databases (MET).
+      for (const m of buildMembersFromRows(rows, cfg, reductionHolders, tab)) {
+        const key = (m.username || '').toLowerCase();
+        if (key && !seen.has(key)) { seen.add(key); out.push(m); }
+      }
+    }
+    return out;
   } catch (err) {
     console.warn('[quota] service-account read failed:', err.message);
     return null;

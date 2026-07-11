@@ -658,6 +658,18 @@ const { meta: divisionMeta, allMeta: allDivisionMeta, getDivisionConfig } = requ
 
 // Compute the divisions (with tier/rank/icon) a user belongs to. Shared by the
 // hub, the "Switch division" control, and the profile page.
+// Map a MET rank name to its quota tab (Constable → Chief Inspector) or null if
+// it isn't a tracked quota rank. Chief-first so "Chief Inspector" doesn't match
+// the bare "Inspector" tab. Tolerant of prefixes (e.g. "Police Constable").
+function metQuotaRankName(name) {
+  const n = (name || '').toString().toLowerCase();
+  if (/chief\s*inspector/.test(n)) return 'Chief Inspector';
+  if (/inspector/.test(n))         return 'Inspector';
+  if (/sergeant/.test(n))          return 'Sergeant';
+  if (/constable/.test(n))         return 'Constable';
+  return null;
+}
+
 async function computeMyDivisions(user) {
   const { ALL } = require('./lib/divisions');
   let mine;
@@ -841,6 +853,34 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   const perms = mergePerms(rolePerms, botPerms);
   const flags = flagsFromRoleIds(req.user.metRoleIds);
 
+  // MET quota card — ONLY for a plain MET officer: in NO division, but in MET,
+  // and holding a tracked quota rank (Constable → Chief Inspector, the four MET
+  // database tabs). HICOMM / division members never see it. Reads their row from
+  // the MET database (all rank tabs); EX/LOA cells surface as "exempt".
+  let metQuota = null;
+  try {
+    const rankMatch = metQuotaRankName(metRankName);
+    if (!mine.length && linked && rankMatch) {
+      const q = require('./lib/quota');
+      const row = await q.getMemberPoints(
+        { discordId: req.user.discordId, robloxUsername: req.user.robloxUsername }, 'MET',
+      );
+      if (row && row.found) {
+        const exempt = !!(row.quota && row.quota.exempt);
+        const target = row.quota ? row.quota.target : null;
+        metQuota = {
+          rank:      row.rank || rankMatch,
+          exempt,
+          total:     row.total,
+          target,
+          remaining: row.remaining,
+          tier:      row.quota ? row.quota.tier : null,
+          met:       exempt ? true : (target != null ? row.total >= target : null),
+        };
+      }
+    }
+  } catch (e) { metQuota = null; }
+
   res.json({
     user: {
       id:              req.user.id,
@@ -853,6 +893,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
       robloxId:        req.user.robloxId,
     },
     divisions: mine,
+    metQuota,
     metNickname: metProfile ? metProfile.metNickname : null,
     // The member's MET-group rank name (shown as their role on the profile).
     metRankName: metRankInfo ? metRankInfo.name : null,

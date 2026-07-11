@@ -133,6 +133,44 @@ async function loadProfile() {
       : `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
 
+  // ── MET weekly quota ── (server only sends metQuota for a plain MET officer
+  // with no division, ranked Constable → Chief Inspector).
+  const mq = data.metQuota;
+  const mqPanel = document.getElementById('p-metquota-panel');
+  if (mq && mqPanel) {
+    mqPanel.style.display = '';
+    const host = document.getElementById('p-metquota');
+    const rank = escHtml(mq.rank || 'MET Officer');
+    const stat = (num, lbl, color) =>
+      `<div style="text-align:center;min-width:72px;">
+        <div style="font-size:26px;font-weight:800;line-height:1;${color ? `color:${color};` : ''}">${num}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-top:5px;">${lbl}</div>
+      </div>`;
+    if (mq.exempt) {
+      host.innerHTML =
+        `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+          ${stat('EX', 'Status', 'var(--purple)')}
+          <div style="font-size:13px;color:var(--text-muted);"><strong style="color:var(--text);">${rank}</strong> — you're <strong style="color:var(--purple);">exempt</strong> from the weekly quota.</div>
+        </div>`;
+    } else {
+      const hasTarget = mq.target != null;
+      const met = mq.met === true;
+      const col = met ? 'var(--green)' : 'var(--amber)';
+      const note = !hasTarget
+        ? `points are tracked on the MET database.`
+        : (met
+            ? `you've <strong style="color:var(--green);">met</strong> your weekly quota.`
+            : `<strong style="color:var(--amber);">${mq.remaining}</strong> more point${mq.remaining === 1 ? '' : 's'} to go this week.`);
+      host.innerHTML =
+        `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+          ${stat(mq.total, 'Points this week', col)}
+          ${stat(hasTarget ? mq.target : '—', 'Target')}
+          ${stat(hasTarget ? (met ? '✓' : mq.remaining) : '—', hasTarget ? (met ? 'Quota met' : 'Remaining') : 'No target', hasTarget ? col : '')}
+          <div style="font-size:13px;color:var(--text-muted);flex:1;min-width:160px;"><strong style="color:var(--text);">${rank}</strong> — ${note}</div>
+        </div>`;
+    }
+  }
+
   // ── Rank history — promotion/demotion timeline ──
   const rh = data.rankHistory || [];
   if (rh.length) {

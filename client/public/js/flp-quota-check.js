@@ -4,6 +4,11 @@
 // /api/flp/quota/*?scope=FLP|MET (server selects the right division config).
 // Reuses the shared ui.js helpers (api, showToast, uiConfirm).
 var flpQuotaCache = { FLP: [], MET: [] };
+// Which rank tab the review is filtered to ("ALL" = every rank). MET databases
+// split members across per-rank tabs (Chief Inspector / Inspector / Sergeant /
+// Constable) — the selector lets HICOMM switch between them.
+var flpQuotaFilter = { FLP: "ALL", MET: "ALL" };
+var FLP_MET_RANK_ORDER = ["Chief Inspector", "Inspector", "Sergeant", "Constable"];
 
 function fqEsc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -26,18 +31,55 @@ async function flpQuotaLoad(scope) {
       return;
     }
     flpQuotaCache[scope] = d.members || [];
+    flpQuotaRenderTabs(scope);
     flpQuotaRender(scope);
   } catch (e) {
     tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Failed to load quota data.</span></td></tr>";
   }
 }
 
+// Distinct ranks present in the loaded members, ordered high→low for MET.
+function flpQuotaRanks(scope) {
+  var seen = {}, out = [];
+  (flpQuotaCache[scope] || []).forEach(function (m) {
+    var r = (m.rank || "").trim();
+    if (r && !seen[r]) { seen[r] = 1; out.push(r); }
+  });
+  out.sort(function (a, b) {
+    var ia = FLP_MET_RANK_ORDER.indexOf(a); if (ia === -1) ia = 99;
+    var ib = FLP_MET_RANK_ORDER.indexOf(b); if (ib === -1) ib = 99;
+    return ia - ib || a.localeCompare(b);
+  });
+  return out;
+}
+
+// Render the rank-tab <select> (only when there's more than one rank to switch
+// between). Keeps the current selection.
+function flpQuotaRenderTabs(scope) {
+  var host = document.getElementById("flpq-" + scope + "-tabs");
+  if (!host) return;
+  var ranks = flpQuotaRanks(scope);
+  if (ranks.length < 2) { host.innerHTML = ""; return; }
+  var cur = flpQuotaFilter[scope] || "ALL";
+  var opts = ["<option value='ALL'" + (cur === "ALL" ? " selected" : "") + ">All ranks</option>"];
+  ranks.forEach(function (r) {
+    opts.push("<option value='" + fqEsc(r) + "'" + (cur === r ? " selected" : "") + ">" + fqEsc(r) + "</option>");
+  });
+  host.innerHTML = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' "
+    + "title='Filter by rank tab' onchange=\"flpQuotaSetFilter('" + scope + "',this.value)\">" + opts.join("") + "</select>";
+}
+
+function flpQuotaSetFilter(scope, val) {
+  flpQuotaFilter[scope] = val || "ALL";
+  flpQuotaRender(scope);
+}
+
 function flpQuotaRender(scope) {
   var tbody = document.getElementById("flpq-" + scope + "-tbody");
   var countEl = document.getElementById("flpq-" + scope + "-count");
-  var list = flpQuotaCache[scope] || [];
+  var all = flpQuotaCache[scope] || [];
   if (!tbody) return;
-  if (!list.length) {
+  if (!all.length) {
     var EMPTY = window.metEmpty
       ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
       : "<span class='table-empty-text'>No members found in the sheet.</span>";
@@ -45,9 +87,24 @@ function flpQuotaRender(scope) {
     if (countEl) countEl.textContent = "";
     return;
   }
-  if (countEl) countEl.textContent = list.length + " members";
+  // Filter to the selected rank tab, keeping each member's ORIGINAL cache index
+  // (the row controls call back into the cache by index).
+  var filter = flpQuotaFilter[scope] || "ALL";
+  var rows = [];
+  for (var idx = 0; idx < all.length; idx++) {
+    if (filter !== "ALL" && (all[idx].rank || "").trim() !== filter) continue;
+    rows.push(idx);
+  }
+  if (countEl) countEl.textContent = filter === "ALL"
+    ? all.length + " members"
+    : rows.length + " / " + all.length + " members";
+  if (!rows.length) {
+    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>No members on this rank tab.</span></td></tr>";
+    return;
+  }
 
-  tbody.innerHTML = list.map(function (m, i) {
+  tbody.innerHTML = rows.map(function (i) {
+    var m = all[i];
     var q = m.quota || {};
     var exempt = !!q.exempt;
     var target = exempt ? "EX" : (q.target != null ? q.target : "—");
