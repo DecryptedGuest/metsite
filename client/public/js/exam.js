@@ -52,6 +52,17 @@ async function initExam() {
   }
   if (status.latest && status.latest.status === 'PASSED') {
     clearDraft();
+    // Celebratory branded moment — once per passed exam.
+    try {
+      const seen = 'metExamCelebrated_' + (status.latest.id || 'x');
+      if (window.metBrandMoment && !localStorage.getItem(seen)) {
+        localStorage.setItem(seen, '1');
+        setTimeout(() => metBrandMoment({
+          icon: 'ti-trophy', variant: 'celebrate',
+          title: 'Congratulations', tagline: 'You passed your final examination', autoMs: 2800,
+        }), 350);
+      }
+    } catch (e) { /* cosmetic */ }
     return showState('<i class="ti ti-school"></i>', 'You passed', `You scored ${status.latest.score}/${status.latest.maxScore} (${status.latest.percentage}%). ${status.latest.markerNote ? 'Marker note: ' + esc(status.latest.markerNote) : ''}`);
   }
   if (status.latest && status.latest.status === 'PENDING') {

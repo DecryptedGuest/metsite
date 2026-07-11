@@ -589,20 +589,28 @@ function closeOtherDropdowns(except) {
 // A short, once-per-session intro that mirrors the Met's on-screen strap-line
 // ("More Trust · Less Crime · High Standards" / "Working together for a safer
 // London"). Purely cosmetic and fully guarded — never blocks the page.
-function metPlaySplash() {
+// Generic full-screen branded "moment" — the reusable engine behind the intro
+// splash and one-off celebrations (e.g. passing the final exam).
+//   opts: { strap:[seg,seg,seg] | title, tagline, icon (Tabler), crest (url|false),
+//           variant, autoMs }
+function metBrandMoment(opts) {
+  opts = opts || {};
   try {
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('metSplashSeen')) return;
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    try { sessionStorage.setItem('metSplashSeen', '1'); } catch (e) {}
-    if (reduce || document.getElementById('met-splash')) return;
+    if (document.getElementById('met-moment-active')) return;
     var el = document.createElement('div');
-    el.className = 'met-splash'; el.id = 'met-splash';
-    el.innerHTML =
-      '<img class="met-splash-crest" src="/img/divisions/met.png" alt="MET" />' +
-      '<div class="met-strap" data-animate><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>' +
-      '<div class="met-strap-underline"></div>' +
-      '<div class="met-splash-tag">Working together for a safer London</div>' +
-      '<button class="met-splash-skip" type="button" aria-label="Skip intro">Skip</button>';
+    el.className = 'met-splash' + (opts.variant ? ' met-moment-' + opts.variant : '');
+    el.id = 'met-moment-active';
+    var head = '';
+    if (opts.icon) head = '<div class="met-moment-icon"><i class="ti ' + metEsc(opts.icon) + '"></i></div>';
+    else if (opts.crest !== false) head = '<img class="met-splash-crest" src="' + metEsc(opts.crest || '/img/divisions/met.png') + '" alt="MET" />';
+    var body = '';
+    if (Array.isArray(opts.strap) && opts.strap.length) {
+      body = '<div class="met-strap" data-animate>' + opts.strap.map(function (s) { return '<span class="seg">' + metEsc(s) + '</span>'; }).join('') + '</div><div class="met-strap-underline"></div>';
+    } else if (opts.title) {
+      body = '<div class="met-moment-title">' + metEsc(opts.title) + '</div><div class="met-strap-underline"></div>';
+    }
+    var tag = opts.tagline ? '<div class="met-splash-tag">' + metEsc(opts.tagline) + '</div>' : '';
+    el.innerHTML = head + body + tag + '<button class="met-splash-skip" type="button" aria-label="Dismiss">Skip</button>';
     (document.body || document.documentElement).appendChild(el);
     var done = false;
     function dismiss() {
@@ -613,7 +621,17 @@ function metPlaySplash() {
     var skip = el.querySelector('.met-splash-skip');
     if (skip) skip.addEventListener('click', function (e) { e.stopPropagation(); dismiss(); });
     el.addEventListener('click', dismiss);
-    setTimeout(dismiss, 2100);
+    setTimeout(dismiss, opts.autoMs || 2100);
+  } catch (e) { /* cosmetic only */ }
+}
+
+function metPlaySplash() {
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('metSplashSeen')) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    try { sessionStorage.setItem('metSplashSeen', '1'); } catch (e) {}
+    if (reduce) return;
+    metBrandMoment({ strap: ['More Trust', 'Less Crime', 'High Standards'], tagline: 'Working together for a safer London', autoMs: 2100 });
   } catch (e) { /* cosmetic only */ }
 }
 
@@ -648,6 +666,7 @@ function metInjectFooterStrap() {
 }
 
 if (typeof window !== 'undefined') {
+  window.metBrandMoment = metBrandMoment;
   window.metPlaySplash = metPlaySplash;
   window.metRotateTagline = metRotateTagline;
   window.metInjectFooterStrap = metInjectFooterStrap;
