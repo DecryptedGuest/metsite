@@ -95,6 +95,9 @@ function flpQuotaRender(scope) {
     if (filter !== "ALL" && (all[idx].rank || "").trim() !== filter) continue;
     rows.push(idx);
   }
+  // Rank order (high → low), stable within a rank.
+  var rw = window.metRankWeight || function () { return 0; };
+  rows.sort(function (a, b) { return (rw(all[a].rank) - rw(all[b].rank)) || (a - b); });
   if (countEl) countEl.textContent = filter === "ALL"
     ? all.length + " members"
     : rows.length + " / " + all.length + " members";

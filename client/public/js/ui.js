@@ -16,6 +16,23 @@ if (typeof window !== 'undefined') {
   try { const a = localStorage.getItem('iacms_accent'); if (a) applyAccent(a); } catch (e) {}
 }
 
+// ── Rank ordering (high → low) ───────────────────────────────────
+// A rough MET-wide rank ladder for sorting quota / activity tables so members
+// appear in rank order. Returns a weight (lower = higher rank); unknown ranks
+// sort last. Matched most-senior-first so "Detective Chief Inspector" beats the
+// bare "Inspector" entry. Used by the quota renderers.
+var MET_RANK_LADDER = [
+  /commissioner/i, /director/i, /commander/i, /superintendent/i,
+  /chief\s*inspector/i, /inspector/i, /sergeant/i, /constable/i,
+  /senior\s*operator/i, /operator/i, /officer/i, /cadet|recruit|trainee/i,
+];
+function metRankWeight(rank) {
+  var r = String(rank == null ? '' : rank);
+  for (var i = 0; i < MET_RANK_LADDER.length; i++) if (MET_RANK_LADDER[i].test(r)) return i;
+  return 999;
+}
+if (typeof window !== 'undefined') window.metRankWeight = metRankWeight;
+
 // ── Clipboard helper ─────────────────────────────────────────────
 // Copies text and shows a toast. Falls back to a hidden textarea +
 // execCommand for browsers/contexts without the async Clipboard API.

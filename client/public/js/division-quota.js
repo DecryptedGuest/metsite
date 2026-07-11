@@ -65,6 +65,9 @@
       if (f !== 'ALL' && (all[i].rank || '').trim() !== f) continue;
       idxs.push(i);
     }
+    // Show members in rank order (high → low); stable within a rank.
+    var w = window.metRankWeight || function () { return 0; };
+    idxs.sort(function (a, b) { return (w(all[a].rank) - w(all[b].rank)) || (a - b); });
     return idxs;
   }
 

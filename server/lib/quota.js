@@ -491,6 +491,23 @@ const NON_MEMBER = new Set([
   'staff information + quota', 'total', 'warning', 'strikes', 'timezone', 'wtbt',
 ]);
 
+// Distinguish a real member row from the sheet's section headings ("HIGH RANKS",
+// "LOW RANKS", "DATABASE TEAM"…), instruction/annotation rows ("This is your
+// weekly quota", "Anyone on this sheet is banned…") and the whole BLACKLIST
+// section. Real Roblox usernames have NO spaces and are ≤20 chars; blacklisted
+// people are banned, not members, so they never count towards quota/activity.
+function isMemberRow(uname, rank) {
+  const u = (uname || '').trim();
+  const r = (rank || '').trim().toLowerCase();
+  if (!u) return false;
+  if (/\s/.test(u)) return false;            // headings & sentences contain spaces
+  if (u.length > 20) return false;           // Roblox usernames are ≤20 chars
+  if (/^n\/?a$/i.test(u)) return false;      // "N/A" placeholder rows
+  if (/blacklist/.test(r)) return false;     // banned users, not members
+  if (/(^|[^a-z])(rank|ranks|command|blacklist)$/.test(r) && /^(high|middle|low|database|instructor)/.test(r)) return false; // "High Rank", "Database Command"…
+  return true;
+}
+
 /**
  * Read EVERY IA member's quota row from the sheet (for the HICOMM Quota Check).
  * Returns an array of { username, discordId, rank, quota, total, days, met }
@@ -513,6 +530,7 @@ function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank) {
     if (!rank && fallbackRank) rank = String(fallbackRank).trim();   // rank = tab name
     if (!uname || NON_MEMBER.has(uname.toLowerCase())) continue;
     if (!rank  || NON_MEMBER.has(rank.toLowerCase()))   continue; // member rows carry a rank
+    if (!isMemberRow(uname, rank)) continue;                       // skip headings / notes / blacklist
 
     let total = 0;
     const days = {};
