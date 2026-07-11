@@ -1058,7 +1058,6 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
 
 // ── Dashboard ─────────────────────────────────────────────────────
 async function loadDashboard() {
-  if (typeof DivQuota !== 'undefined') DivQuota.loadMyQuota('IA', 'dq-IA-mine');
   await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadPoints()]);
 }
 
