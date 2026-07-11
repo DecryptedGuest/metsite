@@ -412,6 +412,21 @@ async function devTicketIpLookup(preset) {
     else repBadge = '<span style="color:#2ed896;font-weight:600;font-size:12px;"><i class="ti ti-shield-check"></i> Clean (residential ISP)</span>';
   }
 
+  const linked = data.linkedAccounts || [];
+  const linkedRows = linked.map(a => {
+    const via = a.viaVpn === true ? '<span style="color:#ef4444;" title="Signed in from this IP over a VPN"><i class="ti ti-shield-x" style="font-size:11px;"></i> via VPN</span>'
+      : a.viaVpn === false ? '<span style="color:#2ed896;" title="Signed in from this IP directly"><i class="ti ti-shield-check" style="font-size:11px;"></i> direct</span>'
+      : '<span style="color:var(--text-muted);">—</span>';
+    return `<tr>
+      <td style="font-size:13px;">${a.isBlacklisted ? '<i class="ti ti-ban" style="color:#ef4444;font-size:12px;" title="Blacklisted"></i> ' : ''}${escapeHtml(a.name)}</td>
+      <td style="font-size:12px;color:var(--text-secondary);">${a.robloxUsername ? escapeHtml(a.robloxUsername) : '—'}</td>
+      <td style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-muted);">${a.discordId ? escapeHtml(a.discordId) + copyBtn(a.discordId) : '—'}</td>
+      <td style="font-size:12px;">${escapeHtml(a.role || '—')}</td>
+      <td style="font-size:12px;">${via}</td>
+      <td style="white-space:nowrap;font-size:11px;color:var(--text-muted);">${a.lastSeenAt ? escapeHtml(formatDateTime(a.lastSeenAt)) : '—'}</td>
+    </tr>`;
+  }).join('');
+
   const rel = data.related || [];
   const relRows = rel.map(r => {
     const [rtl, rtc] = DEV_TK_TYPE[r.type] || [r.type, '#8b93a1'];
@@ -449,6 +464,17 @@ async function devTicketIpLookup(preset) {
       ${field('Fingerprint', t.openerFp, true)}
       ${field('User-agent', t.openerUa)}
       ${field('Ticket id', t.id, true)}
+    </div>
+    <div class="panel glass" style="padding:1rem 1.1rem;margin-bottom:1rem;${linked.length ? 'border:1px solid color-mix(in srgb, #ef4444 40%, transparent);' : ''}">
+      <div style="font-weight:600;font-size:13px;margin-bottom:0.6rem;"><i class="ti ti-affiliate" style="color:${linked.length ? '#ef4444' : 'var(--accent)'};"></i> Real accounts linked to this IP ${linked.length ? `(${linked.length})` : ''}</div>
+      ${linkedRows
+        ? `<p style="font-size:12px;color:var(--text-secondary);margin:0 0 0.7rem;line-height:1.6;">These logged-in accounts have signed in from the <strong>same IP</strong> this guest ticket was opened from — shown whether or not the IP is a VPN.</p>
+           <div style="overflow-x:auto;"><table class="data-table" style="width:100%;">
+            <thead><tr><th>Account</th><th>Roblox</th><th>Discord ID</th><th>Role</th><th>Connection</th><th>Last seen</th></tr></thead>
+            <tbody>${linkedRows}</tbody></table></div>`
+        : (t.openerIp
+            ? '<div style="color:var(--text-muted);font-size:12px;">No logged-in accounts have used this IP.</div>'
+            : '<div style="color:var(--text-muted);font-size:12px;">No IP was captured for this opener.</div>')}
     </div>
     <div class="panel glass" style="padding:1rem 1.1rem;">
       <div style="font-weight:600;font-size:13px;margin-bottom:0.6rem;"><i class="ti ti-arrows-shuffle" style="color:var(--accent);"></i> Other tickets from this IP / browser ${rel.length ? `(${rel.length})` : ''}</div>

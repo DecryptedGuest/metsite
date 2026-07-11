@@ -312,6 +312,43 @@ router.get('/ticket-ip', async (req, res) => {
       }));
     }
 
+    // Real, logged-in accounts that have used this EXACT opener IP — matched
+    // whether or not the IP is a VPN. Alt-detection normally skips VPN IPs to
+    // avoid false-positives from many members sharing a commercial-VPN exit,
+    // but when a guest ticket's IP is the *same* address a real account signs
+    // in from, that link is worth surfacing regardless of VPN status.
+    let linkedAccounts = [];
+    if (ticket.openerIp && !ipIntel.isLocalOrPrivate(ticket.openerIp)) {
+      const ip = ticket.openerIp;
+      const users = await prisma.user.findMany({
+        where: {
+          ...(ticket.openerId ? { id: { not: ticket.openerId } } : {}),
+          OR: [
+            { lastRealIp: ip },                        // most-recent real IP
+            { sessions: { some: { ip } } },            // any session on this IP — VPN or not
+          ],
+        },
+        take: 25,
+        orderBy: { lastRealIpAt: 'desc' },
+        select: {
+          id: true, discordId: true, discordUsername: true, displayName: true,
+          robloxUsername: true, role: true, isBlacklisted: true, lastRealIp: true, lastRealIpAt: true,
+          sessions: { where: { ip }, select: { ipVpn: true, lastSeenAt: true }, orderBy: { lastSeenAt: 'desc' }, take: 1 },
+        },
+      }).catch(() => []);
+      linkedAccounts = users.map(u => {
+        const s = (u.sessions && u.sessions[0]) || null;
+        return {
+          id: u.id, discordId: u.discordId || null,
+          name: u.displayName || u.discordUsername || u.robloxUsername || u.id,
+          discordUsername: u.discordUsername || null, robloxUsername: u.robloxUsername || null,
+          role: u.role, isBlacklisted: !!u.isBlacklisted,
+          viaVpn: s ? !!s.ipVpn : (u.lastRealIp === ip ? false : null),
+          lastSeenAt: s ? s.lastSeenAt : (u.lastRealIpAt || null),
+        };
+      });
+    }
+
     // Is this opener currently ticket-blacklisted (by IP or fingerprint)?
     let blacklisted = false;
     if (ticket.openerIp || ticket.openerFp) {
@@ -336,7 +373,7 @@ router.get('/ticket-ip', async (req, res) => {
         openerIp: ticket.openerIp || null, openerFp: ticket.openerFp || null, openerUa: ticket.openerUa || null,
         createdAt: ticket.createdAt,
       },
-      ipMeta, blacklisted, related,
+      ipMeta, blacklisted, related, linkedAccounts,
     });
   } catch (e) {
     console.error('[Dev] ticket-ip lookup failed:', e.message);
