@@ -532,6 +532,91 @@ function openImageNewTab(src) {
   return false;
 }
 
+// ── Shared in-site image lightbox ────────────────────────────────────
+// metLightbox(urls, startIndex) — full-screen viewer with ←/→ arrows to step
+// through a gallery, a "Copy link" button for the current image, and keyboard
+// nav (←/→/Esc). metImgGallery(anchorEl) builds the gallery from the sibling
+// <a class="met-evid"> images around the clicked one (so proof/evidence images
+// in a ticket, case or log open in-site instead of a new tab).
+(function () {
+  let imgs = [], idx = 0;
+  function build() {
+    if (document.getElementById('met-lightbox')) return;
+    const el = document.createElement('div');
+    el.id = 'met-lightbox';
+    el.style.cssText = 'display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.9);align-items:center;justify-content:center;';
+    const base  = 'border:none;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    const arrow = 'position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;font-size:26px;' + base;
+    el.innerHTML =
+      '<button id="met-lb-copy" title="Copy image link" style="position:absolute;top:18px;right:70px;height:40px;padding:0 14px;border-radius:20px;font-size:13px;gap:6px;' + base + '"><i class="ti ti-link"></i> Copy link</button>' +
+      '<button id="met-lb-close" title="Close (Esc)" style="position:absolute;top:18px;right:22px;width:40px;height:40px;border-radius:50%;font-size:20px;' + base + '"><i class="ti ti-x"></i></button>' +
+      '<button id="met-lb-prev" title="Previous (Left arrow)" style="' + arrow + 'left:20px;"><i class="ti ti-chevron-left"></i></button>' +
+      '<img id="met-lb-img" alt="" style="max-width:88vw;max-height:86vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5);" />' +
+      '<button id="met-lb-next" title="Next (Right arrow)" style="' + arrow + 'right:20px;"><i class="ti ti-chevron-right"></i></button>' +
+      '<div id="met-lb-count" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;background:rgba(0,0,0,.5);padding:4px 12px;border-radius:20px;"></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { if (e.target === el) close(); });
+    document.getElementById('met-lb-close').onclick = close;
+    document.getElementById('met-lb-prev').onclick  = e => { e.stopPropagation(); step(-1); };
+    document.getElementById('met-lb-next').onclick  = e => { e.stopPropagation(); step(1); };
+    document.getElementById('met-lb-copy').onclick  = e => { e.stopPropagation(); copyLink(); };
+    document.addEventListener('keydown', e => {
+      const box = document.getElementById('met-lightbox');
+      if (!box || box.style.display !== 'flex') return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'ArrowRight') step(1);
+    });
+  }
+  function render() {
+    document.getElementById('met-lb-img').src = imgs[idx];
+    const multi = imgs.length > 1;
+    document.getElementById('met-lb-count').textContent = multi ? (idx + 1) + ' / ' + imgs.length : '';
+    document.getElementById('met-lb-prev').style.display = multi ? 'flex' : 'none';
+    document.getElementById('met-lb-next').style.display = multi ? 'flex' : 'none';
+  }
+  function step(d) { if (!imgs.length) return; idx = (idx + d + imgs.length) % imgs.length; render(); }
+  function close() { const el = document.getElementById('met-lightbox'); if (el) el.style.display = 'none'; }
+  function copyLink() {
+    const url = imgs[idx]; if (!url) return;
+    const ok  = () => { if (typeof showToast === 'function') showToast('Link copied', 'success'); };
+    const bad = () => { if (typeof showToast === 'function') showToast('Could not copy link', 'error'); };
+    function fallback() {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); ok();
+      } catch (e) { bad(); }
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(ok, fallback);
+      else fallback();
+    } catch (e) { fallback(); }
+  }
+  window.metLightbox = function (images, start) {
+    imgs = Array.isArray(images) ? images.filter(Boolean) : (images ? [images] : []);
+    if (!imgs.length) return false;
+    idx = Math.max(0, Math.min(start || 0, imgs.length - 1));
+    build(); render();
+    document.getElementById('met-lightbox').style.display = 'flex';
+    return false;
+  };
+  // Open the clicked evidence image in the lightbox, with its sibling
+  // <a class="met-evid"> images (same container) forming the ←/→ gallery.
+  window.metImgGallery = function (aEl) {
+    try {
+      const anchor = aEl.closest ? (aEl.closest('a.met-evid') || aEl) : aEl;
+      const container = anchor.parentElement || anchor;
+      const anchors = [].slice.call(container.querySelectorAll('a.met-evid'));
+      const urls = anchors.map(a => { const im = a.querySelector('img'); return (im && im.src) || a.href; });
+      const i = anchors.indexOf(anchor);
+      return window.metLightbox(urls.length ? urls : [anchor.href], Math.max(0, i));
+    } catch (e) {
+      try { const im = aEl.querySelector && aEl.querySelector('img'); return window.metLightbox((im && im.src) || aEl.href); } catch (_) { return false; }
+    }
+  };
+})();
+
 function statusBadge(status) {
   const map = {
     PENDING:  '<span class="badge badge-pending"><span class="badge-dot"></span>Pending</span>',

@@ -334,7 +334,7 @@ async function openTicketDetail(ticketId){
     var reviewedOn=t.reviewedAt?formatDateTime(t.reviewedAt):null;
     var ph=Array.isArray(t.proofImages)&&t.proofImages.length
       ?"<div class=\"proof-preview-grid proof-preview-grid-detail\">"+
-        t.proofImages.map(function(src,i){return "<a href=\""+src+"\" onclick=\"return openImageNewTab(this.href)\" class=\"proof-thumb\"><img src=\""+src+"\" loading=\"lazy\"/></a>";}).join("")+"</div>"
+        t.proofImages.map(function(src,i){return "<a href=\""+src+"\" onclick=\"return metImgGallery(this)\" class=\"proof-thumb met-evid\"><img src=\""+src+"\" loading=\"lazy\"/></a>";}).join("")+"</div>"
       :"<span style=\"color:var(--text-muted);\">No proof images attached.</span>";
     // Target Roblox user header (resolved server-side)
     var tg=t.target,targetHeader="";

@@ -362,7 +362,7 @@
       const u = tok(a.url, cur && cur.id);
       return a.kind === 'video'
         ? `<video src="${esc(u)}" controls></video>`
-        : `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(a.name || '')}" /></a>`;
+        : `<a href="${esc(u)}" class="met-evid" onclick="return metImgGallery(this)"><img src="${esc(u)}" alt="${esc(a.name || '')}" /></a>`;
     }).join('');
     const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && cur && cur.status !== 'CLOSED';
     // The opener may edit/delete their OWN messages (signed-in only — guests have

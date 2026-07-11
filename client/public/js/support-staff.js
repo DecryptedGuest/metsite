@@ -397,7 +397,7 @@
     const internal = kind === 'internal';
     const atts = (m.attachments || []).map(a => a.kind === 'video'
       ? `<video src="${esc(a.url)}" controls></video>`
-      : `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="${esc(a.name || '')}"></a>`).join('');
+      : `<a href="${esc(a.url)}" class="met-evid" onclick="return metImgGallery(this)"><img src="${esc(a.url)}" alt="${esc(a.name || '')}"></a>`).join('');
     const nameClick = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
     const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && curT && curT.status !== 'CLOSED';
     const edited = m.editedAt ? '<span class="sup-edited" title="Edited">(edited)</span>' : '';
