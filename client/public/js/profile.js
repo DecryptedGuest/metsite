@@ -158,7 +158,7 @@ async function loadProfile() {
         const freshMedals = medalsList.filter(m => prevKeys.indexOf(m.key) === -1);
         if (freshMedals.length) {
           const fm = freshMedals[0]; // list is ordered highest → lowest
-          metBrandMoment({ icon: fm.icon || 'ti-medal', iconColor: fm.color, title: fm.name, tagline: fm.desc || 'Medal awarded', autoMs: 3400 });
+          metBrandMoment({ icon: fm.icon || 'ti-medal', iconColor: fm.color, title: fm.name, tagline: fm.desc || 'Medal awarded', autoMs: 5200 });
         }
       }
       localStorage.setItem('metMedalKeys', JSON.stringify(medalsList.map(m => m.key)));

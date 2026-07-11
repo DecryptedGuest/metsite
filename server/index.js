@@ -1297,7 +1297,7 @@ app.use((req, res) => {
   if (req.path.startsWith('/api/') || /\.[a-z0-9]{2,5}$/i.test(req.path)) {
     return res.type('text').send('Not found');
   }
-  sendPage(res, path.join(views, 'index.html'));
+  sendPage(res, path.join(views, 'portal-404.html'));
 });
 app.use((err, req, res, next) => {
   console.error('[Server] Unhandled error:', err.stack || err.message);

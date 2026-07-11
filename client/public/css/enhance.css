@@ -686,7 +686,14 @@ html[data-theme="light"] .met-strap-hero { color: #0d1b3e; }
     color-mix(in srgb, var(--mc, #f5c518) 60%, #000 40%) 100%);
   box-shadow: 0 0 60px color-mix(in srgb, var(--mc, #f5c518) 58%, transparent),
     inset 0 2px 3px rgba(255,255,255,.55), inset 0 -3px 5px rgba(0,0,0,.25);
-  animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both;
+  animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both,
+             met-moment-glow 2.4s ease-in-out .7s infinite;
+}
+@keyframes met-moment-glow {
+  0%, 100% { box-shadow: 0 0 42px color-mix(in srgb, var(--mc, #f5c518) 45%, transparent),
+    inset 0 2px 3px rgba(255,255,255,.55), inset 0 -3px 5px rgba(0,0,0,.25); }
+  50%      { box-shadow: 0 0 82px color-mix(in srgb, var(--mc, #f5c518) 78%, transparent),
+    inset 0 2px 3px rgba(255,255,255,.6), inset 0 -3px 5px rgba(0,0,0,.25); }
 }
 .met-moment-title {
   color: #fff; font-family: var(--font-display, inherit); font-weight: 800;
