@@ -280,7 +280,7 @@
       composer.parentNode.insertBefore(el, composer);
     }
     const canReopen = !!(t.caps && (t.caps.isHicomm || t.canManage));
-    el.innerHTML = `<i class="ti ti-lock"></i> This ticket is closed — nobody can reply until it's reopened.` +
+    el.innerHTML = `<i class="ti ti-lock"></i> This ticket is closed.` +
       (canReopen ? ` <button class="btn btn-primary btn-sm" style="margin-left:8px;" onclick="sdReopen()"><i class="ti ti-rotate"></i> Reopen</button>` : '');
   }
 
@@ -629,7 +629,7 @@
         <span style="font-size:12px;color:var(--text-secondary);line-height:1.5;">${esc(desc)}</span></div>`).join('');
     $('sd-settings-body').innerHTML = `
       <div style="font-size:13px;font-weight:700;margin-bottom:6px;"><i class="ti ti-message-plus"></i> Claim greetings</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Auto-pasted into your reply box when you claim a ticket.</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Auto-pasted into your message box when you claim a ticket.</div>
       <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;">Available placeholders</div>
       <div style="margin-bottom:12px;">${placeholderList}</div>
       ${greetFields}

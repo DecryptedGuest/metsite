@@ -859,7 +859,7 @@ router.post('/tickets/:id/messages', async (req, res) => {
     // someone else is handling.
     if (!isOpener(req, t) && t.status === 'CLAIMED' && t.claimedById && String(t.claimedById) !== String(req.user && req.user.id)) {
       const supPlus = support.canOverrideClaimLock(req.user);
-      if (!supPlus) return res.status(403).json({ error: 'This ticket is being handled by its claimant — only they or a supervisor can reply.' });
+      if (!supPlus) return res.status(403).json({ error: 'This ticket is being handled by its claimant — only they or a supervisor can send messages.' });
     }
 
     const body = (req.body && req.body.body != null ? String(req.body.body) : '').slice(0, 4000).trim();
@@ -915,7 +915,7 @@ router.post('/tickets/:id/messages', async (req, res) => {
         const preview = body ? body.slice(0, 100) : (attachments.length ? '📎 Attachment' : 'New activity');
         require('../lib/push').sendCustomNotification({
           userIds: [t.claimedById],
-          title: `New reply · ${cfg ? cfg.label : t.type}`,
+          title: `New message · ${cfg ? cfg.label : t.type}`,
           body: `${who}: ${preview}`,
           url: `/ia/dashboard?supportTicket=${t.id}`, // claimant is staff → the desk
         }).catch(() => {});

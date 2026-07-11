@@ -989,7 +989,7 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
     el = document.createElement('div');
     el.id = 'sup-lock-notice';
     el.style.cssText = 'display:flex;align-items:center;gap:9px;padding:13px 15px;border-top:1px solid var(--border,#2a3040);background:var(--surface-1,#0e1420);color:var(--text-muted,#8b93a1);font-size:13px;';
-    el.innerHTML = '<i class="ti ti-ban" style="color:var(--red,#e2231a);font-size:19px;flex:0 0 auto;"></i> You have been blocked from support by Internal Affairs — you can no longer reply here or open new tickets.';
+    el.innerHTML = '<i class="ti ti-ban" style="color:var(--red,#e2231a);font-size:19px;flex:0 0 auto;"></i> You have been blocked from support by Internal Affairs — you can no longer send messages here or open new tickets.';
     composer.parentNode.insertBefore(el, composer.nextSibling);
   }
 
