@@ -424,6 +424,25 @@ router.post('/tickets', async (req, res) => {
   }
 });
 
+// ── GET /api/support/tickets/:id/unfurl?url= — link preview (embed) ──
+// Discord-style unfurl of a URL posted in a ticket. Gated to people who can see
+// the ticket (opener via token, or handling staff), so it can't be used as an
+// open SSRF proxy. Returns { embed } or { embed: null } when there's nothing to
+// show. Best-effort — never throws to the client.
+router.get('/tickets/:id/unfurl', async (req, res) => {
+  try {
+    const t = await prisma.supportTicket.findUnique({ where: { id: req.params.id }, select: { id: true, openerId: true, openerToken: true, type: true } });
+    if (!t) return res.status(404).json({ error: 'Ticket not found' });
+    if (!canSee(req, t)) return res.status(403).json({ error: 'Not your ticket.' });
+    const url = String(req.query.url || '').trim();
+    if (!/^https?:\/\//i.test(url) || url.length > 2048) return res.json({ embed: null });
+    const embed = await require('../lib/unfurl').unfurl(url).catch(() => null);
+    res.json({ embed: embed || null });
+  } catch (e) {
+    res.json({ embed: null });
+  }
+});
+
 // ── POST /api/support/tickets/:id/upload — attach a file to a ticket ──
 // Raw binary body (Content-Type = the file type); ?filename=&kind= in query.
 // Returns { mediaId, kind, name, url }. Openers & handling staff only.

@@ -638,6 +638,67 @@ function openImageNewTab(src) {
       try { const im = aEl.querySelector && aEl.querySelector('img'); return window.metLightbox((im && im.src) || aEl.href); } catch (_) { return false; }
     }
   };
+  // ── Discord-style link embeds ─────────────────────────────────────
+  // metEmbeds.scan(root, fetchUnfurl) finds http(s) links inside .sup-text
+  // blocks and, using the page-supplied fetchUnfurl(url) -> Promise<embed|null>,
+  // appends a Discord-like embed card under the message. Results are cached so
+  // the 5s message-poll re-render doesn't refetch.
+  window.metEmbeds = (function () {
+    const cache = new Map();   // url -> embed | null
+    const inflight = new Map();
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function host(d) { return d.siteName || d.host || ''; }
+    function card(d) {
+      if (!d) return '';
+      const accent = d.color && /^#|^rgb/.test(d.color) ? d.color : 'var(--accent,#4a8fff)';
+      const site = host(d) ? `<div class="met-emb-site">${d.icon ? `<img class="met-emb-fav" src="${esc(d.icon)}" alt="" onerror="this.remove()">` : ''}${esc(host(d))}</div>` : '';
+      const title = d.title ? `<a class="met-emb-title" href="${esc(d.url)}" target="_blank" rel="noopener nofollow">${esc(d.title)}</a>` : '';
+      const desc = d.description ? `<div class="met-emb-desc">${esc(d.description)}</div>` : '';
+      // A pure image link → show the image only (Discord shows a bare image).
+      if (d.type === 'image' && d.image) {
+        return `<div class="met-embed met-embed-img"><a href="${esc(d.url)}" class="met-evid" onclick="return metImgGallery(this)"><img src="${esc(d.image)}" alt="" loading="lazy" onerror="this.closest('.met-embed').remove()"></a></div>`;
+      }
+      const isVideo = d.type === 'video';
+      const big = (d.bigImage || isVideo) && d.image;
+      const play = isVideo ? '<span class="met-emb-play"><i class="ti ti-player-play-filled"></i></span>' : '';
+      const bigImg = big ? `<a class="met-emb-big" href="${esc(d.url)}" target="_blank" rel="noopener nofollow"><img src="${esc(d.image)}" alt="" loading="lazy" onerror="this.closest('.met-emb-big').remove()">${play}</a>` : '';
+      const thumb = (!big && d.image) ? `<a class="met-emb-thumb" href="${esc(d.url)}" target="_blank" rel="noopener nofollow"><img src="${esc(d.image)}" alt="" loading="lazy" onerror="this.closest('.met-emb-thumb').remove()"></a>` : '';
+      if (!site && !title && !desc && !d.image) return '';
+      return `<div class="met-embed" style="--emb:${accent};">
+        <div class="met-emb-main"><div class="met-emb-body">${site}${title}${desc}</div>${thumb}</div>${bigImg}</div>`;
+    }
+    async function resolve(url, fetchUnfurl) {
+      if (cache.has(url)) return cache.get(url);
+      if (inflight.has(url)) return inflight.get(url);
+      const p = (async () => { let d = null; try { d = await fetchUnfurl(url); } catch (e) { d = null; } cache.set(url, d || null); inflight.delete(url); return d || null; })();
+      inflight.set(url, p);
+      return p;
+    }
+    function scan(root, fetchUnfurl) {
+      if (!root || typeof fetchUnfurl !== 'function') return;
+      const texts = [].slice.call(root.querySelectorAll('.sup-text')).filter(t => !t.__embScanned);
+      texts.forEach(t => {
+        t.__embScanned = true;
+        const body = t.parentElement; if (!body) return;
+        const seen = {};
+        const urls = [].slice.call(t.querySelectorAll('a[href^="http"]'))
+          .map(a => a.getAttribute('href'))
+          .filter(u => u && !/\/api\/support\//.test(u) && !seen[u] && (seen[u] = 1))
+          .slice(0, 4);
+        if (!urls.length) return;
+        let box = body.querySelector(':scope > .sup-embeds');
+        if (!box) { box = document.createElement('div'); box.className = 'sup-embeds'; body.appendChild(box); }
+        urls.forEach(u => {
+          resolve(u, fetchUnfurl).then(d => {
+            const html = card(d);
+            if (html && box && box.isConnected) box.insertAdjacentHTML('beforeend', html);
+          });
+        });
+      });
+    }
+    return { scan, card, _cache: cache };
+  })();
+
   // Belt-and-braces: a delegated handler so an evidence image ALWAYS opens the
   // in-site lightbox and NEVER falls through to navigating to the raw media URL,
   // even if an inline onclick is missing or a script errored before binding it.

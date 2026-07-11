@@ -495,7 +495,16 @@
     });
     parts.push(...msgs.slice(1).map(msgHtml));
     $('sd-log').innerHTML = parts.join('');
-    sdScroll(); sdEnrichMentions();
+    sdScroll(); sdEnrichMentions(); sdScanEmbeds();
+  }
+  // Discord-style link previews under messages.
+  function sdScanEmbeds() {
+    if (!window.metEmbeds || !curT) return;
+    const root = $('sd-log'); if (!root) return;
+    window.metEmbeds.scan(root, async (url) => {
+      try { const r = await api('/api/support/tickets/' + curT.id + '/unfurl?url=' + encodeURIComponent(url)); return r.embed || null; }
+      catch (e) { return null; }
+    });
   }
 
   // ── Actions ─────────────────────────────────────────────────────────

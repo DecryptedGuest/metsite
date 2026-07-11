@@ -709,13 +709,18 @@
   };
   // Resolve <@id> mentions in the log into MET nicknames + a profile card.
   function enrichLogMentions() {
-    if (!window.enrichMentions || !cur) return;
+    if (!cur) return;
     const root = $('sup-log'); if (!root) return;
-    window.enrichMentions(root, {
+    if (window.enrichMentions) window.enrichMentions(root, {
       resolve: async (ids) => {
         try { const r = await api(tok('/api/support/tickets/' + cur.id + '/mention', cur.id), { method: 'POST', body: JSON.stringify({ ids }) }); return r.mentions || {}; }
         catch (e) { return {}; }
       },
+    });
+    // Discord-style link previews under messages.
+    if (window.metEmbeds) window.metEmbeds.scan(root, async (url) => {
+      try { const r = await api(tok('/api/support/tickets/' + cur.id + '/unfurl?url=' + encodeURIComponent(url), cur.id)); return r.embed || null; }
+      catch (e) { return null; }
     });
   }
   // A "typing…" bot bubble that reveals `text` after a short, length-scaled delay.
