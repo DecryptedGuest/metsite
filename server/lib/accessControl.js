@@ -37,16 +37,27 @@ async function revalidateUser(user, getMemberRecord) {
       siteRole:  newRole || user.role,
       robloxId:  user.robloxId || null,
       metRankOverride: user.metRankOverride || null,
+      panelGrant: user.panelGrant || null,
     });
   } catch (e) {
     divisions = Array.isArray(user.divisions) ? user.divisions : [];
   }
+  // Cache the natural (group-derived) MET rank for the dev panel's "(default)"
+  // marker. Best-effort; keep the last value on any lookup failure.
+  let metRankNatural = user.metRankNatural || null;
+  try {
+    if (user.robloxId) {
+      const { metRole } = require('./metRank');
+      const r = await metRole(user.robloxId);
+      if (r && r.name) metRankNatural = { name: r.name, rank: Number(r.rank) || null };
+    }
+  } catch (e) { /* keep cached */ }
   // Also refresh the member's Discord role IDs so role-gated features stay
   // current WITHOUT a re-login — e.g. removing the final-exam role hides the
   // exam, losing the British-citizen role hides tryouts, perms flags update.
   // MET High Command counts as HICOMM portal-wide, even with no IA group rank.
   const effRole = effectiveSiteRole(newRole, divisions);
-  const stamp = { lastRoleCheck: new Date(), divisions, metRoleIds: memberRoles };
+  const stamp = { lastRoleCheck: new Date(), divisions, metRoleIds: memberRoles, metRankNatural };
 
   // A member who has LEFT the MET Discord loses access (confirmed not-in-guild).
   // Being in the guild with NO qualifying role is now VALID — a base NONE

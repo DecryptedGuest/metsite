@@ -166,12 +166,56 @@ async function metHicommLeadFromOverride(metRankOverride) {
   return null;
 }
 
+// ── Developer-set panel grants (site-only, ADDITIVE) ─────────────────
+// A grant token list gives a user extra panel access on top of their group
+// ranks. Tokens: "<DIV>" (member) | "<DIV>:LEAD" (division HICOMM) | "IA" |
+// "IA:SUPERVISOR" | "IA:LEAD" | "MET" (MET High Command umbrella).
+const GRANT_ROLE_RANK = { NONE: 0, IA: 1, SUPERVISOR: 2, HICOMM: 3, DEVELOPER: 4 };
+function maxRole(a, b) { return (GRANT_ROLE_RANK[b] || 0) > (GRANT_ROLE_RANK[a] || 0) ? b : a; }
+function normalizeGrants(panelGrant) {
+  if (!Array.isArray(panelGrant)) return [];
+  return [...new Set(panelGrant.map(g => String(g || '').toUpperCase().trim()).filter(Boolean))];
+}
+// Merge additive grants into an already-resolved divisions list. Returns the
+// merged list; granted entries carry `granted:true` and (for IA) a `grantRole`
+// that effectiveSiteRole reads to elevate the site role. A MET grant returns the
+// full MET-HICOMM lead set (it dominates).
+function applyPanelGrants(divisions, panelGrant) {
+  const grants = normalizeGrants(panelGrant);
+  if (!grants.length) return Array.isArray(divisions) ? divisions : [];
+  if (grants.some(g => g === 'MET' || g === 'MET:LEAD' || g === 'MET_HICOMM')) {
+    return buildMetHicommLead('MET High Command', null);
+  }
+  const list = Array.isArray(divisions) ? divisions.slice() : [];
+  const upsert = (division, lead, extra) => {
+    let e = list.find(d => d.division === division);
+    if (!e) { e = { division, tier: lead ? 'LEAD' : 'MEMBER', rankName: 'Access granted', rank: null, granted: true }; list.push(e); }
+    if (lead) e.tier = 'LEAD';
+    if (extra) Object.assign(e, extra);
+    return e;
+  };
+  for (const g of grants) {
+    const [div, tierTok] = g.split(':');
+    if (!ALL_DIVISIONS.includes(div)) continue;
+    const lead = tierTok === 'LEAD' || tierTok === 'HICOMM';
+    if (div === 'IA') {
+      if (tierTok === 'SUPERVISOR') upsert('IA', true, { rankName: 'Supervisor', granted: true, grantRole: 'SUPERVISOR' });
+      else if (lead)                upsert('IA', true, { rankName: 'IA High Command', granted: true, grantRole: 'HICOMM' });
+      else                          upsert('IA', false, { rankName: 'Internal Affairs', granted: true, grantRole: 'IA' });
+    } else {
+      upsert(div, lead);
+    }
+  }
+  return list;
+}
+
 // Resolve every division the user can access, with their tier + Roblox rank.
 // Returns [{ division, tier, rankName, rank }] where tier is 'LEAD' | 'MEMBER'.
 //   - IA: from the site role (no Roblox group query — unchanged behaviour).
 //   - CID/SCO19/FLP/HPC: from each division's Roblox group rank.
 // A developer (by id or DEVELOPER site role) gets LEAD in every division.
-async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null, metRankOverride = null }) {
+// Developer-set `panelGrant` tokens are merged in additively at the end.
+async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null, metRankOverride = null, panelGrant = null }) {
   const { resolveGroupDivisions } = require('./divisions');
 
   const isDeveloper = discordId === getDeveloperDiscordId() || siteRole === 'DEVELOPER';
@@ -183,7 +227,7 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
   // threshold it grants LEAD access to every division site-wide — shown as their
   // overridden MET rank — WITHOUT any Roblox lookup. Checked first so it wins.
   const metOverrideLead = await metHicommLeadFromOverride(metRankOverride);
-  if (metOverrideLead) return metOverrideLead;
+  if (metOverrideLead) return applyPanelGrants(metOverrideLead, panelGrant);
 
   const divisions = [];
 
@@ -231,11 +275,11 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
     try {
       const { metHicommRoleByRoblox } = require('./metRank');
       const hc = await metHicommRoleByRoblox(rId);
-      if (hc) return buildMetHicommLead(hc.name, hc.rank);
+      if (hc) return applyPanelGrants(buildMetHicommLead(hc.name, hc.rank), panelGrant);
     } catch (e) { /* MET lookup failed → normal divisions only this pass */ }
   }
 
-  return divisions;
+  return applyPanelGrants(divisions, panelGrant);
 }
 
 function hasDivisionAccess(divisions, division) {
@@ -254,11 +298,17 @@ function divisionTier(divisions, division) {
 // MET HICOMM the same as a divisional IA HICOMM. DEVELOPER always stays DEVELOPER.
 function effectiveSiteRole(baseRole, divisions) {
   if (baseRole === 'DEVELOPER') return 'DEVELOPER';
-  if (Array.isArray(divisions) && divisions.some(d => d && d.metHicomm)) return 'HICOMM';
-  return baseRole;
+  let role = baseRole || 'NONE';
+  if (Array.isArray(divisions)) {
+    if (divisions.some(d => d && d.metHicomm)) role = maxRole(role, 'HICOMM');
+    // Developer-granted IA access elevates the site role (IA tools gate on it).
+    for (const d of divisions) if (d && d.grantRole) role = maxRole(role, d.grantRole);
+  }
+  return role;
 }
 
 module.exports = {
   resolveSiteRole, resolveSiteRoleDetailed, roleFromIaGroupRank, roleFromDiscordRoles,
   resolveDivisionsForUser, hasDivisionAccess, divisionTier, effectiveSiteRole, ALL_DIVISIONS,
+  applyPanelGrants, normalizeGrants,
 };

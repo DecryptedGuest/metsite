@@ -55,6 +55,19 @@ model User {
   // WITHOUT touching the Roblox group. Cleared by setting it null.
   metRankOverride Json?
 
+  // The user's NATURAL (group-derived) MET rank { name, rank }, cached by the
+  // access revalidator. Read-only reference so the dev panel can show it as the
+  // "(default)" option in the MET-rank picker. Never used for gating (that's
+  // metRankOverride / the live group lookup).
+  metRankNatural Json?
+
+  // Developer-set, SITE-ONLY panel grants: an ADDITIVE allow-list of extra
+  // panels the user can access, on top of whatever their group ranks give. Each
+  // entry is a token: "CID" | "CID:LEAD" | … | "IA" | "IA:SUPERVISOR" |
+  // "IA:LEAD" | "MET" (MET High Command umbrella). Never removes group-derived
+  // access; merged in during division resolution. Cleared by setting it null.
+  panelGrant Json?
+
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
   tryoutLogs         TryoutLog[]

@@ -1614,30 +1614,186 @@ async function metRolesOnce() {
   try { _metRolesCache = await api('/api/admin/met-roles'); } catch (e) { _metRolesCache = []; }
   return _metRolesCache || [];
 }
-// A per-user MET-rank <select>: "— none —" plus every MET rank (highest first).
-// The selected option is the user's current site-only override, if any.
-function metRankSelect(u, metRoles) {
-  const cur = u.metRankOverride && Number(u.metRankOverride.rank);
-  const opts = ['<option value="">— MET rank —</option>'].concat(
-    (metRoles || []).map(r =>
-      `<option value="${r.rank}" ${cur === Number(r.rank) ? 'selected' : ''}>${escapeHtml(r.name)}</option>`));
-  return `<select class="role-select" title="Site-only MET rank override" onchange="changeUserMetRank('${u.id}',this.value)">${opts.join('')}</select>`;
+// ── Custom site-UI dropdowns for the admin user row ──────────────────
+// Two developer controls, styled to the site (not native <select>s):
+//   1. Panels — a multi-select of every divisional panel (+ each division's
+//      HICOMM, IA Supervisor, and MET High Command). Additive: the panels a
+//      user already has via group rank are shown "(default)" and locked on;
+//      ticking extras GRANTS that access site-wide.
+//   2. MET rank — a single-select of every MET rank; their natural (group)
+//      rank is marked "(default)" and pre-selected when no override is set.
+
+// The panel catalogue (order + labels). token → { label, div, lead }
+const PANEL_CATALOG = [
+  { token: 'MET',            label: 'MET High Command',    group: 'MET' },
+  { token: 'CID',            label: 'CID',                 group: 'CID' },
+  { token: 'CID:LEAD',       label: 'CID High Command',    group: 'CID' },
+  { token: 'SCO19',          label: 'SCO-19',              group: 'SCO19' },
+  { token: 'SCO19:LEAD',     label: 'SCO-19 High Command', group: 'SCO19' },
+  { token: 'IA',             label: 'Internal Affairs',    group: 'IA' },
+  { token: 'IA:SUPERVISOR',  label: 'IA Supervisor',       group: 'IA' },
+  { token: 'IA:LEAD',        label: 'IA High Command',     group: 'IA' },
+  { token: 'FLP',            label: 'Frontline Policing',  group: 'FLP' },
+  { token: 'FLP:LEAD',       label: 'FLP High Command',    group: 'FLP' },
+  { token: 'HPC',            label: 'Hendon Police College',group: 'HPC' },
+  { token: 'HPC:LEAD',       label: 'HPC High Command',    group: 'HPC' },
+];
+const PANEL_COLORS = { MET: '#4a8fff', CID: '#e8842a', SCO19: '#4b5563', IA: '#c2701f', FLP: '#5cc0ff', HPC: '#e8eef7' };
+
+// Which tokens a user holds NATURALLY (from group rank) — from their cached
+// divisions, excluding developer-granted entries.
+function naturalPanelTokens(u) {
+  const set = new Set();
+  const divs = Array.isArray(u.divisions) ? u.divisions.filter(d => d && !d.granted) : [];
+  if (divs.some(d => d.metHicomm)) set.add('MET');
+  for (const d of divs) {
+    if (!d.division) continue;
+    if (d.division === 'MET') { set.add('MET'); continue; }
+    set.add(d.division);                              // member-level
+    if (d.tier === 'LEAD') set.add(d.division + ':LEAD'); // + HICOMM tier
+  }
+  return set;
 }
-// Apply / clear a user's MET-rank override. Deputy Commissioner+ becomes MET
-// HICOMM site-wide; the exact rank is shown as their divisional rank.
-async function changeUserMetRank(userId, rankVal) {
+function grantedPanelTokens(u) {
+  return new Set(Array.isArray(u.panelGrant) ? u.panelGrant.map(String) : []);
+}
+
+function panelsDropdownTrigger(u) {
+  const nat = naturalPanelTokens(u), grant = grantedPanelTokens(u);
+  const active = PANEL_CATALOG.filter(p => nat.has(p.token) || grant.has(p.token));
+  const chips = active.length
+    ? active.slice(0, 4).map(p => `<span class="met-cd-chip" style="--c:${PANEL_COLORS[p.group] || '#8b93a1'}">${escapeHtml(p.label)}</span>`).join('')
+      + (active.length > 4 ? `<span class="met-cd-chip more">+${active.length - 4}</span>` : '')
+    : '<span style="color:var(--text-muted);font-size:11px;">No panels</span>';
+  return `<button type="button" class="met-cd-trigger" title="Panel access" onclick="openPanelsDropdown('${u.id}',event)">
+    <span class="met-cd-chips">${chips}</span><i class="ti ti-chevron-down met-cd-caret"></i></button>`;
+}
+function metRankDropdownTrigger(u, metRoles) {
+  const override = u.metRankOverride && u.metRankOverride.name;
+  const natural  = u.metRankNatural && u.metRankNatural.name;
+  const label = override || natural || 'No MET rank';
+  const tag = override ? '<span class="met-cd-tag over">override</span>' : (natural ? '<span class="met-cd-tag def">default</span>' : '');
+  return `<button type="button" class="met-cd-trigger" title="Site-only MET rank" onclick="openMetRankDropdown('${u.id}',event)">
+    <span class="met-cd-rank">${escapeHtml(label)}</span>${tag}<i class="ti ti-chevron-down met-cd-caret"></i></button>`;
+}
+
+// ── Shared popover host (body-appended so the table never clips it) ──
+let _metCdOutside = null;
+function closeMetCd() {
+  const p = document.getElementById('met-cd-pop'); if (p) p.remove();
+  if (_metCdOutside) { document.removeEventListener('mousedown', _metCdOutside, true); document.removeEventListener('keydown', _metCdEsc, true); _metCdOutside = null; }
+}
+function _metCdEsc(e) { if (e.key === 'Escape') closeMetCd(); }
+function openMetCd(anchorEl, innerHtml, onMount) {
+  closeMetCd();
+  const pop = document.createElement('div');
+  pop.id = 'met-cd-pop'; pop.className = 'met-cd-pop glass';
+  pop.innerHTML = innerHtml;
+  document.body.appendChild(pop);
+  const r = anchorEl.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6); // flip up
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  _metCdOutside = (e) => { if (!pop.contains(e.target)) closeMetCd(); };
+  setTimeout(() => { document.addEventListener('mousedown', _metCdOutside, true); document.addEventListener('keydown', _metCdEsc, true); }, 0);
+  if (onMount) onMount(pop);
+}
+
+// ── Panels multi-select popover ─────────────────────────────────────
+window.openPanelsDropdown = function (userId, ev) {
+  if (ev) ev.stopPropagation();
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const anchor = ev && ev.currentTarget ? ev.currentTarget : ev.target.closest('.met-cd-trigger');
+  const nat = naturalPanelTokens(u), grant = grantedPanelTokens(u);
+  let rowsHtml = '';
+  let lastGroup = null;
+  for (const p of PANEL_CATALOG) {
+    if (p.group !== lastGroup) { lastGroup = p.group; }
+    const isDefault = nat.has(p.token);
+    const checked = isDefault || grant.has(p.token);
+    const c = PANEL_COLORS[p.group] || '#8b93a1';
+    rowsHtml += `<label class="met-cd-opt ${isDefault ? 'is-default' : ''}">
+      <input type="checkbox" data-token="${p.token}" ${checked ? 'checked' : ''} ${isDefault ? 'disabled' : ''}>
+      <span class="met-cd-dot" style="background:${c}"></span>
+      <span class="met-cd-lbl">${escapeHtml(p.label)}</span>
+      ${isDefault ? '<span class="met-cd-def">(default)</span>' : ''}
+    </label>`;
+  }
+  const html = `<div class="met-cd-head">Panel access<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
+    <div class="met-cd-note">Defaults come from their group ranks and stay on. Tick extras to grant access.</div>
+    <div class="met-cd-list">${rowsHtml}</div>
+    <div class="met-cd-foot">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="savePanelGrants('${u.id}')"><i class="ti ti-check"></i> Save</button>
+    </div>`;
+  openMetCd(anchor, html);
+};
+window.savePanelGrants = async function (userId) {
+  const pop = document.getElementById('met-cd-pop'); if (!pop) return;
+  // Save only the NON-default ticked tokens (defaults are effective anyway).
+  const grants = [].slice.call(pop.querySelectorAll('input[type="checkbox"][data-token]'))
+    .filter(cb => cb.checked && !cb.disabled).map(cb => cb.getAttribute('data-token'));
   try {
-    let body;
-    if (!rankVal) body = { clear: true };
-    else {
-      const role = (_metRolesCache || []).find(r => String(r.rank) === String(rankVal));
-      if (!role) return;
-      body = { name: role.name, rank: role.rank };
-    }
-    await api(`/api/admin/users/${userId}/met-rank`, { method: 'PATCH', body: JSON.stringify(body) });
-    showToast(rankVal ? 'MET rank set (applies on their next request)' : 'MET rank override cleared', 'success');
+    const r = await api(`/api/admin/users/${userId}/panels`, { method: 'PATCH', body: JSON.stringify({ grants }) });
+    const u = (window._adminUsers || {})[userId]; if (u) u.panelGrant = r.panelGrant || null;
+    // Refresh just this row's trigger.
+    const btn = document.querySelector(`.met-cd-trigger[onclick*="openPanelsDropdown('${userId}'"]`);
+    if (btn && u) btn.outerHTML = panelsDropdownTrigger(u);
+    closeMetCd();
+    showToast(grants.length ? 'Panel access granted (applies on their next request)' : 'Extra panel grants cleared', 'success');
+  } catch (e) { showToast(e.message || 'Failed to save panels', 'error'); }
+};
+
+// ── MET rank single-select popover ──────────────────────────────────
+window.openMetRankDropdown = async function (userId, ev) {
+  if (ev) ev.stopPropagation();
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const anchor = ev && ev.currentTarget ? ev.currentTarget : ev.target.closest('.met-cd-trigger');
+  const metRoles = await metRolesOnce();
+  const curRank = u.metRankOverride ? Number(u.metRankOverride.rank) : null;
+  const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
+  const selRank = curRank != null ? curRank : natRank;   // default-select the natural rank
+  let opts = `<label class="met-cd-opt"><input type="radio" name="metrank" value="" ${selRank == null ? 'checked' : ''}><span class="met-cd-lbl" style="color:var(--text-muted);">— No MET rank —</span></label>`;
+  opts += (metRoles || []).map(r => {
+    const isDef = natRank != null && Number(r.rank) === natRank;
+    return `<label class="met-cd-opt ${isDef ? 'is-default' : ''}"><input type="radio" name="metrank" value="${r.rank}" ${Number(r.rank) === selRank ? 'checked' : ''}>
+      <span class="met-cd-lbl">${escapeHtml(r.name)}</span>${isDef ? '<span class="met-cd-def">(default)</span>' : ''}</label>`;
+  }).join('');
+  const html = `<div class="met-cd-head">MET rank<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
+    <div class="met-cd-note">Site-only. Deputy Commissioner+ grants MET High Command everywhere. Picking their (default) clears the override.</div>
+    <div class="met-cd-list">${opts}</div>
+    <div class="met-cd-foot">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="saveMetRank('${u.id}')"><i class="ti ti-check"></i> Save</button>
+    </div>`;
+  openMetCd(anchor, html);
+};
+window.saveMetRank = async function (userId) {
+  const pop = document.getElementById('met-cd-pop'); if (!pop) return;
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const picked = pop.querySelector('input[name="metrank"]:checked');
+  const rankVal = picked ? picked.value : '';
+  const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
+  let body;
+  if (!rankVal || (natRank != null && Number(rankVal) === natRank)) {
+    body = { clear: true };                              // none, or their natural rank → clear override
+  } else {
+    const roles = _metRolesCache || [];
+    const role = roles.find(r => String(r.rank) === String(rankVal));
+    if (!role) return;
+    body = { name: role.name, rank: role.rank };
+  }
+  try {
+    const r = await api(`/api/admin/users/${userId}/met-rank`, { method: 'PATCH', body: JSON.stringify(body) });
+    u.metRankOverride = r.metRankOverride || null;
+    const btn = document.querySelector(`.met-cd-trigger[onclick*="openMetRankDropdown('${userId}'"]`);
+    if (btn) btn.outerHTML = metRankDropdownTrigger(u);
+    closeMetCd();
+    showToast(body.clear ? 'MET rank set to their default' : 'MET rank override set (applies on their next request)', 'success');
   } catch (e) { showToast(e.message || 'Failed to set MET rank', 'error'); }
-}
+};
 
 // Dedupe IA→MET migration duplicate case/ticket logs. preview=false → apply.
 async function dedupeMigration(apply) {
@@ -1672,8 +1828,10 @@ async function loadAdminUsers() {
         : emptyRow(10, 'No users found.');
       return;
     }
-    const roleOptions = r => ['NONE','IA','SUPERVISOR','HICOMM','DEVELOPER'].map(v =>
-      `<option value="${v}" ${r === v ? 'selected' : ''}>${v}</option>`).join('');
+    // Stash each user so the custom panel/MET-rank dropdowns can read their
+    // divisions, grants and natural rank when opened.
+    window._adminUsers = {};
+    users.forEach(u => { window._adminUsers[u.id] = u; });
     tbody.innerHTML = users.map(u => `
       <tr class="${u.isBlacklisted ? 'blacklisted-row' : ''}">
         <td>
@@ -1693,9 +1851,9 @@ async function loadAdminUsers() {
                </div>`
             : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>'}</td>
         <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
-        <td><div style="display:flex;flex-direction:column;gap:4px;min-width:150px;">
-          <select class="role-select" onchange="changeUserRole('${u.id}',this.value)">${roleOptions(u.role)}</select>
-          ${metRankSelect(u, metRoles)}
+        <td><div style="display:flex;flex-direction:column;gap:6px;min-width:210px;">
+          ${panelsDropdownTrigger(u)}
+          ${metRankDropdownTrigger(u, metRoles)}
         </div></td>
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
         <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>

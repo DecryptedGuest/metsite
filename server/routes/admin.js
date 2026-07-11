@@ -61,6 +61,7 @@ router.get('/users', async (req, res) => {
         lastIp: true, robloxId: true, robloxUsername: true,
         createdAt: true, lastLogin: true,
         notifyEnabled: true, metRankOverride: true,
+        metRankNatural: true, panelGrant: true, divisions: true,
         _count: { select: { cases: true, pushSubscriptions: true } },
       },
     });
@@ -172,6 +173,57 @@ router.patch('/users/:id/met-rank', async (req, res) => {
     res.json({ success: true, metRankOverride });
   } catch (e) {
     res.status(500).json({ error: 'Failed to set MET rank' });
+  }
+});
+
+// ── PATCH /api/admin/users/:id/panels ───────────────────────
+// Set (or clear) a user's SITE-ONLY panel grants — an ADDITIVE allow-list of
+// extra panels on top of their group ranks. Body:
+//   { grants: ["CID","IA:SUPERVISOR","MET", …] }  — replace the grant set
+//   { clear: true }                               — remove all grants
+// Tokens: "<DIV>" | "<DIV>:LEAD" | "IA" | "IA:SUPERVISOR" | "IA:LEAD" | "MET".
+// Never touches Roblox groups; takes effect on the user's next revalidation
+// (≤1 min on a gated route) or immediately on their next login.
+const PANEL_DIVS = ['CID', 'SCO19', 'IA', 'FLP', 'HPC'];
+function sanitizeGrants(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = new Set();
+  for (const g of raw) {
+    const t = String(g || '').toUpperCase().trim();
+    if (!t) continue;
+    if (t === 'MET' || t === 'MET:LEAD') { out.add('MET'); continue; }
+    const [div, tier] = t.split(':');
+    if (!PANEL_DIVS.includes(div)) continue;
+    if (div === 'IA') {
+      if (tier === 'SUPERVISOR') out.add('IA:SUPERVISOR');
+      else if (tier === 'LEAD' || tier === 'HICOMM') out.add('IA:LEAD');
+      else out.add('IA');
+    } else {
+      out.add(tier === 'LEAD' || tier === 'HICOMM' ? `${div}:LEAD` : div);
+    }
+  }
+  return [...out];
+}
+router.patch('/users/:id/panels', async (req, res) => {
+  try {
+    const body = req.body || {};
+    let panelGrant = null;
+    if (!body.clear) {
+      const grants = sanitizeGrants(body.grants);
+      panelGrant = grants.length ? grants : null;
+    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data:  { panelGrant, lastRoleCheck: null }, // force a re-derive on next access
+    });
+    audit.log(req.user, { category: 'ACCESS', action: 'PANEL_GRANT_OVERRIDE',
+      target: { type: 'user', id: req.params.id, name: user.displayName || user.discordUsername },
+      summary: panelGrant
+        ? `Panel grants set to [${panelGrant.join(', ')}] for ${user.displayName || user.discordUsername}`
+        : `Panel grants cleared for ${user.displayName || user.discordUsername}` });
+    res.json({ success: true, panelGrant });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to set panel access' });
   }
 });
 
