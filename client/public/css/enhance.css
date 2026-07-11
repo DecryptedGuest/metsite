@@ -508,3 +508,48 @@ html[data-theme="light"] .sk {
   background: linear-gradient(90deg, rgba(20,50,120,0.06) 25%, rgba(20,50,120,0.13) 37%, rgba(20,50,120,0.06) 63%);
   background-size: 840px 100%;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   PERSONAL ACCENT COLOUR — the profile "accent" picker sets --blue (ui.js
+   applyAccent). Most prominent controls used a HARDCODED blue, so the accent
+   appeared to do nothing. Route them through the accent token here (last
+   layer) so the choice is visible site-wide. Division dashboards keep their
+   own --dc identity on the nav rail / brand / titles; the accent drives the
+   interactive controls. All palette accents are mid-tone → white text reads. */
+:root { --accent: var(--blue, #4a8fff); }
+
+/* Primary buttons — a rich two-stop gradient built from the accent. */
+.btn-primary {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 80%, #000 20%),
+    color-mix(in srgb, var(--accent) 58%, #000 42%)) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+  color: #fff !important;
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 92%, #000 8%),
+    color-mix(in srgb, var(--accent) 70%, #000 30%)) !important;
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent) !important;
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 42%, transparent) !important;
+  color: #fff !important;
+}
+.btn-primary:active { filter: brightness(.95); }
+
+/* Focus ring, input focus, active filter tab, spinner, checkboxes, selection
+   and in-content links all follow the accent too, so it reads as one system. */
+.form-control:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent) !important;
+}
+.btn:focus-visible, .nav-item:focus-visible, a:focus-visible, .form-control:focus-visible {
+  outline-color: var(--accent) !important;
+}
+.spinner { border-top-color: var(--accent) !important; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+.filter-tab.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  color: color-mix(in srgb, var(--accent) 60%, #fff) !important;
+}
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
