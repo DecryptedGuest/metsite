@@ -922,6 +922,20 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       mentionSearch: async (q) => { if (!q) return []; try { const r = await api('/api/support/mention-search?q=' + encodeURIComponent(q)); return r.users || []; } catch (e) { return []; } },
     });
     $('sup-input').addEventListener('input', () => { sendTyping(); saveDraft(); });
+    // Paste an image (screenshot / copied file) straight into the composer — it
+    // uploads exactly like the paperclip. Only swallow the paste when it carries
+    // a file, so pasting text still works normally.
+    $('sup-input').addEventListener('paste', e => {
+      const files = filesFromDataTransfer(e.clipboardData);
+      if (files.length) { e.preventDefault(); addFiles(files); }
+    });
+    // Drag-and-drop images onto the composer too.
+    const composerEl = $('sup-composer');
+    if (composerEl) {
+      composerEl.addEventListener('dragover', e => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) { e.preventDefault(); composerEl.classList.add('sup-drop'); } });
+      composerEl.addEventListener('dragleave', () => composerEl.classList.remove('sup-drop'));
+      composerEl.addEventListener('drop', e => { const files = filesFromDataTransfer(e.dataTransfer); composerEl.classList.remove('sup-drop'); if (files.length) { e.preventDefault(); addFiles(files); } });
+    }
   }
 
   // ── Per-ticket composer draft persistence ────────────────────────────
@@ -1001,10 +1015,17 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
   function onPickFiles(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
-    if (!cur) return;
+    addFiles(files);
+  }
+  // Upload a set of File objects into the composer (shared by the paperclip
+  // picker AND paste/drag). Each shows a preview tile that spins while it
+  // uploads, then flips to "ready".
+  function addFiles(files) {
+    if (!cur || !files || !files.length) return;
     for (const f of files) {
+      if (!f) continue;
       const isImg = /^image\//.test(f.type);
-      const item = { uid: ++attSeq, name: f.name || 'upload', kind: isImg ? 'image' : 'video', size: f.size || 0, status: 'loading', previewUrl: isImg ? URL.createObjectURL(f) : null, mediaId: null, url: null };
+      const item = { uid: ++attSeq, name: f.name || (isImg ? 'pasted-image.png' : 'upload'), kind: isImg ? 'image' : 'video', size: f.size || 0, status: 'loading', previewUrl: isImg ? URL.createObjectURL(f) : null, mediaId: null, url: null };
       pending.push(item);
       renderPending();
       supUpload(cur.id, f).then(meta => {
@@ -1014,6 +1035,16 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
         item.status = 'error'; renderPending(); showToast(err.message, 'error');
       });
     }
+  }
+  // Pull image/video File objects out of a clipboard or drag DataTransfer.
+  function filesFromDataTransfer(dt) {
+    if (!dt) return [];
+    const out = [];
+    if (dt.files && dt.files.length) out.push(...Array.from(dt.files));
+    else if (dt.items && dt.items.length) {
+      for (const it of dt.items) { if (it.kind === 'file') { const f = it.getAsFile(); if (f) out.push(f); } }
+    }
+    return out.filter(f => /^(image|video)\//.test(f.type));
   }
   function renderPending() {
     const el = $('sup-pending');

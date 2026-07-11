@@ -3,6 +3,9 @@
  * these rules inline) and the staff Support Desk (dashboard / dev-dashboard),
  * so a claimed ticket looks identical in both places. */
 
+/* Drag-and-drop / paste target highlight on the composer. */
+.sup-drop { outline: 2px dashed var(--accent, #4a8fff); outline-offset: 2px; border-radius: 10px; background: color-mix(in srgb, var(--accent, #4a8fff) 8%, transparent); }
+
 .sup-msg { display: flex; gap: 10px; }
 .sup-msg .sup-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; background: var(--surface-2, #222); display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 13px; font-weight: 700; }
 .sup-msg .sup-av img { width: 100%; height: 100%; object-fit: cover; }

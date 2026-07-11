@@ -765,6 +765,19 @@
       mentionSearch: async (q) => { if (!q) return []; try { const r = await api('/api/support/mention-search?q=' + encodeURIComponent(q)); return r.users || []; } catch (e) { return []; } },
     });
     $('sd-input').addEventListener('input', sdSendTyping);
+    // Paste an image/screenshot straight into the composer — uploads like the
+    // paperclip. Only intercept when the clipboard actually carries a file.
+    $('sd-input').addEventListener('paste', e => {
+      const files = sdFilesFromDT(e.clipboardData);
+      if (files.length) { e.preventDefault(); sdAddFiles(files); }
+    });
+    // Drag-and-drop onto the composer.
+    const comp = $('sd-composer') || ($('sd-input') && $('sd-input').closest('.sd-composer, form, .composer'));
+    if (comp) {
+      comp.addEventListener('dragover', e => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) { e.preventDefault(); comp.classList.add('sup-drop'); } });
+      comp.addEventListener('dragleave', () => comp.classList.remove('sup-drop'));
+      comp.addEventListener('drop', e => { const files = sdFilesFromDT(e.dataTransfer); comp.classList.remove('sup-drop'); if (files.length) { e.preventDefault(); sdAddFiles(files); } });
+    }
   }
   function renderPending() {
     $('sd-pending').innerHTML = sdPending.map(p => {
@@ -776,16 +789,31 @@
   window.sdRm = function (uid) { const i = sdPending.findIndex(p => p.uid === uid); if (i >= 0) { if (sdPending[i].previewUrl) try { URL.revokeObjectURL(sdPending[i].previewUrl); } catch (e) {} sdPending.splice(i, 1); renderPending(); } };
   function onPick(e) {
     const files = Array.from(e.target.files || []); e.target.value = '';
+    sdAddFiles(files);
+  }
+  // Upload a set of File objects into the composer — shared by the paperclip
+  // picker AND paste/drag-drop.
+  function sdAddFiles(files) {
+    if (!curT || !files || !files.length) return;
     for (const f of files) {
+      if (!f) continue;
       const isImg = /^image\//.test(f.type);
-      const item = { uid: ++sdSeq, name: f.name || 'upload', kind: isImg ? 'image' : 'video', status: 'loading', previewUrl: isImg ? URL.createObjectURL(f) : null };
+      const item = { uid: ++sdSeq, name: f.name || (isImg ? 'pasted-image.png' : 'upload'), kind: isImg ? 'image' : 'video', status: 'loading', previewUrl: isImg ? URL.createObjectURL(f) : null };
       sdPending.push(item); renderPending();
-      const q = new URLSearchParams({ filename: f.name || 'upload', mimeType: f.type || 'application/octet-stream' });
+      const q = new URLSearchParams({ filename: item.name, mimeType: f.type || 'application/octet-stream' });
       fetch(`/api/support/tickets/${curT.id}/upload?` + q, { method: 'POST', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f })
         .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(new Error(d.error || 'Upload failed'))))
         .then(meta => { item.mediaId = meta.mediaId; item.kind = meta.kind; item.status = 'done'; renderPending(); })
         .catch(err => { item.status = 'error'; renderPending(); showToast(err.message, 'error'); });
     }
+  }
+  // Extract image/video File objects from a clipboard or drag DataTransfer.
+  function sdFilesFromDT(dt) {
+    if (!dt) return [];
+    const out = [];
+    if (dt.files && dt.files.length) out.push(...Array.from(dt.files));
+    else if (dt.items && dt.items.length) { for (const it of dt.items) { if (it.kind === 'file') { const f = it.getAsFile(); if (f) out.push(f); } } }
+    return out.filter(f => /^(image|video)\//.test(f.type));
   }
   // ── Reply-to (Discord-style) ─────────────────────────────────────
   let sdReplyTo = null;

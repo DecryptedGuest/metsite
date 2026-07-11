@@ -619,19 +619,34 @@ function openImageNewTab(src) {
     return false;
   };
   // Open the clicked evidence image in the lightbox, with its sibling
-  // <a class="met-evid"> images (same container) forming the ←/→ gallery.
+  // <a class="met-evid"> images forming the ←/→ gallery. The gallery spans the
+  // whole message / proof group the image lives in (a chat message's .sup-atts,
+  // a proof grid, or the nearest message row) so all of a message's images
+  // shuffle — not just immediate DOM siblings.
+  const GALLERY_SCOPES = '.sup-atts, .proof-preview-grid, .met-gallery, .sup-msg, .sup-body, [data-mid]';
   window.metImgGallery = function (aEl) {
     try {
-      const anchor = aEl.closest ? (aEl.closest('a.met-evid') || aEl) : aEl;
-      const container = anchor.parentElement || anchor;
-      const anchors = [].slice.call(container.querySelectorAll('a.met-evid'));
-      const urls = anchors.map(a => { const im = a.querySelector('img'); return (im && im.src) || a.href; });
-      const i = anchors.indexOf(anchor);
+      const anchor = (aEl && aEl.closest) ? (aEl.closest('a.met-evid, .met-evid') || aEl) : aEl;
+      const container = (anchor.closest && anchor.closest(GALLERY_SCOPES)) || anchor.parentElement || anchor;
+      const anchors = [].slice.call(container.querySelectorAll('a.met-evid, .met-evid'))
+        .filter(a => a.querySelector ? (a.querySelector('img') || a.tagName === 'A') : true);
+      const urls = anchors.map(a => { const im = a.querySelector && a.querySelector('img'); return (im && im.src) || a.href; }).filter(Boolean);
+      let i = anchors.indexOf(anchor);
+      if (i < 0) i = 0;
       return window.metLightbox(urls.length ? urls : [anchor.href], Math.max(0, i));
     } catch (e) {
       try { const im = aEl.querySelector && aEl.querySelector('img'); return window.metLightbox((im && im.src) || aEl.href); } catch (_) { return false; }
     }
   };
+  // Belt-and-braces: a delegated handler so an evidence image ALWAYS opens the
+  // in-site lightbox and NEVER falls through to navigating to the raw media URL,
+  // even if an inline onclick is missing or a script errored before binding it.
+  document.addEventListener('click', function (e) {
+    const a = e.target && e.target.closest && e.target.closest('a.met-evid, a.proof-thumb');
+    if (!a) return;
+    e.preventDefault();
+    window.metImgGallery(a);
+  }, false);
 })();
 
 function statusBadge(status) {
