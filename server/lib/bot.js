@@ -337,11 +337,20 @@ async function listGuildRoleMembers(guildId, roleId) {
   try {
     const guild = await client.guilds.fetch(guildId);
     const role  = await guild.roles.fetch(roleId).catch(() => null);
-    let members;
-    if (role && role.members && role.members.size) members = role.members;
-    else {
-      const all = await guild.members.fetch();     // needs GuildMembers intent
+    if (!role) { console.warn(`[Bot] role ${roleId} not found in guild ${guildId}`); return []; }
+    // role.members only reflects the members currently in the cache — right after
+    // boot that can be just a handful (or none), so it must NOT be trusted on its
+    // own. Fetch the full member list first (needs the GuildMembers privileged
+    // intent, requested in startBot()) so everyone holding the role is seen.
+    let members = null;
+    try {
+      const all = await guild.members.fetch();
       members = all.filter(m => m.roles.cache.has(roleId));
+    } catch (e) {
+      // Full fetch failed (intent disabled / gateway hiccup) — fall back to
+      // whatever the role cache already holds rather than returning nothing.
+      console.warn('[Bot] members.fetch failed, using role cache (enable the GuildMembers intent):', e.message);
+      members = role.members;
     }
     return [...members.values()]
       .map(m => ({ id: m.id, username: m.user.username, displayName: m.displayName || m.user.username }))
@@ -1482,7 +1491,14 @@ async function handleTryoutComponent(interaction) {
     catch (e) { console.error('[Bot] co-host staff fetch failed:', e.message); }
     staff = staff.filter(m => !t || String(m.id) !== String(t.hostDiscordId)); // not yourself
     if (!staff.length) {
-      return interaction.reply({ content: '⚠️ No eligible staff found to pick as a co-host. Check the server / staff-role configuration.', flags: 64 });
+      // The staff role is empty / misconfigured, or the member list couldn't be
+      // fetched. Don't dead-end the host — fall back to the open picker so they
+      // can still choose any member as co-host.
+      console.warn(`[Bot] co-host: no members for staff role ${cfg.roleId} in guild ${cfg.guildId} — falling back to the open picker.`);
+      const row = new ActionRowBuilder().addComponents(
+        new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
+      );
+      return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
     }
     const capped = staff.slice(0, 25); // Discord select menus allow at most 25 options
     const menu = new StringSelectMenuBuilder()
