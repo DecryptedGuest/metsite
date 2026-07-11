@@ -140,7 +140,34 @@
     }
   }
 
-  // The signed-in member's own weekly quota card (points + progression bar).
+  // A clear banner that COVERS the points/target when a member is exempt or on
+  // Leave of Absence — so they never see a misleading "0 / target".
+  function dqExemptBanner(kind, rank) {
+    var loa = kind === 'LOA';
+    var color = loa ? 'var(--blue,#4a8fff)' : 'var(--purple,#9b6dff)';
+    var icon = loa ? 'ti-calendar-off' : 'ti-shield-check';
+    var label = loa ? 'Leave of Absence' : 'Exempt';
+    var sub = loa ? "You're on leave — there's no weekly quota to meet." : "You're exempt from the weekly quota.";
+    return "<div class='profile-section'><div style='display:flex;align-items:center;gap:15px;padding:18px 16px;border-radius:12px;"
+      + "background:color-mix(in srgb," + color + " 12%,transparent);border:1px solid color-mix(in srgb," + color + " 42%,transparent);'>"
+      + "<div style='font-size:32px;color:" + color + ";line-height:1;flex:0 0 auto;'><i class='ti " + icon + "'></i></div>"
+      + "<div style='min-width:0;'><div style='font-size:19px;font-weight:800;color:" + color + ";text-transform:uppercase;letter-spacing:.04em;'>" + label + "</div>"
+      + "<div style='font-size:12px;color:var(--text-muted);margin-top:3px;'><strong style='color:var(--text);'>" + esc(rank) + "</strong> — " + sub + "</div></div></div></div>";
+  }
+  // The Mon–Sun activity breakdown grid.
+  function dqDayGrid(days) {
+    if (!days) return '';
+    var order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;'>" + order.map(function (day) {
+      var v = days[day]; if (v == null) v = 0;
+      return "<div style='flex:1;min-width:58px;text-align:center;background:rgba(255,255,255,0.03);border:1px solid var(--border-dim);border-radius:7px;padding:8px 4px;'>"
+        + "<div style='font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;'>" + day + "</div>"
+        + "<div style='font-size:18px;font-weight:700;margin-top:2px;'>" + esc(String(v)) + "</div></div>";
+    }).join('') + "</div>";
+  }
+
+  // The signed-in member's own weekly quota card: points + progression bar + the
+  // Mon–Sun day breakdown; or a clear Exempt / Leave of Absence banner instead.
   // Renders into `hostId`; hides it when the member isn't on the sheet.
   async function loadMyQuota(div, hostId) {
     var host = document.getElementById(hostId);
@@ -152,12 +179,11 @@
     host.style.display = '';
     var rank = esc(d.rank || 'Member');
     if (d.exempt) {
+      var hc = (d.exemptKind === 'LOA') ? 'var(--blue,#4a8fff)' : 'var(--purple,#9b6dff)';
       host.innerHTML =
-        "<div class='panel-header'><div class='panel-title'><span class='panel-dot' style='background:var(--purple,#9b6dff);'></span>My Weekly Quota</div></div>"
-        + "<div class='profile-section' style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;'>"
-        + statCell('EX', 'Status', 'var(--purple,#9b6dff)')
-        + "<div style='font-size:13px;color:var(--text-muted);'><strong style='color:var(--text);'>" + rank + "</strong> — you're <strong style='color:var(--purple,#9b6dff);'>exempt</strong> from the weekly quota.</div>"
-        + "</div>";
+        "<div class='panel-header'><div class='panel-title'><span class='panel-dot' style='background:" + hc + ";'></span>My Weekly Quota</div>"
+        + "<span class='text-muted mono' style='font-size:11px;'>" + rank + "</span></div>"
+        + dqExemptBanner(d.exemptKind || 'EXEMPT', d.rank || 'Member');
       return;
     }
     var hasTarget = d.target != null;
@@ -176,10 +202,13 @@
     host.innerHTML =
       "<div class='panel-header'><div class='panel-title'><span class='panel-dot' style='background:var(--dc,#4a8fff);'></span>My Weekly Quota</div>"
       + "<span class='text-muted mono' style='font-size:11px;'>" + rank + "</span></div>"
-      + "<div class='profile-section' style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;'>"
+      + "<div class='profile-section'>"
+      + "<div style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;'>"
       + statCell(d.total, 'Points this week', col)
       + statCell(hasTarget ? d.target : '—', 'Target')
       + bar
+      + "</div>"
+      + dqDayGrid(d.days)
       + "</div>";
     // Quota-met flourish — once per division, re-armed when the week resets.
     try {

@@ -474,7 +474,7 @@ async function getMemberPoints(member, division = 'IA') {
       if (rowIdx < 0) continue;
 
       const days = {};
-      let total = 0, marked = false;
+      let total = 0, exCell = false, loaCell = false;
       for (let d = 0; d < 7; d++) {
         const col = cols.days[d];
         const raw = col != null ? (rows[rowIdx][col] || '').toString().trim() : '';
@@ -482,7 +482,8 @@ async function getMemberPoints(member, division = 'IA') {
         const val = Number.isFinite(num) ? num : 0;
         days[labels[d]] = raw && isNaN(num) ? raw : val; // keep "EX"/"LOA" as-is
         if (Number.isFinite(num)) total += num;
-        else if (raw && /^(ex|loa)$/i.test(raw)) marked = true; // exempt marker on the sheet
+        else if (raw && /^loa$/i.test(raw)) loaCell = true;  // Leave of Absence marker
+        else if (raw && /^ex$/i.test(raw))  exCell = true;   // Exempt marker
       }
 
       // Rank = the rank column if present, else the tab name (split-by-rank DBs).
@@ -495,10 +496,15 @@ async function getMemberPoints(member, division = 'IA') {
         if (holdsReductionRole(holders, did)) quota = applyQuotaReduction(quota);
       }
       // Exempt if the rank/target says so OR the sheet cells are marked EX/LOA.
-      const exempt = !!quota.exempt || marked;
+      const exempt = !!quota.exempt || exCell || loaCell;
       quota = { ...quota, exempt };
+      // Distinguish Leave of Absence from an ordinary exemption so the UI can say
+      // exactly which it is (LOA cell, or an LOA-tier rank).
+      let exemptKind = null;
+      if (loaCell || /loa/i.test(quota.tier || '')) exemptKind = 'LOA';
+      else if (exempt) exemptKind = 'EXEMPT';
       const remaining = exempt || quota.target == null ? 0 : Math.max(0, quota.target - total);
-      return { found: true, rank, quota, remaining, days, total };
+      return { found: true, rank, quota, remaining, days, total, exemptKind };
     }
     return { found: false };
   } catch (err) {

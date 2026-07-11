@@ -60,7 +60,8 @@ router.get('/:division/me', requireMember, async (req, res) => {
     const target = row.quota ? row.quota.target : null;
     res.json({
       configured: true, found: true, division: req.division,
-      rank: row.rank, exempt, total: row.total, target, remaining: row.remaining,
+      rank: row.rank, exempt, exemptKind: row.exemptKind || (exempt ? 'EXEMPT' : null),
+      total: row.total, target, remaining: row.remaining,
       tier: row.quota ? row.quota.tier : null,
       met:  exempt ? true : (target != null ? row.total >= target : null),
       days: row.days || null,

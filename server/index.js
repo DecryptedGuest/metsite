@@ -898,13 +898,14 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
         const exempt = !!(row.quota && row.quota.exempt);
         const target = row.quota ? row.quota.target : null;
         metQuota = {
-          rank:      row.rank || rankMatch,
+          rank:       row.rank || rankMatch,
           exempt,
-          total:     row.total,
+          exemptKind: row.exemptKind || (exempt ? 'EXEMPT' : null),
+          total:      row.total,
           target,
-          remaining: row.remaining,
-          tier:      row.quota ? row.quota.tier : null,
-          met:       exempt ? true : (target != null ? row.total >= target : null),
+          remaining:  row.remaining,
+          tier:       row.quota ? row.quota.tier : null,
+          met:        exempt ? true : (target != null ? row.total >= target : null),
         };
       }
     }

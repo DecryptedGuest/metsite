@@ -204,10 +204,16 @@ async function loadProfile() {
         <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-top:5px;">${lbl}</div>
       </div>`;
     if (mq.exempt) {
+      const loa = mq.exemptKind === 'LOA';
+      const bc = loa ? 'var(--blue,#4a8fff)' : 'var(--purple,#9b6dff)';
+      const bicon = loa ? 'ti-calendar-off' : 'ti-shield-check';
+      const blabel = loa ? 'Leave of Absence' : 'Exempt';
+      const bsub = loa ? "you're on leave — there's no weekly quota to meet." : "you're exempt from the weekly quota.";
       host.innerHTML =
-        `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
-          ${stat('EX', 'Status', 'var(--purple)')}
-          <div style="font-size:13px;color:var(--text-muted);"><strong style="color:var(--text);">${rank}</strong> — you're <strong style="color:var(--purple);">exempt</strong> from the weekly quota.</div>
+        `<div style="display:flex;align-items:center;gap:15px;padding:16px 4px;">
+          <div style="font-size:32px;color:${bc};line-height:1;flex:0 0 auto;"><i class="ti ${bicon}"></i></div>
+          <div><div style="font-size:19px;font-weight:800;color:${bc};text-transform:uppercase;letter-spacing:.04em;">${blabel}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px;"><strong style="color:var(--text);">${rank}</strong> — ${bsub}</div></div>
         </div>`;
     } else {
       const hasTarget = mq.target != null;
