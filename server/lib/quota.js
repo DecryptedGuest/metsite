@@ -542,6 +542,13 @@ const NON_MEMBER = new Set([
   'discord id', 'discordid', 'discord', 'rank', 'role',
   'high command', 'middle command', 'low command',
   'staff information + quota', 'total', 'warning', 'strikes', 'timezone', 'wtbt',
+  // Division title / header rows — the sheet's own name or description showing up
+  // as a row (e.g. "SCO-19 · Specialist Firearms Command"). Codes + full names.
+  'sco-19', 'sco 19', 'sco19', 'cid', 'flp', 'hpc', 'met', 'ia',
+  'specialist firearms command', 'criminal investigation department',
+  'frontline policing', 'hendon police college', 'internal affairs',
+  'metropolitan police service', 'metropolitan police', 'met police',
+  'developer', 'hicomm',
 ]);
 
 // Distinguish a real member row from the sheet's section headings ("HIGH RANKS",
