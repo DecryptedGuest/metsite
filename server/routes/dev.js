@@ -6,6 +6,7 @@
 const express = require('express');
 const prisma  = require('../lib/db');
 const audit   = require('../lib/audit');
+const ipIntel = require('../lib/ipIntel');
 
 const router = express.Router();
 
@@ -250,6 +251,157 @@ router.post('/emergency-alert', async (req, res) => {
   } catch (e) {
     console.error('[Dev] emergency alert failed:', e.message);
     res.status(500).json({ error: 'Failed to send emergency alert.' });
+  }
+});
+
+// GET /api/dev/ticket-ip?q=<transcript link | ticket id | TKT-#### ref>
+// Resolve the guest IP(s) captured for a support ticket. Works for PAST tickets
+// too (the data is stored on the ticket + its messages). Accepts the transcript
+// link (/support?ticket=<id>), the IA-desk link (?supportTicket=<id>), a bare
+// ticket id/uuid, or a TKT-#### ticket-log reference.
+router.get('/ticket-ip', async (req, res) => {
+  try {
+    const raw = (req.query.q || '').toString().trim();
+    if (!raw) return res.status(400).json({ error: 'Paste a ticket transcript link, id or TKT reference.' });
+
+    // Extract a support-ticket id.
+    let id = null;
+    const linkM = raw.match(/[?&](?:supportTicket|ticket)=([^&\s]+)/i);
+    if (linkM) id = decodeURIComponent(linkM[1]);
+    if (!id) { const u = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i); if (u) id = u[0]; }
+
+    let ticket = id ? await prisma.supportTicket.findUnique({ where: { id } }).catch(() => null) : null;
+
+    // TKT-#### reference → resolve via the ticket-log's transcript link.
+    if (!ticket && /^tkt-/i.test(raw)) {
+      const log = await prisma.ticket.findFirst({ where: { ticketRef: raw.toUpperCase() } }).catch(() => null);
+      const mm = log && log.transcriptLink && log.transcriptLink.match(/[?&]ticket=([^&\s]+)/i);
+      if (mm) ticket = await prisma.supportTicket.findUnique({ where: { id: decodeURIComponent(mm[1]) } }).catch(() => null);
+    }
+    // Last resort: treat the raw string as an id.
+    if (!ticket && !id && raw) ticket = await prisma.supportTicket.findUnique({ where: { id: raw } }).catch(() => null);
+
+    if (!ticket) return res.status(404).json({ error: 'No support ticket found for that link / id / reference.' });
+
+    // The opener's IP is captured once, at ticket creation (SupportTicket.openerIp).
+    // Enrich it on demand with a VPN/proxy flag + ISP/org (same intel the Security
+    // Center uses). Best-effort — never fails the lookup.
+    let ipMeta = null;
+    if (ticket.openerIp) {
+      const r = await ipIntel.lookupIp(ticket.openerIp).catch(() => null);
+      if (r) ipMeta = { vpn: !!r.vpn, org: r.org || null, country: r.country || null, private: !!r.private, unknown: !!r.unknown };
+    }
+
+    // Ban-evasion / repeat-opener view: OTHER tickets opened from the same IP or
+    // browser fingerprint. Lets a dev see everything one guest has filed.
+    const orRelated = [];
+    if (ticket.openerIp) orRelated.push({ openerIp: ticket.openerIp });
+    if (ticket.openerFp) orRelated.push({ openerFp: ticket.openerFp });
+    let related = [];
+    if (orRelated.length) {
+      related = await prisma.supportTicket.findMany({
+        where: { AND: [{ OR: orRelated }, { id: { not: ticket.id } }] },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, type: true, status: true, openerName: true, openerId: true, openerIp: true, openerFp: true, createdAt: true },
+      }).catch(() => []);
+      related = related.map(r => ({
+        id: r.id, type: r.type, status: r.status, openerName: r.openerName,
+        isGuest: !r.openerId, sameIp: !!(ticket.openerIp && r.openerIp === ticket.openerIp),
+        sameFp: !!(ticket.openerFp && r.openerFp === ticket.openerFp), createdAt: r.createdAt,
+      }));
+    }
+
+    // Is this opener currently ticket-blacklisted (by IP or fingerprint)?
+    let blacklisted = false;
+    if (ticket.openerIp || ticket.openerFp) {
+      const orBl = [];
+      if (ticket.openerIp) orBl.push({ ip: ticket.openerIp });
+      if (ticket.openerFp) orBl.push({ fingerprint: ticket.openerFp });
+      const bl = await prisma.supportBlacklist.findFirst({ where: { OR: orBl } }).catch(() => null);
+      blacklisted = !!bl;
+    }
+
+    audit.record({
+      req, action: 'DEV_TICKET_IP_LOOKUP', category: 'SECURITY',
+      targetType: 'supportTicket', targetId: ticket.id,
+      summary: `Developer looked up the opener IP for support ticket ${ticket.id}`,
+    });
+
+    res.json({
+      ticket: {
+        id: ticket.id, type: ticket.type, status: ticket.status,
+        openerName: ticket.openerName, isGuest: !ticket.openerId,
+        openerId: ticket.openerId || null, openerDiscordId: ticket.openerDiscordId || null,
+        openerIp: ticket.openerIp || null, openerFp: ticket.openerFp || null, openerUa: ticket.openerUa || null,
+        createdAt: ticket.createdAt,
+      },
+      ipMeta, blacklisted, related,
+    });
+  } catch (e) {
+    console.error('[Dev] ticket-ip lookup failed:', e.message);
+    res.status(500).json({ error: 'Lookup failed.' });
+  }
+});
+
+// GET /api/dev/tickets?status=&type=&q=&guest=1&page=0
+// Browse EVERY support ticket in every status, with the details needed to pick
+// one out for an IP lookup (who opened it, whether they were a guest, who
+// claimed/closed it, timings). Feeds the dev-panel ticket browser so a link
+// doesn't have to be pasted by hand.
+router.get('/tickets', async (req, res) => {
+  try {
+    const status = (req.query.status || '').toString().trim().toUpperCase();
+    const type = (req.query.type || '').toString().trim().toUpperCase();
+    const q = (req.query.q || '').toString().trim();
+    const guestOnly = /^(1|true|yes)$/i.test((req.query.guest || '').toString());
+    const page = Math.max(0, parseInt(req.query.page, 10) || 0);
+    const take = 40;
+
+    const where = {};
+    if (['INTAKE', 'OPEN', 'CLAIMED', 'CLOSED'].includes(status)) where.status = status;
+    if (type) where.type = type;
+    if (guestOnly) where.openerId = null;
+    if (q) {
+      where.OR = [
+        { openerName: { contains: q, mode: 'insensitive' } },
+        { openerDiscordId: { contains: q } },
+        { claimedByName: { contains: q, mode: 'insensitive' } },
+        { openerIp: { contains: q } },
+        { id: { contains: q } },
+      ];
+    }
+
+    const [total, rows] = await Promise.all([
+      prisma.supportTicket.count({ where }).catch(() => 0),
+      prisma.supportTicket.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: page * take,
+        take,
+        select: {
+          id: true, type: true, status: true, priority: true, escalated: true,
+          openerId: true, openerName: true, openerDiscordId: true, openerIp: true,
+          claimedByName: true, claimedAt: true, closedByName: true, closedAt: true,
+          createdAt: true, _count: { select: { messages: true } },
+        },
+      }).catch(() => []),
+    ]);
+
+    const tickets = rows.map(t => ({
+      id: t.id, type: t.type, status: t.status, priority: t.priority, escalated: !!t.escalated,
+      openerName: t.openerName, isGuest: !t.openerId, openerDiscordId: t.openerDiscordId || null,
+      hasIp: !!t.openerIp,
+      claimedByName: t.claimedByName || null, claimedAt: t.claimedAt,
+      closedByName: t.closedByName || null, closedAt: t.closedAt,
+      messageCount: t._count ? t._count.messages : 0,
+      createdAt: t.createdAt,
+    }));
+
+    res.json({ tickets, total, page, take, hasMore: (page + 1) * take < total });
+  } catch (e) {
+    console.error('[Dev] ticket list failed:', e.message);
+    res.status(500).json({ error: 'Failed to load tickets.' });
   }
 });
 

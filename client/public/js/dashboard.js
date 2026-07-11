@@ -273,6 +273,7 @@ function navigateTo(pageId) {
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
     'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
     gamelogs:        loadDevGameLogs,
+    'ticket-ip':     (typeof loadDevTickets === 'function' ? () => loadDevTickets(0) : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
 }
@@ -302,6 +303,164 @@ async function loadDevGameLogs() {
     ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-file-off', title: 'No game logs yet', sub: 'In-game activity will appear here.' })}</td></tr>`
     : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
 }
+
+// ── Guest IP lookup (support-ticket forensics) ─────────────────────
+const DEV_TK_TYPE = {
+  OFFICER_COMPLAINT: ['Officer complaint', '#f59e0b'],
+  DISCIPLINARY_APPEAL: ['Disciplinary appeal', '#8b5cf6'],
+  IA_COMPLAINT: ['IA complaint', '#ef4444'],
+  GENERAL_SUPPORT: ['General support', '#3b82f6'],
+};
+const DEV_TK_STATUS = { INTAKE: '#8b93a1', OPEN: '#3b82f6', CLAIMED: '#f59e0b', CLOSED: '#2ed896' };
+
+function devTkChip(text, color) {
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;color:${color};background:color-mix(in srgb, ${color} 16%, transparent);">${escapeHtml(text)}</span>`;
+}
+
+async function loadDevTickets(page) {
+  page = page || 0;
+  const out = document.getElementById('dev-tk-out');
+  if (!out) return;
+  const q      = (document.getElementById('dev-tk-q')      || {}).value || '';
+  const status = (document.getElementById('dev-tk-status') || {}).value || '';
+  const type   = (document.getElementById('dev-tk-type')   || {}).value || '';
+  const guest  = (document.getElementById('dev-tk-guest')  || {}).checked ? '1' : '';
+  out.innerHTML = '<div class="table-loading" style="padding:1.5rem;text-align:center;"><div class="spinner"></div></div>';
+  let data;
+  try {
+    data = await api(`/api/dev/tickets?page=${page}&q=${encodeURIComponent(q.trim())}`
+      + `&status=${encodeURIComponent(status)}&type=${encodeURIComponent(type)}&guest=${guest}`);
+  } catch (e) { out.innerHTML = `<div class="table-empty-text" style="color:var(--danger,#ef4444);">${escapeHtml(e.message)}</div>`; return; }
+  const rows = data.tickets || [];
+  if (!rows.length) {
+    out.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-ticket-off', title: 'No tickets match', sub: 'Try clearing the filters or search.' })
+      : '<div class="table-empty-text">No tickets match.</div>';
+    return;
+  }
+  const body = rows.map(t => {
+    const [typeLbl, typeCol] = DEV_TK_TYPE[t.type] || [t.type, '#8b93a1'];
+    const stCol = DEV_TK_STATUS[t.status] || '#8b93a1';
+    const opener = t.isGuest
+      ? `<span style="color:#f59e0b;"><i class="ti ti-user-question" style="font-size:12px;"></i> ${escapeHtml(t.openerName || 'Guest')}</span>`
+      : escapeHtml(t.openerName || '—');
+    const claimed = t.claimedByName ? escapeHtml(t.claimedByName) : '<span style="color:var(--text-muted);">—</span>';
+    return `<tr style="cursor:pointer;" onclick="devTicketIpLookup('${t.id}')" title="Look up IPs for this ticket">
+      <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(t.createdAt))}</td>
+      <td>${devTkChip(typeLbl, typeCol)}${t.escalated ? ' <span style="color:#ef4444;" title="Escalated"><i class="ti ti-flag-filled" style="font-size:11px;"></i></span>' : ''}</td>
+      <td>${devTkChip(t.status, stCol)}</td>
+      <td>${opener}${t.hasIp ? ' <i class="ti ti-map-pin" style="font-size:12px;color:#2ed896;" title="IP captured"></i>' : ''}</td>
+      <td>${claimed}</td>
+      <td style="text-align:center;font-size:12px;color:var(--text-secondary);">${t.messageCount}</td>
+      <td style="text-align:right;"><button class="btn btn-secondary" style="height:26px;padding:0 10px;font-size:11px;" onclick="event.stopPropagation();devTicketIpLookup('${t.id}')"><i class="ti ti-map-pin-search"></i> IP</button></td>
+    </tr>`;
+  }).join('');
+  const from = data.page * data.take + 1;
+  const to = data.page * data.take + rows.length;
+  out.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="data-table" style="width:100%;">
+        <thead><tr>
+          <th>Opened</th><th>Type</th><th>Status</th><th>Opener</th><th>Claimed by</th>
+          <th style="text-align:center;">Msgs</th><th></th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.9rem;font-size:12px;color:var(--text-muted);">
+      <span>Showing ${from}–${to} of ${data.total}</span>
+      <span style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" style="height:28px;padding:0 12px;font-size:12px;" ${data.page <= 0 ? 'disabled' : ''} onclick="loadDevTickets(${data.page - 1})"><i class="ti ti-chevron-left"></i> Prev</button>
+        <button class="btn btn-secondary" style="height:28px;padding:0 12px;font-size:12px;" ${data.hasMore ? '' : 'disabled'} onclick="loadDevTickets(${data.page + 1})">Next <i class="ti ti-chevron-right"></i></button>
+      </span>
+    </div>`;
+}
+
+async function devTicketIpLookup(preset) {
+  const inp = document.getElementById('dev-tip-q');
+  const out = document.getElementById('dev-tip-out');
+  if (!out) return;
+  const q = (preset || (inp ? inp.value : '') || '').trim();
+  if (preset && inp) inp.value = preset;
+  if (!q) { out.innerHTML = '<div style="color:var(--text-muted);">Paste a transcript link, ticket id or TKT reference first.</div>'; return; }
+  // If triggered from the browser table, scroll the direct-lookup panel into view.
+  if (preset && inp) inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  out.innerHTML = '<div class="table-loading" style="padding:1rem 0;"><div class="spinner"></div></div>';
+  let data;
+  try { data = await api(`/api/dev/ticket-ip?q=${encodeURIComponent(q)}`); }
+  catch (e) { out.innerHTML = `<div style="color:var(--danger,#ef4444);">${escapeHtml(e.message)}</div>`; return; }
+
+  const t = data.ticket || {};
+  const meta = data.ipMeta || null;
+  const [typeLbl, typeCol] = DEV_TK_TYPE[t.type] || [t.type, '#8b93a1'];
+  const stCol = DEV_TK_STATUS[t.status] || '#8b93a1';
+  const copyBtn = (val) => val
+    ? `<button class="btn btn-secondary" style="height:24px;padding:0 8px;font-size:11px;margin-left:6px;" onclick="navigator.clipboard&&navigator.clipboard.writeText('${escapeHtml(String(val)).replace(/'/g, '&#39;')}');this.innerHTML='<i class=\\'ti ti-check\\'></i>'"><i class="ti ti-copy"></i></button>`
+    : '';
+  const field = (label, val, mono) => `
+    <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06));">
+      <span style="width:130px;flex-shrink:0;color:var(--text-muted);font-size:12px;">${label}</span>
+      <span style="flex:1;${mono ? 'font-family:var(--font-mono,monospace);' : ''}font-size:13px;word-break:break-all;">${val == null || val === '' ? '<span style="color:var(--text-muted);">—</span>' : escapeHtml(String(val))}${(val && mono) ? copyBtn(val) : ''}</span>
+    </div>`;
+
+  // IP reputation badge derived from the on-demand intel lookup.
+  let repBadge = '<span style="color:var(--text-muted);font-size:12px;">No IP captured</span>';
+  if (t.openerIp && meta) {
+    if (meta.private) repBadge = '<span style="color:var(--text-muted);font-size:12px;">Local / private address</span>';
+    else if (meta.unknown) repBadge = '<span style="color:#f59e0b;font-size:12px;"><i class="ti ti-help-circle"></i> Reputation unknown (lookup failed)</span>';
+    else if (meta.vpn) repBadge = '<span style="color:#ef4444;font-weight:600;font-size:12px;"><i class="ti ti-alert-triangle"></i> VPN / proxy / datacenter</span>';
+    else repBadge = '<span style="color:#2ed896;font-weight:600;font-size:12px;"><i class="ti ti-shield-check"></i> Clean (residential ISP)</span>';
+  }
+
+  const rel = data.related || [];
+  const relRows = rel.map(r => {
+    const [rtl, rtc] = DEV_TK_TYPE[r.type] || [r.type, '#8b93a1'];
+    const rsc = DEV_TK_STATUS[r.status] || '#8b93a1';
+    const match = [r.sameIp ? 'IP' : null, r.sameFp ? 'browser' : null].filter(Boolean).join(' + ');
+    return `<tr style="cursor:pointer;" onclick="devTicketIpLookup('${r.id}')">
+      <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(r.createdAt))}</td>
+      <td>${devTkChip(rtl, rtc)}</td>
+      <td>${devTkChip(r.status, rsc)}</td>
+      <td style="font-size:13px;">${r.isGuest ? '<i class="ti ti-user-question" style="color:#f59e0b;font-size:12px;"></i> ' : ''}${escapeHtml(r.openerName || '—')}</td>
+      <td style="font-size:11px;color:var(--text-secondary);">${escapeHtml(match)}</td>
+    </tr>`;
+  }).join('');
+
+  out.innerHTML = `
+    <div class="panel glass" style="padding:1rem 1.1rem;margin-bottom:1rem;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:0.8rem;">
+        ${devTkChip(typeLbl, typeCol)} ${devTkChip(t.status, stCol)}
+        ${t.isGuest ? '<span style="color:#f59e0b;font-size:12px;font-weight:600;"><i class="ti ti-user-question"></i> Guest opener</span>' : '<span style="color:var(--text-secondary);font-size:12px;"><i class="ti ti-user-check"></i> Logged-in opener</span>'}
+        ${data.blacklisted ? '<span style="color:#ef4444;font-size:12px;font-weight:600;"><i class="ti ti-ban"></i> Ticket-blacklisted</span>' : ''}
+      </div>
+      ${field('Opener', t.openerName)}
+      ${field('Discord ID', t.openerDiscordId, true)}
+      ${field('Opened at', t.createdAt ? formatDateTime(t.createdAt) : null)}
+      <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06));">
+        <span style="width:130px;flex-shrink:0;color:var(--text-muted);font-size:12px;">Opener IP</span>
+        <span style="flex:1;font-family:var(--font-mono,monospace);font-size:13px;word-break:break-all;">${t.openerIp ? escapeHtml(t.openerIp) + copyBtn(t.openerIp) : '<span style="color:var(--text-muted);font-family:var(--font-body);">— not captured</span>'}</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06));">
+        <span style="width:130px;flex-shrink:0;color:var(--text-muted);font-size:12px;">IP reputation</span>
+        <span style="flex:1;">${repBadge}</span>
+      </div>
+      ${field('ISP / Org', meta ? meta.org : null)}
+      ${meta && meta.country ? field('Country', meta.country) : ''}
+      ${field('Fingerprint', t.openerFp, true)}
+      ${field('User-agent', t.openerUa)}
+      ${field('Ticket id', t.id, true)}
+    </div>
+    <div class="panel glass" style="padding:1rem 1.1rem;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:0.6rem;"><i class="ti ti-arrows-shuffle" style="color:var(--accent);"></i> Other tickets from this IP / browser ${rel.length ? `(${rel.length})` : ''}</div>
+      ${relRows
+        ? `<div style="overflow-x:auto;"><table class="data-table" style="width:100%;">
+            <thead><tr><th>Opened</th><th>Type</th><th>Status</th><th>Opener</th><th>Match</th></tr></thead>
+            <tbody>${relRows}</tbody></table></div>`
+        : '<div style="color:var(--text-muted);font-size:12px;">No other tickets share this opener\'s IP or browser fingerprint.</div>'}
+    </div>`;
+}
+window.loadDevTickets = loadDevTickets;
+window.devTicketIpLookup = devTicketIpLookup;
 let _devGlT = null;
 document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
 
