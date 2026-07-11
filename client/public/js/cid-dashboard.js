@@ -138,12 +138,30 @@
   function startLive() { stopLive(); pollLive(); liveTimer = setInterval(pollLive, 4000); }
   function stopLive()  { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } }
 
+  // Fire a "Tryout Live" branded moment when a tryout newly appears in the live
+  // feed (the first poll only sets the baseline, so pre-existing ones are quiet).
+  let cidLiveSeen = null;
+  function cidAnnounceLive(live) {
+    try {
+      if (!window.metBrandMoment) return;
+      if (cidLiveSeen === null) { cidLiveSeen = new Set(live.map(t => t.id)); return; }
+      for (const t of live) {
+        if (!cidLiveSeen.has(t.id)) {
+          cidLiveSeen.add(t.id);
+          metBrandMoment({ icon: 'ti-broadcast', variant: 'celebrate', title: 'Tryout Live', tagline: 'CID · ' + (t.hostName ? 'Hosted by ' + t.hostName : 'Entrance tryout in progress'), autoMs: 2600 });
+          break;
+        }
+      }
+    } catch (e) { /* cosmetic */ }
+  }
+
   async function pollLive() {
     const wrap = document.getElementById('cid-live-wrap');
     const statusEl = document.getElementById('cid-live-status');
     const badge = document.getElementById('cid-live-badge');
     try {
       const live = await api('/api/cid/tryouts/live');
+      cidAnnounceLive(live);
       if (badge) { badge.style.display = live.length ? 'inline-flex' : 'none'; badge.textContent = live.length; }
       if (statusEl) statusEl.innerHTML = `<span class="badge-dot"></span>${live.length ? live.length + ' live' : 'No live tryouts'}`;
       if (!live.length) { wrap.innerHTML = window.metEmpty ? '<div class="panel glass">' + window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) + '</div>' : '<div class="panel glass"><div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div></div>'; return; }

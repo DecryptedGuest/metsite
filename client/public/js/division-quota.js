@@ -181,6 +181,20 @@
       + statCell(hasTarget ? d.target : '—', 'Target')
       + bar
       + "</div>";
+    // Quota-met flourish — once per division, re-armed when the week resets.
+    try {
+      if (window.metBrandMoment) {
+        var qflag = 'metQuotaMet_' + div;
+        if (hasTarget && met) {
+          if (!localStorage.getItem(qflag)) {
+            localStorage.setItem(qflag, '1');
+            setTimeout(function () { metBrandMoment({ icon: 'ti-checklist', variant: 'celebrate', title: 'Quota Met', tagline: div + ' weekly quota complete', autoMs: 2600 }); }, 2600);
+          }
+        } else if (hasTarget && !met) {
+          localStorage.removeItem(qflag);
+        }
+      }
+    } catch (e) { /* cosmetic */ }
   }
   function statCell(num, lbl, color) {
     return "<div style='text-align:center;min-width:74px;'>"

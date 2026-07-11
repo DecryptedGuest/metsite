@@ -718,6 +718,21 @@ async function loadLive() {
   let live;
   try { live = await api('/api/hpc/tryouts/live'); }
   catch (e) { if (status) status.innerHTML = '<span class="badge-dot"></span>Error'; return; }
+  // "Tryout Live" branded moment when one newly appears (baseline set on first poll).
+  try {
+    if (window.metBrandMoment) {
+      if (window._hpcLiveSeen == null) { window._hpcLiveSeen = new Set(live.map(t => t.id)); }
+      else {
+        for (const t of live) {
+          if (!window._hpcLiveSeen.has(t.id)) {
+            window._hpcLiveSeen.add(t.id);
+            metBrandMoment({ icon: 'ti-broadcast', variant: 'celebrate', title: 'Tryout Live', tagline: 'Hendon Police College · ' + (t.hostName ? 'Hosted by ' + t.hostName : 'Tryout in progress'), autoMs: 2600 });
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) { /* cosmetic */ }
 
   const badge = document.getElementById('hpc-live-badge');
   if (badge) { if (live.length) { badge.textContent = live.length; badge.style.display = ''; } else badge.style.display = 'none'; }

@@ -38,7 +38,10 @@ window.metEmpty = function (o) {
       ? `<a class="btn btn-primary btn-sm met-empty-cta" href="${o.href}">${inner}</a>`
       : `<button class="btn btn-primary btn-sm met-empty-cta" onclick="${o.onclick}">${inner}</button>`;
   }
-  return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}</div>`;
+  // Faint strap-line watermark on the fuller (sub-carrying) empty states.
+  const strap = (o.strap === false || !o.sub) ? '' :
+    '<div class="met-strap met-empty-strap"><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>';
+  return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}${strap}</div>`;
 };
 
 // A small overlapping Discord + Roblox avatar stack. Discord first, Roblox
@@ -601,7 +604,7 @@ function metBrandMoment(opts) {
     el.className = 'met-splash' + (opts.variant ? ' met-moment-' + opts.variant : '');
     el.id = 'met-moment-active';
     var head = '';
-    if (opts.icon) head = '<div class="met-moment-icon"><i class="ti ' + metEsc(opts.icon) + '"></i></div>';
+    if (opts.icon) head = '<div class="met-moment-icon"' + (opts.iconColor ? ' style="--mc:' + metEsc(opts.iconColor) + ';"' : '') + '><i class="ti ' + metEsc(opts.icon) + '"></i></div>';
     else if (opts.crest !== false) head = '<img class="met-splash-crest" src="' + metEsc(opts.crest || '/img/divisions/met.png') + '" alt="MET" />';
     var body = '';
     if (Array.isArray(opts.strap) && opts.strap.length) {

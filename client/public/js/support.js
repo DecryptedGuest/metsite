@@ -1139,7 +1139,23 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
       es.addEventListener('update', ev => {
         // Grab the claimant card synchronously (before the 'claimed' message event
         // is processed) so the panel renders with the investigator's avatars.
-        try { const d = JSON.parse(ev.data || '{}'); if (d && d.claimant && cur) cur.claimant = d.claimant; if (d && d.status === 'CLOSED') supSound('closed'); } catch (e) {}
+        try {
+          const d = JSON.parse(ev.data || '{}');
+          if (d && d.claimant && cur) cur.claimant = d.claimant;
+          if (d && d.status === 'CLOSED') {
+            supSound('closed');
+            // "Case Closed" branded moment for the opener (once per ticket).
+            try {
+              if (window.metBrandMoment && cur && cur.isMine) {
+                const ck = 'metTicketClosed_' + ticketId;
+                if (!localStorage.getItem(ck)) {
+                  localStorage.setItem(ck, '1');
+                  setTimeout(() => metBrandMoment({ icon: 'ti-circle-check', variant: 'celebrate', title: 'Case Closed', tagline: 'Thank you for contacting us', autoMs: 2400 }), 400);
+                }
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
         refreshTicket(ticketId);
       });
       // A message removed server-side (e.g. a claim-race message auto-deleted).

@@ -132,6 +132,39 @@ async function loadProfile() {
       '</div>';
   }
 
+  // ── Branded milestone moments (welcome / promotion / new medal) ──
+  // Deferred so it never collides with the once-per-session intro splash.
+  setTimeout(() => {
+    try {
+      if (!window.metBrandMoment) return;
+      // Welcome / promotion — driven by the numeric MET rank (0 = not a member).
+      const cur = (typeof data.metRank === 'number' && data.metRank > 0) ? data.metRank : 0;
+      const prevRaw = localStorage.getItem('metRankNum');
+      if (prevRaw != null) {
+        const prev = parseInt(prevRaw, 10) || 0;
+        if (prev === 0 && cur > 0) {
+          metBrandMoment({ icon: 'ti-shield-check', title: 'Welcome to the MET', tagline: data.metRankName || 'Metropolitan Police Service', autoMs: 3000 });
+        } else if (cur > prev) {
+          metBrandMoment({ icon: 'ti-military-rank', variant: 'celebrate', title: 'Promoted', tagline: data.metRankName || ('Rank ' + cur), autoMs: 3000 });
+        }
+      }
+      localStorage.setItem('metRankNum', String(cur));
+
+      // Newly-awarded medal (highest of any not seen before).
+      const medalsList = data.medals || [];
+      const prevKeysRaw = localStorage.getItem('metMedalKeys');
+      if (prevKeysRaw != null) {
+        let prevKeys = []; try { prevKeys = JSON.parse(prevKeysRaw) || []; } catch (e) {}
+        const freshMedals = medalsList.filter(m => prevKeys.indexOf(m.key) === -1);
+        if (freshMedals.length) {
+          const fm = freshMedals[0]; // list is ordered highest → lowest
+          metBrandMoment({ icon: fm.icon || 'ti-medal', iconColor: fm.color, title: fm.name, tagline: fm.desc || 'Medal awarded', autoMs: 3400 });
+        }
+      }
+      localStorage.setItem('metMedalKeys', JSON.stringify(medalsList.map(m => m.key)));
+    } catch (e) { /* cosmetic */ }
+  }, 2600);
+
   // ── Divisions & rank ── (coloured per the MET role scheme)
   const divEl = document.getElementById('p-divisions');
   if (data.divisions && data.divisions.length) {

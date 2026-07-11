@@ -680,8 +680,12 @@ html[data-theme="light"] .met-strap-hero { color: #0d1b3e; }
   width: 92px; height: 92px; border-radius: 50%; position: relative; z-index: 1;
   display: flex; align-items: center; justify-content: center; font-size: 46px; color: #fff;
   text-shadow: 0 2px 4px rgba(0,0,0,.35);
-  background: radial-gradient(circle at 32% 26%, #ffe887, #f5c518 54%, #b8860b 100%);
-  box-shadow: 0 0 60px rgba(245,197,24,.6), inset 0 2px 3px rgba(255,255,255,.6), inset 0 -3px 5px rgba(0,0,0,.25);
+  background: radial-gradient(circle at 32% 26%,
+    color-mix(in srgb, var(--mc, #f5c518) 55%, #fff 45%) 0%,
+    var(--mc, #f5c518) 54%,
+    color-mix(in srgb, var(--mc, #f5c518) 60%, #000 40%) 100%);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--mc, #f5c518) 58%, transparent),
+    inset 0 2px 3px rgba(255,255,255,.55), inset 0 -3px 5px rgba(0,0,0,.25);
   animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both;
 }
 .met-moment-title {
@@ -695,3 +699,9 @@ html[data-theme="light"] .met-strap-hero { color: #0d1b3e; }
 @media (prefers-reduced-motion: reduce) {
   .met-moment-icon, .met-moment-title { animation: none !important; opacity: 1 !important; transform: none !important; }
 }
+
+/* ── Empty-state strap-line watermark ─────────────────────────────────── */
+.met-empty-strap {
+  margin-top: 16px; color: var(--text-tiny); font-size: 9px; letter-spacing: .2em; opacity: .32;
+}
+.met-empty-strap .seg + .seg::before { opacity: .5; }
