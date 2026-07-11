@@ -39,32 +39,39 @@
   }
   gateHicomm();
 
+  // A KPI tile matching the other division dashboards (flex row, not a broken grid).
   function kpi(value, label, sub, icon) {
-    return `<div class="stat-card" style="text-align:left;">
-      ${icon ? `<div style="font-size:20px;color:var(--dc,var(--blue,#4a8fff));margin-bottom:6px;"><i class="ti ${icon}"></i></div>` : ''}
-      <div class="stat-value">${esc(value)}</div>
+    return `<div class="stat-card" style="flex:1;min-width:170px;text-align:left;">
+      ${icon ? `<div style="font-size:20px;color:var(--dc,var(--blue,#4a8fff));margin-bottom:8px;"><i class="ti ${icon}"></i></div>` : ''}
+      <div class="stat-value" style="font-size:24px;line-height:1.15;">${esc(value)}</div>
       <div class="stat-label">${esc(label)}</div>
       ${sub ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${esc(sub)}</div>` : ''}
     </div>`;
   }
 
+  // Jump to a tab from the overview's quick actions.
+  window.sco19Go = function (name) {
+    const btn = document.querySelector('.nav-item[data-page="' + name + '"]');
+    if (btn) btn.click();
+  };
+
   async function loadOverview() {
     const wrap = document.getElementById('sco19-kpis');
     if (!wrap) return;
+    let sco = null;
     try {
       const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
       const mine = (data && data.mine) || [];
-      const sco = mine.find(d => d.division === 'SCO19');
-      const tier = sco ? (sco.tier === 'LEAD' ? 'Command' : 'Officer') : '—';
-      wrap.className = 'stat-grid fade-up';
-      wrap.innerHTML = [
-        kpi(sco ? (sco.rankName || ('Rank ' + sco.rank)) : 'Not a member', 'Your SCO-19 rank', '', 'ti-shield-half-filled'),
+      sco = mine.find(d => d.division === 'SCO19');
+    } catch (e) { /* fall through to placeholders */ }
+    const tier = sco ? (sco.tier === 'LEAD' ? 'Command' : 'Officer') : '—';
+    const rankName = sco ? (sco.rankName || (sco.rank ? 'Rank ' + sco.rank : '—')) : 'Not a member';
+    wrap.innerHTML =
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">' + [
+        kpi(rankName, 'Your SCO-19 rank', '', 'ti-shield-half-filled'),
         kpi(tier, 'Access tier', tier === 'Command' ? 'Assistant Commander and above' : 'Authorised firearms officer', 'ti-target-arrow'),
-        kpi('Specialist Firearms Command', 'Division', '', 'ti-building-fortress'),
-      ].join('');
-    } catch (e) {
-      wrap.innerHTML = '<div class="table-empty"><div class="table-empty-text">Couldn\'t load your SCO-19 standing.</div></div>';
-    }
+        kpi('Specialist Firearms Command', 'Division', 'Authorised firearms unit', 'ti-building-fortress'),
+      ].join('') + '</div>';
   }
 
   loadOverview();

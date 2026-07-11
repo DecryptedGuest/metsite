@@ -68,7 +68,18 @@
         <div><h1 class="page-title">Specialist Firearms Command</h1><p class="page-sub">SCO-19 · Overview</p></div>
       </div>
       <div id="sco19-kpis" class="fade-up"></div>
+
       <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:var(--dc,#4b5563);"></span>Quick actions</div></div>
+        <div class="profile-section" style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="sco19Go('activity')"><i class="ti ti-activity-heartbeat"></i> Activity Tracking</button>
+          <button class="btn btn-ghost btn-sm dq-hicomm" style="display:none;" onclick="sco19Go('quota')"><i class="ti ti-checklist"></i> Quota Review</button>
+          <button class="btn btn-ghost btn-sm dq-hicomm" style="display:none;" onclick="sco19Go('loa')"><i class="ti ti-calendar-stats"></i> LOA Requests</button>
+          <a class="btn btn-ghost btn-sm" href="/loa"><i class="ti ti-calendar-plus"></i> Request LOA</a>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
         <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>About SCO-19</div></div>
         <div style="padding:1.6rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
           SCO-19 is the Metropolitan Police Service's Specialist Firearms Command — the unit's authorised firearms

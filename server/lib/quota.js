@@ -151,9 +151,13 @@ function getSheetsClient(cfgOrPrefix) {
 // Locate USERNAME / DISCORD ID / day columns from the header rows
 function findColumns(rows) {
   const out = { username: null, discordId: null, rank: null, days: {} };
-  const USER_HEADERS    = ['username', 'roblox username', 'roblox user', 'roblox', 'user'];
+  const USER_HEADERS    = ['username', 'roblox username', 'roblox user', 'roblox', 'user', 'name'];
   const DISCORD_HEADERS = ['discord id', 'discordid', 'discord'];
-  const RANK_HEADERS    = ['rank', 'role'];
+  // Accept the common variants divisions label their rank column with, so the
+  // real rank shows instead of falling back to the tab name.
+  const RANK_HEADERS    = ['rank', 'role', 'rank/role', 'rank / role', 'position',
+                           'current rank', 'grade', 'sco rank', 'sco-19 rank',
+                           'sco19 rank', 'division rank', 'group rank'];
   for (const row of rows) {
     for (let c = 0; c < row.length; c++) {
       const v = (row[c] || '').toString().trim().toLowerCase();
