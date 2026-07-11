@@ -885,10 +885,19 @@ async function onPatrolMessage(message) {
 // dropped before.
 function looksLikeLog(message, type) {
   if (message.author && message.author.bot) return false;
-  const hasAttach = message.attachments && message.attachments.size > 0;
   const content = (message.content || '').trim();
-  if (type === 'EVENT') return hasAttach || content.length > 0;
-  return /shift/i.test(content) || hasAttach;
+  if (type === 'EVENT') {
+    const hasAttach = message.attachments && message.attachments.size > 0;
+    return hasAttach || content.length > 0;
+  }
+  // PATROL: the word "shift" alone is NOT enough — casual chatter like
+  // "No vc photo on shift end." mentions it but is not a log. Require the message
+  // to actually PARSE as a patrol log (a real shift start/end time, or a stated
+  // total), or to carry a proof image (image-only logs are still captured).
+  const { parsePatrolLog, imageUrls } = require('./patrolLog');
+  const parsed = parsePatrolLog(content);
+  if (parsed.shiftStart || parsed.shiftEnd || parsed.totalMinutes != null) return true;
+  return imageUrls(message).length > 0;
 }
 
 // Backfill: walk a log channel's ENTIRE history (oldest included) and ingest
