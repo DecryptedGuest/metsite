@@ -143,7 +143,7 @@ async function loadProfile() {
       if (prevRaw != null) {
         const prev = parseInt(prevRaw, 10) || 0;
         if (prev === 0 && cur > 0) {
-          metBrandMoment({ icon: 'ti-shield-check', title: 'Welcome to the MET', tagline: data.metRankName || 'Metropolitan Police Service', autoMs: 3000 });
+          metBrandMoment({ icon: 'ti-shield-check', title: 'Welcome to the Metropolitan Police Service', tagline: data.metRankName || 'Working together for a safer London', autoMs: 3400 });
         } else if (cur > prev) {
           metBrandMoment({ icon: 'ti-military-rank', variant: 'celebrate', title: 'Promoted', tagline: data.metRankName || ('Rank ' + cur), autoMs: 3000 });
         }

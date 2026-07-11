@@ -859,6 +859,18 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   let medals = [];
   try {
     const { medalsForMember, awardsGroupId } = require('./lib/medals');
+    // Prefer the member's LIVE MET-server roles so a medal role granted AFTER
+    // login shows on refresh (metRoleIds is only captured at login). Falls back
+    // to the cached roles if the bot/guild lookup is unavailable.
+    let roleIds = req.user.metRoleIds;
+    try {
+      const gid = process.env.DISCORD_GUILD_ID;
+      if (gid) {
+        const { getGuildMemberRoles } = require('./lib/bot');
+        const live = await getGuildMemberRoles(req.user.discordId, gid);
+        if (live && Array.isArray(live.roleIds) && live.roleIds.length) roleIds = live.roleIds;
+      }
+    } catch (e) { /* fall back to cached metRoleIds */ }
     let awardsRank = null;
     if (req.user.robloxId) {
       try {
@@ -867,7 +879,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
         if (role && Number(role.rank) > 0) awardsRank = Number(role.rank);
       } catch (e) { /* Roblox unreachable → Discord roles only */ }
     }
-    medals = medalsForMember({ metRoleIds: req.user.metRoleIds, awardsRank });
+    medals = medalsForMember({ metRoleIds: roleIds, awardsRank });
   } catch (e) { medals = []; }
 
   // MET quota card — ONLY for a plain MET officer: in NO division, but in MET,

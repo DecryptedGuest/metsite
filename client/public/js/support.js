@@ -1150,7 +1150,8 @@ Come along when a tryout is announced in [#public-tryouts](${CH}).`;
                 const ck = 'metTicketClosed_' + ticketId;
                 if (!localStorage.getItem(ck)) {
                   localStorage.setItem(ck, '1');
-                  setTimeout(() => metBrandMoment({ icon: 'ti-circle-check', variant: 'celebrate', title: 'Case Closed', tagline: 'Thank you for contacting us', autoMs: 2400 }), 400);
+                  const tl = (cur && cur.typeLabel) ? cur.typeLabel : 'Support';
+                  setTimeout(() => metBrandMoment({ icon: 'ti-circle-check', variant: 'celebrate', title: tl + ' Ticket Closed', tagline: 'Thank you for contacting us', autoMs: 2400 }), 400);
                 }
               }
             } catch (e) {}
