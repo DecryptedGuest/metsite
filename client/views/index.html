@@ -78,6 +78,15 @@
     </div>
   </div>
 
+  <!-- MET strap-line + rotating tagline -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:0;margin-top:-.5rem;">
+    <div class="met-strap met-strap-hero" data-animate>
+      <span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span>
+    </div>
+    <div class="met-strap-underline"></div>
+    <div class="signin-sub met-rotator" id="signin-tagline" style="margin-top:.7rem;">Working together for a safer London</div>
+  </div>
+
   <div id="error-banner" class="error-banner" style="display:none;width:100%;">
     <i class="ti ti-alert-triangle"></i><span id="error-text">An error occurred.</span>
   </div>
@@ -156,6 +165,14 @@
 <script src="/js/ui.js"></script>
 <script src="/js/met-topbar.js"></script>
 <script src="/js/login-alt.js?v=2"></script>
-<script>setSiteChrome('');</script>
+<script>
+  setSiteChrome('');
+  if (window.metRotateTagline) metRotateTagline('signin-tagline', [
+    'Working together for a safer London',
+    'More trust · Less crime · High standards',
+    'Community crime-fighting',
+    'Protecting London, together',
+  ], 4200);
+</script>
 </body>
 </html>

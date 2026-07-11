@@ -436,6 +436,7 @@ async function initMetTopbar(currentDivision) {
   try { metInjectNavToggle(); } catch (e) {}
   try { metInjectBackToTop(); } catch (e) {}
   try { metInjectSupportChat(); } catch (e) {}
+  try { metInjectFooterStrap(); } catch (e) {}
 
   // Decluttered topbar: instead of a flat row of ~7 loose buttons, the right side
   // reads as a few obvious GROUPS — [Search] · [Menu ▾] (navigation + personal
@@ -583,3 +584,73 @@ async function initMetTopbar(currentDivision) {
 function closeOtherDropdowns(except) {
   document.querySelectorAll('.met-switcher.open').forEach(s => { if (s !== except) s.classList.remove('open'); });
 }
+
+// ── MET brand: intro splash, tagline rotator, footer strap ────────────
+// A short, once-per-session intro that mirrors the Met's on-screen strap-line
+// ("More Trust · Less Crime · High Standards" / "Working together for a safer
+// London"). Purely cosmetic and fully guarded — never blocks the page.
+function metPlaySplash() {
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('metSplashSeen')) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    try { sessionStorage.setItem('metSplashSeen', '1'); } catch (e) {}
+    if (reduce || document.getElementById('met-splash')) return;
+    var el = document.createElement('div');
+    el.className = 'met-splash'; el.id = 'met-splash';
+    el.innerHTML =
+      '<img class="met-splash-crest" src="/img/divisions/met.png" alt="MET" />' +
+      '<div class="met-strap" data-animate><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>' +
+      '<div class="met-strap-underline"></div>' +
+      '<div class="met-splash-tag">Working together for a safer London</div>' +
+      '<button class="met-splash-skip" type="button" aria-label="Skip intro">Skip</button>';
+    (document.body || document.documentElement).appendChild(el);
+    var done = false;
+    function dismiss() {
+      if (done) return; done = true;
+      el.classList.add('hide');
+      setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 620);
+    }
+    var skip = el.querySelector('.met-splash-skip');
+    if (skip) skip.addEventListener('click', function (e) { e.stopPropagation(); dismiss(); });
+    el.addEventListener('click', dismiss);
+    setTimeout(dismiss, 2100);
+  } catch (e) { /* cosmetic only */ }
+}
+
+// Cycle a line of text through several taglines with a soft fade.
+function metRotateTagline(elOrId, phrases, interval) {
+  var el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+  if (!el || !Array.isArray(phrases) || !phrases.length) return;
+  el.classList.add('met-rotator');
+  var i = 0;
+  function set(txt) { el.innerHTML = '<span class="rot">' + metEsc(txt) + '</span>'; }
+  set(phrases[0]);
+  if (phrases.length < 2) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  setInterval(function () {
+    el.classList.add('out');
+    setTimeout(function () { i = (i + 1) % phrases.length; el.classList.remove('out'); set(phrases[i]); }, 300);
+  }, interval || 4200);
+}
+
+// A quiet strap-line footer at the bottom of a dashboard's main content.
+function metInjectFooterStrap() {
+  try {
+    var main = document.querySelector('.main-content');
+    if (!main || document.getElementById('met-footer-strap')) return;
+    var f = document.createElement('div');
+    f.id = 'met-footer-strap'; f.className = 'met-footer-strap';
+    f.innerHTML =
+      '<div class="met-strap"><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>' +
+      '<span class="fs-tag">Working together for a safer London</span>';
+    main.appendChild(f);
+  } catch (e) { /* cosmetic */ }
+}
+
+if (typeof window !== 'undefined') {
+  window.metPlaySplash = metPlaySplash;
+  window.metRotateTagline = metRotateTagline;
+  window.metInjectFooterStrap = metInjectFooterStrap;
+}
+// Play the intro as early as possible (this script loads at the end of <body>).
+metPlaySplash();

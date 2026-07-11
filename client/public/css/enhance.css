@@ -553,3 +553,100 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   color: color-mix(in srgb, var(--accent) 60%, #fff) !important;
 }
 ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MET BRAND — slogans, strap-line + one-per-session intro splash.
+   Themed after the Met's "MORE TRUST · LESS CRIME · HIGH STANDARDS" strap
+   and "Working together for a safer London": navy field, diagonal accent,
+   yellow underline sweep. Reduced-motion (ui.js) zeroes the animations.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* The three-part strap-line. Segments divided by thin rules, like the posters. */
+.met-strap {
+  display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: center;
+  font-family: var(--font-display, inherit); font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; line-height: 1.1;
+}
+.met-strap .seg { padding: 0 clamp(9px, 2.4vw, 16px); position: relative; white-space: nowrap; }
+.met-strap .seg + .seg::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 1.5px; height: 1.05em; background: currentColor; opacity: .38;
+}
+/* Staggered reveal when data-animate is present. */
+.met-strap[data-animate] .seg { opacity: 0; transform: translateY(11px); animation: met-seg-in .55s cubic-bezier(.2,.7,.3,1) forwards; }
+.met-strap[data-animate] .seg:nth-child(1) { animation-delay: .06s; }
+.met-strap[data-animate] .seg:nth-child(2) { animation-delay: .24s; }
+.met-strap[data-animate] .seg:nth-child(3) { animation-delay: .42s; }
+@keyframes met-seg-in { to { opacity: 1; transform: none; } }
+/* Yellow underline that sweeps in beneath the strap. */
+.met-strap-underline {
+  height: 3px; width: min(340px, 70%); margin: 10px auto 0; border-radius: 2px;
+  background: linear-gradient(90deg, #ffd200, #ffb700);
+  transform-origin: left; transform: scaleX(0);
+  animation: met-sweep .6s cubic-bezier(.2,.7,.3,1) .58s forwards;
+}
+@keyframes met-sweep { to { transform: scaleX(1); } }
+
+/* Rotating tagline (JS swaps the text; CSS does the fade). */
+.met-rotator > .rot { display: inline-block; animation: met-rot-in .5s ease; }
+@keyframes met-rot-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.met-rotator.out > .rot { opacity: 0; transform: translateY(-6px); transition: opacity .28s ease, transform .28s ease; }
+
+/* ── One-per-session intro splash ─────────────────────────────────────── */
+.met-splash {
+  position: fixed; inset: 0; z-index: 99999; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  background: radial-gradient(130% 130% at 18% -10%, #0d3288 0%, #071a44 46%, #030a1e 100%);
+  opacity: 1; transition: opacity .55s ease;
+}
+.met-splash.hide { opacity: 0; pointer-events: none; }
+/* Diagonal accent band + corner glow, echoing the campaign artwork. */
+.met-splash::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(114deg, transparent 54%, rgba(43,104,235,.26) 54%, rgba(43,104,235,.05) 77%, transparent 77%);
+  transform: translateX(-8%); animation: met-diag-in .9s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes met-diag-in { from { transform: translateX(-30%); opacity: 0; } to { transform: translateX(-8%); opacity: 1; } }
+.met-splash::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 82% 92%, rgba(43,104,235,.28), transparent 46%);
+}
+.met-splash-crest {
+  width: 82px; height: 82px; border-radius: 18px; position: relative; z-index: 1;
+  box-shadow: 0 0 54px rgba(43,104,235,.55); animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes met-crest-in { from { opacity: 0; transform: translateY(-16px) scale(.9); } to { opacity: 1; transform: none; } }
+.met-splash .met-strap { color: #fff; font-size: clamp(19px, 4.6vw, 36px); position: relative; z-index: 1; text-align: center; }
+.met-splash .met-strap-underline { animation-delay: .66s; }
+.met-splash-tag {
+  color: #cadcff; font-size: clamp(12px, 2.6vw, 15px); letter-spacing: .2em; text-transform: uppercase;
+  position: relative; z-index: 1; opacity: 0; animation: met-splash-tag-in .55s ease 1s forwards;
+}
+@keyframes met-splash-tag-in { to { opacity: 1; } }
+.met-splash-skip {
+  position: absolute; bottom: 24px; right: 26px; z-index: 2; cursor: pointer;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(255,255,255,.5); background: none; border: none; padding: 6px;
+}
+.met-splash-skip:hover { color: rgba(255,255,255,.85); }
+
+/* Sign-in hero strap sizing. */
+.met-strap-hero { color: var(--text-primary); font-size: clamp(15px, 4vw, 21px); }
+html[data-theme="light"] .met-strap-hero { color: #0d1b3e; }
+
+/* Dashboard footer strap — quiet, sits under the main content. */
+.met-footer-strap {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  margin: 26px auto 8px; padding: 14px 12px 4px; opacity: .62;
+  border-top: 1px solid var(--border-dim);
+}
+.met-footer-strap .met-strap { color: var(--text-muted); font-size: 11px; letter-spacing: .16em; }
+.met-footer-strap .met-strap .seg + .seg::before { opacity: .3; }
+.met-footer-strap .fs-tag { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-tiny); }
+
+@media (prefers-reduced-motion: reduce) {
+  .met-strap[data-animate] .seg,
+  .met-strap-underline, .met-splash::before, .met-splash-crest, .met-splash-tag,
+  .met-rotator > .rot { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .met-splash-underline, .met-strap-underline { transform: scaleX(1) !important; }
+}
