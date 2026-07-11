@@ -48,6 +48,29 @@ router.get('/:division/access', (req, res) => {
   });
 });
 
+// ── GET /:division/me — the signed-in member's OWN quota + progression ──
+router.get('/:division/me', requireMember, async (req, res) => {
+  try {
+    const row = await quotaLib.getMemberPoints(
+      { discordId: req.user.discordId, robloxUsername: req.user.robloxUsername }, req.division,
+    );
+    if (row == null) return res.json({ configured: false });
+    if (!row.found)  return res.json({ configured: true, found: false });
+    const exempt = !!(row.quota && row.quota.exempt);
+    const target = row.quota ? row.quota.target : null;
+    res.json({
+      configured: true, found: true, division: req.division,
+      rank: row.rank, exempt, total: row.total, target, remaining: row.remaining,
+      tier: row.quota ? row.quota.tier : null,
+      met:  exempt ? true : (target != null ? row.total >= target : null),
+      days: row.days || null,
+    });
+  } catch (err) {
+    console.error(`[DivQuota] ${req.division} me error:`, err.message);
+    res.status(500).json({ error: 'Failed to read your quota.' });
+  }
+});
+
 // ── GET /:division/members — everyone's activity (read-only for members) ──
 router.get('/:division/members', requireMember, async (req, res) => {
   try {

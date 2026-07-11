@@ -140,9 +140,58 @@
     }
   }
 
+  // The signed-in member's own weekly quota card (points + progression bar).
+  // Renders into `hostId`; hides it when the member isn't on the sheet.
+  async function loadMyQuota(div, hostId) {
+    var host = document.getElementById(hostId);
+    if (!host) return;
+    var d;
+    try { d = await api('/api/divquota/' + div + '/me'); }
+    catch (e) { host.style.display = 'none'; return; }
+    if (!d || !d.configured || !d.found) { host.style.display = 'none'; return; }
+    host.style.display = '';
+    var rank = esc(d.rank || 'Member');
+    if (d.exempt) {
+      host.innerHTML =
+        "<div class='panel-header'><div class='panel-title'><span class='panel-dot' style='background:var(--purple,#9b6dff);'></span>My Weekly Quota</div></div>"
+        + "<div class='profile-section' style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;'>"
+        + statCell('EX', 'Status', 'var(--purple,#9b6dff)')
+        + "<div style='font-size:13px;color:var(--text-muted);'><strong style='color:var(--text);'>" + rank + "</strong> — you're <strong style='color:var(--purple,#9b6dff);'>exempt</strong> from the weekly quota.</div>"
+        + "</div>";
+      return;
+    }
+    var hasTarget = d.target != null;
+    var met = d.met === true;
+    var col = met ? 'var(--green,#22c55e)' : 'var(--amber,#e8842a)';
+    var pct = hasTarget && d.target > 0 ? Math.min(100, Math.round((d.total / d.target) * 100)) : (met ? 100 : 0);
+    var bar = hasTarget
+      ? "<div style='flex:1;min-width:180px;'>"
+        + "<div style='height:10px;border-radius:6px;background:var(--hover,rgba(255,255,255,.08));overflow:hidden;'>"
+        + "<div style='height:100%;width:" + pct + "%;background:" + col + ";border-radius:6px;transition:width .4s;'></div></div>"
+        + "<div style='font-size:11px;color:var(--text-muted);margin-top:6px;'>" + (met
+            ? "Quota met — nice work."
+            : (d.remaining + " more point" + (d.remaining === 1 ? '' : 's') + " to go this week."))
+        + "</div></div>"
+      : "<div style='font-size:13px;color:var(--text-muted);flex:1;min-width:160px;'>No target set for your rank — points are still tracked.</div>";
+    host.innerHTML =
+      "<div class='panel-header'><div class='panel-title'><span class='panel-dot' style='background:var(--dc,#4a8fff);'></span>My Weekly Quota</div>"
+      + "<span class='text-muted mono' style='font-size:11px;'>" + rank + "</span></div>"
+      + "<div class='profile-section' style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;'>"
+      + statCell(d.total, 'Points this week', col)
+      + statCell(hasTarget ? d.target : '—', 'Target')
+      + bar
+      + "</div>";
+  }
+  function statCell(num, lbl, color) {
+    return "<div style='text-align:center;min-width:74px;'>"
+      + "<div style='font-size:26px;font-weight:800;line-height:1;" + (color ? 'color:' + color + ';' : '') + "'>" + num + "</div>"
+      + "<div style='font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-top:5px;'>" + lbl + "</div></div>";
+  }
+
   window.DivQuota = {
     loadActivity: function (div) { return load(div, 'activity'); },
     loadReview:   function (div) { return load(div, 'review'); },
+    loadMyQuota:  loadMyQuota,
     setFilter: function (div, mode, val) { filter[key(div, mode)] = val || 'ALL'; render(div, mode); },
     setReason: function (div, i, val) { var m = (cache[key(div, 'review')] || [])[i]; if (m) m._reason = val; },
     async setStatus(div, i, val) {

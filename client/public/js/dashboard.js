@@ -1057,7 +1057,10 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────
-async function loadDashboard() { await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadPoints()]); }
+async function loadDashboard() {
+  if (typeof DivQuota !== 'undefined') DivQuota.loadMyQuota('IA', 'dq-IA-mine');
+  await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadPoints()]);
+}
 
 // My Activity Points — read from the linked IA Database Google Sheet
 async function loadPoints() {

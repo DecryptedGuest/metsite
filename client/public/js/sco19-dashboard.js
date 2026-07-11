@@ -75,4 +75,5 @@
   }
 
   loadOverview();
+  if (window.DivQuota) DivQuota.loadMyQuota(DIV, 'dq-' + DIV + '-mine');
 })();

@@ -33,7 +33,7 @@ const DIVISION_PREFIX = { IA: '', FLP: 'FLP_', MET: 'MET_', SCO19: 'SCO19_', CID
 //   <PREFIX>QUOTA_TARGET  = flat int fallback applied to all non-exempt ranks
 //                           (tier label = <PREFIX>QUOTA_TIER or "Member").
 // "loa" is always exempt; any "director" rank is exempt (universal defaults).
-function envTargetsResolver(prefix) {
+function envTargetsResolver(prefix, builtin) {
   return function (rank) {
     const r = (rank || '').toString().trim().toLowerCase();
     if (!r) return { exempt: false, target: null, tier: null };
@@ -61,9 +61,29 @@ function envTargetsResolver(prefix) {
       const t = parseInt(flat, 10);
       if (Number.isFinite(t)) return { exempt: false, target: t, tier: process.env[`${prefix}QUOTA_TIER`] || 'Member' };
     }
+    // Built-in default for the division (used when nothing is configured in env).
+    if (builtin) return builtin(rank);
     return { exempt: false, target: null, tier: null };
   };
 }
+
+// Built-in CID weekly quota (env <CID_QUOTA_TARGETS> still overrides):
+//   Detective Constable / Sergeant → 8   ·   Detective Inspector / Chief
+//   Inspector / Superintendent → 7   ·   Instructor Unit + Database Managers +
+//   any Director rank → exempt.
+function cidQuotaForRank(rank) {
+  const r = (rank || '').toString().trim().toLowerCase();
+  if (!r) return { exempt: false, target: null, tier: null };
+  if (r === 'loa')                        return { exempt: true, target: 0, tier: 'LOA' };
+  if (/director/.test(r))                 return { exempt: true, target: 0, tier: 'High Command' };
+  if (/instructor|database/.test(r))      return { exempt: true, target: 0, tier: 'Exempt' };
+  if (/superintendent/.test(r))           return { exempt: false, target: 7, tier: 'Command' };
+  if (/inspector/.test(r))                return { exempt: false, target: 7, tier: 'Senior' }; // Chief Inspector + Inspector
+  if (/sergeant/.test(r))                 return { exempt: false, target: 8, tier: 'Junior' };
+  if (/constable/.test(r))                return { exempt: false, target: 8, tier: 'Junior' };
+  return { exempt: false, target: null, tier: null };
+}
+const BUILTIN_TARGETS = { CID: cidQuotaForRank };
 
 // Resolve the full per-division config. division ∈ {'IA','FLP','MET'} (default IA).
 function quotaConfig(division) {
@@ -93,7 +113,7 @@ function quotaConfig(division) {
     webhookUrl:        process.env[`${prefix}QUOTA_WEBHOOK_URL`] || '',
     webhookSecret:     process.env[`${prefix}QUOTA_WEBHOOK_SECRET`] || '',
     resultsWebhookUrl,
-    targets:           div === 'IA' ? quotaForRank : envTargetsResolver(prefix),
+    targets:           div === 'IA' ? quotaForRank : envTargetsResolver(prefix, BUILTIN_TARGETS[div]),
   };
 }
 

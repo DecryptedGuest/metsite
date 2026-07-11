@@ -77,6 +77,7 @@
       </div>
       <!-- At-a-glance KPIs -->
       <div id="cid-kpis" class="fade-up"></div>
+      <div class="panel glass fade-up" id="dq-CID-mine" style="display:none;"></div>
       <div class="panel glass fade-up stagger-1">
         <div style="padding:1.6rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
           Welcome to the CID tryout dashboard. Schedule and run CID entrance tryouts, drive them live from the site,
@@ -285,7 +286,7 @@
 <script src="/js/cid-dashboard.js"></script>
 <script src="/js/division-quota.js"></script>
 <script src="/js/loa-review.js"></script>
-<script>(function(){var DIV='CID';function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var lr=once(function(){window.DivQuota&&DivQuota.loadReview(DIV);});var ll=once(function(){window.LoaReview&&LoaReview.load(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);var qr=document.querySelector('.nav-item[data-page="dq-quota"]');if(qr)qr.addEventListener('click',lr);var l=document.querySelector('.nav-item[data-page="dq-loa"]');if(l)l.addEventListener('click',ll);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});api('/api/loa/review?division='+DIV).then(function(r){var p=(r||[]).filter(function(x){return x.status==='PENDING';}).length;var b=document.getElementById('dq-'+DIV+'-loa-badge');if(b&&p){b.textContent=p;b.style.display='';}}).catch(function(){});}}).catch(function(){});}})();</script>
+<script>(function(){var DIV='CID';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var lr=once(function(){window.DivQuota&&DivQuota.loadReview(DIV);});var ll=once(function(){window.LoaReview&&LoaReview.load(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);var qr=document.querySelector('.nav-item[data-page="dq-quota"]');if(qr)qr.addEventListener('click',lr);var l=document.querySelector('.nav-item[data-page="dq-loa"]');if(l)l.addEventListener('click',ll);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});api('/api/loa/review?division='+DIV).then(function(r){var p=(r||[]).filter(function(x){return x.status==='PENDING';}).length;var b=document.getElementById('dq-'+DIV+'-loa-badge');if(b&&p){b.textContent=p;b.style.display='';}}).catch(function(){});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('CID');</script>
 </body>
 </html>
