@@ -102,6 +102,9 @@
         <button class="nav-item" data-page="media">
           <i class="ti ti-photo-video nav-icon"></i><span>Media</span>
         </button>
+        <button class="nav-item" data-page="dq-activity">
+          <i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span>
+        </button>
 
         <!-- ── Review (HICOMM / Supervisor) ─────────────────── -->
         <div class="nav-section-label hicomm-only supervisor-only" style="display:none;">Review</div>
@@ -1464,6 +1467,28 @@
       <div id="ai-results"></div>
     </section>
 
+    <!-- ACTIVITY TRACKING (read-only, every IA member) -->
+    <section class="page" id="page-dq-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every investigator's weekly activity · read-only</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-IA-act-tabs"></span>
+            <span class="text-muted mono" id="dq-IA-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-IA-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -2014,6 +2039,7 @@
 <script src="/js/records.js?v=72"></script>
 <script src="/js/quota-check.js?v=72"></script>
 <script src="/js/ia-profiles.js?v=1"></script>
+<script src="/js/division-quota.js"></script>
 <script src="/js/ai-review.js?v=72"></script>
 <script src="/js/media.js?v=72"></script>
 <script src="/js/passkeys.js"></script>

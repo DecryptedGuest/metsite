@@ -271,6 +271,7 @@ function navigateTo(pageId) {
     'emergency-alert': (typeof loadEmergencyAlert === 'function' ? loadEmergencyAlert : null),
     media:           (typeof loadMedia === 'function' ? loadMedia : null),
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
+    'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
     gamelogs:        loadDevGameLogs,
   };
   if (loaders[pageId]) return loaders[pageId]();
