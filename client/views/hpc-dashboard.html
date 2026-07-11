@@ -64,6 +64,9 @@
         <button class="nav-item approve-only" data-page="review-logs" style="display:none;"><i class="ti ti-clipboard-check nav-icon"></i><span>Review Logs</span><span class="nav-badge pending" id="hpc-review-badge" style="display:none;"></span></button>
         <div class="nav-section-label quota-only" style="display:none;">Oversight</div>
         <button class="nav-item quota-only" data-page="quota" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check</span></button>
+        <div class="nav-section-label">Activity</div>
+        <button class="nav-item" data-page="dq-activity"><i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span></button>
+        <button class="nav-item dq-hicomm" data-page="dq-loa" style="display:none;"><i class="ti ti-calendar-stats nav-icon"></i><span>LOA Requests</span><span class="nav-badge pending" id="dq-HPC-loa-badge" style="display:none;"></span></button>
       </nav>
     </div>
   </aside>
@@ -236,6 +239,47 @@
         </div>
       </div>
     </section>
+
+    <!-- ACTIVITY TRACKING (read-only, every HPC member) -->
+    <section class="page" id="page-dq-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every member's weekly activity · read-only</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>HPC Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-HPC-act-tabs"></span>
+            <span class="text-muted mono" id="dq-HPC-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-HPC-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOA REQUESTS (HPC High Command) -->
+    <section class="page" id="page-dq-loa">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">LOA Requests</h1><p class="page-sub">Leave of Absence requests sent for HPC</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Requests</div>
+          <span class="text-muted mono" id="loa-HPC-count" style="font-size:11px;"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Dates</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="loa-HPC-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -329,6 +373,9 @@
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
 <script src="/js/hpc-dashboard.js"></script>
+<script src="/js/division-quota.js"></script>
+<script src="/js/loa-review.js"></script>
+<script>(function(){var DIV='HPC';function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var ll=once(function(){window.LoaReview&&LoaReview.load(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);var l=document.querySelector('.nav-item[data-page="dq-loa"]');if(l)l.addEventListener('click',ll);if(typeof api==='function'){api('/api/divquota/'+DIV+'/members').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});api('/api/loa/review?division='+DIV).then(function(r){var p=(r||[]).filter(function(x){return x.status==='PENDING';}).length;var b=document.getElementById('dq-'+DIV+'-loa-badge');if(b&&p){b.textContent=p;b.style.display='';}}).catch(function(){});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('HPC');</script>
 </body>
 </html>

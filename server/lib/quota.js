@@ -24,7 +24,7 @@ const DAY_FULL  = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 // MET use FLP_/MET_ prefixed vars. Everything a sheet-touching function needs
 // (sheet id, tab, timezone, webhook, results webhook, rank→target resolver) is
 // resolved through quotaConfig(division), which defaults to 'IA'.
-const DIVISION_PREFIX = { IA: '', FLP: 'FLP_', MET: 'MET_', SCO19: 'SCO19_', CID: 'CID_' };
+const DIVISION_PREFIX = { IA: '', FLP: 'FLP_', MET: 'MET_', SCO19: 'SCO19_', CID: 'CID_', HPC: 'HPC_' };
 
 // Build a rank→{exempt,target,tier} resolver for FLP/MET from env:
 //   <PREFIX>QUOTA_TARGETS = JSON array of { match:"<regex>", target:<int|null>,
@@ -76,6 +76,7 @@ function quotaConfig(division) {
   else if (div === 'MET')   sheetId = process.env.MET_SHEET_ID || '';
   else if (div === 'SCO19') sheetId = process.env.SCO19_SHEET_ID || '';
   else if (div === 'CID')   sheetId = process.env.CID_SHEET_ID || '';
+  else if (div === 'HPC')   sheetId = process.env.HPC_SHEET_ID || '';
   else                      sheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID; // IA (+ fallback)
 
   const resultsWebhookUrl = div === 'IA'
@@ -86,7 +87,8 @@ function quotaConfig(division) {
     division:          div,
     prefix,
     sheetId,
-    sheetName:         process.env[`${prefix}QUOTA_SHEET_NAME`] || '',
+    // HPC reuses the tryout points sheet, whose tab is HPC_SHEET_NAME.
+    sheetName:         process.env[`${prefix}QUOTA_SHEET_NAME`] || (div === 'HPC' ? (process.env.HPC_SHEET_NAME || '') : ''),
     timezone:          tz,
     webhookUrl:        process.env[`${prefix}QUOTA_WEBHOOK_URL`] || '',
     webhookSecret:     process.env[`${prefix}QUOTA_WEBHOOK_SECRET`] || '',

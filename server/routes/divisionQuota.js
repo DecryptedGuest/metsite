@@ -14,7 +14,7 @@ const { sendQuotaCheckWebhook } = require('../lib/webhook');
 const { userHasDivision, userIsDivisionLead } = require('../middleware/division');
 
 // Divisions with a quota database (match quota-lib's DIVISION_PREFIX keys).
-const QUOTA_DIVISIONS = new Set(['IA', 'FLP', 'MET', 'SCO19', 'CID']);
+const QUOTA_DIVISIONS = new Set(['IA', 'FLP', 'MET', 'SCO19', 'CID', 'HPC']);
 function normDivision(d) {
   const x = String(d || '').toUpperCase();
   return QUOTA_DIVISIONS.has(x) ? x : null;
