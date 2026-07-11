@@ -117,14 +117,18 @@ async function loadProfile() {
     if (cnt) cnt.textContent = medals.length + (medals.length === 1 ? ' medal' : ' medals');
     document.getElementById('p-medals').innerHTML =
       '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;">' +
-      medals.map(m => `
-        <div class="med-card" title="${escHtml(m.desc || '')}" style="display:flex;gap:11px;align-items:center;padding:11px 13px;border:1px solid var(--border-dim);border-radius:12px;background:color-mix(in srgb, #f5c518 7%, transparent);">
-          <div style="font-size:26px;line-height:1;flex:0 0 auto;">${escHtml(m.emoji || '🏅')}</div>
+      medals.map(m => {
+        const c = /^#[0-9a-fA-F]{6}$/.test(m.color || '') ? m.color : '#f5c518';
+        const icon = /^ti-[a-z0-9-]+$/.test(m.icon || '') ? m.icon : 'ti-medal';
+        return `
+        <div class="med-card" title="${escHtml(m.desc || '')}">
+          <div class="med-badge" style="--mc:${c};"><i class="ti ${icon}"></i></div>
           <div style="min-width:0;">
             <div style="font-weight:700;font-size:13px;line-height:1.2;">${escHtml(m.name)}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.35;">${escHtml(m.desc || '')}</div>
           </div>
-        </div>`).join('') +
+        </div>`;
+      }).join('') +
       '</div>';
   }
 
