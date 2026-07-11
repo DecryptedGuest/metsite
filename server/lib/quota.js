@@ -83,7 +83,30 @@ function cidQuotaForRank(rank) {
   if (/constable/.test(r))                return { exempt: false, target: 8, tier: 'Junior' };
   return { exempt: false, target: null, tier: null };
 }
-const BUILTIN_TARGETS = { CID: cidQuotaForRank };
+// Built-in SCO-19 weekly quota (env <SCO19_QUOTA_TARGETS> still overrides):
+//   Overseer / Commander / Deputy Commander / Assistant Commander → exempt.
+//   Middle Ranks (Firearms Chief Inspector … Unit Commander) → patrol 1h30m +
+//     host 5+ events  (target 5).
+//   Low Ranks (Firearms Constable … Firearms Inspector) → patrol 2h30m as SCO +
+//     attend 3+ events  (target 3).
+// "Unit Commander" is a MIDDLE rank, so it must be matched before the exempt
+// "Commander" ranks; "Chief Inspector" (middle) before the bare "Inspector" (low).
+function sco19QuotaForRank(rank) {
+  const r = (rank || '').toString().trim().toLowerCase();
+  if (!r) return { exempt: false, target: null, tier: null };
+  if (r === 'loa')                 return { exempt: true,  target: 0, tier: 'LOA' };
+  if (/overseer/.test(r))          return { exempt: true,  target: 0, tier: 'High Command' };
+  if (/unit\s*commander/.test(r))  return { exempt: false, target: 5, tier: 'Middle Ranks' }; // middle (before Commander)
+  if (/commander/.test(r))         return { exempt: true,  target: 0, tier: 'High Command' };  // Commander/Deputy/Assistant
+  if (/chief\s*inspector/.test(r)) return { exempt: false, target: 5, tier: 'Middle Ranks' };
+  if (/superintendent/.test(r))    return { exempt: false, target: 5, tier: 'Middle Ranks' };
+  if (/inspector/.test(r))         return { exempt: false, target: 3, tier: 'Low Ranks' };     // Firearms Inspector
+  if (/sergeant/.test(r))          return { exempt: false, target: 3, tier: 'Low Ranks' };
+  if (/constable/.test(r))         return { exempt: false, target: 3, tier: 'Low Ranks' };
+  return { exempt: false, target: null, tier: null };
+}
+
+const BUILTIN_TARGETS = { CID: cidQuotaForRank, SCO19: sco19QuotaForRank };
 
 // Resolve the full per-division config. division ∈ {'IA','FLP','MET'} (default IA).
 function quotaConfig(division) {
