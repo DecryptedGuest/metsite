@@ -6,14 +6,38 @@
 (function () {
   const esc = window.escapeHtml || (s => String(s == null ? '' : s));
 
-  // Simple sidebar page switching (single page today, kept for consistency).
+  const DIV = 'SCO19';
+  const loaded = {};   // lazy-load each tab's data once
+
+  function showPage(name) {
+    document.querySelectorAll('.nav-item[data-page]').forEach(b => b.classList.toggle('active', b.getAttribute('data-page') === name));
+    document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
+    if (name === 'activity' && !loaded.activity) { loaded.activity = 1; if (window.DivQuota) DivQuota.loadActivity(DIV); }
+    if (name === 'quota'    && !loaded.quota)    { loaded.quota = 1;    if (window.DivQuota) DivQuota.loadReview(DIV); }
+    if (name === 'loa'      && !loaded.loa)      { loaded.loa = 1;      if (window.LoaReview) LoaReview.load(DIV); }
+  }
+
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const name = btn.getAttribute('data-page');
-      document.querySelectorAll('.nav-item[data-page]').forEach(b => b.classList.toggle('active', b === btn));
-      document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
-    });
+    btn.addEventListener('click', () => showPage(btn.getAttribute('data-page')));
   });
+
+  // Reveal the High Command tabs (Quota Review + LOA) only for SCO-19 leads.
+  async function gateHicomm() {
+    try {
+      const d = await api('/api/divquota/' + DIV + '/members');
+      if (d && d.canReview) {
+        document.querySelectorAll('.hicomm-only').forEach(el => { el.style.display = ''; });
+        // Surface a pending-LOA badge on the LOA nav item.
+        try {
+          const rows = await api('/api/loa/review?division=' + DIV);
+          const pending = (rows || []).filter(r => r.status === 'PENDING').length;
+          const badge = document.getElementById('sco19-loa-badge');
+          if (badge && pending) { badge.textContent = pending; badge.style.display = ''; }
+        } catch (e) {}
+      }
+    } catch (e) { /* not a lead / not configured → tabs stay hidden */ }
+  }
+  gateHicomm();
 
   function kpi(value, label, sub, icon) {
     return `<div class="stat-card" style="text-align:left;">

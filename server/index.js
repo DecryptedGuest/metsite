@@ -352,6 +352,7 @@ app.use('/api/tryouts', requireAuth, tryoutRoutes);
 // Leave of Absence requests — any authed MET member; forwarding + review gated
 // inside the router (MET HICOMM for MET scope, divisional leads for divisions).
 app.use('/api/loa', requireAuth, require('./routes/loa'));
+app.use('/api/divquota', requireAuth, require('./routes/divisionQuota'));
 // Support help desk (/support) — login is OPTIONAL. Anyone can open a ticket
 // (anonymous openers hold a per-ticket token); staff handling is gated per type
 // inside the router. maybeAuth sets req.user when signed in, else null.

@@ -117,8 +117,14 @@ router.get('/mine', async (req, res) => {
 router.get('/review', async (req, res) => {
   try {
     const isMet = req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user);
+    // Optional ?division=SCO19 filter — a divisional dashboard asks for just its
+    // own queue. Only honoured for a division the requester may actually review.
+    const only = String(req.query.division || '').toUpperCase();
     let where;
-    if (isMet) {
+    if (only) {
+      if (!isMet && !userIsDivisionLead(req.user, only)) return res.json([]);
+      where = { scope: 'DIVISION', division: only };
+    } else if (isMet) {
       where = {}; // MET HICOMM see everything
     } else {
       const divs = ['CID', 'SCO19', 'FLP', 'HPC', 'IA'].filter(d => userIsDivisionLead(req.user, d));
