@@ -36,6 +36,18 @@ function requireLead(req, res, next) {
   return res.status(403).json({ error: `${division} High Command access required.` });
 }
 
+// ── GET /:division/access — cheap membership/lead check (no sheet read) ──
+// Used by dashboards to reveal HICOMM-only tabs without a Google Sheets round-trip.
+router.get('/:division/access', (req, res) => {
+  const division = normDivision(req.params.division);
+  if (!division) return res.status(404).json({ error: 'Unknown division.' });
+  res.json({
+    division,
+    member:    userHasDivision(req.user, division),
+    canReview: userIsDivisionLead(req.user, division),
+  });
+});
+
 // ── GET /:division/members — everyone's activity (read-only for members) ──
 router.get('/:division/members', requireMember, async (req, res) => {
   try {

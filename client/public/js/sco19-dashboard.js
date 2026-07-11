@@ -24,7 +24,7 @@
   // Reveal the High Command tabs (Quota Review + LOA) only for SCO-19 leads.
   async function gateHicomm() {
     try {
-      const d = await api('/api/divquota/' + DIV + '/members');
+      const d = await api('/api/divquota/' + DIV + '/access');
       if (d && d.canReview) {
         document.querySelectorAll('.hicomm-only').forEach(el => { el.style.display = ''; });
         // Surface a pending-LOA badge on the LOA nav item.
