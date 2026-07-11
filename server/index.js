@@ -854,6 +854,22 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
   const perms = mergePerms(rolePerms, botPerms);
   const flags = flagsFromRoleIds(req.user.metRoleIds);
 
+  // Medals — held via the MET-server Discord medal roles (multiple possible) and,
+  // best-effort, their rank in the Awards & Decorations Roblox group.
+  let medals = [];
+  try {
+    const { medalsForMember, awardsGroupId } = require('./lib/medals');
+    let awardsRank = null;
+    if (req.user.robloxId) {
+      try {
+        const { getUserGroupRole } = require('./lib/roblox');
+        const role = await getUserGroupRole(req.user.robloxId, awardsGroupId());
+        if (role && Number(role.rank) > 0) awardsRank = Number(role.rank);
+      } catch (e) { /* Roblox unreachable → Discord roles only */ }
+    }
+    medals = medalsForMember({ metRoleIds: req.user.metRoleIds, awardsRank });
+  } catch (e) { medals = []; }
+
   // MET quota card — ONLY for a plain MET officer: in NO division, but in MET,
   // and holding a tracked quota rank (Constable → Chief Inspector, the four MET
   // database tabs). HICOMM / division members never see it. Reads their row from
@@ -902,6 +918,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     roles: (metProfile && Array.isArray(metProfile.roles)) ? metProfile.roles : [],
     perms,
     flags,
+    medals,
     punishments: punishments.map(p => ({
       id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
       caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt,
