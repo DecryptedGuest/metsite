@@ -614,6 +614,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .met-splash-crest {
   width: 82px; height: 82px; border-radius: 18px; position: relative; z-index: 1;
   box-shadow: 0 0 54px rgba(43,104,235,.55); animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both;
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+  /* Branded fallback so the box is never empty / never shows raw alt text while
+     the logo is still downloading (notably slow mobile first-loads). */
+  background: linear-gradient(150deg, #2b68eb, #14357f);
+}
+/* Wordmark fallback (no dependency on the icon webfont or the logo download —
+   both can lag on a mobile first-load, which is exactly when this shows). */
+.met-splash-crest-txt { color: #fff; font-weight: 800; font-size: 22px; letter-spacing: .12em; }
+.met-splash-crest img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: 18px; z-index: 1;
 }
 @keyframes met-crest-in { from { opacity: 0; transform: translateY(-16px) scale(.9); } to { opacity: 1; transform: none; } }
 .met-splash .met-strap { color: #fff; font-size: clamp(19px, 4.6vw, 36px); position: relative; z-index: 1; text-align: center; }

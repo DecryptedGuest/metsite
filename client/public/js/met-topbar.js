@@ -605,7 +605,15 @@ function metBrandMoment(opts) {
     el.id = 'met-moment-active';
     var head = '';
     if (opts.icon) head = '<div class="met-moment-icon"' + (opts.iconColor ? ' style="--mc:' + metEsc(opts.iconColor) + ';"' : '') + '><i class="ti ' + metEsc(opts.icon) + '"></i></div>';
-    else if (opts.crest !== false) head = '<img class="met-splash-crest" src="' + metEsc(opts.crest || '/img/divisions/met.png') + '" alt="MET" />';
+    // Crest as a branded box with a shield fallback BEHIND the image: on mobile
+    // first-load the logo may not have downloaded before the splash dismisses, so
+    // a bare <img> would show raw alt text. The box is always branded (blue), the
+    // shield shows until/unless the image paints, and alt is empty so no stray
+    // "MET" text ever appears.
+    else if (opts.crest !== false) head = '<div class="met-splash-crest">'
+      + '<span class="met-splash-crest-txt" aria-hidden="true">MET</span>'
+      + '<img src="' + metEsc(opts.crest || '/img/divisions/met.png') + '" alt="" decoding="async" fetchpriority="high" onerror="this.remove()" />'
+      + '</div>';
     var body = '';
     if (Array.isArray(opts.strap) && opts.strap.length) {
       body = '<div class="met-strap" data-animate>' + opts.strap.map(function (s) { return '<span class="seg">' + metEsc(s) + '</span>'; }).join('') + '</div><div class="met-strap-underline"></div>';
