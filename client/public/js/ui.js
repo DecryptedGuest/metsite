@@ -914,22 +914,35 @@ document.addEventListener('DOMContentLoaded', () => {
       'font-size:18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.4);' +
       'display:flex;align-items:center;justify-content:center;opacity:0;' +
       'pointer-events:none;transition:opacity .2s ease,transform .2s ease;transform:translateY(8px);';
+    // The page may scroll on `window` OR on a `.main-content` pane (dashboards).
+    // Pick whichever is actually scrolled so the arrow always jumps to the top.
+    function scroller() {
+      var mc = document.querySelector('.main-content');
+      if (mc && mc.scrollHeight > mc.clientHeight + 40) return mc;
+      return window;
+    }
+    function scrollY(s) { return s === window ? (window.pageYOffset || document.documentElement.scrollTop || 0) : (s.scrollTop || 0); }
     b.addEventListener('click', function () {
       var reduce = document.documentElement.getAttribute('data-reduce-motion') === '1';
-      window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      var s = scroller();
+      try { s.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }); }
+      catch (e) { if (s === window) window.scrollTo(0, 0); else s.scrollTop = 0; }
     });
     document.body.appendChild(b);
     var shown = false;
     function onScroll() {
-      var y = window.pageYOffset || document.documentElement.scrollTop || 0;
-      var next = y > 400;
+      var next = scrollY(scroller()) > 400;
       if (next === shown) return;
       shown = next;
       b.style.opacity = next ? '1' : '0';
       b.style.pointerEvents = next ? 'auto' : 'none';
       b.style.transform = next ? 'translateY(0)' : 'translateY(8px)';
     }
+    // Listen on both window and any .main-content pane (whichever scrolls).
     window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('scroll', function (e) {
+      if (e.target && e.target.classList && e.target.classList.contains('main-content')) onScroll();
+    }, { passive: true, capture: true });
     onScroll();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

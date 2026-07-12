@@ -219,6 +219,73 @@ function metInjectNavToggle() {
   }
 }
 
+// ── Mobile nav drawer for TOPBAR-ONLY pages (member Dashboard, LOA, Exam,
+// Support, App) — pages with a real .app-layout sidebar are handled by
+// metInjectNavToggle above and are skipped here. Gives phones a proper slide-out
+// menu (My Dashboard, the divisions you can enter, Support, LOA, Exam, App,
+// Sign out) instead of only the cramped topbar dropdowns. ──
+const DIV_ICON = { CID: 'ti-search', SCO19: 'ti-target-arrow', IA: 'ti-scale', FLP: 'ti-shield', HPC: 'ti-school', DEV: 'ti-code', METHICOMM: 'ti-star' };
+function metInjectMobileNav(mine, currentDivision, examEligible) {
+  const topbar = document.querySelector('.met-topbar');
+  const left = document.querySelector('.met-topbar-left');
+  // Skip pages that already have a sidebar drawer (division/dev dashboards).
+  if (!topbar || !left) return;
+  if (document.querySelector('.app-layout .sidebar')) return;
+  if (document.getElementById('met-mnav')) return;
+
+  const here = (location.pathname.replace(/\/$/, '') || '/');
+  const item = (href, icon, label, cur) =>
+    `<a href="${href}" class="met-mnav-item${cur ? ' current' : ''}"><i class="ti ${icon}"></i><span>${metEsc(label)}</span></a>`;
+
+  const divLinks = (mine || []).map(d => {
+    const slug = d.slug || String(d.division || '').toLowerCase();
+    const icon = DIV_ICON[d.division] || 'ti-shield-half';
+    const tag = d.rankName || d.tier || '';
+    return `<a href="/${slug}/dashboard" class="met-mnav-item"><i class="ti ${icon}"></i><span>${metEsc(d.name || d.division)}</span>${tag ? `<span class="met-mnav-tag">${metEsc(tag)}</span>` : ''}</a>`;
+  }).join('');
+
+  const drawer = document.createElement('nav');
+  drawer.id = 'met-mnav'; drawer.className = 'met-mnav';
+  drawer.setAttribute('aria-label', 'Menu');
+  drawer.innerHTML =
+    '<div class="met-mnav-head"><div class="met-splash-crest met-mnav-crest"><span class="met-splash-crest-txt">MET</span>'
+      + '<img src="/img/divisions/met.png" alt="" onerror="this.remove()"></div>'
+      + '<div class="met-mnav-title">Metropolitan Police<span>Navigation</span></div>'
+      + '<button class="met-mnav-x" type="button" aria-label="Close"><i class="ti ti-x"></i></button></div>'
+    + '<div class="met-mnav-list">'
+      + '<div class="met-mnav-label">Home</div>'
+      + item('/dashboard', 'ti-home', 'My Dashboard', here === '/dashboard' || here === '/profile')
+      + (divLinks ? '<div class="met-mnav-label">Divisions you can access</div>' + divLinks : '')
+      + '<div class="met-mnav-label">You</div>'
+      + item('/support', 'ti-lifebuoy', 'Support', /^\/support/.test(here))
+      + item('/loa', 'ti-calendar-off', 'Leave of Absence', here === '/loa')
+      + (examEligible ? item('/exam', 'ti-writing', 'Final Exam', here === '/exam') : '')
+      + item('/app', 'ti-device-mobile', 'Mobile App', here === '/app')
+    + '</div>'
+    + '<form class="met-mnav-foot" action="/auth/logout" method="POST">'
+      + '<button type="submit" class="met-mnav-signout"><i class="ti ti-logout"></i> Sign out</button></form>';
+
+  const scrim = document.createElement('div');
+  scrim.className = 'met-mnav-scrim';
+
+  const hb = document.createElement('button');
+  hb.id = 'met-mnav-toggle'; hb.className = 'met-nav-toggle btn btn-icon btn-ghost';
+  hb.type = 'button'; hb.setAttribute('aria-label', 'Open menu'); hb.setAttribute('aria-expanded', 'false');
+  hb.innerHTML = '<i class="ti ti-menu-2"></i>';
+  left.insertBefore(hb, left.firstChild);
+
+  document.body.appendChild(drawer);
+  document.body.appendChild(scrim);
+
+  const open  = () => { drawer.classList.add('open'); scrim.classList.add('open'); document.body.classList.add('nav-locked'); hb.setAttribute('aria-expanded', 'true'); };
+  const close = () => { drawer.classList.remove('open'); scrim.classList.remove('open'); document.body.classList.remove('nav-locked'); hb.setAttribute('aria-expanded', 'false'); };
+  hb.addEventListener('click', (e) => { e.stopPropagation(); drawer.classList.contains('open') ? close() : open(); });
+  scrim.addEventListener('click', close);
+  drawer.querySelector('.met-mnav-x').addEventListener('click', close);
+  drawer.addEventListener('click', (e) => { if (e.target.closest('.met-mnav-item')) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
 // ── Live support chat launcher: a floating button in the bottom-left corner that
 // opens a small card offering to start a support chat. Redundant on /support, so
 // it's skipped there. ──
@@ -350,23 +417,9 @@ function metInjectSupportChat() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 }
 
-// ── Back-to-top: appears on the scrolling content once you're down the page. ──
-function metInjectBackToTop() {
-  const main = document.querySelector('.main-content');
-  if (!main || document.getElementById('met-to-top')) return;
-  const btn = document.createElement('button');
-  btn.id = 'met-to-top'; btn.className = 'met-to-top'; btn.type = 'button';
-  btn.setAttribute('aria-label', 'Back to top'); btn.title = 'Back to top';
-  btn.innerHTML = '<i class="ti ti-arrow-up"></i>';
-  document.body.appendChild(btn);
-  // Whichever element actually scrolls (main-content usually; body as a fallback).
-  const scroller = main.scrollHeight > main.clientHeight + 40 ? main : (document.scrollingElement || document.documentElement);
-  const onScroll = () => { btn.classList.toggle('show', (scroller.scrollTop || 0) > 400); };
-  scroller.addEventListener('scroll', onScroll, { passive: true });
-  window.addEventListener('scroll', onScroll, { passive: true });
-  btn.addEventListener('click', () => { try { scroller.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { scroller.scrollTop = 0; } });
-  onScroll();
-}
+// ── Back-to-top: now handled by the single button in ui.js (which detects the
+// real scroller). Kept as a no-op so callers don't create a SECOND arrow. ──
+function metInjectBackToTop() { /* consolidated into ui.js */ }
 
 async function initMetTopbar(currentDivision) {
   setSiteChrome(currentDivision);
@@ -377,6 +430,7 @@ async function initMetTopbar(currentDivision) {
 
   let examEligible = false;  // holds the final-exam role → show the Final Exam menu entry
   let hasIADivision = false; // IA-division access → show the Support Desk pill
+  let myDivisions = [];      // the divisions this user can enter (for the mobile nav drawer)
   try {
     const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     if (me) {
@@ -398,6 +452,7 @@ async function initMetTopbar(currentDivision) {
 
   try {
     const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
+    myDivisions = (data && Array.isArray(data.mine)) ? data.mine : [];
     hasIADivision = !!(data && Array.isArray(data.mine) && data.mine.some(d => d.division === 'IA'));
     if (data && data.identity) {
       try { metTopbarAvatars(data.identity); } catch (e) {}
@@ -437,6 +492,7 @@ async function initMetTopbar(currentDivision) {
   // centrally so every dashboard gets them without per-view markup.
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
+  try { metInjectMobileNav(myDivisions, currentDivision, examEligible); } catch (e) {}
   try { metInjectBackToTop(); } catch (e) {}
   try { metInjectSupportChat(); } catch (e) {}
   try { metInjectFooterStrap(); } catch (e) {}

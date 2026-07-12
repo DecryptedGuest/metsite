@@ -767,3 +767,20 @@ html[data-theme="light"] .met-strap-hero { color: #0d1b3e; }
 .met-cd-def { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
 .met-cd-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-dim, rgba(255,255,255,.08)); }
 .met-cd-foot .btn-sm { height: 30px; padding: 0 12px; font-size: 12px; }
+
+/* ── Mobile fit hardening ──────────────────────────────────────────────
+   Stop any stray wide element (decorative background glows, an unwrapped
+   wide table, an overshooting dropdown) from making the whole PAGE scroll
+   sideways — the classic "everything looks shifted / cut off" symptom on a
+   phone. Legitimately wide tables scroll inside their own .table-wrap. */
+html, body { overflow-x: hidden; max-width: 100%; }
+.app-layout, .main-content, .profile-wrap, .sup-wrap { max-width: 100%; }
+@media (max-width: 640px) {
+  .main-content, .profile-wrap { min-width: 0; }
+  /* Any data table stays inside its panel and scrolls sideways on its own. */
+  .table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Cards/panels never exceed the screen. */
+  .panel, .glass, .stat-card, .med-card { max-width: 100%; }
+  /* Popovers / dropdowns clamp to the viewport. */
+  .met-cd-pop, .met-switcher-menu, .dc-mention-card { max-width: calc(100vw - 16px); }
+}
