@@ -349,14 +349,23 @@ router.get('/ticket-ip', async (req, res) => {
       });
     }
 
-    // Is this opener currently ticket-blacklisted (by IP or fingerprint)?
+    // Is this opener currently ticket-blacklisted (active entries only, matched
+    // by account id / IP / fingerprint)? Return the entries so a dev can lift.
     let blacklisted = false;
-    if (ticket.openerIp || ticket.openerFp) {
+    let blacklist = [];
+    {
       const orBl = [];
+      if (ticket.openerId) orBl.push({ userId: String(ticket.openerId) });
       if (ticket.openerIp) orBl.push({ ip: ticket.openerIp });
       if (ticket.openerFp) orBl.push({ fingerprint: ticket.openerFp });
-      const bl = await prisma.supportBlacklist.findFirst({ where: { OR: orBl } }).catch(() => null);
-      blacklisted = !!bl;
+      if (orBl.length) {
+        blacklist = await prisma.supportBlacklist.findMany({
+          where: { active: true, OR: orBl },
+          select: { id: true, reason: true, issuedByName: true, createdAt: true, ip: true, fingerprint: true, userId: true },
+          orderBy: { createdAt: 'desc' },
+        }).catch(() => []);
+        blacklisted = blacklist.length > 0;
+      }
     }
 
     audit.record({
@@ -373,7 +382,7 @@ router.get('/ticket-ip', async (req, res) => {
         openerIp: ticket.openerIp || null, openerFp: ticket.openerFp || null, openerUa: ticket.openerUa || null,
         createdAt: ticket.createdAt,
       },
-      ipMeta, blacklisted, related, linkedAccounts,
+      ipMeta, blacklisted, blacklist, related, linkedAccounts,
     });
   } catch (e) {
     console.error('[Dev] ticket-ip lookup failed:', e.message);
@@ -439,6 +448,68 @@ router.get('/tickets', async (req, res) => {
   } catch (e) {
     console.error('[Dev] ticket list failed:', e.message);
     res.status(500).json({ error: 'Failed to load tickets.' });
+  }
+});
+
+// GET /api/dev/blacklist?q= — active ticket-blacklist entries. Devs can review
+// everyone currently barred from opening support tickets and lift any of them.
+router.get('/blacklist', async (req, res) => {
+  try {
+    const q = (req.query.q || '').toString().trim();
+    const where = { active: true };
+    if (q) where.OR = [
+      { openerName: { contains: q, mode: 'insensitive' } },
+      { openerDiscordId: { contains: q } },
+      { ip: { contains: q } },
+      { fingerprint: { contains: q } },
+      { userId: { contains: q } },
+    ];
+    const rows = await prisma.supportBlacklist.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: 200,
+      select: { id: true, userId: true, ip: true, fingerprint: true, openerName: true, openerDiscordId: true, reason: true, issuedByName: true, ticketId: true, createdAt: true },
+    }).catch(() => []);
+    res.json({ entries: rows });
+  } catch (e) {
+    console.error('[Dev] blacklist list failed:', e.message);
+    res.status(500).json({ error: 'Failed to load blacklist.' });
+  }
+});
+
+// POST /api/dev/blacklist/lift — lift (deactivate) a ticket blacklist. Body:
+//   { id }                                 — lift one specific entry, OR
+//   { userId | ip | fingerprint | ticketId } — lift every active entry matching
+// the opener. Developer-only, audit-logged.
+router.post('/blacklist/lift', async (req, res) => {
+  try {
+    const b = req.body || {};
+    let where = null;
+    if (b.id) where = { active: true, id: String(b.id) };
+    else {
+      const or = [];
+      if (b.userId) or.push({ userId: String(b.userId) });
+      if (b.ip) or.push({ ip: String(b.ip) });
+      if (b.fingerprint) or.push({ fingerprint: String(b.fingerprint) });
+      if (b.ticketId) or.push({ ticketId: String(b.ticketId) });
+      if (or.length) where = { active: true, OR: or };
+    }
+    if (!where) return res.status(400).json({ error: 'Provide an entry id, or a userId / ip / fingerprint / ticketId to lift.' });
+
+    const name = req.user.displayName || req.user.discordUsername;
+    const targets = await prisma.supportBlacklist.findMany({ where, select: { id: true, openerName: true } }).catch(() => []);
+    if (!targets.length) return res.json({ ok: true, lifted: 0 });
+
+    const r = await prisma.supportBlacklist.updateMany({
+      where, data: { active: false, liftedById: req.user.id, liftedByName: name, liftedAt: new Date() },
+    });
+    audit.record({
+      req, action: 'DEV_TICKET_UNBLACKLIST', category: 'SECURITY',
+      targetType: 'supportBlacklist', targetId: targets[0].id,
+      summary: `Developer lifted ${r.count} ticket-blacklist entr${r.count === 1 ? 'y' : 'ies'} for ${targets[0].openerName || 'an opener'}`,
+    });
+    res.json({ ok: true, lifted: r.count });
+  } catch (e) {
+    console.error('[Dev] blacklist lift failed:', e.message);
+    res.status(500).json({ error: 'Failed to lift blacklist.' });
   }
 });
 

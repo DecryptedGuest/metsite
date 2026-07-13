@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/css/main.css?v=77" />
   <link rel="stylesheet" href="/css/dashboard.css?v=73" />
   <link rel="stylesheet" href="/css/aurora.css?v=73" />
-  <link rel="stylesheet" href="/css/met-portal.css?v=78" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
   <link rel="stylesheet" href="/css/support-chat.css?v=1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <link rel="stylesheet" href="/css/enhance.css?v=4" />
@@ -1587,6 +1587,21 @@
           <div id="dev-tk-out" style="font-size:13px;"></div>
         </div>
       </div>
+
+      <!-- Active ticket blacklists -->
+      <div class="panel glass fade-up stagger-3" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot red"></span>Active ticket blacklists</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="dev-bl-q" placeholder="Search name, IP, id…" style="height:30px;font-size:12px;width:180px;" onkeydown="if(event.key==='Enter')loadDevBlacklist()">
+            <button class="btn btn-secondary" onclick="loadDevBlacklist()" style="height:30px;padding:0 12px;font-size:12px;"><i class="ti ti-refresh"></i></button>
+          </div>
+        </div>
+        <div class="profile-section" style="padding-top:0;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 0.8rem;line-height:1.6;">People currently barred from opening support tickets. Lifting a blacklist lets them open tickets again — it never affects their other MET access.</p>
+          <div id="dev-bl-out" style="font-size:13px;"></div>
+        </div>
+      </div>
     </section>
 
   </main>
@@ -2131,7 +2146,7 @@
 <script src="/js/guard.js?v=73"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=76"></script>
-<script src="/js/dashboard.js?v=76"></script>
+<script src="/js/dashboard.js?v=77"></script>
 <script src="/js/tickets.js?v=73"></script>
 <script src="/js/discord-format.js?v=1"></script>
 <script src="/js/support-staff.js?v=79"></script>

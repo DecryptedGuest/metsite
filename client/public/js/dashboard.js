@@ -273,7 +273,7 @@ function navigateTo(pageId) {
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
     'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
     gamelogs:        loadDevGameLogs,
-    'ticket-ip':     (typeof loadDevTickets === 'function' ? () => loadDevTickets(0) : null),
+    'ticket-ip':     (typeof loadDevTickets === 'function' ? () => { loadDevTickets(0); loadDevBlacklist(); } : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
 }
@@ -446,7 +446,10 @@ async function devTicketIpLookup(preset) {
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:0.8rem;">
         ${devTkChip(typeLbl, typeCol)} ${devTkChip(t.status, stCol)}
         ${t.isGuest ? '<span style="color:#f59e0b;font-size:12px;font-weight:600;"><i class="ti ti-user-question"></i> Guest opener</span>' : '<span style="color:var(--text-secondary);font-size:12px;"><i class="ti ti-user-check"></i> Logged-in opener</span>'}
-        ${data.blacklisted ? '<span style="color:#ef4444;font-size:12px;font-weight:600;"><i class="ti ti-ban"></i> Ticket-blacklisted</span>' : ''}
+        ${data.blacklisted
+          ? `<span style="color:#ef4444;font-size:12px;font-weight:600;"><i class="ti ti-ban"></i> Ticket-blacklisted</span>
+             <button class="btn btn-secondary" style="height:26px;padding:0 10px;font-size:11px;margin-left:auto;" onclick="devLiftTicketBlacklist({ticketId:'${t.id}'}, this)"><i class="ti ti-lock-open"></i> Un-blacklist</button>`
+          : '<span style="color:#2ed896;font-size:12px;"><i class="ti ti-shield-check"></i> Not ticket-blacklisted</span>'}
       </div>
       ${field('Opener', t.openerName)}
       ${field('Discord ID', t.openerDiscordId, true)}
@@ -485,8 +488,59 @@ async function devTicketIpLookup(preset) {
         : '<div style="color:var(--text-muted);font-size:12px;">No other tickets share this opener\'s IP or browser fingerprint.</div>'}
     </div>`;
 }
+// Lift a ticket blacklist. `sel` is { ticketId } | { userId } | { ip } |
+// { fingerprint } | { id } — the dev endpoint deactivates every matching active
+// entry. `btn` (optional) is the button to disable + relabel on success.
+async function devLiftTicketBlacklist(sel, btn) {
+  if (!confirm('Lift the ticket blacklist for this opener? They will be able to open support tickets again.')) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Lifting…'; }
+  try {
+    const r = await api('/api/dev/blacklist/lift', { method: 'POST', body: JSON.stringify(sel) });
+    showToast(r.lifted ? `Ticket blacklist lifted (${r.lifted} entr${r.lifted === 1 ? 'y' : 'ies'})` : 'No active blacklist to lift', 'success');
+    if (btn) { btn.outerHTML = '<span style="color:#2ed896;font-size:12px;"><i class="ti ti-shield-check"></i> Lifted</span>'; }
+    return true;
+  } catch (e) {
+    showToast(e.message || 'Failed to lift blacklist', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-lock-open"></i> Un-blacklist'; }
+    return false;
+  }
+}
+// Active ticket-blacklist list (dev panel) — review + lift.
+async function loadDevBlacklist() {
+  const out = document.getElementById('dev-bl-out');
+  if (!out) return;
+  const q = (document.getElementById('dev-bl-q') || {}).value || '';
+  out.innerHTML = '<div class="table-loading" style="padding:1.2rem;text-align:center;"><div class="spinner"></div></div>';
+  let data;
+  try { data = await api('/api/dev/blacklist?q=' + encodeURIComponent(q.trim())); }
+  catch (e) { out.innerHTML = `<div class="table-empty-text" style="color:var(--danger,#ef4444);">${escapeHtml(e.message)}</div>`; return; }
+  const rows = data.entries || [];
+  if (!rows.length) {
+    out.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-shield-check', title: 'No active blacklists', sub: 'Nobody is currently barred from opening tickets.' })
+      : '<div class="table-empty-text">No active blacklists.</div>';
+    return;
+  }
+  const body = rows.map(b => {
+    const who = escapeHtml(b.openerName || b.userId || b.ip || b.fingerprint || 'Unknown');
+    const on = [b.userId ? 'account' : null, b.ip ? 'IP' : null, b.fingerprint ? 'browser' : null].filter(Boolean).join(' + ');
+    return `<tr>
+      <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(b.createdAt))}</td>
+      <td style="font-size:13px;">${who}${b.openerDiscordId ? `<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono,monospace);">${escapeHtml(b.openerDiscordId)}</div>` : ''}</td>
+      <td style="font-size:11px;color:var(--text-secondary);">${escapeHtml(on || '—')}</td>
+      <td style="font-size:12px;color:var(--text-secondary);max-width:220px;">${b.reason ? escapeHtml(b.reason) : '<span style="color:var(--text-muted);">No reason</span>'}</td>
+      <td style="font-size:11px;color:var(--text-muted);">${escapeHtml(b.issuedByName || '—')}</td>
+      <td style="text-align:right;"><button class="btn btn-secondary" style="height:26px;padding:0 10px;font-size:11px;" onclick="devLiftTicketBlacklist({id:'${b.id}'}, this)"><i class="ti ti-lock-open"></i> Lift</button></td>
+    </tr>`;
+  }).join('');
+  out.innerHTML = `<div style="overflow-x:auto;"><table class="data-table" style="width:100%;">
+      <thead><tr><th>Issued</th><th>Opener</th><th>Matched on</th><th>Reason</th><th>By</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+}
 window.loadDevTickets = loadDevTickets;
 window.devTicketIpLookup = devTicketIpLookup;
+window.devLiftTicketBlacklist = devLiftTicketBlacklist;
+window.loadDevBlacklist = loadDevBlacklist;
 let _devGlT = null;
 document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
 
@@ -1856,7 +1910,7 @@ async function loadAdminUsers() {
           ${metRankDropdownTrigger(u, metRoles)}
         </div></td>
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
-        <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>
+        <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}${u.ticketBlacklisted ? '<div style="margin-top:4px;"><span class="badge badge-amber" title="Barred from opening support tickets"><i class="ti ti-ticket-off"></i> Ticket-BL</span></div>' : ''}</td>
         <td>${u.notifyEnabled && u.hasPush
             ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span><i class="ti ti-bell"></i> On</span>'
             : (u.notifyEnabled
@@ -1867,6 +1921,7 @@ async function loadAdminUsers() {
           ${u.isBlacklisted
             ? `<button class="row-btn row-btn-approve btn-sm" onclick="unblacklistUser('${u.id}')"><i class="ti ti-lock-open"></i> Unban</button>`
             : `<button class="row-btn row-btn-deny btn-sm" onclick="openBlacklistModal('${u.id}')"><i class="ti ti-ban"></i> Blacklist</button>`}
+          ${u.ticketBlacklisted ? `<button class="row-btn row-btn-approve btn-sm" title="Lift the support-ticket blacklist" onclick="devLiftTicketBlacklist({userId:'${u.id}'}, this)"><i class="ti ti-ticket"></i> Un-ticket-BL</button>` : ''}
         </div></td>
       </tr>`).join('');
   } catch { tbody.innerHTML = emptyRow(9, 'Failed to load users.'); }

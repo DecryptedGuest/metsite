@@ -65,9 +65,21 @@ router.get('/users', async (req, res) => {
         _count: { select: { cases: true, pushSubscriptions: true } },
       },
     });
+    // Flag which of these users are currently TICKET-blacklisted (barred from
+    // opening support tickets) — a single query, matched by account id.
+    let tbSet = new Set();
+    try {
+      const ids = users.map(u => u.id);
+      const bl = await prisma.supportBlacklist.findMany({
+        where: { active: true, userId: { in: ids } }, select: { userId: true },
+      });
+      tbSet = new Set(bl.map(b => b.userId));
+    } catch (e) { /* best-effort */ }
+
     res.json(users.map(u => ({
       ...u,
       hasPush: u._count.pushSubscriptions > 0,
+      ticketBlacklisted: tbSet.has(u.id),
     })));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch users' });
