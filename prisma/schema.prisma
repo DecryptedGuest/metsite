@@ -1001,3 +1001,121 @@ model Passkey {
   @@index([userId])
   @@map("passkeys")
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// CAD — Metropolitan Police Computer-Aided Dispatch (radio dispatch system)
+// A self-contained dispatch state machine driven by two interfaces: the dev
+// dispatch console (web) and the Discord #radio channel (free text → intent
+// parser). Voice (TTS) output is layered on top. All models prefixed `Cad`.
+// ══════════════════════════════════════════════════════════════════════
+
+enum CadUnitStatus {
+  OFF_DUTY
+  AVAILABLE
+  EN_ROUTE
+  ON_SCENE
+  BUSY
+  MEAL_BREAK
+  URGENT_ASSISTANCE
+}
+
+enum CadGrade {
+  I // Immediate / emergency
+  S // Significant
+  E // Extended / scheduled
+  R // Referred / resolution without deployment
+}
+
+enum CadIncidentStatus {
+  OPEN
+  ASSIGNED
+  ON_SCENE
+  CLOSED
+}
+
+// A booked-on officer with a callsign. Linked to their MET site account when
+// they book on from the portal; discordUserId lets the #radio parser match
+// their messages. A callsign is unique while active.
+model CadUnit {
+  id                String        @id @default(uuid())
+  callsign          String        @unique
+  discordUserId     String?
+  userId            String? // MET site account, when linked
+  officerName       String
+  status            CadUnitStatus @default(AVAILABLE)
+  currentIncidentId String? // the incident this unit is currently attached to
+  bookedOnAt        DateTime      @default(now())
+  lastStatusAt      DateTime      @default(now())
+  createdAt         DateTime      @default(now())
+
+  @@index([status])
+  @@index([discordUserId])
+  @@map("cad_units")
+}
+
+// A CAD incident (job). cadRef is INC-YYYYMMDD-NNN, unique per day.
+model CadIncident {
+  id            String            @id @default(uuid())
+  cadRef        String            @unique
+  grade         CadGrade
+  category      String
+  location      String
+  description   String
+  status        CadIncidentStatus @default(OPEN)
+  createdById   String?
+  createdByName String?
+  closedOutcome String?
+  createdAt     DateTime          @default(now())
+  closedAt      DateTime?
+
+  logs CadIncidentLog[]
+
+  @@index([status])
+  @@index([grade])
+  @@map("cad_incidents")
+}
+
+model CadIncidentLog {
+  id         String   @id @default(uuid())
+  incidentId String
+  unitId     String?
+  type       String // CREATED | ASSIGNED | STATUS | ON_SCENE | UPDATE | CLOSED | BACKUP | PNC | RADIO
+  message    String
+  createdAt  DateTime @default(now())
+
+  incident CadIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+  @@map("cad_incident_logs")
+}
+
+// PNC vehicle record (fictional roleplay data).
+model CadVehicleRecord {
+  id               String   @id @default(uuid())
+  vrm              String   @unique
+  make             String
+  model            String
+  colour           String
+  registeredKeeper String
+  taxStatus        String // Taxed | Untaxed | SORN
+  motStatus        String // Valid | Expired | None
+  insuranceStatus  String // Insured | Uninsured | Unknown
+  markers          String[]
+  stolen           Boolean  @default(false)
+
+  @@map("cad_vehicle_records")
+}
+
+// PNC person record (fictional roleplay data).
+model CadPersonRecord {
+  id             String   @id @default(uuid())
+  forename       String
+  surname        String
+  dob            String // stored as ISO date string for simplicity
+  address        String
+  warningMarkers String[]
+  wanted         Boolean  @default(false)
+
+  @@index([surname])
+  @@map("cad_person_records")
+}

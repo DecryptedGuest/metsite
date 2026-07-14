@@ -45,7 +45,11 @@ const EVENTLOGS_CHANNEL_ID = process.env.EVENTLOGS_CHANNEL_ID || null;
 // history. Both are ingested the same way patrol logs are (needs Message Content).
 const PROMOTIONS_CHANNEL_ID  = process.env.PROMOTIONS_CHANNEL_ID  || null;
 const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || null;
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || PROMOTIONS_CHANNEL_ID || INFRACTIONS_CHANNEL_ID);
+// CAD radio channel — officers type free-text transmissions here; the CAD
+// intent parser reads them (needs Message Content), so enabling it turns the
+// message-content intent on.
+const CAD_RADIO_CHANNEL_ID = process.env.CAD_RADIO_CHANNEL_ID || null;
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || PROMOTIONS_CHANNEL_ID || INFRACTIONS_CHANNEL_ID || CAD_RADIO_CHANNEL_ID);
 
 let ready = false;
 let client;
@@ -54,6 +58,9 @@ async function onReady() {
   ready = true;
   console.log(`🤖  Discord bot online as ${client.user.tag}`);
   await registerImportCommand();
+  // Bring up the CAD dispatch system (radio listener + voice). Best-effort —
+  // never let a CAD misconfig take the bot down.
+  try { require('./cad').init(client); } catch (e) { console.warn('[CAD] init failed:', e.message); }
 }
 
 function buildClient(withMessageContent) {

@@ -274,6 +274,7 @@ function navigateTo(pageId) {
     'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
     gamelogs:        loadDevGameLogs,
     'ticket-ip':     (typeof loadDevTickets === 'function' ? () => { loadDevTickets(0); loadDevBlacklist(); } : null),
+    cad:             (typeof loadCad === 'function' ? loadCad : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
 }

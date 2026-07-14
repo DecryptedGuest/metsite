@@ -364,6 +364,8 @@ app.use('/api/dev/security', requireAuth, require('./middleware/auth').requireDe
 // Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
 // inside the router.
 app.use('/api/dev', requireAuth, require('./routes/dev'));
+// CAD — Metropolitan Police dispatch console (developer-only, gated in-router).
+app.use('/api/cad', requireAuth, require('./routes/cad'));
 // MET HICOMM oversight — Command Center, analytics, audit trail, officer 360°.
 app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm'));
 // "Install on your phone" QR handoff — mint one-time session-transfer tokens.

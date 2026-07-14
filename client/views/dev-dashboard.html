@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/css/met-portal.css?v=79" />
   <link rel="stylesheet" href="/css/support-chat.css?v=1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
-  <link rel="stylesheet" href="/css/enhance.css?v=4" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body class="div-dev">
 <div class="bg-canvas">
@@ -166,6 +166,9 @@
         </button>
         <button class="nav-item dev-only" data-page="ticket-ip" style="display:none;">
           <i class="ti ti-map-pin-search nav-icon"></i><span>Guest IP Lookup</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="cad" style="display:none;">
+          <i class="ti ti-radio nav-icon"></i><span>CAD Dispatch</span><span class="nav-tag">DEV</span>
         </button>
       </nav>
     </div>
@@ -1604,6 +1607,93 @@
       </div>
     </section>
 
+    <!-- CAD — Metropolitan Police dispatch console -->
+    <section class="page" id="page-cad">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">CAD Dispatch</h1><p class="page-sub">Developer &middot; Metropolitan Police computer-aided dispatch — control console</p></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="cad-status-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+          <button class="btn btn-secondary" onclick="cadSeedPnc(this)" title="Seed fictional PNC records"><i class="ti ti-database-plus"></i> Seed PNC</button>
+        </div>
+      </div>
+
+      <div class="cad-grid">
+        <!-- LEFT: units board + book-on -->
+        <div class="cad-col">
+          <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Units on duty</div><span id="cad-board-count" class="nav-tag"></span></div>
+            <div class="profile-section" style="padding-top:0;"><div id="cad-board"></div></div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Book a unit on</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:1;min-width:90px;"><label class="cad-lbl">Callsign</label><input class="form-control" id="cad-bo-cs" placeholder="MP-1"></div>
+                <div style="flex:2;min-width:140px;"><label class="cad-lbl">Officer name</label><input class="form-control" id="cad-bo-name" placeholder="PC J. Smith"></div>
+                <button class="btn btn-primary" onclick="cadBookOn()"><i class="ti ti-user-plus"></i> Book on</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MIDDLE: incidents -->
+        <div class="cad-col">
+          <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Open incidents</div><span id="cad-inc-count" class="nav-tag"></span></div>
+            <div class="profile-section" style="padding-top:0;"><div id="cad-incidents"></div></div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Create incident</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div style="width:120px;"><label class="cad-lbl">Grade</label>
+                  <select class="form-control" id="cad-inc-grade">
+                    <option value="I">I — Immediate</option><option value="S">S — Significant</option>
+                    <option value="E">E — Extended</option><option value="R">R — Referred</option>
+                  </select></div>
+                <div style="flex:1;min-width:140px;"><label class="cad-lbl">Category</label><input class="form-control" id="cad-inc-cat" placeholder="Affray"></div>
+                <div style="flex:1;min-width:140px;"><label class="cad-lbl">Location</label><input class="form-control" id="cad-inc-loc" placeholder="Trafalgar Square"></div>
+              </div>
+              <div style="margin-top:8px;"><label class="cad-lbl">Description</label><textarea class="form-control" id="cad-inc-desc" rows="2" placeholder="Details passed by informant…"></textarea></div>
+              <button class="btn btn-primary" style="margin-top:8px;" onclick="cadCreateIncident()"><i class="ti ti-plus"></i> Create &amp; broadcast</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: PNC + transmit + feed -->
+        <div class="cad-col">
+          <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot purple"></span>PNC lookup</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;align-items:flex-end;">
+                <div style="flex:1;"><label class="cad-lbl">Vehicle (VRM)</label><input class="form-control" id="cad-pnc-vrm" placeholder="LG21 XYZ" onkeydown="if(event.key==='Enter')cadVehicle()"></div>
+                <button class="btn btn-secondary" onclick="cadVehicle()"><i class="ti ti-car"></i></button>
+              </div>
+              <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;">
+                <div style="flex:1;"><label class="cad-lbl">Surname</label><input class="form-control" id="cad-pnc-sur" placeholder="Petrova" onkeydown="if(event.key==='Enter')cadPerson()"></div>
+                <div style="flex:1;"><label class="cad-lbl">Forename</label><input class="form-control" id="cad-pnc-fore" placeholder="(optional)" onkeydown="if(event.key==='Enter')cadPerson()"></div>
+                <button class="btn btn-secondary" onclick="cadPerson()"><i class="ti ti-user"></i></button>
+              </div>
+              <div id="cad-pnc-out" style="margin-top:10px;font-size:13px;"></div>
+            </div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Control transmission</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;align-items:flex-end;">
+                <div style="flex:1;"><input class="form-control" id="cad-tx" placeholder="All units, be aware…" onkeydown="if(event.key==='Enter')cadTransmit()"></div>
+                <button class="btn btn-primary" onclick="cadTransmit()"><i class="ti ti-broadcast"></i> Send</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel glass fade-up stagger-3" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Radio feed</div></div>
+            <div class="profile-section" style="padding-top:0;"><div id="cad-feed" style="max-height:360px;overflow-y:auto;"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -2147,6 +2237,7 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=76"></script>
 <script src="/js/dashboard.js?v=77"></script>
+<script src="/js/cad-console.js?v=1"></script>
 <script src="/js/tickets.js?v=73"></script>
 <script src="/js/discord-format.js?v=1"></script>
 <script src="/js/support-staff.js?v=79"></script>
