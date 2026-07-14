@@ -191,12 +191,24 @@ router.post('/tryout/conclude', requireGameSecret, async (req, res) => {
 
     const bot = require('../lib/bot');
 
-    // Close out the associated live tryout: mark it COMPLETED, delete its
-    // channel announcement, and flip the host DM to "✅ Concluded". Best-effort.
+    // Close out the associated tryout: mark it COMPLETED (if not already), and
+    // ALWAYS remove its channel announcement + scheduled event + flip the host
+    // DM. We attempt the Discord cleanup even when the row is already terminal —
+    // e.g. the host ended it from the site first — so a stale announcement is
+    // never left up once the tryout has concluded. All best-effort / idempotent
+    // (deleteTryoutAnnouncement no-ops once announcementMsgId is cleared). If the
+    // payload carries a linked tryout log, prefer that log's tryoutId so we don't
+    // depend on a LIVE row still existing.
     try {
-      const t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
-      if (t && !['CANCELLED', 'COMPLETED'].includes(t.status)) {
-        const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+      let t = await resolveTargetTryout({ tryoutId: body.tryoutId, privateServerId: body.privateServerId, division: body.division });
+      if (!t && result.id) {
+        const log = await prisma.tryoutLog.findUnique({ where: { id: result.id }, select: { tryoutId: true } }).catch(() => null);
+        if (log && log.tryoutId) t = await prisma.tryout.findUnique({ where: { id: log.tryoutId } }).catch(() => null);
+      }
+      if (t) {
+        const updated = ['CANCELLED', 'COMPLETED'].includes(t.status)
+          ? t
+          : await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
         await bot.deleteTryoutAnnouncement(updated).catch(() => {});
         await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
         await bot.editTryoutHostDM(updated).catch(() => {});

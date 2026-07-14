@@ -495,10 +495,13 @@ router.post('/tryouts/:id/complete', async (req, res) => {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can end this tryout.' });
     }
     const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
-    // End the Discord scheduled event now the tryout has concluded.
+    // Now the tryout has concluded: remove its channel announcement, end the
+    // Discord scheduled event, and flip the host DM — same as CID's complete.
     try {
       const bot = require('../lib/bot');
+      await bot.deleteTryoutAnnouncement(updated).catch(() => {});
       await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
+      await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* Discord side is best-effort */ }
     res.json({ success: true });
   } catch (err) {
