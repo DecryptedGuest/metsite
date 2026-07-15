@@ -33,7 +33,31 @@ HTTPS. If the worker is down, the CAD carries on text-only.
    `WORKER_SECRET` and on Railway as `CAD_VOICE_WORKER_SECRET`.
 3. **Your ElevenLabs API key** → `ELEVENLABS_API_KEY`.
 
-## Deploy to Fly.io
+## Deploy from your phone (no commands)
+
+A GitHub Action (`.github/workflows/deploy-voice-worker.yml`) builds and deploys
+this worker to Fly.io on GitHub's servers — you never open a terminal.
+
+1. Make a Fly.io account at <https://fly.io> and add a payment method (the worker
+   is tiny, roughly a couple of £/$ a month running 24/7).
+2. In the Fly dashboard, create an **access token** (avatar menu → *Access Tokens*
+   → create → copy it).
+3. In your GitHub repo → **Settings → Secrets and variables → Actions → New
+   repository secret**, add these four:
+   - `FLY_API_TOKEN` — the Fly token from step 2
+   - `VOICE_BOT_TOKEN` — the second bot's token
+   - `WORKER_SECRET` — any long random string (use the SAME value on Railway as
+     `CAD_VOICE_WORKER_SECRET`)
+   - `ELEVENLABS_API_KEY` — your ElevenLabs key
+4. Go to the repo's **Actions** tab → **Deploy CAD Voice Worker** → **Run
+   workflow**. When it finishes green, the log prints the worker URL
+   (`https://metsite-cad-voice.fly.dev`).
+5. Add that URL to Railway as `CAD_VOICE_WORKER_URL` and the same secret as
+   `CAD_VOICE_WORKER_SECRET` (see *Point Railway at it* below).
+
+The CLI route below is the alternative if you prefer a computer.
+
+## Deploy to Fly.io (CLI alternative)
 
 Install the Fly CLI (`flyctl`) and log in (`fly auth login`), then from this
 `voice-worker/` folder:

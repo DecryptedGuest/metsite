@@ -1,6 +1,6 @@
 # voice-worker/fly.toml — Fly.io app config for the MET CAD voice worker.
-# Rename "app" to whatever `fly launch` created for you (or set it here first).
-app = "metsite-voice-worker"
+# The GitHub Action deploys with --app so this name is only the default.
+app = "metsite-cad-voice"
 primary_region = "lhr"   # London — closest to Discord's EU voice servers.
 
 [build]
