@@ -5,11 +5,18 @@
 const fetch = require('node-fetch');
 const { TtsProvider } = require('./types');
 
+// A stable ElevenLabs premade en-GB voice ("Daniel" — deep, authoritative
+// British male, a natural fit for a control-room dispatcher). Used when no
+// ELEVENLABS_VOICE_ID is set, so the CAD speaks with just the API key present.
+// Override with ELEVENLABS_VOICE_ID (e.g. George JBFqnCBsd6RMkjVDRZzb, or a
+// custom clone) any time.
+const DEFAULT_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9';
+
 class ElevenLabsTts extends TtsProvider {
   constructor(opts = {}) {
     super();
     this.apiKey = opts.apiKey || process.env.ELEVENLABS_API_KEY || null;
-    this.voiceId = opts.voiceId || process.env.ELEVENLABS_VOICE_ID || null;
+    this.voiceId = opts.voiceId || process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
     this.modelId = opts.modelId || process.env.ELEVENLABS_MODEL_ID || 'eleven_turbo_v2_5';
   }
   get name() { return 'elevenlabs'; }

@@ -167,7 +167,9 @@ function init(client) {
   if (wired || !client) return;
   botClient = client;
   const cfg = config();
-  const tts = (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) ? new ElevenLabsTts() : new NullTtsProvider();
+  // ElevenLabs needs only the API key — the voice defaults to a British
+  // dispatcher voice (override with ELEVENLABS_VOICE_ID).
+  const tts = process.env.ELEVENLABS_API_KEY ? new ElevenLabsTts() : new NullTtsProvider();
   voice = new DispatchVoice({
     client, ttsProvider: tts, guildId: cfg.guildId, voiceChannelId: cfg.voiceChannelId,
     tonePath: process.env.CAD_ATTENTION_TONE_PATH || null,
@@ -188,7 +190,7 @@ function status() {
     radioChannelId: cfg.radioChannelId, voiceChannelId: cfg.voiceChannelId, controlRoleId: cfg.controlRoleId,
     voiceReady: !!(voice && voice.available()),
     intentEngine: process.env.ANTHROPIC_API_KEY ? 'claude' : 'rules',
-    ttsEngine: (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) ? 'elevenlabs' : 'none',
+    ttsEngine: process.env.ELEVENLABS_API_KEY ? 'elevenlabs' : 'none',
   };
 }
 
