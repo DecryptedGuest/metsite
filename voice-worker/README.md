@@ -45,6 +45,27 @@ HTTPS. If the worker is down, the CAD carries on text-only.
    `WORKER_SECRET` and on Railway as `CAD_VOICE_WORKER_SECRET`.
 3. **Your ElevenLabs API key** → `ELEVENLABS_API_KEY`.
 
+## Deploy on Hetzner Cloud (~€3.79/mo, no commands) — recommended paid path
+
+Hetzner accepts normal cards/PayPal (unlike Fly's Stripe checks), is rock-solid,
+and lets you paste the setup script at server creation — no terminal, no token.
+
+1. On the **main app** (Railway) add `CAD_VOICE_WORKER_SECRET` = a long random
+   string and redeploy. Note your Railway domain (Settings → Domains).
+2. Open **`voice-worker/oracle-cloud-init.sh`** and fill in the four values at the
+   top (`VOICE_BOT_TOKEN`, `WORKER_SECRET` = same as step 1, `ELEVENLABS_API_KEY`,
+   `CAD_MAIN_WS_URL` = `wss://<your-railway-domain>/cad-voice`).
+3. Sign up at **hetzner.com/cloud** → **New Project** → **Add Server**:
+   - Location: a EU region (e.g. Falkenstein/Nuremberg — closest to Discord EU).
+   - Image: **Ubuntu 22.04**. Type: the cheapest **CX22** (or ARM **CAX11**).
+   - Scroll to **Cloud config** → paste your filled-in script.
+   - **Create & Buy now.**
+4. Wait ~3 min. On the site, **Dev → CAD** shows **"Voice host: worker (linked)"**.
+   Pick server + channel → Join → Radio check. 🎙️
+
+Same script, same result as the Oracle path below — just a host that won't reject
+you. It auto-restarts and survives reboots (systemd service `met-voice`).
+
 ## Deploy free & always-on — Oracle Cloud (no reclaim, no commands)
 
 Oracle Cloud's Always Free VM runs 24/7 and is never billed (a card is taken at

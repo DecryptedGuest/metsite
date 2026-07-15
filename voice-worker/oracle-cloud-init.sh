@@ -1,12 +1,14 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# MET CAD Voice Worker — Oracle Cloud auto-setup
+# MET CAD Voice Worker — cloud VM auto-setup (Ubuntu/Debian)
 #
-# Paste this into Oracle's "cloud-init script" box when you CREATE the VM
-# (Create Instance → Show advanced options → Management → Cloud-init script).
-# It runs once, on first boot, as root: installs Node, downloads the worker,
-# and runs it 24/7 as a service that restarts itself and survives reboots.
-# You never open a terminal.
+# Paste this into the "cloud-init" / "user data" / "cloud config" box when you
+# CREATE the VM. Works on any Ubuntu/Debian VM that accepts a cloud-init script:
+#   • Hetzner Cloud → Create Server → "Cloud config" box  (recommended, cheap)
+#   • Oracle Cloud  → Create Instance → Advanced → Management → Cloud-init script
+#   • Google Cloud  → Create Instance → Management → Automation → Startup script
+# It runs on first boot as root: installs Node, downloads the worker, and runs it
+# 24/7 as a service that restarts itself and survives reboots. No terminal needed.
 #
 # BEFORE pasting: replace the four PASTE_… values below with your real ones.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,13 +29,20 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y curl git ca-certificates
 
-# Node.js 20 (NodeSource)
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs
+# Node.js 20 (NodeSource) — skip if already present (idempotent across re-runs)
+if ! command -v node >/dev/null 2>&1; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+fi
 
-# Download the worker (shallow clone of just this branch)
+# Download the worker (or update it if this script runs again on a later boot)
 mkdir -p /opt/met
-git clone --branch "$BRANCH" --depth 1 "$REPO" /opt/met/app
+if [ -d /opt/met/app/.git ]; then
+  cd /opt/met/app
+  git fetch --depth 1 origin "$BRANCH" && git reset --hard FETCH_HEAD
+else
+  git clone --branch "$BRANCH" --depth 1 "$REPO" /opt/met/app
+fi
 cd "$DIR"
 npm install --omit=dev
 
