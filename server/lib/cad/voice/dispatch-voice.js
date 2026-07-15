@@ -40,7 +40,16 @@ class DispatchVoice {
     this.connection = null;
     this.player = null;
     // Diagnostics surfaced to the console so "why isn't it speaking?" is visible.
-    this.diag = { lastError: null, lastSpokeAt: null, lastAttemptAt: null, ffmpeg: process.env.FFMPEG_PATH || null };
+    this.diag = { lastError: null, lastSpokeAt: null, lastAttemptAt: null, ffmpeg: process.env.FFMPEG_PATH || null, events: [] };
+  }
+
+  // Record a voice-lifecycle event to a ring buffer (shown in the console panel)
+  // AND the server log, so the exact handshake path is observable without digging.
+  _ev(msg) {
+    const line = new Date().toISOString().slice(11, 19) + ' ' + msg;
+    this.diag.events.push(line);
+    while (this.diag.events.length > 25) this.diag.events.shift();
+    try { console.log('[CAD] voice:', msg); } catch (e) {}
   }
 
   // Human-readable reason voice can't run right now (null when it can).
@@ -57,6 +66,7 @@ class DispatchVoice {
       available: this.available(), connected: this.isConnected(),
       why: this.whyUnavailable(), ffmpeg: process.env.FFMPEG_PATH || null,
       lastError: this.diag.lastError, lastSpokeAt: this.diag.lastSpokeAt, lastAttemptAt: this.diag.lastAttemptAt,
+      events: this.diag.events.slice(-16),
     };
   }
 
@@ -121,32 +131,32 @@ class DispatchVoice {
 
   async _connectOnce(lib, attempt) {
     const guild = await this.client.guilds.fetch(this.guildId).catch(() => null);
-    if (!guild) { this.diag.lastError = 'guild not found (is the bot in that server?)'; return null; }
+    if (!guild) { this.diag.lastError = 'guild not found (is the bot in that server?)'; this._ev('guild not found'); return null; }
+    this._ev(`join attempt ${attempt} → channel ${this.voiceChannelId}`);
     try {
       this.connection = lib.joinVoiceChannel({
         channelId: this.voiceChannelId, guildId: this.guildId,
         adapterCreator: guild.voiceAdapterCreator, selfDeaf: false,
       });
-    } catch (e) { this.diag.lastError = 'join failed: ' + e.message; return null; }
+    } catch (e) { this.diag.lastError = 'join failed: ' + e.message; this._ev('join threw: ' + e.message); return null; }
     if (!this.player) this.player = lib.createAudioPlayer({ behaviors: { noSubscriber: lib.NoSubscriberBehavior.Play } });
     this.connection.subscribe(this.player);
     const conn = this.connection;
     if (!conn.__cadWired) {
       conn.__cadWired = true;
       this._rejoins = 0;
-      conn.on(lib.VoiceConnectionStatus.Ready, () => { this._rejoins = 0; console.log('[CAD] voice READY in', this.voiceChannelId); });
-      conn.on('stateChange', (o, n) => { if (o.status !== n.status) console.log('[CAD] voice state', o.status, '->', n.status); });
-      conn.on('error', (e) => { this.diag.lastError = 'connection error: ' + (e && e.message); console.warn('[CAD] voice error:', e && e.message); });
-      // Disconnected: log the close code (the key diagnostic), and cap reconnect
-      // attempts so a rejected session (e.g. 4006) can't loop join/leave forever.
+      conn.on(lib.VoiceConnectionStatus.Ready, () => { this._rejoins = 0; this._ev('READY'); });
+      conn.on('stateChange', (o, n) => { if (o.status !== n.status) this._ev('state ' + o.status + ' → ' + n.status); });
+      conn.on('error', (e) => { this.diag.lastError = 'connection error: ' + (e && e.message); this._ev('error: ' + (e && e.message)); });
+      // Disconnected: record the close code (the key diagnostic), and cap
+      // reconnect attempts so a rejected session (e.g. 4006) can't loop forever.
       conn.on(lib.VoiceConnectionStatus.Disconnected, async (oldS, newS) => {
         const code = newS && newS.closeCode;
-        console.warn('[CAD] voice DISCONNECTED closeCode=' + code + ' reason=' + (newS && newS.reason));
+        this._ev('DISCONNECTED closeCode=' + code + ' reason=' + (newS && newS.reason));
         this.diag.lastError = 'voice disconnected (close code ' + code + ')';
-        // 4014 = disconnected by Discord (moved/kicked/channel deleted) — don't fight it.
         if (code === 4014) { try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; return; }
         if ((this._rejoins || 0) >= 3) {
-          this.diag.lastError = 'voice kept disconnecting (close code ' + code + ') — giving up. This is usually a network/UDP or session issue, not permissions.';
+          this.diag.lastError = 'voice kept disconnecting (close code ' + code + ') — giving up. Usually a network/UDP or session issue, not permissions.';
           try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; return;
         }
         this._rejoins = (this._rejoins || 0) + 1;
@@ -161,10 +171,12 @@ class DispatchVoice {
     // CRITICAL: wait until the UDP voice connection is actually Ready before we
     // play — playing too early means Discord never hears the audio.
     try {
-      await lib.entersState(this.connection, lib.VoiceConnectionStatus.Ready, 15000);
+      await lib.entersState(this.connection, lib.VoiceConnectionStatus.Ready, 20000);
       return this.connection;
     } catch (e) {
-      this.diag.lastError = `voice connection never became ready (attempt ${attempt}) — check the bot has Connect + Speak on that channel, and that it isn't full / region-locked`;
+      const st = this.connection && this.connection.state ? this.connection.state.status : 'unknown';
+      this.diag.lastError = `voice never became ready (attempt ${attempt}, stuck in "${st}") — the UDP voice handshake didn't complete. This is a network/host issue, not permissions.`;
+      this._ev(`timeout waiting for READY, stuck in ${st}`);
       try { this.connection.destroy(); } catch (_) {}
       this.connection = null;
       return null;

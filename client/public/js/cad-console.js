@@ -48,11 +48,16 @@
       var note = document.getElementById('cad-voice-note');
       if (note) {
         var v = s.voice || {};
-        if (!s.hasElevenKey) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected — set ELEVENLABS_API_KEY to speak.';
-        else if (v.why) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> ' + esc(v.why);
-        else if (v.lastError) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> Last voice issue: ' + esc(v.lastError);
-        else if (v.lastSpokeAt) note.innerHTML = '<i class="ti ti-circle-check" style="color:#2ed896;"></i> Speaking OK — last spoke ' + ago(v.lastSpokeAt) + ' ago.';
-        else note.innerHTML = '<span style="color:var(--text-muted);">Pick a server + voice channel, Join, then Radio check.</span>';
+        var head;
+        if (!s.hasElevenKey) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected — set ELEVENLABS_API_KEY to speak.';
+        else if (v.why) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> ' + esc(v.why);
+        else if (v.lastError) head = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> ' + esc(v.lastError);
+        else if (v.lastSpokeAt) head = '<i class="ti ti-circle-check" style="color:#2ed896;"></i> Speaking OK — last spoke ' + ago(v.lastSpokeAt) + ' ago.';
+        else head = '<span style="color:var(--text-muted);">Pick a server + voice channel, Join, then Radio check.</span>';
+        var log = (v.events && v.events.length)
+          ? '<pre style="margin:8px 0 0;padding:8px;background:rgba(0,0,0,.25);border-radius:6px;font-size:11px;line-height:1.5;max-height:150px;overflow:auto;white-space:pre-wrap;color:var(--text-secondary);">' + v.events.map(esc).join('\n') + '</pre>'
+          : '';
+        note.innerHTML = head + log;
       }
       return s;
     }).catch(function () {});
