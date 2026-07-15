@@ -64,7 +64,10 @@ async function onReady() {
 }
 
 function buildClient(withMessageContent) {
-  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers];
+  // GuildVoiceStates is REQUIRED by @discordjs/voice — without it a voice
+  // connection can't complete its handshake and churns connect→drop. It's a
+  // non-privileged intent, so it's always safe to request.
+  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
   if (withMessageContent) intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
   const c = new Client({ intents, partials: [Partials.GuildMember] });
   c.once('ready', onReady);

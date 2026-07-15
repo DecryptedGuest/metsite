@@ -130,16 +130,34 @@ class DispatchVoice {
     } catch (e) { this.diag.lastError = 'join failed: ' + e.message; return null; }
     if (!this.player) this.player = lib.createAudioPlayer({ behaviors: { noSubscriber: lib.NoSubscriberBehavior.Play } });
     this.connection.subscribe(this.player);
-    // Auto-recover from a transient disconnect; otherwise tear down.
-    this.connection.on(lib.VoiceConnectionStatus.Disconnected, async () => {
-      try {
-        await Promise.race([
-          lib.entersState(this.connection, lib.VoiceConnectionStatus.Signalling, 5000),
-          lib.entersState(this.connection, lib.VoiceConnectionStatus.Connecting, 5000),
-        ]);
-      } catch (e) { try { this.connection.destroy(); } catch (_) {} this.connection = null; }
-    });
-    this.connection.on('error', (e) => { this.diag.lastError = 'connection error: ' + (e && e.message); });
+    const conn = this.connection;
+    if (!conn.__cadWired) {
+      conn.__cadWired = true;
+      this._rejoins = 0;
+      conn.on(lib.VoiceConnectionStatus.Ready, () => { this._rejoins = 0; console.log('[CAD] voice READY in', this.voiceChannelId); });
+      conn.on('stateChange', (o, n) => { if (o.status !== n.status) console.log('[CAD] voice state', o.status, '->', n.status); });
+      conn.on('error', (e) => { this.diag.lastError = 'connection error: ' + (e && e.message); console.warn('[CAD] voice error:', e && e.message); });
+      // Disconnected: log the close code (the key diagnostic), and cap reconnect
+      // attempts so a rejected session (e.g. 4006) can't loop join/leave forever.
+      conn.on(lib.VoiceConnectionStatus.Disconnected, async (oldS, newS) => {
+        const code = newS && newS.closeCode;
+        console.warn('[CAD] voice DISCONNECTED closeCode=' + code + ' reason=' + (newS && newS.reason));
+        this.diag.lastError = 'voice disconnected (close code ' + code + ')';
+        // 4014 = disconnected by Discord (moved/kicked/channel deleted) — don't fight it.
+        if (code === 4014) { try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; return; }
+        if ((this._rejoins || 0) >= 3) {
+          this.diag.lastError = 'voice kept disconnecting (close code ' + code + ') — giving up. This is usually a network/UDP or session issue, not permissions.';
+          try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; return;
+        }
+        this._rejoins = (this._rejoins || 0) + 1;
+        try {
+          await Promise.race([
+            lib.entersState(conn, lib.VoiceConnectionStatus.Signalling, 5000),
+            lib.entersState(conn, lib.VoiceConnectionStatus.Connecting, 5000),
+          ]);
+        } catch (e) { try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; }
+      });
+    }
     // CRITICAL: wait until the UDP voice connection is actually Ready before we
     // play — playing too early means Discord never hears the audio.
     try {
