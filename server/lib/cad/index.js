@@ -198,6 +198,7 @@ function status() {
     voiceGuildId: cfg.guildId,
     voiceReady: !!(voice && voice.available()),
     voiceConnected: !!(voice && voice.isConnected && voice.isConnected()),
+    voice: voice && voice.getDiag ? voice.getDiag() : null,
     intentEngine: process.env.ANTHROPIC_API_KEY ? 'claude' : 'rules',
     ttsEngine: process.env.ELEVENLABS_API_KEY ? 'elevenlabs' : 'none',
     hasElevenKey: !!process.env.ELEVENLABS_API_KEY,

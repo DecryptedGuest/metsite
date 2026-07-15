@@ -97,7 +97,11 @@ router.post('/voice/join', async (req, res) => {
 router.post('/voice/leave', async (req, res) => { res.json(await cad.leaveVoice()); });
 router.post('/voice/test', async (req, res) => {
   await cad.transmit('Control to all units, radio check, receiving you loud and clear.');
-  res.json({ ok: true });
+  // Give the queue a moment to attempt playback, then report what happened so
+  // the console can show WHY it did or didn't speak.
+  await new Promise((r) => setTimeout(r, 2500));
+  const s = cad.status();
+  res.json({ ok: true, voice: s.voice });
 });
 
 // ── Seed the fictional PNC records ───────────────────────────────────

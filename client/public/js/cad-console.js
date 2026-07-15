@@ -46,7 +46,14 @@
       var vs = document.getElementById('cad-voice-state');
       if (vs) vs.innerHTML = s.voiceConnected ? chip('In channel', '#2ed896') : (s.voiceChannelId ? chip('Set, not joined', '#f59e0b') : chip('Not set', '#8b93a1'));
       var note = document.getElementById('cad-voice-note');
-      if (note && !s.hasElevenKey) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected — set ELEVENLABS_API_KEY to speak.';
+      if (note) {
+        var v = s.voice || {};
+        if (!s.hasElevenKey) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected — set ELEVENLABS_API_KEY to speak.';
+        else if (v.why) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> ' + esc(v.why);
+        else if (v.lastError) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> Last voice issue: ' + esc(v.lastError);
+        else if (v.lastSpokeAt) note.innerHTML = '<i class="ti ti-circle-check" style="color:#2ed896;"></i> Speaking OK — last spoke ' + ago(v.lastSpokeAt) + ' ago.';
+        else note.innerHTML = '<span style="color:var(--text-muted);">Pick a server + voice channel, Join, then Radio check.</span>';
+      }
       return s;
     }).catch(function () {});
   }
@@ -92,7 +99,16 @@
     });
   };
   window.cadVoiceLeave = function () { post('/api/cad/voice/leave', {}).then(function () { toast('Left the voice channel.', 'success'); cadRefreshStatus(); }).catch(function (e) { toast(e.message, 'error'); }); };
-  window.cadVoiceTest = function () { post('/api/cad/voice/test', {}).then(function () { toast('Radio check sent.', 'success'); cadFeed(); }).catch(function (e) { toast(e.message, 'error'); }); };
+  window.cadVoiceTest = function () {
+    post('/api/cad/voice/test', {}).then(function (r) {
+      var v = (r && r.voice) || {};
+      if (v.lastSpokeAt && !v.lastError) toast('Radio check spoken in the channel.', 'success');
+      else if (v.why) toast('Not speaking: ' + v.why, 'warning');
+      else if (v.lastError) toast('Voice issue: ' + v.lastError, 'error');
+      else toast('Radio check sent (mirrored to #radio).', 'info');
+      cadFeed(); cadRefreshStatus();
+    }).catch(function (e) { toast(e.message, 'error'); });
+  };
 
   function cadBoard() {
     apiCall('/api/cad/board').then(function (r) {

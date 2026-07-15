@@ -11,6 +11,16 @@
 const fs = require('fs');
 const { Readable } = require('stream');
 
+// prism-media (used by @discordjs/voice to transcode the mp3 → Opus) needs to
+// find ffmpeg. Point it at the bundled ffmpeg-static binary so playback works
+// without a system ffmpeg on PATH — a common "joins but never speaks" cause.
+try {
+  if (!process.env.FFMPEG_PATH) {
+    const p = require('ffmpeg-static');
+    if (p && typeof p === 'string') process.env.FFMPEG_PATH = p;
+  }
+} catch (e) { /* ffmpeg-static not installed → voice stays unavailable */ }
+
 let V = null; // the @discordjs/voice module, once loaded
 function loadVoiceLib() {
   if (V) return V;
@@ -29,6 +39,25 @@ class DispatchVoice {
     this.playing = false;
     this.connection = null;
     this.player = null;
+    // Diagnostics surfaced to the console so "why isn't it speaking?" is visible.
+    this.diag = { lastError: null, lastSpokeAt: null, lastAttemptAt: null, ffmpeg: process.env.FFMPEG_PATH || null };
+  }
+
+  // Human-readable reason voice can't run right now (null when it can).
+  whyUnavailable() {
+    if (!loadVoiceLib()) return 'voice library not installed (@discordjs/voice)';
+    if (!this.client) return 'no Discord client';
+    if (!this.guildId) return 'no server selected';
+    if (!this.voiceChannelId) return 'no voice channel selected';
+    if (!this.tts || !this.tts.available || !this.tts.available()) return 'no ElevenLabs API key set';
+    return null;
+  }
+  getDiag() {
+    return {
+      available: this.available(), connected: this.isConnected(),
+      why: this.whyUnavailable(), ffmpeg: process.env.FFMPEG_PATH || null,
+      lastError: this.diag.lastError, lastSpokeAt: this.diag.lastSpokeAt, lastAttemptAt: this.diag.lastAttemptAt,
+    };
   }
 
   // Can we actually speak? Needs the voice lib, a configured channel, and a
@@ -69,19 +98,37 @@ class DispatchVoice {
   async _ensureConnection() {
     const lib = loadVoiceLib();
     if (!lib) return null;
-    if (this.connection && this.connection.state.status !== lib.VoiceConnectionStatus.Destroyed) return this.connection;
+    if (this.isConnected()) return this.connection;
     const guild = await this.client.guilds.fetch(this.guildId).catch(() => null);
-    if (!guild) return null;
-    this.connection = lib.joinVoiceChannel({
-      channelId: this.voiceChannelId,
-      guildId: this.guildId,
-      adapterCreator: guild.voiceAdapterCreator,
-      selfDeaf: false,
-    });
-    if (!this.player) {
-      this.player = lib.createAudioPlayer({ behaviors: { noSubscriber: lib.NoSubscriberBehavior.Play } });
-    }
+    if (!guild) { this.diag.lastError = 'guild not found (is the bot in that server?)'; return null; }
+    try {
+      this.connection = lib.joinVoiceChannel({
+        channelId: this.voiceChannelId, guildId: this.guildId,
+        adapterCreator: guild.voiceAdapterCreator, selfDeaf: false,
+      });
+    } catch (e) { this.diag.lastError = 'join failed: ' + e.message; return null; }
+    if (!this.player) this.player = lib.createAudioPlayer({ behaviors: { noSubscriber: lib.NoSubscriberBehavior.Play } });
     this.connection.subscribe(this.player);
+    // Auto-recover from a transient disconnect; otherwise tear down.
+    this.connection.on(lib.VoiceConnectionStatus.Disconnected, async () => {
+      try {
+        await Promise.race([
+          lib.entersState(this.connection, lib.VoiceConnectionStatus.Signalling, 5000),
+          lib.entersState(this.connection, lib.VoiceConnectionStatus.Connecting, 5000),
+        ]);
+      } catch (e) { try { this.connection.destroy(); } catch (_) {} this.connection = null; }
+    });
+    this.connection.on('error', (e) => { this.diag.lastError = 'connection error: ' + (e && e.message); });
+    // CRITICAL: wait until the UDP voice connection is actually Ready before we
+    // play — playing too early means Discord never hears the audio.
+    try {
+      await lib.entersState(this.connection, lib.VoiceConnectionStatus.Ready, 20000);
+    } catch (e) {
+      this.diag.lastError = 'voice connection never became ready — check the bot has Connect + Speak permission on that channel';
+      try { this.connection.destroy(); } catch (_) {}
+      this.connection = null;
+      return null;
+    }
     return this.connection;
   }
 
@@ -91,11 +138,13 @@ class DispatchVoice {
       try {
         const input = isFile ? fs.createReadStream(source) : Readable.from(source);
         resource = lib.createAudioResource(input, { inputType: lib.StreamType.Arbitrary });
-      } catch (e) { return resolve(); }
-      const done = () => { this.player.off(lib.AudioPlayerStatus.Idle, done); this.player.off('error', done); resolve(); };
-      this.player.on(lib.AudioPlayerStatus.Idle, done);
-      this.player.on('error', done);
-      try { this.player.play(resource); } catch (e) { done(); }
+      } catch (e) { this.diag.lastError = 'audio resource failed (ffmpeg?): ' + e.message; return resolve(); }
+      const cleanup = () => { this.player.off(lib.AudioPlayerStatus.Idle, onIdle); this.player.off('error', onErr); };
+      const onIdle = () => { cleanup(); resolve(); };
+      const onErr = (e) => { this.diag.lastError = 'player error: ' + (e && e.message); cleanup(); resolve(); };
+      this.player.on(lib.AudioPlayerStatus.Idle, onIdle);
+      this.player.on('error', onErr);
+      try { this.player.play(resource); } catch (e) { this.diag.lastError = 'play() threw: ' + e.message; cleanup(); resolve(); }
     });
   }
 
@@ -105,16 +154,19 @@ class DispatchVoice {
     try {
       while (this.queue.length) {
         const item = this.queue.shift();
-        if (!this.available()) continue; // drop audio (text mirror already sent)
+        this.diag.lastAttemptAt = new Date().toISOString();
+        const why = this.whyUnavailable();
+        if (why) { this.diag.lastError = why; continue; } // drop audio (text already mirrored)
         const lib = loadVoiceLib();
         const conn = await this._ensureConnection();
-        if (!conn) continue;
-        // Grade I → attention tone first (best-effort; skipped if no file).
+        if (!conn) continue; // diag.lastError already set with the reason
         if (item.grade === 'I' && this.tonePath && fs.existsSync(this.tonePath)) {
           await this._playResource(lib, this.tonePath, true);
         }
-        const speech = await this.tts.synthesize(item.text).catch(() => ({ ok: false }));
-        if (speech.ok && speech.audio) await this._playResource(lib, speech.audio, false);
+        const speech = await this.tts.synthesize(item.text).catch((e) => ({ ok: false, error: e.message }));
+        if (!speech.ok || !speech.audio) { this.diag.lastError = 'TTS failed: ' + (speech.error || 'no audio returned'); continue; }
+        await this._playResource(lib, speech.audio, false);
+        if (!this.diag.lastError) this.diag.lastSpokeAt = new Date().toISOString();
       }
     } finally {
       this.playing = false;
