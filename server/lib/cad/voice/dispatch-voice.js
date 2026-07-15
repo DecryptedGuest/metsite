@@ -90,7 +90,9 @@ class DispatchVoice {
 
   isConnected() {
     var lib = loadVoiceLib();
-    return !!(lib && this.connection && this.connection.state && this.connection.state.status !== lib.VoiceConnectionStatus.Destroyed);
+    // Truly connected = the UDP voice link is Ready (a Signalling/Connecting/
+    // Disconnected connection is NOT playable, so it must not read as "in channel").
+    return !!(lib && this.connection && this.connection.state && this.connection.state.status === lib.VoiceConnectionStatus.Ready);
   }
 
   leave() { this.destroy(); }
@@ -98,7 +100,11 @@ class DispatchVoice {
   async _ensureConnection() {
     const lib = loadVoiceLib();
     if (!lib) return null;
-    if (this.isConnected()) return this.connection;
+    // Already Ready → healthy connection, clear any stale error and reuse it.
+    if (this.isConnected()) { this.diag.lastError = null; return this.connection; }
+    // A lingering non-Ready connection (Signalling/Disconnected) would block a
+    // clean rejoin — tear it down first.
+    if (this.connection) { try { this.connection.destroy(); } catch (e) {} this.connection = null; }
     // Discord voice can be flaky on the first handshake (region/server), so try
     // a couple of times — a fresh attempt often lands on a working voice node.
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -143,19 +149,21 @@ class DispatchVoice {
     }
   }
 
+  // Resolves true if the clip played to the end, false (with diag.lastError set)
+  // on any failure.
   _playResource(lib, source, isFile) {
     return new Promise((resolve) => {
       let resource;
       try {
         const input = isFile ? fs.createReadStream(source) : Readable.from(source);
         resource = lib.createAudioResource(input, { inputType: lib.StreamType.Arbitrary });
-      } catch (e) { this.diag.lastError = 'audio resource failed (ffmpeg?): ' + e.message; return resolve(); }
+      } catch (e) { this.diag.lastError = 'audio resource failed (ffmpeg?): ' + e.message; return resolve(false); }
       const cleanup = () => { this.player.off(lib.AudioPlayerStatus.Idle, onIdle); this.player.off('error', onErr); };
-      const onIdle = () => { cleanup(); resolve(); };
-      const onErr = (e) => { this.diag.lastError = 'player error: ' + (e && e.message); cleanup(); resolve(); };
+      const onIdle = () => { cleanup(); resolve(true); };
+      const onErr = (e) => { this.diag.lastError = 'player error: ' + (e && e.message); cleanup(); resolve(false); };
       this.player.on(lib.AudioPlayerStatus.Idle, onIdle);
       this.player.on('error', onErr);
-      try { this.player.play(resource); } catch (e) { this.diag.lastError = 'play() threw: ' + e.message; cleanup(); resolve(); }
+      try { this.player.play(resource); } catch (e) { this.diag.lastError = 'play() threw: ' + e.message; cleanup(); resolve(false); }
     });
   }
 
@@ -176,8 +184,8 @@ class DispatchVoice {
         }
         const speech = await this.tts.synthesize(item.text).catch((e) => ({ ok: false, error: e.message }));
         if (!speech.ok || !speech.audio) { this.diag.lastError = 'TTS failed: ' + (speech.error || 'no audio returned'); continue; }
-        await this._playResource(lib, speech.audio, false);
-        if (!this.diag.lastError) this.diag.lastSpokeAt = new Date().toISOString();
+        const played = await this._playResource(lib, speech.audio, false);
+        if (played) { this.diag.lastSpokeAt = new Date().toISOString(); this.diag.lastError = null; }
       }
     } finally {
       this.playing = false;
