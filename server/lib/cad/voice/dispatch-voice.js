@@ -82,10 +82,15 @@ class DispatchVoice {
   }
 
   // Join the configured channel now (so the bot is present before any speech).
+  // Guarded so overlapping calls (a user click racing the boot auto-join or a
+  // retry) share ONE attempt instead of bouncing each other in/out of the VC.
   async join() {
     if (!this.available()) return false;
-    const c = await this._ensureConnection();
-    return !!c;
+    if (this._joining) return this._joining;
+    this._joining = this._ensureConnection()
+      .then((c) => { this._joining = null; return !!c; })
+      .catch(() => { this._joining = null; return false; });
+    return this._joining;
   }
 
   isConnected() {
@@ -102,11 +107,10 @@ class DispatchVoice {
     if (!lib) return null;
     // Already Ready → healthy connection, clear any stale error and reuse it.
     if (this.isConnected()) { this.diag.lastError = null; return this.connection; }
-    // A lingering non-Ready connection (Signalling/Disconnected) would block a
-    // clean rejoin — tear it down first.
-    if (this.connection) { try { this.connection.destroy(); } catch (e) {} this.connection = null; }
-    // Discord voice can be flaky on the first handshake (region/server), so try
-    // a couple of times — a fresh attempt often lands on a working voice node.
+    // NOTE: joinVoiceChannel() is idempotent per guild — calling it again for the
+    // same guild/channel reuses the existing connection rather than bouncing it —
+    // so we do NOT pre-destroy here (that was the leave/rejoin churn). We only try
+    // a couple of times for a flaky first handshake.
     for (let attempt = 1; attempt <= 2; attempt++) {
       const conn = await this._connectOnce(lib, attempt);
       if (conn) { this.diag.lastError = null; return conn; }

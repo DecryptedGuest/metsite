@@ -211,10 +211,14 @@ async function setVoiceChannel(guildId, channelId) {
   await siteConfig.set('cadVoiceGuildId', String(guildId));
   await siteConfig.set('cadVoiceChannelId', String(channelId));
   if (voice) {
-    voice.setChannel(String(guildId), String(channelId));
+    // Already sitting in exactly this channel → don't bounce out and back in.
+    if (voice.isConnected() && String(voice.guildId) === String(guildId) && String(voice.voiceChannelId) === String(channelId)) {
+      return { ok: true, joined: true, note: 'Already connected to that channel.' };
+    }
+    voice.setChannel(String(guildId), String(channelId)); // only tears down on a real change
     const joined = await voice.join().catch(() => false);
     if (!joined && !process.env.ELEVENLABS_API_KEY) return { ok: true, joined: false, note: 'Saved. Add an ElevenLabs API key to speak.' };
-    if (!joined) return { ok: true, joined: false, note: 'Saved, but could not join yet (check the bot can see/join that channel).' };
+    if (!joined) return { ok: true, joined: false, note: 'Saved, but could not join yet (check the bot has Connect + Speak on that channel).' };
   }
   return { ok: true, joined: true };
 }
