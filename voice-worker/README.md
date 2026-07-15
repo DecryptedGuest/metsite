@@ -45,6 +45,28 @@ HTTPS. If the worker is down, the CAD carries on text-only.
    `WORKER_SECRET` and on Railway as `CAD_VOICE_WORKER_SECRET`.
 3. **Your ElevenLabs API key** → `ELEVENLABS_API_KEY`.
 
+## Deploy free & always-on — Oracle Cloud (no reclaim, no commands)
+
+Oracle Cloud's Always Free VM runs 24/7 and is never billed (a card is taken at
+signup for identity only). Nothing reclaims it like free bot panels do. Setup is
+browser-only: you paste `oracle-cloud-init.sh` into the VM's cloud-init box and
+it installs + runs the worker itself.
+
+1. On the **main app** (Railway) add `CAD_VOICE_WORKER_SECRET` = a long random
+   string, and redeploy. Note your Railway domain (Settings → Domains).
+2. Open **`voice-worker/oracle-cloud-init.sh`**, fill in the four values at the
+   top (`VOICE_BOT_TOKEN`, `WORKER_SECRET` = the same secret as step 1,
+   `ELEVENLABS_API_KEY`, `CAD_MAIN_WS_URL` = `wss://<your-railway-domain>/cad-voice`).
+3. Sign up at **cloud.oracle.com** → **Create Instance**:
+   - Image: **Ubuntu 22.04**; Shape: **VM.Standard.E2.1.Micro** (Always Free).
+   - SSH keys: pick "Generate a key pair for me" and download it (you won't need it).
+   - **Show advanced options → Management → Cloud-init script** → paste your
+     filled-in `oracle-cloud-init.sh` → **Create**.
+4. Wait ~3 minutes. On the site, **Dev → CAD** shows **"Voice host: worker
+   (linked)"**. Pick server + channel → Join → Radio check. 🎙️
+
+It auto-restarts on crash and survives reboots (systemd service `met-voice`).
+
 ## Deploy free (no card) — bot-hosting.net, all from a phone
 
 A free Discord-bot host runs the worker 24/7 with no credit card. Because it has
