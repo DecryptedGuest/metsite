@@ -1320,7 +1320,7 @@ process.on('uncaughtException', (err) => {
 // `node server/index.js`). On serverless (Vercel), this module is imported by
 // api/index.js and the platform provides the HTTP layer — no listener needed.
 if (require.main === module) {
-  app.listen(PORT, () => {
+  const httpServer = app.listen(PORT, () => {
     console.log(`\n🛡  MET Dashboard running on http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
@@ -1329,6 +1329,10 @@ if (require.main === module) {
     // by the one-time obfuscation pass. Non-blocking, best-effort.
     try { require('./lib/assets').warmJsCache(PUBLIC_DIR + '/js'); } catch (e) {}
   });
+  // CAD voice gateway: lets an external voice worker (on a UDP-capable host)
+  // dial IN over WebSocket, since Railway can't do the voice UDP handshake and
+  // free bot hosts give no inbound URL. No-op unless CAD_VOICE_WORKER_SECRET set.
+  try { require('./lib/cad/voice/gateway').attach(httpServer); } catch (e) { console.error('[CAD] gateway attach failed:', e && e.message); }
 }
 
 // Export the Express app so serverless platforms (Vercel) can use it as a

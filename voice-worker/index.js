@@ -25,6 +25,7 @@
 
 const express = require('express');
 const fetch = require('node-fetch');
+const WebSocket = require('ws');
 const fs = require('fs');
 const { Readable } = require('stream');
 const { Client, GatewayIntentBits } = require('discord.js');
@@ -49,6 +50,10 @@ const {
   ELEVENLABS_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9', // "Daniel" — British male dispatcher
   ELEVENLABS_MODEL_ID = 'eleven_turbo_v2_5',
   CAD_ATTENTION_TONE_PATH,
+  // Set CAD_MAIN_WS_URL to run in "dial-out" mode: the worker connects OUT to the
+  // main app's WebSocket gateway (for free bot hosts with no inbound URL) instead
+  // of exposing an HTTP server. e.g. wss://your-app.up.railway.app/cad-voice
+  CAD_MAIN_WS_URL,
   PORT = 8080,
 } = process.env;
 
@@ -270,7 +275,74 @@ app.post('/speak', auth, async (req, res) => {
 
 app.listen(PORT, () => console.log(`[voice-worker] HTTP listening on :${PORT}`));
 
+// ── Dial-out mode: connect to the main app's WebSocket gateway ────────────────
+// For hosts with no public inbound URL (free Discord-bot hosts). The worker opens
+// an outbound wss:// to the main app and receives join/leave/speak commands there,
+// pushing back a status snapshot every few seconds. Auto-reconnects with backoff.
+function currentStatus() {
+  return {
+    type: 'status',
+    ready,
+    voiceConnected: engine.connected(),
+    guildId: engine.guildId,
+    channelId: engine.channelId,
+    hasElevenKey: !!ELEVENLABS_API_KEY,
+    lastError: diag.lastError,
+    lastSpokeAt: diag.lastSpokeAt,
+    lastAttemptAt: diag.lastAttemptAt,
+    events: diag.events.slice(-16),
+  };
+}
+
+function startGatewayClient() {
+  if (!CAD_MAIN_WS_URL) return;
+  let backoff = 1000;
+  let statusTimer = null;
+
+  function connect() {
+    // The secret authenticates us to the gateway (?secret=…). Append it safely.
+    const url = CAD_MAIN_WS_URL + (CAD_MAIN_WS_URL.includes('?') ? '&' : '?') + 'secret=' + encodeURIComponent(WORKER_SECRET);
+    ev('gateway: connecting to ' + CAD_MAIN_WS_URL);
+    const ws = new WebSocket(url, { handshakeTimeout: 10000 });
+
+    ws.on('open', () => {
+      ev('gateway: connected');
+      backoff = 1000;
+      try { ws.send(JSON.stringify(currentStatus())); } catch (e) {}
+      clearInterval(statusTimer);
+      statusTimer = setInterval(() => { try { if (ws.readyState === 1) ws.send(JSON.stringify(currentStatus())); } catch (e) {} }, 5000);
+    });
+
+    ws.on('message', (buf) => {
+      let msg = null;
+      try { msg = JSON.parse(buf.toString()); } catch (e) { return; }
+      if (!msg || !msg.type) return;
+      if (msg.type === 'hello') { try { ws.send(JSON.stringify(currentStatus())); } catch (e) {} return; }
+      if (msg.type === 'join')  { engine.join(msg.guildId, msg.channelId).catch(() => {}); return; }
+      if (msg.type === 'leave') { engine.leave(); return; }
+      if (msg.type === 'speak') {
+        if (msg.guildId && msg.channelId) engine.join(msg.guildId, msg.channelId).catch(() => {});
+        engine.enqueue(msg.text, msg.grade);
+        return;
+      }
+    });
+
+    ws.on('close', (code) => {
+      clearInterval(statusTimer);
+      ev('gateway: disconnected (code ' + code + '), retrying in ' + Math.round(backoff / 1000) + 's');
+      if (code === 4001) ev('gateway: WORKER_SECRET rejected — check it matches the main app.');
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 30000);
+    });
+
+    ws.on('error', (e) => ev('gateway: error ' + (e && e.message)));
+  }
+  connect();
+}
+
 // ── Discord login ──────────────────────────────────────────────────────────────
 discord.once('ready', () => { ready = true; ev(`logged in as ${discord.user.tag}`); });
 discord.on('error', (e) => ev('discord client error: ' + (e && e.message)));
-discord.login(VOICE_BOT_TOKEN).catch((e) => { console.error('[voice-worker] login failed:', e.message); process.exit(1); });
+discord.login(VOICE_BOT_TOKEN)
+  .then(() => startGatewayClient())
+  .catch((e) => { console.error('[voice-worker] login failed:', e.message); process.exit(1); });

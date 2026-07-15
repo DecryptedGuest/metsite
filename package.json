@@ -32,7 +32,8 @@
     "prisma": "^5.10.0",
     "qrcode": "^1.5.4",
     "terser": "^5.31.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
