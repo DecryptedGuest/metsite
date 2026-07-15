@@ -1,6 +1,6 @@
 # railway.toml
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 buildCommand = "npm install && npx prisma generate"
 
 [deploy]
