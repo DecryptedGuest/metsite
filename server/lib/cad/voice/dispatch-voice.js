@@ -99,6 +99,17 @@ class DispatchVoice {
     const lib = loadVoiceLib();
     if (!lib) return null;
     if (this.isConnected()) return this.connection;
+    // Discord voice can be flaky on the first handshake (region/server), so try
+    // a couple of times — a fresh attempt often lands on a working voice node.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const conn = await this._connectOnce(lib, attempt);
+      if (conn) { this.diag.lastError = null; return conn; }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    return null;
+  }
+
+  async _connectOnce(lib, attempt) {
     const guild = await this.client.guilds.fetch(this.guildId).catch(() => null);
     if (!guild) { this.diag.lastError = 'guild not found (is the bot in that server?)'; return null; }
     try {
@@ -122,14 +133,14 @@ class DispatchVoice {
     // CRITICAL: wait until the UDP voice connection is actually Ready before we
     // play — playing too early means Discord never hears the audio.
     try {
-      await lib.entersState(this.connection, lib.VoiceConnectionStatus.Ready, 20000);
+      await lib.entersState(this.connection, lib.VoiceConnectionStatus.Ready, 15000);
+      return this.connection;
     } catch (e) {
-      this.diag.lastError = 'voice connection never became ready — check the bot has Connect + Speak permission on that channel';
+      this.diag.lastError = `voice connection never became ready (attempt ${attempt}) — check the bot has Connect + Speak on that channel, and that it isn't full / region-locked`;
       try { this.connection.destroy(); } catch (_) {}
       this.connection = null;
       return null;
     }
-    return this.connection;
   }
 
   _playResource(lib, source, isFile) {
