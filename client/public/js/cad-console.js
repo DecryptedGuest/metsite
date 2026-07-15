@@ -41,6 +41,7 @@
       if (el) el.innerHTML =
         chip(s.configured ? 'Radio linked' : 'No radio channel', s.configured ? '#2ed896' : '#8b93a1') +
         chip('Voice: ' + (s.voiceConnected ? 'connected' : (s.voiceReady ? 'ready' : 'text-only')), s.voiceConnected ? '#2ed896' : (s.voiceReady ? '#f59e0b' : '#8b93a1')) +
+        (s.voiceMode === 'worker' ? chip('Voice host: Fly worker', '#9b6dff') : '') +
         chip('Intent: ' + s.intentEngine, s.intentEngine === 'claude' ? '#9b6dff' : '#8b93a1') +
         chip('TTS: ' + s.ttsEngine, s.ttsEngine === 'elevenlabs' ? '#9b6dff' : '#8b93a1');
       var vs = document.getElementById('cad-voice-state');
@@ -48,8 +49,13 @@
       var note = document.getElementById('cad-voice-note');
       if (note) {
         var v = s.voice || {};
+        var workerMode = s.voiceMode === 'worker';
+        // In worker mode the ElevenLabs key + voice connection live on the Fly.io
+        // worker, so key presence comes from the worker's health, not Railway env.
+        var hasKey = workerMode ? !!(s.worker && s.worker.health && s.worker.health.hasElevenKey) : s.hasElevenKey;
         var head;
-        if (!s.hasElevenKey) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected — set ELEVENLABS_API_KEY to speak.';
+        if (workerMode && !(s.worker && s.worker.health && s.worker.health.ok)) head = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> Voice worker not responding' + (s.worker && s.worker.health && s.worker.health.error ? ' — ' + esc(s.worker.health.error) : '') + '. Check it\'s deployed and CAD_VOICE_WORKER_URL/SECRET match.';
+        else if (!hasKey) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected' + (workerMode ? ' on the voice worker' : '') + ' — set ELEVENLABS_API_KEY to speak.';
         else if (v.why) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> ' + esc(v.why);
         else if (v.lastError) head = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> ' + esc(v.lastError);
         else if (v.lastSpokeAt) head = '<i class="ti ti-circle-check" style="color:#2ed896;"></i> Speaking OK — last spoke ' + ago(v.lastSpokeAt) + ' ago.';

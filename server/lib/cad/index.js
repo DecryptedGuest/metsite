@@ -10,11 +10,14 @@ const services = require('./services');
 const phrasing = require('./phrasing');
 const { parseIntent, isActionable } = require('./intent/parser');
 const { DispatchVoice } = require('./voice/dispatch-voice');
+const { VoiceWorkerClient } = require('./voice/worker-client');
 const { ElevenLabsTts } = require('./tts/elevenlabs');
 const { NullTtsProvider } = require('./tts/types');
 
 let botClient = null;
-let voice = null;
+let voice = null;                            // in-process voice (works only on UDP-capable hosts)
+const worker = new VoiceWorkerClient();      // external voice worker (Fly.io) — used when configured
+let workerHealth = null;                      // last /health snapshot, refreshed by status()
 let wired = false;
 const feed = []; // in-memory recent radio/dispatch feed for the web console
 const FEED_MAX = 120;
@@ -60,7 +63,14 @@ async function transmit(text, { grade = null, ping = false } = {}) {
       await ch.send({ content, allowedMentions: { roles: ping && cfg.controlRoleId ? [cfg.controlRoleId] : [] } });
     } catch (e) { /* best-effort */ }
   }
-  if (voice) voice.enqueue(text, { grade });
+  // Speak it. Prefer the external voice worker (Fly.io) when configured — it's
+  // the only path that works on Railway, which can't do the voice UDP handshake.
+  // Otherwise fall back to the in-process DispatchVoice (fine on UDP-capable hosts).
+  if (worker.enabled()) {
+    worker.speak(cfg.guildId, cfg.voiceChannelId, text, grade).catch(() => {});
+  } else if (voice) {
+    voice.enqueue(text, { grade });
+  }
   return text;
 }
 
@@ -180,7 +190,17 @@ function init(client) {
     tonePath: process.env.CAD_ATTENTION_TONE_PATH || null,
   });
   // Reconnect to the dev-selected voice channel after a restart (best-effort).
-  if (cfg.voiceChannelId) { setTimeout(function () { try { voice.join(); } catch (e) {} }, 3000); }
+  // With the external worker configured, tell IT to (re)join instead of the
+  // in-process voice (which can't handshake on Railway anyway).
+  if (cfg.voiceChannelId) {
+    setTimeout(function () {
+      try {
+        if (worker.enabled()) worker.join(cfg.guildId, cfg.voiceChannelId).catch(() => {});
+        else voice.join();
+      } catch (e) {}
+    }, 3000);
+  }
+  if (worker.enabled()) console.log('[CAD] Voice: external worker mode (' + process.env.CAD_VOICE_WORKER_URL + ').');
   if (cfg.radioChannelId) {
     client.on('messageCreate', (m) => { try { handleRadioMessage(m).catch(() => {}); } catch (e) {} });
     console.log(`[CAD] Radio listener attached to channel ${cfg.radioChannelId}. Voice: ${voice.available() ? 'ON' : 'text-only'}. Intent: ${process.env.ANTHROPIC_API_KEY ? 'Claude' : 'rule-based'}.`);
@@ -190,15 +210,26 @@ function init(client) {
   wired = true;
 }
 
-function status() {
+async function status() {
   const cfg = config();
+  const workerMode = worker.enabled();
+  // In worker mode the source of truth for "is it in the channel / speaking?" is
+  // the worker's /health, not the (non-functional on Railway) in-process voice.
+  if (workerMode) { try { workerHealth = await worker.health(); } catch (e) { workerHealth = { ok: false, error: e.message }; } }
+  const wh = workerHealth || null;
+  const localDiag = voice && voice.getDiag ? voice.getDiag() : null;
   return {
     configured: !!cfg.radioChannelId,
     radioChannelId: cfg.radioChannelId, voiceChannelId: cfg.voiceChannelId, controlRoleId: cfg.controlRoleId,
     voiceGuildId: cfg.guildId,
-    voiceReady: !!(voice && voice.available()),
-    voiceConnected: !!(voice && voice.isConnected && voice.isConnected()),
-    voice: voice && voice.getDiag ? voice.getDiag() : null,
+    voiceMode: workerMode ? 'worker' : 'inprocess',
+    voiceReady: workerMode ? !!(wh && wh.ok) : !!(voice && voice.available()),
+    voiceConnected: workerMode ? !!(wh && wh.connected) : !!(voice && voice.isConnected && voice.isConnected()),
+    // Present the worker's diagnostics in the same shape the console already renders.
+    voice: workerMode
+      ? (wh ? { available: !!wh.ok, connected: !!wh.connected, why: wh.ok ? null : (wh.error || 'worker unreachable'), lastError: wh.lastError || wh.error || null, lastSpokeAt: wh.lastSpokeAt || null, lastAttemptAt: wh.lastAttemptAt || null, events: wh.events || [] } : { available: false, connected: false, why: 'voice worker not responding', events: [] })
+      : localDiag,
+    worker: workerMode ? { enabled: true, url: process.env.CAD_VOICE_WORKER_URL || null, health: wh } : { enabled: false },
     intentEngine: process.env.ANTHROPIC_API_KEY ? 'claude' : 'rules',
     ttsEngine: process.env.ELEVENLABS_API_KEY ? 'elevenlabs' : 'none',
     hasElevenKey: !!process.env.ELEVENLABS_API_KEY,
@@ -210,6 +241,12 @@ async function setVoiceChannel(guildId, channelId) {
   if (!guildId || !channelId) return { ok: false, error: 'Pick a server and a voice channel.' };
   await siteConfig.set('cadVoiceGuildId', String(guildId));
   await siteConfig.set('cadVoiceChannelId', String(channelId));
+  // Worker mode: the Fly.io worker owns the actual voice connection.
+  if (worker.enabled()) {
+    const r = await worker.join(String(guildId), String(channelId));
+    if (r.ok && (r.connected || r.ok)) return { ok: true, joined: !!r.connected, note: r.connected ? undefined : (r.error || 'Saved — worker is connecting.') };
+    return { ok: true, joined: false, note: r.error ? ('Saved, but the voice worker said: ' + r.error) : 'Saved, but could not reach the voice worker.' };
+  }
   if (voice) {
     // Already sitting in exactly this channel → don't bounce out and back in.
     if (voice.isConnected() && String(voice.guildId) === String(guildId) && String(voice.voiceChannelId) === String(channelId)) {
@@ -224,6 +261,7 @@ async function setVoiceChannel(guildId, channelId) {
 }
 async function leaveVoice() {
   await siteConfig.set('cadVoiceChannelId', '');
+  if (worker.enabled()) { await worker.leave().catch(() => {}); }
   if (voice) voice.leave();
   return { ok: true };
 }

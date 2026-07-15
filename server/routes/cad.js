@@ -18,7 +18,7 @@ router.use((req, res, next) => {
 const send = (res, r) => (r && r.ok === false ? res.status(400).json({ error: r.error, code: r.code }) : res.json(r));
 
 // ── Live state ───────────────────────────────────────────────────────
-router.get('/status', (req, res) => res.json(cad.status()));
+router.get('/status', async (req, res) => res.json(await cad.status()));
 router.get('/board', async (req, res) => send(res, await cad.services.units.board()));
 router.get('/incidents', async (req, res) => send(res, await cad.services.dispatch.listOpen()));
 router.get('/incidents/:ref', async (req, res) => send(res, await cad.services.dispatch.getIncident(req.params.ref)));
@@ -100,7 +100,7 @@ router.post('/voice/test', async (req, res) => {
   // Give the queue a moment to attempt playback, then report what happened so
   // the console can show WHY it did or didn't speak.
   await new Promise((r) => setTimeout(r, 2500));
-  const s = cad.status();
+  const s = await cad.status();
   res.json({ ok: true, voice: s.voice });
 });
 

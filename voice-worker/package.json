@@ -1,0 +1,22 @@
+{
+  "name": "metsite-voice-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone Discord voice worker for the MET CAD. Runs on a UDP-capable host (Fly.io) and speaks TTS into a voice channel on behalf of the Railway app.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.18.0",
+    "discord.js": "^14.16.3",
+    "express": "^4.21.2",
+    "ffmpeg-static": "^5.2.0",
+    "libsodium-wrappers": "^0.7.15",
+    "node-fetch": "^2.7.0",
+    "opusscript": "^0.1.1"
+  }
+}
