@@ -1660,9 +1660,26 @@
           </div>
         </div>
 
-        <!-- RIGHT: PNC + transmit + feed -->
+        <!-- RIGHT: voice + PNC + transmit + feed -->
         <div class="cad-col">
           <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Voice output</div><span id="cad-voice-state" class="nav-tag"></span></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:130px;"><label class="cad-lbl">Server</label>
+                  <select class="form-control" id="cad-voice-guild" onchange="cadLoadVoiceChannels()"><option value="">Loading…</option></select></div>
+                <div style="flex:1;min-width:130px;"><label class="cad-lbl">Voice channel</label>
+                  <select class="form-control" id="cad-voice-channel"><option value="">Pick a server first</option></select></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="cadVoiceJoin(this)"><i class="ti ti-plug"></i> Join &amp; save</button>
+                <button class="btn btn-secondary" onclick="cadVoiceLeave()"><i class="ti ti-plug-off"></i> Leave</button>
+                <button class="btn btn-secondary" onclick="cadVoiceTest()"><i class="ti ti-volume"></i> Radio check</button>
+              </div>
+              <div id="cad-voice-note" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+            </div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
             <div class="panel-header"><div class="panel-title"><span class="panel-dot purple"></span>PNC lookup</div></div>
             <div class="profile-section">
               <div style="display:flex;gap:8px;align-items:flex-end;">
@@ -2237,7 +2254,7 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=76"></script>
 <script src="/js/dashboard.js?v=77"></script>
-<script src="/js/cad-console.js?v=1"></script>
+<script src="/js/cad-console.js?v=2"></script>
 <script src="/js/tickets.js?v=73"></script>
 <script src="/js/discord-format.js?v=1"></script>
 <script src="/js/support-staff.js?v=79"></script>

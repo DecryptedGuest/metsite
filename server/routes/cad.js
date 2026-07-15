@@ -84,6 +84,22 @@ router.post('/transmit', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Voice channel picker (dev chooses server → voice channel) ────────
+const bot = require('../lib/bot');
+router.get('/guilds', async (req, res) => { res.json({ guilds: await bot.listBotGuilds() }); });
+router.get('/guilds/:id/voice-channels', async (req, res) => { res.json({ channels: await bot.listGuildVoiceChannels(req.params.id) }); });
+router.post('/voice/join', async (req, res) => {
+  const { guildId, channelId } = req.body || {};
+  const r = await cad.setVoiceChannel(guildId, channelId);
+  if (r.ok) audit.record({ req, action: 'CAD_VOICE_JOIN', category: 'CAD', summary: `CAD voice set to channel ${channelId} in guild ${guildId}` });
+  res.json(r);
+});
+router.post('/voice/leave', async (req, res) => { res.json(await cad.leaveVoice()); });
+router.post('/voice/test', async (req, res) => {
+  await cad.transmit('Control to all units, radio check, receiving you loud and clear.');
+  res.json({ ok: true });
+});
+
 // ── Seed the fictional PNC records ───────────────────────────────────
 router.post('/seed', async (req, res) => {
   try {

@@ -1844,8 +1844,38 @@ async function dmMemberNotice(discordId, o) {
   }
 }
 
+// ── CAD voice picker helpers ─────────────────────────────────────────
+// Every guild the bot is a member of (for the CAD server picker).
+async function listBotGuilds() {
+  if (!ready) return [];
+  try {
+    const guilds = [];
+    for (const g of client.guilds.cache.values()) guilds.push({ id: g.id, name: g.name });
+    guilds.sort((a, b) => a.name.localeCompare(b.name));
+    return guilds;
+  } catch (e) { return []; }
+}
+// Voice + stage channels in a guild (for the CAD voice-channel picker).
+async function listGuildVoiceChannels(guildId) {
+  if (!ready || !guildId) return [];
+  try {
+    const { ChannelType } = require('discord.js');
+    const guild = await client.guilds.fetch(String(guildId));
+    const chans = await guild.channels.fetch();
+    const out = [];
+    chans.forEach((c) => {
+      if (c && (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice)) {
+        out.push({ id: c.id, name: c.name, stage: c.type === ChannelType.GuildStageVoice });
+      }
+    });
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  } catch (e) { return []; }
+}
+
 module.exports = {
   startBot, assignRole, removeRole, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
+  listBotGuilds, listGuildVoiceChannels,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript,

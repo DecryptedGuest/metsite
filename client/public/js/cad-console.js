@@ -22,6 +22,7 @@
 
   window.loadCad = function () {
     cadRefreshStatus();
+    cadLoadVoice();
     cadRefreshAll();
     if (_poll) clearInterval(_poll);
     _poll = setInterval(function () {
@@ -32,16 +33,66 @@
 
   function cadRefreshAll() { cadBoard(); cadIncidents(); cadFeed(); }
 
+  var _cadStatus = {};
   function cadRefreshStatus() {
-    apiCall('/api/cad/status').then(function (s) {
-      var el = document.getElementById('cad-status-chips'); if (!el) return;
-      el.innerHTML =
+    return apiCall('/api/cad/status').then(function (s) {
+      _cadStatus = s || {};
+      var el = document.getElementById('cad-status-chips');
+      if (el) el.innerHTML =
         chip(s.configured ? 'Radio linked' : 'No radio channel', s.configured ? '#2ed896' : '#8b93a1') +
-        chip('Voice: ' + (s.voiceReady ? 'on' : 'text-only'), s.voiceReady ? '#2ed896' : '#8b93a1') +
+        chip('Voice: ' + (s.voiceConnected ? 'connected' : (s.voiceReady ? 'ready' : 'text-only')), s.voiceConnected ? '#2ed896' : (s.voiceReady ? '#f59e0b' : '#8b93a1')) +
         chip('Intent: ' + s.intentEngine, s.intentEngine === 'claude' ? '#9b6dff' : '#8b93a1') +
         chip('TTS: ' + s.ttsEngine, s.ttsEngine === 'elevenlabs' ? '#9b6dff' : '#8b93a1');
+      var vs = document.getElementById('cad-voice-state');
+      if (vs) vs.innerHTML = s.voiceConnected ? chip('In channel', '#2ed896') : (s.voiceChannelId ? chip('Set, not joined', '#f59e0b') : chip('Not set', '#8b93a1'));
+      var note = document.getElementById('cad-voice-note');
+      if (note && !s.hasElevenKey) note.innerHTML = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected — set ELEVENLABS_API_KEY to speak.';
+      return s;
     }).catch(function () {});
   }
+
+  // ── Voice channel picker ─────────────────────────────────────────────
+  function cadLoadVoice() {
+    apiCall('/api/cad/guilds').then(function (r) {
+      var sel = document.getElementById('cad-voice-guild'); if (!sel) return;
+      var guilds = r.guilds || [];
+      if (!guilds.length) { sel.innerHTML = '<option value="">Bot not in any server</option>'; return; }
+      var cur = _cadStatus.voiceGuildId || '';
+      sel.innerHTML = '<option value="">Select a server…</option>' + guilds.map(function (g) {
+        return '<option value="' + esc(g.id) + '"' + (g.id === cur ? ' selected' : '') + '>' + esc(g.name) + '</option>';
+      }).join('');
+      if (cur) cadLoadVoiceChannels();
+    }).catch(function () {});
+  }
+  window.cadLoadVoiceChannels = function () {
+    var gsel = document.getElementById('cad-voice-guild'); var csel = document.getElementById('cad-voice-channel');
+    if (!gsel || !csel) return;
+    var gid = gsel.value;
+    if (!gid) { csel.innerHTML = '<option value="">Pick a server first</option>'; return; }
+    csel.innerHTML = '<option value="">Loading…</option>';
+    apiCall('/api/cad/guilds/' + encodeURIComponent(gid) + '/voice-channels').then(function (r) {
+      var ch = r.channels || [];
+      if (!ch.length) { csel.innerHTML = '<option value="">No voice channels</option>'; return; }
+      var cur = _cadStatus.voiceChannelId || '';
+      csel.innerHTML = '<option value="">Select a channel…</option>' + ch.map(function (c) {
+        return '<option value="' + esc(c.id) + '"' + (c.id === cur ? ' selected' : '') + '>' + (c.stage ? '🎤 ' : '🔊 ') + esc(c.name) + '</option>';
+      }).join('');
+    }).catch(function () {});
+  };
+  window.cadVoiceJoin = function (btn) {
+    var gid = (document.getElementById('cad-voice-guild') || {}).value;
+    var cid = (document.getElementById('cad-voice-channel') || {}).value;
+    if (!gid || !cid) return toast('Pick a server and a voice channel.', 'warning');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Joining…'; }
+    post('/api/cad/voice/join', { guildId: gid, channelId: cid }).then(function (r) {
+      toast(r.joined ? 'Joined the voice channel.' : (r.note || 'Saved.'), r.joined ? 'success' : 'warning');
+      cadRefreshStatus();
+    }).catch(function (e) { toast(e.message, 'error'); }).then(function () {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-plug"></i> Join & save'; }
+    });
+  };
+  window.cadVoiceLeave = function () { post('/api/cad/voice/leave', {}).then(function () { toast('Left the voice channel.', 'success'); cadRefreshStatus(); }).catch(function (e) { toast(e.message, 'error'); }); };
+  window.cadVoiceTest = function () { post('/api/cad/voice/test', {}).then(function () { toast('Radio check sent.', 'success'); cadFeed(); }).catch(function (e) { toast(e.message, 'error'); }); };
 
   function cadBoard() {
     apiCall('/api/cad/board').then(function (r) {

@@ -5,6 +5,7 @@
 // action methods the web dispatch console calls. Everything is env-gated and
 // best-effort so the portal never breaks if CAD isn't configured.
 const prisma = require('../db');
+const siteConfig = require('../siteConfig');
 const services = require('./services');
 const phrasing = require('./phrasing');
 const { parseIntent, isActionable } = require('./intent/parser');
@@ -18,11 +19,15 @@ let wired = false;
 const feed = []; // in-memory recent radio/dispatch feed for the web console
 const FEED_MAX = 120;
 
+// Voice guild/channel are dev-selectable in the console and persisted in
+// SystemSetting, so they survive restarts without touching env. Env vars are
+// the fallback default.
 function config() {
+  const c = siteConfig.getCached() || {};
   return {
-    guildId:        process.env.CAD_GUILD_ID || process.env.DISCORD_GUILD_ID || null,
+    guildId:        c.cadVoiceGuildId || process.env.CAD_GUILD_ID || process.env.DISCORD_GUILD_ID || null,
     radioChannelId: process.env.CAD_RADIO_CHANNEL_ID || null,
-    voiceChannelId: process.env.CAD_VOICE_CHANNEL_ID || null,
+    voiceChannelId: c.cadVoiceChannelId || process.env.CAD_VOICE_CHANNEL_ID || null,
     controlRoleId:  process.env.CAD_CONTROL_ROLE_ID || null,
   };
 }
@@ -174,6 +179,8 @@ function init(client) {
     client, ttsProvider: tts, guildId: cfg.guildId, voiceChannelId: cfg.voiceChannelId,
     tonePath: process.env.CAD_ATTENTION_TONE_PATH || null,
   });
+  // Reconnect to the dev-selected voice channel after a restart (best-effort).
+  if (cfg.voiceChannelId) { setTimeout(function () { try { voice.join(); } catch (e) {} }, 3000); }
   if (cfg.radioChannelId) {
     client.on('messageCreate', (m) => { try { handleRadioMessage(m).catch(() => {}); } catch (e) {} });
     console.log(`[CAD] Radio listener attached to channel ${cfg.radioChannelId}. Voice: ${voice.available() ? 'ON' : 'text-only'}. Intent: ${process.env.ANTHROPIC_API_KEY ? 'Claude' : 'rule-based'}.`);
@@ -188,14 +195,36 @@ function status() {
   return {
     configured: !!cfg.radioChannelId,
     radioChannelId: cfg.radioChannelId, voiceChannelId: cfg.voiceChannelId, controlRoleId: cfg.controlRoleId,
+    voiceGuildId: cfg.guildId,
     voiceReady: !!(voice && voice.available()),
+    voiceConnected: !!(voice && voice.isConnected && voice.isConnected()),
     intentEngine: process.env.ANTHROPIC_API_KEY ? 'claude' : 'rules',
     ttsEngine: process.env.ELEVENLABS_API_KEY ? 'elevenlabs' : 'none',
+    hasElevenKey: !!process.env.ELEVENLABS_API_KEY,
   };
 }
 
+// Dev picks a server + voice channel in the console → persist + (re)join.
+async function setVoiceChannel(guildId, channelId) {
+  if (!guildId || !channelId) return { ok: false, error: 'Pick a server and a voice channel.' };
+  await siteConfig.set('cadVoiceGuildId', String(guildId));
+  await siteConfig.set('cadVoiceChannelId', String(channelId));
+  if (voice) {
+    voice.setChannel(String(guildId), String(channelId));
+    const joined = await voice.join().catch(() => false);
+    if (!joined && !process.env.ELEVENLABS_API_KEY) return { ok: true, joined: false, note: 'Saved. Add an ElevenLabs API key to speak.' };
+    if (!joined) return { ok: true, joined: false, note: 'Saved, but could not join yet (check the bot can see/join that channel).' };
+  }
+  return { ok: true, joined: true };
+}
+async function leaveVoice() {
+  await siteConfig.set('cadVoiceChannelId', '');
+  if (voice) voice.leave();
+  return { ok: true };
+}
+
 module.exports = {
-  init, status, transmit, config, recentFeed,
+  init, status, transmit, config, recentFeed, setVoiceChannel, leaveVoice,
   // actions used by the web console + radio
   actBookOn, actBookOff, actStatus, actCreateIncident, actAssign, actOnScene, actUpdate, actClose, actVehicle, actPerson, actBackup,
   services, phrasing,

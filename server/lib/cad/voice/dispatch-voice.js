@@ -43,6 +43,29 @@ class DispatchVoice {
     this._drain().catch(() => {});
   }
 
+  // Point the dispatcher at a different guild/voice channel. Tears down any
+  // existing connection so the next join lands in the new channel.
+  setChannel(guildId, channelId) {
+    const changed = (guildId || null) !== this.guildId || (channelId || null) !== this.voiceChannelId;
+    this.guildId = guildId || null;
+    this.voiceChannelId = channelId || null;
+    if (changed && this.connection) { try { this.connection.destroy(); } catch (e) {} this.connection = null; }
+  }
+
+  // Join the configured channel now (so the bot is present before any speech).
+  async join() {
+    if (!this.available()) return false;
+    const c = await this._ensureConnection();
+    return !!c;
+  }
+
+  isConnected() {
+    var lib = loadVoiceLib();
+    return !!(lib && this.connection && this.connection.state && this.connection.state.status !== lib.VoiceConnectionStatus.Destroyed);
+  }
+
+  leave() { this.destroy(); }
+
   async _ensureConnection() {
     const lib = loadVoiceLib();
     if (!lib) return null;
