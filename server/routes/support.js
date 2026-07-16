@@ -377,6 +377,9 @@ router.post('/tickets', async (req, res) => {
   const type = String((req.body && req.body.type) || '').toUpperCase();
   const cfg  = support.typeConfig(type);
   if (!cfg) return res.status(400).json({ error: 'Unknown ticket type.' });
+  // Guests can no longer open tickets — they must sign in with Discord or Roblox
+  // so every ticket is tied to an account (mirrors the login gate in the UI).
+  if (!req.user) return res.status(401).json({ error: 'Please sign in with Discord or Roblox to open a support ticket.' });
   // Anti-spam: cap new tickets per opener identity (6 / 10 min).
   if (!rateOk('mk:' + rlIdentity(req), 6, 10 * 60 * 1000)) {
     return res.status(429).json({ error: "You're opening tickets too quickly. Please wait a few minutes." });

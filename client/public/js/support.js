@@ -51,7 +51,8 @@
     $('sup-user-name').textContent = me ? me.name : 'Guest';
     $('sup-user-fallback').textContent = (me ? me.name : 'G').slice(0, 1).toUpperCase();
     if (MY_AVATAR) { const a = $('sup-user-avatar'); if (a) { a.src = MY_AVATAR; a.style.display = ''; $('sup-user-fallback').style.display = 'none'; } }
-    // Guests: swap the sign-out button for a subtle "Log in (optional)" link.
+    // Guests: swap the sign-out button for a "Log in" link, make the page clearly
+    // state an account is required, and drop a banner above the options.
     if (!me) {
       const lo = document.querySelector('.met-topbar-right form'); if (lo) lo.style.display = 'none';
       const right = document.querySelector('.met-topbar-right');
@@ -59,6 +60,19 @@
         const a = document.createElement('a'); a.id = 'sup-login-link'; a.href = '/login'; a.className = 'btn btn-ghost btn-sm';
         a.innerHTML = '<i class="ti ti-login"></i> Log in';
         right.appendChild(a);
+      }
+      const sub = $('sup-page-sub');
+      if (sub) sub.innerHTML = 'You’re browsing as a guest. <strong>Sign in with Discord or Roblox</strong> to open a ticket and track replies.';
+      const panels = $('sup-panels');
+      if (panels && panels.parentNode && !document.getElementById('sup-guest-banner')) {
+        const b = document.createElement('div');
+        b.id = 'sup-guest-banner'; b.className = 'panel sup-guest-banner fade-up';
+        b.innerHTML =
+          '<div class="sup-gb-ico"><i class="ti ti-user-shield"></i></div>' +
+          '<div class="sup-gb-txt"><b>Sign in to open a support ticket</b>' +
+          '<p>Tickets are linked to your Discord or Roblox account so our officers can help you and you can follow every reply. You can still read this page as a guest.</p></div>' +
+          '<div class="sup-gb-btn"><button class="btn btn-primary btn-sm" onclick="supShowLoginGate()"><i class="ti ti-login"></i> Sign in</button></div>';
+        panels.parentNode.insertBefore(b, panels);
       }
     }
     renderPanels();
@@ -88,12 +102,18 @@
   function panelCard(t, i) {
     const extra = i >= PANELS_VISIBLE ? ' sup-panel-extra sup-hidden' : '';
     const tkt = t.key ? ' tkt-' + esc(String(t.key).toLowerCase()) : '';
+    const guest = !(CFG && CFG.me);
+    // Guests see a "Log in to open" lock button that pops the sign-in gate; the
+    // real "open ticket" button only shows once signed in.
+    const btn = guest
+      ? `<button class="btn btn-primary btn-sm" onclick="supShowLoginGate()"><i class="ti ti-lock"></i> Log in to open</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="supOpenNew('${t.key}')"><i class="ti ti-plus"></i> ${esc(t.button)}</button>`;
     return `
       <div class="panel glass sup-panel ${t.restricted ? 'sup-restricted' : ''}${extra}${tkt}">
         <h3><i class="ti ${esc(t.icon)}"></i> ${esc(t.label)}</h3>
         <p>${esc(t.blurb)}</p>
         ${t.restricted ? '<div class="sup-locknote"><i class="ti ti-lock"></i> Reviewed by IA HICOMM only</div>' : ''}
-        <button class="btn btn-primary btn-sm" onclick="supOpenNew('${t.key}')"><i class="ti ti-plus"></i> ${esc(t.button)}</button>
+        ${btn}
       </div>`;
   }
   function renderPanels() {
@@ -119,6 +139,28 @@
       ? '<i class="ti ti-chevron-down"></i> Show more options'
       : '<i class="ti ti-chevron-up"></i> Show fewer options';
   };
+
+  // ── Login gate (guests) ────────────────────────────────────────
+  // A big, themed, animated overlay shown when a guest tries to open a ticket.
+  // They can dismiss it (Go back / Esc / backdrop) and keep browsing the page.
+  window.supShowLoginGate = function () {
+    const g = $('sup-login-gate'); if (!g) return;
+    g.classList.add('show'); g.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    if (!g.__wired) {
+      g.__wired = true;
+      // Click on the dimmed backdrop (not the card) closes it.
+      g.addEventListener('click', e => { if (e.target === g) supHideLoginGate(); });
+    }
+  };
+  window.supHideLoginGate = function () {
+    const g = $('sup-login-gate'); if (!g) return;
+    g.classList.remove('show'); g.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  };
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { const g = $('sup-login-gate'); if (g && g.classList.contains('show')) supHideLoginGate(); }
+  });
 
   function ticketRow(t, staff) {
     const who = staff ? esc(t.openerName) : esc(t.typeLabel);
@@ -175,6 +217,8 @@
 
   // ── Open / create a ticket ───────────────────────────────────────
   window.supOpenNew = async function (type) {
+    // Guests can't open tickets — they must sign in first (server enforces too).
+    if (!(CFG && CFG.me)) return supShowLoginGate();
     const cfg = typeByKey[type] || {};
     if (cfg.helpBot) return startHelpBot(cfg);   // General Support → help bot first
     helpMode = false;
@@ -196,6 +240,8 @@
 
   window.supOpenTicket = openTicket;
   async function openTicket(id) {
+    // Guests can't open tickets — send them to the sign-in gate instead.
+    if (!(CFG && CFG.me)) return supShowLoginGate();
     helpMode = false;
     try {
       const t = await api(tok('/api/support/tickets/' + id, id));

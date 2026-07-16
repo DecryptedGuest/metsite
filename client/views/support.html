@@ -94,6 +94,64 @@
     .sup-btn-done { opacity: .4; }
     .sup-btn-chosen { opacity: 1; }
     .sup-av[onclick]:hover, .sup-name[onclick]:hover { filter: brightness(1.15); text-decoration: underline; }
+
+    /* Guest banner on the landing */
+    .sup-guest-banner { display: flex; align-items: center; gap: 16px; padding: 16px 20px; margin-bottom: 1.3rem; border: 1px solid color-mix(in srgb, var(--amber, #e8842a) 40%, transparent); background: linear-gradient(100deg, color-mix(in srgb, var(--amber,#e8842a) 10%, transparent), transparent 70%); border-radius: 16px; }
+    .sup-guest-banner .sup-gb-ico { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; background: color-mix(in srgb, var(--amber,#e8842a) 18%, transparent); color: var(--amber,#e8842a); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+    .sup-guest-banner .sup-gb-txt { flex: 1; min-width: 0; }
+    .sup-guest-banner .sup-gb-txt b { font-size: 14.5px; }
+    .sup-guest-banner .sup-gb-txt p { margin: 3px 0 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+    .sup-guest-banner .sup-gb-btn { flex: 0 0 auto; }
+    @media (max-width: 620px) { .sup-guest-banner { flex-wrap: wrap; } .sup-guest-banner .sup-gb-btn { width: 100%; } .sup-guest-banner .sup-gb-btn .btn { width: 100%; justify-content: center; } }
+
+    /* ── Login gate overlay (guest tries to open a ticket) ── */
+    .sup-gate { position: fixed; inset: 0; z-index: 4000; display: none; align-items: center; justify-content: center; padding: 20px;
+      background: radial-gradient(1200px 760px at 50% -12%, rgba(74,143,255,.20), transparent 60%), rgba(6,9,16,.84);
+      backdrop-filter: blur(11px) saturate(120%); -webkit-backdrop-filter: blur(11px) saturate(120%); }
+    .sup-gate.show { display: flex; animation: sup-gate-fade .28s ease both; }
+    @keyframes sup-gate-fade { from { opacity: 0; } to { opacity: 1; } }
+    .sup-gate-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .sup-gate-orb { position: absolute; border-radius: 50%; filter: blur(64px); opacity: .5; animation: sup-gate-drift 15s ease-in-out infinite; }
+    .sup-gate-orb.o1 { width: 440px; height: 440px; background: #4a8fff; top: -140px; left: -90px; }
+    .sup-gate-orb.o2 { width: 380px; height: 380px; background: #5865F2; bottom: -140px; right: -70px; animation-delay: -5s; }
+    .sup-gate-orb.o3 { width: 300px; height: 300px; background: #e2231a; top: 42%; right: 18%; opacity: .28; animation-delay: -9s; }
+    @keyframes sup-gate-drift { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(34px,-22px) scale(1.12); } }
+    .sup-gate-float { position: absolute; color: rgba(255,255,255,.06); font-size: 58px; animation: sup-gate-floaty 13s ease-in-out infinite; }
+    .sup-gate-float.f1 { top: 12%; left: 11%; font-size: 74px; color: rgba(88,101,242,.16); }
+    .sup-gate-float.f2 { top: 18%; right: 13%; font-size: 62px; color: rgba(226,35,26,.16); animation-delay: -3s; }
+    .sup-gate-float.f3 { bottom: 15%; left: 17%; font-size: 54px; animation-delay: -6s; }
+    .sup-gate-float.f4 { bottom: 20%; right: 18%; font-size: 50px; animation-delay: -2s; }
+    .sup-gate-float.f5 { top: 56%; left: 6%; font-size: 44px; color: rgba(88,101,242,.11); animation-delay: -9s; }
+    @keyframes sup-gate-floaty { 0%,100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-26px) rotate(6deg); } }
+    .sup-gate-card { position: relative; width: 100%; max-width: 480px; border-radius: 22px; padding: 34px 30px 24px; text-align: center;
+      border: 1px solid rgba(255,255,255,.12); box-shadow: 0 34px 90px rgba(0,0,0,.62); animation: sup-gate-pop .42s cubic-bezier(.2,.9,.3,1.25) both; }
+    @keyframes sup-gate-pop { from { opacity: 0; transform: translateY(26px) scale(.93); } to { opacity: 1; transform: none; } }
+    .sup-gate-back { position: absolute; top: 13px; left: 13px; background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 9px; transition: background .14s, color .14s; }
+    .sup-gate-back:hover { color: var(--text-primary); background: rgba(255,255,255,.07); }
+    .sup-gate-crest { position: relative; width: 100px; height: 100px; margin: 10px auto 18px; display: flex; align-items: center; justify-content: center; }
+    .sup-gate-crest img { width: 80px; height: 80px; object-fit: contain; filter: drop-shadow(0 8px 20px rgba(74,143,255,.45)); animation: sup-gate-bob 4.2s ease-in-out infinite; }
+    @keyframes sup-gate-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+    .sup-gate-ring { position: absolute; inset: -7px; border-radius: 50%; border: 2px dashed rgba(74,143,255,.42); animation: sup-gate-spin 18s linear infinite; }
+    .sup-gate-ring::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; border: 1px solid rgba(88,101,242,.25); }
+    @keyframes sup-gate-spin { to { transform: rotate(360deg); } }
+    .sup-gate-lock { position: absolute; right: 0; bottom: 2px; width: 34px; height: 34px; border-radius: 50%; background: var(--amber,#e8842a); color: #1a1205; display: flex; align-items: center; justify-content: center; font-size: 17px; box-shadow: 0 5px 14px rgba(0,0,0,.45); animation: sup-gate-pulse 2.4s ease-in-out infinite; }
+    @keyframes sup-gate-pulse { 0%,100% { transform: scale(1); box-shadow: 0 5px 14px rgba(0,0,0,.45); } 50% { transform: scale(1.14); box-shadow: 0 6px 20px rgba(232,132,42,.55); } }
+    .sup-gate-title { margin: 0 0 9px; font-size: 24px; font-weight: 800; font-family: var(--font-display, inherit); letter-spacing: -.01em; }
+    .sup-gate-sub { margin: 0 auto 22px; font-size: 14px; line-height: 1.62; color: var(--text-secondary); max-width: 386px; }
+    .sup-gate-btns { display: flex; flex-direction: column; gap: 12px; }
+    .sup-gate-btn { display: flex; align-items: center; justify-content: center; gap: 11px; padding: 14px 18px; border-radius: 13px; font-size: 15.5px; font-weight: 700; text-decoration: none; transition: transform .14s ease, filter .14s ease, box-shadow .14s ease; }
+    .sup-gate-btn svg { width: 24px; height: 24px; flex: 0 0 auto; }
+    .sup-gate-btn i { font-size: 22px; }
+    .sup-gate-btn.discord { background: #5865F2; color: #fff; box-shadow: 0 10px 28px rgba(88,101,242,.42); }
+    .sup-gate-btn.roblox { background: #fff; color: #17181c; box-shadow: 0 10px 28px rgba(0,0,0,.32); }
+    .sup-gate-btn:hover { transform: translateY(-2px); filter: brightness(1.05); }
+    .sup-gate-btn:active { transform: translateY(0); }
+    .sup-gate-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 17px; font-size: 11.5px; color: var(--text-muted); }
+    .sup-gate-note i { color: var(--green,#2ed896); font-size: 14px; }
+    .sup-gate-ghost { margin-top: 12px; background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .sup-gate-ghost:hover { color: var(--text-secondary); }
+    @media (max-width: 520px) { .sup-gate-card { padding: 30px 20px 20px; } .sup-gate-title { font-size: 21px; } .sup-gate-float { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .sup-gate-orb, .sup-gate-float, .sup-gate-crest img, .sup-gate-ring, .sup-gate-lock, .sup-gate.show, .sup-gate-card { animation: none !important; } }
   </style>
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
@@ -126,7 +184,7 @@
     <div class="page-header fade-up" style="margin-bottom:1rem;">
       <div>
         <h1 class="page-title">MET Support</h1>
-        <p class="page-sub">Need help? Pick an option below. No account needed.</p>
+        <p class="page-sub" id="sup-page-sub">Need help? Pick an option below to get started.</p>
       </div>
     </div>
 
@@ -190,12 +248,46 @@
   </div>
 </div>
 
+<!-- LOGIN GATE — shown when a guest tries to open a ticket -->
+<div id="sup-login-gate" class="sup-gate" role="dialog" aria-modal="true" aria-labelledby="sup-gate-title" aria-hidden="true">
+  <div class="sup-gate-bg" aria-hidden="true">
+    <span class="sup-gate-orb o1"></span><span class="sup-gate-orb o2"></span><span class="sup-gate-orb o3"></span>
+    <i class="ti ti-brand-discord sup-gate-float f1"></i>
+    <i class="ti ti-brand-roblox sup-gate-float f2"></i>
+    <i class="ti ti-shield-lock sup-gate-float f3"></i>
+    <i class="ti ti-ticket sup-gate-float f4"></i>
+    <i class="ti ti-brand-discord sup-gate-float f5"></i>
+  </div>
+  <div class="sup-gate-card glass-bright" role="document">
+    <button class="sup-gate-back" onclick="supHideLoginGate()" title="Go back"><i class="ti ti-arrow-left"></i> Go back</button>
+    <div class="sup-gate-crest">
+      <span class="sup-gate-ring"></span>
+      <img src="/img/divisions/met.png" alt="Metropolitan Police" />
+      <span class="sup-gate-lock"><i class="ti ti-lock"></i></span>
+    </div>
+    <h2 class="sup-gate-title" id="sup-gate-title">Sign in to open a ticket</h2>
+    <p class="sup-gate-sub">Support tickets are tied to your account so our officers can help you properly and you can track every reply. Sign in — or link — with <strong>Discord</strong> or <strong>Roblox</strong> to continue.</p>
+    <div class="sup-gate-btns">
+      <a href="/auth/discord" class="sup-gate-btn discord">
+        <svg viewBox="0 0 127.14 96.36" fill="currentColor"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+        <span>Continue with Discord</span>
+      </a>
+      <a href="/auth/roblox" class="sup-gate-btn roblox">
+        <i class="ti ti-brand-roblox"></i>
+        <span>Continue with Roblox</span>
+      </a>
+    </div>
+    <div class="sup-gate-note"><i class="ti ti-shield-check"></i> We only use this to identify you on your tickets — nothing is posted on your behalf.</div>
+    <button class="sup-gate-ghost" onclick="supHideLoginGate()">Not now — back to support</button>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 <script src="/js/ui.js?v=76"></script>
 <script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/discord-format.js?v=80"></script>
-<script src="/js/support.js?v=6"></script>
+<script src="/js/support.js?v=7"></script>
 <script>initMetTopbar('');</script>
 </body>
 </html>
