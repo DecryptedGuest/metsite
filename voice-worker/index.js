@@ -275,6 +275,18 @@ app.post('/speak', auth, async (req, res) => {
 
 app.listen(PORT, () => console.log(`[voice-worker] HTTP listening on :${PORT}`));
 
+// ── Keep-alive (for free hosts that sleep on inactivity, e.g. Render) ─────────
+// Free web services spin down after ~15 min with no inbound traffic, which would
+// drop the bot out of the voice channel. If KEEPALIVE_URL (or Render's built-in
+// RENDER_EXTERNAL_URL) is set, ping our own /health every 10 min so the host
+// never sees us as idle. Harmless no-op on hosts that don't sleep.
+const KEEPALIVE_URL = process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL || null;
+if (KEEPALIVE_URL) {
+  const target = KEEPALIVE_URL.replace(/\/+$/, '') + '/health';
+  setInterval(() => { fetch(target).catch(() => {}); }, 10 * 60 * 1000);
+  ev('keep-alive enabled: self-pinging ' + target + ' every 10m');
+}
+
 // ── Dial-out mode: connect to the main app's WebSocket gateway ────────────────
 // For hosts with no public inbound URL (free Discord-bot hosts). The worker opens
 // an outbound wss:// to the main app and receives join/leave/speak commands there,
