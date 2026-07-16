@@ -357,7 +357,12 @@
   // Renders the SAME .sup-* chat markup the member support page uses, so a
   // claimed ticket looks identical in the Support Desk and on /support.
   // (Styling lives in the shared /css/support-chat.css.)
-  function mdInlineSd(s) { return window.mdRich ? window.mdRich(s) : esc(s || '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
+  function mdInlineSd(s) {
+    // Guard the shared renderer: if a stale/mismatched discord-format.js is cached
+    // (its fns out of sync with this file), never let it throw and blank the thread.
+    try { return window.mdRich ? window.mdRich(s) : esc(s || '').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
+    catch (e) { return esc(s || ''); }
+  }
   function replyRefSd(m) {
     const r = m.replyTo; if (!r) return '';
     const who = r.authorName || (r.authorKind === 'BOT' ? 'MET Assistant' : 'message');
@@ -488,14 +493,22 @@
   function renderLog(t) {
     const msgs = t.messages || [];
     const parts = [];
-    if (msgs.length) parts.push(msgHtml(msgs[0]));
+    // Render each message in isolation: one malformed message (or a mismatched
+    // cached helper) shows a small placeholder instead of blanking the whole
+    // ticket with a cryptic "… is not a function".
+    const safe = (m) => { try { return msgHtml(m); } catch (e) { try { console.error('[SupportDesk] message render failed:', e, m); } catch (_) {} return '<div class="sup-msg-sys" style="opacity:.6;font-size:12px;">(this message couldn’t be displayed)</div>'; } };
+    if (msgs.length) parts.push(safe(msgs[0]));
     (t.intake || []).forEach(q => {
-      parts.push(msgHtml({ authorKind: 'bot', authorName: 'MET Assistant', body: q.prompt, createdAt: t.createdAt }));
-      parts.push(msgHtml({ authorKind: 'opener', authorName: t.openerName, authorAvatar: t.openerAvatar, body: q.answer, identity: q.identity, attachments: q.attachments, createdAt: t.createdAt }));
+      parts.push(safe({ authorKind: 'bot', authorName: 'MET Assistant', body: q.prompt, createdAt: t.createdAt }));
+      parts.push(safe({ authorKind: 'opener', authorName: t.openerName, authorAvatar: t.openerAvatar, body: q.answer, identity: q.identity, attachments: q.attachments, createdAt: t.createdAt }));
     });
-    parts.push(...msgs.slice(1).map(msgHtml));
+    parts.push(...msgs.slice(1).map(safe));
     $('sd-log').innerHTML = parts.join('');
-    sdScroll(); sdEnrichMentions(); sdScanEmbeds();
+    // Post-render passes (scroll/mention-enrich/link-embeds) are best-effort — a
+    // failure in any must never wipe the messages we just rendered.
+    try { sdScroll(); } catch (e) {}
+    try { sdEnrichMentions(); } catch (e) {}
+    try { sdScanEmbeds(); } catch (e) {}
   }
   // Discord-style link previews under messages.
   function sdScanEmbeds() {
