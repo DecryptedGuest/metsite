@@ -9,8 +9,12 @@ const DEVELOPER_DISCORD_ID = () => process.env.DEVELOPER_DISCORD_ID || '12278667
 
 // Re-check a single user. Returns a short status string for logging.
 async function revalidateUser(user, getMemberRecord) {
-  // Developers are never revalidated away.
-  if (user.role === 'DEVELOPER' || user.discordId === DEVELOPER_DISCORD_ID()) return 'dev-skip';
+  // Only the configured OWNER is a hard, permanent developer. Every other
+  // DEVELOPER (from a dev Discord role or an access grant) is re-derived below —
+  // resolveSiteRoleDetailed still returns DEVELOPER while that source holds, so a
+  // legitimate developer is preserved, but a REMOVED one is downgraded (was: a
+  // demoted developer kept god-mode forever because the stored role skipped this).
+  if (user.discordId === DEVELOPER_DISCORD_ID()) return 'dev-skip';
 
   let memberRoles = [];
   let inDiscord = null;
@@ -101,7 +105,7 @@ const _gateInflight = new Map(); // userId → Promise
 
 async function ensureFreshUser(user) {
   try {
-    if (!user || user.role === 'DEVELOPER') return user;
+    if (!user || user.discordId === DEVELOPER_DISCORD_ID()) return user; // only the owner is exempt
     const last = user.lastRoleCheck ? new Date(user.lastRoleCheck).getTime() : 0;
     if (Date.now() - last < GATE_TTL_MS()) return user;
 
@@ -136,7 +140,8 @@ async function revalidateBatch() {
     const users = await prisma.user.findMany({
       where: {
         isBlacklisted: false,
-        role: { not: 'DEVELOPER' },
+        // Include DEVELOPER-role users so a removed developer gets re-derived and
+        // downgraded; revalidateUser still skips ONLY the configured owner id.
         OR: [{ lastRoleCheck: null }, { lastRoleCheck: { lt: cutoff } }],
       },
       orderBy: { lastRoleCheck: { sort: 'asc', nulls: 'first' } },

@@ -60,8 +60,11 @@ function buildRedirectUri(req) {
 // (message only, truncated) so a failed sign-in shows what actually broke
 // instead of a bare "server error" — invaluable when you can't tail the logs.
 function serverErr(res, e) {
-  const detail = encodeURIComponent(String((e && e.message) || 'unknown').slice(0, 160));
-  return res.redirect('/login?error=server_error&detail=' + detail);
+  // Log the real reason server-side ONLY. Never reflect internal exception text
+  // (Prisma schema/driver strings, column/enum names) into the client-visible
+  // redirect URL — the login page already shows a generic message for this code.
+  try { console.error('[Auth] server error during OAuth callback:', (e && e.stack) || e); } catch (_) {}
+  return res.redirect('/login?error=server_error');
 }
 
 // ── GET /auth/discord ──────────────────────────────────────
@@ -433,20 +436,25 @@ async function createSession(req, res, user) {
 
 // ── POST /auth/logout ──────────────────────────────────────
 router.post('/logout', async (req, res) => {
-  // Revoke the server-side session so the token can never be replayed, even if
-  // it was copied elsewhere. Best-effort — always clear the cookie regardless.
+  // CSRF hardening (logout CSRF → forced sign-out). A cross-site POST cannot
+  // carry the SameSite=Lax auth cookie, so:
+  //  • refuse a browser-reported cross-site request outright (covers the
+  //    transitional Lax+POST edge on modern browsers), and
+  //  • only act when a real own-session token is actually present — never clear
+  //    the cookie for a request that arrived without one.
+  if ((req.get('sec-fetch-site') || '') === 'cross-site') return res.status(403).end();
+  const token = req.cookies?.iacms_token;
+  if (!token) return res.redirect('/login');
+  // Revoke the server-side session so the token can never be replayed elsewhere.
   try {
-    const token = req.cookies?.iacms_token;
-    if (token) {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      if (payload?.sid) {
-        await prisma.session.update({
-          where: { id: payload.sid },
-          data:  { revokedAt: new Date() },
-        }).catch(() => {});
-      }
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    if (payload?.sid) {
+      await prisma.session.update({
+        where: { id: payload.sid },
+        data:  { revokedAt: new Date() },
+      }).catch(() => {});
     }
-  } catch (e) { /* token invalid/expired — nothing to revoke */ }
+  } catch (e) { /* token invalid/expired — still clear the useless cookie below */ }
   res.clearCookie('iacms_token');
   res.redirect('/login');
 });

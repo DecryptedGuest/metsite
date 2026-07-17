@@ -4,6 +4,12 @@
    live chat with attachments, and opener profiles. HICOMM get extra powers. */
 (function () {
   const esc = window.escapeHtml || (s => String(s == null ? '' : s));
+  // For interpolating a value into a JS string inside an inline on* handler
+  // (onclick="fn('${jsa(x)}')"). HTML-entity escaping alone is NOT safe there —
+  // the browser HTML-decodes the attribute before the JS parser runs, so a
+  // decoded quote in a display name would break out of the string. jsAttr
+  // backslash-escapes the JS specials; falls back to esc only if ui.js is stale.
+  const jsa = window.jsAttr || esc;
   const MET = '/img/divisions/met.png';
   let SDC = null;                 // /config
   let sdFilter = 'active', sdType = '';
@@ -103,7 +109,7 @@
     return `<tr class="sd-queue-row${railCls}" style="cursor:pointer;" onclick="sdOpen('${t.id}')">
       <td>${priorityBadge(t.priority)}</td>
       <td>${esc2(t.typeLabel)}${flag}</td>
-      <td><span style="cursor:pointer;text-decoration:underline dotted;" onclick="event.stopPropagation();sdProfile('${t.openerId}','${esc2(t.openerName)}')">${esc2(t.openerName)}</span></td>
+      <td><span style="cursor:pointer;text-decoration:underline dotted;" onclick="event.stopPropagation();sdProfile('${jsa(t.openerId)}','${jsa(t.openerName)}')">${esc2(t.openerName)}</span></td>
       <td>${statusBadge(t.status)}</td>
       <td>${t.claimedByName ? esc2(t.claimedByName) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${age(t.createdAt)}</td>
@@ -210,7 +216,7 @@
     const btns = [];
     if (o.robloxUrl)  btns.push(`<a href="${esc(o.robloxUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-brand-roblox"></i> Roblox profile</a>`);
     if (a.caseUrl)    btns.push(`<a href="${esc(a.caseUrl)}" class="btn btn-ghost btn-sm"><i class="ti ti-folder-open"></i> Open case</a>`);
-    if (o.discordId)  btns.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${esc(o.discordId)}','${esc(o.robloxUsername || o.discordUsername || '')}')"><i class="ti ti-user-circle"></i> Full profile</button>`);
+    if (o.discordId)  btns.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${jsa(o.discordId)}','${jsa(o.robloxUsername || o.discordUsername || '')}')"><i class="ti ti-user-circle"></i> Full profile</button>`);
     return `<div class="glass" style="border:1px solid var(--amber,#e8842a)33;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber,#e8842a);margin-bottom:10px;"><i class="ti ti-shield-lock"></i> IA · appeal details — not visible to the opener</div>
       <div style="display:flex;gap:12px;">
@@ -237,7 +243,7 @@
       c.robloxUsername ? `Roblox @${esc(c.robloxUsername)}` : '',
       c.discordUsername ? `Discord @${esc(c.discordUsername)}` : '',
     ].filter(Boolean).join(' · ');
-    const btn = c.id ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="sdProfile('${esc(c.id)}','${esc(c.robloxUsername || c.name || '')}')"><i class="ti ti-user-circle"></i> Profile</button>` : '';
+    const btn = c.id ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="sdProfile('${jsa(c.id)}','${jsa(c.robloxUsername || c.name || '')}')"><i class="ti ti-user-circle"></i> Profile</button>` : '';
     return `<div class="glass" style="border:1px solid var(--blue,#4a8fff)33;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--blue,#4a8fff);margin-bottom:10px;"><i class="ti ti-shield-check"></i> Handling investigator</div>
       <div style="display:flex;align-items:center;gap:12px;">
@@ -334,7 +340,7 @@
     }
     if (c.canEscalate)   b.push(`<button class="btn btn-ghost btn-sm" onclick="sdEscalate()" title="Flag up to IA HICOMM"><i class="ti ti-flag"></i> Escalate</button>`);
     if (c.canDeEscalate) b.push(`<button class="btn btn-ghost btn-sm" onclick="sdAct('deescalate')"><i class="ti ti-flag-off"></i> Clear flag</button>`);
-    b.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${t.openerId}','${esc(t.openerName)}')"><i class="ti ti-user"></i> Opener Profile</button>`);
+    b.push(`<button class="btn btn-ghost btn-sm" onclick="sdProfile('${jsa(t.openerId)}','${jsa(t.openerName)}')"><i class="ti ti-user"></i> Opener Profile</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdCanned()"><i class="ti ti-message-2-bolt"></i> Quick replies</button>`);
     b.push(`<button class="btn btn-ghost btn-sm" onclick="sdSettings()" title="Support desk settings — edit your claim greetings and quick replies"><i class="ti ti-settings"></i></button>`);
     if (c.canClose)  b.push(`<button class="btn btn-danger btn-sm" onclick="sdClose()"><i class="ti ti-lock"></i> Close</button>`);
@@ -377,7 +383,7 @@
     const isBot = (m.authorKind || '').toLowerCase() === 'bot';
     const inner = isBot ? `<img src="${MET}" alt="MET">`
       : (m.authorAvatar ? `<img src="${esc(m.authorAvatar)}" alt="">` : esc((m.authorName || '?').slice(0, 1).toUpperCase()));
-    const click = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
+    const click = m.authorId ? ` onclick="sdProfile('${jsa(m.authorId)}','${jsa(m.authorName || '')}')" title="View profile"` : '';
     return `<div class="sup-av"${click}>${inner}</div>`;
   }
   // A system/transition bot line (claimed / transferred / released) rendered as
@@ -403,7 +409,7 @@
     const atts = (m.attachments || []).map(a => a.kind === 'video'
       ? `<video src="${esc(a.url)}" controls></video>`
       : `<a href="${esc(a.url)}" class="met-evid" onclick="return metImgGallery(this)"><img src="${esc(a.url)}" alt="${esc(a.name || '')}"></a>`).join('');
-    const nameClick = m.authorId ? ` onclick="sdProfile('${esc(m.authorId)}','${esc(m.authorName || '')}')" title="View profile"` : '';
+    const nameClick = m.authorId ? ` onclick="sdProfile('${jsa(m.authorId)}','${jsa(m.authorName || '')}')" title="View profile"` : '';
     const canReply = !!m.id && (m.authorKind || '').toLowerCase() !== 'bot' && curT && curT.status !== 'CLOSED';
     const edited = m.editedAt ? '<span class="sup-edited" title="Edited">(edited)</span>' : '';
     const mine = !!(m.id && SDC && SDC.me && m.authorId && m.authorId === SDC.me.id && kind !== 'bot');

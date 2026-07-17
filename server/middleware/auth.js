@@ -118,7 +118,7 @@ const REFRESH_TTL_MS = 3 * 60 * 1000; // don't refresh the same user more than ~
 const _refreshing = new Set();
 function maybeRefreshRoles(user) {
   try {
-    if (!user || user.role === 'DEVELOPER') return;
+    if (!user || user.discordId === DEVELOPER_DISCORD_ID()) return; // only the owner skips re-derivation
     const last = user.lastRoleCheck ? new Date(user.lastRoleCheck).getTime() : 0;
     if (Date.now() - last < REFRESH_TTL_MS) return;
     if (_refreshing.has(user.id)) return;

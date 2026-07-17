@@ -335,7 +335,11 @@ app.use('/auth/debug',  requireAuth, require('./middleware/auth').requireDevelop
 // New divisions — own routes, own scope, gated to their own division.
 // CID tryouts use the CID-role gate (applied inside cid.js), not the generic
 // CID-division cache, so CID instructors get in via their CID Discord roles.
-app.use('/api/cid',   requireAuth, cidRoutes);
+app.use('/api/cid',   requireAuth,
+  // Throttle tryout writes (each fires live Discord API calls) so a CID-role
+  // holder can't flood the guild / exhaust the bot's rate budget — mirrors HPC.
+  (req, res, next) => (req.method === 'POST' && /^\/tryouts/.test(req.path)) ? tryoutWriteLimiter(req, res, next) : next(),
+  cidRoutes);
 // SCO-19 has no tryout programme — no /api/sco19 routes. The /sco19/dashboard
 // page is a lightweight division overview served below.
 app.use('/api/flp',   requireAuth, requireDivision('FLP'),   flpRoutes);

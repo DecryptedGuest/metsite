@@ -152,9 +152,14 @@ router.post('/', async (req, res) => {
   const validTypes = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
   if (!validTypes.includes(ticketType)) return res.status(400).json({ error: 'Invalid ticket type.' });
 
-  // Validate proof images (max 10, each base64 string)
+  // Validate proof images (max 10, each an image data-URI or http(s) URL). The
+  // per-element check blocks stored-XSS payloads (e.g. a string that breaks out
+  // of the <img src> attribute when the review modal renders it).
   if (proofImages && (!Array.isArray(proofImages) || proofImages.length > 10))
     return res.status(400).json({ error: 'Too many proof images (max 10).' });
+  if (Array.isArray(proofImages) && proofImages.some(s =>
+      typeof s !== 'string' || !/^(data:image\/(png|jpe?g|gif|webp);base64,|https?:\/\/)/i.test(s)))
+    return res.status(400).json({ error: 'Proof images must be image data or http(s) URLs.' });
 
   try {
     const ticketRef = await nextTicketRef();

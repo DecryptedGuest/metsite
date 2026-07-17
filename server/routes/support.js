@@ -553,6 +553,20 @@ router.post('/tickets/:id/submit-intake', async (req, res) => {
       }
       return { id: q.id, prompt: q.prompt, answer: (a.answer != null ? String(a.answer) : '').slice(0, 4000), attachments: atts, identity };
     });
+    // Store-time IDOR guard: keep only attachment mediaIds actually uploaded to
+    // THIS ticket. Stops smuggling a restricted library/case media id into a
+    // ticket to read it back via the ticket-scoped media route.
+    {
+      const ids = [];
+      for (const row of intake) for (const a of row.attachments) if (a && a.mediaId) ids.push(a.mediaId);
+      if (ids.length) {
+        try {
+          const owned = await prisma.media.findMany({ where: { id: { in: ids }, supportTicketId: t.id }, select: { id: true } });
+          const ok = new Set(owned.map(m => m.id));
+          for (const row of intake) row.attachments = row.attachments.filter(a => ok.has(a.mediaId));
+        } catch (e) { /* on lookup error leave as-is; the serve route still guards */ }
+      }
+    }
     // Require the non-optional questions to be answered (text or attachment).
     for (const q of cfg.questions) {
       if (q.optional) continue;
@@ -885,9 +899,19 @@ router.post('/tickets/:id/messages', async (req, res) => {
     }
 
     const body = (req.body && req.body.body != null ? String(req.body.body) : '').slice(0, 4000).trim();
-    const attachments = Array.isArray(req.body && req.body.attachments) ? req.body.attachments
+    let attachments = Array.isArray(req.body && req.body.attachments) ? req.body.attachments
       .filter(x => x && x.mediaId).slice(0, 10)
       .map(x => ({ mediaId: String(x.mediaId), kind: x.kind || 'image', name: (x.name || '').toString().slice(0, 200) })) : [];
+    // Store-time IDOR guard: keep only media actually uploaded to THIS ticket, so
+    // a foreign/restricted media id can't be smuggled in to read it via the
+    // ticket-scoped media route.
+    if (attachments.length) {
+      try {
+        const owned = await prisma.media.findMany({ where: { id: { in: attachments.map(a => a.mediaId) }, supportTicketId: t.id }, select: { id: true } });
+        const ok = new Set(owned.map(m => m.id));
+        attachments = attachments.filter(a => ok.has(a.mediaId));
+      } catch (e) { /* on lookup error leave as-is; the serve route still guards */ }
+    }
     if (!body && !attachments.length) return res.status(400).json({ error: 'Empty message.' });
 
     const opener = isOpener(req, t);
@@ -1098,6 +1122,9 @@ async function resolveMentionProfile(discordId) {
 router.get('/mention-search', async (req, res) => {
   try {
     if (!req.user) return res.json({ users: [] });
+    // Staff only — this exposes the guild + linked-user directory (Discord↔Roblox
+    // identity map). A plain signed-in member (role NONE) must not enumerate it.
+    if (!support.isStaff(req.user)) return res.json({ users: [] });
     const q = String(req.query.q || '').trim();
     if (!q) return res.json({ users: [] });
 

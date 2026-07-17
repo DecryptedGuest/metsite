@@ -151,9 +151,12 @@ function showToast(message, type = 'info', duration) {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.title = 'Click to dismiss';
+  // escapeHtml the message: it can carry attacker-influenced text (e.g. a
+  // claimant's display name in an "already claimed by …" toast), and this is an
+  // auto-firing innerHTML sink — an <img onerror> would otherwise execute.
   toast.innerHTML = `
     <span class="toast-icon">${icons[type] || icons.info}</span>
-    <span>${message}</span>
+    <span>${escapeHtml(message)}</span>
   `;
 
   container.appendChild(toast);

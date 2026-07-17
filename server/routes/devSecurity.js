@@ -32,6 +32,23 @@ router.post('/require-passkey', async (req, res) => {
 
 const ELEVATED = ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'];
 
+// Four-eyes enforcement for the high-stakes site-wide actions (lockdown /
+// force-reauth / broadcast). When MORE THAN ONE developer exists these must go
+// through the two-developer approvals workflow (POST /approvals), not the direct
+// endpoints — otherwise a single (or session-hijacked) developer bypasses the
+// control by calling the direct endpoint. With a sole developer four-eyes is
+// meaningless, so the direct endpoint is allowed.
+async function requireSecondDevOrApprovals(req, res, next) {
+  try {
+    const devCount = await prisma.user.count({ where: { role: 'DEVELOPER' } });
+    if (devCount > 1) return res.status(409).json({
+      error: 'This action needs a second developer. Propose it under Security → Approvals and another developer confirms it.',
+      code: 'FOUR_EYES_REQUIRED',
+    });
+  } catch (e) { /* count failed → allow (availability); still DEVELOPER + step-up gated */ }
+  next();
+}
+
 // ── Active sessions ───────────────────────────────────────────────────
 // GET /api/dev/security/sessions?userId=&history=1 — sessions with IP intel.
 // Devs (and ONLY devs) see the IP, whether it was a VPN, and the account's most
@@ -73,7 +90,7 @@ router.post('/sessions/:id/revoke', requireStepUpEnforced, async (req, res) => {
 
 // POST /api/dev/security/users/:id/force-reauth — revoke ALL of a user's
 // sessions and require a fresh sign-in.
-router.post('/users/:id/force-reauth', requireStepUpEnforced, async (req, res) => {
+router.post('/users/:id/force-reauth', requireStepUpEnforced, requireSecondDevOrApprovals, async (req, res) => {
   try {
     const u = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, displayName: true, discordUsername: true } });
     if (!u) return res.status(404).json({ error: 'User not found' });
@@ -87,7 +104,7 @@ router.post('/users/:id/force-reauth', requireStepUpEnforced, async (req, res) =
 // ── Break-glass lockdown ──────────────────────────────────────────────
 // GET/POST /api/dev/security/lockdown — sitePrivate blocks everyone but devs.
 router.get('/lockdown', (req, res) => res.json({ on: siteConfig.isOn('sitePrivate') }));
-router.post('/lockdown', requireStepUpEnforced, async (req, res) => {
+router.post('/lockdown', requireStepUpEnforced, requireSecondDevOrApprovals, async (req, res) => {
   try {
     const on = !!(req.body && req.body.on);
     await siteConfig.set('sitePrivate', on ? 'true' : 'false');
@@ -100,7 +117,7 @@ router.post('/lockdown', requireStepUpEnforced, async (req, res) => {
 // ── Global broadcast ──────────────────────────────────────────────────
 // POST /api/dev/security/broadcast { title, body, url?, banner? } — push to all
 // subscribed devices and (optionally) raise a site-wide banner.
-router.post('/broadcast', requireStepUpEnforced, async (req, res) => {
+router.post('/broadcast', requireStepUpEnforced, requireSecondDevOrApprovals, async (req, res) => {
   try {
     const title = String((req.body && req.body.title) || 'Message from High Command').slice(0, 100);
     const body  = String((req.body && req.body.body) || '').slice(0, 300);

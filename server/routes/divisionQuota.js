@@ -32,6 +32,14 @@ function requireMember(req, res, next) {
 function requireLead(req, res, next) {
   const division = normDivision(req.params.division);
   if (!division) return res.status(404).json({ error: 'Unknown division.' });
+  // IA quota writes are HICOMM-strict (HICOMM/DEVELOPER — never SUPERVISOR), to
+  // match the dedicated /api/quota router. IA's userIsDivisionLead admits
+  // SUPERVISOR, which would otherwise let a Supervisor reset/exempt IA quota here.
+  // MET HICOMM keep access because their persisted site role is elevated to HICOMM.
+  if (division === 'IA') {
+    if (req.user && ['HICOMM', 'DEVELOPER'].includes(req.user.role)) { req.division = division; return next(); }
+    return res.status(403).json({ error: 'IA High Command access required.' });
+  }
   if (userIsDivisionLead(req.user, division)) { req.division = division; return next(); }
   return res.status(403).json({ error: `${division} High Command access required.` });
 }

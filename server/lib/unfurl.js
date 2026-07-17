@@ -15,6 +15,12 @@
 const dns  = require('dns').promises;
 const net  = require('net');
 const { isLocalOrPrivate } = require('./ipIntel');
+// undici's Agent lets us PIN the vetted IP for the actual TCP connect, so the
+// request can't be re-resolved to an internal address after validation (the
+// DNS-rebinding TOCTOU). Required at runtime (Node's fetch is undici); loaded
+// defensively so a missing package degrades to name-based fetch rather than crash.
+let UndiciAgent = null;
+try { UndiciAgent = require('undici').Agent; } catch (e) { UndiciAgent = null; }
 
 const cache = new Map(); // url -> { at, val }
 const TTL = 30 * 60 * 1000;
@@ -40,23 +46,34 @@ function isBlockedAddress(ip) {
     if (low === '::' || low === '::1') return true;
     if (low.startsWith('fe80') || low.startsWith('fc') || low.startsWith('fd')) return true;
     if (low.startsWith('ff')) return true;             // multicast
-    const m = low.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/); // IPv4-mapped
+    const m = low.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/); // IPv4-mapped (dotted form)
     if (m) return isBlockedAddress(m[1]);
+    // IPv4-mapped in HEX form, e.g. ::ffff:7f00:1 == 127.0.0.1. The dotted regex
+    // above misses this, so decode the low 32 bits and re-check as IPv4.
+    const hm = low.match(/^(?:::ffff:|::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hm) {
+      const hi = parseInt(hm[1], 16), lo = parseInt(hm[2], 16);
+      return isBlockedAddress(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+    }
     return false;
   }
   return true;
 }
 
-async function hostIsSafe(hostname) {
-  if (!hostname) return false;
-  if (/^\[?::1\]?$/.test(hostname) || /^localhost$/i.test(hostname)) return false;
-  // A literal IP host is checked directly; a name is resolved (all answers).
-  if (net.isIP(hostname)) return !isBlockedAddress(hostname);
-  try {
-    const addrs = await dns.lookup(hostname, { all: true });
-    if (!addrs.length) return false;
-    return addrs.every(a => !isBlockedAddress(a.address));
-  } catch (e) { return false; }
+// Resolve a host to a SINGLE vetted public IP (or null if unsafe). Blocks the
+// whole host if ANY resolved address is private/loopback/link-local/reserved, so
+// a rebinding record can't slip a bad answer in beside a good one. The returned
+// IP is then PINNED for the actual connect (see safeFetch) — validating and
+// connecting to the same address closes the DNS-rebinding TOCTOU.
+async function resolveVetted(hostname) {
+  if (!hostname) return null;
+  const bare = hostname.replace(/^\[|\]$/g, ''); // strip brackets from an IPv6 literal host
+  if (/^::1$/.test(bare) || /^localhost$/i.test(bare)) return null;
+  if (net.isIP(bare)) return isBlockedAddress(bare) ? null : { address: bare, family: net.isIPv6(bare) ? 6 : 4 };
+  let addrs;
+  try { addrs = await dns.lookup(bare, { all: true }); } catch (e) { return null; }
+  if (!addrs.length || addrs.some(a => isBlockedAddress(a.address))) return null;
+  return { address: addrs[0].address, family: addrs[0].family };
 }
 
 function decodeEntities(s) {
@@ -89,43 +106,72 @@ function absolutize(base, ref) {
   try { return new URL(ref, base).toString(); } catch (e) { return null; }
 }
 
+// Build a per-request undici dispatcher that forces the TCP connect to the
+// pre-validated IP (TLS SNI + Host header still use the hostname). Returns null
+// when undici isn't available (falls back to name-based fetch).
+function pinnedDispatcher(vetted) {
+  if (!UndiciAgent) return null;
+  return new UndiciAgent({
+    connect: {
+      timeout: TIMEOUT,
+      // Handle both dns.lookup signatures undici may use (all vs single).
+      lookup: (h, o, cb) => (o && o.all)
+        ? cb(null, [{ address: vetted.address, family: vetted.family }])
+        : cb(null, vetted.address, vetted.family),
+    },
+  });
+}
+
 async function safeFetch(startUrl) {
   let url = startUrl;
-  for (let i = 0; i <= MAX_REDIRECTS; i++) {
-    let u;
-    try { u = new URL(url); } catch (e) { return null; }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-    if (!(await hostIsSafe(u.hostname))) return null;
+  let dispatcher = null;
+  const closeDisp = () => { if (dispatcher) { try { dispatcher.close(); } catch (e) {} dispatcher = null; } };
+  try {
+    for (let i = 0; i <= MAX_REDIRECTS; i++) {
+      closeDisp();
+      let u;
+      try { u = new URL(url); } catch (e) { return null; }
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      const vetted = await resolveVetted(u.hostname);
+      if (!vetted) return null;
+      dispatcher = pinnedDispatcher(vetted);
 
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT);
-    let res;
-    try {
-      res = await fetch(u.toString(), {
-        redirect: 'manual', signal: ctrl.signal,
-        headers: {
-          // A browser-like UA + Discord's bot token, so sites that gate OG tags
-          // behind either a real browser or a known unfurler still return them.
-          'User-Agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com) MET-Portal-LinkPreview/1.0',
-          'Accept': 'text/html,application/xhtml+xml,image/*;q=0.8,*/*;q=0.5',
-        },
-      });
-    } catch (e) { clearTimeout(timer); return null; }
-    clearTimeout(timer);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT);
+      let res;
+      try {
+        res = await fetch(u.toString(), {
+          redirect: 'manual', signal: ctrl.signal,
+          ...(dispatcher ? { dispatcher } : {}),
+          headers: {
+            // A browser-like UA so sites that gate OG tags behind a real browser
+            // or a known unfurler still return them.
+            'User-Agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com) MET-Portal-LinkPreview/1.0',
+            'Accept': 'text/html,application/xhtml+xml,image/*;q=0.8,*/*;q=0.5',
+          },
+        });
+      } catch (e) { clearTimeout(timer); return null; }
+      clearTimeout(timer);
 
-    // Manual redirect handling so every hop is re-validated.
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get('location');
-      if (!loc) return null;
-      const next = absolutize(u.toString(), loc);
-      if (!next) return null;
-      url = next;
-      continue;
+      // Manual redirect handling so every hop is re-validated + re-pinned.
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location');
+        if (!loc) return null;
+        const next = absolutize(u.toString(), loc);
+        if (!next) return null;
+        url = next;
+        continue;
+      }
+      if (!res.ok) return null;
+      // Hand the still-open dispatcher to the caller for the body read; it closes
+      // it afterwards. Detach so `finally` below doesn't close it prematurely.
+      const d = dispatcher; dispatcher = null;
+      return { res, finalUrl: u.toString(), dispatcher: d };
     }
-    if (!res.ok) return null;
-    return { res, finalUrl: u.toString() };
+    return null; // too many redirects
+  } finally {
+    closeDisp();
   }
-  return null; // too many redirects
 }
 
 async function readCapped(res) {
@@ -150,8 +196,9 @@ async function unfurl(rawUrl) {
   if (hit && Date.now() - hit.at < TTL) return hit.val;
 
   let val = null;
+  let fetched = null;
   try {
-    const fetched = await safeFetch(url);
+    fetched = await safeFetch(url);
     if (fetched) {
       const { res, finalUrl } = fetched;
       const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -182,6 +229,7 @@ async function unfurl(rawUrl) {
       }
     }
   } catch (e) { val = null; }
+  finally { if (fetched && fetched.dispatcher) { try { fetched.dispatcher.close(); } catch (e) {} } }
 
   cache.set(url, { at: Date.now(), val });
   return val;
