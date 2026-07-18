@@ -33,7 +33,11 @@
     const r = (rolesCache || []).find(x => (x.name || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
     if (r) return r.rank;
     const m = membersCache.find(x => (x.roleName || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
-    return m ? m.roleRank : Infinity;
+    // Unknown ceiling (e.g. a non-MET division group managed by a different bot
+    // account we can't identify here) → FAIL CLOSED: lock every row and offer no
+    // assignable ranks, rather than defaulting to Infinity and showing edit
+    // controls that Roblox then rejects with a 403.
+    return m ? m.roleRank : -Infinity;
   }
 
   async function loadDivisions() {
@@ -156,7 +160,7 @@
         membersCache = membersCache.concat((result && result.members) || []);
         token = (result && result.nextPageToken) || null;
         renderGroupMembers();
-      } while (token && ++pages < 30);
+      } while (token && ++pages < 1000); // was 30 (=3000 members) — truncated large groups, hiding recent joiners
       populateRankFilter();
       renderGroupMembers();
     } catch (err) { tbody.innerHTML = `<tr><td colspan="4">${errBox(`Failed to load members: ${err.message}`)}</td></tr>`; }

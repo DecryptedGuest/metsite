@@ -21,8 +21,10 @@
   var _poll = null;
 
   window.loadCad = function () {
-    cadRefreshStatus();
-    cadLoadVoice();
+    // Load the voice picker AFTER status resolves, so _cadStatus is populated and
+    // the saved server/channel preselect correctly (status is a slower round-trip
+    // than /guilds, so firing them together left the picker unselected).
+    cadRefreshStatus().then(function () { cadLoadVoice(); });
     cadRefreshAll();
     if (_poll) clearInterval(_poll);
     _poll = setInterval(function () {

@@ -55,9 +55,10 @@ async function ingestPromotion(message) {
     const content = message.content || '';
     const mention = firstMention(message);
     const fromRank = fieldAfter(content, /(?:old|previous|from|current)\s*rank\s*[:\-]?\s*(.+)/i);
-    // NOTE: `now` is anchored with word boundaries so it doesn't match inside
-    // ordinary words ("known", "snow") and manufacture a bogus toRank.
-    let toRank = fieldAfter(content, /(?:new\s*rank|to\s*rank|promoted\s*to|demoted\s*to|\bnow\b)\s*[:\-]?\s*(.+)/i);
+    // Only explicit rank labels/phrasings — NOT a bare "now", which matched
+    // ordinary congratulations ("you are now one of us") and manufactured a
+    // bogus toRank plus a false promotion DM + corrupt RankHistory row.
+    let toRank = fieldAfter(content, /(?:new\s*rank|to\s*rank|promoted\s*to|demoted\s*to)\s*[:\-]?\s*(.+)/i);
     if (!toRank) { const m = content.match(/(?:promoted|demoted)\s+to\s+(.+)/i); if (m) toRank = m[1].trim(); }
     const reason = fieldAfter(content, /reason\s*[:\-]?\s*(.+)/i);
     const memberName = (mention && mention.display) || namedMember(content) || null;
@@ -84,7 +85,15 @@ async function ingestPromotion(message) {
     if (mention && mention.id && process.env.MEMBER_ACTION_DM !== 'off') {
       try {
         const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
-        const isDemotion = /demot/i.test(content);
+        // Prefer rank ORDERING (canonical MET ladder) over the keyword: a real
+        // downward move worded without "demot" (e.g. Sergeant → Constable) was
+        // wrongly congratulated as a promotion with no appeal link. Falls back to
+        // the keyword when a rank isn't on the ladder, so custom names don't regress.
+        const MET_LADDER = ['recruit', 'trainee', 'cadet', 'student officer', 'probationary constable', 'constable', 'sergeant', 'inspector', 'chief inspector', 'superintendent', 'chief superintendent', 'commander', 'deputy assistant commissioner', 'assistant commissioner', 'deputy commissioner', 'commissioner'];
+        const rankIdx = (name) => { const n = String(name || '').toLowerCase(); let best = -1, len = 0; for (let i = 0; i < MET_LADDER.length; i++) { if (n.includes(MET_LADDER[i]) && MET_LADDER[i].length > len) { best = i; len = MET_LADDER[i].length; } } return best; };
+        let isDemotion = /demot/i.test(content);
+        const _fi = rankIdx(fromRank), _ti = rankIdx(toRank);
+        if (_fi >= 0 && _ti >= 0 && _fi !== _ti) isDemotion = _ti < _fi;
         const change = (fromRank && toRank) ? `**${fromRank} → ${toRank}**\n` : (toRank ? `New rank: **${toRank}**\n` : '');
         if (isDemotion) {
           require('./bot').dmMemberNotice(mention.id, {

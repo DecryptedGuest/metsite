@@ -89,9 +89,12 @@
       if (myId) rows.sort((a, b) => (b.claimedById === myId ? 1 : 0) - (a.claimedById === myId ? 1 : 0));
       if (!rows.length) { tb.innerHTML = window.metEmpty ? `<tr><td colspan="7">${window.metEmpty({ icon: 'ti-inbox', title: 'No tickets here', sub: 'New and matching tickets show up in this queue.' })}</td></tr>` : '<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No tickets here.</div></td></tr>'; }
       else tb.innerHTML = rows.map(rowHtml).join('');
-      // Nav badge: count of unclaimed active tickets.
+      // Nav badge: count of unclaimed active tickets. ONLY derive it from the
+      // default 'active' (all-types) view — on 'mine'/'CLOSED'/'escalated' or a
+      // type filter the rows exclude unclaimed OPEN tickets, which would wrongly
+      // zero the badge. The topbar badge (met-topbar.js) is the independent source.
       const badge = document.getElementById('nav-badge-support');
-      if (badge) {
+      if (badge && sdFilter === 'active' && !sdType) {
         const openCount = rows.filter(r => r.status === 'OPEN').length;
         badge.style.display = openCount ? 'inline-flex' : 'none'; badge.textContent = openCount;
       }
@@ -503,12 +506,16 @@
     // cached helper) shows a small placeholder instead of blanking the whole
     // ticket with a cryptic "… is not a function".
     const safe = (m) => { try { return msgHtml(m); } catch (e) { try { console.error('[SupportDesk] message render failed:', e, m); } catch (_) {} return '<div class="sup-msg-sys" style="opacity:.6;font-size:12px;">(this message couldn’t be displayed)</div>'; } };
-    if (msgs.length) parts.push(safe(msgs[0]));
+    // Render ALL leading bot messages before the intake Q/A (appeal tickets have
+    // a greeting AND an appeal pointer), then the rest — keeps them chronological.
+    let b = 0;
+    while (b < msgs.length && (msgs[b].authorKind || '').toLowerCase() === 'bot') b++;
+    for (let i = 0; i < b; i++) parts.push(safe(msgs[i]));
     (t.intake || []).forEach(q => {
       parts.push(safe({ authorKind: 'bot', authorName: 'MET Assistant', body: q.prompt, createdAt: t.createdAt }));
       parts.push(safe({ authorKind: 'opener', authorName: t.openerName, authorAvatar: t.openerAvatar, body: q.answer, identity: q.identity, attachments: q.attachments, createdAt: t.createdAt }));
     });
-    parts.push(...msgs.slice(1).map(safe));
+    parts.push(...msgs.slice(b).map(safe));
     $('sd-log').innerHTML = parts.join('');
     // Post-render passes (scroll/mention-enrich/link-embeds) are best-effort — a
     // failure in any must never wipe the messages we just rendered.

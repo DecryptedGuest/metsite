@@ -132,6 +132,10 @@ function userHpcTier(user, kind) {
   if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
   const e = hpcEntry(user);
   if (!e) return false;
+  // Honor developer-set panel grants (previously ignored, so an 'HPC'/'HPC:LEAD'
+  // grant was silently useless and even contradicted userIsDivisionLead): a
+  // granted LEAD passes any gate; a granted MEMBER passes the base dashboard gate.
+  if (e.granted) return e.tier === 'LEAD' || kind === 'instructor';
   return hpcRankAtLeast(e.rankName, e.rank, kind);
 }
 

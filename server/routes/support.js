@@ -247,13 +247,22 @@ async function createIaTicketLog(t, closer) {
       '', 'Intake:', ...lines,
     ].join('\n').slice(0, 6000);
     const base = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/$/, '') : '';
-    const counter = await prisma.ticketCounter.upsert({ where: { id: 1 }, update: { count: { increment: 1 } }, create: { id: 1, count: 1 } });
-    const ticketRef = `TKT-${String(counter.count).padStart(4, '0')}`;
-    await prisma.ticket.create({ data: {
+    // Use the collision-safe ref allocator (jumps past IA-imported TKT-#### refs)
+    // + a P2002 retry, so a shared-counter collision no longer silently drops the
+    // PENDING HICOMM-review log across the whole imported ref range.
+    const { nextTicketRef } = require('./tickets');
+    const mkData = (ticketRef) => ({
       ticketRef, userId: closer.id, robloxUsername: robloxUsername || t.openerName,
       ticketType, submittedAt: new Date().toISOString(), timezone: process.env.QUOTA_TIMEZONE || 'Europe/London',
       conclusion, transcriptLink: `${base}/support?ticket=${t.id}`, proofImages: [], status: 'PENDING',
-    } });
+    });
+    let ticketRef = await nextTicketRef();
+    try {
+      await prisma.ticket.create({ data: mkData(ticketRef) });
+    } catch (e) {
+      if (e && e.code === 'P2002') { ticketRef = await nextTicketRef(); await prisma.ticket.create({ data: mkData(ticketRef) }); }
+      else throw e;
+    }
     console.log(`[Support] auto-created ticket log ${ticketRef} from closed support ticket ${t.id}`);
   } catch (e) {
     console.error('[Support] auto ticket-log failed:', e.message);

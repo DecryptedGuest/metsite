@@ -1925,7 +1925,7 @@ async function loadAdminUsers() {
           ${u.ticketBlacklisted ? `<button class="row-btn row-btn-approve btn-sm" title="Lift the support-ticket blacklist" onclick="devLiftTicketBlacklist({userId:'${u.id}'}, this)"><i class="ti ti-ticket"></i> Un-ticket-BL</button>` : ''}
         </div></td>
       </tr>`).join('');
-  } catch { tbody.innerHTML = emptyRow(9, 'Failed to load users.'); }
+  } catch { tbody.innerHTML = emptyRow(10, 'Failed to load users.'); }
 }
 
 // ── Website Visits (Developer) ────────────────────────────────────
@@ -2218,7 +2218,6 @@ async function loadNotifSettings() {
 }
 
 async function saveNotifSettings() {
-  const enabled = document.getElementById('ns-enabled')?.checked || false;
   const prefs = {
     newCase:       document.getElementById('ns-newCase')?.checked   || false,
     newTicket:     document.getElementById('ns-newTicket')?.checked || false,
@@ -2227,7 +2226,11 @@ async function saveNotifSettings() {
     ticketTypes:   Array.from(document.querySelectorAll('.ns-tt')).filter(cb => cb.checked).map(cb => cb.value),
   };
   try {
-    await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ enabled, prefs }) });
+    // Send ONLY prefs. The account-wide `enabled` flag is owned by the master
+    // toggle's own onchange handler; re-sending it from here would push the
+    // per-device checkbox state (which is false on any device that hasn't granted
+    // browser permission) and silently disable notifications account-wide.
+    await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ prefs }) });
     showToast('Notification settings saved.', 'success');
   } catch (err) { showToast(err.message || 'Failed to save settings.', 'error'); }
 }

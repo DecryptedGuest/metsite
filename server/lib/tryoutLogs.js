@@ -442,9 +442,11 @@ async function grantFinalExamRoleToPassers(log) {
         const u = await prisma.user.findFirst({ where: { robloxId: String(a.robloxId) }, select: { discordId: true } }).catch(() => null);
         if (u && u.discordId) discordId = String(u.discordId);
       }
-      // 2) RoVer: Roblox id → Discord id.
+      // 2) RoVer: Roblox id → Discord id. getDiscordFromRoblox returns an ARRAY
+      // of matches (or []); take the first real discordId. (Treating it as a
+      // scalar produced "[object Object]" and skipped the nickname fallback.)
       if (!discordId && a.robloxId) {
-        try { const d = await roblox.getDiscordFromRoblox(String(a.robloxId)); if (d) discordId = String(d); } catch (e) {}
+        try { const matches = await roblox.getDiscordFromRoblox(String(a.robloxId)); if (Array.isArray(matches) && matches.length && matches[0].discordId) discordId = String(matches[0].discordId); } catch (e) {}
       }
       // 3) A guild member whose RoVer nickname matches the Roblox username.
       if (!discordId && a.username && a.username !== 'Unknown') {

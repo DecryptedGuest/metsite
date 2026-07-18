@@ -311,14 +311,20 @@
   function renderLog(t) {
     const msgs = t.messages || [];
     const parts = [];
-    if (msgs.length) parts.push(renderMsg(msgs[0])); // assistant greeting
+    // Render ALL leading bot messages (greeting + any pre-amble like the appeal
+    // pointer) before the intake Q/A, then the rest — not just msgs[0]. Appeal
+    // tickets have two leading bot messages, so the old single-message assumption
+    // pushed the appeal pointer below the answers (out of chronological order).
+    let b = 0;
+    while (b < msgs.length && (msgs[b].authorKind || '').toLowerCase() === 'bot') b++;
+    for (let i = 0; i < b; i++) parts.push(renderMsg(msgs[i]));
     if (Array.isArray(t.intake) && t.intake.length) {
       for (const q of t.intake) {
         parts.push(renderMsg({ authorKind: 'BOT', authorName: BOT_NAME, body: q.prompt, createdAt: t.createdAt }));
         parts.push(renderMsg({ authorKind: 'OPENER', authorName: t.openerName, authorAvatar: t.openerAvatar, body: q.answer, attachments: q.attachments, identity: q.identity, createdAt: t.createdAt }));
       }
     }
-    parts.push(...msgs.slice(1).map(renderMsg));
+    parts.push(...msgs.slice(b).map(renderMsg));
     $('sup-log').innerHTML = statusTimelineHtml(t) + parts.join('');
     scrollLog(true); // full render only happens on ticket open → land at the bottom
     enrichLogMentions();

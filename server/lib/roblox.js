@@ -90,7 +90,7 @@ async function getRobloxIdFromDiscord(discordUserId, opts = {}) {
       // no retry storm) so we don't extend the ban.
       if (res.status === 429) {
         tripRoverCooldown(body && body.detail && body.detail.retryAfter);
-        return hit ? hit.robloxId : null;
+        return hit ? hit.robloxId : (await storedRobloxId(discordUserId)); // fall back to the stored DB link
       }
 
       // "not verified" is a normal, non-error outcome — cache as unlinked
@@ -120,7 +120,7 @@ async function getRobloxIdFromDiscord(discordUserId, opts = {}) {
     }
     if (res.status === 429) {
       tripRoverCooldown(parseInt(res.headers.get('retry-after'), 10));
-      return hit ? hit.robloxId : null;
+      return hit ? hit.robloxId : (await storedRobloxId(discordUserId)); // fall back to the stored DB link
     }
     if (!res.ok) {
       console.error(`Public RoVer API error [${res.status}]`);

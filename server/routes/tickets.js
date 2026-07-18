@@ -298,6 +298,10 @@ router.get('/:id', async (req, res) => {
         select: { displayName: true, discordUsername: true },
       });
     }
+    // IA-synced tickets store an IA users.id in reviewedBy that isn't in the MET
+    // DB, so the lookup misses — label it rather than dropping the "Reviewed By"
+    // row on a ticket that plainly carries a decision date.
+    if (!reviewer && ticket.reviewedAt) reviewer = { displayName: 'Internal Affairs', discordUsername: null };
 
     // Resolve the target Roblox user for richer detail (non-fatal on failure)
     let target = null;
@@ -420,3 +424,6 @@ router.patch('/:id/deny', requireHICOMM, async (req, res) => {
 });
 
 module.exports = router;
+// Exposed so the support-desk auto-ticket-log path reuses the SAME collision-safe
+// ref allocation (survives IA-import TKT-#### collisions) instead of a raw counter.
+module.exports.nextTicketRef = nextTicketRef;

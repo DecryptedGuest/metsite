@@ -105,6 +105,7 @@ const engine = {
   queue: [],        // [{ text, grade }]
   playing: false,
   joining: null,    // in-flight join promise (dedupe overlapping joins)
+  connectedChannelId: null, // the channel we're actually Ready in (for channel moves)
 
   connected() {
     return !!(this.connection && this.connection.state && this.connection.state.status === VoiceConnectionStatus.Ready);
@@ -116,7 +117,10 @@ const engine = {
     if (guildId) this.guildId = String(guildId);
     if (channelId) this.channelId = String(channelId);
     if (!this.guildId || !this.channelId) { diag.lastError = 'no guild/channel selected'; return false; }
-    if (this.connected()) { diag.lastError = null; return true; }
+    // Only short-circuit when already Ready IN THE REQUESTED channel — otherwise
+    // fall through to _connect() so a channel CHANGE actually moves the bot
+    // (previously it returned "connected" and kept speaking in the old channel).
+    if (this.connected() && this.connectedChannelId === this.channelId) { diag.lastError = null; return true; }
     if (this.joining) return this.joining;
     this.joining = this._connect()
       .then((ok) => { this.joining = null; return ok; })
@@ -143,7 +147,7 @@ const engine = {
     if (!conn.__wired) {
       conn.__wired = true;
       this._rejoins = 0;
-      conn.on(VoiceConnectionStatus.Ready, () => { this._rejoins = 0; diag.lastError = null; ev('READY'); });
+      conn.on(VoiceConnectionStatus.Ready, () => { this._rejoins = 0; this.connectedChannelId = this.channelId; diag.lastError = null; ev('READY'); });
       conn.on('stateChange', (o, n) => { if (o.status !== n.status) ev('state ' + o.status + ' → ' + n.status); });
       conn.on('error', (e) => { diag.lastError = 'connection error: ' + (e && e.message); ev('error: ' + (e && e.message)); });
       conn.on(VoiceConnectionStatus.Disconnected, async (_o, newS) => {
@@ -166,6 +170,7 @@ const engine = {
 
     try {
       await entersState(this.connection, VoiceConnectionStatus.Ready, 20000);
+      this.connectedChannelId = this.channelId;
       diag.lastError = null;
       return true;
     } catch (e) {
@@ -180,7 +185,7 @@ const engine = {
 
   leave() {
     try { if (this.connection) this.connection.destroy(); } catch (e) {}
-    this.connection = null; this.queue = [];
+    this.connection = null; this.connectedChannelId = null; this.queue = [];
     ev('left channel');
   },
 

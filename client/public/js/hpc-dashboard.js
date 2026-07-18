@@ -98,7 +98,7 @@ async function loadStats() {
     document.getElementById('stat-passed').textContent = passed.length;
     document.getElementById('stat-failed').textContent = failed.length;
     const badge = document.getElementById('hpc-pending-badge');
-    if (pending.length) { badge.textContent = pending.length; badge.style.display = ''; }
+    if (badge) { badge.textContent = pending.length; badge.style.display = pending.length ? '' : 'none'; }
   } catch (e) { /* non-fatal */ }
 }
 
@@ -526,7 +526,7 @@ async function loadReviewBadge() {
   try {
     const pend = await api('/api/hpc/tryout-logs/pending?status=PENDING');
     const b = document.getElementById('hpc-review-badge');
-    if (b && pend.length) { b.textContent = pend.length; b.style.display = ''; }
+    if (b) { b.textContent = pend.length; b.style.display = pend.length ? '' : 'none'; }
   } catch (e) { /* non-fatal */ }
 }
 

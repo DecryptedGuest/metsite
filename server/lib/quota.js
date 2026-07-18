@@ -740,29 +740,31 @@ async function resetAllQuota(division = 'IA') {
   if (sheets) {
     try {
       const spreadsheetId = cfg.sheetId;
-      let sheetName = cfg.sheetName;
-      if (!sheetName) {
-        const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-        sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
-      }
-      const resp = await sheets.spreadsheets.values.get({
-        spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
-      });
-      const rows = resp.data.values || [];
-      const cols = findColumns(rows);
-      const dayCols = Object.values(cols.days);
-      if (!dayCols.length) return { ok: false, error: 'Could not locate the day columns on the sheet.' };
-
+      // Clear EVERY tab the read path merges (split-by-rank divisions have one
+      // tab per rank) — not just the first — so reset matches the Activity view.
+      const tabs = await resolveQuotaTabs(sheets, cfg);
       const data = [];
-      for (let r = 0; r < rows.length; r++) {
-        const uname = cols.username != null ? (rows[r][cols.username] || '').toString().trim() : '';
-        const rank  = cols.rank     != null ? (rows[r][cols.rank]     || '').toString().trim() : '';
-        if (!uname || NON_MEMBER.has(uname.toLowerCase())) continue;          // skip headers / blanks
-        if (cols.rank != null && (!rank || NON_MEMBER.has(rank.toLowerCase()))) continue; // member rows carry a rank
-        for (const c of dayCols) {
-          const raw = (rows[r][c] || '').toString().trim();
-          if (raw && isNaN(parseFloat(raw))) continue; // leave "EX" etc.
-          data.push({ range: `${sheetName}!${colLetter(c)}${r + 1}`, values: [[0]] });
+      for (const sheetName of tabs) {
+        let rows;
+        try {
+          const resp = await sheets.spreadsheets.values.get({
+            spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+          });
+          rows = resp.data.values || [];
+        } catch (e) { continue; } // skip an unreadable tab rather than failing the whole reset
+        const cols = findColumns(rows);
+        const dayCols = Object.values(cols.days);
+        if (!dayCols.length) continue; // no day columns on this tab
+        for (let r = 0; r < rows.length; r++) {
+          const uname = cols.username != null ? (rows[r][cols.username] || '').toString().trim() : '';
+          const rank  = cols.rank     != null ? (rows[r][cols.rank]     || '').toString().trim() : '';
+          if (!uname || NON_MEMBER.has(uname.toLowerCase())) continue;          // skip headers / blanks
+          if (cols.rank != null && (!rank || NON_MEMBER.has(rank.toLowerCase()))) continue; // member rows carry a rank
+          for (const c of dayCols) {
+            const raw = (rows[r][c] || '').toString().trim();
+            if (raw && isNaN(parseFloat(raw))) continue; // leave "EX" etc.
+            data.push({ range: `${sheetName}!${colLetter(c)}${r + 1}`, values: [[0]] });
+          }
         }
       }
       if (data.length) {
@@ -818,26 +820,30 @@ async function setMemberMarker(username, marker, division = 'IA') {
   if (sheets) {
     try {
       const spreadsheetId = cfg.sheetId;
-      let sheetName = cfg.sheetName;
-      if (!sheetName) {
-        const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-        sheetName = meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
-      }
-      const resp = await sheets.spreadsheets.values.get({
-        spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
-      });
-      const rows = resp.data.values || [];
-      const cols = findColumns(rows);
-      if (cols.username == null) return { ok: false, error: 'No username column found.' };
+      // Search EVERY tab the read path merges — the member may live on a non-first
+      // rank tab (split-by-rank divisions), which previously 500'd "not found".
+      const tabs = await resolveQuotaTabs(sheets, cfg);
       const lc = target.toLowerCase();
-      let rowIdx = -1;
-      for (let r = 0; r < rows.length; r++) {
-        if (((rows[r][cols.username] || '').toString().trim().toLowerCase()) === lc) { rowIdx = r; break; }
+      for (const sheetName of tabs) {
+        let rows;
+        try {
+          const resp = await sheets.spreadsheets.values.get({
+            spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+          });
+          rows = resp.data.values || [];
+        } catch (e) { continue; }
+        const cols = findColumns(rows);
+        if (cols.username == null) continue;
+        let rowIdx = -1;
+        for (let r = 0; r < rows.length; r++) {
+          if (((rows[r][cols.username] || '').toString().trim().toLowerCase()) === lc) { rowIdx = r; break; }
+        }
+        if (rowIdx < 0) continue; // not on this tab — try the next
+        const data = Object.values(cols.days).map(c => ({ range: `${sheetName}!${colLetter(c)}${rowIdx + 1}`, values: [[mark]] }));
+        if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data } });
+        return { ok: true };
       }
-      if (rowIdx < 0) return { ok: false, error: 'Member not found on the sheet.' };
-      const data = Object.values(cols.days).map(c => ({ range: `${sheetName}!${colLetter(c)}${rowIdx + 1}`, values: [[mark]] }));
-      if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data } });
-      return { ok: true };
+      return { ok: false, error: 'Member not found on the sheet.' };
     } catch (err) {
       console.error('[quota] setMemberMarker failed:', err.message);
       return { ok: false, error: err.message };

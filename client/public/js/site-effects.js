@@ -5,6 +5,7 @@
   var fwTimer      = null;
   var partyTimer   = null;
   var countdownTimer = null;
+  var cursorHandler = null; // the rainbow-cursor mousemove listener (so it can be removed)
 
   // ── helpers ─────────────────────────────────────────────────────
   function el(id) { return document.getElementById(id); }
@@ -27,6 +28,7 @@
     if (fwTimer)      { clearInterval(fwTimer);      fwTimer      = null; }
     if (partyTimer)   { clearInterval(partyTimer);   partyTimer   = null; }
     if (countdownTimer){ clearInterval(countdownTimer); countdownTimer = null; }
+    if (cursorHandler) { document.removeEventListener('mousemove', cursorHandler); cursorHandler = null; }
     // Reset background glows that party mode manipulates inline
     document.querySelectorAll('.bg-glow-1,.bg-glow-2').forEach(function(g) {
       g.style.removeProperty('background');
@@ -187,7 +189,7 @@
     trail.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9200;overflow:hidden;';
     document.body.appendChild(trail);
     var hue = 0;
-    document.addEventListener('mousemove', function (e) {
+    cursorHandler = function (e) {
       if (!el('site-cursor-trail')) return;
       var dot = document.createElement('div');
       hue = (hue + 8) % 360;
@@ -201,7 +203,8 @@
       trail.appendChild(dot);
       setTimeout(function () { dot.style.opacity='0'; dot.style.transform='scale(0)'; }, 50);
       setTimeout(function () { dot.remove(); }, 450);
-    });
+    };
+    document.addEventListener('mousemove', cursorHandler);
   }
 
   // ── User Spotlight ──────────────────────────────────────────────
@@ -238,7 +241,7 @@
     function update() {
       if (!el('site-countdown')) { clearInterval(countdownTimer); return; }
       var diff = end - Date.now();
-      if (diff <= 0) { box.innerHTML = '<div style="font-weight:700;color:#5dff9b;">🎉 ' + label + ' — NOW!</div>'; return; }
+      if (diff <= 0) { box.innerHTML = '<div style="font-weight:700;color:#5dff9b;">🎉 ' + label + ' — NOW!</div>'; clearInterval(countdownTimer); countdownTimer = null; return; }
       var d = Math.floor(diff/86400000);
       var h = Math.floor((diff%86400000)/3600000);
       var m = Math.floor((diff%3600000)/60000);

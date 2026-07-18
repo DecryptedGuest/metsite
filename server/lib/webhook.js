@@ -35,15 +35,19 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
     ? `[${officerName}](https://www.roblox.com/users/${officerRobloxId}/profile)`
     : officerName;
   else staffMemberValue = '*Unknown Officer*';
+  // Discord rejects the whole webhook (HTTP 400) if any embed field value exceeds
+  // 1024 chars — which silently dropped the admin log (and left case.logMessageId
+  // null, so edits could never target it) for long reasons/notes. Cap each field.
+  const cap = (s) => { s = String(s == null ? '' : s); return s.length > 1024 ? s.slice(0, 1021) + '…' : s; };
   const embed = {
     color:       0x2f3136,
     title:       'Staff Consequences & Discipline',
     author:      { name: SIGN_AUTHOR_NAME, icon_url: SIGN_AUTHOR_ICON },
     fields: [
-      { name: '• Staff Member:',  value: staffMemberValue,                     inline: false },
-      { name: '• Punishment(s):', value: buildActionList({ actions, action }), inline: false },
-      { name: '• Reason:',        value: reason || 'N/A',                      inline: false },
-      { name: '• Notes:',         value: notes || 'N/A',                       inline: false },
+      { name: '• Staff Member:',  value: cap(staffMemberValue),                     inline: false },
+      { name: '• Punishment(s):', value: cap(buildActionList({ actions, action })), inline: false },
+      { name: '• Reason:',        value: cap(reason || 'N/A'),                      inline: false },
+      { name: '• Notes:',         value: cap(notes || 'N/A'),                       inline: false },
     ],
     footer:    { text: `Infraction ID | ${caseRef || 'pending'}` },
     timestamp: new Date(timestamp || Date.now()).toISOString(),

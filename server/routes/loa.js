@@ -60,7 +60,7 @@ router.post('/', async (req, res) => {
     }
     const start = new Date(startAt), end = new Date(endAt);
     if (isNaN(start) || isNaN(end)) return res.status(400).json({ error: 'Valid start and end dates are required.' });
-    if (end <= start) return res.status(400).json({ error: 'End date must be after the start date.' });
+    if (end < start) return res.status(400).json({ error: 'End date must be on or after the start date.' });
 
     const forwardedTo = sc === 'MET' ? 'MET HICOMM' : `${DIV_NAME[div] || div} HICOMM`;
     const created = await prisma.loaRequest.create({

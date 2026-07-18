@@ -35,9 +35,13 @@ function createDispatchService(prisma) {
   async function findIncident(ref) {
     const r = String(ref || '').trim().toUpperCase();
     if (!r) return null;
-    return prisma.cadIncident.findUnique({ where: { cadRef: r } })
-      .catch(() => null)
-      || prisma.cadIncident.findFirst({ where: { cadRef: { endsWith: r } } }).catch(() => null);
+    // Exact ref first; then a partial/suffix match (the radio parser yields short
+    // numeric refs like "5"). NOTE: these must be awaited SEQUENTIALLY — `||` on
+    // two Promises always takes the left (a Promise is truthy), which made the
+    // suffix fallback dead code and broke assign/on-scene/close by short ref.
+    const exact = await prisma.cadIncident.findUnique({ where: { cadRef: r } }).catch(() => null);
+    if (exact) return exact;
+    return prisma.cadIncident.findFirst({ where: { cadRef: { endsWith: r } } }).catch(() => null);
   }
 
   // Create an incident. Grade must be I/S/E/R. Retries the ref on a race.
