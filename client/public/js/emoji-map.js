@@ -32,6 +32,8 @@ window.MET_EMOJI_FALLBACK = {
   "met_speaker": "🔊",
   "met_user": "👤",
   "met_rank": "🎖",
+  "met_xp": "✨",
+  "met_promote": "⬆",
   "met_load1": "⏳",
   "met_load2": "⏳",
   "met_load3": "⏳",

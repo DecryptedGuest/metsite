@@ -1125,3 +1125,52 @@ model CadPersonRecord {
   @@index([surname])
   @@map("cad_person_records")
 }
+
+// ── XP ────────────────────────────────────────────────────────────
+// An officer's XP balance in the MET. One row per Discord member; the balance
+// is the source of truth and every change that produced it is in XpEvent.
+//
+// Rank is derived from `xp` against the ladder in server/lib/xp.js rather than
+// stored, so changing a threshold re-ranks everybody without a backfill.
+// `promotedRank` is the last rank we actually promoted them TO, which is what
+// stops the same promotion firing twice.
+model MetXp {
+  discordId      String   @id
+  xp             Int      @default(0)
+  robloxId       String?
+  robloxUsername String?
+  // The rank this system last promoted them to. Null until the first
+  // XP-driven promotion — an officer who was already a Sergeant before any of
+  // this existed is not "promoted" to Sergeant the first time they earn XP.
+  promotedRank   String?
+  promotedAt     DateTime?
+  firstEarnedAt  DateTime?
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@index([xp])
+  @@map("met_xp")
+}
+
+// Every XP change, and every promotion it triggered. The audit trail behind the
+// balance — this is what /xp reads for "recent activity" and what makes a
+// mistaken award traceable to whoever made it.
+model XpEvent {
+  id         String   @id @default(uuid())
+  discordId  String // who the XP belongs to
+  kind       String // ADD | REMOVE | SET | PROMOTION
+  delta      Int      @default(0) // signed change; 0 for a PROMOTION row
+  before     Int      @default(0)
+  after      Int      @default(0)
+  reason     String?
+  fromRank   String?
+  toRank     String?
+  issuedById String? // the Discord user who ran the command
+  issuedBy   String? // their display name at the time
+  messageId  String? // the XP-log message this produced
+  createdAt  DateTime @default(now())
+
+  @@index([discordId])
+  @@index([createdAt])
+  @@map("xp_events")
+}

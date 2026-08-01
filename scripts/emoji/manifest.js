@@ -174,6 +174,13 @@ const EMOJI = [
        + `<path d="M64 52 L112 88 H92 L64 68 L36 88 H16 Z"/>`
        + `<path d="M64 86 L104 116 H24 Z" opacity=".55"/></g>` },
 
+  // ── XP ──────────────────────────────────────────────────────────
+  { name: 'met_xp',      fallback: '✨', desc: 'experience points',
+    svg: tile(C.purple) + glyph('XP', C.paper, 46, 16) },
+  { name: 'met_promote', fallback: '⬆', desc: 'promoted',
+    svg: disc(C.green)
+       + `<path d="M64 30 L98 68 H78 V98 H50 V68 H30 Z" fill="#08210f"/>` },
+
   // ── Loading animation ───────────────────────────────────────────
   // Four frames of one spinner. The bot doesn't use animated emoji — it edits
   // the ephemeral embed frame by frame, which renders as a spin and degrades to

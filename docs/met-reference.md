@@ -166,6 +166,68 @@ rejoining a way to shed a strike. On `guildMemberAdd` the bot re-applies the
 roles for punishments that are still active — not expired, not lifted, not
 appealed. `PUNISHMENT_REAPPLY=off` disables it.
 
+## XP `/xp` (Discord) ✅
+
+An XP balance per officer, with rank derived from it and promotion off the back
+of it.
+
+**The ladder** — thresholds are TOTALS, not costs. An officer on 15 XP *is* a
+Sergeant; they don't spend it.
+
+| XP | Rank |
+|----|------|
+| 0–1 | Student Officer (CSO) |
+| 2–14 | Constable (CON) |
+| 15–39 | Sergeant (SGT) |
+| 40–99 | Inspector (INS) |
+| 100+ | Chief Inspector (CINS) |
+
+Rank is derived from the balance rather than stored, so `XP_THRESHOLDS`
+re-ranks everybody immediately with no backfill.
+
+**The command**
+
+- `/xp` — your own card: XP, XP rank, standing, progress bar to the next rank,
+  live MET group rank, Roblox avatar and profile link, recent XP activity.
+- `/xp officers:@a` — their card. `officers:@a @b @c` — a compact table.
+- `/xp officers:@a @b action:add value:5 reason:"Event"` — change it.
+
+`officers` is a string, not a user option, because Discord has no multi-user
+option type. Typing `@` still opens the member picker and inserts a real
+mention, so it behaves like one — and it also accepts raw ids, Discord
+usernames and Roblox usernames (resolved back through RoVer), which a user
+option can't.
+
+Viewing is public — a stats card is meant to be seen. Changing XP answers
+ephemerally, because the XP log channel is the public record.
+
+**Who can change it**: Internal Affairs, Deputy Commissioner and above, or
+anyone holding a role in `XP_MANAGER_ROLE_IDS` (so trainers and event hosts can
+award XP without disciplinary powers). Anyone can view. Nobody can award
+themselves.
+
+**Promotion.** Crossing a threshold promotes the officer in the MET Roblox
+group, DMs them, and posts to the XP log — all three outcomes reported on the
+panel, including when the group rank *didn't* move. It fires once per rank:
+`promotedRank` on the balance is what stops a repeat.
+
+Two things worth knowing:
+
+- **Losing XP never demotes.** Deliberate — a mistyped `remove` should not
+  silently strip somebody's rank. The XP log shows the drop; a human decides
+  what to do about it.
+- **Serving officers are seeded, not promoted.** The first time the system sees
+  somebody it sets their balance to the floor of the rank they already hold and
+  marks it as already reached. Without that, giving a serving Inspector their
+  first XP point would congratulate them on making Constable.
+
+**Logs** go to `XP_LOG_CHANNEL_ID` (default `1531317662360146092`) — one embed
+per change (who, how much, before → after, why) and one per promotion. A change
+never pings the channel; a promotion does ping the officer.
+
+Every balance has its full audit trail in `xp_events` — one row per change and
+one per promotion, each naming who did it.
+
 ## MET emoji ✅
 
 Everywhere the bot, its embeds, the webhooks and the site used a stock unicode

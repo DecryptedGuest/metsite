@@ -128,6 +128,8 @@ client = buildClient(WANT_MESSAGE_CONTENT);
 
 // Where /discipline lives: the MET server, where the punishment roles are.
 const DISCIPLINE_GUILD_ID = () => process.env.DISCIPLINE_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+// Where /xp lives: the MET server, where the ranks it promotes people into are.
+const XP_GUILD_ID = () => process.env.XP_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -165,6 +167,13 @@ async function registerCommands() {
     console.error('[Bot] could not build /discipline:', err.message);
   }
 
+  // /xp — everyone can look; who may change XP is decided in code.
+  try {
+    add(XP_GUILD_ID(), require('./xpCommand').buildCommand());
+  } catch (err) {
+    console.error('[Bot] could not build /xp:', err.message);
+  }
+
   for (const [guildId, cmds] of byGuild) {
     try {
       const guild = await client.guilds.fetch(guildId);
@@ -195,6 +204,17 @@ async function onInteraction(interaction) {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'xp') {
+    return require('./xpCommand').handleXpCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /xp failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong running that. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
 
   if (interaction.commandName === 'discipline') {
     return require('./disciplineCommand').handleDisciplineCommand(interaction)
