@@ -1446,3 +1446,71 @@ tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
    to say out loud that it leaves the site. */
 .log-link { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
 .log-link:hover { color: var(--text-primary); }
+
+/* ── Casework selector ────────────────────────────────────────────────
+   Cases or tickets, everyone's or mine. Big enough to read at a glance and
+   to hit on a phone — it replaces four sidebar items, so it has to be
+   obviously the thing you use to move between them. */
+.casework-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 1.1rem;
+}
+.seg {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 11px;
+  background: var(--bg-elevated, rgba(255,255,255,.03));
+  border: 1px solid var(--border-dim);
+}
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.seg-btn i { font-size: 15px; opacity: .85; }
+.seg-btn:hover { color: var(--text-primary); background: rgba(255,255,255,.04); }
+.seg-btn.active {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(74,143,255,.32);
+}
+.seg-btn.active i { opacity: 1; }
+/* The scope switch is the secondary choice, so it reads quieter than the
+   thing it is scoping. */
+.seg-scope .seg-btn.active {
+  background: var(--bg-card, rgba(255,255,255,.08));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--border-bright);
+}
+.seg-btn .nav-badge { margin-left: 2px; }
+
+.casework-foot {
+  margin: 1rem 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.casework-foot a { color: var(--text-secondary); }
+
+@media (max-width: 640px) {
+  .casework-switch { gap: 8px; }
+  .seg { width: 100%; }
+  .seg-btn { flex: 1; justify-content: center; padding: 9px 8px; }
+}

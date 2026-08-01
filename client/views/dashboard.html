@@ -73,62 +73,39 @@
         <button class="nav-item active" data-page="dashboard">
           <i class="ti ti-layout-dashboard nav-icon"></i><span>Overview</span>
         </button>
-        <button class="nav-item" data-page="my-cases">
-          <i class="ti ti-folder nav-icon"></i><span>My Cases</span>
+        <!-- Cases and tickets are the same job — one queue of things you
+             worked on — so they are one tab with a selector, not four. -->
+        <button class="nav-item" data-page="casework">
+          <i class="ti ti-folders nav-icon"></i><span>Casework</span>
           <span class="nav-badge pending" id="nav-badge-my" style="display:none;"></span>
         </button>
-        <button class="nav-item" data-page="all-cases">
-          <i class="ti ti-database nav-icon"></i><span>All Cases</span>
-        </button>
-        <button class="nav-item hicomm-only supervisor-only" data-page="review" style="display:none;">
-          <i class="ti ti-clipboard-check nav-icon"></i><span>Review Queue</span>
+        <!-- Everything waiting on a supervisor, cases and tickets together. -->
+        <button class="nav-item hicomm-only supervisor-only" data-page="pending" style="display:none;">
+          <i class="ti ti-clipboard-check nav-icon"></i><span>Pending</span>
           <span class="nav-badge pending" id="nav-badge-review" style="display:none;"></span>
         </button>
         <button class="nav-item" data-page="records">
           <i class="ti ti-id-badge-2 nav-icon"></i><span>Records</span>
         </button>
-
-        <!-- ── Reference ────────────────────────────────────── -->
-        <div class="nav-section-label">Reference</div>
-        <button class="nav-item" data-page="case-docs">
-          <i class="ti ti-file-text nav-icon"></i><span>Documents</span>
-        </button>
-        <button class="nav-item" data-page="tickets">
-          <i class="ti ti-ticket nav-icon"></i><span>My Tickets</span>
-        </button>
-        <button class="nav-item" data-page="all-tickets">
-          <i class="ti ti-tags nav-icon"></i><span>All Tickets</span>
-          <span class="nav-badge pending" id="nav-badge-tickets" style="display:none;"></span>
-        </button>
         <button class="nav-item" data-page="media">
           <i class="ti ti-photo-video nav-icon"></i><span>Media</span>
         </button>
-        <button class="nav-item" data-page="dq-activity">
-          <i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span>
-        </button>
 
         <!-- ── Command (HICOMM / Supervisor / Developer) ─────── -->
+        <!-- Quota, the database and activity tracking are one subject, and the
+             audit log appeared twice under two headings. One of each. -->
         <div class="nav-section-label hicomm-only supervisor-only" style="display:none;">Command</div>
         <button class="nav-item hicomm-strict-only" data-page="quota-check" style="display:none;">
           <i class="ti ti-checklist nav-icon"></i><span>Quota &amp; Database</span>
+        </button>
+        <button class="nav-item hicomm-strict-only" data-page="ia-profiles" style="display:none;">
+          <i class="ti ti-user-search nav-icon"></i><span>IA Profiles</span>
         </button>
         <button class="nav-item hicomm-strict-only" data-page="audit" style="display:none;">
           <i class="ti ti-list-details nav-icon"></i><span>Audit Log</span>
         </button>
         <button class="nav-item hicomm-only supervisor-only" data-page="notif-settings" style="display:none;">
           <i class="ti ti-bell nav-icon"></i><span>Notifications</span>
-        </button>
-
-        <!-- ── Oversight (HICOMM / Developer) ───────────────── -->
-        <div class="nav-section-label hicomm-strict-only" style="display:none;">Oversight</div>
-        <button class="nav-item hicomm-strict-only" data-page="audit" style="display:none;">
-          <i class="ti ti-list-details nav-icon"></i><span>Audit Log</span>
-        </button>
-        <button class="nav-item hicomm-strict-only" data-page="quota-check" style="display:none;">
-          <i class="ti ti-checklist nav-icon"></i><span>Quota Check</span>
-        </button>
-        <button class="nav-item hicomm-strict-only" data-page="ia-profiles" style="display:none;">
-          <i class="ti ti-user-search nav-icon"></i><span>IA Profiles</span>
         </button>
 
         <!-- ── Developer ────────────────────────────────────── -->
@@ -345,11 +322,44 @@
     </section>
 
     <!-- MY CASES -->
-    <section class="page" id="page-my-cases">
+    <!-- CASEWORK — cases and tickets, all or mine.
+         The four separate pages this replaces were the same table with
+         different filters, and moving between them meant leaving the page. The
+         panels below are unchanged; they are shown and hidden by the selector,
+         so every search box, filter and renderer still works exactly as it did. -->
+    <section class="page" id="page-casework">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">My Cases</h1><p class="page-sub">Your submitted case history</p></div>
-        <button class="btn btn-primary btn-new-case"><i class="ti ti-plus"></i> Submit Case</button>
+        <div><h1 class="page-title" id="casework-title">All Cases</h1>
+          <p class="page-sub" id="casework-sub">Every case Internal Affairs has filed</p></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost hicomm-strict-only" id="btn-ticket-sync" style="display:none;">
+            <i class="ti ti-refresh"></i> Re-sync from Discord
+          </button>
+          <button class="btn btn-primary btn-new-case"><i class="ti ti-plus"></i> Submit Case</button>
+        </div>
       </div>
+
+      <div class="casework-switch fade-up">
+        <div class="seg" id="casework-kind" role="tablist" aria-label="Cases or tickets">
+          <button class="seg-btn active" type="button" data-kind="cases" role="tab">
+            <i class="ti ti-folder"></i> Cases
+          </button>
+          <button class="seg-btn" type="button" data-kind="tickets" role="tab">
+            <i class="ti ti-ticket"></i> Tickets
+            <span class="nav-badge pending" id="casework-ticket-badge" style="display:none;"></span>
+          </button>
+        </div>
+        <div class="seg seg-scope" id="casework-scope" role="tablist" aria-label="Whose">
+          <button class="seg-btn active" type="button" data-scope="all" role="tab">
+            <i class="ti ti-world"></i> Everyone's
+          </button>
+          <button class="seg-btn" type="button" data-scope="mine" role="tab">
+            <i class="ti ti-user"></i> Mine
+          </button>
+        </div>
+      </div>
+
+      <div class="casework-pane" id="cw-cases-mine" style="display:none;">
       <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-dot blue"></span>Submitted Cases</div>
@@ -375,45 +385,9 @@
           </table>
         </div>
       </div>
-    </section>
+      </div><!-- /cw-cases-mine -->
 
-    <!-- REVIEW QUEUE (HICOMM) -->
-    <section class="page" id="page-review">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">Review Queue</h1><p class="page-sub">Cases waiting on a decision</p></div>
-        <div class="panel-dot amber pulse-anim" style="width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);align-self:center;"></div>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot amber"></span>Pending Cases</div>
-          <div class="panel-tools">
-            <div class="search-box">
-              <i class="ti ti-search"></i>
-              <input type="text" id="review-search" placeholder="Search the queue…" autocomplete="off" />
-            </div>
-            <div class="filter-tabs" id="review-filter-tabs">
-              <button class="filter-tab active" data-rfilter="all">All</button>
-              <button class="filter-tab" data-rfilter="new">Untouched</button>
-              <button class="filter-tab" data-rfilter="changes">Changes requested</button>
-              <button class="filter-tab" data-rfilter="updated">Updated by submitter</button>
-            </div>
-            <span class="text-muted mono" id="pending-count-label" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Case Ref</th><th>Investigator</th><th>Officer</th><th>Action</th><th>Reason</th><th>Notes</th><th>Submitted</th><th>Decision</th></tr></thead>
-            <tbody id="review-tbody"><tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ALL CASES -->
-    <section class="page" id="page-all-cases">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">All Cases</h1><p class="page-sub">Every case Internal Affairs has filed</p></div>
-      </div>
+      <div class="casework-pane" id="cw-cases-all">
       <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-dot blue"></span>Case Archive</div>
@@ -439,6 +413,160 @@
           </table>
         </div>
       </div>
+      </div><!-- /cw-cases-all -->
+
+      <!-- The ticket panes are moved in below, unchanged. -->
+      <div class="casework-pane" id="cw-tickets-mine" style="display:none;">
+<div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Closed by me</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="tickets-search" placeholder="Search tickets…" autocomplete="off" />
+            </div>
+            <div class="filter-tabs" id="ticket-filter-tabs">
+              <button class="filter-tab active" data-tfilter="all">All</button>
+              <button class="filter-tab" data-tfilter="GENERAL_SUPPORT">Support</button>
+              <button class="filter-tab" data-tfilter="OFFICER_REPORT">Reports</button>
+              <button class="filter-tab" data-tfilter="APPEAL">Appeals</button>
+              <button class="filter-tab" data-tfilter="HICOMM">IA Complaints</button>
+            </div>
+            <div class="filter-tabs" id="ticket-status-tabs">
+              <button class="filter-tab active" data-tstatus="all">Any</button>
+              <button class="filter-tab" data-tstatus="PENDING">Pending</button>
+              <button class="filter-tab" data-tstatus="APPROVED">Approved</button>
+              <button class="filter-tab" data-tstatus="DENIED">Denied</button>
+            </div>
+            <span class="text-muted mono" id="tickets-count-label" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ticket</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
+            </tr></thead>
+            <tbody id="tickets-tbody">
+              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      </div><!-- /cw-tickets-mine -->
+      <div class="casework-pane" id="cw-tickets-all" style="display:none;">
+<div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Ticket Logs</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="all-tickets-search" placeholder="Search ticket, member, closer, reason…" autocomplete="off" />
+            </div>
+            <div class="filter-tabs" id="all-ticket-filter-tabs">
+              <button class="filter-tab active" data-atfilter="all">All</button>
+              <button class="filter-tab" data-atfilter="GENERAL_SUPPORT">Support</button>
+              <button class="filter-tab" data-atfilter="OFFICER_REPORT">Reports</button>
+              <button class="filter-tab" data-atfilter="APPEAL">Appeals</button>
+              <button class="filter-tab" data-atfilter="HICOMM">IA Complaints</button>
+            </div>
+            <div class="filter-tabs" id="all-ticket-status-tabs">
+              <button class="filter-tab active" data-atstatus="all">Any</button>
+              <button class="filter-tab" data-atstatus="PENDING">Pending<span class="nav-badge" id="all-tickets-pending-badge" style="display:none;margin-left:6px;"></span></button>
+              <button class="filter-tab" data-atstatus="APPROVED">Approved</button>
+              <button class="filter-tab" data-atstatus="DENIED">Denied</button>
+            </div>
+            <span class="text-muted mono" id="all-tickets-count-label" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
+            </tr></thead>
+            <tbody id="all-tickets-tbody">
+              <tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      </div><!-- /cw-tickets-all -->
+
+      <p class="casework-foot">
+        <i class="ti ti-file-text"></i>
+        Case documents are written as part of the case — there is no separate step.
+        <a href="#" onclick="showPage('case-docs');return false;">Browse every document</a>.
+      </p>
+    </section>
+
+    <!-- PENDING — everything waiting on a supervisor, in one place. -->
+    <section class="page" id="page-pending">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Pending</h1><p class="page-sub">Cases and tickets waiting on a decision</p></div>
+        <div class="panel-dot amber pulse-anim" style="width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);align-self:center;"></div>
+      </div>
+
+      <div class="casework-switch fade-up">
+        <div class="seg" id="pending-kind" role="tablist" aria-label="Cases or tickets">
+          <button class="seg-btn active" type="button" data-pkind="cases" role="tab">
+            <i class="ti ti-folder"></i> Pending Cases
+            <span class="nav-badge pending" id="pending-cases-badge" style="display:none;"></span>
+          </button>
+          <button class="seg-btn" type="button" data-pkind="tickets" role="tab">
+            <i class="ti ti-ticket"></i> Pending Tickets
+            <span class="nav-badge pending" id="pending-tickets-badge" style="display:none;"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="casework-pane" id="pend-cases">
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Pending Cases</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="review-search" placeholder="Search the queue…" autocomplete="off" />
+            </div>
+            <div class="filter-tabs" id="review-filter-tabs">
+              <button class="filter-tab active" data-rfilter="all">All</button>
+              <button class="filter-tab" data-rfilter="new">Untouched</button>
+              <button class="filter-tab" data-rfilter="changes">Changes requested</button>
+              <button class="filter-tab" data-rfilter="updated">Updated by submitter</button>
+            </div>
+            <span class="text-muted mono" id="pending-count-label" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Case Ref</th><th>Investigator</th><th>Officer</th><th>Action</th><th>Reason</th><th>Notes</th><th>Submitted</th><th>Decision</th></tr></thead>
+            <tbody id="review-tbody"><tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      </div><!-- /pend-cases -->
+
+      <div class="casework-pane" id="pend-tickets" style="display:none;">
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Pending Tickets</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="pending-tickets-search" placeholder="Search the queue…" autocomplete="off" />
+            </div>
+            <span class="text-muted mono" id="pending-tickets-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Closed</th><th>Decision</th>
+            </tr></thead>
+            <tbody id="pending-tickets-tbody"><tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      </div><!-- /pend-tickets -->
     </section>
 
     <!-- AUDIT LOG (HICOMM) -->
@@ -1180,97 +1308,10 @@
 
 
     <!-- MY TICKETS — closed-ticket logs mirrored from Discord -->
-    <section class="page" id="page-tickets">
-      <div class="page-header fade-up">
-        <div>
-          <h1 class="page-title">My Tickets</h1>
-          <p class="page-sub">Tickets you closed &middot; mirrored from the ticket-logs channel</p>
-        </div>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Closed by me</div>
-          <div class="panel-tools">
-            <div class="search-box">
-              <i class="ti ti-search"></i>
-              <input type="text" id="tickets-search" placeholder="Search tickets…" autocomplete="off" />
-            </div>
-            <div class="filter-tabs" id="ticket-filter-tabs">
-              <button class="filter-tab active" data-tfilter="all">All</button>
-              <button class="filter-tab" data-tfilter="GENERAL_SUPPORT">Support</button>
-              <button class="filter-tab" data-tfilter="OFFICER_REPORT">Reports</button>
-              <button class="filter-tab" data-tfilter="APPEAL">Appeals</button>
-              <button class="filter-tab" data-tfilter="HICOMM">IA Complaints</button>
-            </div>
-            <div class="filter-tabs" id="ticket-status-tabs">
-              <button class="filter-tab active" data-tstatus="all">Any</button>
-              <button class="filter-tab" data-tstatus="PENDING">Pending</button>
-              <button class="filter-tab" data-tstatus="APPROVED">Approved</button>
-              <button class="filter-tab" data-tstatus="DENIED">Denied</button>
-            </div>
-            <span class="text-muted mono" id="tickets-count-label" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr>
-              <th>Ticket</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
-            </tr></thead>
-            <tbody id="tickets-tbody">
-              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+
 
     <!-- ALL TICKETS -->
-    <section class="page" id="page-all-tickets">
-      <div class="page-header fade-up">
-        <div>
-          <h1 class="page-title">All Tickets</h1>
-          <p class="page-sub">Every closed ticket logged in Discord</p>
-        </div>
-        <button class="btn btn-ghost hicomm-strict-only" id="btn-ticket-sync" style="display:none;">
-          <i class="ti ti-refresh"></i> Re-sync from Discord
-        </button>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Ticket Logs</div>
-          <div class="panel-tools">
-            <div class="search-box">
-              <i class="ti ti-search"></i>
-              <input type="text" id="all-tickets-search" placeholder="Search ticket, member, closer, reason…" autocomplete="off" />
-            </div>
-            <div class="filter-tabs" id="all-ticket-filter-tabs">
-              <button class="filter-tab active" data-atfilter="all">All</button>
-              <button class="filter-tab" data-atfilter="GENERAL_SUPPORT">Support</button>
-              <button class="filter-tab" data-atfilter="OFFICER_REPORT">Reports</button>
-              <button class="filter-tab" data-atfilter="APPEAL">Appeals</button>
-              <button class="filter-tab" data-atfilter="HICOMM">IA Complaints</button>
-            </div>
-            <div class="filter-tabs" id="all-ticket-status-tabs">
-              <button class="filter-tab active" data-atstatus="all">Any</button>
-              <button class="filter-tab" data-atstatus="PENDING">Pending<span class="nav-badge" id="all-tickets-pending-badge" style="display:none;margin-left:6px;"></span></button>
-              <button class="filter-tab" data-atstatus="APPROVED">Approved</button>
-              <button class="filter-tab" data-atstatus="DENIED">Denied</button>
-            </div>
-            <span class="text-muted mono" id="all-tickets-count-label" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr>
-              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
-            </tr></thead>
-            <tbody id="all-tickets-tbody">
-              <tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+
 
     <!-- CASE DOCUMENTS -->
     <section class="page" id="page-case-docs">
@@ -1359,29 +1400,13 @@
       <div id="iap-profile"></div>
     </section>
 
-    <section class="page" id="page-dq-activity">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every investigator's weekly activity · read-only</p></div>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <span id="dq-IA-act-tabs"></span>
-            <span class="text-muted mono" id="dq-IA-act-count" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
-            <tbody id="dq-IA-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+
 
     <!-- QUOTA CHECK (HICOMM + Developer only) -->
     <!-- QUOTA & DATABASE (HICOMM + Developer only) -->
+    <!-- QUOTA & DATABASE — the weekly review, the database sync, and the
+         activity every one of those is about. Activity Tracking was its own
+         tab showing the same members' points against the same targets. -->
     <section class="page" id="page-quota-check">
       <div class="page-header fade-up">
         <div>
@@ -1450,6 +1475,24 @@
           </table>
         </div>
       </div>
+    
+      <!-- Activity tracking, folded in from its own tab. -->
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-IA-act-tabs"></span>
+            <span class="text-muted mono" id="dq-IA-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-IA-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
     </section>
 
   </main>
@@ -1468,7 +1511,7 @@
       </div>
       <!-- How the case file is produced: built here, or imported from a legacy doc -->
       <div class="filter-tabs" id="case-mode-tabs" style="margin-bottom:1rem;">
-        <button class="filter-tab" type="button" data-casemode="build"><i class="ti ti-file-text"></i> Build the document</button>
+        <button class="filter-tab active" type="button" data-casemode="build"><i class="ti ti-file-text"></i> Write the document</button>
         <button class="filter-tab" type="button" data-casemode="import"><i class="ti ti-link"></i> Import an existing doc</button>
         <button class="filter-tab" type="button" data-casemode="manual"><i class="ti ti-pencil"></i> Enter manually</button>
       </div>

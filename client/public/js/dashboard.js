@@ -147,6 +147,11 @@ async function loadCurrentUser() {
     }
     if (['HICOMM', 'DEVELOPER'].includes(currentUser.role))
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
+      // The ticket re-sync shares the casework header with "Submit Case", so
+      // the selector decides when it is on screen — this only records that the
+      // user is allowed to see it at all.
+      const syncBtn = document.getElementById('btn-ticket-sync');
+      if (syncBtn) { syncBtn.dataset.allowed = '1'; syncBtn.style.display = 'none'; }
 
     // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
     // not mixed into the Internal Affairs section. The dev nav is therefore only
@@ -210,8 +215,89 @@ function applyDevContext() {
   document.title = 'MET · Developer';
 }
 
+// ── Casework selector ─────────────────────────────────────────────
+// Cases or tickets, everyone's or mine. Defaults to everyone's, which is what
+// people are usually looking for — your own work is a filter on the archive,
+// not a different place.
+let caseworkKind  = 'cases';
+let caseworkScope = 'all';
+let pendingKind   = 'cases';
+
+const CASEWORK_COPY = {
+  'cases:all':    ['All Cases',   'Every case Internal Affairs has filed'],
+  'cases:mine':   ['My Cases',    'Cases you submitted'],
+  'tickets:all':  ['All Tickets', 'Every closed ticket logged in Discord'],
+  'tickets:mine': ['My Tickets',  'Tickets you closed'],
+};
+
+function applyCaseworkSelector() {
+  document.querySelectorAll('#casework-kind .seg-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.kind === caseworkKind));
+  document.querySelectorAll('#casework-scope .seg-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.scope === caseworkScope));
+
+  const want = `cw-${caseworkKind}-${caseworkScope}`;
+  ['cw-cases-all', 'cw-cases-mine', 'cw-tickets-all', 'cw-tickets-mine'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === want ? '' : 'none';
+  });
+
+  const [title, sub] = CASEWORK_COPY[`${caseworkKind}:${caseworkScope}`] || ['Casework', ''];
+  const t = document.getElementById('casework-title'); if (t) t.textContent = title;
+  const p = document.getElementById('casework-sub');   if (p) p.textContent = sub;
+
+  // "Submit Case" belongs to cases; the Discord re-sync belongs to tickets.
+  const newBtn = document.querySelector('#page-casework .btn-new-case');
+  if (newBtn) newBtn.style.display = caseworkKind === 'cases' ? '' : 'none';
+  const sync = document.getElementById('btn-ticket-sync');
+  if (sync && sync.dataset.allowed === '1') sync.style.display = caseworkKind === 'tickets' ? '' : 'none';
+}
+
+function setCaseworkKind(kind)  { caseworkKind = kind;  applyCaseworkSelector(); loadCasework(); }
+function setCaseworkScope(scope){ caseworkScope = scope; applyCaseworkSelector(); loadCasework(); }
+
+// Only the pane on screen is loaded. Switching panes loads the other.
+function loadCasework() {
+  if (caseworkKind === 'cases') return caseworkScope === 'all' ? loadAllCases() : loadMyCases();
+  return caseworkScope === 'all' ? loadAllTickets() : loadTickets();
+}
+
+function applyPendingSelector() {
+  document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.pkind === pendingKind));
+  const cases = document.getElementById('pend-cases');
+  const tick  = document.getElementById('pend-tickets');
+  if (cases) cases.style.display = pendingKind === 'cases'   ? '' : 'none';
+  if (tick)  tick.style.display  = pendingKind === 'tickets' ? '' : 'none';
+}
+
+function setPendingKind(kind) { pendingKind = kind; applyPendingSelector(); loadPending(); }
+
+function loadPending() {
+  return pendingKind === 'cases'
+    ? loadReview()
+    : (typeof loadPendingTickets === 'function' ? loadPendingTickets() : null);
+}
+
+function setupCaseworkSelector() {
+  document.querySelectorAll('#casework-kind .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setCaseworkKind(b.dataset.kind)));
+  document.querySelectorAll('#casework-scope .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setCaseworkScope(b.dataset.scope)));
+  document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setPendingKind(b.dataset.pkind)));
+  applyCaseworkSelector();
+  applyPendingSelector();
+}
+
+// The casework footer links to the document archive by name; that page has no
+// nav item any more, so give it the same entry point everything else uses.
+function showPage(id) { return navigateTo(id); }
+window.showPage = showPage;
+
 // ── Navigation ────────────────────────────────────────────────────
 function setupNav() {
+  setupCaseworkSelector();
   document.querySelectorAll('.nav-item[data-page]').forEach(btn =>
     btn.addEventListener('click', () => navigateTo(btn.dataset.page))
   );
@@ -240,16 +326,40 @@ function setupNav() {
   });
 }
 
+// Cases and tickets used to be four pages; the review queue was a fifth. They
+// are now two pages with a selector. Every existing caller — notification deep
+// links, the overview shortcuts, "review this case" — still names the old page,
+// so those names are resolved here rather than rewritten in twenty places.
+const MERGED_PAGES = {
+  'my-cases':    { page: 'casework', kind: 'cases',   scope: 'mine' },
+  'all-cases':   { page: 'casework', kind: 'cases',   scope: 'all'  },
+  tickets:       { page: 'casework', kind: 'tickets', scope: 'mine' },
+  'all-tickets': { page: 'casework', kind: 'tickets', scope: 'all'  },
+  review:        { page: 'pending',  pkind: 'cases' },
+};
+
 function navigateTo(pageId) {
+  const merged = MERGED_PAGES[pageId];
+  if (merged) {
+    pageId = merged.page;
+    if (merged.kind)  caseworkKind  = merged.kind;
+    if (merged.scope) caseworkScope = merged.scope;
+    if (merged.pkind) pendingKind   = merged.pkind;
+  }
+
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const navBtn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
   if (navBtn) navBtn.classList.add('active');
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const page = document.getElementById(`page-${pageId}`);
   if (page) page.classList.add('active');
+  if (pageId === 'casework') applyCaseworkSelector();
+  if (pageId === 'pending')  applyPendingSelector();
 
   const loaders = {
     dashboard:   loadDashboard,
+    casework:    loadCasework,
+    pending:     loadPending,
     'my-cases':  loadMyCases,
     review:      loadReview,
     'all-cases': loadAllCases,
@@ -262,7 +372,11 @@ function navigateTo(pageId) {
     'all-tickets':   loadAllTickets,
     'case-docs':     loadCaseDocs,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
-    'quota-check':   (typeof loadQuotaCheck === 'function' ? loadQuotaCheck : null),
+    // Activity tracking is part of this page now, so it loads with it.
+    'quota-check':   () => {
+      if (typeof loadQuotaCheck === 'function') loadQuotaCheck();
+      if (typeof DivQuota !== 'undefined') DivQuota.loadActivity('IA');
+    },
     'ia-profiles':   (typeof loadIaProfiles === 'function' ? loadIaProfiles : null),
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
@@ -270,7 +384,6 @@ function navigateTo(pageId) {
     'emergency-alert': (typeof loadEmergencyAlert === 'function' ? loadEmergencyAlert : null),
     media:           (typeof loadMedia === 'function' ? loadMedia : null),
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
-    'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
     gamelogs:        loadDevGameLogs,
     cad:             (typeof loadCad === 'function' ? loadCad : null),
   };
@@ -479,8 +592,11 @@ function resetCaseForm() {
   if (sbtn) sbtn.innerHTML = '<i class="ti ti-send"></i> Submit Case';
   const importBox = document.getElementById('f-import-url')?.closest('.form-group');
   if (importBox) importBox.style.display = '';
-  // Fresh case: no method picked yet — show only the selector until they choose.
-  if (typeof setCaseMode === 'function') setCaseMode('');
+  // Writing the document here IS the normal way to file a case, so that is
+  // what a fresh case opens on. Making people pick a method first turned one
+  // job into two, and the document into something you went somewhere else to
+  // make. Import and manual are still a click away for the cases that need them.
+  if (typeof setCaseMode === 'function') setCaseMode('build');
   showAttachedDoc(null);
   renderActionChecklist();
 }
@@ -1237,8 +1353,10 @@ async function loadStats() {
       set('stat-approved',   stats.approved);
       set('stat-denied',     stats.denied);
       set('stat-overturned', stats.overturned || 0);
-      const badge = document.getElementById('nav-badge-review');
-      if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
+      for (const id of ['nav-badge-review', 'pending-cases-badge']) {
+        const badge = document.getElementById(id);
+        if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
+      }
       attentionState.pending = stats.pending || 0;
     }
     if (mine) {
@@ -1254,7 +1372,7 @@ async function loadStats() {
       // All Tickets "Pending" tab and the nav, so the sign-off queue is visible
       // without having to go looking for it.
       const waiting = tickets.pending || 0;
-      for (const id of ['all-tickets-pending-badge', 'nav-badge-tickets']) {
+      for (const id of ['all-tickets-pending-badge', 'nav-badge-tickets', 'casework-ticket-badge', 'pending-tickets-badge']) {
         const b = document.getElementById(id);
         if (b) { b.textContent = waiting; b.style.display = waiting > 0 ? '' : 'none'; }
       }

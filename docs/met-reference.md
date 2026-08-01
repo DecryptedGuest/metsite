@@ -316,6 +316,35 @@ mark for the same thing. Tabler icons are untouched.
 - Manifest order is upload priority, because a full guild stops the upload
   part-way.
 
+## IA dashboard layout ✅
+
+Nine casework-ish tabs became two, and two duplicates became one.
+
+**Casework** — one tab for cases *and* tickets, with two selectors: **Cases /
+Tickets** and **Everyone's / Mine**, defaulting to everyone's. The four pages
+this replaces (My Cases, All Cases, My Tickets, All Tickets) were the same
+table with different filters, and moving between them meant leaving the page.
+The panels are unchanged and shown/hidden by the selector, so every search box,
+filter tab and renderer still behaves exactly as it did.
+
+**Pending** — supervisor+ only. **Pending Cases** (the old Review Queue) and
+**Pending Tickets** side by side, both with approve/deny in the row. Pending
+tickets used to be a status filter buried inside All Tickets.
+
+Old page ids (`my-cases`, `all-cases`, `tickets`, `all-tickets`, `review`) are
+resolved to the merged pages in `navigateTo`, so notification deep links, the
+overview shortcuts and "review this case" all keep working unchanged.
+
+**Case documents** are written as part of filing a case — the modal opens on
+"Write the document" and the case link is generated from it. No Documents tab;
+the archive is still reachable from the Casework footer.
+
+**Quota & Database** absorbed Activity Tracking, which was its own tab showing
+the same members' points against the same targets.
+
+**Audit Log** and **Quota Check** each had two sidebar entries pointing at the
+same page, under "Command" and "Oversight". One of each now.
+
 ## Deferred (still to build)
 
 - **Nav reframe**: a normal sign-in landing + a single MET dashboard where

@@ -79,7 +79,9 @@ async function reviewTicket(ticketId, action) {
     });
     showToast(action === 'approve' ? 'Ticket approved.' : 'Ticket denied.', 'success');
     closeModal('modal-ticket-detail');
+    allTicketsCache = [];   // force a refetch so the queue and the archive agree
     await Promise.all([loadTickets(), loadAllTickets()].map(function (p) { return p && p.catch ? p.catch(function () {}) : p; }));
+    if (typeof renderPendingTicketsTable === 'function') renderPendingTicketsTable();
     if (typeof loadStats === 'function') loadStats();
   } catch (err) {
     showToast(err.message || 'Could not record that decision.', 'error');
@@ -99,9 +101,14 @@ function ticketRowHtml(t, opts) {
     + '<td>' + (t.transcriptUrl
         ? '<a href="' + escapeHtml(t.transcriptUrl) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="row-btn"><i class="ti ti-file-text"></i> Transcript</a>'
         : '<span class="text-muted" style="font-size:11px;">—</span>') + '</td>'
-    + '<td>' + statusBadge(t.status || 'PENDING') + '</td>'
-    + '<td>' + ticketReviewCell(t) + '</td>'
-    + '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>'
+    // The pending queue is all one status, so a Status column there would be
+    // the same word on every row; the decision goes last, where the eye ends up.
+    + (opts.review
+        ? '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>'
+          + '<td>' + ticketReviewCell(t) + '</td>'
+        : '<td>' + statusBadge(t.status || 'PENDING') + '</td>'
+          + '<td>' + ticketReviewCell(t) + '</td>'
+          + '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>')
     + '</tr>';
 }
 
@@ -146,6 +153,41 @@ async function loadAllTickets() {
   } catch (err) {
     tbody.innerHTML = emptyRow(9, 'Failed to load ticket logs.');
   }
+}
+
+// ── Pending tickets ───────────────────────────────────────────────
+// The supervisor queue. Same rows as the archive, filtered to what still needs
+// a decision, with the decision column always present — a queue whose whole
+// purpose is deciding things shouldn't make you hunt for the buttons.
+var pendingTicketQuery = '';
+
+async function loadPendingTickets() {
+  var tbody = document.getElementById('pending-tickets-tbody');
+  if (!tbody) return;
+  if (!allTicketsCache.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>';
+    try { allTicketsCache = (await api('/api/tickets/all')) || []; }
+    catch (err) { tbody.innerHTML = emptyRow(8, err.message || 'Failed to load tickets.'); return; }
+  }
+  renderPendingTicketsTable();
+}
+
+function renderPendingTicketsTable() {
+  var tbody = document.getElementById('pending-tickets-tbody');
+  if (!tbody) return;
+  var rows = filterTickets(allTicketsCache, 'all', pendingTicketQuery, 'PENDING');
+  var label = document.getElementById('pending-tickets-count');
+  if (label) label.textContent = rows.length + (rows.length === 1 ? ' waiting' : ' waiting');
+  var badge = document.getElementById('pending-tickets-badge');
+  if (badge) { badge.textContent = rows.length; badge.style.display = rows.length ? '' : 'none'; }
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(8, pendingTicketQuery
+      ? 'No pending tickets match that search.'
+      : 'Nothing waiting — every ticket log has been signed off.');
+    return;
+  }
+  tbody.innerHTML = rows.map(function (t) { return ticketRowHtml(t, { showCloser: true, review: true }); }).join('');
 }
 
 function renderAllTicketsTable() {
@@ -290,6 +332,14 @@ document.addEventListener('DOMContentLoaded', function () {
     allTimer = setTimeout(loadAllTickets, 350);
   });
 
+  var pq = document.getElementById('pending-tickets-search');
+  var pqTimer;
+  if (pq) pq.addEventListener('input', function () {
+    pendingTicketQuery = pq.value.trim();
+    clearTimeout(pqTimer);
+    pqTimer = setTimeout(renderPendingTicketsTable, 200);
+  });
+
   // Manual re-sync (HICOMM / Developer)
   var sync = document.getElementById('btn-ticket-sync');
   if (sync) sync.addEventListener('click', async function () {
@@ -300,6 +350,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var s = await api('/api/tickets/sync', { method: 'POST', body: JSON.stringify({ full: true }) });
       showToast('Synced — ' + s.created + ' new, ' + s.updated + ' refreshed (scanned ' + s.scanned + ').', 'success');
       loadAllTickets(); loadTickets();
+      if (typeof renderPendingTicketsTable === 'function') renderPendingTicketsTable();
     } catch (err) {
       showToast(err.message || 'Sync failed.', 'error');
     } finally {
