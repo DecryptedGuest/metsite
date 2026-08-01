@@ -93,6 +93,7 @@
         </button>
         <button class="nav-item" data-page="all-tickets">
           <i class="ti ti-tags nav-icon"></i><span>All Tickets</span>
+          <span class="nav-badge pending" id="nav-badge-tickets" style="display:none;"></span>
         </button>
         <button class="nav-item" data-page="media">
           <i class="ti ti-photo-video nav-icon"></i><span>Media</span>
@@ -1196,6 +1197,12 @@
               <button class="filter-tab" data-tfilter="APPEAL">Appeals</button>
               <button class="filter-tab" data-tfilter="HICOMM">IA Complaints</button>
             </div>
+            <div class="filter-tabs" id="ticket-status-tabs">
+              <button class="filter-tab active" data-tstatus="all">Any</button>
+              <button class="filter-tab" data-tstatus="PENDING">Pending</button>
+              <button class="filter-tab" data-tstatus="APPROVED">Approved</button>
+              <button class="filter-tab" data-tstatus="DENIED">Denied</button>
+            </div>
             <span class="text-muted mono" id="tickets-count-label" style="font-size:11px;"></span>
           </div>
         </div>
@@ -1237,6 +1244,12 @@
               <button class="filter-tab" data-atfilter="OFFICER_REPORT">Reports</button>
               <button class="filter-tab" data-atfilter="APPEAL">Appeals</button>
               <button class="filter-tab" data-atfilter="HICOMM">IA Complaints</button>
+            </div>
+            <div class="filter-tabs" id="all-ticket-status-tabs">
+              <button class="filter-tab active" data-atstatus="all">Any</button>
+              <button class="filter-tab" data-atstatus="PENDING">Pending<span class="nav-badge" id="all-tickets-pending-badge" style="display:none;margin-left:6px;"></span></button>
+              <button class="filter-tab" data-atstatus="APPROVED">Approved</button>
+              <button class="filter-tab" data-atstatus="DENIED">Denied</button>
             </div>
             <span class="text-muted mono" id="all-tickets-count-label" style="font-size:11px;"></span>
           </div>

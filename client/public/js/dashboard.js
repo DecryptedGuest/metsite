@@ -1248,7 +1248,17 @@ async function loadStats() {
         myBadge.style.display = (mine.changesRequested || 0) > 0 ? '' : 'none';
       }
     }
-    if (tickets) set('stat-tickets-week', tickets.mineWeek || 0);
+    if (tickets) {
+      set('stat-tickets-week', tickets.mineWeek || 0);
+      // How many ticket logs are still waiting on a supervisor — shown on the
+      // All Tickets "Pending" tab and the nav, so the sign-off queue is visible
+      // without having to go looking for it.
+      const waiting = tickets.pending || 0;
+      for (const id of ['all-tickets-pending-badge', 'nav-badge-tickets']) {
+        const b = document.getElementById(id);
+        if (b) { b.textContent = waiting; b.style.display = waiting > 0 ? '' : 'none'; }
+      }
+    }
   } catch (err) { console.error('Stats error:', err); }
 }
 

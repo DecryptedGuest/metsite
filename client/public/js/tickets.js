@@ -252,6 +252,25 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
+  // Status tabs — this is what makes the sign-off queue workable: "Pending"
+  // shows only the logs still waiting on a supervisor.
+  document.querySelectorAll('#ticket-status-tabs .filter-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#ticket-status-tabs .filter-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      myTicketStatus = tab.dataset.tstatus;
+      renderTicketsTable();
+    });
+  });
+  document.querySelectorAll('#all-ticket-status-tabs .filter-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#all-ticket-status-tabs .filter-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      allTicketStatus = tab.dataset.atstatus;
+      renderAllTicketsTable();
+    });
+  });
+
   // Search
   // Filter what's on screen instantly, then re-query the server shortly after so
   // matches beyond the loaded rows show up too.
