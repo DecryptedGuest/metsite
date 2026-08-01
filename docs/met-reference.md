@@ -176,7 +176,7 @@ Sergeant; they don't spend it.
 
 | XP | Rank |
 |----|------|
-| 0–1 | Student Officer (CSO) |
+| 0–1 | Community Support Officer (CSO) |
 | 2–14 | Constable (CON) |
 | 15–39 | Sergeant (SGT) |
 | 40–99 | Inspector (INS) |
@@ -184,6 +184,23 @@ Sergeant; they don't spend it.
 
 Rank is derived from the balance rather than stored, so `XP_THRESHOLDS`
 re-ranks everybody immediately with no backfill.
+
+**XP rank follows GROUP rank, not the other way round.** Somebody is only a
+Community Support Officer here if that is what they actually are in the group.
+The first time the system sees an officer it places them from their live group
+rank:
+
+- a rank the ladder names → the floor of that rank (a serving Sergeant starts
+  on 15, not 0)
+- a rank *above* the ladder (Superintendent, Commander) → the Chief Inspector
+  floor, since that is the top of what XP governs
+- a rank *below* it (Awaiting Training, Recruit) or one that can't be read →
+  **no XP row at all**. They show as *Unranked*, not as a CSO. Giving them any
+  XP places them.
+
+Ranks the ladder doesn't name are placed by their group rank *number* against
+the numbers of the rolesets it does name, so the group can rename or add ranks
+without this breaking.
 
 **The command**
 
@@ -201,25 +218,37 @@ option can't.
 Viewing is public — a stats card is meant to be seen. Changing XP answers
 ephemerally, because the XP log channel is the public record.
 
-**Who can change it**: Internal Affairs, Deputy Commissioner and above, or
-anyone holding a role in `XP_MANAGER_ROLE_IDS` (so trainers and event hosts can
-award XP without disciplinary powers). Anyone can view. Nobody can award
-themselves.
+**Who can change it**, checked cheapest first:
+
+1. the FLP officer role (`FLP_OFFICER_ROLE_ID`, default `1431554710594388018`)
+2. **Administrator** in the server
+3. Deputy Commissioner and above in the MET group
+
+plus anything in `XP_MANAGER_ROLE_IDS`. Internal Affairs on its own is **not**
+enough — an investigator needs one of the above as well. Anyone can view.
+Nobody can award themselves.
 
 **Promotion.** Crossing a threshold promotes the officer in the MET Roblox
 group, DMs them, and posts to the XP log — all three outcomes reported on the
 panel, including when the group rank *didn't* move. It fires once per rank:
 `promotedRank` on the balance is what stops a repeat.
 
-Two things worth knowing:
+**Demotion.** Losing XP back across a threshold demotes, the same way in
+reverse: the group rank moves down, the officer is DM'd with the reason the XP
+came off, and it goes on the XP log. The demotion post does **not** ping them —
+a promotion is worth someone's attention, being demoted in a public channel is
+not.
 
-- **Losing XP never demotes.** Deliberate — a mistyped `remove` should not
-  silently strip somebody's rank. The XP log shows the drop; a human decides
-  what to do about it.
-- **Serving officers are seeded, not promoted.** The first time the system sees
-  somebody it sets their balance to the floor of the rank they already hold and
-  marks it as already reached. Without that, giving a serving Inspector their
-  first XP point would congratulate them on making Constable.
+One hard guard: a demotion will **never** touch somebody whose group rank is
+above the ladder. XP tops out at Chief Inspector, so without that check a
+Superintendent who lost a couple of XP would be dropped to Constable by a
+system that has no business ranking them at all. Their XP still moves; their
+rank doesn't.
+
+**Serving officers are seeded, not promoted.** The first time the system sees
+somebody it sets their balance to the floor of the rank they already hold and
+marks it as already reached. Without that, giving a serving Inspector their
+first XP point would congratulate them on making Constable.
 
 **Logs** go to `XP_LOG_CHANNEL_ID` (default `1531317662360146092`) — one embed
 per change (who, how much, before → after, why) and one per promotion. A change

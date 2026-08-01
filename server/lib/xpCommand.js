@@ -151,16 +151,22 @@ async function loadOfficer(discordId, guild) {
     robloxId ? require('./metRank').metRole(robloxId).catch(() => null) : null,
   ]);
 
-  // Establish their baseline before anything reads it.
-  await XP.seedFromRank(discordId, groupRole ? groupRole.name : null).catch(() => {});
-  if (robloxId || (info && info.username)) {
-    await XP.ensure(discordId, {
+  // Establish their baseline before anything reads it. This creates NO row for
+  // somebody whose group rank can't be placed on the ladder — being unplaceable
+  // is different from being at the bottom of it.
+  await XP.seedFromRank(discordId, groupRole).catch(() => {});
+
+  let row = await XP.getBalance(discordId);
+  // Only attach Roblox details to a row that already exists. Calling ensure()
+  // unconditionally would create the very row seedFromRank just declined to,
+  // and hand an unranked member a Community Support Officer badge.
+  if (row && (robloxId || (info && info.username))) {
+    row = await XP.ensure(discordId, {
       robloxId: robloxId ? String(robloxId) : null,
       robloxUsername: info ? info.username : null,
-    }).catch(() => {});
+    }).catch(() => row);
   }
 
-  const row = await XP.getBalance(discordId);
   const xp = row ? row.xp : 0;
 
   return {
@@ -168,6 +174,9 @@ async function loadOfficer(discordId, guild) {
     robloxUsername: info ? info.username : (row ? row.robloxUsername : null),
     displayName: member ? member.displayName : (info ? info.username : null),
     avatar, groupRole, row, xp,
+    // An officer with no row has never been placed and has never been given
+    // XP. They are unranked, not a CSO.
+    ranked: !!row,
     rank: XP.rankFor(xp),
     progress: XP.progress(xp),
   };
@@ -194,10 +203,14 @@ async function buildCard(o) {
         ? ` · [${short(o.robloxUsername, 30)}](https://www.roblox.com/users/${o.robloxId}/profile)`
         : ' · *no Roblox account linked*'))
     .addFields(
-      { name: 'XP',        value: `**${o.xp}**`, inline: true },
-      { name: 'XP rank',   value: `**${o.rank.name}**`, inline: true },
-      { name: 'Standing',  value: standing.total ? `**#${standing.position}** of ${standing.total}` : '—', inline: true },
-      { name: 'Next rank', value: `${nextLine}\n${xpLog.progressBar(p)}`, inline: false },
+      { name: 'XP',        value: o.ranked ? `**${o.xp}**` : '—', inline: true },
+      { name: 'XP rank',   value: o.ranked ? `**${o.rank.name}**` : '*Unranked*', inline: true },
+      { name: 'Standing',  value: o.ranked && standing.total ? `**#${standing.position}** of ${standing.total}` : '—', inline: true },
+      { name: 'Next rank', value: o.ranked
+          ? `${nextLine}\n${xpLog.progressBar(p)}`
+          : `${e('met_warn')} Their MET group rank isn't one the XP ladder covers, so they don't have an XP rank yet. `
+            + `Giving them any XP places them.`,
+        inline: false },
       {
         name: 'MET group rank',
         value: o.groupRole
@@ -233,6 +246,7 @@ async function buildCard(o) {
 /** A compact table when several officers were named at once. */
 function buildTable(officers) {
   const lines = officers.map(o => {
+    if (!o.ranked) return `${e('met_user')} <@${o.discordId}> — *unranked*`;
     const p = o.progress;
     const tail = p.next ? `${p.need} to ${p.next.code}` : 'max';
     return `${e('met_user')} <@${o.discordId}> — **${o.xp}** XP · **${o.rank.name}** · *${tail}*`;

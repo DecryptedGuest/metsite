@@ -4,11 +4,17 @@
 // The thresholds are TOTALS, not costs. An officer with 15 XP is a Sergeant;
 // they don't spend it. So the ladder is a set of bands:
 //
-//     0 – 1      Cadet / Student Officer   (CSO)
-//     2 – 14     Constable                 (CON)
-//    15 – 39     Sergeant                  (SGT)
-//    40 – 99     Inspector                 (INS)
-//   100 +        Chief Inspector           (CINS)
+//     0 – 1      Community Support Officer  (CSO)
+//     2 – 14     Constable                  (CON)
+//    15 – 39     Sergeant                   (SGT)
+//    40 – 99     Inspector                  (INS)
+//   100 +        Chief Inspector            (CINS)
+//
+// XP rank follows GROUP rank, not the other way round. An officer is only a
+// Community Support Officer here if that is what they actually are in the
+// group; somebody joining the system already ranked starts at the floor of the
+// rank they hold, and somebody whose group rank can't be placed on the ladder
+// at all is unranked rather than being called a CSO. See rungForGroupRank.
 //
 // Rank is DERIVED from the balance rather than stored, so changing a threshold
 // re-ranks everybody with no backfill. The one thing that is stored is
@@ -31,11 +37,11 @@ const prisma = require('./db');
 // roleset by name — group rank names vary ("Constable", "Police Constable"), so
 // it's a pattern rather than an exact string.
 const LADDER = [
-  { code: 'CSO',  name: 'Student Officer',  at: 0,   match: /student officer|cadet|\bcso\b/i },
-  { code: 'CON',  name: 'Constable',        at: 2,   match: /(^|[^a-z])constable/i },
-  { code: 'SGT',  name: 'Sergeant',         at: 15,  match: /sergeant|\bsgt\b/i },
-  { code: 'INS',  name: 'Inspector',        at: 40,  match: /(^|[^a-z])inspector/i },
-  { code: 'CINS', name: 'Chief Inspector',  at: 100, match: /chief\s*inspector|\bcins\b/i },
+  { code: 'CSO',  name: 'Community Support Officer', at: 0,   match: /community support officer|\bcso\b/i },
+  { code: 'CON',  name: 'Constable',                 at: 2,   match: /(^|[^a-z])constable/i },
+  { code: 'SGT',  name: 'Sergeant',                  at: 15,  match: /sergeant|\bsgt\b/i },
+  { code: 'INS',  name: 'Inspector',                 at: 40,  match: /(^|[^a-z])inspector/i },
+  { code: 'CINS', name: 'Chief Inspector',           at: 100, match: /chief\s*inspector|\bcins\b/i },
 ];
 
 // Threshold overrides, so the numbers can be tuned without a deploy:
@@ -292,31 +298,94 @@ async function recordDemotion({ discordId, from, to, groupResult, issuedById, is
   return { row, event };
 }
 
+// The group's roleset list, cached briefly. Only the numeric-placement path
+// below needs it, and several officers looked up in one /xp shouldn't each pay
+// for the same call.
+let _rolesCache = { at: 0, roles: null };
+async function groupRoles() {
+  if (_rolesCache.roles && Date.now() - _rolesCache.at < 10 * 60 * 1000) return _rolesCache.roles;
+  const roles = await require('./roblox').listGroupRoles();
+  _rolesCache = { at: Date.now(), roles };
+  return roles;
+}
+
+/**
+ * The ladder rung an officer's LIVE MET group rank puts them on, or null if
+ * their group rank isn't on the ladder at all.
+ *
+ * Rank in the XP system follows rank in the group, not the other way round —
+ * somebody is only a Community Support Officer here if that is genuinely what
+ * they are over there.
+ *
+ * Two ways to place them, because a group has plenty of ranks the ladder does
+ * not name:
+ *
+ *   by name    "Sergeant" → SGT. The HIGHEST match wins: "Chief Inspector"
+ *              matches the CINS pattern and also contains "Inspector", and
+ *              reading a Chief Inspector as an Inspector would hand them a
+ *              promotion they already have the moment they hit 100 XP.
+ *
+ *   by number  Superintendent, Commander, Recruit — nothing on the ladder
+ *              matches those names, so compare their group rank NUMBER against
+ *              the numbers of the rolesets the ladder does match. The highest
+ *              rung at or below them wins. Above everything → Chief Inspector,
+ *              the top of what XP governs. Below everything (Recruit, Awaiting
+ *              Training) → null: they are not on the ladder yet.
+ *
+ * @param {{name?: string, rank?: number}|string} groupRole
+ */
+async function rungForGroupRank(groupRole) {
+  const name = typeof groupRole === 'string' ? groupRole : (groupRole && groupRole.name);
+  const num  = (groupRole && typeof groupRole === 'object') ? groupRole.rank : null;
+  if (!name && num == null) return null;
+
+  const matches = ladder().filter(r => r.match.test(String(name || '')));
+  if (matches.length) return matches.reduce((a, b) => (b.at > a.at ? b : a));
+
+  if (num == null) return null;
+
+  let roles;
+  try { roles = await groupRoles(); } catch (err) { return null; }
+
+  // Where each ladder rung sits in the group's own numbering.
+  const anchors = [];
+  for (const rung of ladder()) {
+    const cands = (roles || []).filter(r => r.rank > 0 && rung.match.test(String(r.name || '')));
+    if (cands.length) anchors.push({ rung, groupRank: cands.reduce((a, b) => (b.rank < a.rank ? b : a)).rank });
+  }
+  if (!anchors.length) return null;
+  anchors.sort((a, b) => a.groupRank - b.groupRank);
+
+  let hit = null;
+  for (const a of anchors) if (Number(num) >= a.groupRank) hit = a.rung;
+  return hit;
+}
+
 /**
  * Set an officer's starting XP from the rank they ALREADY hold, without
  * announcing a promotion.
  *
  * Without this, the very first `/xp add 1` given to a serving Inspector reads
- * as "0 XP → 1 XP", which is CSO → CSO, and the moment they reach 2 they get
- * congratulated on making Constable — a demotion dressed as a promotion. So
- * the first time we see somebody, we seed their balance to the floor of the
- * rank they actually hold and mark it as already promoted.
+ * as "0 XP → 1 XP", and the moment they reach 2 they get congratulated on
+ * making Constable — a demotion dressed as a promotion. So the first time we
+ * see somebody, their balance starts at the floor of the rank they actually
+ * hold, marked as already reached.
+ *
+ * Somebody whose group rank we cannot place gets NO row at all. That is the
+ * point: an unplaceable officer is unranked, not a Community Support Officer.
+ * A row appears the moment they are actually given XP.
  *
  * @param {string} discordId
- * @param {string} groupRankName their live MET group rank name
+ * @param {{name?: string, rank?: number}|string} groupRole their live MET group rank
+ * @returns {Promise<object|null>} the row, or null if they could not be placed
  */
-async function seedFromRank(discordId, groupRankName) {
+async function seedFromRank(discordId, groupRole) {
   const id = String(discordId);
   const existing = await prisma.metXp.findUnique({ where: { discordId: id } });
   if (existing) return existing;   // already known — never re-seed
 
-  // The HIGHEST matching rung, not the first. "Chief Inspector" matches both
-  // the CINS pattern and the INS one (it contains the word "Inspector"), and
-  // seeding a Chief Inspector as an Inspector would hand them a promotion they
-  // already have the moment they earn 100 XP.
-  const matches = ladder().filter(r => r.match.test(String(groupRankName || '')));
-  const hit = matches.length ? matches.reduce((a, b) => (b.at > a.at ? b : a)) : null;
-  if (!hit) return prisma.metXp.create({ data: { discordId: id, xp: 0 } });
+  const hit = await rungForGroupRank(groupRole);
+  if (!hit) return null;
 
   return prisma.metXp.create({
     data: {
@@ -402,6 +471,6 @@ async function leaderboard(take = 10) {
 module.exports = {
   LADDER, ladder, rankFor, nextRank, progress, promotionFor, demotionFor,
   getBalance, ensure, history, standing, leaderboard,
-  applyXp, recordPromotion, recordDemotion, seedFromRank,
+  applyXp, recordPromotion, recordDemotion, seedFromRank, rungForGroupRank,
   applyGroupRank, promoteInGroup, demoteInGroup,
 };
