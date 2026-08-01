@@ -65,26 +65,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   handleNotificationLaunch(); // open a case/ticket if arriving from a notification
 });
 
-// Keep the sidebar "pending" badges (cases + tickets) up to date without having
-// to open the relevant tab — refreshes on load, on a timer, and whenever the
-// tab regains focus (so counts are current when you come back to an open tab).
+// Keep the sidebar "pending" badges up to date without having to open the
+// relevant tab — refreshes on load, on a timer, and whenever the tab regains
+// focus (so counts are current when you come back to an open tab).
 async function refreshNavBadges() {
   try {
-    const [caseStats, caseMineStats, ticketStats] = await Promise.all([
-      api('/api/cases/stats').catch(() => null),           // scope depends on role (all-pending for elevated)
+    const [caseStats, caseMineStats] = await Promise.all([
+      api('/api/cases/stats').catch(() => null),            // scope depends on role (all-pending for elevated)
       api('/api/cases/stats?scope=mine').catch(() => null), // always the user's OWN pending
-      api('/api/tickets/stats').catch(() => null),
     ]);
     const setBadge = (id, n) => {
       const el = document.getElementById(id);
       if (el) { el.textContent = n; el.style.display = n > 0 ? '' : 'none'; }
     };
-    if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);      // Pending Cases (review)
-    if (caseMineStats) setBadge('nav-badge-my',     caseMineStats.pending || 0);  // My Cases (own pending)
-    if (ticketStats) {
-      setBadge('nav-badge-tickets',       ticketStats.pending || 0);
-      setBadge('nav-badge-ticket-review', ticketStats.pendingAll != null ? ticketStats.pendingAll : 0);
-    }
+    if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);
+    // "My Cases" badges what's on the submitter's plate: cases sent back to them.
+    if (caseMineStats) setBadge('nav-badge-my', caseMineStats.changesRequested || 0);
   } catch (e) { /* non-blocking */ }
 }
 
@@ -95,27 +91,6 @@ function startNavBadgePolling() {
   _navBadgeTimer = setInterval(refreshNavBadges, 45 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshNavBadges(); });
   window.addEventListener('focus', refreshNavBadges);
-}
-
-// ── Pending-ticket nav badge (loaded on startup) ──────────────────
-async function loadTicketNavBadge() {
-  try {
-    const stats = await api('/api/tickets/stats');
-    if (!stats) return;
-    // My Tickets badge = the user's OWN pending submissions
-    const badge = document.getElementById('nav-badge-tickets');
-    if (badge) {
-      badge.textContent   = stats.pending;
-      badge.style.display = stats.pending > 0 ? '' : 'none';
-    }
-    // Pending Tickets (review) badge = EVERY pending ticket (HICOMM/Supervisor)
-    const reviewBadge = document.getElementById('nav-badge-ticket-review');
-    if (reviewBadge) {
-      const allPending = stats.pendingAll != null ? stats.pendingAll : 0;
-      reviewBadge.textContent   = allPending;
-      reviewBadge.style.display = allPending > 0 ? '' : 'none';
-    }
-  } catch (err) { /* non-blocking */ }
 }
 
 // ── Session heartbeat — picks up blacklist/revoke within ~20s ─────
@@ -228,6 +203,29 @@ function setupNav() {
   document.querySelectorAll('.nav-item[data-page]').forEach(btn =>
     btn.addEventListener('click', () => navigateTo(btn.dataset.page))
   );
+
+  // The developer tools live in a collapsed group so they don't dominate the
+  // sidebar for the people who can see them.
+  const devToggle = document.getElementById('nav-dev-toggle');
+  const devGroup  = document.getElementById('nav-dev-group');
+  if (devToggle && devGroup) {
+    const open = localStorage.getItem('iacms_nav_dev') === '1';
+    devGroup.style.display = open ? '' : 'none';
+    devToggle.classList.toggle('nav-open', open);
+    devToggle.addEventListener('click', () => {
+      const nowOpen = devGroup.style.display === 'none';
+      devGroup.style.display = nowOpen ? '' : 'none';
+      devToggle.classList.toggle('nav-open', nowOpen);
+      localStorage.setItem('iacms_nav_dev', nowOpen ? '1' : '0');
+    });
+  }
+
+  // The sidebar search chip opens the command palette (Ctrl/Cmd+K).
+  const navSearch = document.getElementById('nav-search-btn');
+  if (navSearch) navSearch.addEventListener('click', () => {
+    if (typeof openCommandPalette === 'function') openCommandPalette();
+    else navigateTo('all-cases');
+  });
 }
 
 function navigateTo(pageId) {
@@ -250,10 +248,9 @@ function navigateTo(pageId) {
     security:        loadSecurity,
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
-    'ticket-review': loadTicketReview,
+    'case-docs':     loadCaseDocs,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
     'quota-check':   (typeof loadQuotaCheck === 'function' ? loadQuotaCheck : null),
-    'ai-review':     (typeof loadAiReview === 'function' ? loadAiReview : null),
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
     'send-notif':    loadDevNotifSender,
@@ -277,12 +274,8 @@ async function handleNotificationTarget(page, caseId, ticketId) {
     else showToast('This case is no longer pending — it has already been reviewed.', 'info');
   }
 
-  if (ticketId) {
-    let t = null;
-    try { t = await api('/api/tickets/' + ticketId); } catch (e) {}
-    if (t && t.status === 'PENDING') openTicketDetail(ticketId);
-    else showToast('This ticket log is no longer pending — it has already been reviewed.', 'info');
-  }
+  // Ticket logs are read-only records — a deep link just opens the log.
+  if (ticketId) openTicketDetail(ticketId);
 }
 
 // On a fresh load triggered by a notification click, the SW opens
@@ -355,6 +348,24 @@ function copyDeepLink(path) {
 function setupNewCaseButtons() {
   document.getElementById('btn-new-case-dash')?.addEventListener('click', openNewCaseModal);
   document.querySelectorAll('.btn-new-case').forEach(btn => btn.addEventListener('click', openNewCaseModal));
+
+  // Case-document entry points
+  document.getElementById('btn-build-doc')?.addEventListener('click', buildCaseDocument);
+  document.getElementById('btn-pick-doc')?.addEventListener('click', openDocPicker);
+  const newDoc = () => CaseDoc.openBuilder({ onSaved: () => { loadCaseDocs(); } });
+  document.getElementById('btn-new-doc')?.addEventListener('click', newDoc);
+  document.getElementById('btn-new-doc-dash')?.addEventListener('click', newDoc);
+
+  // Documents tab controls
+  const dq = document.getElementById('docs-search');
+  if (dq) dq.addEventListener('input', () => { docsQuery = dq.value.trim(); renderCaseDocs(); });
+  document.querySelectorAll('#docs-scope-tabs .filter-tab').forEach(tab =>
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('#docs-scope-tabs .filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      docsScope = tab.dataset.dscope;
+      loadCaseDocs();
+    }));
 }
 
 // Draft persistence: a new-case draft is kept in the DOM while the modal is
@@ -383,13 +394,11 @@ function resetCaseForm() {
   if (importBox) importBox.style.display = '';
   // Fresh case: no method picked yet — show only the selector until they choose.
   if (typeof setCaseMode === 'function') setCaseMode('');
-  aiEvidence = [];
-  if (typeof renderEvidenceList === 'function') renderEvidenceList();
-  ['ai-email', 'ai-penal'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  const aiRes = document.getElementById('ai-doc-result'); if (aiRes) aiRes.style.display = 'none';
+  showAttachedDoc(null);
   renderActionChecklist();
 }
 
+window.openNewCaseModal = openNewCaseModal;
 function openNewCaseModal() {
   // Start fresh only if there's no draft in progress (or we were editing).
   if (!caseDraftActive || editingCaseId) { resetCaseForm(); caseDraftActive = true; }
@@ -403,29 +412,31 @@ function setupCaseModeTabs() {
     tab.addEventListener('click', () => setCaseMode(tab.dataset.casemode)));
 }
 // mode '' / null → nothing picked yet: show only the selector chips.
+//   build  — write the case document here on the site (the normal path)
+//   import — pull the details out of an existing (Google) doc link
+//   manual — type everything in, paste your own link
 function setCaseMode(mode) {
   document.querySelectorAll('#case-mode-tabs .filter-tab').forEach(t => {
     if (t.disabled) return;
     t.classList.toggle('active', !!mode && t.dataset.casemode === mode);
   });
   const imp    = document.getElementById('case-manual-import');
-  const ai     = document.getElementById('case-ai-section');
+  const build  = document.getElementById('case-doc-section');
   const fields = document.getElementById('case-fields');
   const link   = document.getElementById('case-link-group');
-  if (!mode) { // pick a method first — hide the import panel and all fields
+  if (!mode) { // pick a method first — hide the panels and all fields
     if (imp)    imp.style.display    = 'none';
-    if (ai)     ai.style.display     = 'none';
+    if (build)  build.style.display  = 'none';
     if (fields) fields.style.display = 'none';
     return;
   }
-  // Import panel only in import mode; AI section only in (the disabled) ai mode.
   if (imp)    imp.style.display    = mode === 'import' ? '' : 'none';
-  if (ai)     ai.style.display     = mode === 'ai' ? '' : 'none';
+  if (build)  build.style.display  = mode === 'build'  ? '' : 'none';
   if (fields) fields.style.display = '';
-  // In AI mode the case link is generated automatically — hide the manual field.
-  if (link)   link.style.display   = mode === 'ai' ? 'none' : '';
-  // Import mode greys the manual fields until a doc import fills them; manual mode
-  // leaves them immediately editable.
+  // In build mode the link is produced by the document itself.
+  if (link)   link.style.display   = mode === 'build' ? 'none' : '';
+  // Import mode greys the manual fields until a doc import fills them; the other
+  // modes leave them immediately editable.
   setCaseFieldsEnabled(mode !== 'import');
 }
 function setCaseFieldsEnabled(enabled) {
@@ -435,81 +446,120 @@ function setCaseFieldsEnabled(enabled) {
   box.querySelectorAll('input, textarea, select, button').forEach(el => { el.disabled = !enabled; });
 }
 
-// Evidence collected for the AI document
-let aiEvidence = [];
-function renderEvidenceList() {
-  const box = document.getElementById('ai-evidence-list');
-  if (!box) return;
-  box.innerHTML = aiEvidence.map((e, i) => {
-    const label = String.fromCharCode(65 + i);
-    if (e.kind === 'link') {
-      return `<div style="display:flex;gap:6px;align-items:center;">
-        <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
-        <input type="text" class="form-control" style="flex:1;font-size:12px;padding:5px 8px;" placeholder="https://medal.tv/… or any link" value="${escapeHtml(e.url || '')}" oninput="aiEvidence[${i}].url=this.value" />
-        <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
-      </div>`;
-    }
-    return `<div style="display:flex;gap:6px;align-items:center;">
-      <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
-      <span style="flex:1;font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="ti ti-paperclip"></i> ${escapeHtml(e.name || e.filename)}</span>
-      <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
-    </div>`;
-  }).join('') || '<div style="font-size:11px;color:var(--text-muted);">No evidence added yet.</div>';
-}
-function addEvidenceLinkRow() { aiEvidence.push({ kind: 'link', url: '' }); renderEvidenceList(); }
-function removeEvidence(i) { aiEvidence.splice(i, 1); renderEvidenceList(); }
-function addEvidenceFiles(files) {
-  Array.prototype.forEach.call(files || [], f => {
-    const r = new FileReader();
-    r.onload = e => { aiEvidence.push({ kind: 'file', dataBase64: e.target.result, mimeType: f.type, filename: f.name, name: f.name }); renderEvidenceList(); };
-    r.readAsDataURL(f);
-  });
-  const inp = document.getElementById('ai-evidence-file'); if (inp) inp.value = '';
-}
+// ── Built-in case document ────────────────────────────────────────
+// The document the case links to is now written on the site. attachedDocId is
+// sent with the case so the server can point caseLink at /case-doc/<id> and
+// mark the document final.
+let attachedDocId = null;
 
-async function generateAiDocument() {
-  const v = id => (document.getElementById(id) || {}).value || '';
-  const email = v('ai-email').trim();
-  const penalCodes = v('ai-penal').split(',').map(s => s.trim()).filter(Boolean);
-  // Suspect details come from the officer lookup (same source as Records).
-  const suspectName = (officerProfile && (officerProfile.robloxUsername || officerProfile.username)) || '';
-  const suspectRank = (officerProfile && officerProfile.groupRole) || '';
-  const suspectId   = (officerProfile && (officerProfile.discordId || officerProfile.robloxId)) || '';
-  const punishment  = getSelectedActions().map(a => a.action).join(', ');
-
-  if (!officerProfile || !suspectName) { showToast('Look up the officer (suspect) first.', 'error'); return; }
-  if (!email)            { showToast('Enter your email address.', 'error'); return; }
-  if (!penalCodes.length){ showToast('Enter at least one penal code.', 'error'); return; }
-  if (!punishment)       { showToast('Select at least one punishment.', 'error'); return; }
-
-  const evidence = aiEvidence
-    .map(e => e.kind === 'link' ? { url: e.url } : { dataBase64: e.dataBase64, mimeType: e.mimeType, filename: e.filename })
-    .filter(e => (e.url && e.url.trim()) || e.dataBase64);
-
-  const btn = document.getElementById('btn-ai-generate');
-  const resEl = document.getElementById('ai-doc-result');
-  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Generating…"; }
-  try {
-    const d = await api('/api/cases/ai-document', { method: 'POST', body: JSON.stringify({
-      email, penalCodes, punishment,
-      suspect: { user: suspectName, rank: suspectRank, userId: suspectId },
-      evidence,
-    }) });
-    const linkEl = document.getElementById('f-case-link'); if (linkEl) linkEl.value = d.url || '';
-    const reasonEl = document.getElementById('f-reason');
-    if (reasonEl && Array.isArray(d.allegations))
-      reasonEl.value = d.allegations.map(a => a.code + (a.offense ? ' (' + a.offense + ')' : '')).join(', ');
-    if (resEl) {
-      resEl.style.display = '';
-      resEl.innerHTML = "✅ Document created &amp; shared with you. <a href='" + escapeHtml(d.url) + "' target='_blank' rel='noopener' style='color:var(--blue);'>Open document</a> — review it, then Submit Case below.";
-    }
-    showToast('Case document generated.', 'success');
-  } catch (err) {
-    if (resEl) { resEl.style.display = ''; resEl.innerHTML = "<span style='color:var(--red);'>" + escapeHtml(err.message || 'Failed to generate document.') + "</span>"; }
-    showToast(err.message || 'Failed to generate document.', 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-sparkles'></i> Generate Case Document"; }
+function showAttachedDoc(doc) {
+  attachedDocId = doc ? doc.id : null;
+  const box = document.getElementById('case-doc-attached');
+  const linkEl = document.getElementById('f-case-link');
+  if (!doc) {
+    if (box) box.style.display = 'none';
+    return;
   }
+  if (linkEl) linkEl.value = location.origin + '/case-doc/' + doc.id;
+  if (box) {
+    box.style.display = '';
+    box.innerHTML = `<div class="doc-attached">
+      <i class="ti ti-file-check"></i>
+      <span><strong>${escapeHtml(doc.docRef || 'Document')}</strong> — ${escapeHtml(doc.title || 'Case document')}</span>
+      <a href="/case-doc/${escapeHtml(doc.id)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-external-link"></i> Open</a>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="editAttachedDoc()"><i class="ti ti-pencil"></i> Edit</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="showAttachedDoc(null)"><i class="ti ti-x"></i></button>
+    </div>`;
+  }
+}
+
+function editAttachedDoc() {
+  if (!attachedDocId) return;
+  CaseDoc.openBuilder({ docId: attachedDocId, onAttach: showAttachedDoc });
+}
+
+function buildCaseDocument() {
+  CaseDoc.openBuilder({
+    docId:        attachedDocId || null,
+    officerInput: (document.getElementById('f-officer-id') || {}).value || '',
+    prefill:      { punishments: getSelectedActions() },
+    onAttach:     showAttachedDoc,
+  });
+}
+
+// Pick one of your existing documents instead of writing a new one.
+async function openDocPicker() {
+  const body = document.getElementById('doc-picker-body');
+  if (!body) return;
+  body.innerHTML = '<div class="table-loading" style="padding:2rem;"><div class="spinner"></div></div>';
+  openModal('modal-doc-picker');
+  try {
+    const docs = await api('/api/case-docs');
+    if (!docs.length) {
+      body.innerHTML = '<div style="padding:1.4rem;text-align:center;color:var(--text-muted);font-size:13px;">'
+        + 'You haven\'t written any case documents yet.</div>';
+      return;
+    }
+    body.innerHTML = '<div class="doc-picker-list">' + docs.map(d => `
+      <button type="button" class="doc-picker-item" onclick="pickDoc('${d.id}')">
+        <span class="doc-picker-ref">${escapeHtml(d.docRef)}</span>
+        <span class="doc-picker-title">${escapeHtml(d.title)}</span>
+        <span class="doc-picker-meta">${d.status === 'FINAL' ? 'Final' : 'Draft'} · ${formatDate(d.updatedAt)}</span>
+      </button>`).join('') + '</div>';
+  } catch (err) {
+    body.innerHTML = '<div style="padding:1.4rem;color:var(--red);">' + escapeHtml(err.message || 'Failed to load documents.') + '</div>';
+  }
+}
+
+async function pickDoc(id) {
+  try {
+    const doc = await api('/api/case-docs/' + id);
+    showAttachedDoc(doc);
+    closeModal('modal-doc-picker');
+    showToast('Document attached.', 'success');
+  } catch (err) { showToast(err.message || 'Could not attach that document.', 'error'); }
+}
+
+// ── Case Documents tab ────────────────────────────────────────────
+let docsCache = [], docsScope = 'mine', docsQuery = '';
+
+async function loadCaseDocs() {
+  const tbody = document.getElementById('docs-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  try {
+    docsCache = (await api('/api/case-docs?scope=' + docsScope)) || [];
+    renderCaseDocs();
+  } catch { tbody.innerHTML = emptyRow(6, 'Failed to load documents.'); }
+}
+
+function renderCaseDocs() {
+  const tbody = document.getElementById('docs-tbody');
+  if (!tbody) return;
+  const q = docsQuery.toLowerCase();
+  const rows = docsCache.filter(d => !q
+    || (d.title || '').toLowerCase().includes(q)
+    || (d.docRef || '').toLowerCase().includes(q)
+    || (d.author || '').toLowerCase().includes(q));
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(6, docsCache.length
+      ? 'No documents match that search.'
+      : 'No case documents yet — press “New Document” to write one.');
+    return;
+  }
+  tbody.innerHTML = rows.map(d => `
+    <tr onclick="CaseDoc.openBuilder({docId:'${d.id}', onSaved:function(){loadCaseDocs();}})">
+      <td><span class="case-ref">${escapeHtml(d.docRef)}</span></td>
+      <td><span style="font-size:12.5px;">${escapeHtml(d.title)}</span></td>
+      <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(d.author || '—')}</span></td>
+      <td>${d.status === 'FINAL'
+            ? '<span class="badge badge-approved"><span class="badge-dot"></span>Final</span>'
+            : '<span class="badge badge-pending"><span class="badge-dot"></span>Draft</span>'}</td>
+      <td><span class="date-cell">${formatDateTime(d.updatedAt)}</span></td>
+      <td onclick="event.stopPropagation();">
+        <a class="row-btn" href="/case-doc/${escapeHtml(d.id)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Open</a>
+      </td>
+    </tr>`).join('');
 }
 
 // Show the (estimated) case ID the next submission will receive.
@@ -876,26 +926,37 @@ async function lookupOfficer() {
   }
 }
 
-// ── Filter tabs ───────────────────────────────────────────────────
+// ── Filters + search ──────────────────────────────────────────────
+// Every case list has the same pair of controls: a status filter and a search
+// box. This wires them all the same way so they behave identically.
 function setupFilterTabs() {
-  document.querySelectorAll('#dash-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#dash-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); dashFilter = tab.dataset.filter; renderDashTable();
-    })
-  );
-  document.querySelectorAll('#all-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#all-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); allPageFilter = tab.dataset.filter; renderAllCasesTable();
-    })
-  );
-  document.querySelectorAll('#dash-ticket-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#dash-ticket-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); dashTicketFilter = tab.dataset.tfilter; renderDashTickets();
-    })
-  );
+  const tabs = (selector, attr, apply) => {
+    document.querySelectorAll(`${selector} .filter-tab`).forEach(tab =>
+      tab.addEventListener('click', () => {
+        document.querySelectorAll(`${selector} .filter-tab`).forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        apply(tab.dataset[attr]);
+      })
+    );
+  };
+  tabs('#dash-filter-tabs',   'filter',   v => { dashFilter    = v; renderDashTable(); });
+  tabs('#all-filter-tabs',    'filter',   v => { allPageFilter = v; renderAllCasesTable(); });
+  tabs('#my-filter-tabs',     'myfilter', v => { myFilter      = v; renderMyCasesTable(); });
+  tabs('#review-filter-tabs', 'rfilter',  v => { reviewFilter  = v; renderReviewTable(); });
+
+  const search = (id, apply) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => apply(el.value.trim()));
+    // Escape clears the box — the fastest way back to the full list.
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { el.value = ''; apply(''); }
+    });
+  };
+  search('dash-search',      q => { dashQuery   = q; renderDashTable(); });
+  search('my-cases-search',  q => { myQuery     = q; renderMyCasesTable(); });
+  search('all-cases-search', q => { allQuery    = q; renderAllCasesTable(); });
+  search('review-search',    q => { reviewQuery = q; renderReviewTable(); });
 }
 
 // ── Submit Case ───────────────────────────────────────────────────
@@ -913,7 +974,9 @@ function submitCase() {
   if (!officerInput) { showToast('Officer Discord/Roblox ID or username is required.', 'error'); return; }
   if (!actions.length) { showToast('Select at least one punishment.', 'error'); return; }
   if (!reason)         { showToast('Reason is required.', 'error'); return; }
-  if (!caseLink)       { showToast('Case link is required.', 'error'); return; }
+  if (!caseLink && !attachedDocId) {
+    showToast('Build a case document, or paste a case link.', 'error'); return;
+  }
 
   // Edit mode: save changes + re-post (no submit preview)
   if (editingCaseId) { return doEditCase({ actions, reason, notes, caseLink }); }
@@ -931,7 +994,7 @@ function submitCase() {
       { label: '<i class="ti ti-arrow-left"></i> Back to editing', class: 'btn btn-ghost',
         onClick: () => { closeModal('modal-embed-preview'); openModal('modal-submit'); } },
       { label: '<i class="ti ti-check"></i> Agree &amp; Submit', class: 'btn btn-primary',
-        onClick: () => doSubmitCase({ actions, reason, notes, officerInput, caseLink }) },
+        onClick: () => doSubmitCase({ actions, reason, notes, officerInput, caseLink, documentId: attachedDocId }) },
     ],
   });
 }
@@ -976,98 +1039,135 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────
-async function loadDashboard() { await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadPoints()]); }
+async function loadDashboard() {
+  await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadQuotaHero()]);
+  renderAttention();
+}
 
-// My Activity Points — read from the linked IA Database Google Sheet
-async function loadPoints() {
-  const panel = document.getElementById('points-panel');
-  const body  = document.getElementById('points-body');
-  const totalEl = document.getElementById('points-total');
-  if (!panel || !body) return;
+// ── Weekly quota hero ─────────────────────────────────────────────
+// The quota is 2 cases a week (8 points). It's the number people actually care
+// about, so it gets the top of the page rather than a panel halfway down.
+async function loadQuotaHero() {
+  const hero = document.getElementById('quota-hero');
+  if (!hero) return;
   try {
     const d = await api('/api/me/points');
-    if (!d || !d.configured || !d.found) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
+    if (!d || !d.configured || !d.found) { hero.style.display = 'none'; return; }
+    hero.style.display = '';
 
-    const q = d.quota || {};
-    // Header summary (top-right)
-    if (totalEl) {
-      if (q.exempt) {
-        totalEl.innerHTML = `<span style="color:var(--purple);font-weight:700;">EXEMPT</span> · ${escapeHtml(d.rank || 'High Command')}`;
-      } else if (q.target != null) {
-        const met = d.total >= q.target;
-        totalEl.innerHTML = `${d.total} / ${q.target} pts`
-          + (met
-              ? ` · <span style="color:var(--green);font-weight:700;">Quota met ✓</span>`
-              : ` · <span style="color:var(--amber);font-weight:700;">${d.remaining} to go</span>`);
-      } else {
-        totalEl.textContent = `Total this week: ${d.total}`;
-      }
-    }
+    const q      = d.quota || {};
+    const target = q.target != null ? q.target : 8;
+    const total  = d.total || 0;
+    const met    = q.exempt || total >= target;
+    const pct    = q.exempt ? 100 : Math.min(100, Math.round((total / Math.max(1, target)) * 100));
 
-    // Progress bar + breakdown
-    let progressHtml = '';
-    if (q.exempt) {
-      progressHtml = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
-        ${escapeHtml(d.rank || '')} — exempt from the weekly quota (EX).</div>`;
-    } else if (q.target != null) {
-      const pct = Math.min(100, Math.round((d.total / q.target) * 100));
-      const met = d.total >= q.target;
-      progressHtml = `
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:5px;">
-          <span>${escapeHtml(d.rank || '')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''} — ${q.target} pts/week</span>
-          <span>${d.total}/${q.target}${met ? '' : ` · ${d.remaining} left`}</span>
-        </div>
-        <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:5px;overflow:hidden;margin-bottom:12px;">
-          <div style="height:100%;width:${pct}%;background:${met ? 'var(--green)' : 'var(--amber)'};border-radius:5px;transition:width .3s;"></div>
-        </div>`;
-    }
+    document.getElementById('quota-hero-points').textContent = q.exempt ? 'EX' : total;
+    document.getElementById('quota-hero-target').textContent = q.exempt ? '' : ` / ${target} pts`;
+    document.getElementById('quota-hero-sub').innerHTML = q.exempt
+      ? `${escapeHtml(d.rank || 'High Command')} — exempt from the weekly quota.`
+      : `${escapeHtml(d.rank || 'Internal Affairs')} · ${q.cases || 2} cases a week`
+        + (met
+            ? ' · <strong style="color:var(--green);">Quota met</strong>'
+            : ` · <strong style="color:var(--amber);">${Math.max(0, target - total)} points to go</strong>`);
+
+    const fill = document.getElementById('quota-hero-fill');
+    fill.style.width = pct + '%';
+    fill.style.background = met ? 'var(--green)' : 'var(--amber)';
+    hero.classList.toggle('quota-met', met);
 
     const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const daysHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${
-      order.map(day => {
-        const v = d.days[day];
-        return `<div style="flex:1;min-width:64px;text-align:center;background:rgba(255,255,255,0.03);border:1px solid var(--border-dim);border-radius:6px;padding:8px 4px;">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">${day}</div>
-          <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:2px;">${escapeHtml(String(v))}</div>
-        </div>`;
-      }).join('')
-    }</div>`;
+    document.getElementById('quota-hero-days').innerHTML = order.map(day => {
+      const v = d.days[day];
+      const has = typeof v === 'number' ? v > 0 : !!v;
+      return `<div class="quota-day${has ? ' quota-day-on' : ''}">
+        <span class="quota-day-name">${day}</span>
+        <span class="quota-day-val">${escapeHtml(String(v))}</span>
+      </div>`;
+    }).join('');
+  } catch (err) { hero.style.display = 'none'; }
+}
 
-    body.innerHTML = progressHtml + daysHtml;
-  } catch (err) { panel.style.display = 'none'; }
+// ── "Needs your attention" ────────────────────────────────────────
+// One place that answers "what do I actually have to do?" — cases sent back to
+// you, and (for reviewers) the queue waiting on a decision.
+let attentionState = { changes: [], pending: 0 };
+
+function renderAttention() {
+  const panel = document.getElementById('attention-panel');
+  const box   = document.getElementById('attention-items');
+  if (!panel || !box) return;
+
+  const items = [];
+  attentionState.changes.forEach(c => {
+    items.push(`<button class="attention-item" onclick="openDetail('${c.id}')">
+      <i class="ti ti-edit-circle" style="color:var(--amber);"></i>
+      <span><strong>${escapeHtml(c.caseRef)}</strong> needs changes — ${escapeHtml((c.reviewNote || '').slice(0, 90))}</span>
+      <i class="ti ti-chevron-right"></i>
+    </button>`);
+  });
+  if (attentionState.pending > 0 && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role)) {
+    items.push(`<button class="attention-item" onclick="navigateTo('review')">
+      <i class="ti ti-clipboard-check" style="color:var(--blue);"></i>
+      <span><strong>${attentionState.pending}</strong> case${attentionState.pending === 1 ? '' : 's'} waiting on a decision</span>
+      <i class="ti ti-chevron-right"></i>
+    </button>`);
+  }
+
+  if (!items.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  box.innerHTML = items.join('');
 }
 
 async function loadStats() {
   try {
-    const [stats, mine, myTickets] = await Promise.all([
+    const [stats, mine, tickets] = await Promise.all([
       api('/api/cases/stats'),
       api('/api/cases/stats?scope=mine'),
-      api('/api/tickets/stats?scope=mine'),
+      api('/api/tickets/stats').catch(() => null),
     ]);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     if (stats) {
-      document.getElementById('stat-total').textContent    = stats.total;
-      document.getElementById('stat-pending').textContent  = stats.pending;
-      document.getElementById('stat-approved').textContent = stats.approved;
-      document.getElementById('stat-denied').textContent   = stats.denied;
+      set('stat-total',      stats.total);
+      set('stat-pending',    stats.pending);
+      set('stat-approved',   stats.approved);
+      set('stat-denied',     stats.denied);
+      set('stat-overturned', stats.overturned || 0);
       const badge = document.getElementById('nav-badge-review');
       if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
+      attentionState.pending = stats.pending || 0;
     }
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     if (mine) {
-      set('stat-my-total',    mine.total);
-      set('stat-my-pending',  mine.pending);
-      set('stat-my-approved', mine.approved);
-      set('stat-my-denied',   mine.denied);
+      const myBadge = document.getElementById('nav-badge-my');
+      if (myBadge) {
+        myBadge.textContent = mine.changesRequested || 0;
+        myBadge.style.display = (mine.changesRequested || 0) > 0 ? '' : 'none';
+      }
     }
-    if (myTickets) {
-      set('stat-my-ticket-total',    myTickets.total);
-      set('stat-my-ticket-pending',  myTickets.pending);
-      set('stat-my-ticket-approved', myTickets.approved);
-      set('stat-my-ticket-denied',   myTickets.denied);
-    }
+    if (tickets) set('stat-tickets-week', tickets.mineWeek || 0);
   } catch (err) { console.error('Stats error:', err); }
 }
+
+// ── Case search + filter helpers ──────────────────────────────────
+// One matcher shared by every case list, so search behaves identically on the
+// dashboard, My Cases, All Cases and the review queue.
+function caseMatches(c, q) {
+  if (!q) return true;
+  const hay = [
+    c.caseRef, c.action, c.reason, c.notes, c.robloxUsername, c.robloxUserId,
+    c.officerDiscordId, c.suspectRobloxDisplayName, c.investigatorRobloxUsername,
+    c.investigatorDiscordUsername, c.punishmentsSummary, c.appealedByName, c.reviewNote,
+    c.user && (c.user.displayName || c.user.discordUsername),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
+
+function filterCases(list, status, q) {
+  return (list || [])
+    .filter(c => status === 'all' || c.status === status)
+    .filter(c => caseMatches(c, q));
+}
+
+let dashQuery = '', myQuery = '', myFilter = 'all', allQuery = '', reviewQuery = '', reviewFilter = 'all';
 
 async function loadDashCases() {
   const tbody = document.getElementById('dash-cases-tbody');
@@ -1076,7 +1176,9 @@ async function loadDashCases() {
   try {
     const cases = await api('/api/cases/my');
     allCasesCache = cases || [];
+    attentionState.changes = allCasesCache.filter(caseAwaitingChanges);
     renderDashTable();
+    renderAttention();
   } catch {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><span class="table-empty-text">Failed to load cases.</span></td></tr>`;
   }
@@ -1086,10 +1188,10 @@ function renderDashTable() {
   const tbody = document.getElementById('dash-cases-tbody');
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
-  const filtered   = dashFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === dashFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, 'No cases found'); return; }
+  const filtered   = filterCases(allCasesCache, dashFilter, dashQuery).slice(0, 25);
+  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, dashQuery ? 'No cases match that search.' : 'No cases yet — press “Submit Case” to file one.'); return; }
   tbody.innerHTML = filtered.map(c => `
-    <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
@@ -1099,39 +1201,47 @@ function renderDashTable() {
     </tr>`).join('');
 }
 
-// ── Recent Ticket Logs (the user's own) ───────────────────────────
-let dashTicketFilter  = 'all';
-let dashTicketsCache  = [];
+// Row highlight: amber for "needs your changes", blue for "submitter updated it".
+function caseRowClass(c) {
+  if (caseAwaitingChanges(c)) return 'row-changes';
+  if (caseWasUpdated(c))      return 'row-updated';
+  return '';
+}
+
+// ── Tickets I closed (dashboard preview) ──────────────────────────
+let dashTicketsCache = [];
 
 async function loadDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const tickets = await api('/api/tickets');
-    dashTicketsCache = tickets || [];
+    dashTicketsCache = (await api('/api/tickets?take=8')) || [];
     renderDashTickets();
   } catch {
-    tbody.innerHTML = '<tr><td colspan="5" class="table-empty"><span class="table-empty-text">Failed to load tickets.</span></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="table-empty"><span class="table-empty-text">Failed to load ticket logs.</span></td></tr>';
   }
 }
 
 function renderDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
-  const filtered = dashTicketFilter === 'all' ? dashTicketsCache : dashTicketsCache.filter(t => t.status === dashTicketFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(5, 'No ticket logs found'); return; }
+  const rows = dashTicketsCache.slice(0, 8);
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(5, 'No tickets closed by you yet — they appear here automatically.');
+    return;
+  }
   const TLmap = (typeof TL !== 'undefined') ? TL : {};
   const TCmap = (typeof TC !== 'undefined') ? TC : {};
-  tbody.innerHTML = filtered.map(t => {
+  tbody.innerHTML = rows.map(t => {
     const c = TCmap[t.ticketType] || 'blue';
     const l = TLmap[t.ticketType] || t.ticketType;
     return `<tr onclick="openTicketDetail('${t.id}')">
-      <td><span class="case-ref">${escapeHtml(t.ticketRef)}</span></td>
-      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.robloxUsername || '—')}</span></td>
+      <td><span class="case-ref">${escapeHtml(t.ticketRef || t.ticketName || '—')}</span></td>
+      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.creatorRobloxUsername || t.creatorUsername || '—')}</span></td>
       <td><span class="badge badge-${c}"><span class="badge-dot"></span>${escapeHtml(l)}</span></td>
-      <td>${statusBadge(t.status)}</td>
-      <td><span class="date-cell">${formatDate(t.createdAt)}</span></td>
+      <td><span class="case-reason-cell">${escapeHtml(t.reason || '—')}</span></td>
+      <td><span class="date-cell">${formatDate(t.closedAt)}</span></td>
     </tr>`;
   }).join('');
 }
@@ -1142,44 +1252,76 @@ async function loadMyCases() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/my');
-    allCasesCache = cases || [];
-    if (!cases?.length) { tbody.innerHTML = emptyRow(6, 'No cases submitted yet.'); return; }
-    tbody.innerHTML = cases.map(c => `
-      <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
-        <td>${actionBadges(cleanAction(c.action))}</td>
-        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-        <td><span class="case-notes-cell">${escapeHtml(c.notes)}</span></td>
-        <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
-        <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
-      </tr>`).join('');
+    allCasesCache = (await api('/api/cases/my')) || [];
+    renderMyCasesTable();
   } catch { tbody.innerHTML = emptyRow(6, 'Failed to load cases.'); }
+}
+
+function renderMyCasesTable() {
+  const tbody = document.getElementById('my-cases-tbody');
+  if (!tbody) return;
+  const rows = filterCases(allCasesCache, myFilter, myQuery);
+  const count = document.getElementById('my-cases-count');
+  if (count) count.textContent = `${rows.length} of ${allCasesCache.length} shown`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(6, allCasesCache.length ? 'No cases match that search.' : 'No cases submitted yet.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
+      <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
+      <td>${officerCell(c)}</td>
+      <td>${actionBadges(cleanAction(c.action))}</td>
+      <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
+      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
+    </tr>`).join('');
 }
 
 // ── Review Queue ──────────────────────────────────────────────────
 async function loadReview() {
   const tbody = document.getElementById('review-tbody');
-  const label = document.getElementById('pending-count-label');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/all?status=PENDING');
-    allCasesCache = cases || [];
-    if (label) label.textContent = `${cases?.length || 0} awaiting decision`;
-    if (!cases?.length) { tbody.innerHTML = emptyRow(8, 'No pending cases — all caught up.'); return; }
-    tbody.innerHTML = cases.map(c => `
-      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${caseAwaitingChanges(c) ? '<br>' + changesBadge(c) : ''}</td>
+    allCasesCache = (await api('/api/cases/all?status=PENDING')) || [];
+    renderReviewTable();
+  } catch { tbody.innerHTML = emptyRow(8, 'Failed to load cases.'); }
+}
+
+function renderReviewTable() {
+  const tbody = document.getElementById('review-tbody');
+  const label = document.getElementById('pending-count-label');
+  if (!tbody) return;
+
+  let rows = allCasesCache.filter(c => caseMatches(c, reviewQuery));
+  if (reviewFilter === 'changes')      rows = rows.filter(caseAwaitingChanges);
+  else if (reviewFilter === 'updated') rows = rows.filter(caseWasUpdated);
+  else if (reviewFilter === 'new')     rows = rows.filter(c => !caseAwaitingChanges(c) && !caseWasUpdated(c));
+
+  if (label) label.textContent = `${rows.length} of ${allCasesCache.length} awaiting decision`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(8, allCasesCache.length ? 'Nothing matches that filter.' : 'No pending cases — all caught up.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => {
+    const rev = lastRevision(c);
+    return `
+      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseRowClass(c)}">
+        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${changesBadge(c) ? '<br>' + changesBadge(c) : ''}</td>
         <td>${caseInvestigatorCell(c)}</td>
         <td>${officerCell(c)}</td>
         <td>${actionBadges(cleanAction(c.action))}</td>
-        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
+        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span>${
+          caseWasUpdated(c) && rev
+            ? `<div class="row-diff-hint" title="${escapeHtml(rev.changes.map(x => x.label + ': ' + x.before + ' → ' + x.after).join(' · '))}">
+                 <i class="ti ti-git-compare"></i> ${escapeHtml(rev.changes.map(x => x.label).join(', '))} updated
+               </div>` : ''}</td>
         <td><span class="case-notes-cell">${escapeHtml(c.notes)}</span></td>
         <td><span class="date-cell">${formatDateTime(c.createdAt)}</span></td>
         <td onclick="event.stopPropagation();">${rowActions(c)}</td>
-      </tr>`).join('');
-  } catch { tbody.innerHTML = emptyRow(8, 'Failed to load cases.'); }
+      </tr>`;
+  }).join('');
 }
 
 // ── All Cases ─────────────────────────────────────────────────────
@@ -1188,8 +1330,7 @@ async function loadAllCases() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/all');
-    allCasesCache = cases || [];
+    allCasesCache = (await api('/api/cases/all')) || [];
     renderAllCasesTable();
   } catch { tbody.innerHTML = emptyRow(7, 'Failed to load cases.'); }
 }
@@ -1199,10 +1340,15 @@ function renderAllCasesTable() {
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
   const cols = isElevated ? 8 : 7;
-  const filtered = allPageFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === allPageFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(cols, 'No cases found.'); return; }
-  tbody.innerHTML = filtered.map(c => `
-    <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
+  const rows = filterCases(allCasesCache, allPageFilter, allQuery);
+  const count = document.getElementById('all-cases-count');
+  if (count) count.textContent = `${rows.length} of ${allCasesCache.length} shown`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(cols, allCasesCache.length ? 'No cases match that search.' : 'No cases found.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${caseInvestigatorCell(c)}</td>
       <td>${officerCell(c)}</td>
@@ -1587,10 +1733,10 @@ async function loadNotifSettings() {
   // "Active" only if enabled in settings AND permission granted on this device.
   const active = s.enabled && notifPermGranted();
 
-  set('ns-enabled',   active);
-  set('ns-newCase',   s.prefs.newCase);
-  set('ns-newTicket', s.prefs.newTicket);
-  document.querySelectorAll('.ns-tt').forEach(cb => { cb.checked = (s.prefs.ticketTypes || []).includes(cb.value); });
+  set('ns-enabled',      active);
+  set('ns-newCase',      s.prefs.newCase);
+  set('ns-caseUpdated',  s.prefs.caseUpdated);
+  set('ns-caseAppealed', s.prefs.caseAppealed);
   setNotifPrefsVisible(active);
 
   // Warn if the browser has blocked notifications
@@ -1628,10 +1774,10 @@ async function loadNotifSettings() {
 async function saveNotifSettings() {
   const enabled = document.getElementById('ns-enabled')?.checked || false;
   const prefs = {
-    newCase:       document.getElementById('ns-newCase')?.checked   || false,
-    newTicket:     document.getElementById('ns-newTicket')?.checked || false,
+    newCase:      document.getElementById('ns-newCase')?.checked      || false,
+    caseUpdated:  document.getElementById('ns-caseUpdated')?.checked  || false,
+    caseAppealed: document.getElementById('ns-caseAppealed')?.checked || false,
     announcements: true, // developer announcements are always on
-    ticketTypes:   Array.from(document.querySelectorAll('.ns-tt')).filter(cb => cb.checked).map(cb => cb.value),
   };
   try {
     await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ enabled, prefs }) });
@@ -2018,6 +2164,120 @@ function supervisorBlockedFromCase(c) {
   return currentUser?.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(c);
 }
 
+// ── Appeals ───────────────────────────────────────────────────────
+// Mirrors server/lib/iaRank.js so the button can be hidden (or explained)
+// instead of being offered and then rejected. The server is the authority.
+function canAppealLocally(c) {
+  if (!c) return { show: false, allowed: false, reason: '' };
+  if (c.status === 'OVERTURNED' || c.appealedAt)
+    return { show: false, allowed: false, reason: 'This case has already been appealed.' };
+  if (c.status !== 'APPROVED')
+    return { show: false, allowed: false, reason: 'Only an approved case can be appealed.' };
+  if (!currentUser?.isSiPlus)
+    return { show: false, allowed: false, reason: 'Appeals can only be filed by Senior Investigator and above.' };
+  if (caseHasHicommOnlyPunishment(c) && !currentUser?.isHicomm)
+    return { show: true, allowed: false, reason: 'Only High Command can appeal a Termination or Blacklist.' };
+  return { show: true, allowed: true, reason: '' };
+}
+
+// Find a case in whichever cache is loaded, fetching it if we have to.
+async function getCase(caseId) {
+  const hit = (allCasesCache || []).find(x => x.id === caseId);
+  if (hit) return hit;
+  try {
+    const c = await api('/api/cases/' + caseId);
+    if (c) allCasesCache.push(c);
+    return c;
+  } catch (e) { return null; }
+}
+
+// Open the appeal dialog. Works from any case card on the site (My Cases, All
+// Cases, the review queue and the Records lookup).
+async function openAppealModal(caseId) {
+  const c = await getCase(caseId);
+  if (!c) { showToast('That case could not be loaded.', 'error'); return; }
+
+  const refEl  = document.getElementById('appeal-ref');
+  const warnEl = document.getElementById('appeal-warning');
+  const punEl  = document.getElementById('appeal-punishments');
+  const noteEl = document.getElementById('appeal-reason');
+  const btn    = document.getElementById('btn-confirm-appeal');
+  if (!btn || !noteEl) return;
+
+  if (refEl) refEl.textContent = c.caseRef || '';
+  noteEl.value = '';
+
+  // Ask the server whether this user may appeal THIS case — it knows the rank.
+  let verdict = null;
+  try { verdict = await api('/api/cases/' + caseId + '/appeal'); } catch (e) { /* fall back to local */ }
+  const local = canAppealLocally(c);
+  const allowed = verdict ? verdict.canAppeal : local.allowed;
+  const reason  = verdict ? verdict.reason    : local.reason;
+
+  if (warnEl) {
+    if (!allowed) {
+      warnEl.style.display = '';
+      warnEl.innerHTML = `<i class="ti ti-lock"></i> ${escapeHtml(reason || 'You cannot appeal this case.')}`;
+    } else if (verdict && verdict.hicommOnly) {
+      warnEl.style.display = '';
+      warnEl.innerHTML = `<i class="ti ti-alert-triangle"></i> This case carries a <strong>Termination or Blacklist</strong>. `
+        + `You are appealing it as <strong>${escapeHtml(verdict.rankLabel || 'High Command')}</strong>.`;
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
+
+  const actions = (Array.isArray(c.actions) && c.actions.length)
+    ? c.actions
+    : [{ action: c.action, durationDays: null }];
+  if (punEl) {
+    punEl.innerHTML = `<div class="appeal-lift">
+      <div class="appeal-lift-label">Punishments that will be lifted</div>
+      <div class="appeal-lift-list">${actions.map(a =>
+        `<span class="badge badge-red"><span class="badge-dot"></span>${escapeHtml(a.action)}${a.durationDays ? ` (${a.durationDays}d)` : ''}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  btn.disabled = !allowed;
+  btn.onclick = async () => {
+    const text = noteEl.value.trim();
+    if (!text) { showToast('A reason for the appeal is required.', 'error'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Granting…';
+    try {
+      const res = await api('/api/cases/' + caseId + '/appeal', {
+        method: 'POST', body: JSON.stringify({ reason: text }),
+      });
+      closeModal('modal-appeal');
+      closeModal('modal-detail');
+      showToast(`Appeal granted — ${res.lifted?.length || 0} punishment role(s) lifted.`, 'success');
+      await refreshCaseViews();
+    } catch (err) {
+      showToast(err.message || 'Failed to file the appeal.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ti ti-gavel"></i> Grant appeal';
+    }
+  };
+
+  openModal('modal-appeal');
+}
+window.openAppealModal = openAppealModal;
+
+// Reload whichever case list is currently on screen.
+async function refreshCaseViews() {
+  const active = document.querySelector('.page.active');
+  const id = active ? active.id : '';
+  if (id === 'page-dashboard')  return loadDashboard();
+  if (id === 'page-my-cases')   return loadMyCases();
+  if (id === 'page-all-cases')  return loadAllCases();
+  if (id === 'page-review')     return loadReview();
+  if (id === 'page-records' && typeof runRecordLookup === 'function') return runRecordLookup();
+  return loadDashboard();
+}
+window.refreshCaseViews = refreshCaseViews;
+
 function rowActions(c) {
   if (supervisorBlockedFromCase(c)) {
     return '<span style="font-size:11px;color:var(--amber);white-space:nowrap;"><i class="ti ti-lock"></i> HICOMM only</span>';
@@ -2178,9 +2438,18 @@ function promptApplyChanges(c) {
 }
 
 // ── Case Detail Modal ─────────────────────────────────────────────
+// Open a case detail from anywhere on the site — including the Records lookup,
+// where the case isn't in any list cache yet.
+async function openCaseDetail(caseId) {
+  const c = await getCase(caseId);
+  if (!c) { showToast("That case couldn't be loaded.", 'error'); return; }
+  openDetail(caseId);
+}
+window.openCaseDetail = openCaseDetail;
+
 function openDetail(caseId) {
   const c = allCasesCache.find(x => x.id === caseId);
-  if (!c) return;
+  if (!c) { openCaseDetail(caseId); return; }
 
   document.getElementById('detail-ref').textContent = c.caseRef;
 
@@ -2253,6 +2522,18 @@ function openDetail(caseId) {
           : '<i class="ti ti-clock"></i> Sent back to the submitter. It stays pending until they update it.'}
       </div>
     </div>` : ''}
+    ${caseIsAppealed(c) ? `
+    <div class="appeal-banner">
+      <div class="appeal-banner-head">
+        <span><i class="ti ti-gavel"></i> Appeal granted — punishments lifted</span>
+        <span class="appeal-banner-when">${c.appealedAt ? formatDateTime(c.appealedAt) : ''}</span>
+      </div>
+      <div class="appeal-banner-by">by <strong>${escapeHtml(c.appealedByName || 'Internal Affairs')}</strong>${
+        (c.appeals && c.appeals[0] && c.appeals[0].appealedByRank) ? ' · ' + escapeHtml(c.appeals[0].appealedByRank) : ''}</div>
+      ${c.appealReason ? `<div class="appeal-banner-reason">${escapeHtml(c.appealReason)}</div>` : ''}
+      <div class="appeal-banner-note">This case no longer counts toward the officer's record.</div>
+    </div>` : ''}
+    ${renderRevisionHistory(c)}
     <div class="detail-grid">
       <div class="detail-field">
         <span class="detail-field-label">Case Reference</span>
@@ -2279,11 +2560,19 @@ function openDetail(caseId) {
         <span class="detail-field-label">Notes</span>
         <span class="detail-field-value" style="color:var(--text-secondary);">${escapeHtml(c.notes)}</span>
       </div>
-      ${c.caseLink ? `
+      ${c.documentId ? `
+      <div class="detail-field full">
+        <span class="detail-field-label">Case Document</span>
+        <span class="detail-field-value">
+          <a href="/case-doc/${escapeHtml(c.documentId)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">
+            <i class="ti ti-file-text"></i> Open the case document
+          </a>
+        </span>
+      </div>` : (c.caseLink ? `
       <div class="detail-field full">
         <span class="detail-field-label">Case Link</span>
         <span class="detail-field-value"><a href="${escapeHtml(c.caseLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);word-break:break-all;">${escapeHtml(c.caseLink)}</a></span>
-      </div>` : ''}
+      </div>` : '')}
       ${robloxSection}
       ${investigatorSection}
       <div class="detail-divider"></div>
@@ -2319,6 +2608,19 @@ function openDetail(caseId) {
   linkBtn.className = 'btn btn-ghost'; linkBtn.innerHTML = '<i class="ti ti-link"></i> Copy link';
   linkBtn.onclick = () => copyCaseLink(c.id);
   footer.appendChild(linkBtn);
+
+  // Appeal — Senior Investigator and above, High Command only for
+  // Terminations/Blacklists. The server enforces the same rule.
+  const appealCheck = canAppealLocally(c);
+  if (appealCheck.show) {
+    const appealBtn = document.createElement('button');
+    appealBtn.className = 'btn btn-ghost btn-appeal';
+    appealBtn.innerHTML = '<i class="ti ti-gavel"></i> Appeal';
+    appealBtn.disabled = !appealCheck.allowed;
+    if (!appealCheck.allowed) appealBtn.title = appealCheck.reason;
+    appealBtn.onclick = () => openAppealModal(c.id);
+    footer.appendChild(appealBtn);
+  }
 
   if (isDev) {
     const delBtn = document.createElement('button');

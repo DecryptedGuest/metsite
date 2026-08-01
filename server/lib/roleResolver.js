@@ -78,6 +78,7 @@ async function resolveSiteRoleDetailed({ discordId, memberRoles = [] }) {
 
   // 3) IA Roblox group rank (primary)
   let groupConclusive = false; // true only when we positively read their rank
+  let iaRank = null, iaRankName = null; // snapshotted for the SI+ gate
   try {
     const { getRobloxIdFromDiscord, getUserGroupRole } = require('./roblox');
     const iaGroupId = process.env.IA_GROUP_ID || '407296071';
@@ -87,8 +88,10 @@ async function resolveSiteRoleDetailed({ discordId, memberRoles = [] }) {
       if (groupRole) {
         // We have their actual rank — a definitive signal either way.
         groupConclusive = true;
+        iaRank     = groupRole.rank != null ? Number(groupRole.rank) : null;
+        iaRankName = groupRole.name || null;
         const r = roleFromIaGroupRank(groupRole.name, groupRole.rank);
-        if (r) return { role: r, conclusive: true };
+        if (r) return { role: r, conclusive: true, iaRank, iaRankName };
       }
       // groupRole null is ambiguous (not-in-group OR API error) → inconclusive
     }
@@ -97,11 +100,11 @@ async function resolveSiteRoleDetailed({ discordId, memberRoles = [] }) {
 
   // 4) Discord role fallback (reliable when memberRoles came from the bot)
   const discRole = roleFromDiscordRoles(memberRoles);
-  if (discRole) return { role: discRole, conclusive: true };
+  if (discRole) return { role: discRole, conclusive: true, iaRank, iaRankName };
 
   // No role found anywhere. Only treat that as a real "no access" when the
   // group rank was conclusively read; otherwise we just couldn't determine it.
-  return { role: null, conclusive: groupConclusive };
+  return { role: null, conclusive: groupConclusive, iaRank, iaRankName };
 }
 
 // Thin wrapper for callers that only need the role (e.g. login).

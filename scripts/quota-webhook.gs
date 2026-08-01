@@ -1,9 +1,18 @@
 /**
  * IACMS Quota Webhook — Google Apps Script
  * =========================================
- * Adds quota points to the IA database sheet when a case (+4) or ticket (+2)
- * is approved. Because this script is bound to the sheet, it already has full
- * edit access — no service account, no API enabling, no sharing required.
+ * Adds quota points to the IA database sheet when a case (+4) is approved, and
+ * keeps the member roster in sync with the MET Roblox group. Because this
+ * script is bound to the sheet, it already has full edit access — no service
+ * account, no API enabling, no sharing required.
+ *
+ * Supported actions (POST body):
+ *   (none)   — add `points` to the matched member's cell for `day`
+ *   reset    — zero everyone's weekly points
+ *   exempt   — write a marker ("EX"/"LOA") across a member's week
+ *   roster   — remove members who left the MET group, add newly joined ones
+ *
+ * NOTE: tickets no longer award points — the weekly quota is 2 cases (8 points).
  *
  * SETUP (one time):
  *   1. Open your quota Google Sheet.
@@ -58,6 +67,7 @@ function handlePost(e) {
 
     if (body.action === 'reset')  return resetAll();
     if (body.action === 'exempt') return setExempt((body.username || '').toString().trim(), (body.marker || 'EX').toString());
+    if (body.action === 'roster') return syncRoster(body.remove || [], body.add || []);
 
     var points         = Number(body.points) || 0;
     var discordId      = (body.discordId || '').toString().trim();
@@ -231,6 +241,74 @@ function setExempt(username, marker) {
   if (row < 0) return json({ ok: false, error: 'member not found' });
   for (var k in dayCols) sheet.getRange(row + 1, dayCols[k] + 1).setValue(mark);
   return json({ ok: true });
+}
+
+// ── MET database roster sync ──────────────────────────────────────
+// remove: [{ username, discordId }] — members no longer in the MET group.
+// add:    [{ username, rank, discordId }] — newly joined constables.
+// Removed rows are cleared (username/discord/rank/day cells emptied) and the
+// freed rows are reused for the new joiners, so the sheet's shape, formulas and
+// section layout stay exactly as they are.
+function syncRoster(remove, add) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : ss.getSheets()[0];
+  if (!sheet) return json({ ok: false, error: 'sheet not found' });
+
+  var values  = sheet.getDataRange().getDisplayValues();
+  var userCol = -1, discCol = -1, rankCol = -1, dayCols = {};
+  var RANKH = ['rank', 'role'];
+  for (var r = 0; r < values.length; r++) {
+    for (var c = 0; c < values[r].length; c++) {
+      var v = (values[r][c] || '').toString().trim().toLowerCase();
+      if (!v) continue;
+      if (userCol < 0 && USERH.indexOf(v) >= 0) userCol = c;
+      else if (discCol < 0 && DISCH.indexOf(v) >= 0) discCol = c;
+      else if (rankCol < 0 && RANKH.indexOf(v) >= 0) rankCol = c;
+      else {
+        var di = DAYS.indexOf(v);
+        if (di < 0) di = DAYF.indexOf(v);
+        if (di < 0) for (var i = 0; i < DAYS.length; i++) if (v.indexOf(DAYS[i]) === 0) { di = i; break; }
+        if (di >= 0 && dayCols[di] == null) dayCols[di] = c;
+      }
+    }
+  }
+  if (userCol < 0) return json({ ok: false, error: 'no username column found' });
+
+  // Locate the row for each member to remove (username first, then discord id).
+  var freed = [], removed = 0;
+  for (var i2 = 0; i2 < remove.length; i2++) {
+    var want  = normName(remove[i2] && remove[i2].username);
+    var wantD = ((remove[i2] && remove[i2].discordId) || '').toString().replace(/\D/g, '');
+    var row = -1;
+    for (var r2 = 0; r2 < values.length && row < 0; r2++) {
+      var un = normName(values[r2][userCol]);
+      if (un && want && un === want) row = r2;
+      else if (wantD && discCol >= 0 && (values[r2][discCol] || '').toString().replace(/\D/g, '') === wantD) row = r2;
+    }
+    if (row < 0) continue;
+    if (USERH.indexOf((values[row][userCol] || '').toString().trim().toLowerCase()) >= 0) continue; // never a header
+    sheet.getRange(row + 1, userCol + 1).setValue('');
+    if (discCol >= 0) sheet.getRange(row + 1, discCol + 1).setValue('');
+    if (rankCol >= 0) sheet.getRange(row + 1, rankCol + 1).setValue('');
+    for (var k in dayCols) sheet.getRange(row + 1, dayCols[k] + 1).setValue('');
+    values[row][userCol] = '';
+    freed.push(row);
+    removed++;
+  }
+
+  // Write new joiners into the freed rows first, then append.
+  var added = 0, appendAt = values.length;
+  for (var i3 = 0; i3 < add.length; i3++) {
+    var target = freed.length ? freed.shift() : appendAt++;
+    var a = add[i3] || {};
+    sheet.getRange(target + 1, userCol + 1).setValue(a.username || '');
+    if (rankCol >= 0) sheet.getRange(target + 1, rankCol + 1).setValue(a.rank || '');
+    if (discCol >= 0) sheet.getRange(target + 1, discCol + 1).setValue(a.discordId || '');
+    for (var k2 in dayCols) sheet.getRange(target + 1, dayCols[k2] + 1).setValue(0);
+    added++;
+  }
+
+  return json({ ok: true, removed: removed, added: added });
 }
 
 // Lets you sanity-check the deployment by visiting the /exec URL in a browser.

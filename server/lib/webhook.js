@@ -20,7 +20,7 @@ function buildActionList({ actions, action }) {
 const SIGN_AUTHOR_NAME = 'Signed, Internal Affairs High Command';
 const SIGN_AUTHOR_ICON = 'https://metia.uk/media/880b6a85-064d-4c5a-a36f-c3d1fc8e7569';
 
-function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp }) {
+function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp, appealed }) {
   // Prefer a Discord mention; otherwise fall back to the Roblox username (with a
   // profile link if we have the id) so a known officer is never "Unknown".
   let staffMemberValue;
@@ -43,6 +43,21 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
     timestamp: new Date(timestamp || Date.now()).toISOString(),
   };
   if (suspectAvatar) embed.thumbnail = { url: suspectAvatar };        // suspect's Roblox headshot
+
+  // An overturned case keeps its original notice but is visibly marked as
+  // appealed, so the channel history stays honest instead of silently changing.
+  if (appealed) {
+    embed.color = 0x9d7dff;
+    embed.title = 'Staff Consequences & Discipline — APPEALED';
+    embed.fields.push({
+      name:  '• Appeal:',
+      value: `Granted by **${appealed.by || 'Internal Affairs'}**`
+           + (appealed.rank ? ` (${appealed.rank})` : '')
+           + `\nPunishments have been lifted.`
+           + (appealed.reason ? `\n> ${String(appealed.reason).slice(0, 900)}` : ''),
+      inline: false,
+    });
+  }
   return embed;
 }
 
@@ -93,7 +108,7 @@ async function editApprovalWebhook(messageId, data) {
   if (!webhookUrl || !messageId) return false;
 
   const embed = buildCaseEmbed(data);
-  embed.title = 'Staff Consequences & Discipline (updated)';
+  if (!data.appealed) embed.title = 'Staff Consequences & Discipline (updated)';
   const body = { embeds: [embed] };
   if (data.officerDiscordId) body.content = `<@${data.officerDiscordId}>`;
 

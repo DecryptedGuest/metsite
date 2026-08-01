@@ -24,7 +24,7 @@ async function revalidateUser(user, getMemberRecord) {
     return 'fetch-error-skip';
   }
 
-  const { role: newRole, conclusive } =
+  const { role: newRole, conclusive, iaRank, iaRankName } =
     await resolveSiteRoleDetailed({ discordId: user.discordId, memberRoles });
 
   // Refresh the cached per-division access alongside the site role. IA comes
@@ -41,6 +41,11 @@ async function revalidateUser(user, getMemberRecord) {
     divisions = Array.isArray(user.divisions) ? user.divisions : [];
   }
   const stamp = { lastRoleCheck: new Date(), divisions };
+  // Snapshot the IA group rank so the SI+ gate (case appeals) has something
+  // definitive to read. Only overwrite when we actually resolved it — a
+  // transient RoVer/group failure must never wipe a good value.
+  if (iaRankName != null) stamp.iaRankName = iaRankName;
+  if (iaRank     != null) stamp.iaRank     = iaRank;
 
   if (newRole) {
     if (newRole !== user.role) {

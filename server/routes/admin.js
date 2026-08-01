@@ -202,16 +202,19 @@ router.get('/security', async (req, res) => {
   }
 });
 
-// ── DELETE /api/admin/tickets/:id ─────────────────────────────────
-router.delete('/tickets/:id', async (req, res) => {
+// ── DELETE /api/admin/ticket-logs/:id ─────────────────────────────
+// Ticket logs mirror Discord, so deleting one here is only ever a cleanup for a
+// mis-parsed entry — the next sweep will re-ingest it if the message still
+// exists. (Hand-logged tickets no longer exist; the `tickets` table is gone.)
+router.delete('/ticket-logs/:id', async (req, res) => {
   try {
-    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
-    if (!existing) return res.status(404).json({ error: 'Ticket not found' });
-    await prisma.ticket.delete({ where: { id: req.params.id } });
+    const existing = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Ticket log not found' });
+    await prisma.ticketLog.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (err) {
-    console.error('DELETE /tickets error:', err.message);
-    res.status(500).json({ error: 'Failed to delete ticket' });
+    console.error('DELETE /ticket-logs error:', err.message);
+    res.status(500).json({ error: 'Failed to delete ticket log' });
   }
 });
 

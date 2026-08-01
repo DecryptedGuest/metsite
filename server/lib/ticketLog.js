@@ -111,6 +111,7 @@ function parseTicketLogEmbed(embed) {
   if (!looksLikeTickety) return null;
 
   const ticketName = labelled(text, 'Ticket Name');
+  const ticketId   = labelled(text, 'Ticket ID');
   const oldName    = labelled(text, 'Old Name');
   const newName    = labelled(text, 'New Name');
   // Classify off the OLD name when a rename happened, else the current name.
@@ -128,6 +129,7 @@ function parseTicketLogEmbed(embed) {
 
   return {
     ticketName,
+    ticketId,
     oldName,
     newName,
     effectiveName,

@@ -29,6 +29,20 @@ async function onReady() {
   ready = true;
   console.log(`🤖  Discord bot online as ${client.user.tag}`);
   await registerImportCommand();
+  // Mirror the closed-ticket logs onto the site (All Tickets / My Tickets).
+  try { require('./ticketIngest').startTicketLogWorker(client); }
+  catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
+}
+
+// Live ingestion: every new message in the ticket-log channel is offered to the
+// ticket-log parser. Anything that isn't a "Ticket Closed" embed is ignored.
+async function onMessageCreate(msg) {
+  try {
+    if (!msg || String(msg.channelId) !== String(TICKET_LOG_CHANNEL_ID)) return;
+    await require('./ticketIngest').ingestMessage(msg);
+  } catch (e) {
+    console.warn('[TicketLogs] live ingest error:', e.message);
+  }
 }
 
 function buildClient(withMessageContent) {
@@ -37,9 +51,14 @@ function buildClient(withMessageContent) {
   const c = new Client({ intents, partials: [Partials.GuildMember] });
   c.once('ready', onReady);
   c.on('interactionCreate', onInteraction);
+  if (withMessageContent) c.on('messageCreate', onMessageCreate);
   c.on('error', err => console.error('Discord bot error:', err.message));
   return c;
 }
+
+// The live client, for callers that need to talk to Discord directly (the
+// ticket-log backfill sweep). Null until the gateway connects.
+function getClient() { return ready ? client : null; }
 
 client = buildClient(WANT_MESSAGE_CONTENT);
 
@@ -750,7 +769,7 @@ module.exports = {
   startBot, assignRole, removeRole, getMemberDisplayName, lookupMember, getMemberRecord,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
-  matchTicketTranscript,
+  matchTicketTranscript, getClient,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
   sendTryoutHostDM,
 };

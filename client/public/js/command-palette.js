@@ -58,11 +58,40 @@
     return { label: label, icon: icon || 'ti-arrow-right', sub: sub || '', run: function () { window.location.href = href; } };
   }
 
+  // A command that switches tab inside the IA dashboard instead of navigating.
+  function pageCmd(label, page, icon, sub) {
+    return { label: label, icon: icon || 'ti-arrow-right', sub: sub || 'Internal Affairs',
+             run: function () { window.navigateTo(page); } };
+  }
+
   async function buildCommands() {
     commands = [
       navCmd('My Dashboard', '/dashboard', 'ti-layout-dashboard'),
       navCmd('My Profile', '/profile', 'ti-user'),
     ];
+
+    // When we're inside the IA dashboard, every tab and the primary actions
+    // become palette commands — that's the fastest way around the site.
+    if (typeof window.navigateTo === 'function') {
+      commands.push(
+        pageCmd('Overview',        'dashboard',   'ti-layout-dashboard'),
+        pageCmd('My Cases',        'my-cases',    'ti-folder'),
+        pageCmd('All Cases',       'all-cases',   'ti-database'),
+        pageCmd('Review Queue',    'review',      'ti-clipboard-check'),
+        pageCmd('Records lookup',  'records',     'ti-id-badge-2'),
+        pageCmd('Case Documents',  'case-docs',   'ti-file-text'),
+        pageCmd('My Tickets',      'tickets',     'ti-ticket'),
+        pageCmd('All Tickets',     'all-tickets', 'ti-tags'),
+        pageCmd('Media',           'media',       'ti-photo-video'),
+        pageCmd('Quota & Database','quota-check', 'ti-checklist'),
+        pageCmd('Audit Log',       'audit',       'ti-list-details'),
+        { label: 'Submit a case', icon: 'ti-plus', sub: 'Action',
+          run: function () { if (typeof window.openNewCaseModal === 'function') window.openNewCaseModal(); } },
+        { label: 'New case document', icon: 'ti-file-plus', sub: 'Action',
+          run: function () { if (window.CaseDoc) window.CaseDoc.openBuilder({}); } },
+      );
+    }
+
     try {
       var me = await fetch('/api/me', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; });
       var divs = await fetch('/api/me/divisions', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; });

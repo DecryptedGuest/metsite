@@ -7,14 +7,87 @@ five divisions from one codebase and one login:
 |----------|-------|-------|
 | Criminal Investigation Department | **CID**   | Open cases, log evidence/notes, assign investigators, track status |
 | Specialist Firearms Command       | **SCO-19**| Log firearms deployments/authorisations, lead sign-off |
-| Internal Affairs                  | **IA**    | Case management, ticketing, quotas, audit log (the original system) |
+| Internal Affairs                  | **IA**    | Case management, case documents, appeals, quotas, audit log |
 | Frontline Policing                | **FLP**   | Shift start/end, incidents attended, arrests made |
 | Hendon Police College             | **HPC**   | Cadet roster, course tracking, pass/fail, graduation sign-off |
 
-IA is the original, fully-featured system this portal grew from — its case management,
-ticketing, quota tracking, audit log, Discord role-gating and webhook posting are
-unchanged, just re-homed under `/ia`. The other four divisions are lighter-weight tools
-scoped to what each division actually needs.
+IA is the original, fully-featured system this portal grew from, re-homed under `/ia`.
+The other four divisions are lighter-weight tools scoped to what each division needs.
+
+---
+
+## Internal Affairs
+
+Everything IA does now runs through cases. There is one place to write a case file,
+one queue to review it, one way to overturn it, and one number that tells an
+investigator whether they're on quota.
+
+### Case appeals
+
+An approved case can be **appealed**, and filing the appeal *is* the decision — it is
+granted automatically. Granting one moves the case to `OVERTURNED`, removes every
+punishment role it applied in Discord, marks its `CasePunishment` rows as lifted, edits
+the posted administrative-log notice to say it was appealed, and drops it out of the
+officer's punishment record (it shows in its own "Appealed" section in Records instead).
+
+Who may appeal:
+
+| Case contains | Who can appeal it |
+|---------------|-------------------|
+| Anything else | **Senior Investigator and above** |
+| A Termination or a Blacklist | **High Command only** |
+
+"Senior Investigator and above" can't come from the site role (`IA` collapses every
+investigator tier into one value), so login and the access revalidator now snapshot the
+member's Internal Affairs Roblox group rank onto `User.iaRank` / `User.iaRankName`.
+`server/lib/iaRank.js` is the single place that rule lives; `IA_SI_MIN_RANK` (default
+`15`) sets the numeric threshold, and the rank *name* is matched as a fallback. The
+server enforces it on every appeal endpoint — `/api/me` only exposes `isSiPlus` /
+`isHicomm` so the UI can hide the button rather than offer-and-reject it.
+
+### Case documents
+
+Case files are written **on the site** instead of in Google Docs. The builder has the
+same sections, inputs and order as the IA doc template — report date/time, suspect and
+investigator identity blocks, allegations, evidence exhibits, summary, the punishment
+checklist (issued items struck through), final decision and signature — plus a full
+formatting toolbar (fonts, sizes, colours, highlight, alignment, lists, indent, links,
+images, quotes, rules).
+
+Every field that can be resolved automatically has a one-click **autofill**:
+
+| Field | Filled from |
+|-------|-------------|
+| `User` | the member's Roblox username |
+| `Rank` | their rank name in the MET group (`MET_GROUP_ID`) |
+| `User ID` | their Discord user id |
+
+A finished document lives at `/case-doc/<id>` — that URL is what a case's "Case Link"
+points at. Rich text is sanitised server-side by `server/lib/sanitizeHtml.js` (strict
+tag/attribute/CSS allowlist) because documents are written by IA but read by anyone with
+the link.
+
+### Ticket logs
+
+Tickets are no longer submitted, approved or denied on the site. The Discord bot mirrors
+the **"Ticket Closed"** logs from the ticket-logs channel into `ticket_logs`
+(`server/lib/ticketIngest.js`) — live via `messageCreate`, with a catch-up sweep every 5
+minutes and a backfill on first run. *My Tickets* is every ticket you closed; *All
+Tickets* is every ticket logged. Closing a ticket **awards no quota points**.
+
+### Quota
+
+The weekly quota is **2 cases = 8 points** for every non-exempt rank (Directors and LOA
+stay exempt). Configure with `IA_CASE_POINTS`, `IA_WEEKLY_CASES` or `IA_WEEKLY_QUOTA`.
+
+### MET database sync
+
+**Quota & Database → MET Database Sync** compares the database sheet against the MET
+Roblox group: members no longer in the group are removed, and newly joined constables are
+written into the rows that frees up. *Check* is a dry run that shows exactly what will
+change; *Apply changes* performs it. Writes go through the Apps Script webhook
+(`roster` action in `scripts/quota-webhook.gs`) with a service-account fallback. Set
+`MET_DB_AUTO_SYNC=true` to run it daily.
 
 ---
 
@@ -38,8 +111,9 @@ metsite/
 │   ├── index.js              # Express entry point — hub route, /ia/* + /cid|sco19|flp|hpc/* mounts
 │   ├── routes/
 │   │   ├── auth.js           # Shared Discord OAuth flow (all divisions)
-│   │   ├── cases.js          # IA case CRUD + audit (unchanged)
-│   │   ├── tickets.js        # IA ticketing (unchanged)
+│   │   ├── cases.js          # IA case CRUD + appeals + change diffs + audit
+│   │   ├── caseDocs.js       # Case documents (the built-in replacement for Google Docs)
+│   │   ├── tickets.js        # Closed-ticket logs, read-only (mirrored from Discord)
 │   │   ├── admin.js          # IA admin panel (unchanged)
 │   │   ├── cid.js            # CID case log
 │   │   ├── sco19.js          # SCO-19 deployment log
@@ -52,6 +126,10 @@ metsite/
 │       ├── db.js             # Prisma client singleton
 │       ├── roleResolver.js   # Site role (IA) + division access resolution
 │       ├── accessControl.js  # Background revalidator — refreshes role AND divisions
+│       ├── iaRank.js         # "Senior Investigator and above" — the appeal gate
+│       ├── sanitizeHtml.js   # Allowlist sanitiser for case-document rich text
+│       ├── ticketIngest.js   # Mirrors closed-ticket logs from Discord into the DB
+│       ├── metDatabase.js    # MET database ↔ Roblox group roster sync
 │       ├── refGen.js         # Reference generator for the new division models
 │       └── webhook.js        # Discord webhook sender (IA)
 ├── client/
@@ -355,8 +433,29 @@ access to every division.
 | GET    | `/api/me`               | Current user info (incl. `divisions`) |
 | GET    | `/api/me/divisions`     | Divisions the current user can access, for the hub + "Switch division" |
 
-### IA (`/api/cases`, `/api/tickets`, `/api/admin`, ... — unchanged, now gated to IA division)
-See the code in `server/routes/` — behaviour is identical to the original IA system.
+### IA (`/api/cases`, `/api/case-docs`, `/api/tickets`, `/api/quota`, `/api/admin` — gated to the IA division)
+
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| GET    | `/api/cases/all?q=&status=` | IA | Every case; free-text search + status filter |
+| GET    | `/api/cases/my?q=`          | IA | Your own cases, same search |
+| GET    | `/api/cases/stats`          | IA | Totals incl. `overturned` + `changesRequested` |
+| PATCH  | `/api/cases/:id/request-changes` | HICOMM/Supervisor | Bounce back with a note (snapshots the case) |
+| PATCH  | `/api/cases/:id`            | owner (pending) / elevated | Edit; records a before→after diff |
+| GET    | `/api/cases/:id/appeal`     | IA | May *I* appeal this case, and why not |
+| POST   | `/api/cases/:id/appeal`     | SI+ (HICOMM for Termination/Blacklist) | File — and thereby grant — an appeal |
+| GET    | `/api/case-docs`            | IA | Your case documents (`?scope=all` for elevated) |
+| POST   | `/api/case-docs`            | IA | Create a document |
+| PATCH  | `/api/case-docs/:id`        | author / elevated | Save |
+| GET    | `/api/case-docs/autofill?target=` | IA | Resolve User / Rank / User ID for a member |
+| GET    | `/api/case-docs/penal-codes?codes=` | IA | Resolve penal codes → offences |
+| GET    | `/api/tickets`              | IA | Closed tickets **you** closed |
+| GET    | `/api/tickets/all?q=&type=` | IA | Every closed ticket |
+| POST   | `/api/tickets/sync`         | HICOMM | Force a re-scan of the Discord log channel |
+| GET    | `/api/quota/met-database`   | HICOMM | Dry-run the MET database sync |
+| POST   | `/api/quota/met-database/sync` | HICOMM | Apply it |
+
+Everything else in `server/routes/` behaves as before.
 
 ### CID (`/api/cid`)
 | Method | Path                              | Access     | Description |

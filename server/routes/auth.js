@@ -150,6 +150,10 @@ router.get('/discord/callback', async (req, res) => {
     }
 
     // ── Step 4: Determine system role ────────────────────────────
+    // The IA group rank is also snapshotted onto the user (iaRank/iaRankName)
+    // because the site role collapses every investigator tier into "IA" — the
+    // SI+ gate on case appeals needs the real rank. See lib/iaRank.js.
+    let iaRank = null, iaRankName = null;
     let systemRole;
     if (isDeveloper) {
       systemRole = 'DEVELOPER';
@@ -168,6 +172,8 @@ router.get('/discord/callback', async (req, res) => {
         if (rId) {
           const groupRole = await getUserGroupRole(rId, iaGroupId);
           if (groupRole) {
+            iaRankName = groupRole.name || null;
+            iaRank     = groupRole.rank != null ? Number(groupRole.rank) : null;
             systemRole = roleFromIaGroupRank(groupRole.name, groupRole.rank);
             console.log(`[Auth] IA group rank: ${groupRole.name} (${groupRole.rank}) → ${systemRole}`);
           }
@@ -231,6 +237,10 @@ router.get('/discord/callback', async (req, res) => {
           discordAvatar:   avatarUrl,
           displayName,
           ...(systemRole ? { role: systemRole } : {}),
+          // Only write the IA rank when we actually read it — a transient
+          // RoVer/group failure must not wipe a good snapshot.
+          ...(iaRankName != null ? { iaRankName } : {}),
+          ...(iaRank     != null ? { iaRank }     : {}),
           divisions:       divisions,
           metRoleIds:      Array.isArray(memberRoles) ? memberRoles : [],
           mustReauth:      false,
@@ -243,6 +253,8 @@ router.get('/discord/callback', async (req, res) => {
           displayName,
           metRoleIds:      Array.isArray(memberRoles) ? memberRoles : [],
           ...(systemRole ? { role: systemRole } : {}),
+          ...(iaRankName != null ? { iaRankName } : {}),
+          ...(iaRank     != null ? { iaRank }     : {}),
           divisions:       divisions,
         },
       });

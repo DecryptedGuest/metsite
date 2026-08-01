@@ -47,6 +47,13 @@ model User {
   // things gated on a specific Discord role (e.g. the HPC final-exam role).
   metRoleIds      Json?
 
+  // The user's rank inside the Internal Affairs Roblox group, snapshotted at
+  // login and by the access revalidator. `role` collapses every investigator
+  // tier into "IA", so this is what lets the site tell a Senior Investigator
+  // apart from a Probationary one — the gate for SI+ actions (case appeals).
+  iaRankName      String?
+  iaRank          Int?
+
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
   sessions           Session[]
@@ -54,7 +61,8 @@ model User {
 
   cases              Case[]
   caseActions        CaseAction[]
-  tickets             Ticket[]
+  caseAppeals        CaseAppeal[]
+  caseDocuments      CaseDocument[]
   pushSubscriptions   PushSubscription[]
   media               Media[]
   cidCases            CidCase[]
@@ -125,6 +133,22 @@ model Case {
   logMessageId                String?
   reviewNote                  String?
   reviewChanges               Json?
+  // Snapshot of the case's editable fields taken the moment a reviewer requested
+  // changes. Diffing this against the live row is what powers the "what actually
+  // changed" view, so a reviewer can see exactly what the submitter updated.
+  reviewSnapshot              Json?
+  // Set when the submitter edits a case that had changes requested — records the
+  // computed diff so the change history survives further edits.
+  reviewRevisions             Json?
+  // Built-in case document (replaces the external Google Doc link). caseLink is
+  // still written for backwards compatibility and points at /case-doc/<id>.
+  documentId                  String?
+  // Appeal state. An appeal is auto-granted, so this is set at the moment it is
+  // filed; the case's status moves to OVERTURNED and its punishments are lifted.
+  appealedAt                  DateTime?
+  appealedById                String?
+  appealedByName              String?
+  appealReason                String?
   status           CaseStatus @default(PENDING)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -132,8 +156,88 @@ model Case {
   user            User             @relation(fields: [userId], references: [id])
   caseActions     CaseAction[]
   casePunishments CasePunishment[]
+  appeals         CaseAppeal[]
 
+  @@index([status])
+  @@index([createdAt])
   @@map("cases")
+}
+
+// A granted appeal against an approved case. Appeals are approved automatically
+// — filing one IS the decision — so this table is the permanent record of who
+// overturned what, and why. Only Senior Investigator+ may file one at all, and
+// only High Command may appeal a Termination or Blacklist.
+model CaseAppeal {
+  id            String   @id @default(uuid())
+  caseId        String
+  appealedById  String
+  appealedByName String
+  appealedByRank String?
+  reason        String
+  // The punishments that were lifted, snapshotted at appeal time.
+  liftedActions Json?
+  // True when the case carried a Termination/Blacklist (High-Command-only appeal).
+  hicommOnly    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [appealedById], references: [id])
+
+  @@index([caseId])
+  @@index([createdAt])
+  @@map("case_appeals")
+}
+
+// A case document built on the site — the replacement for the external Google
+// Doc. `data` holds the structured fields (suspect, investigator, allegations,
+// punishment checklist, exhibits) and `html` the rendered rich-text body, so the
+// document can be re-opened in the editor AND rendered read-only at /case-doc/:id.
+model CaseDocument {
+  id        String   @id @default(uuid())
+  docRef    String   @unique          // "DOC-0001"
+  authorId  String
+  caseId    String?                   // set once the document is attached to a case
+  title     String
+  status    String   @default("DRAFT") // DRAFT | FINAL
+  data      Json                       // structured fields (see client/js/case-doc.js)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([authorId])
+  @@index([caseId])
+  @@map("case_documents")
+}
+
+// A closed ticket, ingested from the Tickety "Ticket Closed" log embeds in the
+// IA ticket-logs Discord channel. Read-only on the site: nobody logs tickets by
+// hand any more, there is no pending/approved state, and no quota points are
+// awarded for them.
+model TicketLog {
+  id                    String     @id @default(uuid())
+  messageId             String     @unique   // Discord message id of the log embed
+  channelId             String?
+  ticketRef             String?              // Tickety's own ticket id
+  ticketName            String?
+  ticketType            TicketType @default(GENERAL_SUPPORT)
+  reason                String?              // the close reason
+  transcriptUrl         String?
+  creatorDiscordId      String?
+  creatorUsername       String?
+  creatorRobloxUsername String?
+  closerDiscordId       String?              // the "executor" — who closed it
+  closerUsername        String?
+  closerUserId          String?              // matched site User.id → "My Tickets"
+  closedAt              DateTime
+  raw                   Json?
+  createdAt             DateTime   @default(now())
+
+  @@index([closedAt])
+  @@index([closerDiscordId])
+  @@index([closerUserId])
+  @@index([ticketType])
+  @@map("ticket_logs")
 }
 
 model CaseAction {
@@ -169,34 +273,6 @@ model CaseCounter {
   count Int @default(0)
 
   @@map("case_counter")
-}
-
-model Ticket {
-  id             String       @id @default(uuid())
-  ticketRef      String       @unique
-  userId         String
-  robloxUsername String
-  ticketType     TicketType
-  submittedAt    String
-  timezone       String
-  conclusion     String
-  transcriptLink String?
-  proofImages    Json?
-  status         TicketStatus @default(PENDING)
-  reviewedBy     String?
-  reviewedAt     DateTime?
-  createdAt      DateTime     @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("tickets")
-}
-
-model TicketCounter {
-  id    Int @id @default(1)
-  count Int @default(0)
-
-  @@map("ticket_counter")
 }
 
 model AccessGrant {
@@ -289,6 +365,11 @@ enum CaseStatus {
   PENDING
   APPROVED
   DENIED
+  // An approved case whose punishments were lifted on appeal. Kept as its own
+  // status (rather than reverting to DENIED) so the record shows the case WAS
+  // upheld and then overturned, and so it stops counting toward the officer's
+  // punishment record.
+  OVERTURNED
 }
 
 enum ActionType {
@@ -298,6 +379,9 @@ enum ActionType {
   DELETED
   BLACKLISTED
   UNBLACKLISTED
+  APPEALED
+  CHANGES_REQUESTED
+  CHANGES_APPLIED
 }
 
 enum TicketType {
@@ -305,12 +389,6 @@ enum TicketType {
   HICOMM
   OFFICER_REPORT
   APPEAL
-}
-
-enum TicketStatus {
-  PENDING
-  APPROVED
-  DENIED
 }
 
 // ─────────────────────────────────────────────────────────────────

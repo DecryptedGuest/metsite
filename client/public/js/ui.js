@@ -338,9 +338,10 @@ function openImageNewTab(src) {
 
 function statusBadge(status) {
   const map = {
-    PENDING:  '<span class="badge badge-pending"><span class="badge-dot"></span>Pending</span>',
-    APPROVED: '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
-    DENIED:   '<span class="badge badge-denied"><span class="badge-dot"></span>Denied</span>',
+    PENDING:    '<span class="badge badge-pending"><span class="badge-dot"></span>Pending</span>',
+    APPROVED:   '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
+    DENIED:     '<span class="badge badge-denied"><span class="badge-dot"></span>Denied</span>',
+    OVERTURNED: '<span class="badge badge-purple"><span class="badge-dot"></span>Appealed</span>',
   };
   return map[status] || `<span class="badge">${status}</span>`;
 }
@@ -349,16 +350,86 @@ function statusBadge(status) {
 // back to its submitter. Returns '' when it doesn't apply. Shared across every
 // case list + the detail view so the state is impossible to miss.
 function changesBadge(c) {
-  if (!c || !c.reviewNote || c.status !== 'PENDING') return '';
-  const by  = (c.reviewChanges && c.reviewChanges.by) ? ` by ${c.reviewChanges.by}` : '';
-  const tip = `Changes requested${by}: ${c.reviewNote}`;
-  return `<span class="badge badge-changes" title="${escapeHtml(tip)}">`
-       + `<span class="badge-dot"></span><i class="ti ti-edit-circle"></i> Changes requested</span>`;
+  if (!c || c.status !== 'PENDING') return '';
+  if (c.reviewNote) {
+    const by  = (c.reviewChanges && c.reviewChanges.by) ? ` by ${c.reviewChanges.by}` : '';
+    const tip = `Changes requested${by}: ${c.reviewNote}`;
+    return `<span class="badge badge-changes" title="${escapeHtml(tip)}">`
+         + `<span class="badge-dot"></span><i class="ti ti-edit-circle"></i> Changes requested</span>`;
+  }
+  // The submitter has since acted on the request — surface that too, so a
+  // reviewer can see at a glance which cases have been updated for them.
+  if (caseWasUpdated(c)) {
+    const rev = lastRevision(c);
+    const what = rev ? rev.changes.map(x => x.label).join(', ') : '';
+    return `<span class="badge badge-blue" title="${escapeHtml('Updated by the submitter: ' + what)}">`
+         + `<span class="badge-dot"></span><i class="ti ti-refresh-dot"></i> Updated</span>`;
+  }
+  return '';
 }
 
 // True when a case has been sent back to its submitter and is awaiting changes.
 function caseAwaitingChanges(c) {
   return !!(c && c.reviewNote && c.status === 'PENDING');
+}
+
+// The most recent recorded edit of a case, or null.
+function lastRevision(c) {
+  const revs = (c && Array.isArray(c.reviewRevisions)) ? c.reviewRevisions : [];
+  return revs.length ? revs[revs.length - 1] : null;
+}
+
+// A pending case whose submitter has answered a "changes requested" note.
+function caseWasUpdated(c) {
+  if (!c || c.status !== 'PENDING' || c.reviewNote) return false;
+  const rev = lastRevision(c);
+  return !!(rev && rev.addressedNote);
+}
+
+// True when the case's punishments were lifted on appeal.
+function caseIsAppealed(c) {
+  return !!(c && (c.status === 'OVERTURNED' || c.appealedAt));
+}
+
+// Small purple chip naming who granted the appeal.
+function appealBadge(c) {
+  if (!caseIsAppealed(c)) return '';
+  const by = c.appealedByName ? ` by ${c.appealedByName}` : '';
+  return `<span class="badge badge-purple" title="${escapeHtml('Appeal granted' + by + (c.appealReason ? ': ' + c.appealReason : ''))}">`
+       + `<span class="badge-dot"></span><i class="ti ti-gavel"></i> Appealed</span>`;
+}
+
+// ── Change diff rendering ────────────────────────────────────────
+// Renders one recorded revision as an explicit before → after list, so it is
+// obvious WHAT was updated rather than just that something was.
+function renderRevision(rev, opts) {
+  if (!rev || !Array.isArray(rev.changes) || !rev.changes.length) return '';
+  opts = opts || {};
+  const rows = rev.changes.map(ch => `
+    <div class="diff-row">
+      <div class="diff-label">${escapeHtml(ch.label)}</div>
+      <div class="diff-values">
+        <span class="diff-before">${ch.before ? escapeHtml(ch.before) : '<em>empty</em>'}</span>
+        <i class="ti ti-arrow-right diff-arrow"></i>
+        <span class="diff-after">${ch.after ? escapeHtml(ch.after) : '<em>empty</em>'}</span>
+      </div>
+    </div>`).join('');
+  return `
+    <div class="diff-block${opts.compact ? ' diff-compact' : ''}">
+      <div class="diff-head">
+        <span><i class="ti ti-git-compare"></i> ${escapeHtml(rev.by || 'The submitter')} updated this case</span>
+        <span class="diff-when">${rev.at ? formatDateTime(rev.at) : ''}</span>
+      </div>
+      ${rev.addressedNote ? `<div class="diff-note">In response to: “${escapeHtml(rev.addressedNote)}”</div>` : ''}
+      ${rows}
+    </div>`;
+}
+
+// Every recorded revision, newest first.
+function renderRevisionHistory(c) {
+  const revs = (c && Array.isArray(c.reviewRevisions)) ? c.reviewRevisions.slice().reverse() : [];
+  if (!revs.length) return '';
+  return revs.map(r => renderRevision(r)).join('');
 }
 
 // Colour-coded punishment badges for the case ACTION column — mirrors the

@@ -1,7 +1,10 @@
 // server/lib/quota.js
-// Adds quota points to the Internal Affairs Database Google Sheet when a ticket
-// log (+2) or case (+4) is approved. Matches the IA member's row by Discord ID
-// or Roblox username and increments the column for the current day of the week.
+// Adds quota points to the Internal Affairs Database Google Sheet when a case
+// (+4) is approved. Matches the IA member's row by Discord ID or Roblox
+// username and increments the column for the current day of the week.
+//
+// Tickets no longer award points — the weekly quota is 2 cases, i.e. 8 points,
+// for every non-exempt rank (see quotaForRank / IA_WEEKLY_QUOTA).
 //
 // Required env:
 //   GOOGLE_SERVICE_ACCOUNT_JSON  full service-account key JSON (one line)
@@ -269,19 +272,33 @@ async function addQuotaPointsImpl(rawMember, points, label = '') {
   }
 }
 
+// The weekly quota: 2 cases a week. An approved case is worth CASE_POINTS (4),
+// so the target is 8 points for every non-exempt rank. Overridable per
+// deployment without a code change.
+const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
+const WEEKLY_CASES  = () => { const n = parseInt(process.env.IA_WEEKLY_CASES  || '2', 10); return Number.isFinite(n) ? n : 2; };
+const WEEKLY_TARGET = () => {
+  const explicit = parseInt(process.env.IA_WEEKLY_QUOTA || '', 10);
+  return Number.isFinite(explicit) ? explicit : CASE_POINTS() * WEEKLY_CASES();
+};
+
 // Weekly quota target based on the member's rank (from the sheet).
-//   LOA (Leave of Absence)                                 → exempt
-//   High Command (Director / Deputy Director)              → exempt (EX)
-//   Middle Command (Senior Investigator / Supervisor)      → 20
-//   Low Command (Junior / Probationary Investigator)       → 30
+//   LOA (Leave of Absence)                     → exempt
+//   High Command (Director / Deputy Director)  → exempt (EX)
+//   Everyone else                              → 2 cases = 8 points
+// The tier is still reported so the Quota Check keeps its grouping.
 function quotaForRank(rank) {
   const r = (rank || '').toString().trim().toLowerCase();
-  if (!r) return { exempt: false, target: null, tier: null };
-  if (r === 'loa')                                          return { exempt: true,  target: 0,  tier: 'LOA' };
-  if (/director/.test(r))                                  return { exempt: true,  target: 0,  tier: 'High Command' };
-  if (/senior\s*investigator|supervisor/.test(r))          return { exempt: false, target: 20, tier: 'Middle Command' };
-  if (/junior\s*investigator|probationary\s*investigator/.test(r)) return { exempt: false, target: 30, tier: 'Low Command' };
-  return { exempt: false, target: null, tier: null }; // unknown rank
+  const target = WEEKLY_TARGET();
+  if (!r) return { exempt: false, target, tier: null, cases: WEEKLY_CASES() };
+  if (r === 'loa')        return { exempt: true, target: 0, tier: 'LOA',          cases: 0 };
+  if (/director/.test(r)) return { exempt: true, target: 0, tier: 'High Command', cases: 0 };
+
+  let tier = null;
+  if (/senior\s*investigator|supervisor/.test(r))                   tier = 'Middle Command';
+  else if (/junior\s*investigator|probationary\s*investigator/.test(r)) tier = 'Low Command';
+  else if (/investigator/.test(r))                                  tier = 'Middle Command';
+  return { exempt: false, target, tier, cases: WEEKLY_CASES() };
 }
 
 // A Discord role that reduces a member's weekly quota target while they hold it.
@@ -661,8 +678,51 @@ function startQuotaWorker() {
   setTimeout(() => { processQuotaAwards().catch(() => {}); }, 8 * 1000); // catch up after boot
 }
 
+// ── Sheet primitives, shared with the MET database sync ───────────
+// lib/metDatabase.js adds/removes member ROWS on the same sheet, so it reuses
+// the client, the header detection and the A1 helpers from here rather than
+// duplicating (and drifting from) them.
+
+// Resolve the tab name once — env override, else the first tab.
+async function resolveSheetName(sheets, spreadsheetId) {
+  if (process.env.QUOTA_SHEET_NAME) return process.env.QUOTA_SHEET_NAME;
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
+  return meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
+}
+
+// Read the whole sheet: { sheets, spreadsheetId, sheetName, rows, cols }.
+// Returns null when the read path (service account) isn't configured.
+async function readSheet() {
+  const sheets = getSheetsClient();
+  if (!sheets) return null;
+  const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
+  const sheetName = await resolveSheetName(sheets, spreadsheetId);
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+  });
+  const rows = resp.data.values || [];
+  return { sheets, spreadsheetId, sheetName, rows, cols: findColumns(rows) };
+}
+
+// POST an action to the Apps Script web app. Returns the parsed body, or null
+// when no webhook is configured.
+async function callQuotaWebhook(payload) {
+  const url = process.env.QUOTA_WEBHOOK_URL;
+  if (!url) return null;
+  const fetch = require('node-fetch');
+  const res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
+    body: JSON.stringify({ secret: process.env.QUOTA_WEBHOOK_SECRET || '', ...payload }),
+  });
+  return await res.json().catch(() => ({ ok: false, error: 'bad response from the quota webhook' }));
+}
+
 module.exports = {
   addQuotaPoints, getMemberPoints, getAllMembersPoints, resetAllQuota, setMemberExempt, setMemberLOA,
   enqueueQuotaAward, processQuotaAwards, startQuotaWorker,
   setInvestigatorOfWeek,
+  quotaForRank, CASE_POINTS, WEEKLY_CASES, WEEKLY_TARGET,
+  // sheet primitives
+  getSheetsClient, findColumns, colLetter, normName, NON_MEMBER,
+  readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID,
 };

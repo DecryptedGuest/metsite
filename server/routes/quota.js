@@ -107,4 +107,38 @@ router.post('/reset', requireHICOMMStrict, async (req, res) => {
   }
 });
 
+// ── MET database sync ─────────────────────────────────────────────
+// Removes members who are no longer in the MET Roblox group from the database
+// sheet, and adds newly joined constables into the rows that frees up.
+//
+//   GET  /api/quota/met-database         → what the sync WOULD do (dry run)
+//   POST /api/quota/met-database/sync    → actually do it
+
+router.get('/met-database', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const plan = await syncMetDatabase({ dry: true });
+    if (!plan.ok) return res.status(plan.error ? 400 : 500).json(plan);
+    res.json(plan);
+  } catch (err) {
+    console.error('[MetDB] plan error:', err.message);
+    res.status(500).json({ error: 'Could not read the MET database: ' + err.message });
+  }
+});
+
+router.post('/met-database/sync', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const result = await syncMetDatabase({
+      dry:   false,
+      actor: { id: req.user.id, name: req.user.displayName || req.user.discordUsername },
+    });
+    if (!result.ok) return res.status(502).json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('[MetDB] sync error:', err.message);
+    res.status(500).json({ error: 'MET database sync failed: ' + err.message });
+  }
+});
+
 module.exports = router;

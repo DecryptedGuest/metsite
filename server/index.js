@@ -12,7 +12,7 @@ const debugRoutes   = require('./routes/debug');
 const ticketRoutes  = require('./routes/tickets');
 const securityRoutes = require('./routes/security');
 const quotaRoutes   = require('./routes/quota');
-const aiReviewRoutes = require('./routes/aiReview');
+const caseDocRoutes = require('./routes/caseDocs').router;
 const pushRoutes     = require('./routes/push');
 const notificationRoutes = require('./routes/notifications');
 const cidRoutes   = require('./routes/cid');
@@ -116,6 +116,9 @@ if (RUN_WORKERS) {
   require('./lib/accessControl').startAccessRevalidator();
   require('./lib/quota').startQuotaWorker();
   require('./lib/tryouts').startTryoutWorker();
+  // Optional (MET_DB_AUTO_SYNC=true): keep the MET database sheet in step with
+  // the Roblox group — drop members who left, add newly joined constables.
+  require('./lib/metDatabase').startMetDatabaseWorker();
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');
@@ -223,7 +226,7 @@ app.use('/api/webauthn', requireAuth, require('./routes/webauthn'));
 app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
-app.use('/api/ai-review', requireAuth, ia, aiReviewRoutes);
+app.use('/api/case-docs', requireAuth, ia, caseDocRoutes);
 app.use('/api/push',     requireAuth, ia, pushRoutes);
 app.use('/api/notifications', requireAuth, ia, notificationRoutes);
 app.use('/api/media',    requireAuth, ia, require('./routes/media'));
@@ -500,6 +503,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     }
   } catch (e) { /* never block /api/me on a revalidation hiccup */ }
 
+  const { isSeniorInvestigatorPlus, isHicomm, iaRankLabel } = require('./lib/iaRank');
   res.json({
     id:              req.user.id,
     discordId:       req.user.discordId,
@@ -511,6 +515,14 @@ app.get('/api/me', requireAuth, async (req, res) => {
     notifyAsked:     req.user.notifyAsked,
     notifyEnabled:   req.user.notifyEnabled,
     divisions:       Array.isArray(req.user.divisions) ? req.user.divisions : [],
+    // IA standing — drives the SI+ gate on case appeals in the UI. The server
+    // enforces the same rule on every appeal endpoint; this is only so the
+    // button can be hidden rather than shown-and-rejected.
+    iaRank:          req.user.iaRank ?? null,
+    iaRankName:      req.user.iaRankName || null,
+    iaRankLabel:     iaRankLabel(req.user),
+    isSiPlus:        isSeniorInvestigatorPlus(req.user),
+    isHicomm:        isHicomm(req.user),
   });
 });
 
@@ -731,6 +743,12 @@ app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(view
 app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
 app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
 app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
+
+// ── Case documents — the on-site replacement for the Google Doc ───
+// /case-doc/:id renders the finished document read-only (this is the URL that
+// goes in a case's "Case Link"); ?edit=1 opens it in the builder instead.
+app.get('/case-doc/:id',  recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'case-doc.html')));
+app.get('/ia/case-doc/:id', (req, res) => res.redirect('/case-doc/' + encodeURIComponent(req.params.id)));
 
 // ── New divisions — own dashboard view each, gated by their own division ──
 function mountDivisionPages(slug, division) {
