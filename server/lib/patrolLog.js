@@ -183,53 +183,59 @@ function imageUrls(message) {
   return out;
 }
 
-// Create a PENDING log (PATROL or EVENT) from a discord.js message
-// (idempotent on messageId). Returns the row, or null on error / duplicate.
-// If the Discord message already carries a tick/cross reaction from a reviewer,
-// derive the verdict from it so the log isn't left PENDING. A ✅ → APPROVED,
-// a ❌ → DENIED (approval wins if both are present). By default ANY such
-// reaction is honoured (only staff react in a log channel); set
-// FLP_REVIEWER_ROLE_IDS (and/or METHICOMM_ROLE_ID) to require the reactor to
-// hold one of those roles — the bot's own reaction (a site verdict) always
-// counts. Returns { status, by } or null.
-const APPROVE_EMOJI = new Set(['✅', '☑️', '✔️']);
-const DENY_EMOJI    = new Set(['❌', '✖️', '⛔', '🚫']);
+// Derive a verdict from the tick/cross reactions already on a message, so a log
+// that was signed off before the bot saw it isn't left PENDING.
+//
+// This delegates to lib/patrolReactions.js, which is also what handles a
+// reaction that arrives LATER. It has to be the same code: otherwise the
+// identical message is judged differently depending on whether the tick landed
+// before or after ingestion. Those shared rules are:
+//
+//   * a bot's reaction never counts — a logger that pre-adds ✅/❌ as clickable
+//     buttons would otherwise approve every log the moment it posts;
+//   * the submitter's own reaction never counts — you can't sign off your own
+//     log, which is what "ticked by somebody else" means;
+//   * a cross outranks a tick.
+//
+// This used to honour ANY reaction, without looking at who left it, whenever
+// FLP_REVIEWER_ROLE_IDS / METHICOMM_ROLE_ID were unset — which is the default.
+// That let your own ✅ on your own message approve it, and it is why a stray
+// message in the event-log channel could show up as "1 event hosted".
+//
+// Setting those env vars still narrows it further, to holders of those roles.
+// Returns { status, by } or null.
 async function reviewFromReactions(message) {
   try {
     const cache = message && message.reactions && message.reactions.cache;
     if (!cache || cache.size === 0) return null;
-    let approve = null, deny = null;
-    for (const r of cache.values()) {
-      const n = r.emoji && r.emoji.name;
-      if (APPROVE_EMOJI.has(n)) approve = r; else if (DENY_EMOJI.has(n)) deny = r;
-    }
-    if (!approve && !deny) return null;
+
+    const { tallyReactions, statusFrom } = require('./patrolReactions');
+    const submitterId = message.author ? String(message.author.id) : null;
+    const tally = await tallyReactions(message, submitterId);
 
     const roleIds = String(process.env.FLP_REVIEWER_ROLE_IDS || '')
       .split(',').map(s => s.trim()).filter(Boolean)
       .concat(process.env.METHICOMM_ROLE_ID ? [String(process.env.METHICOMM_ROLE_ID)] : []);
-
-    async function reviewer(reaction) {
-      if (!reaction) return null;
-      if (!roleIds.length) return { name: 'Reviewed in Discord' }; // no restriction → honour presence
-      try {
-        const users = await reaction.users.fetch();
-        for (const u of users.values()) {
-          if (u.bot) return { name: 'MET Bot' }; // bot reaction = a site verdict
-          const member = message.guild ? await message.guild.members.fetch(u.id).catch(() => null) : null;
-          if (member && member.roles.cache.some(rr => roleIds.includes(String(rr.id)))) return { name: member.displayName || u.username };
+    if (roleIds.length && message.guild) {
+      const holdersOnly = async (people) => {
+        const out = [];
+        for (const p of people) {
+          const member = await message.guild.members.fetch(p.id).catch(() => null);
+          if (member && member.roles.cache.some(r => roleIds.includes(String(r.id)))) out.push(p);
         }
-      } catch (e) { /* couldn't resolve reactors */ }
-      return null;
+        return out;
+      };
+      tally.approve = await holdersOnly(tally.approve);
+      tally.deny    = await holdersOnly(tally.deny);
     }
 
-    const a = await reviewer(approve);
-    if (a) return { status: 'APPROVED', by: a.name };
-    const d = await reviewer(deny);
-    if (d) return { status: 'DENIED', by: d.name };
-    return null;
+    const { status, by } = statusFrom(tally);
+    return status === 'PENDING' ? null : { status, by: (by && by.name) || 'Reviewed in Discord' };
   } catch (e) { return null; }
 }
+
+// Create a PENDING log (PATROL or EVENT) from a discord.js message
+// (idempotent on messageId). Returns the row, or null on error / duplicate.
 
 // ── EVENT log parsing ─────────────────────────────────────────────────
 // Event logs follow a semi-structured host template, e.g.:
