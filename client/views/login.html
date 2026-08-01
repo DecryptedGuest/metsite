@@ -69,9 +69,6 @@
     .access-row { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-secondary); }
     .access-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
     .access-dot.blue   { background:var(--blue);   box-shadow:0 0 6px var(--blue); }
-    .access-dot.purple { background:var(--purple); box-shadow:0 0 6px var(--purple); }
-    .access-dot.gold   { background:#f5c518;       box-shadow:0 0 6px #f5c518; }
-    .access-dot.red    { background:var(--red);    box-shadow:0 0 6px var(--red); }
 
     .discord-btn-wrap { display:flex; flex-direction:column; gap:10px; }
     .discord-logo { width:20px; height:20px; flex-shrink:0; }
@@ -79,8 +76,6 @@
     .btn-roblox { background:rgba(255,255,255,0.06); color:var(--text-primary); border:1px solid var(--border-mid); }
     .btn-roblox:hover { background:rgba(255,255,255,0.11); color:#fff; border-color:var(--border-bright); }
     .header-title { background:linear-gradient(120deg,#cfe0ff 0%,#8db4ff 55%,var(--purple,#9d7dff) 100%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:transparent !important; }
-    .tier-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:4px; font-size:11px; color:var(--text-muted); }
-    .tier-legend span { display:inline-flex; align-items:center; gap:6px; }
     .btn-hint { text-align:center; font-size:11px; color:var(--text-tiny); }
 
     .login-card-footer { padding:0.9rem 1.8rem; border-top:1px solid var(--border-dim); display:flex; align-items:center; justify-content:space-between; }
@@ -134,11 +129,6 @@
         <div class="access-row">
           <div class="access-dot blue pulse-anim"></div>
           <span>Access is restricted to Internal Affairs Members. Sign in with your Discord account to continue.</span>
-        </div>
-        <div class="tier-legend">
-          <span><span class="access-dot blue"></span> Investigator</span>
-          <span><span class="access-dot purple"></span> High Command</span>
-          <span><span class="access-dot gold"></span> Developer</span>
         </div>
       </div>
       <div class="discord-btn-wrap">
