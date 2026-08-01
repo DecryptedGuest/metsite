@@ -7,6 +7,11 @@ const { Client, GatewayIntentBits, Partials, SlashCommandBuilder,
         StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
         GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel } = require('discord.js');
 
+// The MET emoji set. e('met_tick') is "<:met_tick:…>" once the guild upload has
+// happened and the plain unicode character until then, so it is always safe to
+// interpolate straight into message content and embed fields.
+const { e } = require('./emoji');
+
 // Per-division co-host restriction: a tryout co-host must be "staff" in that
 // division's server (a specific role). The picker then only offers those members.
 // HPC is restricted by default (role provided); CID only when its role env is
@@ -59,7 +64,11 @@ let client;
 
 async function onReady() {
   ready = true;
-  console.log(`🤖  Discord bot online as ${client.user.tag}`);
+  console.log(`[Bot] online as ${client.user.tag}`);
+  // Upload the MET emoji set to the guild (or adopt what's already there) so
+  // e('met_tick') resolves to our artwork instead of falling back to unicode.
+  try { require('./emoji').startEmojiSync(client); }
+  catch (e) { console.warn('[Emoji] sync not started:', e.message); }
   await registerImportCommand();
   // Bring up the CAD dispatch system (radio listener + voice). Best-effort —
   // never let a CAD misconfig take the bot down.
@@ -149,7 +158,7 @@ async function onInteraction(interaction) {
 
   const DEV = process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
   if (interaction.user.id !== DEV) {
-    return interaction.reply({ content: '⛔ You are not authorised to use this command.', flags: 64 });
+    return interaction.reply({ content: `${e('met_denied')} You are not authorised to use this command.`, flags: 64 });
   }
 
   const channel = interaction.options.getChannel('channel');
@@ -175,7 +184,7 @@ async function onInteraction(interaction) {
     clearInterval(keepAlive);
     if (s.dry) {
       const header =
-        `🔎 **Dry run** — found **${s.parsed}** cases, skipped **${s.skipped}** (bad title format).\n` +
+        `${e('met_search')} **Dry run** — found **${s.parsed}** cases, skipped **${s.skipped}** (bad title format).\n` +
         `Status: Pending **${s.byStatus.PENDING}** · Approved **${s.byStatus.APPROVED}** · Denied **${s.byStatus.DENIED}**\n` +
         `Docs linked: **${s.preview.filter(p => p.caseLink).length}** of first ${s.preview.length} shown.\n\n` +
         `Run again without **dry** to import all ${s.parsed} cases.`;
@@ -192,14 +201,14 @@ async function onInteraction(interaction) {
       await interaction.editReply(`${header}\n\`\`\`\n${preview}\n\`\`\``);
     } else {
       await interaction.editReply(
-        `✅ **Import complete** — created **${s.created}** cases (parsed ${s.parsed}, skipped ${s.skipped} bad-format).\n` +
+        `${e('met_tick')} **Import complete** — created **${s.created}** cases (parsed ${s.parsed}, skipped ${s.skipped} bad-format).\n` +
         `Status: Pending ${s.byStatus.PENDING} · Approved ${s.byStatus.APPROVED} · Denied ${s.byStatus.DENIED}\n` +
         `Cases are numbered #1 … #${s.created} oldest → newest.`,
       );
     }
   } catch (err) {
     clearInterval(keepAlive);
-    await interaction.editReply('❌ Import failed: ' + err.message).catch(() => {});
+    await interaction.editReply(e('met_cross') + ' Import failed: ' + err.message).catch(() => {});
   }
 }
 
@@ -209,13 +218,13 @@ async function onInteraction(interaction) {
 function startBot() {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
-    console.warn('⚠  No DISCORD_BOT_TOKEN set — bot features disabled.');
+    console.warn('[Bot] No DISCORD_BOT_TOKEN set — bot features disabled.');
     return;
   }
   client.login(token).catch(err => {
     const disallowed = err && (/disallowed intent/i.test(err.message || '') || err.code === 'DisallowedIntents');
     if (WANT_MESSAGE_CONTENT && disallowed) {
-      console.warn('⚠  Message Content intent is NOT enabled in the Discord Developer Portal — starting the bot WITHOUT it. Role assignment still works, but forum + ticket-transcript reads are disabled until you enable "Message Content Intent" in the portal.');
+      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal — starting the bot WITHOUT it. Role assignment still works, but forum + ticket-transcript reads are disabled until you enable "Message Content Intent" in the portal.');
       client = buildClient(false);
       client.login(token).catch(e => console.error('Bot login failed (fallback):', e.message));
     } else {
@@ -834,7 +843,7 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 function privateServerLinkField(tryout) {
   const manual = require('./tryouts').tryoutManualLink(tryout.division);
   if (tryout.privateServerLink) return { name: 'Private server link', value: String(tryout.privateServerLink).slice(0, 1000), inline: false };
-  if (manual) return { name: 'Private server link', value: '⚠️ **Not set** — click **Set Private Server Link** below and paste your own private-server link.', inline: false };
+  if (manual) return { name: 'Private server link', value: `${e('met_warn')} **Not set** — click **Set Private Server Link** below and paste your own private-server link.`, inline: false };
   return { name: 'Private server link', value: 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false };
 }
 
@@ -852,7 +861,7 @@ function tryoutHostDmButtons(tryout) {
       .setCustomId(`tryout_setlink_${tryout.id}`)
       .setLabel(tryout.privateServerLink ? 'Update Server Link' : 'Set Private Server Link')
       .setStyle(tryout.privateServerLink ? ButtonStyle.Secondary : ButtonStyle.Primary)
-      .setEmoji('🔗'));
+      .setEmoji(e('met_link')));
   }
   row.addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
@@ -1144,6 +1153,9 @@ async function postTryoutAnnouncement(tryout) {
     const data = { announcementMsgId: msg.id };
 
     // CID: auto-react ✅ so members react toward the 3-reaction start threshold.
+    // Deliberately the stock ✅ and not the MET one: members have to be able to
+    // click the SAME reaction to add to the count, and a guild emoji is only
+    // free to click for members of the guild it lives in.
     // TODO(CONFIRM): detect when 3 ✅ is reached and ping/notify the host.
     if (String(tryout.division).toUpperCase() === 'CID') await msg.react('✅').catch(() => {});
 
@@ -1204,10 +1216,10 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
     .addFields(
       privateServerLinkField(tryout),
       { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
-      { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the link below' : '🔴 Closed', inline: true },
+      { name: 'Joining', value: tryout.joinable ? `${e('met_online')} Open — players can join via the link below` : `${e('met_offline')} Closed`, inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
-      ...(joinUrl ? [{ name: '🔗 Join link', value: joinUrl, inline: false }] : []),
-      ...(stageUrl ? [{ name: '🎙️ Public Tryout stage', value: `Join the stage to run your tryout: ${stageUrl}`, inline: false }] : []),
+      ...(joinUrl ? [{ name: `${e('met_link')} Join link`, value: joinUrl, inline: false }] : []),
+      ...(stageUrl ? [{ name: `${e('met_mic')} Public Tryout stage`, value: `Join the stage to run your tryout: ${stageUrl}`, inline: false }] : []),
       ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
     );
 }
@@ -1247,7 +1259,7 @@ async function dmTicketAlert(discordId, opts) {
       + `\n\nTap **Claim ticket** to take it. Don't want these DMs? Use **Opt out** — you can turn them back on any time.`;
     const embed = new EmbedBuilder()
       .setColor(0x4a8fff)
-      .setTitle('🎫 New Internal Affairs ticket')
+      .setTitle(`${e('met_ticket')} New Internal Affairs ticket`)
       .setDescription(desc);
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Claim ticket').setURL(opts.claimUrl),
@@ -1352,8 +1364,8 @@ async function dmTryoutLogReady(log) {
       .setDescription('Your tryout concluded and a draft log has been queued on the site. Review the attendees, make any edits, then post it for approval.')
       .addFields(
         { name: 'Attendees', value: String(log.totalAttendees ?? 0), inline: true },
-        { name: '✅ Passed',  value: String(log.passedCount ?? 0), inline: true },
-        { name: '❌ Failed',  value: String(log.failedCount ?? 0), inline: true },
+        { name: `${e('met_tick')} Passed`,  value: String(log.passedCount ?? 0), inline: true },
+        { name: `${e('met_cross')} Failed`,  value: String(log.failedCount ?? 0), inline: true },
       );
     const components = url ? [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Review & post log').setURL(url),
@@ -1473,11 +1485,11 @@ async function postTryoutSummary(summary) {
         { name: 'Co-Host',   value: coHost && coHost.username ? String(coHost.username) : 'N/A', inline: true },
         { name: 'Duration',  value: fmtDur(summary.durationSecs), inline: true },
         { name: 'Attendees', value: String(n(summary.attendees)), inline: true },
-        { name: '✅ Passed', value: String(n(summary.passed)), inline: true },
-        { name: '❌ Failed', value: String(n(summary.failed)), inline: true },
-        { name: '⚠ Strikes', value: String(n(summary.strikes)), inline: true },
-        { name: '👢 Kicked', value: String(n(summary.kicked)), inline: true },
-        { name: '🚪 Left',   value: String(n(summary.left)), inline: true },
+        { name: `${e('met_tick')} Passed`, value: String(n(summary.passed)), inline: true },
+        { name: `${e('met_cross')} Failed`, value: String(n(summary.failed)), inline: true },
+        { name: `${e('met_warn')} Strikes`, value: String(n(summary.strikes)), inline: true },
+        { name: `${e('met_kick')} Kicked`, value: String(n(summary.kicked)), inline: true },
+        { name: `${e('met_leave')} Left`,   value: String(n(summary.left)), inline: true },
       )
       .setTimestamp(new Date());
     const ch  = await client.channels.fetch(chId);
@@ -1521,14 +1533,14 @@ async function handleTryoutComponent(interaction) {
     const tryoutId = id.slice('tryout_setlinkmodal_'.length);
     const link = (interaction.fields.getTextInputValue('link') || '').trim();
     if (!/^https?:\/\/(www\.)?roblox\.com\//i.test(link)) {
-      return interaction.reply({ content: '⚠️ That doesn’t look like a Roblox link. Paste the full private-server link (it starts with `https://www.roblox.com/…`).', flags: 64 });
+      return interaction.reply({ content: e('met_warn') + ' That doesn’t look like a Roblox link. Paste the full private-server link (it starts with `https://www.roblox.com/…`).', flags: 64 });
     }
     const updated = await prisma.tryout.update({ where: { id: tryoutId }, data: { privateServerLink: link.slice(0, 500) } }).catch(() => null);
     if (!updated) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
     if (updated.announcementMsgId) await editTryoutAnnouncement(updated).catch(() => {});
     await editTryoutHostDM(updated).catch(() => {});
     return interaction.reply({
-      content: '✅ Private server link saved — it’s now in your tryout details' + (updated.announcementMsgId ? ' and the announcement has been updated.' : '. Post the announcement when you’re ready.'),
+      content: e('met_tick') + ' Private server link saved — it’s now in your tryout details' + (updated.announcementMsgId ? ' and the announcement has been updated.' : '. Post the announcement when you’re ready.'),
       flags: 64,
     });
   }
@@ -1579,7 +1591,7 @@ async function handleTryoutComponent(interaction) {
     await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: picked ? picked.id : null, coHostName: coName } }).catch(() => {});
     const fresh0 = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
     if (fresh0) { await editTryoutAnnouncement(fresh0).catch(() => {}); await editTryoutHostDM(fresh0).catch(() => {}); }
-    return interaction.update({ content: `✅ Co-host set to **${coName}**.`, components: [] });
+    return interaction.update({ content: `${e('met_tick')} Co-host set to **${coName}**.`, components: [] });
   }
 
   // Co-host chosen via the STAFF-only string select — value is the member's id.
@@ -1598,7 +1610,7 @@ async function handleTryoutComponent(interaction) {
         }
       } catch (e) { /* fall through to rejection */ }
     }
-    if (!ok) return interaction.update({ content: '⚠️ That member is not eligible staff — co-host not set.', components: [] });
+    if (!ok) return interaction.update({ content: e('met_warn') + ' That member is not eligible staff — co-host not set.', components: [] });
     await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: pickedId, coHostName: coName } }).catch(() => {});
     // Reflect the co-host in the already-posted announcement + the host DM.
     const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
@@ -1626,9 +1638,9 @@ async function handleTryoutComponent(interaction) {
     const hasLink = !!require('./tryouts').tryoutJoinUrl(updated);
     return interaction.reply({
       content: joinable
-        ? (hasLink ? '✅ Joining is **open** — the Join link is now in the announcement.'
-                   : '✅ Joining is **open**. (No place id configured, so no launch link was added — set `TRYOUT_JOIN_PLACE_ID`.)')
-        : '🛑 Joining is **closed** — new joins are stopped and the Join link removed.',
+        ? (hasLink ? `${e('met_tick')} Joining is **open** — the Join link is now in the announcement.`
+                   : `${e('met_tick')} Joining is **open**. (No place id configured, so no launch link was added — set \`TRYOUT_JOIN_PLACE_ID\`.)`)
+        : `${e('met_stop')} Joining is **closed** — new joins are stopped and the Join link removed.`,
       flags: 64,
     });
   }
@@ -1647,10 +1659,10 @@ async function handleTryoutComponent(interaction) {
     // Manual-link divisions must have their private-server link set before the
     // announcement goes out (so it isn't posted with a "TBA" link).
     if (tryoutManualLink(t.division) && !t.privateServerLink) {
-      return interaction.reply({ content: '⚠️ Set your **private server link** first (click **Set Private Server Link** above), then post the announcement.', flags: 64 });
+      return interaction.reply({ content: e('met_warn') + ' Set your **private server link** first (click **Set Private Server Link** above), then post the announcement.', flags: 64 });
     }
     if (!announceChannelId(t)) {
-      return interaction.reply({ content: '⚠️ No announcement channel configured for this division.', flags: 64 });
+      return interaction.reply({ content: e('met_warn') + ' No announcement channel configured for this division.', flags: 64 });
     }
     let msgId, updated = false;
     if (t.announcementMsgId) { updated = await editTryoutAnnouncement(t); msgId = t.announcementMsgId; }
@@ -1662,7 +1674,7 @@ async function handleTryoutComponent(interaction) {
     }
     return interaction.reply({
       content: msgId
-        ? (updated ? '📢 Announcement updated!' : '📢 Announcement posted! It will now update itself automatically whenever anything changes.')
+        ? (updated ? e('met_announce') + ' Announcement updated!' : e('met_announce') + ' Announcement posted! It will now update itself automatically whenever anything changes.')
         : 'Failed to post the announcement.',
       flags: 64,
     });

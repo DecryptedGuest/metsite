@@ -478,7 +478,7 @@ app.get('/m/:id', async (req, res) => {
    <meta name="twitter:image" content="${escHtml(raw)}">`;
     } else {
       og = `<meta property="og:type" content="website">
-   <meta property="og:title" content="🔒 Restricted ${escHtml(isVideo ? 'video' : 'image')} — ${escHtml(title)}">
+   <meta property="og:title" content="&#128274; Restricted ${escHtml(isVideo ? 'video' : 'image')} — ${escHtml(title)}">
    <meta property="og:description" content="This ${escHtml(isVideo ? 'video' : 'image')} is restricted to ${escHtml(audience)}. Sign in on metia.uk to view.">
    <meta property="og:image" content="${escHtml(base + '/img/logo.png')}">
    <meta name="twitter:card" content="summary">`;
@@ -491,7 +491,7 @@ app.get('/m/:id', async (req, res) => {
             : `<img src="${escHtml('/media/' + m.id)}" alt="${escHtml(title)}" class="media">`}</div>
 <div class="meta">${m.views || 0} views · uploaded ${new Date(m.createdAt).toLocaleDateString()}</div>`
       : `<div class="stage"><div class="restricted">
-     <div class="lock">🔒</div>
+     <div class="lock"><img src="/img/emoji/met_lock.png" alt="Restricted" width="44" height="44"></div>
      <div class="rt">This ${escHtml(isVideo ? 'video' : 'image')} is restricted</div>
      <div class="rs">Only ${escHtml(audience)} can view it. Sign in to continue.</div>
      <a class="rb" href="/ia/login">Sign in</a>
@@ -1353,7 +1353,7 @@ process.on('uncaughtException', (err) => {
 // api/index.js and the platform provides the HTTP layer — no listener needed.
 if (require.main === module) {
   const httpServer = app.listen(PORT, () => {
-    console.log(`\n🛡  MET Dashboard running on http://localhost:${PORT}`);
+    console.log(`\n[MET] Dashboard running on http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
     console.log(`   DB: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}\n`);

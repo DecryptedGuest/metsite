@@ -6,6 +6,11 @@
   <title>IACMS · Dashboard</title>
 <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
   <link rel="stylesheet" href="/css/main.css?v=77" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
   <link rel="stylesheet" href="/css/dashboard.css?v=72" />
   <link rel="stylesheet" href="/css/aurora.css?v=72" />
   <link rel="stylesheet" href="/css/met-portal.css?v=79" />
@@ -839,21 +844,21 @@
           <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
             <input type="checkbox" id="ns-newCase" style="accent-color:var(--blue);width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">📁 New cases submitted</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><img class="met-emoji" src="/img/emoji/met_folder.png" alt=""> New cases submitted</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">A case lands in the review queue.</span>
             </span>
           </label>
           <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
             <input type="checkbox" id="ns-caseUpdated" style="accent-color:var(--blue);width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">✏️ Changes you requested are applied</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><img class="met-emoji" src="/img/emoji/met_edit.png" alt=""> Changes you requested are applied</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">The submitter updated a case you sent back.</span>
             </span>
           </label>
           <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
             <input type="checkbox" id="ns-caseAppealed" style="accent-color:var(--blue);width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">⚖️ One of your cases is appealed</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><img class="met-emoji" src="/img/emoji/met_scales.png" alt=""> One of your cases is appealed</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">A case you filed is overturned and its punishments lifted.</span>
             </span>
           </label>

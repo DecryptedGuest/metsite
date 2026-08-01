@@ -23,8 +23,14 @@ const prisma = require('./db');
 
 // Emoji sets, matching patrolLog.js. Overridable for servers using a custom
 // emoji: give its NAME (":signed:" → "signed") or its id, comma-separated.
-const APPROVE = ['✅', '☑️', '✔️', '✔', '☑', '🟢'];
-const DENY    = ['❌', '✖️', '✖', '❎', '⛔', '🚫', '🔴'];
+//
+// The MET custom emoji (met_tick / met_cross / met_online / met_offline) are in
+// here alongside the stock ones, matched by name. Reviewers keep clicking the
+// plain ✅ — a guild emoji is only free to click for members of the guild it
+// lives in, so making our own the *only* accepted mark would lock out anyone
+// reviewing from another server. Both count, which is what we want.
+const APPROVE = ['✅', '☑️', '✔️', '✔', '☑', '🟢', 'met_tick', 'met_online'];
+const DENY    = ['❌', '✖️', '✖', '❎', '⛔', '🚫', '🔴', 'met_cross', 'met_denied', 'met_offline'];
 
 function idList(v) {
   return String(v || '').split(',').map(s => s.trim()).filter(Boolean);

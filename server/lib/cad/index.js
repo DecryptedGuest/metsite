@@ -8,6 +8,7 @@ const prisma = require('../db');
 const siteConfig = require('../siteConfig');
 const services = require('./services');
 const phrasing = require('./phrasing');
+const { e } = require('../emoji');
 const { parseIntent, isActionable } = require('./intent/parser');
 const { DispatchVoice } = require('./voice/dispatch-voice');
 const { VoiceWorkerClient } = require('./voice/worker-client');
@@ -68,7 +69,7 @@ async function transmit(text, { grade = null, ping = false } = {}) {
   if (botClient && cfg.radioChannelId) {
     try {
       const ch = await botClient.channels.fetch(cfg.radioChannelId);
-      const content = (ping && cfg.controlRoleId ? `<@&${cfg.controlRoleId}> ` : '') + '📻 ' + text;
+      const content = (ping && cfg.controlRoleId ? `<@&${cfg.controlRoleId}> ` : '') + e('met_radio') + ' ' + text;
       await ch.send({ content, allowedMentions: { roles: ping && cfg.controlRoleId ? [cfg.controlRoleId] : [] } });
     } catch (e) { /* best-effort */ }
   }
@@ -152,7 +153,7 @@ async function handleRadioMessage(message) {
 
   if (!isActionable(intent)) {
     // Ask to repeat — TEXT ONLY, never spoken.
-    try { const ch = await botClient.channels.fetch(cfg.radioChannelId); await ch.send('📻 ' + phrasing.repeat(intent.callsign || known)); } catch (e) {}
+    try { const ch = await botClient.channels.fetch(cfg.radioChannelId); await ch.send(e('met_radio') + ' ' + phrasing.repeat(intent.callsign || known)); } catch (e) {}
     return;
   }
   await routeIntent(intent, message, existing);
@@ -180,7 +181,7 @@ async function routeIntent(intent, message, unit) {
 }
 async function askRepeat(callsign) {
   const cfg = config();
-  try { const ch = await botClient.channels.fetch(cfg.radioChannelId); await ch.send('📻 ' + phrasing.repeat(callsign)); } catch (e) {}
+  try { const ch = await botClient.channels.fetch(cfg.radioChannelId); await ch.send(e('met_radio') + ' ' + phrasing.repeat(callsign)); } catch (e) {}
 }
 
 // ── Init (called from the bot once it's ready) ───────────────────────

@@ -60,11 +60,11 @@
     for (var i = 0; i < 40; i++) {
       var f = document.createElement('div');
       var size = 8 + Math.random() * 7;
-      f.textContent = '❄';
+      f.innerHTML = met.e('met_snow', { size: size });
       f.style.cssText =
         'position:absolute;top:-5vh;left:' + (Math.random()*100) + 'vw;' +
-        'color:rgba(255,255,255,' + (0.4+Math.random()*0.6) + ');' +
-        'font-size:' + size + 'px;' +
+        'opacity:' + (0.4+Math.random()*0.6) + ';' +
+        'line-height:0;' +
         'animation:sf-fall ' + (6+Math.random()*8) + 's linear ' + (Math.random()*8) + 's infinite;';
       wrap.appendChild(f);
     }
@@ -168,13 +168,13 @@
     var wrap = document.createElement('div');
     wrap.id = 'site-spiders';
     wrap.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:8995;overflow:hidden;';
-    var spiders = ['🕷','🕸','👻','🦇','🎃'];
+    var spiders = ['met_spider','met_web','met_ghost','met_bat','met_pumpkin'];
     for (var i = 0; i < 20; i++) {
       var sp = document.createElement('div');
-      sp.textContent = spiders[Math.floor(Math.random()*spiders.length)];
+      sp.innerHTML = met.e(spiders[Math.floor(Math.random()*spiders.length)], { size: 14+Math.random()*20 });
       sp.style.cssText =
         'position:absolute;top:-5vh;left:' + (Math.random()*100) + 'vw;' +
-        'font-size:' + (14+Math.random()*20) + 'px;' +
+        'line-height:0;' +
         'animation:spider-drop ' + (8+Math.random()*10) + 's linear ' + (Math.random()*10) + 's infinite;';
       wrap.appendChild(sp);
     }
@@ -212,7 +212,7 @@
     if (!username) return;
     var bar = document.createElement('div');
     bar.id = 'site-spotlight';
-    bar.innerHTML = '⭐ <strong>Spotlight:</strong> ' + username + ' ⭐';
+    bar.innerHTML = met.e('met_star') + ' <strong>Spotlight:</strong> ' + username + ' ' + met.e('met_star');
     bar.style.cssText =
       'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9050;' +
       'padding:10px 28px;border-radius:999px;font-size:14px;font-weight:700;color:#fff;' +
@@ -241,7 +241,7 @@
     function update() {
       if (!el('site-countdown')) { clearInterval(countdownTimer); return; }
       var diff = end - Date.now();
-      if (diff <= 0) { box.innerHTML = '<div style="font-weight:700;color:#5dff9b;">🎉 ' + label + ' — NOW!</div>'; clearInterval(countdownTimer); countdownTimer = null; return; }
+      if (diff <= 0) { box.innerHTML = '<div style="font-weight:700;color:#5dff9b;">' + met.e('met_celebrate') + ' ' + label + ' — NOW!</div>'; clearInterval(countdownTimer); countdownTimer = null; return; }
       var d = Math.floor(diff/86400000);
       var h = Math.floor((diff%86400000)/3600000);
       var m = Math.floor((diff%3600000)/60000);

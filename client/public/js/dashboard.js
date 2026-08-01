@@ -334,7 +334,7 @@ async function runIaSync() {
     const failed = (r.cases && r.cases.ok === false) || (r.tickets && r.tickets.ok === false);
     const fmt = (lbl, x) => {
       if (!x) return `${lbl}: —`;
-      if (x.ok === false) return `${lbl}: ⚠ ${x.reason || 'failed'}`;
+      if (x.ok === false) return `${lbl}: ${met.e('met_warn')} ${x.reason || 'failed'}`;
       return `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}${x.skipped ? ` (${x.skipped} skipped)` : ''}`;
     };
     if (out) out.innerHTML = failed
@@ -1774,7 +1774,7 @@ async function dedupeMigration(apply) {
     if (box) box.innerHTML = `<div style="border:1px solid var(--border,#2a3040);border-radius:8px;padding:10px;">
       ${apply ? '<div style="color:var(--green,#28c76f);font-weight:600;">Cleanup applied.</div>' : '<div style="color:var(--amber);font-weight:600;">Preview only — nothing deleted.</div>'}
       ${line('Tickets', r.tickets)}${line('Cases', r.cases)}
-      ${(r.tickets.count + r.cases.count) === 0 ? '<div style="margin-top:6px;color:var(--text-muted);">No migration duplicates found. 🎉</div>' : ''}
+      ${(r.tickets.count + r.cases.count) === 0 ? `<div style="margin-top:6px;color:var(--text-muted);">No migration duplicates found. ${met.e('met_celebrate')}</div>` : ''}
     </div>`;
     if (apply) showToast(`Removed ${r.tickets.deleted + r.cases.deleted} duplicate log(s)`, 'success');
   } catch (e) {

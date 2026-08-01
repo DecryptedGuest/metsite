@@ -13,6 +13,7 @@ const patrolLib = require('../lib/patrolLog');
 const quotaLib = require('../lib/quota');
 const { sendQuotaCheckWebhook } = require('../lib/webhook');
 const bot = require('../lib/bot');
+const { reactionFor } = require('../lib/emoji');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
   resolveJoinRequest, changeGroupRank, exileFromGroup,
@@ -141,7 +142,10 @@ router.post('/patrols/:id/:action', async (req, res) => {
         reviewedAt: new Date(),
       },
     });
-    const reacted = await bot.reactToMessage(p.channelId, p.messageId, action === 'approve' ? '✅' : '❌').catch(() => false);
+    // The bot's own outcome mark, so it uses the MET emoji. A bot can react with
+    // a guild emoji from any guild it is in, and patrolReactions accepts both
+    // met_tick/met_cross and the stock ✅/❌ when reading a verdict back.
+    const reacted = await bot.reactToMessage(p.channelId, p.messageId, reactionFor(action === 'approve' ? 'met_tick' : 'met_cross')).catch(() => false);
     res.json({ success: true, status, reacted, point: pointResult });
   } catch (err) {
     console.error('[FLP] log review failed:', err.message);

@@ -254,4 +254,27 @@ router.post('/emergency-alert', async (req, res) => {
   }
 });
 
+// ── MET emoji ─────────────────────────────────────────────────────
+// The set uploads itself on bot start and re-checks hourly, so neither of these
+// is normally needed. They exist for the two times you do want them: seeing at a
+// glance whether the guild actually has the emoji (if it doesn't, everything
+// silently falls back to unicode and looks fine, which makes the failure easy to
+// miss), and forcing a re-upload after editing the artwork.
+router.get('/emoji', (req, res) => {
+  res.json(require('../lib/emoji').status());
+});
+
+// POST /api/dev/emoji/sync  { force: true } re-uploads even the ones already
+// there — that's how you push new artwork for an existing name.
+router.post('/emoji/sync', async (req, res) => {
+  const bot = require('../lib/bot');
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  try {
+    const out = await require('../lib/emoji').syncGuildEmoji(bot.getClient(), { force: !!(req.body && req.body.force) });
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

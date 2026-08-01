@@ -1,6 +1,7 @@
 // server/lib/webhook.js
 const fetch = require('node-fetch');
 const { ACTION_CONFIG } = require('./actions');
+const { e } = require('./emoji');   // MET custom emoji, unicode fallback built in
 
 // Build a human-readable punishment list (shared by the embed + previews).
 // Only TIMED punishments (Zero Tolerance, Suspension) carry a duration: show
@@ -159,12 +160,12 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
   const iotwLc = (iotwUsername || '').toString().trim().toLowerCase();
 
   const line = (r) => {
-    const icon   = r.status === 'pass' ? '✅' : '❌';
+    const icon   = r.status === 'pass' ? e('met_tick') : e('met_cross');
     const pts    = r.exempt
       ? 'Exempt'
       : `${r.total != null ? r.total : '?'}${r.target != null ? '/' + r.target : ''} pts`;
     const reason = (r.status === 'fail' && r.reason) ? ` — ${String(r.reason).slice(0, 120)}` : '';
-    const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ' — ⭐ IOTW' : '';
+    const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ` — ${e('met_star')} IOTW` : '';
     return `${icon} **${r.username}**${r.rank ? ` · ${r.rank}` : ''} — ${pts}${reason}${iotw}`;
   };
 
@@ -235,7 +236,7 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
     `Username of student: ${student}\n` +
     `Mark: ${score}/${maxScore}\n` +
     `Percentage: ${percentage}%\n` +
-    `${passed ? 'PASS ✅' : 'FAIL ❌'}\n` +
+    `${passed ? `PASS ${e('met_tick')}` : `FAIL ${e('met_cross')}`}\n` +
     `Notes: ${note ? String(note).slice(0, 1500) : 'N/A'}`;
   // Render the mention (nickname) but never PING the student.
   const body = { content, allowedMentions: { parse: [] } };

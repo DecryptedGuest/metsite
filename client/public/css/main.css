@@ -745,3 +745,19 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.926 23.998L0 18.892 5.075.002 24 5.108 18.926 23.998ZM15.348 10.09l-5.282-1.453-1.414 5.273 5.282 1.453 1.414-5.273Z'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.926 23.998L0 18.892 5.075.002 24 5.108 18.926 23.998ZM15.348 10.09l-5.282-1.453-1.414 5.273 5.282 1.453 1.414-5.273Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
+
+/* ── MET emoji ────────────────────────────────────────────────────────
+   The custom emoji set (client/public/js/emoji.js, artwork in
+   scripts/emoji/manifest.js). Sized in `em` so it tracks whatever text it
+   sits in, and nudged down a touch so it sits on the baseline the way a
+   real emoji glyph does. */
+.met-emoji {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.22em;
+  object-fit: contain;
+  user-select: none;
+}
+/* Standing alone in a heading or a stat tile it wants a little more weight. */
+.met-emoji-lg { width: 1.5em; height: 1.5em; vertical-align: -0.35em; }

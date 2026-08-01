@@ -98,7 +98,7 @@
       if (!ch.length) { csel.innerHTML = '<option value="">No voice channels</option>'; return; }
       var cur = _cadStatus.voiceChannelId || '';
       csel.innerHTML = '<option value="">Select a channel…</option>' + ch.map(function (c) {
-        return '<option value="' + esc(c.id) + '"' + (c.id === cur ? ' selected' : '') + '>' + (c.stage ? '🎤 ' : '🔊 ') + esc(c.name) + '</option>';
+        return '<option value="' + esc(c.id) + '"' + (c.id === cur ? ' selected' : '') + '>' + (c.stage ? met.e('met_mic') + ' ' : met.e('met_speaker') + ' ') + esc(c.name) + '</option>';
       }).join('');
     }).catch(function () {});
   };
