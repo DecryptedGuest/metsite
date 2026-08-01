@@ -85,6 +85,20 @@
     <div class="profile-section" id="p-divisions"><div class="table-loading"><div class="spinner"></div></div></div>
   </div>
 
+  <!-- Patrol & event logs — hidden until the officer actually has some -->
+  <div class="panel glass fade-up stagger-2" id="p-logs-panel" style="display:none;">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot blue"></span>Patrol &amp; Event Logs</div>
+      <span class="log-muted" style="font-size:11px;">Signed off in Discord</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Type</th><th>Log</th><th>Status</th><th>Signed off by</th><th>Logged</th></tr></thead>
+        <tbody id="p-logs"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Perms -->
   <div class="panel glass fade-up stagger-2">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Permissions</div></div>
@@ -137,6 +151,7 @@
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
 <script src="/js/passkeys.js"></script>
+<script src="/js/activity-logs.js?v=1"></script>
 <script src="/js/profile.js"></script>
 <script>initMetTopbar('');</script>
 </body>

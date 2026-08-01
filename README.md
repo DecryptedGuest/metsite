@@ -75,6 +75,38 @@ the **"Ticket Closed"** logs from the ticket-logs channel into `ticket_logs`
 minutes and a backfill on first run. *My Tickets* is every ticket you closed; *All
 Tickets* is every ticket logged. Closing a ticket **awards no quota points**.
 
+### Patrol & event logs
+
+MET patrol logs and FLP event logs are filed in Discord, and a supervisor signs one off
+by **ticking or crossing the message**. `server/lib/activityLogs.js` mirrors both the
+logs and those sign-offs into `activity_logs`.
+
+The decision is read off the **message's own reactions**, never off who clicked what in
+our UI — so a log ticked or crossed by *anybody*, including someone who has never opened
+the site, still shows here as approved or denied. Three paths keep it current: the live
+`messageCreate` handler, the live `messageReactionAdd`/`Remove` handlers, and a catch-up
+sweep every 5 minutes that re-reads reactions (gateway events aren't replayed, so a tick
+added while the bot was restarting would otherwise be lost).
+
+Only two reactors are ignored: **bots** — otherwise a logger that pre-adds ✅/❌ as
+clickable buttons would mark every log both approved and denied — and **the officer the
+log belongs to**, since "ticked by somebody else" is the whole point. A cross outranks a
+tick, except on the live path where the reaction that just arrived wins (that's how a
+supervisor corrects a mistaken cross).
+
+Both plain officer messages and bot-relayed embeds are understood; for a relayed log the
+officer is read out of the embed (`Officer:`, `Username:`, a field named `Officer`, a
+mention, or the embed's author line) rather than from the message author, which is the
+bot.
+
+Officers see their own logs on their MET dashboard. FLP members see all of them under
+**FLP → Patrol & Event Logs**, and FLP leads can sign one off there — which writes the
+decision *and* mirrors the reaction back onto the Discord message, so the two never
+drift. If that mirror fails, a later sweep will not quietly undo the decision.
+
+Configure with `PATROL_LOG_CHANNEL_ID` / `EVENT_LOG_CHANNEL_ID` (see `.env.example`).
+With both unset the feature is off and the bot requests no extra gateway intents.
+
 ### Quota
 
 The weekly quota is **2 cases = 8 points** for every non-exempt rank (Directors and LOA
@@ -114,6 +146,7 @@ metsite/
 │   │   ├── cases.js          # IA case CRUD + appeals + change diffs + audit
 │   │   ├── caseDocs.js       # Case documents (the built-in replacement for Google Docs)
 │   │   ├── tickets.js        # Closed-ticket logs, read-only (mirrored from Discord)
+│   │   ├── activityLogs.js   # Patrol & event logs + sign-off (/api/logs)
 │   │   ├── admin.js          # IA admin panel (unchanged)
 │   │   ├── cid.js            # CID case log
 │   │   ├── sco19.js          # SCO-19 deployment log
@@ -129,6 +162,7 @@ metsite/
 │       ├── iaRank.js         # "Senior Investigator and above" — the appeal gate
 │       ├── sanitizeHtml.js   # Allowlist sanitiser for case-document rich text
 │       ├── ticketIngest.js   # Mirrors closed-ticket logs from Discord into the DB
+│       ├── activityLogs.js   # Mirrors patrol/event logs + their tick/cross sign-offs
 │       ├── metDatabase.js    # MET database ↔ Roblox group roster sync
 │       ├── refGen.js         # Reference generator for the new division models
 │       └── webhook.js        # Discord webhook sender (IA)

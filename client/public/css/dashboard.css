@@ -1409,3 +1409,14 @@ tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
   .panel-tools { width: 100%; }
   .quota-hero-value { font-size: 32px; }
 }
+
+/* ── Patrol & event logs ─────────────────────────────────────────── */
+/* A log's status comes from someone ticking or crossing the message in
+   Discord, so the row is a link into the detail rather than an editable form. */
+.clickable-row { cursor: pointer; }
+.clickable-row:hover { background: var(--blue-dim); }
+.log-muted { color: var(--text-muted); }
+/* main.css makes every anchor inherit its colour, so an attachment link needs
+   to say out loud that it leaves the site. */
+.log-link { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+.log-link:hover { color: var(--text-primary); }

@@ -20,7 +20,12 @@ const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || '145587742458
 // forum starter messages + Tickety transcript logs), but must never take the
 // whole bot offline over it — so startBot() logs in WITH it and transparently
 // retries WITHOUT it if the portal rejects it (role assignment etc. keep working).
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID);
+// Patrol / event logs are mirrored the same way, but they also need the
+// reaction gateway events: a supervisor signs a log off by ticking or crossing
+// the message, and that tick is the approval. Reading the log text needs
+// MessageContent too, so configuring either channel opts into it.
+const ACTIVITY_LOGS_ON = !!(process.env.PATROL_LOG_CHANNEL_ID || process.env.EVENT_LOG_CHANNEL_ID);
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || ACTIVITY_LOGS_ON);
 
 let ready = false;
 let client;
@@ -32,26 +37,56 @@ async function onReady() {
   // Mirror the closed-ticket logs onto the site (All Tickets / My Tickets).
   try { require('./ticketIngest').startTicketLogWorker(client); }
   catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
+  // Mirror patrol/event logs and their tick/cross sign-offs.
+  try { require('./activityLogs').startActivityLogWorker(client); }
+  catch (e) { console.warn('[ActivityLogs] worker not started:', e.message); }
 }
 
-// Live ingestion: every new message in the ticket-log channel is offered to the
-// ticket-log parser. Anything that isn't a "Ticket Closed" embed is ignored.
+// Live ingestion: every new message in a log channel is offered to the matching
+// parser. The ticket parser ignores anything that isn't a "Ticket Closed"
+// embed; the activity parser ignores anything outside a patrol/event channel.
 async function onMessageCreate(msg) {
-  try {
-    if (!msg || String(msg.channelId) !== String(TICKET_LOG_CHANNEL_ID)) return;
-    await require('./ticketIngest').ingestMessage(msg);
-  } catch (e) {
-    console.warn('[TicketLogs] live ingest error:', e.message);
+  if (!msg) return;
+  if (String(msg.channelId) === String(TICKET_LOG_CHANNEL_ID)) {
+    try { await require('./ticketIngest').ingestMessage(msg); }
+    catch (e) { console.warn('[TicketLogs] live ingest error:', e.message); }
+    return;
+  }
+  if (ACTIVITY_LOGS_ON) {
+    try { await require('./activityLogs').ingestMessage(msg); }
+    catch (e) { console.warn('[ActivityLogs] live ingest error:', e.message); }
   }
 }
 
+// A supervisor ticking or crossing a patrol/event log IS the approval, so both
+// reaction events feed straight back into the mirror. It doesn't matter who
+// reacted or whether they have ever opened the site.
+function onReaction(added) {
+  return (reaction, user) => {
+    require('./activityLogs').applyReaction(reaction, user, added)
+      .catch(e => console.warn('[ActivityLogs] reaction handler error:', e.message));
+  };
+}
+
 function buildClient(withMessageContent) {
-  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers];
+  const intents  = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers];
+  const partials = [Partials.GuildMember];
   if (withMessageContent) intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
-  const c = new Client({ intents, partials: [Partials.GuildMember] });
+  if (ACTIVITY_LOGS_ON) {
+    // GuildMessageReactions is NOT a privileged intent, so requesting it can't
+    // fail login the way MessageContent can. The partials are what let us see
+    // a reaction on a message posted before the bot started.
+    intents.push(GatewayIntentBits.GuildMessageReactions);
+    partials.push(Partials.Message, Partials.Channel, Partials.Reaction, Partials.User);
+  }
+  const c = new Client({ intents, partials });
   c.once('ready', onReady);
   c.on('interactionCreate', onInteraction);
   if (withMessageContent) c.on('messageCreate', onMessageCreate);
+  if (ACTIVITY_LOGS_ON) {
+    c.on('messageReactionAdd',    onReaction(true));
+    c.on('messageReactionRemove', onReaction(false));
+  }
   c.on('error', err => console.error('Discord bot error:', err.message));
   return c;
 }

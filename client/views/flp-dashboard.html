@@ -52,6 +52,8 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Activity</div>
+        <button class="nav-item" data-page="logs"><i class="ti ti-clipboard-check nav-icon"></i><span>Patrol &amp; Event Logs</span><span class="nav-badge" id="nav-logs-pending" style="display:none;">0</span></button>
       </nav>
     </div>
   </aside>
@@ -60,16 +62,120 @@
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
         <div><h1 class="page-title">Frontline Policing</h1><p class="page-sub">FLP · Overview</p></div>
+        <button class="btn btn-ghost btn-sm" id="btn-logs-sync" style="display:none;"><i class="ti ti-refresh"></i> Re-sync logs</button>
       </div>
+
+      <div class="stats-grid">
+        <div class="stat-card amber fade-up stagger-1">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">Awaiting sign-off</div>
+              <div class="stat-value" id="stat-logs-pending">—</div>
+            </div>
+          </div>
+          <div class="stat-bar amber"></div>
+        </div>
+        <div class="stat-card blue fade-up stagger-2">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-clipboard-text"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My logs (7d)</div>
+              <div class="stat-value" id="stat-logs-week">—</div>
+            </div>
+          </div>
+          <div class="stat-bar blue"></div>
+        </div>
+        <div class="stat-card green fade-up stagger-3">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My approved</div>
+              <div class="stat-value" id="stat-logs-approved">—</div>
+            </div>
+          </div>
+          <div class="stat-bar green"></div>
+        </div>
+        <div class="stat-card red fade-up stagger-4">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My denied</div>
+              <div class="stat-value" id="stat-logs-denied">—</div>
+            </div>
+          </div>
+          <div class="stat-bar red"></div>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>My Recent Logs</div>
+          <a class="btn btn-ghost btn-sm" href="#" id="link-all-logs"><i class="ti ti-arrow-right"></i> View all</a>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Type</th><th>Log</th><th>Status</th><th>Signed off by</th><th>Logged</th></tr></thead>
+            <tbody id="my-logs-tbody">
+              <tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-logs">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Patrol &amp; Event Logs</h1>
+          <p class="page-sub">Signed off by ticking or crossing the log in Discord — whoever does it.</p>
+        </div>
+      </div>
+
       <div class="panel glass fade-up stagger-1">
-        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
-          <div style="font-size:40px;margin-bottom:1rem;">🚧</div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
-          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">FLP tools are being built. You have access to this division — check back soon for its features.</div>
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>All Logs</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="logs-search" placeholder="Search logs…" autocomplete="off" />
+            </div>
+            <div class="filter-tabs" id="logs-kind-tabs">
+              <button class="filter-tab active" data-kind="all">All</button>
+              <button class="filter-tab" data-kind="PATROL">Patrols</button>
+              <button class="filter-tab" data-kind="EVENT">Events</button>
+            </div>
+            <div class="filter-tabs" id="logs-status-tabs">
+              <button class="filter-tab active" data-status="all">Any</button>
+              <button class="filter-tab" data-status="PENDING">Pending</button>
+              <button class="filter-tab" data-status="APPROVED">Approved</button>
+              <button class="filter-tab" data-status="DENIED">Denied</button>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Type</th><th>Officer</th><th>Log</th><th>Status</th><th>Signed off by</th><th>Logged</th><th></th></tr></thead>
+            <tbody id="all-logs-tbody">
+              <tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
   </main>
+</div>
+
+<!-- Log detail -->
+<div class="modal-overlay" id="modal-log">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <h2 class="modal-title" id="log-modal-title">Log</h2>
+      <button class="modal-close" onclick="closeModal('modal-log')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="log-modal-body"></div>
+    <div class="modal-footer" id="log-modal-footer"></div>
+  </div>
 </div>
 
 <div id="toast-container"></div>
@@ -77,6 +183,8 @@
 <script src="/js/met-topbar.js"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
+<script src="/js/activity-logs.js?v=1"></script>
+<script src="/js/flp.js?v=1"></script>
 <script>initMetTopbar('FLP');</script>
 </body>
 </html>

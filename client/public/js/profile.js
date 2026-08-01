@@ -71,6 +71,8 @@ async function loadProfile() {
   loadSessions();
   // ── Passkeys / 2FA ──
   loadPasskeys();
+  // ── My patrol / event logs, and how they were signed off ──
+  loadMyActivityLogs();
 
   // ── Divisions & rank ──
   const divEl = document.getElementById('p-divisions');
@@ -248,6 +250,25 @@ async function revokeOtherSessions() {
     showToast(`Signed out ${r.count} other session${r.count === 1 ? '' : 's'}.`, 'success');
     loadSessions();
   } catch (e) { showToast(e.message || 'Could not sign out other sessions.', 'error'); }
+}
+
+// ── Patrol & event logs ──────────────────────────────────────────
+// Read-only here: an officer sees their own logs and whether they were signed
+// off. The tick or cross happens in Discord (or, for an FLP lead, on the FLP
+// dashboard) — never on this page.
+async function loadMyActivityLogs() {
+  const panel = document.getElementById('p-logs-panel');
+  const tbody = document.getElementById('p-logs');
+  if (!panel || !tbody || !window.ActivityLogs) return;
+
+  let logs;
+  try { logs = await api('/api/logs?take=25'); }
+  catch (e) { return; }   // no logs feature configured / unreachable — stay hidden
+
+  // Nothing logged yet means the panel is noise, so it stays out of the way.
+  if (!logs || !logs.length) return;
+  panel.style.display = '';
+  tbody.innerHTML = ActivityLogs.myRows(logs);
 }
 
 // ── Passkeys / 2FA ───────────────────────────────────────────────

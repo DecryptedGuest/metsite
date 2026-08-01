@@ -68,6 +68,7 @@ model User {
   cidCases            CidCase[]
   sco19Deployments    Sco19Deployment[]
   flpShiftLogs        FlpShiftLog[]
+  activityLogs        ActivityLog[]
   hpcTrainingRecords  HpcTrainingRecord[]
 
   @@map("users")
@@ -238,6 +239,72 @@ model TicketLog {
   @@index([closerUserId])
   @@index([ticketType])
   @@map("ticket_logs")
+}
+
+// ── Patrol & event logs ────────────────────────────────────────────
+// Officers log patrols and events in Discord, and a supervisor signs one off by
+// reacting to it — a tick to approve, a cross to deny. This table mirrors those
+// messages onto the site.
+//
+// The decision is read off the MESSAGE's reactions, not from who clicked what
+// in our UI, so a log ticked or crossed by anybody — including someone who has
+// never opened the site — still lands here as approved or denied.
+enum ActivityLogKind {
+  PATROL
+  EVENT
+}
+
+enum ActivityLogStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+model ActivityLog {
+  id        String            @id @default(uuid())
+  messageId String            @unique  // Discord message id of the log itself
+  channelId String
+  guildId   String?
+  kind      ActivityLogKind
+  status    ActivityLogStatus @default(PENDING)
+
+  // Who filed it. officerId is set when the Discord author matches a site
+  // account, which is what puts the log under "my logs".
+  officerId             String?
+  officerDiscordId      String?
+  officerUsername       String?
+  officerRobloxUsername String?
+
+  content     String?   // the log text as posted
+  attachments Json?     // proof image / video URLs from the message
+  loggedAt    DateTime
+
+  // Who signed it off, and how we found out. decisionSource is
+  // 'DISCORD_REACTION' when the tick/cross came from Discord and 'SITE' when it
+  // was taken here (in which case the bot mirrors the reaction back).
+  decidedAt          DateTime?
+  decidedByDiscordId String?
+  decidedByName      String?
+  decidedByUserId    String?
+  decisionSource     String?
+
+  // Live reaction tallies, bots and the author excluded. Kept so the site can
+  // show "2 ticks, 1 cross" rather than only the resolved status.
+  tickCount  Int @default(0)
+  crossCount Int @default(0)
+
+  raw       Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  officer User? @relation(fields: [officerId], references: [id])
+
+  @@index([loggedAt])
+  @@index([officerId])
+  @@index([officerDiscordId])
+  @@index([status])
+  @@index([kind])
+  @@map("activity_logs")
 }
 
 model CaseAction {

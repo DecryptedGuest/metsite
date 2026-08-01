@@ -246,6 +246,9 @@ app.use('/api/exam',  requireAuth,
   examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
+// Patrol & event logs — MET-wide, because every officer needs to see their own.
+// Reading everyone's, and signing a log off, are gated to FLP inside the router.
+app.use('/api/logs',    requireAuth, require('./routes/activityLogs'));
 
 // Visibility check for hosted media. Returns { allowed, user }.
 async function checkMediaAccess(req, m) {
