@@ -9,7 +9,6 @@
   <link rel="stylesheet" href="/css/dashboard.css?v=72" />
   <link rel="stylesheet" href="/css/aurora.css?v=72" />
   <link rel="stylesheet" href="/css/met-portal.css?v=79" />
-  <link rel="stylesheet" href="/css/support-chat.css?v=1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
@@ -215,8 +214,8 @@
       <div class="quota-hero fade-up" id="quota-hero" style="display:none;">
         <div class="quota-hero-main">
           <div class="quota-hero-label">This week's quota</div>
-          <div class="quota-hero-value"><span id="quota-hero-points">0</span><small id="quota-hero-target">/ 8 pts</small></div>
-          <div class="quota-hero-sub" id="quota-hero-sub">2 cases a week · 4 points per approved case</div>
+          <div class="quota-hero-value"><span id="quota-hero-points">0</span><small id="quota-hero-target"></small></div>
+          <div class="quota-hero-sub" id="quota-hero-sub">4 points per approved case</div>
         </div>
         <div class="quota-hero-track"><div class="quota-hero-fill" id="quota-hero-fill" style="width:0%"></div></div>
         <div class="quota-hero-days" id="quota-hero-days"></div>
@@ -1203,10 +1202,10 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Ticket</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Closed</th>
+              <th>Ticket</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
             </tr></thead>
             <tbody id="tickets-tbody">
-              <tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>
+              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1245,10 +1244,10 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Closed</th>
+              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
             </tr></thead>
             <tbody id="all-tickets-tbody">
-              <tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>
+              <tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1369,7 +1368,7 @@
       <div class="page-header fade-up">
         <div>
           <h1 class="page-title">Quota &amp; Database</h1>
-          <p class="page-sub">Weekly review &middot; 2 cases a week = 8 points</p>
+          <p class="page-sub">Weekly review &middot; target set per rank</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-danger" id="btn-reset-quota">

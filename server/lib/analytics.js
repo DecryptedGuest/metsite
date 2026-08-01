@@ -106,9 +106,10 @@ async function recruitmentFunnel(division, days = 30) {
 }
 
 // ── Activity trends ───────────────────────────────────────────────────
-// Patrol logs, event logs and support tickets per day (portal-wide; patrol/event
-// logs aren't division-scoped in the schema, so `division` only filters tickets
-// isn't meaningful — these are MET-wide signals).
+// Patrol logs and event logs per day. Portal-wide: patrol/event logs aren't
+// division-scoped in the schema, so a `division` filter wouldn't be meaningful.
+// (Ticket volume used to sit alongside these; tickets are Discord-side now and
+// are counted from the ingested ticket logs, not from an on-site table.)
 async function activityAnalytics(days = 30) {
   const allTime = days <= 0;
   const since = allTime ? new Date(0) : new Date(Date.now() - days * DAY);
@@ -121,14 +122,14 @@ async function activityAnalytics(days = 30) {
       where: { OR: [{ logDate: { gte: since } }, { logDate: null, createdAt: { gte: since } }] },
       select: { type: true, createdAt: true, logDate: true }, take: 8000,
     }),
-    prisma.supportTicket.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true, status: true }, take: 8000 }),
+    prisma.ticketLog.findMany({ where: { closedAt: { gte: since } }, select: { closedAt: true }, take: 8000 }),
   ]);
   const bucketCount = allTime
-    ? allTimeBuckets([...patrols.map(p => p.logDate || p.createdAt), ...tickets.map(t => t.createdAt)])
+    ? allTimeBuckets([...patrols.map(p => p.logDate || p.createdAt), ...tickets.map(t => t.closedAt)])
     : days;
   const byDay = new Map(emptyDays(bucketCount).map(d => [d.day, { day: d.day, patrols: 0, events: 0, tickets: 0 }]));
   for (const p of patrols) { const b = byDay.get(dayKey(p.logDate || p.createdAt)); if (b) { if (p.type === 'EVENT') b.events++; else b.patrols++; } }
-  for (const t of tickets) { const b = byDay.get(dayKey(t.createdAt)); if (b) b.tickets++; }
+  for (const t of tickets) { const b = byDay.get(dayKey(t.closedAt)); if (b) b.tickets++; }
   return { days: bucketCount, allTime, series: [...byDay.values()] };
 }
 

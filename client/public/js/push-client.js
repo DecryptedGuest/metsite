@@ -113,17 +113,6 @@
   function handlePushNav(url, msg) {
     try {
       var params   = new URLSearchParams((url.split('?')[1] || ''));
-      // Support-desk deep link: claim + open the ticket right here (no reload) so
-      // it's instant. The service worker has already fired the claim; opening in
-      // place just shows it as yours (idempotent for a ticket you already hold).
-      var tid = (msg && msg.supportTicket) || params.get('supportTicket');
-      if (tid) {
-        var wantClaim = (msg && msg.claim) || params.get('claim') === '1';
-        if (wantClaim && typeof window.sdOpenAndClaim === 'function') { window.sdOpenAndClaim(tid); return; }
-        if (typeof window.sdOpen === 'function') { window.sdOpen(tid); return; }
-        // The desk isn't on this page — navigate there; its fresh load claims/opens.
-        location.href = url; return;
-      }
       var page     = params.get('page');
       if (!page) return;
       if (typeof handleNotificationTarget === 'function') {

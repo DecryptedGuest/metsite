@@ -67,50 +67,57 @@ points at. Rich text is sanitised server-side by `server/lib/sanitizeHtml.js` (s
 tag/attribute/CSS allowlist) because documents are written by IA but read by anyone with
 the link.
 
-### Ticket logs
+### Tickets
 
-Tickets are no longer submitted, approved or denied on the site. The Discord bot mirrors
-the **"Ticket Closed"** logs from the ticket-logs channel into `ticket_logs`
+**Tickets do not work on the website at all.** Nothing here opens, holds or handles one
+— the `/support` help desk and the hand-logged ticket table are both gone (migration
+`0060_remove_website_tickets`).
+
+What the site *does* have is a read-only mirror of the Discord ticket-log channel, plus a
+sign-off. The bot copies the **"Ticket Closed"** logs into `ticket_logs`
 (`server/lib/ticketIngest.js`) — live via `messageCreate`, with a catch-up sweep every 5
-minutes and a backfill on first run. *My Tickets* is every ticket you closed; *All
-Tickets* is every ticket logged. Closing a ticket **awards no quota points**.
+minutes and a backfill on first run — so **IA never logs a ticket by hand**. A
+**Supervisor or above then approves or denies each log on the site**
+(`POST /api/tickets/:id/review`); you can't sign off a ticket you closed yourself.
+Approving one **awards no quota points** — the weekly quota is cases only.
+
+*My Tickets* is every ticket you closed; *All Tickets* is every ticket logged.
 
 ### Patrol & event logs
 
-MET patrol logs and FLP event logs are filed in Discord, and a supervisor signs one off
-by **ticking or crossing the message**. `server/lib/activityLogs.js` mirrors both the
-logs and those sign-offs into `activity_logs`.
+MET patrol logs and FLP event logs are filed in Discord and captured by
+`server/lib/patrolLog.js` into `patrol_logs`. A log is signed off by **somebody ticking
+or crossing the message** — and that is the part
+`server/lib/patrolReactions.js` handles.
 
-The decision is read off the **message's own reactions**, never off who clicked what in
-our UI — so a log ticked or crossed by *anybody*, including someone who has never opened
-the site, still shows here as approved or denied. Three paths keep it current: the live
-`messageCreate` handler, the live `messageReactionAdd`/`Remove` handlers, and a catch-up
-sweep every 5 minutes that re-reads reactions (gateway events aren't replayed, so a tick
-added while the bot was restarting would otherwise be lost).
+It matters because the sign-off is read off the **message's own reactions**, not off who
+clicked what in our UI: a log ticked or crossed by *anybody*, including someone who has
+never opened the site, lands here as approved or denied. Two paths keep it current — the
+live `messageReactionAdd` / `messageReactionRemove` handlers, and a reconcile sweep every
+5 minutes that re-reads reactions on recent PENDING logs. The sweep is not optional:
+gateway events are never replayed, so without it a tick added while the bot was
+restarting would be lost for good.
 
 Only two reactors are ignored: **bots** — otherwise a logger that pre-adds ✅/❌ as
-clickable buttons would mark every log both approved and denied — and **the officer the
-log belongs to**, since "ticked by somebody else" is the whole point. A cross outranks a
-tick, except on the live path where the reaction that just arrived wins (that's how a
-supervisor corrects a mistaken cross).
+clickable buttons would mark every log both approved and denied the moment it posts — and
+**the officer who filed the log**, since "ticked by somebody else" is the whole point. A
+cross outranks a tick, except on the live path, where the reaction that just arrived
+wins; that's how a supervisor corrects a mistaken cross.
 
-Both plain officer messages and bot-relayed embeds are understood; for a relayed log the
-officer is read out of the embed (`Officer:`, `Username:`, a field named `Officer`, a
-mention, or the embed's author line) rather than from the message author, which is the
-bot.
+Approving an EVENT log awards its point exactly as the site's own approve button does,
+and `pointAwarded` is written in the same update, so a Discord sign-off can't double-award.
 
-Officers see their own logs on their MET dashboard. FLP members see all of them under
-**FLP → Patrol & Event Logs**, and FLP leads can sign one off there — which writes the
-decision *and* mirrors the reaction back onto the Discord message, so the two never
-drift. If that mirror fails, a later sweep will not quietly undo the decision.
-
-Configure with `PATROL_LOG_CHANNEL_ID` / `EVENT_LOG_CHANNEL_ID` (see `.env.example`).
-With both unset the feature is off and the bot requests no extra gateway intents.
+Configure with `PATROL_CHANNEL_ID` / `EVENTLOGS_CHANNEL_ID` (see `.env.example`); with
+both unset the bot requests no reaction intent. `PATROL_APPROVE_EMOJI` /
+`PATROL_DENY_EMOJI` add custom emoji to the built-in tick/cross sets.
 
 ### Quota
 
-The weekly quota is **2 cases = 8 points** for every non-exempt rank (Directors and LOA
-stay exempt). Configure with `IA_CASE_POINTS`, `IA_WEEKLY_CASES` or `IA_WEEKLY_QUOTA`.
+The weekly IA target is set **per rank**: Low Command (Junior / Probationary
+Investigator) **30**, Middle Command (Senior Investigator / Supervisor) **20**, and
+Director / LOA **exempt**. An approved case is worth 4 points (`IA_CASE_POINTS`);
+**tickets award nothing**. Holding the Investigator-of-the-Week role takes 10 off the
+target while they hold it.
 
 ### MET database sync
 
@@ -146,7 +153,6 @@ metsite/
 │   │   ├── cases.js          # IA case CRUD + appeals + change diffs + audit
 │   │   ├── caseDocs.js       # Case documents (the built-in replacement for Google Docs)
 │   │   ├── tickets.js        # Closed-ticket logs, read-only (mirrored from Discord)
-│   │   ├── activityLogs.js   # Patrol & event logs + sign-off (/api/logs)
 │   │   ├── admin.js          # IA admin panel (unchanged)
 │   │   ├── cid.js            # CID case log
 │   │   ├── sco19.js          # SCO-19 deployment log
@@ -162,7 +168,7 @@ metsite/
 │       ├── iaRank.js         # "Senior Investigator and above" — the appeal gate
 │       ├── sanitizeHtml.js   # Allowlist sanitiser for case-document rich text
 │       ├── ticketIngest.js   # Mirrors closed-ticket logs from Discord into the DB
-│       ├── activityLogs.js   # Mirrors patrol/event logs + their tick/cross sign-offs
+│       ├── patrolReactions.js # Patrol/event log sign-off from a Discord tick/cross
 │       ├── metDatabase.js    # MET database ↔ Roblox group roster sync
 │       ├── refGen.js         # Reference generator for the new division models
 │       └── webhook.js        # Discord webhook sender (IA)

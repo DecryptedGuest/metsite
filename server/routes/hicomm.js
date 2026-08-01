@@ -28,13 +28,13 @@ router.get('/overview', async (req, res) => {
     const [liveTryouts, openTickets, pendingLogs, pendingCases, pendingPatrols, recentAudit,
            tryoutsToday, ticketsToday, newUsersToday] = await Promise.all([
       prisma.tryout.findMany({ where: { status: 'LIVE' }, orderBy: { scheduledAt: 'desc' }, take: 20 }),
-      prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'CLAIMED'] } } }),
+      prisma.ticketLog.count({ where: { status: 'PENDING' } }),
       prisma.tryoutLog.count({ where: { status: 'PENDING' } }),
       prisma.case.count({ where: { status: 'PENDING' } }).catch(() => 0),
       prisma.patrolLog.count({ where: { status: 'PENDING' } }),
       prisma.auditLog.findMany({ where: { category: { not: 'DEV' } }, orderBy: { createdAt: 'desc' }, take: 15 }),
       prisma.tryoutLog.count({ where: { createdAt: { gte: dayAgo } } }),
-      prisma.supportTicket.count({ where: { createdAt: { gte: dayAgo } } }),
+      prisma.ticketLog.count({ where: { closedAt: { gte: dayAgo } } }),
       prisma.user.count({ where: { createdAt: { gte: dayAgo } } }),
     ]);
 
@@ -400,7 +400,7 @@ router.get('/officer/:id/timeline', async (req, res) => {
       prisma.metPunishment.findMany({ where: { discordId: u.discordId }, orderBy: { issuedAt: 'desc' }, take: 50 }).catch(() => []),
       prisma.tryoutLog.findMany({ where: { hostId: u.id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, division: true, status: true, totalAttendees: true, passedCount: true, createdAt: true } }),
       prisma.patrolLog.findMany({ where: { submitterDiscordId: u.discordId }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, type: true, status: true, totalMinutes: true, createdAt: true } }),
-      prisma.supportTicket.findMany({ where: { openerId: u.id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, type: true, status: true, createdAt: true } }),
+      prisma.ticketLog.findMany({ where: { OR: [{ closerUserId: u.id }, { closerDiscordId: u.discordId }] }, orderBy: { closedAt: 'desc' }, take: 50, select: { id: true, ticketRef: true, ticketType: true, status: true, closedAt: true } }),
       prisma.auditLog.findMany({ where: { category: { not: 'DEV' }, OR: [{ actorId: u.id }, { targetId: u.id }] }, orderBy: { createdAt: 'desc' }, take: 50 }),
     ]);
 
@@ -409,7 +409,7 @@ router.get('/officer/:id/timeline', async (req, res) => {
     for (const p of punishments) events.push({ at: p.issuedAt, kind: 'punishment', refId: p.id, icon: 'ti-alert-triangle', color: '#e8842a', title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, detail: p.reason, status: p.active ? 'ACTIVE' : 'ENDED' });
     for (const l of hosted) events.push({ at: l.createdAt, kind: 'tryout', refId: l.id, icon: 'ti-clipboard-check', color: '#3b82f6', title: `Hosted ${l.division} tryout`, detail: `${l.totalAttendees} attended · ${l.passedCount} passed`, status: l.status });
     for (const p of patrols) events.push({ at: p.createdAt, kind: 'patrol', refId: p.id, icon: 'ti-shield', color: '#14b8a6', title: p.type === 'EVENT' ? 'Event log' : 'Patrol log', detail: p.totalMinutes != null ? `${p.totalMinutes} min` : '', status: p.status });
-    for (const t of tickets) events.push({ at: t.createdAt, kind: 'ticket', refId: t.id, icon: 'ti-lifebuoy', color: '#8b93a1', title: `Support ticket (${t.type})`, detail: '', status: t.status });
+    for (const t of tickets) events.push({ at: t.closedAt, kind: 'ticket', refId: t.id, icon: 'ti-lifebuoy', color: '#8b93a1', title: `Closed ticket ${t.ticketRef || ''} (${t.ticketType})`.trim(), detail: '', status: t.status });
     for (const a of auditRows) events.push({ at: a.createdAt, kind: 'audit', refId: a.id, icon: 'ti-history', color: '#6b7280', title: a.summary || `${a.category}/${a.action}`, detail: a.actorId === u.id ? `by them` : `on them — by ${a.actorName}`, status: a.action });
 
     events.sort((a, b) => new Date(b.at) - new Date(a.at));
@@ -444,17 +444,19 @@ router.get('/entity/:kind/:id', async (req, res) => {
     let out = null;
 
     if (kind === 'ticket') {
-      const t = await prisma.supportTicket.findUnique({ where: { id }, include: { messages: { orderBy: { createdAt: 'asc' } } } });
+      const t = await prisma.ticketLog.findUnique({ where: { id } });
       if (!t) return res.status(404).json({ error: 'Ticket not found' });
-      out = { kind, title: `Support ticket · ${t.type}`, status: t.status,
+      out = { kind, title: `Ticket ${t.ticketRef || ''} · ${t.ticketType}`.trim(), status: t.status,
+        link: t.transcriptUrl || null,
         fields: [
-          ['Type', t.type], ['Priority', t.priority], ['Opened by', t.openerName],
-          ['Claimed by', t.claimedByName || '—'], ['Escalated', t.escalated ? 'Yes' : 'No'],
-          ['Closed by', t.closedByName || '—'], ['Close reason', t.closeReason || '—'],
-          ['Opened', t.createdAt], ['Closed', t.closedAt || '—'],
+          ['Type', t.ticketType], ['Ticket', t.ticketName || t.ticketRef || '—'],
+          ['Opened by', t.creatorRobloxUsername || t.creatorUsername || '—'],
+          ['Closed by', t.closerUsername || '—'], ['Reason', t.reason || '—'],
+          ['Reviewed by', t.reviewedByName || '—'],
+          ['Closed', t.closedAt], ['Reviewed', t.reviewedAt || '—'],
         ],
-        intake: Array.isArray(t.intake) ? t.intake.map(q => ({ prompt: q.prompt, answer: q.answer })) : [],
-        messages: (t.messages || []).map(m => ({ author: m.authorName, kind: m.authorKind, body: m.body || '', at: m.createdAt })),
+        intake: [],
+        messages: [],
       };
     } else if (kind === 'case') {
       const c = await prisma.case.findUnique({ where: { id }, include: { caseActions: { orderBy: { timestamp: 'asc' } }, casePunishments: true } }).catch(() => null);

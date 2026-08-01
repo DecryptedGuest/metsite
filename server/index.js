@@ -360,10 +360,6 @@ app.use('/api/tryouts', requireAuth, tryoutRoutes);
 // inside the router (MET HICOMM for MET scope, divisional leads for divisions).
 app.use('/api/loa', requireAuth, require('./routes/loa'));
 app.use('/api/divquota', requireAuth, require('./routes/divisionQuota'));
-// Support help desk (/support) — login is OPTIONAL. Anyone can open a ticket
-// (anonymous openers hold a per-ticket token); staff handling is gated per type
-// inside the router. maybeAuth sets req.user when signed in, else null.
-app.use('/api/support', maybeAuth, require('./routes/support'));
 // Developer Security Center — active-session command, break-glass lockdown,
 // global broadcast, security alerts, passkey compliance. Mounted before
 // /api/dev so its paths win. DEVELOPER only.
@@ -1249,7 +1245,6 @@ app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join
 
 // Support help desk — any signed-in user (community members open tickets;
 // staff see a queue for the types they handle). One page serves both.
-app.get('/support', recordVisit, maybeAuth, (req, res) => sendPage(res, path.join(views, 'support.html')));
 
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
 // Every /ia page is branded IA — violet accent, IA crest, IA favicon.

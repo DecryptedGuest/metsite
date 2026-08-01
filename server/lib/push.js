@@ -72,7 +72,6 @@ async function notifyStaff(payload) {
       // Optional richer-notification fields (action buttons, per-action URLs,
       // keep-on-screen, vibration, coalescing tag) passed straight to the SW.
       actions: payload.actions, viewUrl: payload.viewUrl, claimUrl: payload.claimUrl,
-      claimApi: payload.claimApi, claimToken: payload.claimToken, ticketId: payload.ticketId,
       requireInteraction: payload.requireInteraction, vibrate: payload.vibrate, tag: payload.tag,
     });
   } catch (e) {

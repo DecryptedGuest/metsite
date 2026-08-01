@@ -1,13 +1,15 @@
 // server/lib/dedupeMigration.js
-// Finds (and optionally removes) DUPLICATE case/ticket logs created during the
+// Finds (and optionally removes) DUPLICATE case logs created during the
 // IA-website → MET-website transition. Shared by scripts/dedupe-migration-logs.js
 // (CLI) and the dev-panel maintenance endpoint.
 //
-// Duplicate sources (see server/lib/iaSync.js):
-//   • Tickets: a ref collision imported the IA copy as "<ref>-IA"; the same
-//     transcript link is also a strong duplicate signal.
-//   • Cases: the same case under an old-IA ref and a new ref — matched by an
-//     identical caseLink or logMessageId (strong identity only; no soft key).
+// Duplicate source (see server/lib/iaSync.js): the same case under an old-IA ref
+// and a new ref — matched by an identical caseLink or logMessageId (strong
+// identity only; no soft key).
+//
+// Tickets used to be deduped here too. They aren't any more: no ticket table is
+// synced from IA, and the ingested Discord ticket logs are keyed on the Discord
+// message id, so they can't duplicate in the first place.
 //
 // SAFETY: only groups that SPAN THE TRANSITION are touched (must contain an
 // origin='IA' row or a "-IA" ref); within a group one canonical row is kept
@@ -32,28 +34,6 @@ function pickKeeper(rows, activity) {
 // A group is a migration artifact only if it mixes native + IA (or has a -IA ref).
 function spansTransition(rows) {
   return rows.length > 1 && rows.some(r => r.origin === 'IA' || /-IA$/i.test(r.ticketRef || ''));
-}
-
-async function planTickets() {
-  const tickets = await prisma.ticket.findMany({
-    select: { id: true, ticketRef: true, origin: true, transcriptLink: true, createdAt: true },
-  });
-  const groups = new Map();
-  for (const t of tickets) {
-    const key = t.transcriptLink ? 'url:' + normalizeUrl(t.transcriptLink) : 'ref:' + baseRef(t.ticketRef);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(t);
-  }
-  const del = [], report = [];
-  for (const [key, rows] of groups) {
-    if (!spansTransition(rows)) continue;
-    const keeper = pickKeeper(rows, null);
-    const remove = rows.filter(r => r.id !== keeper.id);
-    if (!remove.length) continue;
-    report.push({ key, keep: keeper.ticketRef, keepOrigin: keeper.origin, remove: remove.map(r => ({ ref: r.ticketRef, origin: r.origin })) });
-    del.push(...remove.map(r => r.id));
-  }
-  return { ids: del, report };
 }
 
 async function planCases() {
@@ -85,18 +65,11 @@ async function planCases() {
   return { ids: del, report };
 }
 
-// scope: 'all' | 'cases' | 'tickets'. apply=false → report only.
+// scope: 'all' | 'cases'. apply=false → report only. ('tickets' is accepted and
+// is now a no-op, so an old caller doesn't break.)
 async function runDedupe({ apply = false, scope = 'all' } = {}) {
   const out = { apply, tickets: { count: 0, deleted: 0, report: [] }, cases: { count: 0, deleted: 0, report: [] } };
 
-  if (scope !== 'cases') {
-    const t = await planTickets();
-    out.tickets.count = t.ids.length; out.tickets.report = t.report;
-    if (apply && t.ids.length) {
-      const r = await prisma.ticket.deleteMany({ where: { id: { in: t.ids } } });
-      out.tickets.deleted = r.count;
-    }
-  }
   if (scope !== 'tickets') {
     const c = await planCases();
     out.cases.count = c.ids.length; out.cases.report = c.report;

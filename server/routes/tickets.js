@@ -1,24 +1,26 @@
 // server/routes/tickets.js
 // Closed-ticket logs, mirrored from the IA ticket-logs Discord channel.
 //
-// This is READ-ONLY. Tickets are no longer submitted, approved or denied on the
-// site, and closing a ticket no longer awards quota points — the weekly quota
-// is 2 cases (8 points). Everything here just reads the TicketLog rows that
-// lib/ticketIngest.js keeps in sync with Discord.
+// Nobody logs a ticket on the site. Rows arrive automatically from Discord via
+// lib/ticketIngest.js — but a supervisor still SIGNS THEM OFF here, which is the
+// one thing that isn't read-only. Approving a ticket awards NO quota points; the
+// weekly quota is cases only.
 //
 //   GET  /api/tickets            → tickets the current user closed ("My Tickets")
 //   GET  /api/tickets/all        → every closed ticket ("All Tickets")
 //   GET  /api/tickets/stats      → counts for the dashboard + nav
 //   GET  /api/tickets/:id        → one ticket log
 //   POST /api/tickets/sync       → force a re-scan of the log channel (HICOMM+)
+//   POST /api/tickets/:id/review → approve / deny a ticket log (Supervisor+)
 
 const express = require('express');
 const prisma  = require('../lib/db');
-const { requireHICOMMStrict } = require('../middleware/auth');
+const { requireHICOMMStrict, requireHICOMM } = require('../middleware/auth');
 
 const router = express.Router();
 
-const TYPES = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
+const TYPES    = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
+const STATUSES = ['PENDING', 'APPROVED', 'DENIED'];
 
 // Free-text search across everything on a ticket worth searching by.
 function searchClause(q) {
@@ -54,6 +56,8 @@ function buildWhere(req, base) {
   if (base) filters.push(base);
   const type = (req.query.type || '').toString();
   if (TYPES.includes(type)) filters.push({ ticketType: type });
+  const status = (req.query.status || '').toString().toUpperCase();
+  if (STATUSES.includes(status)) filters.push({ status });
   const search = searchClause(req.query.q);
   if (search) filters.push(search);
   return filters.length ? { AND: filters } : {};
@@ -132,15 +136,19 @@ router.get('/stats', async (req, res) => {
   try {
     const mine = mineClause(req.user);
     const weekAgo = new Date(Date.now() - 7 * 86400000);
-    const [total, mineCount, mineWeek, byType] = await Promise.all([
+    const [total, mineCount, mineWeek, byType, byStatus, pending] = await Promise.all([
       prisma.ticketLog.count(),
       prisma.ticketLog.count({ where: mine }),
       prisma.ticketLog.count({ where: { AND: [mine, { closedAt: { gte: weekAgo } }] } }),
       prisma.ticketLog.groupBy({ by: ['ticketType'], _count: { _all: true } }).catch(() => []),
+      prisma.ticketLog.groupBy({ by: ['status'], _count: { _all: true } }).catch(() => []),
+      prisma.ticketLog.count({ where: { status: 'PENDING' } }).catch(() => 0),
     ]);
     const types = {};
     for (const row of byType) types[row.ticketType] = row._count._all;
-    res.json({ total, mine: mineCount, mineWeek, types });
+    const statuses = { PENDING: 0, APPROVED: 0, DENIED: 0 };
+    for (const row of byStatus) statuses[row.status] = row._count._all;
+    res.json({ total, mine: mineCount, mineWeek, types, statuses, pending });
   } catch (err) {
     console.error('[TicketLogs] stats error:', err.message);
     res.status(500).json({ error: 'Failed to fetch ticket stats.' });
@@ -162,6 +170,53 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
   } catch (err) {
     console.error('[TicketLogs] sync error:', err.message);
     res.status(500).json({ error: 'Failed to sync ticket logs.' });
+  }
+});
+
+// ── POST /api/tickets/:id/review — approve / deny a ticket log ────
+// Body: { action: 'approve' | 'deny' }
+//
+// This is the ONLY write on a ticket. It records a supervisor's decision on a
+// log that was ingested from Discord — it does not create, edit or delete the
+// log, and it deliberately awards NO quota points.
+router.post('/:id/review', requireHICOMM, async (req, res) => {
+  const action = ((req.body && req.body.action) || '').toString().toLowerCase();
+  if (!['approve', 'deny'].includes(action)) {
+    return res.status(400).json({ error: "action must be 'approve' or 'deny'." });
+  }
+  const status = action === 'approve' ? 'APPROVED' : 'DENIED';
+  try {
+    const ticket = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket log not found.' });
+
+    // A supervisor can't sign off a ticket they closed themselves.
+    const own = ticket.closerUserId === req.user.id ||
+      (req.user.discordId && ticket.closerDiscordId &&
+       String(ticket.closerDiscordId) === String(req.user.discordId));
+    if (own && req.user.role !== 'DEVELOPER') {
+      return res.status(403).json({ error: 'You cannot review a ticket you closed.' });
+    }
+
+    const updated = await prisma.ticketLog.update({
+      where: { id: ticket.id },
+      data: {
+        status,
+        reviewedById:   req.user.id,
+        reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt:     new Date(),
+      },
+    });
+
+    require('../lib/audit').record({
+      req, action: status === 'APPROVED' ? 'TICKET_APPROVE' : 'TICKET_DENY',
+      category: 'ia', targetType: 'ticketLog', targetId: ticket.id,
+      summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
+    });
+
+    res.json(updated);
+  } catch (err) {
+    console.error('[TicketLogs] review error:', err.message);
+    res.status(500).json({ error: 'Failed to record the decision.' });
   }
 });
 

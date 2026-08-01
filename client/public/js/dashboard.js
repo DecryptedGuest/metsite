@@ -140,8 +140,11 @@ async function loadCurrentUser() {
       roleEl.className   = `user-role-badge ${classes[currentUser.role] || 'ia'}`;
     }
 
-    if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role))
+    if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) {
       document.querySelectorAll('.hicomm-only, .supervisor-only').forEach(el => el.style.display = '');
+      // Supervisor and above sign ticket logs off (tickets.js reads this).
+      window.canReviewTickets = true;
+    }
     if (['HICOMM', 'DEVELOPER'].includes(currentUser.role))
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
 
@@ -269,7 +272,6 @@ function navigateTo(pageId) {
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
     'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
     gamelogs:        loadDevGameLogs,
-    'ticket-ip':     (typeof loadDevTickets === 'function' ? () => { loadDevTickets(0); loadDevBlacklist(); } : null),
     cad:             (typeof loadCad === 'function' ? loadCad : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
@@ -301,243 +303,6 @@ async function loadDevGameLogs() {
     : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
 }
 
-// ── Guest IP lookup (support-ticket forensics) ─────────────────────
-const DEV_TK_TYPE = {
-  OFFICER_COMPLAINT: ['Officer complaint', '#f59e0b'],
-  DISCIPLINARY_APPEAL: ['Disciplinary appeal', '#8b5cf6'],
-  IA_COMPLAINT: ['IA complaint', '#ef4444'],
-  GENERAL_SUPPORT: ['General support', '#3b82f6'],
-};
-const DEV_TK_STATUS = { INTAKE: '#8b93a1', OPEN: '#3b82f6', CLAIMED: '#f59e0b', CLOSED: '#2ed896' };
-
-function devTkChip(text, color) {
-  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;color:${color};background:color-mix(in srgb, ${color} 16%, transparent);">${escapeHtml(text)}</span>`;
-}
-
-async function loadDevTickets(page) {
-  page = page || 0;
-  const out = document.getElementById('dev-tk-out');
-  if (!out) return;
-  const q      = (document.getElementById('dev-tk-q')      || {}).value || '';
-  const status = (document.getElementById('dev-tk-status') || {}).value || '';
-  const type   = (document.getElementById('dev-tk-type')   || {}).value || '';
-  const guest  = (document.getElementById('dev-tk-guest')  || {}).checked ? '1' : '';
-  out.innerHTML = '<div class="table-loading" style="padding:1.5rem;text-align:center;"><div class="spinner"></div></div>';
-  let data;
-  try {
-    data = await api(`/api/dev/tickets?page=${page}&q=${encodeURIComponent(q.trim())}`
-      + `&status=${encodeURIComponent(status)}&type=${encodeURIComponent(type)}&guest=${guest}`);
-  } catch (e) { out.innerHTML = `<div class="table-empty-text" style="color:var(--danger,#ef4444);">${escapeHtml(e.message)}</div>`; return; }
-  const rows = data.tickets || [];
-  if (!rows.length) {
-    out.innerHTML = window.metEmpty
-      ? window.metEmpty({ icon: 'ti-ticket-off', title: 'No tickets match', sub: 'Try clearing the filters or search.' })
-      : '<div class="table-empty-text">No tickets match.</div>';
-    return;
-  }
-  const body = rows.map(t => {
-    const [typeLbl, typeCol] = DEV_TK_TYPE[t.type] || [t.type, '#8b93a1'];
-    const stCol = DEV_TK_STATUS[t.status] || '#8b93a1';
-    const opener = t.isGuest
-      ? `<span style="color:#f59e0b;"><i class="ti ti-user-question" style="font-size:12px;"></i> ${escapeHtml(t.openerName || 'Guest')}</span>`
-      : escapeHtml(t.openerName || '—');
-    const claimed = t.claimedByName ? escapeHtml(t.claimedByName) : '<span style="color:var(--text-muted);">—</span>';
-    return `<tr style="cursor:pointer;" onclick="devTicketIpLookup('${t.id}')" title="Look up IPs for this ticket">
-      <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(t.createdAt))}</td>
-      <td>${devTkChip(typeLbl, typeCol)}${t.escalated ? ' <span style="color:#ef4444;" title="Escalated"><i class="ti ti-flag-filled" style="font-size:11px;"></i></span>' : ''}</td>
-      <td>${devTkChip(t.status, stCol)}</td>
-      <td>${opener}${t.hasIp ? ' <i class="ti ti-map-pin" style="font-size:12px;color:#2ed896;" title="IP captured"></i>' : ''}</td>
-      <td>${claimed}</td>
-      <td style="text-align:center;font-size:12px;color:var(--text-secondary);">${t.messageCount}</td>
-      <td style="text-align:right;"><button class="btn btn-secondary" style="height:26px;padding:0 10px;font-size:11px;" onclick="event.stopPropagation();devTicketIpLookup('${t.id}')"><i class="ti ti-map-pin-search"></i> IP</button></td>
-    </tr>`;
-  }).join('');
-  const from = data.page * data.take + 1;
-  const to = data.page * data.take + rows.length;
-  out.innerHTML = `
-    <div style="overflow-x:auto;">
-      <table class="data-table" style="width:100%;">
-        <thead><tr>
-          <th>Opened</th><th>Type</th><th>Status</th><th>Opener</th><th>Claimed by</th>
-          <th style="text-align:center;">Msgs</th><th></th>
-        </tr></thead>
-        <tbody>${body}</tbody>
-      </table>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.9rem;font-size:12px;color:var(--text-muted);">
-      <span>Showing ${from}–${to} of ${data.total}</span>
-      <span style="display:flex;gap:8px;">
-        <button class="btn btn-secondary" style="height:28px;padding:0 12px;font-size:12px;" ${data.page <= 0 ? 'disabled' : ''} onclick="loadDevTickets(${data.page - 1})"><i class="ti ti-chevron-left"></i> Prev</button>
-        <button class="btn btn-secondary" style="height:28px;padding:0 12px;font-size:12px;" ${data.hasMore ? '' : 'disabled'} onclick="loadDevTickets(${data.page + 1})">Next <i class="ti ti-chevron-right"></i></button>
-      </span>
-    </div>`;
-}
-
-async function devTicketIpLookup(preset) {
-  const inp = document.getElementById('dev-tip-q');
-  const out = document.getElementById('dev-tip-out');
-  if (!out) return;
-  const q = (preset || (inp ? inp.value : '') || '').trim();
-  if (preset && inp) inp.value = preset;
-  if (!q) { out.innerHTML = '<div style="color:var(--text-muted);">Paste a transcript link, ticket id or TKT reference first.</div>'; return; }
-  // If triggered from the browser table, scroll the direct-lookup panel into view.
-  if (preset && inp) inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  out.innerHTML = '<div class="table-loading" style="padding:1rem 0;"><div class="spinner"></div></div>';
-  let data;
-  try { data = await api(`/api/dev/ticket-ip?q=${encodeURIComponent(q)}`); }
-  catch (e) { out.innerHTML = `<div style="color:var(--danger,#ef4444);">${escapeHtml(e.message)}</div>`; return; }
-
-  const t = data.ticket || {};
-  const meta = data.ipMeta || null;
-  const [typeLbl, typeCol] = DEV_TK_TYPE[t.type] || [t.type, '#8b93a1'];
-  const stCol = DEV_TK_STATUS[t.status] || '#8b93a1';
-  const copyBtn = (val) => val
-    ? `<button class="btn btn-secondary" style="height:24px;padding:0 8px;font-size:11px;margin-left:6px;" onclick="navigator.clipboard&&navigator.clipboard.writeText('${escapeHtml(String(val)).replace(/'/g, '&#39;')}');this.innerHTML='<i class=\\'ti ti-check\\'></i>'"><i class="ti ti-copy"></i></button>`
-    : '';
-  const field = (label, val, mono) => `
-    <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06));">
-      <span style="width:130px;flex-shrink:0;color:var(--text-muted);font-size:12px;">${label}</span>
-      <span style="flex:1;${mono ? 'font-family:var(--font-mono,monospace);' : ''}font-size:13px;word-break:break-all;">${val == null || val === '' ? '<span style="color:var(--text-muted);">—</span>' : escapeHtml(String(val))}${(val && mono) ? copyBtn(val) : ''}</span>
-    </div>`;
-
-  // IP reputation badge derived from the on-demand intel lookup.
-  let repBadge = '<span style="color:var(--text-muted);font-size:12px;">No IP captured</span>';
-  if (t.openerIp && meta) {
-    if (meta.private) repBadge = '<span style="color:var(--text-muted);font-size:12px;">Local / private address</span>';
-    else if (meta.unknown) repBadge = '<span style="color:#f59e0b;font-size:12px;"><i class="ti ti-help-circle"></i> Reputation unknown (lookup failed)</span>';
-    else if (meta.vpn) repBadge = '<span style="color:#ef4444;font-weight:600;font-size:12px;"><i class="ti ti-alert-triangle"></i> VPN / proxy / datacenter</span>';
-    else repBadge = '<span style="color:#2ed896;font-weight:600;font-size:12px;"><i class="ti ti-shield-check"></i> Clean (residential ISP)</span>';
-  }
-
-  const linked = data.linkedAccounts || [];
-  const linkedRows = linked.map(a => {
-    const via = a.viaVpn === true ? '<span style="color:#ef4444;" title="Signed in from this IP over a VPN"><i class="ti ti-shield-x" style="font-size:11px;"></i> via VPN</span>'
-      : a.viaVpn === false ? '<span style="color:#2ed896;" title="Signed in from this IP directly"><i class="ti ti-shield-check" style="font-size:11px;"></i> direct</span>'
-      : '<span style="color:var(--text-muted);">—</span>';
-    return `<tr>
-      <td style="font-size:13px;">${a.isBlacklisted ? '<i class="ti ti-ban" style="color:#ef4444;font-size:12px;" title="Blacklisted"></i> ' : ''}${escapeHtml(a.name)}</td>
-      <td style="font-size:12px;color:var(--text-secondary);">${a.robloxUsername ? escapeHtml(a.robloxUsername) : '—'}</td>
-      <td style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-muted);">${a.discordId ? escapeHtml(a.discordId) + copyBtn(a.discordId) : '—'}</td>
-      <td style="font-size:12px;">${escapeHtml(a.role || '—')}</td>
-      <td style="font-size:12px;">${via}</td>
-      <td style="white-space:nowrap;font-size:11px;color:var(--text-muted);">${a.lastSeenAt ? escapeHtml(formatDateTime(a.lastSeenAt)) : '—'}</td>
-    </tr>`;
-  }).join('');
-
-  const rel = data.related || [];
-  const relRows = rel.map(r => {
-    const [rtl, rtc] = DEV_TK_TYPE[r.type] || [r.type, '#8b93a1'];
-    const rsc = DEV_TK_STATUS[r.status] || '#8b93a1';
-    const match = [r.sameIp ? 'IP' : null, r.sameFp ? 'browser' : null].filter(Boolean).join(' + ');
-    return `<tr style="cursor:pointer;" onclick="devTicketIpLookup('${r.id}')">
-      <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(r.createdAt))}</td>
-      <td>${devTkChip(rtl, rtc)}</td>
-      <td>${devTkChip(r.status, rsc)}</td>
-      <td style="font-size:13px;">${r.isGuest ? '<i class="ti ti-user-question" style="color:#f59e0b;font-size:12px;"></i> ' : ''}${escapeHtml(r.openerName || '—')}</td>
-      <td style="font-size:11px;color:var(--text-secondary);">${escapeHtml(match)}</td>
-    </tr>`;
-  }).join('');
-
-  out.innerHTML = `
-    <div class="panel glass" style="padding:1rem 1.1rem;margin-bottom:1rem;">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:0.8rem;">
-        ${devTkChip(typeLbl, typeCol)} ${devTkChip(t.status, stCol)}
-        ${t.isGuest ? '<span style="color:#f59e0b;font-size:12px;font-weight:600;"><i class="ti ti-user-question"></i> Guest opener</span>' : '<span style="color:var(--text-secondary);font-size:12px;"><i class="ti ti-user-check"></i> Logged-in opener</span>'}
-        ${data.blacklisted
-          ? `<span style="color:#ef4444;font-size:12px;font-weight:600;"><i class="ti ti-ban"></i> Ticket-blacklisted</span>
-             <button class="btn btn-secondary" style="height:26px;padding:0 10px;font-size:11px;margin-left:auto;" onclick="devLiftTicketBlacklist({ticketId:'${t.id}'}, this)"><i class="ti ti-lock-open"></i> Un-blacklist</button>`
-          : '<span style="color:#2ed896;font-size:12px;"><i class="ti ti-shield-check"></i> Not ticket-blacklisted</span>'}
-      </div>
-      ${field('Opener', t.openerName)}
-      ${field('Discord ID', t.openerDiscordId, true)}
-      ${field('Opened at', t.createdAt ? formatDateTime(t.createdAt) : null)}
-      <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06));">
-        <span style="width:130px;flex-shrink:0;color:var(--text-muted);font-size:12px;">Opener IP</span>
-        <span style="flex:1;font-family:var(--font-mono,monospace);font-size:13px;word-break:break-all;">${t.openerIp ? escapeHtml(t.openerIp) + copyBtn(t.openerIp) : '<span style="color:var(--text-muted);font-family:var(--font-body);">— not captured</span>'}</span>
-      </div>
-      <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border,rgba(255,255,255,0.06));">
-        <span style="width:130px;flex-shrink:0;color:var(--text-muted);font-size:12px;">IP reputation</span>
-        <span style="flex:1;">${repBadge}</span>
-      </div>
-      ${field('ISP / Org', meta ? meta.org : null)}
-      ${meta && meta.country ? field('Country', meta.country) : ''}
-      ${field('Fingerprint', t.openerFp, true)}
-      ${field('User-agent', t.openerUa)}
-      ${field('Ticket id', t.id, true)}
-    </div>
-    <div class="panel glass" style="padding:1rem 1.1rem;margin-bottom:1rem;${linked.length ? 'border:1px solid color-mix(in srgb, #ef4444 40%, transparent);' : ''}">
-      <div style="font-weight:600;font-size:13px;margin-bottom:0.6rem;"><i class="ti ti-affiliate" style="color:${linked.length ? '#ef4444' : 'var(--accent)'};"></i> Real accounts linked to this IP ${linked.length ? `(${linked.length})` : ''}</div>
-      ${linkedRows
-        ? `<p style="font-size:12px;color:var(--text-secondary);margin:0 0 0.7rem;line-height:1.6;">These logged-in accounts have signed in from the <strong>same IP</strong> this guest ticket was opened from — shown whether or not the IP is a VPN.</p>
-           <div style="overflow-x:auto;"><table class="data-table" style="width:100%;">
-            <thead><tr><th>Account</th><th>Roblox</th><th>Discord ID</th><th>Role</th><th>Connection</th><th>Last seen</th></tr></thead>
-            <tbody>${linkedRows}</tbody></table></div>`
-        : (t.openerIp
-            ? '<div style="color:var(--text-muted);font-size:12px;">No logged-in accounts have used this IP.</div>'
-            : '<div style="color:var(--text-muted);font-size:12px;">No IP was captured for this opener.</div>')}
-    </div>
-    <div class="panel glass" style="padding:1rem 1.1rem;">
-      <div style="font-weight:600;font-size:13px;margin-bottom:0.6rem;"><i class="ti ti-arrows-shuffle" style="color:var(--accent);"></i> Other tickets from this IP / browser ${rel.length ? `(${rel.length})` : ''}</div>
-      ${relRows
-        ? `<div style="overflow-x:auto;"><table class="data-table" style="width:100%;">
-            <thead><tr><th>Opened</th><th>Type</th><th>Status</th><th>Opener</th><th>Match</th></tr></thead>
-            <tbody>${relRows}</tbody></table></div>`
-        : '<div style="color:var(--text-muted);font-size:12px;">No other tickets share this opener\'s IP or browser fingerprint.</div>'}
-    </div>`;
-}
-// Lift a ticket blacklist. `sel` is { ticketId } | { userId } | { ip } |
-// { fingerprint } | { id } — the dev endpoint deactivates every matching active
-// entry. `btn` (optional) is the button to disable + relabel on success.
-async function devLiftTicketBlacklist(sel, btn) {
-  if (!confirm('Lift the ticket blacklist for this opener? They will be able to open support tickets again.')) return;
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Lifting…'; }
-  try {
-    const r = await api('/api/dev/blacklist/lift', { method: 'POST', body: JSON.stringify(sel) });
-    showToast(r.lifted ? `Ticket blacklist lifted (${r.lifted} entr${r.lifted === 1 ? 'y' : 'ies'})` : 'No active blacklist to lift', 'success');
-    if (btn) { btn.outerHTML = '<span style="color:#2ed896;font-size:12px;"><i class="ti ti-shield-check"></i> Lifted</span>'; }
-    return true;
-  } catch (e) {
-    showToast(e.message || 'Failed to lift blacklist', 'error');
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-lock-open"></i> Un-blacklist'; }
-    return false;
-  }
-}
-// Active ticket-blacklist list (dev panel) — review + lift.
-async function loadDevBlacklist() {
-  const out = document.getElementById('dev-bl-out');
-  if (!out) return;
-  const q = (document.getElementById('dev-bl-q') || {}).value || '';
-  out.innerHTML = '<div class="table-loading" style="padding:1.2rem;text-align:center;"><div class="spinner"></div></div>';
-  let data;
-  try { data = await api('/api/dev/blacklist?q=' + encodeURIComponent(q.trim())); }
-  catch (e) { out.innerHTML = `<div class="table-empty-text" style="color:var(--danger,#ef4444);">${escapeHtml(e.message)}</div>`; return; }
-  const rows = data.entries || [];
-  if (!rows.length) {
-    out.innerHTML = window.metEmpty
-      ? window.metEmpty({ icon: 'ti-shield-check', title: 'No active blacklists', sub: 'Nobody is currently barred from opening tickets.' })
-      : '<div class="table-empty-text">No active blacklists.</div>';
-    return;
-  }
-  const body = rows.map(b => {
-    const who = escapeHtml(b.openerName || b.userId || b.ip || b.fingerprint || 'Unknown');
-    const on = [b.userId ? 'account' : null, b.ip ? 'IP' : null, b.fingerprint ? 'browser' : null].filter(Boolean).join(' + ');
-    return `<tr>
-      <td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(b.createdAt))}</td>
-      <td style="font-size:13px;">${who}${b.openerDiscordId ? `<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono,monospace);">${escapeHtml(b.openerDiscordId)}</div>` : ''}</td>
-      <td style="font-size:11px;color:var(--text-secondary);">${escapeHtml(on || '—')}</td>
-      <td style="font-size:12px;color:var(--text-secondary);max-width:220px;">${b.reason ? escapeHtml(b.reason) : '<span style="color:var(--text-muted);">No reason</span>'}</td>
-      <td style="font-size:11px;color:var(--text-muted);">${escapeHtml(b.issuedByName || '—')}</td>
-      <td style="text-align:right;"><button class="btn btn-secondary" style="height:26px;padding:0 10px;font-size:11px;" onclick="devLiftTicketBlacklist({id:'${b.id}'}, this)"><i class="ti ti-lock-open"></i> Lift</button></td>
-    </tr>`;
-  }).join('');
-  out.innerHTML = `<div style="overflow-x:auto;"><table class="data-table" style="width:100%;">
-      <thead><tr><th>Issued</th><th>Opener</th><th>Matched on</th><th>Reason</th><th>By</th><th></th></tr></thead>
-      <tbody>${body}</tbody></table></div>`;
-}
-window.loadDevTickets = loadDevTickets;
-window.devTicketIpLookup = devTicketIpLookup;
-window.devLiftTicketBlacklist = devLiftTicketBlacklist;
-window.loadDevBlacklist = loadDevBlacklist;
 let _devGlT = null;
 document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
 
@@ -1381,8 +1146,9 @@ async function loadDashboard() {
 }
 
 // ── Weekly quota hero ─────────────────────────────────────────────
-// The quota is 2 cases a week (8 points). It's the number people actually care
-// about, so it gets the top of the page rather than a panel halfway down.
+// The weekly target depends on rank (30 Low Command / 20 Middle Command,
+// High Command and LOA exempt). It's the number people actually care about, so
+// it gets the top of the page rather than a panel halfway down.
 async function loadQuotaHero() {
   const hero = document.getElementById('quota-hero');
   if (!hero) return;
@@ -1392,19 +1158,22 @@ async function loadQuotaHero() {
     hero.style.display = '';
 
     const q      = d.quota || {};
-    const target = q.target != null ? q.target : 8;
+    // No target for an unrecognised rank — show the raw total rather than
+    // inventing a number to measure them against.
+    const target = q.target != null ? q.target : null;
     const total  = d.total || 0;
-    const met    = q.exempt || total >= target;
-    const pct    = q.exempt ? 100 : Math.min(100, Math.round((total / Math.max(1, target)) * 100));
+    const met    = q.exempt || (target != null && total >= target);
+    const pct    = q.exempt || target == null ? 100 : Math.min(100, Math.round((total / Math.max(1, target)) * 100));
 
     document.getElementById('quota-hero-points').textContent = q.exempt ? 'EX' : total;
-    document.getElementById('quota-hero-target').textContent = q.exempt ? '' : ` / ${target} pts`;
+    document.getElementById('quota-hero-target').textContent = (q.exempt || target == null) ? '' : ` / ${target} pts`;
     document.getElementById('quota-hero-sub').innerHTML = q.exempt
       ? `${escapeHtml(d.rank || 'High Command')} — exempt from the weekly quota.`
-      : `${escapeHtml(d.rank || 'Internal Affairs')} · ${q.cases || 2} cases a week`
-        + (met
-            ? ' · <strong style="color:var(--green);">Quota met</strong>'
-            : ` · <strong style="color:var(--amber);">${Math.max(0, target - total)} points to go</strong>`);
+      : `${escapeHtml(d.rank || 'Internal Affairs')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''}`
+        + (target == null ? ''
+            : met
+              ? ' · <strong style="color:var(--green);">Quota met</strong>'
+              : ` · <strong style="color:var(--amber);">${Math.max(0, target - total)} points to go</strong>`);
 
     const fill = document.getElementById('quota-hero-fill');
     fill.style.width = pct + '%';
@@ -2043,7 +1812,7 @@ async function loadAdminUsers() {
           ${metRankDropdownTrigger(u, metRoles)}
         </div></td>
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
-        <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}${u.ticketBlacklisted ? '<div style="margin-top:4px;"><span class="badge badge-amber" title="Barred from opening support tickets"><i class="ti ti-ticket-off"></i> Ticket-BL</span></div>' : ''}</td>
+        <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>
         <td>${u.notifyEnabled && u.hasPush
             ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span><i class="ti ti-bell"></i> On</span>'
             : (u.notifyEnabled
@@ -2054,7 +1823,6 @@ async function loadAdminUsers() {
           ${u.isBlacklisted
             ? `<button class="row-btn row-btn-approve btn-sm" onclick="unblacklistUser('${u.id}')"><i class="ti ti-lock-open"></i> Unban</button>`
             : `<button class="row-btn row-btn-deny btn-sm" onclick="openBlacklistModal('${u.id}')"><i class="ti ti-ban"></i> Blacklist</button>`}
-          ${u.ticketBlacklisted ? `<button class="row-btn row-btn-approve btn-sm" title="Lift the support-ticket blacklist" onclick="devLiftTicketBlacklist({userId:'${u.id}'}, this)"><i class="ti ti-ticket"></i> Un-ticket-BL</button>` : ''}
         </div></td>
       </tr>`).join('');
   } catch { tbody.innerHTML = emptyRow(10, 'Failed to load users.'); }

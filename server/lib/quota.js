@@ -3,8 +3,9 @@
 // (+4) is approved. Matches the IA member's row by Discord ID or Roblox
 // username and increments the column for the current day of the week.
 //
-// Tickets no longer award points — the weekly quota is 2 cases, i.e. 8 points,
-// for every non-exempt rank (see quotaForRank / IA_WEEKLY_QUOTA).
+// Tickets award no points at all. The weekly target is per rank — 30 for Low
+// Command, 20 for Middle Command, exempt for High Command and LOA (see
+// quotaForRank).
 //
 // Required env:
 //   GOOGLE_SERVICE_ACCOUNT_JSON  full service-account key JSON (one line)
@@ -414,33 +415,26 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
   }
 }
 
-// The weekly quota: 2 cases a week. An approved case is worth CASE_POINTS (4),
-// so the target is 8 points for every non-exempt rank. Overridable per
-// deployment without a code change.
-const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
-const WEEKLY_CASES  = () => { const n = parseInt(process.env.IA_WEEKLY_CASES  || '2', 10); return Number.isFinite(n) ? n : 2; };
-const WEEKLY_TARGET = () => {
-  const explicit = parseInt(process.env.IA_WEEKLY_QUOTA || '', 10);
-  return Number.isFinite(explicit) ? explicit : CASE_POINTS() * WEEKLY_CASES();
-};
-
 // Weekly quota target based on the member's rank (from the sheet).
-//   LOA (Leave of Absence)                     → exempt
-//   High Command (Director / Deputy Director)  → exempt (EX)
-//   Everyone else                              → 2 cases = 8 points
-// The tier is still reported so the Quota Check keeps its grouping.
+//   LOA (Leave of Absence)                                 → exempt
+//   High Command (Director / Deputy Director)              → exempt (EX)
+//   Middle Command (Senior Investigator / Supervisor)      → 20
+//   Low Command (Junior / Probationary Investigator)       → 30
+// An approved case is worth CASE_POINTS (4); tickets award nothing.
+const CASE_POINTS = () => { const n = parseInt(process.env.IA_CASE_POINTS || '4', 10); return Number.isFinite(n) ? n : 4; };
+
 function quotaForRank(rank) {
   const r = (rank || '').toString().trim().toLowerCase();
-  const target = WEEKLY_TARGET();
-  if (!r) return { exempt: false, target, tier: null, cases: WEEKLY_CASES() };
-  if (r === 'loa')        return { exempt: true, target: 0, tier: 'LOA',          cases: 0 };
-  if (/director/.test(r)) return { exempt: true, target: 0, tier: 'High Command', cases: 0 };
+  if (!r) return { exempt: false, target: null, tier: null };
+  if (r === 'loa')                                          return { exempt: true,  target: 0,  tier: 'LOA' };
+  if (/director/.test(r))                                   return { exempt: true,  target: 0,  tier: 'High Command' };
+  if (/senior\s*investigator|supervisor/.test(r))           return { exempt: false, target: 20, tier: 'Middle Command' };
+  if (/junior\s*investigator|probationary\s*investigator/.test(r)) return { exempt: false, target: 30, tier: 'Low Command' };
+  // A plain "Investigator" sits with Middle Command rather than falling through
+  // as an unknown rank with no target at all.
+  if (/investigator/.test(r))                               return { exempt: false, target: 20, tier: 'Middle Command' };
+  return { exempt: false, target: null, tier: null }; // unknown rank
 
-  let tier = null;
-  if (/senior\s*investigator|supervisor/.test(r))                   tier = 'Middle Command';
-  else if (/junior\s*investigator|probationary\s*investigator/.test(r)) tier = 'Low Command';
-  else if (/investigator/.test(r))                                  tier = 'Middle Command';
-  return { exempt: false, target, tier, cases: WEEKLY_CASES() };
 }
 
 // A Discord role that reduces a member's weekly quota target while they hold it.
@@ -994,7 +988,7 @@ module.exports = {
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
-  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID,
+  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank,
 };

@@ -220,9 +220,9 @@ function metInjectNavToggle() {
 }
 
 // ── Mobile nav drawer for TOPBAR-ONLY pages (member Dashboard, LOA, Exam,
-// Support, App) — pages with a real .app-layout sidebar are handled by
+// App) — pages with a real .app-layout sidebar are handled by
 // metInjectNavToggle above and are skipped here. Gives phones a proper slide-out
-// menu (My Dashboard, the divisions you can enter, Support, LOA, Exam, App,
+// menu (My Dashboard, the divisions you can enter, LOA, Exam, App,
 // Sign out) instead of only the cramped topbar dropdowns. ──
 const DIV_ICON = { CID: 'ti-search', SCO19: 'ti-target-arrow', IA: 'ti-scale', FLP: 'ti-shield', HPC: 'ti-school', DEV: 'ti-code', METHICOMM: 'ti-star' };
 function metInjectMobileNav(mine, currentDivision, examEligible) {
@@ -257,7 +257,6 @@ function metInjectMobileNav(mine, currentDivision, examEligible) {
       + item('/dashboard', 'ti-home', 'My Dashboard', here === '/dashboard' || here === '/profile')
       + (divLinks ? '<div class="met-mnav-label">Divisions you can access</div>' + divLinks : '')
       + '<div class="met-mnav-label">You</div>'
-      + item('/support', 'ti-lifebuoy', 'Support', /^\/support/.test(here))
       + item('/loa', 'ti-calendar-off', 'Leave of Absence', here === '/loa')
       + (examEligible ? item('/exam', 'ti-writing', 'Final Exam', here === '/exam') : '')
       + item('/app', 'ti-device-mobile', 'Mobile App', here === '/app')
@@ -286,139 +285,6 @@ function metInjectMobileNav(mine, currentDivision, examEligible) {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 }
 
-// ── Live support chat launcher: a floating button in the bottom-left corner that
-// opens a small card offering to start a support chat. Redundant on /support, so
-// it's skipped there. ──
-function metInjectSupportChat() {
-  if (/^\/support/.test(location.pathname)) return;   // already on the chat
-  if (!document.querySelector('.met-topbar')) return; // portal-chrome pages only
-  if (document.getElementById('met-chat-fab')) return;
-
-  const fab = document.createElement('button');
-  fab.id = 'met-chat-fab'; fab.type = 'button'; fab.className = 'met-chat-fab';
-  fab.setAttribute('aria-label', 'Live support chat'); fab.setAttribute('aria-expanded', 'false');
-  fab.title = 'Live support chat · drag to move';
-  fab.innerHTML = '<i class="ti ti-message-chatbot"></i>';
-  document.body.appendChild(fab);
-
-  const pop = document.createElement('div');
-  pop.id = 'met-chat-pop'; pop.className = 'met-chat-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'MET Support');
-  pop.innerHTML =
-    '<div class="met-chat-head">' +
-      '<span class="met-chat-title"><i class="ti ti-headset"></i> MET Support</span>' +
-      '<button class="met-chat-x" type="button" aria-label="Close" title="Close"><i class="ti ti-x"></i></button>' +
-    '</div>' +
-    '<div class="met-chat-body">Need a hand? Open a support ticket and chat with our team in real time — you’ll get live replies and can attach screenshots.</div>' +
-    '<a class="btn btn-primary btn-sm met-chat-cta" href="/support"><i class="ti ti-message-2"></i> Start a support chat</a>' +
-    '<a class="met-chat-alt" href="/support">View my tickets</a>';
-  document.body.appendChild(pop);
-
-  const close = () => { pop.classList.remove('open'); fab.classList.remove('active'); fab.setAttribute('aria-expanded', 'false'); };
-
-  // ── Draggable + snap: free-drag, then snap to the nearest edge/corner anchor
-  // (4 corners + 4 edge midpoints), remembered per browser. ──
-  const SNAP_M = 18; // margin from the viewport edges
-  function applyPos(left, top) {
-    const w = fab.offsetWidth || 62, h = fab.offsetHeight || 62;
-    left = Math.max(6, Math.min(left, window.innerWidth - w - 6));
-    top  = Math.max(6, Math.min(top, window.innerHeight - h - 6));
-    fab.style.left = left + 'px'; fab.style.top = top + 'px';
-    fab.style.right = 'auto'; fab.style.bottom = 'auto';
-  }
-  function anchorPoints() {
-    const w = fab.offsetWidth || 62, h = fab.offsetHeight || 62;
-    const left = SNAP_M;
-    const right = Math.max(SNAP_M, window.innerWidth - w - SNAP_M);
-    // Top row sits BELOW the topbar so the button never overlaps it.
-    const tb = document.querySelector('.met-topbar');
-    const topT = Math.round((tb ? tb.getBoundingClientRect().height : 56) + 14);
-    const midT = Math.round((window.innerHeight - h) / 2);
-    const botT = Math.max(topT, window.innerHeight - h - SNAP_M);
-    // Six anchors: left + right columns × top / middle / bottom rows.
-    return [
-      { k: 'tl', left, top: topT }, { k: 'tr', left: right, top: topT },
-      { k: 'lm', left, top: midT }, { k: 'rm', left: right, top: midT },
-      { k: 'bl', left, top: botT }, { k: 'br', left: right, top: botT },
-    ];
-  }
-  function applyAnchor(key, animate) {
-    const pts = anchorPoints();
-    const p = pts.find(a => a.k === key) || pts.find(a => a.k === 'br');
-    if (animate) { fab.style.transition = 'left .24s cubic-bezier(.2,.7,.3,1), top .24s cubic-bezier(.2,.7,.3,1)'; setTimeout(() => { fab.style.transition = ''; }, 280); }
-    applyPos(p.left, p.top);
-    savedAnchor = p.k;
-  }
-  function nearestAnchor() {
-    const r = fab.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, w = r.width, h = r.height;
-    let best = 'br', bd = Infinity;
-    for (const p of anchorPoints()) {
-      const d = Math.pow(p.left + w / 2 - cx, 2) + Math.pow(p.top + h / 2 - cy, 2);
-      if (d < bd) { bd = d; best = p.k; }
-    }
-    return best;
-  }
-  let savedAnchor = 'br';
-  try { const k = localStorage.getItem('met_chat_anchor'); if (k) savedAnchor = k; } catch (e) {}
-  // Position on the saved anchor once the FAB has a measured size.
-  requestAnimationFrame(() => applyAnchor(savedAnchor, false));
-  window.addEventListener('resize', () => applyAnchor(savedAnchor, false));
-
-  // Anchor the popup next to the FAB's current spot (above if there's room,
-  // else below; aligned to whichever side of the screen the FAB sits on).
-  function positionPop() {
-    const r = fab.getBoundingClientRect();
-    const pw = pop.offsetWidth || 300, ph = pop.offsetHeight || 190, gap = 12;
-    let top = r.top - ph - gap;
-    if (top < 8) top = Math.min(r.bottom + gap, window.innerHeight - ph - 8);
-    let left = (r.left + r.width / 2 > window.innerWidth / 2) ? (r.right - pw) : r.left;
-    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
-    top  = Math.max(8, Math.min(top, window.innerHeight - ph - 8));
-    pop.style.left = left + 'px'; pop.style.top = top + 'px'; pop.style.right = 'auto'; pop.style.bottom = 'auto';
-  }
-  const openPop = () => { positionPop(); pop.classList.add('open'); fab.classList.add('active'); fab.setAttribute('aria-expanded', 'true'); };
-
-  let dragging = false, moved = false, ox = 0, oy = 0, sx = 0, sy = 0;
-  fab.addEventListener('pointerdown', (e) => {
-    if (e.button && e.button !== 0) return;
-    dragging = true; moved = false;
-    const r = fab.getBoundingClientRect();
-    ox = e.clientX - r.left; oy = e.clientY - r.top; sx = e.clientX; sy = e.clientY;
-    try { fab.setPointerCapture(e.pointerId); } catch (x) {}
-  });
-  fab.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    if (!moved && (Math.abs(e.clientX - sx) > 4 || Math.abs(e.clientY - sy) > 4)) {
-      moved = true; fab.classList.add('dragging'); close();
-    }
-    if (moved) applyPos(e.clientX - ox, e.clientY - oy);
-  });
-  const endDrag = (e) => {
-    if (!dragging) return;
-    dragging = false; fab.classList.remove('dragging');
-    try { fab.releasePointerCapture(e.pointerId); } catch (x) {}
-    if (moved) {
-      const key = nearestAnchor();
-      applyAnchor(key, true);   // smooth snap to the nearest edge/corner
-      try { localStorage.setItem('met_chat_anchor', key); } catch (x) {}
-    }
-  };
-  fab.addEventListener('pointerup', endDrag);
-  fab.addEventListener('pointercancel', endDrag);
-  // A tap (no drag) toggles the popup; a click that ended a drag is ignored.
-  fab.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (moved) { moved = false; return; }
-    pop.classList.contains('open') ? close() : openPop();
-  });
-
-  pop.querySelector('.met-chat-x').addEventListener('click', close);
-  document.addEventListener('click', (e) => { if (pop.classList.contains('open') && !pop.contains(e.target) && !fab.contains(e.target)) close(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
-}
-
-// ── Back-to-top: now handled by the single button in ui.js (which detects the
-// real scroller). Kept as a no-op so callers don't create a SECOND arrow. ──
 function metInjectBackToTop() { /* consolidated into ui.js */ }
 
 async function initMetTopbar(currentDivision) {
@@ -429,7 +295,7 @@ async function initMetTopbar(currentDivision) {
   if (badge && currentDivision) badge.textContent = DIVISION_LABEL[currentDivision] || currentDivision;
 
   let examEligible = false;  // holds the final-exam role → show the Final Exam menu entry
-  let hasIADivision = false; // IA-division access → show the Support Desk pill
+  let hasIADivision = false; // IA-division access
   let myDivisions = [];      // the divisions this user can enter (for the mobile nav drawer)
   try {
     const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
@@ -500,13 +366,12 @@ async function initMetTopbar(currentDivision) {
   try { metInjectNavToggle(); } catch (e) {}
   try { metInjectMobileNav(myDivisions, currentDivision, examEligible); } catch (e) {}
   try { metInjectBackToTop(); } catch (e) {}
-  try { metInjectSupportChat(); } catch (e) {}
   try { metInjectFooterStrap(); } catch (e) {}
 
   // Decluttered topbar: instead of a flat row of ~7 loose buttons, the right side
   // reads as a few obvious GROUPS — [Search] · [Menu ▾] (navigation + personal
-  // pages + help, all folded in) · [Switch Division ▾] · (IA) Support Desk pill ·
-  // profile · Sign out. My Dashboard / Support / Tour now live inside Menu.
+  // pages + help, all folded in) · [Switch Division ▾] · profile · Sign out.
+  // My Dashboard / Tour now live inside Menu.
   try {
     if (right && !document.getElementById('met-pages')) {
       const switcherEl = document.getElementById('met-switcher');
@@ -514,9 +379,6 @@ async function initMetTopbar(currentDivision) {
       const GROUPS = [
         // "My Dashboard" is a dedicated top-level button now (added below), so it's
         // not repeated here.
-        { label: 'Navigate', items: [
-          { href: '/support',   icon: 'ti-lifebuoy',         label: 'Support' },
-        ] },
         { label: 'You', items: [
           { href: '/loa', icon: 'ti-calendar-off', label: 'Leave of Absence' },
           // Final Exam only appears for cadets who hold the final-exam role.
@@ -525,21 +387,20 @@ async function initMetTopbar(currentDivision) {
         ] },
       ];
       const isHere = (it) => (it.match || [it.href]).some(h => h === HERE);
-      const onSupport = /^\/support/.test(location.pathname);
       const menuHtml =
         GROUPS.map(g =>
           `<div class="met-menu-label">${g.label}</div>` +
           g.items.map(it => `<a href="${it.href}" class="met-switcher-item${isHere(it) ? ' current' : ''}"><span><i class="ti ${it.icon}"></i> ${it.label}</span></a>`).join('')
         ).join('') +
         '<div class="met-menu-label">Help</div>' +
-        `<a class="met-switcher-item" data-act="tour"><span><i class="ti ti-help-circle"></i> ${onSupport ? 'How support works' : 'Take a tour'}</span></a>`;
+        '<a class="met-switcher-item" data-act="tour"><span><i class="ti ti-help-circle"></i> Take a tour</span></a>';
 
       // Menu dropdown — reuses the switcher's markup + CSS.
       const wrap = document.createElement('div');
       wrap.className = 'met-switcher';
       wrap.id = 'met-pages';
       wrap.innerHTML =
-        '<button class="btn btn-ghost btn-sm" id="met-pages-btn" title="Menu — dashboard, support, your pages & tour"><i class="ti ti-menu-2"></i> Menu</button>' +
+        '<button class="btn btn-ghost btn-sm" id="met-pages-btn" title="Menu — dashboard, your pages & tour"><i class="ti ti-menu-2"></i> Menu</button>' +
         '<div class="met-switcher-menu met-menu-wide">' + menuHtml + '</div>';
       if (switcherEl) right.insertBefore(wrap, switcherEl); else right.appendChild(wrap);
       const pBtn = wrap.querySelector('#met-pages-btn');
@@ -556,38 +417,6 @@ async function initMetTopbar(currentDivision) {
       });
       const allHrefs = GROUPS.reduce((a, g) => a.concat(g.items.reduce((b, it) => b.concat(it.match || [it.href]), [])), []);
       if (allHrefs.indexOf(HERE) >= 0) markHere(pBtn);
-
-      // Live unclaimed-ticket counter — a topbar pill that only appears for IA
-      // staff (the queue endpoint 403s for everyone else) and PULSES when the
-      // count goes up (a new ticket landed). Refreshed on 'support_open' SSE
-      // events (events-client.js calls loadSupportBadge) and every 60s.
-      window.loadSupportBadge = async function () {
-        // Support Desk is IA-division only — never for other divisions or signed-out.
-        if (!hasIADivision) { const ex = document.getElementById('met-support-pill'); if (ex) ex.remove(); return; }
-        let rows;
-        try { rows = await fetch('/api/support/tickets/queue?unclaimed=1', { credentials: 'include' }).then(r => r.ok ? r.json() : null); }
-        catch (e) { return; }
-        if (!Array.isArray(rows)) return; // non-staff / not signed in
-        const n = rows.length;
-        let pill = document.getElementById('met-support-pill');
-        if (!pill) {
-          pill = document.createElement('a');
-          pill.id = 'met-support-pill';
-          pill.href = '/ia/dashboard?page=support-tickets';
-          pill.className = 'btn btn-ghost btn-sm';
-          pill.title = 'Support Desk (Internal Affairs) · unclaimed tickets';
-          pill.innerHTML = '<i class="ti ti-headset"></i> Support Desk (IA) <span id="met-support-badge" style="min-width:18px;height:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--red,#e0503a);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;">0</span>';
-          right.insertBefore(pill, right.firstChild);
-        }
-        const badge = document.getElementById('met-support-badge');
-        const prev = parseInt(badge.getAttribute('data-n'), 10) || 0;
-        badge.setAttribute('data-n', n);
-        badge.textContent = n;
-        badge.style.display = n ? 'inline-flex' : 'none';
-        if (n > prev && badge.animate) badge.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.45)' }, { transform: 'scale(1)' }], { duration: 520 });
-      };
-      window.loadSupportBadge();
-      setInterval(() => window.loadSupportBadge(), 60000);
 
       // Search (⌘K / Ctrl-K) — the leftmost control in the group. Always shown;
       // if the command palette isn't loaded on this page yet, it's fetched on

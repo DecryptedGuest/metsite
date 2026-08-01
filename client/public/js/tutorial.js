@@ -16,12 +16,6 @@
     { sel: '#met-switcher-btn', title: 'Switch division', body: "Jump to any division you have access to from here." },
     { center: true, title: 'One last thing', body: "Press Ctrl/⌘ + K anywhere to jump around fast, or “?” for keyboard shortcuts. That's it — enjoy." },
   ];
-  const SUPPORT = [
-    { sel: '#sup-panels', title: 'Get help', body: "Pick what you need — general support, a disciplinary appeal, or a complaint. Each option asks a few quick questions to get started." },
-    { sel: '#sup-mytickets', title: 'Your tickets', body: "Your open and past tickets appear here — tap one to carry on the conversation." },
-    { sel: '#sup-staff-wrap', title: 'Handling tickets', body: "Claim a ticket to work it, use quick replies to save time, and close it when it's resolved.", staffOnly: true },
-    { center: true, title: "You're set", body: "Send a message any time and someone from the team will pick it up. You can reopen this tour from the topbar." },
-  ];
   const DASH = [
     { sel: '.nav-item[data-page]', title: 'Get around', body: "Switch between sections here. The site remembers the tab you were on if you refresh." },
     { sel: '#met-user-name,.user-name,#met-user-avatar', title: 'Your account', body: "You're signed in here — quick settings and sign-out live nearby." },
@@ -35,13 +29,12 @@
 
   function pageKey() {
     const p = location.pathname;
-    if (/\/support/.test(p)) return 'support';
     if (p === '/profile' || p === '/dashboard' || p === '/') return 'profile';
     if (/\/(cid|sco19|flp|hpc|hicomm|ia|dev)\b/.test(p)) return 'dash';
     return 'generic';
   }
   function stepsFor(k) {
-    const map = { support: SUPPORT, profile: PROFILE, dash: DASH, generic: GENERIC };
+    const map = { profile: PROFILE, dash: DASH, generic: GENERIC };
     return (map[k] || GENERIC).filter(s => s.center || (document.querySelector(s.sel) && document.querySelector(s.sel).offsetParent !== null));
   }
   const seenKey = () => 'iacms_tour_seen:' + pageKey();
@@ -119,12 +112,12 @@
   window.metTour = {
     start: function () { run(stepsFor(pageKey())); },
     offerIfFirstVisit: function () {
-      // Auto-offer only on the support page and the signed-in dashboard/profile.
-      // The hub ("/") is guest-accessible, so it's excluded — a logged-out
-      // visitor never gets prompted anywhere except support. /dashboard and
-      // /profile are auth-gated, so only signed-in members reach them.
+      // Auto-offer only on the signed-in dashboard/profile. The hub ("/") is
+      // guest-accessible, so it's excluded — a logged-out visitor is never
+      // prompted. /dashboard and /profile are auth-gated, so only signed-in
+      // members reach them.
       const path = location.pathname;
-      const ok = /^\/support/.test(path) || path === '/dashboard' || path === '/profile';
+      const ok = path === '/dashboard' || path === '/profile';
       if (!ok) return;
       let seen = false; try { seen = !!localStorage.getItem(seenKey()); } catch (e) {}
       if (seen) return;

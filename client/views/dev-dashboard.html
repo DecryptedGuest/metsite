@@ -9,7 +9,6 @@
   <link rel="stylesheet" href="/css/dashboard.css?v=73" />
   <link rel="stylesheet" href="/css/aurora.css?v=73" />
   <link rel="stylesheet" href="/css/met-portal.css?v=79" />
-  <link rel="stylesheet" href="/css/support-chat.css?v=1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
@@ -89,10 +88,7 @@
         <button class="nav-item" data-page="all-tickets">
           <i class="ti ti-tags nav-icon"></i><span>All Tickets</span>
         </button>
-        <button class="nav-item" data-page="support-tickets">
-          <i class="ti ti-headset nav-icon"></i><span>Support Desk</span>
-          <span class="nav-badge" id="nav-badge-support" style="display:none;background:var(--blue);"></span>
-        </button>
+        
 
         <!-- ── Tools ────────────────────────────────────────── -->
         <div class="nav-section-label">Tools</div>
@@ -164,9 +160,7 @@
         <button class="nav-item dev-only" data-page="imports" style="display:none;">
           <i class="ti ti-database-import nav-icon"></i><span>Imports</span><span class="nav-tag">DEV</span>
         </button>
-        <button class="nav-item dev-only" data-page="ticket-ip" style="display:none;">
-          <i class="ti ti-map-pin-search nav-icon"></i><span>Guest IP Lookup</span><span class="nav-tag">DEV</span>
-        </button>
+        
         <button class="nav-item dev-only" data-page="cad" style="display:none;">
           <i class="ti ti-radio nav-icon"></i><span>CAD Dispatch</span><span class="nav-tag">DEV</span>
         </button>
@@ -1384,36 +1378,7 @@
     </section>
 
     <!-- SUPPORT DESK (staff-side handling of /support tickets) -->
-    <section class="page" id="page-support-tickets">
-      <div class="page-header fade-up">
-        <div>
-          <h1 class="page-title">Support Desk</h1>
-          <p class="page-sub">Internal Affairs &middot; Handle live community support tickets</p>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="loadSupportTickets()"><i class="ti ti-refresh"></i> Refresh</button>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Queue</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <div class="filter-tabs" id="sd-filter-tabs">
-              <button class="filter-tab active" data-sdfilter="active">Active</button>
-              <button class="filter-tab" data-sdfilter="unclaimed">Unclaimed</button>
-              <button class="filter-tab" data-sdfilter="mine">Mine</button>
-              <button class="filter-tab" data-sdfilter="escalated">Escalated</button>
-              <button class="filter-tab" data-sdfilter="CLOSED">Closed</button>
-            </div>
-            <select class="form-control" id="sd-type-filter" style="width:auto;font-size:12px;padding:4px 8px;"><option value="">All types</option></select>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Priority</th><th>Type</th><th>Opener</th><th>Status</th><th>Claimed by</th><th>Ticket Age</th><th></th></tr></thead>
-            <tbody id="sd-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+    
 
     <!-- RECORDS (Internal Affairs officer lookup) -->
     <section class="page" id="page-records">
@@ -1536,76 +1501,7 @@
     </section>
 
     <!-- GUEST IP LOOKUP (support-ticket forensics) -->
-    <section class="page" id="page-ticket-ip">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">Guest IP Lookup</h1><p class="page-sub">Developer &middot; Reveal the IP(s) captured for any support ticket — past or present</p></div>
-      </div>
-
-      <!-- Direct lookup by transcript link -->
-      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Look up a ticket</div></div>
-        <div class="profile-section">
-          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
-            Paste a <strong>transcript link</strong> (<code>/support?ticket=&hellip;</code>), an IA-desk link
-            (<code>?supportTicket=&hellip;</code>), a raw ticket id, or a <code>TKT-####</code> reference. Works for
-            <strong>closed and historical</strong> tickets too. Every lookup is written to the Audit Trail.
-          </p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <input type="text" class="form-control" id="dev-tip-q" placeholder="Paste transcript link / ticket id / TKT-0001…"
-                   style="flex:1;min-width:280px;" onkeydown="if(event.key==='Enter')devTicketIpLookup()">
-            <button class="btn btn-primary" onclick="devTicketIpLookup()"><i class="ti ti-map-pin-search"></i> Look up IP</button>
-          </div>
-          <div id="dev-tip-out" style="margin-top:1rem;font-size:13px;"></div>
-        </div>
-      </div>
-
-      <!-- Or browse every ticket -->
-      <div class="panel glass fade-up stagger-2">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Browse all tickets</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input type="text" class="form-control" id="dev-tk-q" placeholder="Search name, IP, id…"
-                   style="height:30px;font-size:12px;width:180px;" onkeydown="if(event.key==='Enter')loadDevTickets(0)">
-            <select class="form-control" id="dev-tk-status" onchange="loadDevTickets(0)" style="height:30px;font-size:12px;width:120px;">
-              <option value="">All statuses</option>
-              <option value="INTAKE">Intake</option>
-              <option value="OPEN">Open</option>
-              <option value="CLAIMED">Claimed</option>
-              <option value="CLOSED">Closed</option>
-            </select>
-            <select class="form-control" id="dev-tk-type" onchange="loadDevTickets(0)" style="height:30px;font-size:12px;width:150px;">
-              <option value="">All types</option>
-              <option value="OFFICER_COMPLAINT">Officer complaint</option>
-              <option value="DISCIPLINARY_APPEAL">Disciplinary appeal</option>
-              <option value="IA_COMPLAINT">IA complaint</option>
-              <option value="GENERAL_SUPPORT">General support</option>
-            </select>
-            <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);white-space:nowrap;">
-              <input type="checkbox" id="dev-tk-guest" onchange="loadDevTickets(0)"> Guests only
-            </label>
-            <button class="btn btn-secondary" onclick="loadDevTickets(0)" style="height:30px;padding:0 12px;font-size:12px;"><i class="ti ti-refresh"></i></button>
-          </div>
-        </div>
-        <div class="profile-section" style="padding-top:0;">
-          <div id="dev-tk-out" style="font-size:13px;"></div>
-        </div>
-      </div>
-
-      <!-- Active ticket blacklists -->
-      <div class="panel glass fade-up stagger-3" style="margin-top:1.2rem;">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot red"></span>Active ticket blacklists</div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" class="form-control" id="dev-bl-q" placeholder="Search name, IP, id…" style="height:30px;font-size:12px;width:180px;" onkeydown="if(event.key==='Enter')loadDevBlacklist()">
-            <button class="btn btn-secondary" onclick="loadDevBlacklist()" style="height:30px;padding:0 12px;font-size:12px;"><i class="ti ti-refresh"></i></button>
-          </div>
-        </div>
-        <div class="profile-section" style="padding-top:0;">
-          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 0.8rem;line-height:1.6;">People currently barred from opening support tickets. Lifting a blacklist lets them open tickets again — it never affects their other MET access.</p>
-          <div id="dev-bl-out" style="font-size:13px;"></div>
-        </div>
-      </div>
-    </section>
+    
 
     <!-- CAD — Metropolitan Police dispatch console -->
     <section class="page" id="page-cad">
@@ -2203,52 +2099,13 @@
 
 <div id="toast-container"></div>
 <!-- SUPPORT DESK — ticket detail + handling tools -->
-<div class="modal-overlay" id="modal-sd-ticket">
-  <div class="modal glass-bright" style="max-width:820px;">
-    <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-headset" style="font-size:18px;"></i> <span id="sd-title">Ticket</span></div>
-      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-sd-ticket')"><i class="ti ti-x"></i></button>
-    </div>
-    <div class="modal-body" style="padding:0;">
-      <div id="sd-toolbar" style="padding:12px 16px;border-bottom:1px solid var(--border,#2a2a2a);display:flex;gap:8px;flex-wrap:wrap;align-items:center;"></div>
-      <div id="sd-log" style="display:flex;flex-direction:column;gap:12px;padding:16px;max-height:52vh;overflow-y:auto;"></div>
-      <div id="sd-composer" style="padding:12px 16px;border-top:1px solid var(--border,#2a2a2a);">
-        <div id="sd-pending" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;"></div>
-        <div style="display:flex;gap:8px;align-items:flex-end;">
-          <textarea class="form-control" id="sd-input" rows="1" placeholder="Type a message…" style="flex:1;resize:vertical;min-height:42px;"></textarea>
-          <input type="file" id="sd-file" accept="image/*,video/*" multiple style="display:none;" />
-          <button class="btn btn-ghost btn-icon" id="sd-attach" title="Attach"><i class="ti ti-paperclip"></i></button>
-          <button class="btn btn-primary" id="sd-send" title="Send message" aria-label="Send message"><i class="ti ti-send"></i></button>
-        </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);margin-top:6px;cursor:pointer;">
-          <input type="checkbox" id="sd-internal" /> Internal note (staff-only — the opener won't see this)
-        </label>
-      </div>
-    </div>
-  </div>
-</div>
+
 
 <!-- SUPPORT DESK — canned responses picker -->
-<div class="modal-overlay" id="modal-sd-canned">
-  <div class="modal glass-bright" style="max-width:520px;">
-    <div class="modal-header"><div class="modal-title"><i class="ti ti-message-2-bolt"></i> Quick Replies</div>
-      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-sd-canned')"><i class="ti ti-x"></i></button></div>
-    <div class="modal-body" id="sd-canned-body"></div>
-  </div>
-</div>
+
 
 <!-- SUPPORT DESK — settings (claim greetings + quick replies) -->
-<div class="modal-overlay" id="modal-sd-settings">
-  <div class="modal glass-bright" style="max-width:640px;">
-    <div class="modal-header"><div class="modal-title"><i class="ti ti-settings"></i> Support Desk Settings</div>
-      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-sd-settings')"><i class="ti ti-x"></i></button></div>
-    <div class="modal-body" id="sd-settings-body" style="max-height:60vh;overflow:auto;"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-sd-settings')">Cancel</button>
-      <button class="btn btn-primary" onclick="sdSaveSettings()"><i class="ti ti-device-floppy"></i> Save</button>
-    </div>
-  </div>
-</div>
+
 
 <script src="/js/guard.js?v=73"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -2257,7 +2114,6 @@
 <script src="/js/cad-console.js?v=82"></script>
 <script src="/js/tickets.js?v=81"></script>
 <script src="/js/discord-format.js?v=80"></script>
-<script src="/js/support-staff.js?v=82"></script>
 <script src="/js/security.js?v=73"></script>
 <script src="/js/records.js?v=73"></script>
 <script src="/js/quota-check.js?v=73"></script>

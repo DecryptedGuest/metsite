@@ -331,13 +331,12 @@ tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(-
 
 /* Topbar button order — deterministic + logical, independent of the order the
    topbar script injects them. Left → right: Dashboard · Menu · Switch Division ·
-   Search · Support Desk (IA), then the profile + Sign-out pinned to the far right
+   Search, then the profile + Sign-out pinned to the far right
    (the auto-margin opens a clear gap before the identity cluster). */
 #met-dash-btn      { order: 10; }
 #met-pages         { order: 20; }  /* Menu ▾ */
 #met-switcher      { order: 30; }  /* Switch Division / My Divisions ▾ */
 #met-cmdk-btn      { order: 40; }  /* Search ⌘K */
-#met-support-pill  { order: 50; }  /* Support Desk (IA) alert pill */
 .met-topbar-user { order: 900; margin-left: auto; }
 .met-topbar-right > form { order: 901; }
 

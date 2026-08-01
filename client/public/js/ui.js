@@ -383,19 +383,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ── API Helper ───────────────────────────────────────────────────
-// A stable per-browser id, persisted in localStorage. Sent on every request so
-// the support desk can ticket-blacklist a guest's browser (alongside their IP).
-function browserFp() {
-  try {
-    let v = localStorage.getItem('met_fp');
-    if (!v) {
-      v = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2) + Date.now().toString(36));
-      localStorage.setItem('met_fp', v);
-    }
-    return v;
-  } catch (e) { return ''; }
-}
 
 // Read the CSRF token the server set as a readable cookie, so it can be echoed
 // back on every state-changing request (double-submit-cookie protection).
@@ -406,7 +393,7 @@ function getCsrfToken() {
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', 'x-support-fp': browserFp(), 'X-CSRF-Token': getCsrfToken(), ...options.headers },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken(), ...options.headers },
     ...options,
   });
 
@@ -686,7 +673,7 @@ function openImageNewTab(src) {
         const seen = {};
         const urls = [].slice.call(t.querySelectorAll('a[href^="http"]'))
           .map(a => a.getAttribute('href'))
-          .filter(u => u && !/\/api\/support\//.test(u) && !seen[u] && (seen[u] = 1))
+          .filter(u => u && !seen[u] && (seen[u] = 1))
           .slice(0, 4);
         if (!urls.length) return;
         let box = body.querySelector(':scope > .sup-embeds');
@@ -965,7 +952,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (sameOrigin && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
         const h = new Headers(init.headers || (input && typeof input === 'object' ? input.headers : undefined) || {});
         if (!h.has('X-CSRF-Token')) { const t = getCsrfToken(); if (t) h.set('X-CSRF-Token', t); }
-        if (!h.has('x-support-fp')) { const f = browserFp(); if (f) h.set('x-support-fp', f); }
         init = Object.assign({}, init, { headers: h });
       }
     } catch (e) { /* never break fetch */ }

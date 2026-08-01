@@ -41,18 +41,6 @@ function requireCsrf(req, res, next) {
   const url = req.originalUrl || req.url || '';
   if (url.startsWith('/api/game') || req.headers['x-game-secret']) return next();
 
-  // A ticket claim fired from a push notification carries a signed claim token
-  // (only present in the push payload, which web pages cannot read) in place of
-  // the CSRF cookie — the service worker can't reliably read that cookie. Accept
-  // a valid token for the ticket id in the URL.
-  const claimM = url.match(/^\/api\/support\/tickets\/([^\/?]+)\/claim/);
-  if (claimM && req.headers['x-claim-token']) {
-    try {
-      const { verifyClaimToken } = require('../lib/claimToken');
-      if (verifyClaimToken(req.headers['x-claim-token'], decodeURIComponent(claimM[1]))) return next();
-    } catch (e) { /* fall through to normal CSRF */ }
-  }
-
   const cookieToken = req.cookies && req.cookies[COOKIE];
   const headerToken = req.headers['x-csrf-token'];
 

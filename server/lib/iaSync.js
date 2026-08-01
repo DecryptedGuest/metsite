@@ -16,8 +16,6 @@ const prisma = require('./db');
 const { getIaClient } = require('./dbIa');
 
 const CASE_STATUS   = new Set(['PENDING', 'APPROVED', 'DENIED']);
-const TICKET_STATUS = new Set(['PENDING', 'APPROVED', 'DENIED']);
-const TICKET_TYPE   = new Set(['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL']);
 const norm = (v, set, dflt) => (v && set.has(String(v).toUpperCase()) ? String(v).toUpperCase() : dflt);
 
 // Resolve (and cache) a MET user id for an IA row's owner. Upserts a shell user
@@ -109,68 +107,15 @@ async function syncCases(limit = 10000) {
   return { ok: true, synced, skipped, total: rows.length };
 }
 
-async function syncTickets(limit = 10000) {
-  const ia = getIaClient();
-  if (!ia) return { ok: false, reason: 'IA_DATABASE_URL not set' };
-  const resolve = await makeResolver();
-  const rows = await ia.$queryRawUnsafe(`
-    SELECT t."ticketRef", t."robloxUsername", t."ticketType"::text AS "ticketType",
-           t."submittedAt", t."timezone", t."conclusion", t."transcriptLink", t."proofImages",
-           t."status"::text AS status, t."reviewedBy", t."reviewedAt", t."createdAt",
-           u."discordId" AS "ownerDiscordId", u."discordUsername" AS "ownerDiscordUsername"
-    FROM tickets t LEFT JOIN users u ON u.id = t."userId"
-    ORDER BY t."createdAt" ASC LIMIT ${Number(limit) || 10000}
-  `);
-  let synced = 0, skipped = 0;
-  for (const r of rows) {
-    try {
-      // IA and MET number tickets independently, so an IA ref can collide with a
-      // natively-created MET ticket. Never overwrite a native ticket: if one owns
-      // this ref, import the IA row under a "<ref>-IA" ref so it stays visible
-      // rather than clobbering the native ticket or being dropped.
-      let ref = r.ticketRef;
-      let exStatus = null;
-      const ex = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true, status: true } }).catch(() => null);
-      if (ex && ex.origin !== 'IA') {
-        ref = `${r.ticketRef}-IA`;
-        const ex2 = await prisma.ticket.findUnique({ where: { ticketRef: ref }, select: { origin: true, status: true } }).catch(() => null);
-        if (ex2 && ex2.origin !== 'IA') { skipped++; console.warn('[IA] ticket sync skip (native ticket owns ref)', r.ticketRef); continue; }
-        exStatus = ex2 && ex2.status;
-      } else if (ex) { exStatus = ex.status; }
-      const userId = await resolve(r.ownerDiscordId, r.ownerDiscordUsername);
-      const data = {
-        origin: 'IA',
-        userId,
-        robloxUsername: r.robloxUsername || 'unknown',
-        ticketType: norm(r.ticketType, TICKET_TYPE, 'GENERAL_SUPPORT'),
-        submittedAt: r.submittedAt || '',
-        timezone: r.timezone || '',
-        conclusion: r.conclusion || '',
-        transcriptLink: r.transcriptLink || null,
-        proofImages: r.proofImages ?? undefined,
-        status: norm(r.status, TICKET_STATUS, 'PENDING'),
-        reviewedBy: r.reviewedBy || null,
-        reviewedAt: r.reviewedAt || null,
-      };
-      // Don't revert a ticket already actioned on the MET side.
-      const updateData = { ...data };
-      if (exStatus && exStatus !== 'PENDING') { delete updateData.status; }
-      await prisma.ticket.upsert({
-        where: { ticketRef: ref },
-        update: updateData,
-        create: { ticketRef: ref, createdAt: r.createdAt || new Date(), ...data },
-      });
-      synced++;
-    } catch (e) { console.warn('[IA] ticket sync skip', r.ticketRef, '-', e.message); }
-  }
-  return { ok: true, synced, skipped, total: rows.length };
-}
+// Tickets are no longer mirrored from the IA database. Nothing on the site
+// creates or holds a ticket row any more — closed tickets come straight from
+// the Discord ticket-log channel (lib/ticketIngest.js), which is the same
+// source the IA database was reporting second-hand.
 
 async function syncAll() {
   if (!getIaClient()) return { ok: false, reason: 'IA_DATABASE_URL not set' };
   const cases = await syncCases().catch(e => ({ ok: false, reason: e.message }));
-  const tickets = await syncTickets().catch(e => ({ ok: false, reason: e.message }));
-  return { ok: true, cases, tickets };
+  return { ok: true, cases };
 }
 
 // Optional background sync. Enabled only when IA_DATABASE_URL is set; interval
@@ -186,4 +131,4 @@ function startIaSync() {
   console.log(`[IA] periodic case/ticket sync every ${interval} min`);
 }
 
-module.exports = { syncCases, syncTickets, syncAll, startIaSync };
+module.exports = { syncCases, syncAll, startIaSync };

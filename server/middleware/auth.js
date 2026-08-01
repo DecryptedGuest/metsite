@@ -158,7 +158,7 @@ function requireDeveloper(req, res, next) {
 
 // Optional auth: set req.user if a valid session exists, else leave it null and
 // continue (never redirects/rejects). Used by public-but-personalisable areas
-// like /support, where login is optional.
+// where login is optional.
 async function maybeAuth(req, res, next) {
   const token = req.cookies?.iacms_token;
   if (!token) { req.user = null; return next(); }
@@ -171,7 +171,7 @@ async function maybeAuth(req, res, next) {
   if (!user || user.isBlacklisted || user.mustReauth) { req.user = null; return next(); }
   // Honour per-session revocation / force-reauth here too — a revoked or
   // sid-less session degrades to anonymous (guest) rather than keeping staff
-  // capabilities on maybeAuth routes like /api/support.
+  // capabilities on maybeAuth routes.
   if (!payload.sid) { req.user = null; return next(); }
   let session = null;
   try { session = await prisma.session.findUnique({ where: { id: payload.sid } }); }

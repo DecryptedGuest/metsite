@@ -30,7 +30,6 @@ model User {
   notifyAsked     Boolean   @default(false)
   notifyEnabled   Boolean   @default(false)
   notifyPrefs     Json?
-  supportPrefs    Json? // IA support desk: { greetings: {TYPE:string}, quickReplies: string[] }
   lastRoleCheck   DateTime?
   createdAt       DateTime  @default(now())
   lastLogin       DateTime  @default(now())
@@ -85,7 +84,6 @@ model User {
   caseActions        CaseAction[]
   caseAppeals        CaseAppeal[]
   caseDocuments      CaseDocument[]
-  tickets            Ticket[]
   pushSubscriptions  PushSubscription[]
   media              Media[]
   cidCases           CidCase[]
@@ -254,6 +252,15 @@ model TicketLog {
   closerUsername        String?
   closerUserId          String?              // matched site User.id → "My Tickets"
   closedAt              DateTime
+
+  // Supervisor sign-off. Nobody logs a ticket by hand any more — the row is
+  // ingested from Discord — but a supervisor still approves or denies it on the
+  // site. Approval awards NO quota points.
+  status                TicketStatus @default(PENDING)
+  reviewedById          String?
+  reviewedByName        String?
+  reviewedAt            DateTime?
+
   raw                   Json?
   createdAt             DateTime   @default(now())
 
@@ -261,6 +268,7 @@ model TicketLog {
   @@index([closerDiscordId])
   @@index([closerUserId])
   @@index([ticketType])
+  @@index([status])
   @@map("ticket_logs")
 }
 
@@ -299,35 +307,6 @@ model CaseCounter {
   @@map("case_counter")
 }
 
-model Ticket {
-  id             String       @id @default(uuid())
-  ticketRef      String       @unique
-  origin         String       @default("NATIVE") // NATIVE | IA — IA sync never overwrites a NATIVE ticket
-  userId         String
-  robloxUsername String
-  ticketType     TicketType
-  submittedAt    String
-  timezone       String
-  conclusion     String
-  transcriptLink String?
-  proofImages    Json?
-  status         TicketStatus @default(PENDING)
-  reviewedBy     String?
-  reviewedAt     DateTime?
-  createdAt      DateTime     @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("tickets")
-}
-
-model TicketCounter {
-  id    Int @id @default(1)
-  count Int @default(0)
-
-  @@map("ticket_counter")
-}
-
 model AccessGrant {
   id        String   @id @default(uuid())
   discordId String   @unique
@@ -359,7 +338,6 @@ model Media {
   kind            String // 'image' | 'video'
   visibility      String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
   uploaderId      String? // null for guest (anonymous) support-ticket uploads
-  supportTicketId String? // support ticket this media was uploaded to (access-scopes serving)
   views           Int      @default(0)
   width           Int? // pixel dimensions (for video/image OG embeds)
   height          Int?
@@ -370,7 +348,6 @@ model Media {
   uploader User? @relation(fields: [uploaderId], references: [id])
 
   @@index([createdAt])
-  @@index([supportTicketId])
   @@map("media")
 }
 
@@ -829,71 +806,6 @@ model TryoutLog {
   @@map("tryout_logs")
 }
 
-// ── Support tickets (/support) ───────────────────────────────────────
-// Community-facing help desk. A user opens a ticket of one of four types;
-// "METAdministration" runs a fixed intake, then handling staff claim + chat.
-model SupportTicket {
-  id              String    @id @default(uuid())
-  type            String // OFFICER_COMPLAINT | DISCIPLINARY_APPEAL | IA_COMPLAINT | GENERAL_SUPPORT
-  status          String    @default("INTAKE") // INTAKE | OPEN | CLAIMED | CLOSED
-  priority        String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
-  escalated       Boolean   @default(false) // flagged up to IA HICOMM
-  escalatedNote   String?
-  openerId        String? // set when the opener was logged in
-  openerToken     String? // secret held by an anonymous opener
-  openerDiscordId String?
-  openerName      String
-  openerIp        String? // captured for guest ticket-blacklisting
-  openerFp        String? // per-browser fingerprint (localStorage id)
-  openerUa        String? // user-agent snapshot (informational)
-  intake          Json? // [{ id, prompt, answer, attachments:[{mediaId,kind,name}] }]
-  appealMeta      Json? // DISCIPLINARY_APPEAL: the punishment being appealed { id, type, caseRef, source, reason, issuedAt, expiresAt }
-  claimedById     String?
-  claimedByName   String?
-  claimedAt       DateTime?
-  closedById      String?
-  closedByName    String?
-  closeReason     String?
-  closedAt        DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  messages SupportMessage[]
-
-  @@index([type])
-  @@index([status])
-  @@index([openerId])
-  @@map("support_tickets")
-}
-
-// A ticket blacklist entry, issued by IA against a guest opener's IP and/or
-// browser fingerprint. While an entry is active, that IP/browser is refused
-// when it tries to open a new support ticket.
-model SupportBlacklist {
-  id              String    @id @default(uuid())
-  userId          String? // ticket-blacklisted logged-in opener — blocks opening tickets ONLY, site access is unaffected
-  ip              String?
-  fingerprint     String? // per-browser localStorage id (x-support-fp)
-  ua              String? // user-agent snapshot at time of issue
-  ticketId        String? // the ticket it was issued from
-  openerName      String?
-  openerDiscordId String?
-  reason          String?
-  issuedById      String?
-  issuedByName    String?
-  active          Boolean   @default(true)
-  liftedById      String?
-  liftedByName    String?
-  liftedAt        DateTime?
-  createdAt       DateTime  @default(now())
-
-  @@index([userId])
-  @@index([ip])
-  @@index([fingerprint])
-  @@index([active])
-  @@map("support_blacklist")
-}
-
 // Immutable action trail — every privileged / security-sensitive action across
 // the site, for the MET HICOMM + Dev oversight dashboards. Append-only. This is
 // the unified model (merges the HICOMM oversight trail with the security trail).
@@ -1049,25 +961,6 @@ model PendingApproval {
 
   @@index([status])
   @@map("pending_approvals")
-}
-
-model SupportMessage {
-  id          String    @id @default(uuid())
-  ticketId    String
-  authorId    String? // null for BOT / system
-  authorName  String
-  authorKind  String    @default("STAFF") // OPENER | STAFF | BOT
-  body        String?
-  attachments Json? // [{ mediaId, kind, name }]
-  replyToId   String? // id of the SupportMessage this one replies to (Discord-style)
-  editedAt    DateTime? // set when the author edits their message (shows an [edited] marker)
-  deletedAt   DateTime? // soft-delete: hidden from the thread but kept for the audit trail
-  createdAt   DateTime  @default(now())
-
-  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
-  @@index([ticketId])
-  @@map("support_messages")
 }
 
 // Server-side login sessions — one per sign-in. The JWT carries this row's id

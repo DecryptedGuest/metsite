@@ -189,93 +189,6 @@
     }
     return _popupWrap;
   }
-  var _ticketCards = {}; // ticketId -> card element (so it can be auto-dismissed)
-  function showTicketAlert(d) {
-    if (!d || !d.ticketId || _seen[d.ticketId]) return;   // de-dupe repeat events
-    if (isSnoozed()) return;                                // staffer muted alerts
-    _seen[d.ticketId] = true;
-    var wrap = ensureWrap();
-    var card = document.createElement('div');
-    card.className = 'met-alert';
-    var idEnc = encodeURIComponent(d.ticketId);
-    var viewUrl  = '/ia/dashboard?supportTicket=' + idEnc;
-    var claimUrl = '/ia/dashboard?supportTicket=' + idEnc + '&claim=1';
-    card.innerHTML =
-      '<div class="ma-top"><i class="ti ti-bell-ringing"></i> New ticket &middot; Internal Affairs'
-        + '<button class="ma-x" title="Dismiss">&times;</button></div>'
-      + '<div class="ma-title">' + esc(d.typeLabel || 'Support ticket') + '</div>'
-      + '<div class="ma-sub">Opened by ' + esc(d.openerName || 'a member') + ' &middot; ready to claim</div>'
-      + (d.preview ? '<div class="ma-prev">' + esc(d.preview) + '</div>' : '')
-      + '<div class="ma-actions">'
-      +   '<button class="ma-btn"><i class="ti ti-hand-stop"></i> Claim ticket</button>'
-      +   '<button class="ma-go"><i class="ti ti-arrow-right"></i> Go to ticket</button>'
-      + '</div>'
-      + '<button class="ma-mute" title="Mute ticket alerts for 30 minutes"><i class="ti ti-bell-off"></i> Mute 30m</button>';
-    var remove = function () { try { card.remove(); } catch (e) {} delete _ticketCards[d.ticketId]; };
-    card.querySelector('.ma-x').addEventListener('click', remove);
-    // Claim ticket → open + auto-claim in place on the desk; else deep-link + claim.
-    card.querySelector('.ma-btn').addEventListener('click', function () {
-      if (typeof window.sdOpenAndClaim === 'function') { window.sdOpenAndClaim(d.ticketId); remove(); }
-      else window.location.href = claimUrl;
-    });
-    // Go to ticket → just open it (no auto-claim).
-    card.querySelector('.ma-go').addEventListener('click', function () {
-      if (typeof window.sdOpen === 'function') { window.sdOpen(d.ticketId); remove(); }
-      else window.location.href = viewUrl;
-    });
-    card.querySelector('.ma-mute').addEventListener('click', function () { window.metSnoozeAlerts(30); dismissAllTicketAlerts(); });
-    wrap.appendChild(card);
-    _ticketCards[d.ticketId] = card;
-    chime();
-    desktopNotify('New ticket · Internal Affairs',
-      (d.typeLabel || 'Support ticket') + (d.openerName ? ' — ' + d.openerName : '') + (d.preview ? '\n' + d.preview : ''),
-      viewUrl);
-    setTimeout(remove, 60000); // stays a full minute; the web push is the durable copy
-  }
-  window.metShowTicketAlert = showTicketAlert;
-
-  // Dismiss the "ready to claim" popup for one ticket (it was claimed/closed by
-  // someone else) — or all of them (when muting).
-  function dismissTicketAlert(ticketId) {
-    var c = _ticketCards[ticketId];
-    if (c) { try { c.remove(); } catch (e) {} delete _ticketCards[ticketId]; window.metSound('tick'); }
-    delete _seen[ticketId]; // allow a genuine re-open to alert again later
-  }
-  function dismissAllTicketAlerts() { Object.keys(_ticketCards).forEach(dismissTicketAlert); }
-
-  // ── "You were mentioned in a ticket" popup ────────────────────────────
-  // Fired when someone @-mentions you in a ticket you can see. Chime + a card
-  // with a single "Go to ticket" action (opens on the desk in place if we can).
-  function showMentionAlert(d) {
-    if (!d || !d.ticketId) return;
-    var wrap = ensureWrap();
-    var card = document.createElement('div');
-    card.className = 'met-alert';
-    card.innerHTML =
-      '<div class="ma-top"><i class="ti ti-at"></i> You were mentioned'
-        + '<button class="ma-x" title="Dismiss">&times;</button></div>'
-      + '<div class="ma-title">' + esc(d.typeLabel || 'Support ticket') + '</div>'
-      + '<div class="ma-sub">' + esc(d.by || 'Someone') + ' mentioned you</div>'
-      + (d.preview ? '<div class="ma-prev">' + esc(d.preview) + '</div>' : '')
-      + '<div class="ma-actions">'
-      +   '<button class="ma-go" style="flex:1"><i class="ti ti-arrow-right"></i> Go to ticket</button>'
-      + '</div>';
-    var remove = function () { try { card.remove(); } catch (e) {} };
-    card.querySelector('.ma-x').addEventListener('click', remove);
-    card.querySelector('.ma-go').addEventListener('click', function () {
-      // Staff desk deep-links open in place; the opener side reloads to the ticket.
-      if (/\/ia\//.test(d.url || '') && typeof window.sdOpen === 'function') { window.sdOpen(d.ticketId); remove(); }
-      else if (typeof window.supOpenTicket === 'function' && !/\/ia\//.test(d.url || '')) { window.supOpenTicket(d.ticketId); remove(); }
-      else window.location.href = d.url || ('/ia/dashboard?supportTicket=' + encodeURIComponent(d.ticketId));
-    });
-    wrap.appendChild(card);
-    window.metSound('mention'); // softer, distinct from the loud new-ticket alarm
-    desktopNotify('You were mentioned · ' + (d.typeLabel || 'ticket'),
-      (d.by || 'Someone') + ': ' + (d.preview || 'mentioned you'), d.url);
-    setTimeout(remove, 60000);
-  }
-  window.metShowMentionAlert = showMentionAlert;
-
   // ── Emergency alert (full-screen takeover) ────────────────────────────
   // A harsh, LOUD two-tone alarm modelled on a UK radio "panic button" / broadcast
   // emergency warble — a rapidly alternating hi-lo square-wave tone that reads as
@@ -358,24 +271,6 @@
       toast(d.message || 'A MET tryout is now live!', 'info');
       window.metSound('tryout_live');
       call('loadTryouts');      // profile page — refresh the tryouts panel if present
-    });
-
-    // A support ticket just became ready to claim — staff only (the server
-    // targets eligible handlers). Chime + on-screen popup with a claim button.
-    es.addEventListener('support_open', function (ev) {
-      showTicketAlert(parse(ev));
-      call('refreshQueue');     // support desk — refresh the queue if open
-      call('loadSupportBadge'); // topbar unclaimed counter, if present
-    });
-
-    // You were @-mentioned in a ticket you can see — sound + popup.
-    es.addEventListener('ticket_mention', function (ev) {
-      showMentionAlert(parse(ev));
-    });
-
-    // A ticket was claimed/closed by someone else — dismiss its stale "claim" popup.
-    es.addEventListener('ticket_taken', function (ev) {
-      var d = parse(ev); if (d && d.ticketId) dismissTicketAlert(d.ticketId);
     });
 
     // Dev-issued emergency alert — full-screen takeover + loud klaxon.

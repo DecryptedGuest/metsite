@@ -163,7 +163,7 @@
       clearTimeout(officerTimer);
       officerTimer = setTimeout(async () => {
         try {
-          const rows = await fetch('/api/hicomm/officer/search?q=' + encodeURIComponent(q), { headers: { 'x-support-fp': '' } }).then(r => r.ok ? r.json() : []);
+          const rows = await fetch('/api/hicomm/officer/search?q=' + encodeURIComponent(q), { credentials: 'include' }).then(r => r.ok ? r.json() : []);
           if (input.value.trim() !== q) return;
           const off = rows.map(u => ({ label: u.name, sub: `@${u.discordUsername || ''} · ${u.role || ''} — open 360°`, avatar: u.avatar, url: `/hicomm/dashboard#officer:${u.id}`, officerId: u.id }));
           items = baseItems(q).concat(off); render();

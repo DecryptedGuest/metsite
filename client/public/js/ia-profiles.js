@@ -99,12 +99,12 @@
   }
   function ticketRowHtml(t) {
     return `<tr>
-      <td><span class="case-ref">${esc(t.ticketRef || '—')}</span>${t.origin === 'IA' ? ' <span class="met-chip" style="font-size:9px;">IA</span>' : ''}</td>
+      <td><span class="case-ref">${esc(t.ticketRef || '—')}</span></td>
       <td>${esc(t.ticketType || '—')}</td>
-      <td>${esc(t.robloxUsername || '—')}</td>
+      <td>${esc(t.creatorRobloxUsername || '—')}</td>
       <td>${statusBadge(t.status)}</td>
-      <td class="date-cell">${esc(fmtDate(t.createdAt))}</td>
-      <td>${t.transcriptLink ? `<a href="${esc(t.transcriptLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ticket transcript in new tab" aria-label="Open ticket transcript in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
+      <td class="date-cell">${esc(fmtDate(t.closedAt))}</td>
+      <td>${t.transcriptUrl ? `<a href="${esc(t.transcriptUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ticket transcript in new tab" aria-label="Open ticket transcript in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
     </tr>`;
   }
 

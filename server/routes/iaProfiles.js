@@ -102,15 +102,18 @@ router.get('/:id', async (req, res) => {
       orderBy: { createdAt: 'desc' }, take: 300,
     });
 
-    // Ticket logs they FILED or REVIEWED.
-    const ticketOr = [{ userId: u.id }, { reviewedBy: u.id }];
-    const tickets = await prisma.ticket.findMany({
-      where: { OR: ticketOr },
+    // Ticket logs they CLOSED or REVIEWED. These are ingested from Discord —
+    // nobody files a ticket on the site — so the link is the closer, matched on
+    // the site account or the raw Discord id for tickets closed before they
+    // first signed in.
+    const tickets = await prisma.ticketLog.findMany({
+      where: { OR: [{ closerUserId: u.id }, { closerDiscordId: u.discordId }, { reviewedById: u.id }] },
       select: {
-        id: true, ticketRef: true, ticketType: true, status: true, origin: true,
-        conclusion: true, transcriptLink: true, robloxUsername: true, createdAt: true,
+        id: true, ticketRef: true, ticketName: true, ticketType: true, status: true,
+        reason: true, transcriptUrl: true, creatorRobloxUsername: true,
+        closerUsername: true, reviewedByName: true, closedAt: true,
       },
-      orderBy: { createdAt: 'desc' }, take: 300,
+      orderBy: { closedAt: 'desc' }, take: 300,
     });
 
     const tally = (rows) => rows.reduce((a, r) => { const k = String(r.status || 'UNKNOWN'); a[k] = (a[k] || 0) + 1; return a; }, {});
