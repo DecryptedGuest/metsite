@@ -17,6 +17,17 @@
 
 const { e } = require('./emoji');
 
+// The server's own emoji for a rank (:CON:, :SGT:, :CINS: …). Those are the
+// insignia the server already recognises, so a promotion notice should carry
+// them rather than a generic mark. Returns '' when there is no such emoji.
+function rankIcon(rankName) {
+  try {
+    const client = require('./bot').getClient();
+    return client ? require('./rankEmoji').forRank(client, rankName) : '';
+  } catch (err) { return ''; }
+}
+const badge = name => { const i = rankIcon(name); return i ? i + ' ' : ''; };
+
 // The channel the XP logs go to.
 const CHANNEL_ID = () => process.env.XP_LOG_CHANNEL_ID || '1531317662360146092';
 
@@ -55,7 +66,7 @@ async function logChange({ discordId, memberName, kind, delta, before, after, re
     title: `${icon} ${verb}`,
     description:
       `${e('met_user')} **Officer** <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''}\n`
-      + `${e('met_rank')} **Rank** ${rank ? rank.name : '—'}`,
+      + `**Rank** ${rank ? badge(rank.name) + rank.name : '—'}`,
     fields: [
       {
         name: 'Change',
@@ -94,7 +105,7 @@ async function logChange({ discordId, memberName, kind, delta, before, after, re
  */
 async function logPromotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, avatar }) {
   const fields = [
-    { name: 'Rank',  value: `${from.name} → **${to.name}**`, inline: true },
+    { name: 'Rank',  value: `${badge(from.name)}${from.name} → ${badge(to.name)}**${to.name}**`, inline: true },
     { name: 'XP',    value: `**${xp}**`, inline: true },
     { name: 'Roblox group', value: groupResult && groupResult.ok
         ? `${e('met_tick')} Promoted to **${groupResult.to}**`
@@ -110,8 +121,8 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
 
   const embed = {
     color: COLOR.promotion,
-    title: `${e('met_promote')} Promotion — ${to.name}`,
-    description: `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has reached **${to.at} XP** and made **${to.name}**.`,
+    title: `${e('met_promote')} Promotion — ${to.name}`.trim(),
+    description: `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has reached **${to.at} XP** and made ${badge(to.name)}**${to.name}**.`,
     fields,
     footer: { text: 'MET XP · automatic promotion' },
     timestamp: new Date().toISOString(),
@@ -135,7 +146,7 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
  */
 async function logDemotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, reason, issuedById, avatar }) {
   const fields = [
-    { name: 'Rank',  value: `${from.name} → **${to.name}**`, inline: true },
+    { name: 'Rank',  value: `${badge(from.name)}${from.name} → ${badge(to.name)}**${to.name}**`, inline: true },
     { name: 'XP',    value: `**${xp}**`, inline: true },
     { name: 'By',    value: issuedById ? `<@${issuedById}>` : 'System', inline: true },
     { name: 'Roblox group', value: groupResult && groupResult.ok
@@ -154,7 +165,7 @@ async function logDemotion({ discordId, memberName, from, to, xp, progress, grou
   const embed = {
     color: COLOR.demotion,
     title: `${e('met_warn')} Demotion — ${to.name}`,
-    description: `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has dropped to **${xp} XP** and is now **${to.name}**.`,
+    description: `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has dropped to **${xp} XP** and is now ${badge(to.name)}**${to.name}**.`,
     fields,
     footer: { text: 'MET XP · automatic demotion' },
     timestamp: new Date().toISOString(),
@@ -169,4 +180,4 @@ async function logDemotion({ discordId, memberName, from, to, xp, progress, grou
   });
 }
 
-module.exports = { logChange, logPromotion, logDemotion, progressBar, CHANNEL_ID };
+module.exports = { logChange, logPromotion, logDemotion, progressBar, rankIcon, CHANNEL_ID };

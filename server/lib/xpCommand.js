@@ -182,8 +182,17 @@ async function loadOfficer(discordId, guild) {
   };
 }
 
-/** The stats card for one officer. */
-async function buildCard(o) {
+/**
+ * The stats card for one officer.
+ *
+ * The values are set as `###` headings so they don't read as more labels. A
+ * bold value next to a bold field name is two pieces of the same weight, and
+ * "XP rank / **Constable**" looked like a two-column table of headings rather
+ * than a label and an answer.
+ *
+ * @param {object} client the live client, for the server's own rank emoji
+ */
+async function buildCard(o, client) {
   const [hist, standing] = await Promise.all([
     XP.history(o.discordId, 5).catch(() => []),
     XP.standing(o.discordId).catch(() => ({ position: 0, total: 0 })),
@@ -203,21 +212,14 @@ async function buildCard(o) {
         ? ` · [${short(o.robloxUsername, 30)}](https://www.roblox.com/users/${o.robloxId}/profile)`
         : ' · *no Roblox account linked*'))
     .addFields(
-      { name: 'XP',        value: o.ranked ? `**${o.xp}**` : '—', inline: true },
-      { name: 'XP rank',   value: o.ranked ? `**${o.rank.name}**` : '*Unranked*', inline: true },
-      { name: 'Standing',  value: o.ranked && standing.total ? `**#${standing.position}** of ${standing.total}` : '—', inline: true },
+      { name: 'Rank',     value: rankLine(o, client), inline: true },
+      { name: 'XP',       value: o.ranked ? `### ${o.xp}${p.next ? ` / ${p.next.at}` : ' · max'}` : '### —', inline: true },
+      { name: 'Standing', value: o.ranked && standing.total ? `### #${standing.position}` : '### —', inline: true },
       { name: 'Next rank', value: o.ranked
           ? `${nextLine}\n${xpLog.progressBar(p)}`
-          : `${e('met_warn')} Their MET group rank isn't one the XP ladder covers, so they don't have an XP rank yet. `
+          : `${e('met_warn')} Their MET rank isn't one the XP ladder covers, so they don't have an XP standing yet. `
             + `Giving them any XP places them.`,
         inline: false },
-      {
-        name: 'MET group rank',
-        value: o.groupRole
-          ? `${e('met_rank')} ${o.groupRole.name}`
-          : `${e('met_warn')} Not found — ${o.robloxId ? 'not in the MET group' : 'no linked Roblox account'}`,
-        inline: false,
-      },
     )
     .setFooter({ text: 'MET XP' });
 
@@ -243,13 +245,31 @@ async function buildCard(o) {
   return embed;
 }
 
+/**
+ * The Rank line — their actual MET rank, badged with the server's own emoji for
+ * it rather than anything we drew. That is the insignia the server already
+ * recognises; a generic mark would be a downgrade.
+ *
+ * Their MET rank IS their rank, so there is no separate "MET group rank" row
+ * saying the same thing twice. The XP-ladder rank only stands in when we can't
+ * read the group.
+ */
+function rankLine(o, client) {
+  const name = (o.groupRole && o.groupRole.name) || (o.ranked ? o.rank.name : null);
+  if (!name) return '### Unranked';
+  const icon = require('./rankEmoji').forRank(client, name);
+  return `### ${icon ? icon + ' ' : ''}${short(name, 40)}`;
+}
+
 /** A compact table when several officers were named at once. */
-function buildTable(officers) {
+function buildTable(officers, client) {
   const lines = officers.map(o => {
     if (!o.ranked) return `${e('met_user')} <@${o.discordId}> — *unranked*`;
     const p = o.progress;
     const tail = p.next ? `${p.need} to ${p.next.code}` : 'max';
-    return `${e('met_user')} <@${o.discordId}> — **${o.xp}** XP · **${o.rank.name}** · *${tail}*`;
+    const name = (o.groupRole && o.groupRole.name) || o.rank.name;
+    const icon = require('./rankEmoji').forRank(client, name, e('met_rank'));
+    return `${icon} <@${o.discordId}> — **${o.xp}** XP · ${short(name, 30)} · *${tail}*`;
   });
   return new EmbedBuilder()
     .setColor(COLOR.card)
@@ -404,7 +424,9 @@ async function handleXpCommand(interaction) {
   const officers = [];
   for (const t of targets) officers.push(await loadOfficer(t.discordId, guild));
 
-  const embed = officers.length === 1 ? await buildCard(officers[0]) : buildTable(officers);
+  const embed = officers.length === 1
+    ? await buildCard(officers[0], interaction.client)
+    : buildTable(officers, interaction.client);
   if (problems.length) {
     embed.addFields({
       name: 'Not found',
@@ -556,7 +578,7 @@ async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
       color: 0xffc93c,
       title: `Congratulations — you've been promoted to ${to.name}`,
       description:
-        `You've reached **${xp} XP** and made **${to.name}**.\n\n`
+        `You've reached **${xp} XP** and made ${xpLog.rankIcon(to.name)} **${to.name}**.\n\n`
         + `**Previous rank:** ${from.name}\n`
         + (group.ok
           ? `**Roblox group:** updated to **${group.to}**\n`
@@ -603,7 +625,7 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
       color: 0xe8842a,
       title: `Your rank has changed — you are now ${to.name}`,
       description:
-        `Your XP was adjusted to **${xp}**, which puts you at **${to.name}**.\n\n`
+        `Your XP was adjusted to **${xp}**, which puts you at ${xpLog.rankIcon(to.name)} **${to.name}**.\n\n`
         + `**Previous rank:** ${from.name}\n`
         + (reason ? `**Reason for the change:** ${String(reason).slice(0, 600)}\n` : '')
         + (group.ok

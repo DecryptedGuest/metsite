@@ -180,7 +180,12 @@ Sergeant; they don't spend it.
 | 2–14 | Constable (CON) |
 | 15–39 | Sergeant (SGT) |
 | 40–99 | Inspector (INS) |
-| 100+ | Chief Inspector (CINS) |
+| 100 | Chief Inspector (CINS) |
+
+100 is also the **ceiling** — the most anybody can hold. XP exists to promote
+people up to Chief Inspector, so there is nothing above it to earn towards, and
+an uncapped balance would put a Chief Inspector on 4,000 XP with nowhere to go.
+Anyone whose MET rank is already above Chief Inspector sits at the ceiling.
 
 Rank is derived from the balance rather than stored, so `XP_THRESHOLDS`
 re-ranks everybody immediately with no backfill.
@@ -192,8 +197,8 @@ rank:
 
 - a rank the ladder names → the floor of that rank (a serving Sergeant starts
   on 15, not 0)
-- a rank *above* the ladder (Superintendent, Commander) → the Chief Inspector
-  floor, since that is the top of what XP governs
+- a rank *above* the ladder (Superintendent, Commander) → the ceiling (100),
+  since that is the top of what XP governs
 - a rank *below* it (Awaiting Training, Recruit) or one that can't be read →
   **no XP row at all**. They show as *Unranked*, not as a CSO. Giving them any
   XP places them.
@@ -204,8 +209,11 @@ without this breaking.
 
 **The command**
 
-- `/xp` — your own card: XP, XP rank, standing, progress bar to the next rank,
-  live MET group rank, Roblox avatar and profile link, recent XP activity.
+- `/xp` — your own card: **Rank** (their real MET rank, badged with the
+  server's own insignia emoji — `:CON:`, `:SGT:`, `:CINS:` …), XP against the
+  next threshold, standing, a progress bar, Roblox avatar and profile link, and
+  recent XP activity. There is no separate "MET group rank" row: their MET rank
+  *is* their rank.
 - `/xp officers:@a` — their card. `officers:@a @b @c` — a compact table.
 - `/xp officers:@a @b action:add value:5 reason:"Event"` — change it.
 
@@ -266,8 +274,16 @@ mark for the same thing. Tabler icons are untouched.
 - Artwork: `scripts/emoji/manifest.js` (flat SVG, read at ~22px).
 - `node scripts/build-emoji.js` rasterises it to `client/public/img/emoji/*.png`
   (committed) and regenerates `client/public/js/emoji-map.js`.
-- Discord: `server/lib/emoji.js` uploads them to `EMOJI_GUILD_ID` 12s after the
-  bot connects and re-checks hourly. `e('met_tick')` in bot/webhook code.
+- Discord: `server/lib/emoji.js` uploads them to the **bot application** 12s
+  after it connects, and re-checks hourly. Application emoji belong to the bot
+  rather than to a server, so they render in DMs and anywhere else the bot
+  posts — which guild emoji do not — and there are 2000 slots instead of 50.
+  `e('met_tick')` in bot/webhook code. A guild upload (`EMOJI_GUILD_ID`,
+  `EMOJI_STORE=guild`) is the fallback if the application route is refused.
+- Ranks use the **server's own** emoji, not ours: `server/lib/rankEmoji.js`
+  maps a rank name to `:CON:` / `:SGT:` / `:CINS:` and so on by looking them up
+  in the bot's guild caches. Those are the insignia the server already
+  recognises. A rank with no matching emoji renders as plain text.
 - Site: `met.e('met_tick')` from `client/public/js/emoji.js`.
 - It degrades rather than breaks — until the upload lands (or if it can't:
   missing "Manage Expressions", no emoji slots left) everything falls back to

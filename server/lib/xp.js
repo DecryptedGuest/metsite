@@ -8,7 +8,10 @@
 //     2 – 14     Constable                  (CON)
 //    15 – 39     Sergeant                   (SGT)
 //    40 – 99     Inspector                  (INS)
-//   100 +        Chief Inspector            (CINS)
+//   100          Chief Inspector            (CINS)
+//
+// 100 is also the ceiling. XP exists to promote people up to Chief Inspector,
+// so there is nothing above it to earn towards.
 //
 // XP rank follows GROUP rank, not the other way round. An officer is only a
 // Community Support Officer here if that is what they actually are in the
@@ -58,6 +61,19 @@ function ladder() {
   return LADDER
     .map(r => (over[r.code] != null ? { ...r, at: over[r.code] } : r))
     .sort((a, b) => a.at - b.at);
+}
+
+/**
+ * The most XP anybody can hold: the top rung's threshold.
+ *
+ * XP exists to promote people up to Chief Inspector, so 100 (what it takes to
+ * make CINS) is the ceiling. There is nothing above it to earn towards, and an
+ * uncapped balance would put a Chief Inspector on 4,000 XP with nowhere to go
+ * and make the leaderboard meaningless.
+ */
+function maxXp() {
+  const l = ladder();
+  return l[l.length - 1].at;
 }
 
 /** The rank an officer holds at this XP total. Never null — 0 XP is the bottom rung. */
@@ -206,10 +222,13 @@ async function applyXp(o) {
     if (kind === 'REMOVE') target = before - value;
     if (kind === 'SET')    target = value;
 
-    // XP never goes negative. Removing 10 from an officer on 3 leaves them on
-    // zero, and the caller is told it was capped so the panel can say so
-    // rather than silently doing something other than what was asked.
-    const after  = Math.max(0, target);
+    // XP never goes negative and never exceeds the top rung. Removing 10 from
+    // an officer on 3 leaves them on zero; adding 50 to a Chief Inspector on
+    // 100 leaves them on 100. Either way the caller is told it was capped, so
+    // the panel can say so rather than silently doing something other than
+    // what was asked.
+    const ceiling = maxXp();
+    const after  = Math.min(ceiling, Math.max(0, target));
     const capped = after !== target;
     const delta  = after - before;
 
@@ -471,6 +490,7 @@ async function leaderboard(take = 10) {
 module.exports = {
   LADDER, ladder, rankFor, nextRank, progress, promotionFor, demotionFor,
   getBalance, ensure, history, standing, leaderboard,
+  maxXp,
   applyXp, recordPromotion, recordDemotion, seedFromRank, rungForGroupRank,
   applyGroupRank, promoteInGroup, demoteInGroup,
 };
