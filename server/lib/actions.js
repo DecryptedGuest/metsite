@@ -12,7 +12,10 @@
 const env = (name, fallback = null) => process.env[name] || fallback;
 
 const ACTION_CONFIG = {
-  'Verbal Warning':        { get roleId() { return env('ROLE_VERBAL_WARNING', '1469746159961509999'); }, exile: false, timed: false },
+  // RETIRED. The role this pointed at is the Written Warning role, so issuing
+  // a "Verbal Warning" gave somebody a written one. Kept so historical records
+  // still read back; `retired` keeps it off every list you can pick from.
+  'Verbal Warning':        { get roleId() { return env('ROLE_VERBAL_WARNING'); },                       exile: false, timed: false, retired: true },
   'Written Warning':       { get roleId() { return env('ROLE_WRITTEN_WARNING'); },                        exile: false, timed: false },
   'Zero Tolerance':        { get roleId() { return env('ROLE_ZT', '1452275521470726235'); },              exile: false, timed: true  },
   'Suspension':            { get roleId() { return env('ROLE_SUSPENDED'); },                              exile: false, timed: true  },

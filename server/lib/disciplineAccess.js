@@ -87,21 +87,17 @@ async function evaluate(discordId, roleIds) {
     return { ok: false, via: null, label: '', name, why: 'Your portal account is blacklisted.', isDeveloper: false, isMetHicomm: false };
   }
 
-  if (user && IA_SITE_ROLES.has(user.role)) {
-    const dev = user.role === 'DEVELOPER';
-    return {
-      ok: true, via: 'ia-site-role',
-      label: dev ? 'Developer' : (user.iaRankName || 'Internal Affairs'),
-      name, why: null,
-      // A developer is above every gate in the app, so they are marked as both
-      // — otherwise a narrower caller like /xp would refuse them.
-      isDeveloper: dev, isMetHicomm: dev,
-    };
-  }
-
   // 3. Live MET group rank. userIsMetHicomm already handles the site-only rank
   //    override and the DC threshold discovery, so reuse it rather than
   //    re-deriving the threshold here.
+  //
+  //    This runs BEFORE the Internal Affairs verdict is returned, not after.
+  //    Plenty of people are both, and short-circuiting on the IA role would
+  //    report a Deputy Commissioner who happens to be an investigator as
+  //    "Internal Affairs" with isMetHicomm false — which is what decides
+  //    whether a disciplinary notice is signed personally or as IA High
+  //    Command. Being right about that is worth the lookup, and the whole
+  //    verdict is cached for five minutes anyway.
   const { userIsMetHicomm, metRole } = require('./metRank');
   let robloxId = user ? user.robloxId : null;
   if (!robloxId) {
@@ -112,6 +108,8 @@ async function evaluate(discordId, roleIds) {
     } catch (e) { robloxId = null; }
   }
 
+  let metHicomm = false;
+  let metLabel = 'MET High Command';
   if (robloxId) {
     const shell = {
       role: user ? user.role : 'NONE',
@@ -119,13 +117,30 @@ async function evaluate(discordId, roleIds) {
       metRoleIds: user ? user.metRoleIds : roleIds,
       metRankOverride: user ? user.metRankOverride : null,
     };
-    let ok = false;
-    try { ok = await userIsMetHicomm(shell); } catch (e) { ok = false; }
-    if (ok) {
-      let label = 'MET High Command';
-      try { const r = await metRole(robloxId); if (r && r.name) label = r.name; } catch (e) { /* keep the generic label */ }
-      return { ok: true, via: 'met-rank', label, name, why: null, isDeveloper: false, isMetHicomm: true };
+    try { metHicomm = await userIsMetHicomm(shell); } catch (e) { metHicomm = false; }
+    if (metHicomm) {
+      try { const r = await metRole(robloxId); if (r && r.name) metLabel = r.name; } catch (e) { /* keep the generic label */ }
     }
+  }
+
+  const dev = !!(user && user.role === 'DEVELOPER');
+
+  if (user && IA_SITE_ROLES.has(user.role)) {
+    return {
+      ok: true,
+      // Their MET standing outranks their IA one when both apply — it is the
+      // more senior of the two and the one that changes how they sign.
+      via: metHicomm && !dev ? 'met-rank' : 'ia-site-role',
+      label: dev ? 'Developer' : (metHicomm ? metLabel : (user.iaRankName || 'Internal Affairs')),
+      name, why: null,
+      // A developer is above every gate in the app, so they are marked as both
+      // — otherwise a narrower caller like /xp would refuse them.
+      isDeveloper: dev, isMetHicomm: dev || metHicomm,
+    };
+  }
+
+  if (metHicomm) {
+    return { ok: true, via: 'met-rank', label: metLabel, name, why: null, isDeveloper: false, isMetHicomm: true };
   }
 
   return {

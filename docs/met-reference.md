@@ -265,6 +265,30 @@ never pings the channel; a promotion does ping the officer.
 Every balance has its full audit trail in `xp_events` — one row per change and
 one per promotion, each naming who did it.
 
+## Telling the officer ✅
+
+`server/lib/officerNotice.js` — one format, three callers. A case approval, a
+direct action and a granted appeal are the same event from where the officer is
+standing (their record changed), and all three used to be told differently or
+not at all: a case approval notified the *submitter* and left the officer to
+find out when a role appeared on their account.
+
+- **Punished** (`notifyPunished`) — the action list in the case-log wording,
+  the reason, the notes, the infraction id, any expiry, and whether it was a
+  reviewed case or a direct action. Never claims an investigation happened when
+  one didn't.
+- **Appealed** (`notifyAppealed`) — what was lifted, who granted it, their rank
+  and why, plus anything that still has to be undone by hand.
+
+Both link to the officer's own record. `MEMBER_ACTION_DM=off` silences them.
+
+Retired actions (`retired: true` in `ACTION_CONFIG`, excluded from
+`ACTION_NAMES` but kept in `ALL_ACTION_NAMES`):
+
+- **Disciplinary Strike 3** — two strikes, then Termination.
+- **Verbal Warning** — the role it pointed at is the Written Warning role, so
+  issuing one gave somebody a written warning.
+
 ## MET emoji ✅
 
 Everywhere the bot, its embeds, the webhooks and the site used a stock unicode

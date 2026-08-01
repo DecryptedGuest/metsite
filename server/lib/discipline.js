@@ -420,13 +420,35 @@ async function applyDiscipline(o) {
     });
   }
 
-  // 4. The administrative log — the same embed the case system posts, so the
+  // 4. The portal record, BEFORE the log. The log's footer carries the
+  //    infraction id, and that id is the case number — so the case has to
+  //    exist first. Its logMessageId is filled in straight after, which is
+  //    what lets an appeal edit the original notice in place.
+  let filed = null;
+  await step('record_site', async () => {
+    filed = await fileCase(o);
+    result.caseId = filed.id;
+    result.caseRef = filed.caseRef;
+    // Stamp the punishment with the case it was filed as. The same action now
+    // exists as a MetPunishment (what the bot reads) and a CasePunishment (what
+    // the portal reads), and without this link the record shows it twice.
+    if (result.punishmentId) {
+      await prisma.metPunishment.update({
+        where: { id: result.punishmentId },
+        data:  { caseRef: filed.caseRef },
+      }).catch(() => {});
+    }
+    return filed.caseRef;
+  });
+
+  // 5. The administrative log — the same embed the case system posts, so the
   //    channel reads as one consistent history rather than two formats.
   await step('log', async () => {
     const { sendApprovalWebhook } = require('./webhook');
     const id = await sendApprovalWebhook({
       direct: true,
-      caseRef: o.caseLink || null,
+      signedBy: o.signedBy || null,
+      caseRef: result.caseRef,
       action:  o.action,
       actions: [{ action: o.action, roleId: cfg.roleId || null, durationDays: o.durationDays || null }],
       reason:  o.reason,
@@ -439,45 +461,29 @@ async function applyDiscipline(o) {
     });
     if (!id) throw new Error('no DISCORD_WEBHOOK_URL configured, or Discord rejected it');
     result.logMessageId = id;
+    if (filed) {
+      await prisma.case.update({ where: { id: filed.id }, data: { logMessageId: id } }).catch(() => {});
+    }
     return 'posted';
   });
 
-  // 5. The portal record. Filed after the log so it can carry the log message
-  //    id, which is what lets an appeal edit the original notice in place.
-  await step('record_site', async () => {
-    const row = await fileCase({ ...o, logMessageId: result.logMessageId });
-    result.caseId = row.id;
-    result.caseRef = row.caseRef;
-    // Stamp the punishment with the case it was filed as. The same action now
-    // exists as a MetPunishment (what the bot reads) and a CasePunishment (what
-    // the portal reads), and without this link the record shows it twice.
-    if (result.punishmentId) {
-      await prisma.metPunishment.update({
-        where: { id: result.punishmentId },
-        data:  { caseRef: row.caseRef },
-      }).catch(() => {});
-    }
-    return `case ${row.caseRef}`;
-  });
-
   // 6. Tell the officer. Best-effort by nature — plenty of people have DMs
-  //    closed, and that is not a failure of the punishment.
+  //    closed, and that is not a failure of the punishment. Same notice an
+  //    approved case sends, so being disciplined reads the same either way.
   await step('notify', async () => {
-    if (process.env.MEMBER_ACTION_DM === 'off') return 'skipped (DMs turned off)';
-    const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
-    const sent = await require('./bot').dmMemberNotice(o.targetDiscordId, {
-      color: 0xf04f5e,
-      title: 'You have received a disciplinary action',
-      description:
-        `**Action:** ${o.action}\n`
-        + `**Reason:** ${String(o.reason || 'N/A').slice(0, 900)}\n`
-        + (o.notes ? `**Notes:** ${String(o.notes).slice(0, 500)}\n` : '')
-        + (o.caseLink ? `**Case:** ${o.caseLink}\n` : '')
-        + (expiresAt ? `**Expires:** <t:${Math.floor(expiresAt.getTime() / 1000)}:D>\n` : '')
-        + `\nYour full record is on the portal. If you believe this is a mistake, open an appeal there and an investigator will review it.`,
-      appealUrl: `${base}/profile`,
-      appealLabel: 'View my record',
+    const sent = await require('./officerNotice').notifyPunished({
+      discordId: o.targetDiscordId,
+      caseRef:   result.caseRef,
+      caseId:    result.caseId,
+      actions:   [{ action: o.action, durationDays: o.durationDays || null }],
+      reason:    o.reason,
+      notes:     o.notes || null,
+      caseLink:  o.caseLink || null,
+      expiresAt,
+      direct:    true,
+      issuedBy:  o.issuerName || null,
     });
+    if (sent === 'off') return 'skipped (DMs turned off)';
     if (!sent) throw new Error('their DMs are closed');
     return 'sent';
   });

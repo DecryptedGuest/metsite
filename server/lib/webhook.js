@@ -23,11 +23,31 @@ function buildActionList({ actions, action }) {
  * Build the Administrative Log embed object for a case.
  * Used both to send the webhook and to render a preview before sending.
  */
-// Fixed signature shown on every administrative-log notice.
+// The default signature: Internal Affairs High Command, over the IA badge.
+// That is right for a case, which IA investigated and IA concluded.
+//
+// It is NOT right for a direct action taken by MET High Command, who are not
+// Internal Affairs and shouldn't be signing as them. Those are signed
+// personally — see signatureFor().
 const SIGN_AUTHOR_NAME = 'Signed, Internal Affairs High Command';
 const SIGN_AUTHOR_ICON = 'https://metia.uk/media/880b6a85-064d-4c5a-a36f-c3d1fc8e7569';
 
-function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp, appealed, direct }) {
+/**
+ * Who a notice is signed by.
+ * @param {{name?: string, iconUrl?: string}} [signedBy] a personal signature
+ * @returns {{ name: string, icon_url: string }}
+ */
+function signatureFor(signedBy) {
+  if (signedBy && signedBy.name) {
+    return {
+      name: `Signed, ${String(signedBy.name).slice(0, 200)}.`,
+      icon_url: signedBy.iconUrl || SIGN_AUTHOR_ICON,
+    };
+  }
+  return { name: SIGN_AUTHOR_NAME, icon_url: SIGN_AUTHOR_ICON };
+}
+
+function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp, appealed, direct, signedBy }) {
   // Prefer a Discord mention; otherwise fall back to the Roblox username (with a
   // profile link if we have the id) so a known officer is never "Unknown".
   let staffMemberValue;
@@ -43,18 +63,19 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
   const embed = {
     color:       0x2f3136,
     title:       'Staff Consequences & Discipline',
-    author:      { name: SIGN_AUTHOR_NAME, icon_url: SIGN_AUTHOR_ICON },
+    author:      signatureFor(signedBy),
     fields: [
-      { name: '• Staff Member:',  value: cap(staffMemberValue),                     inline: false },
+      { name: '• Officer:',       value: cap(staffMemberValue),                     inline: false },
       { name: '• Punishment(s):', value: cap(buildActionList({ actions, action })), inline: false },
       { name: '• Reason:',        value: cap(reason || 'N/A'),                      inline: false },
       { name: '• Notes:',         value: cap(notes || 'N/A'),                       inline: false },
     ],
-    // A direct action is not the conclusion of an investigation, and the log
-    // should never read as though it were. The footer says which it is.
-    footer:    { text: direct
-      ? `Direct action via /discipline | ${caseRef || 'no case'}`
-      : `Infraction ID | ${caseRef || 'pending'}` },
+    // Every notice carries its infraction id, direct action or not — that is
+    // the number people quote at each other, and a log without one is a log
+    // nobody can refer back to. A direct action says so as well, because it is
+    // not the conclusion of an investigation and should never read as one.
+    footer:    { text: (direct ? 'Direct action via /discipline · ' : '')
+      + `Infraction ID | ${caseRef || 'pending'}` },
     timestamp: new Date(timestamp || Date.now()).toISOString(),
   };
   if (suspectAvatar) embed.thumbnail = { url: suspectAvatar };        // suspect's Roblox headshot
@@ -370,4 +391,5 @@ async function editTryoutLog(log, { event = 'submitted' } = {}) {
   return sendTryoutLog(log, { event });
 }
 
-module.exports = { sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog };
+module.exports = {
+  signatureFor, sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog };

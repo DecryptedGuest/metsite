@@ -953,6 +953,25 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
         },
       }).catch(() => {});
     }
+    // Tell the OFFICER their record changed. Until now the only people told
+    // when a case was approved were the submitter and the log channel; the
+    // person actually punished found out when a role appeared on their
+    // account. Same notice /discipline sends, so it reads the same either way.
+    if (existing.officerDiscordId) {
+      const timed = actions.find(a => ACTION_CONFIG[a.action]?.timed && a.durationDays);
+      require('../lib/officerNotice').notifyPunished({
+        discordId: existing.officerDiscordId,
+        caseRef:   existing.caseRef,
+        caseId:    existing.id,
+        actions,
+        action:    existing.action,
+        reason:    existing.reason,
+        notes:     existing.notes,
+        caseLink:  existing.caseLink || null,
+        expiresAt: timed ? new Date(Date.now() + timed.durationDays * 86400000) : null,
+        direct:    false,
+      }).catch(() => {});
+    }
     } // end if (!alreadyActioned) — side effects only run on the first approval
 
     // +4 quota points for the IA member who submitted the case — queued durably
@@ -1456,6 +1475,22 @@ router.post('/:id/appeal', async (req, res) => {
           appealed: { by: appealedByName, rank: iaRankLabel(req.user), reason, at: now },
         });
       } catch (e) { console.warn('[cases] appeal log edit failed:', e.message); }
+    }
+
+    // Tell the OFFICER their punishment has been lifted. They are the person
+    // the appeal was actually about, and they were the one person nobody told.
+    if (existing.officerDiscordId) {
+      require('../lib/officerNotice').notifyAppealed({
+        discordId: existing.officerDiscordId,
+        caseRef:   existing.caseRef,
+        caseId:    existing.id,
+        actions,
+        action:    existing.action,
+        by:        appealedByName,
+        rank:      iaRankLabel(req.user),
+        reason,
+        manual,
+      }).catch(() => {});
     }
 
     // Let the original submitter know their case was overturned.

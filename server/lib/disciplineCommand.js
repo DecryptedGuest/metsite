@@ -219,13 +219,17 @@ async function handleDisciplineCommand(interaction) {
   const targetRoleIds = member ? [...member.roles.cache.keys()] : [];
 
   const roblox = require('./roblox');
-  const [strike, record, robloxId] = await Promise.all([
+  // Not just RoVer — their portal account, their MET nickname and the bot's own
+  // profile record are all checked, because "no Roblox account linked" on a
+  // disciplinary record means no exile, no demotion and a log naming nobody.
+  const [strike, record, link] = await Promise.all([
     D.currentStrikeLevel({ discordId: target.id, roleIds: targetRoleIds }),
     D.loadRecord(target.id),
-    roblox.getRobloxIdFromDiscord(target.id).catch(() => null),
+    require('./robloxLink').resolveRoblox(target.id).catch(() => ({ robloxId: null, username: null })),
   ]);
-  const [info, avatar, metRole] = await Promise.all([
-    robloxId ? roblox.getRobloxUserInfo(robloxId).catch(() => null) : null,
+  const robloxId = link.robloxId;
+  const info = link.username ? { id: robloxId, username: link.username, displayName: link.displayName } : null;
+  const [avatar, metRole] = await Promise.all([
     robloxId ? roblox.getRobloxAvatarHeadshot(robloxId).catch(() => null) : null,
     robloxId ? require('./metRank').metRole(robloxId).catch(() => null) : null,
   ]);
@@ -240,6 +244,22 @@ async function handleDisciplineCommand(interaction) {
   const rankIcon = metRole
     ? require('./rankEmoji').forRank(interaction.client, metRole.name, e('met_rank'))
     : '';
+
+  // Who signs the notice. Internal Affairs High Command over the IA badge is
+  // right for a case IA investigated — it is not right for a direct action by
+  // MET High Command, who are not Internal Affairs and shouldn't sign as them.
+  // Deputy Commissioner and above (and the developer) sign personally, with
+  // their server nickname and their own avatar.
+  const signPersonally = !!(access.isMetHicomm || access.isDeveloper);
+  const issuerMember = interaction.member && interaction.member.displayName
+    ? interaction.member
+    : (interaction.guild ? await interaction.guild.members.fetch(issuer.id).catch(() => null) : null);
+  const signedBy = signPersonally
+    ? {
+        name: (issuerMember && issuerMember.displayName) || access.name || issuer.username,
+        iconUrl: typeof issuer.displayAvatarURL === 'function' ? issuer.displayAvatarURL({ extension: 'png', size: 128 }) : null,
+      }
+    : null;
 
   const embed = new EmbedBuilder()
     .setColor(COLOR.review)
@@ -258,7 +278,8 @@ async function handleDisciplineCommand(interaction) {
       { name: 'Their record', value: short(recordSummary(record, strike), 1000), inline: false },
       { name: 'This will', value: effects.map(f => `${e('met_dot_on')} ${f.text}`).join('\n'), inline: false },
     )
-    .setFooter({ text: `Issued by ${access.name || issuer.username}${access.label ? ` · ${access.label}` : ''}` });
+    .setFooter({ text: `Issued by ${access.name || issuer.username}${access.label ? ` · ${access.label}` : ''}`
+      + (signedBy ? ` · signed personally` : ` · signed as IA High Command`) });
   if (avatar) embed.setThumbnail(avatar);
 
   // The escalation offer. Their choice always goes through — this is the panel
@@ -287,7 +308,7 @@ async function handleDisciplineCommand(interaction) {
   if (caveats.length) embed.addFields({ name: 'Worth knowing', value: short(caveats.join('\n'), 1000), inline: false });
 
   const baseJob = {
-    reason, notes, caseLink,
+    reason, notes, caseLink, signedBy,
     targetDiscordId: target.id,
     targetRobloxId: robloxId || null,
     targetName: info ? info.username : null,
