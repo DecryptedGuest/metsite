@@ -16,7 +16,7 @@
 // and inserts a real mention, so it behaves like one — and it also accepts raw
 // ids, Discord usernames and Roblox usernames, which a user option can't.
 
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 
 const { e } = require('./emoji');
 const XP = require('./xp');
@@ -215,7 +215,8 @@ async function buildCard(o) {
       name: 'Recent',
       value: short(hist.map(h => {
         const when = `<t:${Math.floor(new Date(h.createdAt).getTime() / 1000)}:R>`;
-        if (h.kind === 'PROMOTION') return `${e('met_promote')} **${h.toRank}** — ${when}`;
+        if (h.kind === 'PROMOTION') return `${e('met_promote')} Promoted to **${h.toRank}** — ${when}`;
+        if (h.kind === 'DEMOTION')  return `${e('met_warn')} Demoted to **${h.toRank}** — ${when}`;
         const sign = h.delta > 0 ? `+${h.delta}` : String(h.delta);
         const icon = h.kind === 'SET' ? e('met_edit') : h.delta > 0 ? e('met_xp') : e('met_cross');
         return `${icon} **${sign}** → ${h.after} XP${h.reason ? ` · ${short(h.reason, 50)}` : ''} — ${when}`;
@@ -244,18 +245,51 @@ function buildTable(officers) {
 }
 
 // ── Who may change XP ─────────────────────────────────────────────
-// The same standing /discipline needs — Internal Affairs, or Deputy
-// Commissioner and above — plus an XP-specific role list, so XP can be handed
-// to trainers or event hosts without giving them disciplinary powers.
-async function canManageXp(discordId, roleIds) {
+// Three routes, checked cheapest first. Anyone at all may VIEW XP — this gate
+// only covers add / remove / set.
+//
+//   1. the FLP officer role                    (a role id — free)
+//   2. Administrator in the server             (a permission bit — free)
+//   3. Deputy Commissioner and above           (MET group rank — a lookup)
+//
+// XP_MANAGER_ROLE_IDS adds more roles to route 1 without a deploy.
+const FLP_OFFICER_ROLE_ID = () => process.env.FLP_OFFICER_ROLE_ID || '1431554710594388018';
+
+function xpRoleIds() {
   const extra = String(process.env.XP_MANAGER_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (extra.length && Array.isArray(roleIds) && extra.some(r => roleIds.includes(r))) {
-    return { ok: true, label: 'XP Manager', name: null, why: null };
+  return [FLP_OFFICER_ROLE_ID(), ...extra].filter(Boolean);
+}
+
+/**
+ * @param {object} o
+ * @param {string}   o.discordId
+ * @param {string[]} o.roleIds  the invoker's roles in this guild
+ * @param {boolean}  o.isAdmin  do they have Administrator here
+ */
+async function canManageXp({ discordId, roleIds, isAdmin }) {
+  const held = Array.isArray(roleIds) ? roleIds.map(String) : [];
+
+  for (const rid of xpRoleIds()) {
+    if (held.includes(String(rid))) {
+      return { ok: true, via: 'role', label: rid === FLP_OFFICER_ROLE_ID() ? 'FLP Officer' : 'XP Manager', name: null, why: null };
+    }
   }
-  const v = await canDiscipline(discordId, roleIds);
+
+  if (isAdmin) return { ok: true, via: 'admin', label: 'Server Administrator', name: null, why: null };
+
+  // Deputy Commissioner and above. canDiscipline also lets Internal Affairs
+  // through, so only the MET High Command half of its verdict counts here — an
+  // investigator has no business moving XP unless they are also DC+, an
+  // administrator, or hold one of the roles above.
+  const v = await canDiscipline(discordId, held);
+  if (v.ok && v.isMetHicomm) {
+    return { ok: true, via: v.via, label: v.label, name: v.name, why: null };
+  }
+
   return {
-    ok: v.ok, label: v.label, name: v.name,
-    why: v.ok ? null : 'Changing XP is for Internal Affairs, Deputy Commissioner and above, or anyone with an XP manager role.',
+    ok: false, via: null, label: '', name: v.name,
+    why: 'Changing XP is for FLP officers, Deputy Commissioner and above, and server administrators. '
+       + 'Anyone can run `/xp` to look at their own.',
   };
 }
 
@@ -274,6 +308,12 @@ async function handleXpCommand(interaction) {
   const issuerRoles = interaction.member && interaction.member.roles && interaction.member.roles.cache
     ? [...interaction.member.roles.cache.keys()]
     : [];
+  // memberPermissions is the resolved set for the guild the command was run in.
+  // It's a bitfield on a real interaction; guard so a partial member object
+  // can't throw here.
+  const isAdmin = !!(interaction.memberPermissions
+    && typeof interaction.memberPermissions.has === 'function'
+    && interaction.memberPermissions.has(PermissionFlagsBits.Administrator));
 
   let frame = 0;
   let lastEdit = 0;
@@ -329,7 +369,7 @@ async function handleXpCommand(interaction) {
 
   // ── Permission, only when actually changing something ──
   if (changing) {
-    const access = await canManageXp(interaction.user.id, issuerRoles);
+    const access = await canManageXp({ discordId: interaction.user.id, roleIds: issuerRoles, isAdmin });
     if (!access.ok) {
       return interaction.editReply({
         embeds: [new EmbedBuilder().setColor(COLOR.fail)
@@ -403,10 +443,17 @@ async function runChange({ interaction, targets, problems, action, value, reason
         issuedById: interaction.user.id, issuedBy: issuerName,
       }).catch(() => null);
 
+      // A change crosses a threshold in exactly one direction, never both.
       let promoted = null;
+      let demoted  = null;
       if (res.promotion) {
         promoted = await promote({
           officer: o, promotion: res.promotion, xp: res.after,
+          issuedById: interaction.user.id, issuedBy: issuerName,
+        });
+      } else if (res.demotion) {
+        demoted = await demote({
+          officer: o, demotion: res.demotion, xp: res.after, reason,
           issuedById: interaction.user.id, issuedBy: issuerName,
         });
       }
@@ -415,8 +462,9 @@ async function runChange({ interaction, targets, problems, action, value, reason
       s.state = 'done';
       s.note = `**${res.before} → ${res.after}** XP`
         + (res.capped ? ' *(stopped at 0)*' : '')
-        + (promoted ? ` · ${e('met_promote')} **${promoted.to.name}**` : '');
-      results.push({ id: t.discordId, ok: true, res, promoted, officer: o });
+        + (promoted ? ` · ${e('met_promote')} **${promoted.to.name}**` : '')
+        + (demoted  ? ` · ${e('met_warn')} **${demoted.to.name}**` : '');
+      results.push({ id: t.discordId, ok: true, res, promoted, demoted, officer: o });
     } catch (err) {
       const s = states.get(t.discordId);
       s.state = 'failed';
@@ -429,6 +477,7 @@ async function runChange({ interaction, targets, problems, action, value, reason
   // ── Settle ──
   const failed = results.filter(r => !r.ok);
   const promotions = results.filter(r => r.promoted);
+  const demotions  = results.filter(r => r.demoted);
 
   const embed = new EmbedBuilder()
     .setColor(failed.length ? COLOR.partial : COLOR.done)
@@ -447,6 +496,17 @@ async function runChange({ interaction, targets, problems, action, value, reason
         `<@${r.id}> → **${r.promoted.to.name}**`
         + (r.promoted.group.ok ? '' : ` ${e('met_warn')} *(group rank not changed: ${short(r.promoted.group.reason, 60)})*`)
         + (r.promoted.dmSent ? '' : ` ${e('met_warn')} *(couldn't DM them)*`),
+      ).join('\n'), 1000),
+      inline: false,
+    });
+  }
+  if (demotions.length) {
+    embed.addFields({
+      name: `${e('met_warn')} Demoted`,
+      value: short(demotions.map(r =>
+        `<@${r.id}> → **${r.demoted.to.name}**`
+        + (r.demoted.group.ok ? '' : ` ${e('met_warn')} *(group rank not changed: ${short(r.demoted.group.reason, 60)})*`)
+        + (r.demoted.dmSent ? '' : ` ${e('met_warn')} *(couldn't DM them)*`),
       ).join('\n'), 1000),
       inline: false,
     });
@@ -504,6 +564,54 @@ async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
     from, to, xp,
     progress: XP.progress(xp),
     groupResult: group, dmSent,
+    avatar: officer.avatar,
+  }).catch(() => null);
+
+  return { from, to, group, dmSent };
+}
+
+/**
+ * Everything a demotion involves — the mirror of promote().
+ *
+ * The DM is written to be plain rather than punitive. Somebody chose to take
+ * the XP off and gave a reason; the officer is entitled to know what happened
+ * and what it would take to get back, not to be told off by a bot.
+ */
+async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
+  const { from, to } = demotion;
+
+  const group = await XP.demoteInGroup(officer.robloxId, to);
+  const p = XP.progress(xp);
+
+  let dmSent = false;
+  try {
+    dmSent = await require('./bot').dmMemberNotice(officer.discordId, {
+      color: 0xe8842a,
+      title: `Your rank has changed — you are now ${to.name}`,
+      description:
+        `Your XP was adjusted to **${xp}**, which puts you at **${to.name}**.\n\n`
+        + `**Previous rank:** ${from.name}\n`
+        + (reason ? `**Reason for the change:** ${String(reason).slice(0, 600)}\n` : '')
+        + (group.ok
+          ? `**Roblox group:** set to **${group.to}**\n`
+          : `**Roblox group:** unchanged (${group.reason})\n`)
+        + (p.next ? `\nYou need **${p.need}** more XP to reach **${p.next.name}** again.` : '')
+        + `\n\nIf you think this is wrong, speak to High Command — every XP change is logged with who made it.`,
+      appealUrl: `${(process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '')}/profile`,
+      appealLabel: 'View my record',
+    });
+  } catch (err) { dmSent = false; }
+
+  await XP.recordDemotion({
+    discordId: officer.discordId, from, to,
+    groupResult: group, issuedById, issuedBy,
+  }).catch(() => {});
+
+  await xpLog.logDemotion({
+    discordId: officer.discordId,
+    memberName: officer.displayName,
+    from, to, xp, progress: p,
+    groupResult: group, dmSent, reason, issuedById,
     avatar: officer.avatar,
   }).catch(() => null);
 

@@ -4,8 +4,9 @@
 // Two kinds of post:
 //   CHANGE     somebody added, removed or set XP — who, how much, from what to
 //              what, and why
-//   PROMOTION  a change crossed a threshold — the officer, the rank they made,
-//              and whether the Roblox group actually moved
+//   PROMOTION  a change crossed a threshold upwards — the officer, the rank
+//              they made, and whether the Roblox group actually moved
+//   DEMOTION   the same, downwards — XP came off and took the rank with it
 //
 // A change that also promotes produces both, in that order, so the channel
 // reads as a story rather than one dense line.
@@ -24,6 +25,7 @@ const COLOR = {
   remove:    0xf04f5e,
   set:       0x4a8fff,
   promotion: 0xffc93c,
+  demotion:  0xe8842a,
 };
 
 function short(s, n) {
@@ -122,4 +124,49 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
   });
 }
 
-module.exports = { logChange, logPromotion, progressBar, CHANNEL_ID };
+/**
+ * Post one demotion.
+ *
+ * Deliberately not dressed up as bad news — it is a rank correction following
+ * an XP change that somebody made on purpose, and the log's job is to say what
+ * happened and who did it. The reason from the /xp command is carried through
+ * so the channel shows WHY the XP came off, which is the actual question
+ * anybody reading this will have.
+ */
+async function logDemotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, reason, issuedById, avatar }) {
+  const fields = [
+    { name: 'Rank',  value: `${from.name} → **${to.name}**`, inline: true },
+    { name: 'XP',    value: `**${xp}**`, inline: true },
+    { name: 'By',    value: issuedById ? `<@${issuedById}>` : 'System', inline: true },
+    { name: 'Roblox group', value: groupResult && groupResult.ok
+        ? `${e('met_tick')} Set to **${groupResult.to}**`
+        : `${e('met_warn')} Not changed — ${short((groupResult && groupResult.reason) || 'unknown', 150)}`,
+      inline: false },
+    { name: 'Reason', value: short(reason || '*No reason given*', 1000), inline: false },
+  ];
+  if (progress) fields.push({ name: 'Progress', value: progressBar(progress), inline: false });
+  fields.push({
+    name: 'Officer notified',
+    value: dmSent ? `${e('met_tick')} DM sent` : `${e('met_warn')} Couldn't DM them — their DMs are closed`,
+    inline: false,
+  });
+
+  const embed = {
+    color: COLOR.demotion,
+    title: `${e('met_warn')} Demotion — ${to.name}`,
+    description: `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has dropped to **${xp} XP** and is now **${to.name}**.`,
+    fields,
+    footer: { text: 'MET XP · automatic demotion' },
+    timestamp: new Date().toISOString(),
+  };
+  if (avatar) embed.thumbnail = { url: avatar };
+
+  // No ping. A promotion is worth someone's attention; being demoted in a
+  // public channel does not need a notification on top of the DM they get.
+  return require('./bot').postChannelMessage(CHANNEL_ID(), {
+    embeds: [embed],
+    allowedMentions: { parse: [] },
+  });
+}
+
+module.exports = { logChange, logPromotion, logDemotion, progressBar, CHANNEL_ID };

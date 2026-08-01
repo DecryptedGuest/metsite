@@ -12,10 +12,14 @@
 //
 // Rank is DERIVED from the balance rather than stored, so changing a threshold
 // re-ranks everybody with no backfill. The one thing that is stored is
-// `promotedRank` — the rank this system last promoted somebody TO — because
-// that is what stops the same promotion firing twice, and what stops an officer
-// who was already a Sergeant before any of this existed being "promoted" to
+// `promotedRank` — the rank this system last moved somebody TO — because that
+// is what stops the same promotion firing twice, and what stops an officer who
+// was already a Sergeant before any of this existed being "promoted" to
 // Sergeant the first time they earn a point.
+//
+// It moves both ways. Gaining XP across a threshold promotes; losing XP back
+// across one demotes, in the group and on the record. The one thing a demotion
+// will not touch is somebody ranked ABOVE the ladder — see applyGroupRank.
 //
 // Everything here is free of discord.js so it can be tested without a gateway.
 // The panel is xpCommand.js.
@@ -88,6 +92,20 @@ function promotionFor(before, after, lastPromoted) {
   const from = rankFor(before);
   if (to.at <= from.at) return null;                       // no upward crossing
   if (lastPromoted && lastPromoted === to.code) return null; // already announced
+  return { from, to };
+}
+
+/**
+ * Did the same move cross a threshold DOWNWARDS?
+ *
+ * Losing XP demotes. There is no equivalent of `lastPromoted` guarding this,
+ * because a downward crossing can only happen once per band — you have to climb
+ * back up before you can fall through the same threshold again.
+ */
+function demotionFor(before, after) {
+  const to = rankFor(after);
+  const from = rankFor(before);
+  if (to.at >= from.at) return null;
   return { from, to };
 }
 
@@ -190,6 +208,7 @@ async function applyXp(o) {
     const delta  = after - before;
 
     const promotion = promotionFor(before, after, existing ? existing.promotedRank : null);
+    const demotion  = demotionFor(before, after);
 
     // The row is guaranteed to exist (we just locked it), so this is a plain
     // update rather than an upsert.
@@ -212,7 +231,7 @@ async function applyXp(o) {
       },
     });
 
-    return { before, after, delta, capped, row, event, rank: rankFor(after), promotion };
+    return { before, after, delta, capped, row, event, rank: rankFor(after), promotion, demotion };
   });
 }
 
@@ -232,6 +251,35 @@ async function recordPromotion({ discordId, from, to, groupResult, issuedById, i
   const event = await prisma.xpEvent.create({
     data: {
       discordId: id, kind: 'PROMOTION', delta: 0,
+      before: row.xp, after: row.xp,
+      fromRank: from.name, toRank: to.name,
+      reason: groupResult && groupResult.ok === false
+        ? `Group rank not changed: ${groupResult.reason}`
+        : null,
+      issuedById: issuedById ? String(issuedById) : null,
+      issuedBy: issuedBy || null,
+    },
+  });
+  return { row, event };
+}
+
+/**
+ * Record that a demotion happened.
+ *
+ * `promotedRank` is moved DOWN to the rank they've fallen to, not cleared —
+ * clearing it would let the next award announce a promotion to a rank they
+ * already hold. Set to the new rung, climbing back through the threshold
+ * announces properly.
+ */
+async function recordDemotion({ discordId, from, to, groupResult, issuedById, issuedBy }) {
+  const id = String(discordId);
+  const row = await prisma.metXp.update({
+    where: { discordId: id },
+    data:  { promotedRank: to.code, promotedAt: new Date() },
+  });
+  const event = await prisma.xpEvent.create({
+    data: {
+      discordId: id, kind: 'DEMOTION', delta: 0,
       before: row.xp, after: row.xp,
       fromRank: from.name, toRank: to.name,
       reason: groupResult && groupResult.ok === false
@@ -282,12 +330,26 @@ async function seedFromRank(discordId, groupRankName) {
 }
 
 /**
- * Move somebody up in the MET Roblox group to match their new XP rank.
+ * Move somebody in the MET Roblox group to match their new XP rank.
+ *
+ * `direction` is 'up' for a promotion and 'down' for a demotion, and it is a
+ * hard constraint rather than a hint: a promotion must never lower somebody and
+ * a demotion must never raise them, whatever the group happens to say.
+ *
+ * A demotion has one extra guard, and it matters. If their current group rank
+ * is NOT on the XP ladder — a Superintendent, a Commander, anyone above Chief
+ * Inspector — they are left alone. XP tops out at Chief Inspector, so without
+ * that check a Superintendent who lost a couple of XP would be dropped to
+ * Constable by a system that has no business ranking them at all.
+ *
  * Returns { ok, from, to } or { ok:false, reason } — never throws.
  */
-async function promoteInGroup(robloxId, rank) {
+async function applyGroupRank(robloxId, rank, direction = 'up') {
+  const down = direction === 'down';
   if (!robloxId) return { ok: false, reason: 'no linked Roblox account' };
-  if (process.env.XP_GROUP_PROMOTE === 'off') return { ok: false, reason: 'group promotion is turned off' };
+  if (process.env.XP_GROUP_PROMOTE === 'off') {
+    return { ok: false, reason: `group ${down ? 'demotion' : 'promotion'} is turned off` };
+  }
   try {
     const roblox = require('./roblox');
     const [membership, roles] = await Promise.all([
@@ -298,21 +360,34 @@ async function promoteInGroup(robloxId, rank) {
 
     const current = membership.role || {};
     // Among rolesets whose name matches the rank, take the LOWEST — "Inspector"
-    // matching both "Inspector" and "Chief Inspector" must not promote somebody
-    // two rungs.
+    // matches both "Inspector" and "Chief Inspector", and moving somebody two
+    // rungs would be wrong in either direction.
     const candidates = (roles || []).filter(r => r.rank > 0 && rank.match.test(String(r.name || '')));
     if (!candidates.length) return { ok: false, reason: `no "${rank.name}" role in the group` };
     const target = candidates.reduce((a, b) => (b.rank < a.rank ? b : a));
 
-    if (current.rank != null && Number(target.rank) <= Number(current.rank)) {
+    if (down) {
+      // Are they even on the ladder XP governs?
+      const onLadder = ladder().some(r => r.match.test(String(current.name || '')));
+      if (!onLadder) {
+        return { ok: false, reason: `${current.name || 'their rank'} is above the XP ranks — left alone` };
+      }
+      if (current.rank != null && Number(target.rank) >= Number(current.rank)) {
+        return { ok: false, reason: `already ${current.name}, which is at or below ${target.name}` };
+      }
+    } else if (current.rank != null && Number(target.rank) <= Number(current.rank)) {
       return { ok: false, reason: `already ${current.name}, which is at or above ${target.name}` };
     }
+
     await roblox.changeGroupRank(String(robloxId), target.id);
     return { ok: true, from: current.name || 'unknown', to: target.name };
   } catch (err) {
     return { ok: false, reason: err.message };
   }
 }
+
+const promoteInGroup = (robloxId, rank) => applyGroupRank(robloxId, rank, 'up');
+const demoteInGroup  = (robloxId, rank) => applyGroupRank(robloxId, rank, 'down');
 
 /** Top of the XP table, for the leaderboard on the panel. */
 async function leaderboard(take = 10) {
@@ -325,7 +400,8 @@ async function leaderboard(take = 10) {
 }
 
 module.exports = {
-  LADDER, ladder, rankFor, nextRank, progress, promotionFor,
+  LADDER, ladder, rankFor, nextRank, progress, promotionFor, demotionFor,
   getBalance, ensure, history, standing, leaderboard,
-  applyXp, recordPromotion, seedFromRank, promoteInGroup,
+  applyXp, recordPromotion, recordDemotion, seedFromRank,
+  applyGroupRank, promoteInGroup, demoteInGroup,
 };

@@ -277,4 +277,30 @@ router.post('/emoji/sync', async (req, res) => {
   }
 });
 
+// ── Slash commands ────────────────────────────────────────────────
+// A command that doesn't show up in Discord looks identical from the server
+// side to one that does — we called set(), it returned, done. These read the
+// truth back out of Discord.
+//
+//   GET  /api/dev/commands        what Discord actually has, and where
+//   POST /api/dev/commands/register   re-register now, without a restart
+router.get('/commands', async (req, res) => {
+  try {
+    res.json(await require('../lib/bot').listRegisteredCommands());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/commands/register', async (req, res) => {
+  const bot = require('../lib/bot');
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  try {
+    const out = await bot.registerCommands();
+    res.json({ ...out, now: await bot.listRegisteredCommands() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

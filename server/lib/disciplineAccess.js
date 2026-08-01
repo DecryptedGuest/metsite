@@ -36,9 +36,15 @@ const TTL = 5 * 60 * 1000;
 /**
  * @param {string} discordId
  * @param {string[]} roleIds the invoker's role ids in the guild they ran the command in
- * @returns {Promise<{ ok: boolean, via: string|null, label: string, name: string|null, why: string|null }>}
+ * @returns {Promise<{ ok, via, label, name, why, isDeveloper, isMetHicomm }>}
  *   `label` is how they should be described on the log ("Internal Affairs",
  *   "Deputy Commissioner"), `why` explains a refusal.
+ *
+ *   `via` names WHICH route let them in, and callers with a narrower gate rely
+ *   on it — /xp accepts the MET-rank routes but not the Internal Affairs ones,
+ *   so the two IA routes and the two MET High Command routes have to be
+ *   distinguishable rather than both saying "discord-role":
+ *     met-hicomm-role | met-rank | ia-role | ia-site-role
  */
 async function canDiscipline(discordId, roleIds = []) {
   const hit = cache.get(String(discordId));
@@ -56,10 +62,10 @@ async function evaluate(discordId, roleIds) {
   // 2 first among the no-network checks — a role id match is unambiguous.
   const metHicommRole = process.env.METHICOMM_ROLE_ID;
   if (metHicommRole && has(metHicommRole)) {
-    return { ok: true, via: 'discord-role', label: 'MET High Command', name: null, why: null };
+    return { ok: true, via: 'met-hicomm-role', label: 'MET High Command', name: null, why: null, isDeveloper: false, isMetHicomm: true };
   }
   for (const rid of idList(process.env.IA_COMMAND_ROLE_IDS)) {
-    if (has(rid)) return { ok: true, via: 'discord-role', label: 'Internal Affairs', name: null, why: null };
+    if (has(rid)) return { ok: true, via: 'ia-role', label: 'Internal Affairs', name: null, why: null, isDeveloper: false, isMetHicomm: false };
   }
 
   // 1. Their portal account.
@@ -78,14 +84,18 @@ async function evaluate(discordId, roleIds) {
   const name = user ? (user.displayName || user.discordUsername || null) : null;
 
   if (user && user.isBlacklisted) {
-    return { ok: false, via: null, label: '', name, why: 'Your portal account is blacklisted.' };
+    return { ok: false, via: null, label: '', name, why: 'Your portal account is blacklisted.', isDeveloper: false, isMetHicomm: false };
   }
 
   if (user && IA_SITE_ROLES.has(user.role)) {
+    const dev = user.role === 'DEVELOPER';
     return {
-      ok: true, via: 'site-role',
-      label: user.role === 'DEVELOPER' ? 'Developer' : (user.iaRankName || 'Internal Affairs'),
+      ok: true, via: 'ia-site-role',
+      label: dev ? 'Developer' : (user.iaRankName || 'Internal Affairs'),
       name, why: null,
+      // A developer is above every gate in the app, so they are marked as both
+      // — otherwise a narrower caller like /xp would refuse them.
+      isDeveloper: dev, isMetHicomm: dev,
     };
   }
 
@@ -114,12 +124,12 @@ async function evaluate(discordId, roleIds) {
     if (ok) {
       let label = 'MET High Command';
       try { const r = await metRole(robloxId); if (r && r.name) label = r.name; } catch (e) { /* keep the generic label */ }
-      return { ok: true, via: 'group-rank', label, name, why: null };
+      return { ok: true, via: 'met-rank', label, name, why: null, isDeveloper: false, isMetHicomm: true };
     }
   }
 
   return {
-    ok: false, via: null, label: '', name,
+    ok: false, via: null, label: '', name, isDeveloper: false, isMetHicomm: false,
     why: robloxId
       ? 'This command is for Internal Affairs and Deputy Commissioner and above.'
       : 'This command is for Internal Affairs and Deputy Commissioner and above. '

@@ -98,7 +98,14 @@ function buildClient(withMessageContent) {
     partials.push(Partials.Message, Partials.Channel, Partials.Reaction, Partials.User);
   }
   const c = new Client({ intents, partials });
-  c.once('ready', onReady);
+  // discord.js renamed this event: 14.27 emits `clientReady`, and the old
+  // `ready` is deprecated and disappears in v15. Listen for the new one, and
+  // keep the old as a fallback for older versions — `once` on both would run
+  // onReady twice on 14.27, so it's guarded.
+  let started = false;
+  const boot = () => { if (started) return; started = true; onReady().catch(err => console.error('[Bot] startup failed:', err)); };
+  c.once('clientReady', boot);
+  c.once('ready', boot);
   c.on('interactionCreate', onInteraction);
   if (withMessageContent) c.on('messageCreate', onPatrolMessage);
   if (WANT_REACTIONS) {
@@ -126,10 +133,25 @@ function getClient() { return ready ? client : null; }
 
 client = buildClient(WANT_MESSAGE_CONTENT);
 
-// Where /discipline lives: the MET server, where the punishment roles are.
-const DISCIPLINE_GUILD_ID = () => process.env.DISCIPLINE_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
-// Where /xp lives: the MET server, where the ranks it promotes people into are.
-const XP_GUILD_ID = () => process.env.XP_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+// The MET server. DISCORD_GUILD_ID alone is NOT good enough: the rest of the
+// app resolves "the MET server" as MET_GUILD_ID first and falls back to
+// DISCORD_GUILD_ID (see middleware/division.js, emoji.js, tryoutGuildId), and
+// in a deployment where those two are different servers, registering against
+// DISCORD_GUILD_ID puts the commands somewhere nobody is looking.
+//
+// So take BOTH, deduplicated. Registering /xp and /discipline in each costs
+// nothing — who may actually run them is decided in code, not by where they
+// appear — and it removes a whole class of "the command isn't there" that is
+// invisible from the outside.
+function metGuildIds(specific) {
+  return [...new Set([
+    process.env[specific],
+    process.env.MET_GUILD_ID,
+    process.env.DISCORD_GUILD_ID,
+  ].filter(Boolean).map(String))];
+}
+const DISCIPLINE_GUILD_IDS = () => metGuildIds('DISCIPLINE_GUILD_ID');
+const XP_GUILD_IDS         = () => metGuildIds('XP_GUILD_ID');
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -138,16 +160,28 @@ const XP_GUILD_ID = () => process.env.XP_GUILD_ID || process.env.DISCORD_GUILD_I
 // would have each one delete the last. That was harmless while /import-cases
 // was the only command and lived in its own private guild; it stops being
 // harmless the moment two commands share a guild.
-async function registerCommands() {
+/**
+ * Which commands go to which guilds. Split out from the registering so the
+ * targeting can be checked without a gateway connection — getting this wrong is
+ * exactly the failure that looks like nothing happened at all.
+ */
+function buildCommandPlan() {
   const byGuild = new Map();
-  const add = (guildId, json) => {
-    if (!guildId) return;
-    if (!byGuild.has(guildId)) byGuild.set(guildId, []);
-    byGuild.get(guildId).push(json);
+  const add = (guildIds, json) => {
+    for (const guildId of (Array.isArray(guildIds) ? guildIds : [guildIds])) {
+      if (!guildId) continue;
+      if (!byGuild.has(guildId)) byGuild.set(guildId, []);
+      byGuild.get(guildId).push(json);
+    }
   };
 
-  if (IMPORT_GUILD_ID) {
-    add(IMPORT_GUILD_ID, new SlashCommandBuilder()
+  // Read from the environment rather than the module constant: the constant is
+  // captured at load time (it decides which gateway intents to request, which
+  // genuinely is a load-time question), but where a command is registered is
+  // not, and reading it live keeps every target in this function consistent.
+  const importGuildId = process.env.IMPORT_GUILD_ID;
+  if (importGuildId) {
+    add(importGuildId, new SlashCommandBuilder()
       .setName('import-cases')
       .setDescription('Bulk-import cases from a forum channel into the website')
       .addChannelOption(o => o.setName('channel').setDescription('The forum channel to import from').setRequired(true))
@@ -161,28 +195,116 @@ async function registerCommands() {
   // code (Internal Affairs, or Deputy Commissioner and above). Gating it with
   // Discord's own default_member_permissions would tie it to a permission bit
   // rather than to rank, which is not the same thing at all.
+  const global = [];
   try {
-    add(DISCIPLINE_GUILD_ID(), require('./disciplineCommand').buildCommand());
+    const cmd = require('./disciplineCommand').buildCommand();
+    add(DISCIPLINE_GUILD_IDS(), cmd);
+    global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /discipline:', err.message);
   }
 
   // /xp — everyone can look; who may change XP is decided in code.
   try {
-    add(XP_GUILD_ID(), require('./xpCommand').buildCommand());
+    const cmd = require('./xpCommand').buildCommand();
+    add(XP_GUILD_IDS(), cmd);
+    global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /xp:', err.message);
   }
 
+  return { byGuild, global };
+}
+
+/**
+ * Push the plan to Discord.
+ * @param {object} [c] a client to use instead of the live one (tests)
+ */
+async function registerCommands(c) {
+  const api = c || client;
+  const { byGuild, global } = buildCommandPlan();
+  const out = { guilds: [], global: null, errors: [] };
+
+  if (!byGuild.size) {
+    console.warn('[Bot] no guild configured for slash commands — set MET_GUILD_ID or DISCORD_GUILD_ID.');
+  }
+
+  let anyGuildOk = false;
   for (const [guildId, cmds] of byGuild) {
+    const names = cmds.map(c => '/' + c.name).join(' ');
     try {
-      const guild = await client.guilds.fetch(guildId);
+      const guild = await api.guilds.fetch(guildId);
       await guild.commands.set(cmds);
-      console.log(`[Bot] registered ${cmds.map(c => '/' + c.name).join(' ')} in guild ${guildId}`);
+      anyGuildOk = true;
+      out.guilds.push({ guildId, name: guild.name, commands: cmds.map(c => c.name), ok: true });
+      console.log(`[Bot] registered ${names} in "${guild.name}" (${guildId})`);
     } catch (err) {
-      console.error(`[Bot] command registration failed for guild ${guildId}:`, err.message);
+      // The three that actually happen, named so the log says what to DO.
+      const why = /Missing Access|50001/i.test(err.message)
+        ? 'the bot is missing the "applications.commands" scope in that server — re-invite it with that scope ticked (its existing roles and messages are unaffected)'
+        : /Unknown Guild|10004/i.test(err.message)
+          ? 'the bot is not in that server, or the id is wrong'
+          : err.message;
+      out.guilds.push({ guildId, ok: false, error: why });
+      out.errors.push(`${guildId}: ${why}`);
+      console.error(`[Bot] could not register ${names} in guild ${guildId} — ${why}`);
     }
   }
+
+  // Last resort. Guild commands appear instantly but only where we were told to
+  // put them; global ones take up to an hour to propagate but appear EVERYWHERE
+  // the bot is. If every guild attempt failed, a slow command beats no command.
+  // REGISTER_GLOBAL_COMMANDS=1 forces this on even when a guild worked.
+  const wantGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1' || (!anyGuildOk && global.length);
+  if (wantGlobal && api.application) {
+    try {
+      await api.application.commands.set(global);
+      out.global = global.map(c => c.name);
+      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY`
+        + (anyGuildOk ? '' : ' (no guild registration succeeded — these can take up to an hour to show up)'));
+    } catch (err) {
+      out.errors.push(`global: ${err.message}`);
+      console.error('[Bot] global command registration failed:', err.message);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * What Discord ACTUALLY has registered right now, per guild and globally.
+ *
+ * A slash command that doesn't appear is invisible from the inside — the logs
+ * say we called set(), and that is all anyone can see. This reads it back from
+ * Discord so the answer is "here is what is really there", not "here is what we
+ * think we sent".
+ */
+async function listRegisteredCommands() {
+  if (!ready) return { ok: false, error: 'Bot not connected yet.' };
+  const out = { guilds: [], global: [], botGuilds: [], resolved: {} };
+  out.resolved = {
+    MET_GUILD_ID: process.env.MET_GUILD_ID || null,
+    DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID || null,
+    disciplineTargets: DISCIPLINE_GUILD_IDS(),
+    xpTargets: XP_GUILD_IDS(),
+  };
+  try {
+    for (const g of client.guilds.cache.values()) out.botGuilds.push({ id: g.id, name: g.name });
+  } catch (e) { /* cache only */ }
+  try {
+    const g = await client.application.commands.fetch();
+    out.global = [...g.values()].map(c => c.name);
+  } catch (e) { out.global = { error: e.message }; }
+  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
+    try {
+      const guild = await client.guilds.fetch(guildId);
+      const cmds = await guild.commands.fetch();
+      out.guilds.push({ guildId, name: guild.name, commands: [...cmds.values()].map(c => c.name) });
+    } catch (err) {
+      out.guilds.push({ guildId, error: err.message });
+    }
+  }
+  return { ok: true, ...out };
 }
 
 // Handle the import slash command (restricted to the developer user)
@@ -2014,6 +2136,7 @@ module.exports = {
   sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
   postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmTicketAlert, dmLoginCode, deleteLoginDm,
   reactToMessage, postChannelMessage, editChannelMessage, postTicketCloseLog, postHpcExamLog,
+  registerCommands, buildCommandPlan, listRegisteredCommands,
   createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
   backfillLogChannel, backfillPatrolLogs,
   getGuildMemberRoles, listGuildRoleMembers, getMemberRoleStyle,
