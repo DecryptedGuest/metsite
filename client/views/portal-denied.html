@@ -38,6 +38,9 @@
 
 <div class="denied-wrap">
   <div class="denied-icon"><i class="ti ti-ban"></i></div>
+  <div class="division-chip" id="denied-division-chip" style="display:none;">
+    <img data-brand="logo" src="" alt="" /><span data-brand="short"></span>
+  </div>
   <div>
     <div class="denied-code">Error 403 · Forbidden</div>
     <div class="denied-title" id="denied-title">Access Denied</div>
@@ -67,6 +70,11 @@
   const reason = new URLSearchParams(location.search).get('reason');
   const NAMES = { cid: 'CID', sco19: 'SCO-19', ia: 'Internal Affairs', flp: 'FLP', hpc: 'HPC' };
   const divisionName = NAMES[division];
+
+  // Show which division turned them away, in that division's own colours.
+  // division-brand.js fills the crest and name in from window.MET_BRAND.
+  const chip = document.getElementById('denied-division-chip');
+  if (chip && window.MET_BRAND && window.MET_BRAND.slug !== 'met') chip.style.display = '';
 
   if (reason === 'lockdown') {
     document.getElementById('denied-title').textContent = 'Logins Temporarily Disabled';

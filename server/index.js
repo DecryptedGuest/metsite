@@ -707,13 +707,27 @@ app.post('/api/me/sessions/revoke-others', requireAuth, async (req, res) => {
 const views = path.join(__dirname, '../client/views');
 
 // Send HTML with comments stripped; fall back to the raw file on any error.
-function sendPage(res, file) {
+//
+// `division` brands the page for one division (IA / CID / SCO19 / FLP / HPC):
+// its accent palette, logo, favicon and crest are injected here rather than
+// baked into the view, so the same view can be served under more than one
+// division's path and so the theme is correct on first paint.
+function sendPage(res, file, division) {
   try {
     let html = getMinifiedHtml(file);
     // Site-wide UI theme (dev toggle). Injected server-side so it applies for
     // everyone on first paint with no flash of the wrong theme.
     if (require('./lib/siteConfig').isOn('auroraTheme')) {
       html = html.replace('<html', '<html data-ui="aurora"');
+    }
+    if (division) {
+      const { brandHead, META } = require('./lib/divisions');
+      const slug = META[division] && META[division].slug;
+      // An unknown division just means "no branding" — never a broken page.
+      if (slug) {
+        html = html.replace('<html', `<html data-division="${slug}"`);
+        if (html.includes('</head>')) html = html.replace('</head>', brandHead(division) + '</head>');
+      }
     }
     res.type('html').send(html);
   } catch (e) { res.sendFile(file); }
@@ -737,25 +751,26 @@ app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path
 app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'exam.html')));
 
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
-app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));
-app.get('/ia/login',     recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));
-app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'denied.html')));
-app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
-app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
-app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
+// Every /ia page is branded IA — violet accent, IA crest, IA favicon.
+app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html'), 'IA'));
+app.get('/ia/login',     recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html'), 'IA'));
+app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'denied.html'), 'IA'));
+app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
+app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
+app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 
 // ── Case documents — the on-site replacement for the Google Doc ───
 // /case-doc/:id renders the finished document read-only (this is the URL that
 // goes in a case's "Case Link"); ?edit=1 opens it in the builder instead.
-app.get('/case-doc/:id',  recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'case-doc.html')));
+app.get('/case-doc/:id',  recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'case-doc.html'), 'IA'));
 app.get('/ia/case-doc/:id', (req, res) => res.redirect('/case-doc/' + encodeURIComponent(req.params.id)));
 
 // ── New divisions — own dashboard view each, gated by their own division ──
 function mountDivisionPages(slug, division) {
   app.get(`/${slug}`,           recordVisit, (req, res) => res.redirect('/'));
-  app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+  app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html'), division));
   app.get(`/${slug}/dashboard`, recordVisit, requireAuth, requireDivision(division),
-    (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`)));
+    (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`), division));
 }
 mountDivisionPages('cid',   'CID');
 mountDivisionPages('sco19', 'SCO19');

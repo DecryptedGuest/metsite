@@ -50,7 +50,13 @@ async function initMetTopbar(currentDivision) {
         a.href = `/${d.slug}/dashboard`;
         a.className = 'met-switcher-item' + (isCurrent ? ' current' : '');
         const tag = isCurrent ? 'current' : (d.rankName || d.tier || '');
-        a.innerHTML = `<span>${d.name}</span><span class="rank-tag">${tag}</span>`;
+        // A dot in the division's own accent, so the menu reads as a colour key
+        // for the themes you land in. Anything but a plain hex is ignored.
+        const accent = /^#[0-9a-f]{6}$/i.test(d.accent || '') ? d.accent : null;
+        const dot = accent
+          ? `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${accent};margin-right:7px;vertical-align:middle;"></span>`
+          : '';
+        a.innerHTML = `<span>${dot}${d.name}</span><span class="rank-tag">${tag}</span>`;
         menu.appendChild(a);
       });
     }

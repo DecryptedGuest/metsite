@@ -39,12 +39,24 @@ function localIcon(slug) {
 // `match` recognises the group by name during holder auto-discovery.
 // Roblox group ids are known/fixed (provided by MET), so they're the defaults;
 // the GROUP_* / IA_GROUP_ID env vars still override if ever needed.
+//
+// `accent` / `short` / `tagline` are pure branding: every /<slug>/… page is
+// themed with its division's own accent colour, logo, wordmark and favicon so
+// you can tell at a glance which division's side of the portal you're on.
+// Accents are deliberately kept clear of the semantic status hues (green
+// #2ed896 approved, amber #f5b730 pending, red #f04f5e denied) so badges stay
+// readable whatever the chrome is tinted.
 const META = {
-  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
-  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
-  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
-  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
-  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
+  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i,
+           short: 'Criminal Investigation', tagline: 'Investigations · Casework', accent: '#19c6d8' },
+  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i,
+           short: 'Specialist Firearms',   tagline: 'Armed Response · Deployments', accent: '#ff6b4a' },
+  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i,
+           short: 'Internal Affairs',      tagline: 'Case Management System',       accent: '#8b7cff' },
+  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i,
+           short: 'Frontline Policing',    tagline: 'Patrols · Response',           accent: '#4a8fff' },
+  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i,
+           short: 'Hendon Police College', tagline: 'Training · Examinations',      accent: '#d966e8' },
 };
 
 // The top-level Metropolitan Police group — the umbrella every officer belongs
@@ -191,9 +203,70 @@ async function resolveGroupDivisions(robloxId) {
 // Client-safe metadata only — never leak group ids / discovery regexes.
 function meta(division) {
   const m = META[division];
-  return m ? { name: m.name, slug: m.slug, fullName: m.fullName } : null;
+  return m ? {
+    name: m.name, slug: m.slug, fullName: m.fullName,
+    short: m.short || m.fullName, tagline: m.tagline || '',
+    accent: m.accent || MET_BRAND.accent, logo: brandLogo(m.slug),
+  } : null;
 }
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
+
+// ── Per-division page branding ───────────────────────────────────────
+// Everything under /ia, /cid, /sco19, /flp and /hpc is themed with its own
+// division's colour, logo and wordmark. The theme is injected server-side (see
+// brandHead below) so it is already correct on first paint — no flash of the
+// wrong division while a script runs.
+const MET_BRAND = {
+  name: 'MET', slug: 'met', fullName: 'Metropolitan Police Service',
+  short: 'Metropolitan Police Service', tagline: 'Officer Portal', accent: '#4a8fff',
+};
+
+// The committed logo for a slug, or the portal mark when there isn't one. Never
+// the live Roblox icon: this has to resolve synchronously on the page path, and
+// Roblox's thumbnail API is too flaky to sit in front of first paint.
+function brandLogo(slug) { return localIcon(slug) || '/img/logo.png'; }
+
+function brandFor(division) {
+  const m = division && META[division];
+  const base = m
+    ? { name: m.name, slug: m.slug, fullName: m.fullName, short: m.short || m.fullName, tagline: m.tagline || '', accent: m.accent || MET_BRAND.accent }
+    : { ...MET_BRAND };
+  return { ...base, logo: brandLogo(base.slug) };
+}
+
+// #rrggbb → "r, g, b" for rgba() mixes in the injected theme. Falls back to the
+// portal blue rather than emitting a broken custom property.
+function rgbTriplet(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return '74, 143, 255';
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+// Everything that goes into <head> to brand a page for one division: the
+// favicon, the browser theme colour, and the accent custom properties that
+// division-theme.css builds the rest of the palette from.
+//
+// Values come from the META table above, never from the request, so this is
+// static trusted markup — but the accent is still validated by rgbTriplet and
+// the slug is a fixed identifier, so a malformed table entry degrades to the
+// portal default instead of breaking the page.
+function brandHead(division) {
+  const b = brandFor(division);
+  const accent = /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent;
+  return [
+    `<link rel="icon" type="image/png" href="${b.logo}" />`,
+    `<link rel="apple-touch-icon" href="${b.logo}" />`,
+    `<meta name="theme-color" content="${accent}" />`,
+    `<link rel="stylesheet" href="/css/division-theme.css" />`,
+    `<style>:root{--div-accent:${accent};--div-accent-rgb:${rgbTriplet(accent)};`
+      + `--div-logo:url("${b.logo}");}</style>`,
+    `<script>window.MET_BRAND=${JSON.stringify(b).replace(/</g, '\\u003c')};</script>`,
+    // defer → runs after the document is parsed, and after the inline script
+    // above has set window.MET_BRAND.
+    `<script src="/js/division-brand.js" defer></script>`,
+  ].join('\n');
+}
 
 // ── HPC-specific rank gates ──────────────────────────────────────────
 // HPC has finer, named access tiers on top of the group rank:
@@ -224,6 +297,7 @@ function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || 
 module.exports = {
   ALL, GROUP_DIVISIONS, META,
   meta, allMeta,
+  brandFor, brandHead, brandLogo, MET_BRAND,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
   explicitGroupId, isLeadRank, holderUsername, metGroupId,

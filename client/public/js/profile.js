@@ -75,8 +75,11 @@ async function loadProfile() {
   // ── Divisions & rank ──
   const divEl = document.getElementById('p-divisions');
   if (data.divisions && data.divisions.length) {
+    // Each card carries its division's own accent so the colour you see here is
+    // the colour the division's dashboard opens in.
+    const accentOf = d => (/^#[0-9a-f]{6}$/i.test(d.accent || '') ? d.accent : 'var(--blue)');
     divEl.innerHTML = `<div class="profile-div-grid">${data.divisions.map(d => `
-      <a class="profile-div-card" href="/${d.slug}/dashboard">
+      <a class="profile-div-card" href="/${d.slug}/dashboard" style="border-left:3px solid ${accentOf(d)};">
         ${d.icon ? `<img class="profile-div-icon" src="${d.icon}" alt="${escHtml(d.name)}" onerror="this.style.display='none'" />` : `<div class="profile-div-abbr">${escHtml(d.name)}</div>`}
         <div class="profile-div-body">
           <div class="profile-div-name">${escHtml(d.fullName || d.name)}</div>

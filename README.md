@@ -194,6 +194,36 @@ log, etc.) exactly as before.
 A `DEVELOPER` always has LEAD access to every division. Visiting a division you don't
 belong to redirects to that division's `/denied` page.
 
+### Per-division look and feel
+
+Every page under `/ia`, `/cid`, `/sco19`, `/flp` and `/hpc` is themed for that division,
+so it is obvious at a glance whose side of the portal you're on:
+
+| Division | Accent    | Crest                        |
+|----------|-----------|------------------------------|
+| IA       | `#8b7cff` | `/img/divisions/ia.png`      |
+| CID      | `#19c6d8` | `/img/divisions/cid.png`     |
+| SCO-19   | `#ff6b4a` | `/img/divisions/sco19.png`   |
+| FLP      | `#4a8fff` | `/img/divisions/flp.png`     |
+| HPC      | `#d966e8` | `/img/divisions/hpc.png`     |
+
+The theme is injected **server-side** by `sendPage(res, file, division)` →
+`divisions.brandHead()`, which adds `data-division="<slug>"` to `<html>`, the division's
+favicon, and the `--div-accent` / `--div-logo` custom properties. Because it's in the
+HTML the browser receives, the page is already the right colour on first paint — there is
+no flash of another division's theme.
+
+`client/public/css/division-theme.css` turns those two properties into the whole palette
+by re-pointing main.css's `--blue*` and `--border-*` tokens, so every component that
+already used a token follows along. **The status colours (`--green` approved, `--amber`
+pending, `--red` denied) are deliberately left alone** — they carry meaning and must read
+the same in every division. `client/public/js/division-brand.js` does the parts CSS can't:
+the crest watermark, the logo swaps, and any `[data-brand]` placeholder a shared view
+declares (the portal `/denied` page uses this to say which division turned you away).
+
+To restyle a division, edit its `accent` in the `META` table in `server/lib/divisions.js`
+and drop a new `client/public/img/divisions/<slug>.png`. Nothing else needs to change.
+
 The **LEAD (high-rank) tier** — which unlocks a division's restricted actions — is defined
 per the divisional spec:
 
