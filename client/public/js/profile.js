@@ -70,7 +70,14 @@ async function loadProfile() {
   const siteRoleLabel = { IA: 'Internal Affairs', HICOMM: 'IA High Command', SUPERVISOR: 'IA Supervisor', DEVELOPER: 'Developer' }[u.role] || u.role || '';
   const roleLabel = data.metRankName || siteRoleLabel;
   const metaChips = [];
-  if (roleLabel) metaChips.push(`<span class="met-chip">${escHtml(roleLabel)}</span>`);
+  if (roleLabel) {
+    // The MET server's own rank insignia, when the rank came from the group and
+    // the server has an emoji for it. Same badge as Discord shows.
+    const badge = (data.metRankName && data.metRankEmoji)
+      ? `<img src="${escHtml(data.metRankEmoji)}" alt="" class="rank-insignia">`
+      : '';
+    metaChips.push(`<span class="met-chip">${badge}${escHtml(roleLabel)}</span>`);
+  }
   // Quick-copy identity chips (handy for staff cross-referencing records).
   const idChip = (label, val, icon) =>
     `<button type="button" class="met-chip" title="Copy ${escHtml(label)}" onclick="copyText('${escHtml(String(val))}','${escHtml(label)}')" style="cursor:pointer;background:none;font:inherit;"><i class="ti ${icon}"></i> ${escHtml(label)}: ${escHtml(String(val))} <i class="ti ti-copy" style="opacity:.6;"></i></button>`;

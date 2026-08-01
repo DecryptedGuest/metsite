@@ -9,7 +9,7 @@ const { assignRole, getMemberRecord, findMemberByUsername,
 const { getOfficerProfile, getOfficerProfileByRobloxId, exileFromGroup,
         getRobloxIdFromUsername, getRobloxUserInfo, getGroupMembership,
         getDiscordFromRoblox } = require('../lib/roblox');
-const { ACTION_CONFIG, ACTION_NAMES }       = require('../lib/actions');
+const { ACTION_CONFIG, ACTION_NAMES, ALL_ACTION_NAMES } = require('../lib/actions');
 const { parseDocText, fetchGoogleDocText, fetchGoogleDocHtml,
         parseCheckedPunishments, buildPunishmentsFromChecklist, cleanDecision } = require('../lib/forumImport');
 const { HICOMM_ONLY_ACTIONS, caseHasHicommOnlyPunishment,
@@ -97,37 +97,9 @@ function publicBaseUrl(req) {
   return `${proto}://${req.get('host')}`;
 }
 
-// The highest existing case number across the WHOLE shared database — native
-// and IA-synced/imported cases alike (all use "#N" refs). So new refs continue
-// in step with the IA database instead of a separate, out-of-sync counter.
-// (This supersedes the plain counter-increment generateCaseRef this branch had.)
-async function highestCaseNumber() {
-  let max = 0;
-  try {
-    const rows = await prisma.case.findMany({ select: { caseRef: true } });
-    for (const c of rows) {
-      const m = String(c.caseRef || '').match(/^#?(\d+)$/);
-      if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
-    }
-  } catch (e) { /* fall back to the counter below */ }
-  try { const ctr = await prisma.caseCounter.findUnique({ where: { id: 1 } }); if (ctr && ctr.count > max) max = ctr.count; } catch (e) {}
-  return max;
-}
-
-async function generateCaseRef() {
-  let n = (await highestCaseNumber()) + 1;
-  // Ensure the ref is free (caseRef is @unique) and keep the counter in step.
-  for (let i = 0; i < 100; i++) {
-    const ref = `#${n}`;
-    const exists = await prisma.case.findUnique({ where: { caseRef: ref } }).catch(() => null);
-    if (!exists) {
-      await prisma.caseCounter.upsert({ where: { id: 1 }, update: { count: n }, create: { id: 1, count: n } }).catch(() => {});
-      return ref;
-    }
-    n++;
-  }
-  return `#${n}`;
-}
+// Case-number allocation lives in lib/caseRef.js so /discipline draws from the
+// same sequence — two allocators would eventually collide on the unique index.
+const { highestCaseNumber, generateCaseRef } = require('../lib/caseRef');
 
 // ── GET /api/cases/actions ───────────────────────────────────
 router.get('/actions', (req, res) => res.json(ACTION_NAMES));
@@ -403,6 +375,9 @@ router.get('/records-lookup', async (req, res) => {
     const serialize = c => ({
       id:        c.id,
       caseRef:   c.caseRef,
+      // NATIVE | IA | DISCIPLINE. The records tab shows a badge for anything
+      // that wasn't an actual investigation.
+      origin:    c.origin || 'NATIVE',
       action:    c.action,
       actions:   Array.isArray(c.actions) ? c.actions : null,
       reason:    c.reason,
@@ -434,8 +409,8 @@ router.get('/records-lookup', async (req, res) => {
     const recordSet = new Set();
     for (const c of approvedCases) {
       if (Array.isArray(c.actions) && c.actions.length) {
-        c.actions.forEach(a => { if (a && ACTION_NAMES.includes(a.action)) recordSet.add(a.action); });
-      } else if (c.action && ACTION_NAMES.includes(c.action)) {
+        c.actions.forEach(a => { if (a && ALL_ACTION_NAMES.includes(a.action)) recordSet.add(a.action); });
+      } else if (c.action && ALL_ACTION_NAMES.includes(c.action)) {
         recordSet.add(c.action);
       }
     }
@@ -1231,7 +1206,7 @@ router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
     .map(a => (a && typeof a === 'object')
       ? { action: String(a.action || ''), durationDays: (a.durationDays != null ? parseInt(a.durationDays, 10) || null : null) }
       : { action: String(a), durationDays: null })
-    .filter(a => ACTION_NAMES.includes(a.action));
+    .filter(a => ALL_ACTION_NAMES.includes(a.action));
   // Always record who requested the changes and when, so every viewer sees it.
   const reviewChanges = {
     actions:  validActions,

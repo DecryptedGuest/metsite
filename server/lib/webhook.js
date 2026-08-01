@@ -27,7 +27,7 @@ function buildActionList({ actions, action }) {
 const SIGN_AUTHOR_NAME = 'Signed, Internal Affairs High Command';
 const SIGN_AUTHOR_ICON = 'https://metia.uk/media/880b6a85-064d-4c5a-a36f-c3d1fc8e7569';
 
-function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp, appealed }) {
+function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp, appealed, direct }) {
   // Prefer a Discord mention; otherwise fall back to the Roblox username (with a
   // profile link if we have the id) so a known officer is never "Unknown".
   let staffMemberValue;
@@ -50,7 +50,11 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
       { name: '• Reason:',        value: cap(reason || 'N/A'),                      inline: false },
       { name: '• Notes:',         value: cap(notes || 'N/A'),                       inline: false },
     ],
-    footer:    { text: `Infraction ID | ${caseRef || 'pending'}` },
+    // A direct action is not the conclusion of an investigation, and the log
+    // should never read as though it were. The footer says which it is.
+    footer:    { text: direct
+      ? `Direct action via /discipline | ${caseRef || 'no case'}`
+      : `Infraction ID | ${caseRef || 'pending'}` },
     timestamp: new Date(timestamp || Date.now()).toISOString(),
   };
   if (suspectAvatar) embed.thumbnail = { url: suspectAvatar };        // suspect's Roblox headshot

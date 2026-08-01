@@ -761,3 +761,14 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
 }
 /* Standing alone in a heading or a stat tile it wants a little more weight. */
 .met-emoji-lg { width: 1.5em; height: 1.5em; vertical-align: -0.35em; }
+
+/* The MET server's own rank insignia, shown beside a rank name. Sized like an
+   inline icon so it sits in a chip without changing its height. */
+.rank-insignia {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  margin-right: 4px;
+  object-fit: contain;
+}

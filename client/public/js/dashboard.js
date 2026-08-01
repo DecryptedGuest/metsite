@@ -1310,7 +1310,7 @@ function renderDashTable() {
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
       <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
       ${isElevated ? `<td onclick="event.stopPropagation();">${c.status === 'PENDING' ? rowActions(c) : ''}</td>` : ''}
     </tr>`).join('');
@@ -1388,7 +1388,7 @@ function renderMyCasesTable() {
       <td>${officerCell(c)}</td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
       <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
     </tr>`).join('');
 }
@@ -1423,7 +1423,8 @@ function renderReviewTable() {
     const rev = lastRevision(c);
     return `
       <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseRowClass(c)}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${changesBadge(c) ? '<br>' + changesBadge(c) : ''}</td>
+        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${
+          originBadge(c) ? '<br>' + originBadge(c) : ''}${changesBadge(c) ? '<br>' + changesBadge(c) : ''}</td>
         <td>${caseInvestigatorCell(c)}</td>
         <td>${officerCell(c)}</td>
         <td>${actionBadges(cleanAction(c.action))}</td>
@@ -1469,7 +1470,7 @@ function renderAllCasesTable() {
       <td>${officerCell(c)}</td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
       <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
       ${isElevated ? `<td onclick="event.stopPropagation();">${c.status === 'PENDING'
           ? `<button class="row-btn row-btn-approve btn-sm" onclick="goReviewCase('${c.id}')"><i class="ti ti-clipboard-check"></i> Review</button>`
@@ -3000,7 +3001,7 @@ function openDetail(caseId) {
       </div>
       <div class="detail-field">
         <span class="detail-field-label">Status</span>
-        <span class="detail-field-value">${statusBadge(c.status)}</span>
+        <span class="detail-field-value">${statusBadge(c.status)} ${originBadge(c)}</span>
       </div>
       ${c.officerDiscordId ? `
       <div class="detail-field full">

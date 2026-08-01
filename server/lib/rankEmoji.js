@@ -60,4 +60,22 @@ function forRank(client, rankName, fallback = '') {
   return firstGuildEmoji(client, candidatesFor(rankName)) || fallback;
 }
 
-module.exports = { forRank, candidatesFor, RANKS };
+/**
+ * The same insignia as an image URL, for the website.
+ *
+ * The site can't render `<:CON:123>` — that's Discord message syntax — but the
+ * artwork behind it is a plain PNG on Discord's CDN, so the portal can show the
+ * exact same badge the server does rather than a different mark for the same
+ * rank.
+ *
+ * @returns {string|null}
+ */
+function urlForRank(client, rankName, size = 64) {
+  const tag = forRank(client, rankName);
+  const m = tag && tag.match(/:(\d+)>$/);
+  if (!m) return null;
+  const ext = tag.startsWith('<a:') ? 'gif' : 'png';
+  return `https://cdn.discordapp.com/emojis/${m[1]}.${ext}?size=${size}`;
+}
+
+module.exports = { forRank, urlForRank, candidatesFor, RANKS };

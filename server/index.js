@@ -941,6 +941,14 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     metNickname: metProfile ? metProfile.metNickname : null,
     // The member's MET-group rank name (shown as their role on the profile).
     metRankName: metRankInfo ? metRankInfo.name : null,
+    // The MET server's own insignia for that rank, as an image the site can
+    // show — the same badge Discord shows, not a second mark for one rank.
+    metRankEmoji: (() => {
+      try {
+        const client = require('./lib/bot').getClient();
+        return client && metRankInfo ? require('./lib/rankEmoji').urlForRank(client, metRankInfo.name) : null;
+      } catch (e) { return null; }
+    })(),
     metRank: metRankInfo ? metRankInfo.rank : null,
     roles: (metProfile && Array.isArray(metProfile.roles)) ? metProfile.roles : [],
     perms,

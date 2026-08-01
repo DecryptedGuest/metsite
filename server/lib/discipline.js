@@ -6,12 +6,14 @@
 // Plenty of discipline never needs that ceremony. This is the same machinery
 // with the case removed and the case link demoted to an optional field:
 //
-//   * work out what the officer already has on their record, so a strike
-//     escalates instead of stacking a second Strike 1
+//   * work out what the officer already has on their record, so a second
+//     Strike 1 is offered as a Strike 2 instead of quietly stacking
 //   * write the punishment
 //   * add the Discord role
 //   * demote / exile in the Roblox group when the action calls for it
 //   * post the SAME administrative-log embed the case system posts
+//   * file it on the portal as an auto-approved case, so it shows in the record
+//     and can be appealed like anything else
 //   * tell the officer, with a link to their record
 //
 // Everything in here is deliberately free of discord.js interaction objects so
@@ -22,23 +24,34 @@ const prisma = require('./db');
 const { ACTION_CONFIG, ACTION_NAMES } = require('./actions');
 
 // ── Strikes ───────────────────────────────────────────────────────
-// "Strike" is a ladder, not a label: issuing one to somebody who already has
-// Strike 1 has to produce Strike 2. The whole point of the command is that the
-// issuer doesn't have to go and look that up.
-const STRIKE_ACTIONS = ['Disciplinary Strike 1', 'Disciplinary Strike 2', 'Disciplinary Strike 3'];
+// "Strike" is a ladder, not a label: a second Strike 1 should be a Strike 2,
+// and the whole point of the command is that the issuer doesn't have to go and
+// look that up.
+//
+// Two strikes. There is no third: after two, the next step is Termination — a
+// decision somebody makes, not a counter reaching 3.
+const STRIKE_ACTIONS = ['Disciplinary Strike 1', 'Disciplinary Strike 2'];
 const MAX_STRIKE = STRIKE_ACTIONS.length;
 
-// The pseudo-action the slash command offers. Picking it resolves to whichever
-// rung of the ladder comes next for that officer.
-const AUTO_STRIKE = 'Strike (auto-escalate)';
+// Strike 3 is retired and can no longer be ISSUED, but officers given one
+// before it went still have it. Reading a record uses this wider list; issuing
+// uses STRIKE_ACTIONS.
+const KNOWN_STRIKE_ACTIONS = [...STRIKE_ACTIONS, 'Disciplinary Strike 3'];
 
-// Every action the command can issue, auto-escalating strike first because it's
-// the one that gets used.
-const COMMAND_ACTIONS = [AUTO_STRIKE, ...ACTION_NAMES];
+// What comes after the last strike. Never applied automatically; only offered.
+const AFTER_LAST_STRIKE = 'Termination';
+
+// Every action the command can issue. No "auto-escalate" pseudo-action — you
+// pick the real thing and the panel tells you if their record says otherwise.
+const COMMAND_ACTIONS = ACTION_NAMES.slice();
 
 // A strike level out of anything that names one: 'Disciplinary Strike 2' → 2,
-// 'STRIKE 3' → 3, a bare 'STRIKE' → 1 (the ingest writes those for infraction
-// posts that don't number themselves).
+// a bare 'STRIKE' → 1 (the ingest writes those for infraction posts that don't
+// number themselves).
+//
+// Strike 3 still reads as 3. It is retired and can no longer be issued, but
+// officers who were given one before it went still have it on their record, and
+// reading it as anything less would understate where they stand.
 function strikeLevelOf(type) {
   const s = String(type || '');
   const numbered = s.match(/strike\s*([123])\b/i);
@@ -86,17 +99,19 @@ async function currentStrikeLevel({ discordId, roleIds }) {
   // 2. Strikes issued through an approved IA case.
   try {
     const rows = await prisma.casePunishment.findMany({
-      where: { action: { in: STRIKE_ACTIONS }, case: { officerDiscordId: String(discordId) } },
+      where: { action: { in: KNOWN_STRIKE_ACTIONS }, case: { officerDiscordId: String(discordId) } },
       select: { action: true },
     });
     for (const r of rows) bump(strikeLevelOf(r.action), `${r.action} from a case`);
   } catch (e) { /* ditto */ }
 
-  // 3. The roles they're wearing — catches anything done by hand.
+  // 3. The roles they're wearing — catches anything done by hand, including a
+  //    Strike 3 role handed out before that strike was retired.
   if (Array.isArray(roleIds) && roleIds.length) {
-    for (let i = 0; i < STRIKE_ACTIONS.length; i++) {
-      const rid = ACTION_CONFIG[STRIKE_ACTIONS[i]].roleId;
-      if (rid && roleIds.includes(String(rid))) bump(i + 1, `wearing the ${STRIKE_ACTIONS[i]} role`);
+    for (let i = 0; i < KNOWN_STRIKE_ACTIONS.length; i++) {
+      const name = KNOWN_STRIKE_ACTIONS[i];
+      const rid = ACTION_CONFIG[name] && ACTION_CONFIG[name].roleId;
+      if (rid && roleIds.includes(String(rid))) bump(i + 1, `wearing the ${name} role`);
     }
   }
 
@@ -104,30 +119,47 @@ async function currentStrikeLevel({ discordId, roleIds }) {
 }
 
 /**
- * Turn the issuer's choice into the action that will actually be applied.
+ * What the issuer picked is what gets issued — full stop. This works out
+ * whether their record suggests something HEAVIER, so the panel can offer it as
+ * a second button.
  *
- * Only AUTO_STRIKE moves. If they explicitly picked "Disciplinary Strike 1"
- * they get Strike 1 — overriding the ladder is sometimes exactly what's
- * wanted, and second-guessing an explicit choice would be worse than useless.
+ * The distinction matters. Silently upgrading a Strike 1 to a Strike 2 because
+ * of something on a record the issuer may not have seen is the command deciding
+ * a disciplinary outcome on its own. Offering it, with the record shown, is the
+ * command doing its job. Both buttons are always live: whatever it suggests,
+ * the original choice still goes through in one click.
  *
- * @returns {{ action: string|null, escalated: boolean, from: number, to: number, capped: boolean }}
+ * @param {string} choice the action they picked
+ * @param {number} currentLevel their strike level right now
+ * @returns {{
+ *   action: string,            what they asked for — always issuable
+ *   suggested: string|null,    the heavier action worth offering, or null
+ *   reason: string|null,       one line explaining why, for the panel
+ *   level: number,             the strike level `action` represents (0 if not a strike)
+ * }}
  */
-function resolveAction(choice, currentLevel) {
-  if (choice !== AUTO_STRIKE) {
-    return { action: choice, escalated: false, from: currentLevel, to: strikeLevelOf(choice), capped: false };
+function escalationFor(choice, currentLevel) {
+  const asked = strikeLevelOf(choice);
+  const out = { action: choice, suggested: null, reason: null, level: asked };
+
+  // Only strikes escalate. A Verbal Warning is a Verbal Warning whatever else
+  // is on the record.
+  if (!asked) return out;
+
+  // They already hold a strike at or above the one they picked.
+  if (currentLevel >= asked) {
+    if (currentLevel >= MAX_STRIKE) {
+      out.suggested = AFTER_LAST_STRIKE;
+      out.reason = `They already hold **Strike ${currentLevel}**, which is the last one. `
+        + `The next step up is **${AFTER_LAST_STRIKE}**.`;
+    } else {
+      const next = currentLevel + 1;
+      out.suggested = STRIKE_ACTIONS[next - 1];
+      out.reason = `They already hold **Strike ${currentLevel}**, so this would be their second Strike ${asked}. `
+        + `**Strike ${next}** is the next one up.`;
+    }
   }
-  const next = currentLevel + 1;
-  if (next > MAX_STRIKE) {
-    // Already on the last rung. We do NOT silently escalate to Termination —
-    // that is a decision a person makes, not a lookup table. The panel says so
-    // and asks them to pick the action explicitly.
-    return { action: null, escalated: false, from: currentLevel, to: currentLevel, capped: true };
-  }
-  return {
-    action: STRIKE_ACTIONS[next - 1],
-    escalated: currentLevel > 0,
-    from: currentLevel, to: next, capped: false,
-  };
+  return out;
 }
 
 // ── Record ────────────────────────────────────────────────────────
@@ -167,7 +199,19 @@ async function loadRecord(discordId, limit = 6) {
   } catch (e) { /* best effort */ }
 
   out.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-  return { entries: out.slice(0, limit), total: out.length };
+
+  // A /discipline action exists in both tables by design — the bot reads one,
+  // the portal reads the other — and they share a case ref. Show it once.
+  const seen = new Set();
+  const merged = out.filter(en => {
+    if (!en.ref) return true;
+    const key = `${en.ref}::${en.type}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return { entries: merged.slice(0, limit), total: merged.length };
 }
 
 // ── What an action will actually do ───────────────────────────────
@@ -190,9 +234,95 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
   if (cfg.timed) {
     effects.push({ kind: 'expiry', text: durationDays ? `Expires after ${durationDays} day${durationDays === 1 ? '' : 's'}` : 'No end date — stays until lifted' });
   }
-  effects.push({ kind: 'log', text: 'Post to the administrative log' });
+  effects.push({ kind: 'log',  text: 'Post to the administrative log' });
+  effects.push({ kind: 'site', text: 'File it on the portal as an approved record they can appeal' });
   effects.push({ kind: 'dm', text: 'DM the officer with the reason and a link to their record' });
   return effects;
+}
+
+// ── The website record ────────────────────────────────────────────
+/**
+ * File the action as a case on the portal, so it shows up in the record, in
+ * search, and — the point of it — can be APPEALED like anything else.
+ *
+ * It is auto-approved. There is nothing to review: the action has already been
+ * taken by somebody who was allowed to take it, and a pending case for a
+ * punishment already applied would just be a queue item nobody can act on. The
+ * issuer is recorded as the approver.
+ *
+ * origin='DISCIPLINE' is what makes it honest. This is not an investigation
+ * that reached a conclusion; it is a direct action, and the record says so
+ * everywhere it is shown.
+ *
+ * Never throws — the punishment has already landed by the time this runs, and
+ * a portal write failing must not make a successful action report as failed.
+ */
+async function fileCase(o) {
+  const cfg = ACTION_CONFIG[o.action] || {};
+
+  // The case's owner is whoever ran the command. Plenty of people who can
+  // discipline have never opened the portal, so a shell account is created for
+  // them rather than refusing to file the record — same pattern the bulk
+  // importer uses.
+  const owner = await prisma.user.upsert({
+    where:  { discordId: String(o.issuerDiscordId) },
+    update: {},
+    create: {
+      discordId: String(o.issuerDiscordId),
+      discordUsername: o.issuerUsername || o.issuerName || 'unknown',
+      displayName: o.issuerName || null,
+    },
+  });
+
+  const caseRef = await require('./caseRef').generateCaseRef();
+
+  const row = await prisma.case.create({
+    data: {
+      caseRef,
+      origin: 'DISCIPLINE',
+      userId: owner.id,
+      officerDiscordId: String(o.targetDiscordId),
+      robloxUserId:   o.targetRobloxId || null,
+      robloxUsername: o.targetName || null,
+      action:  o.action,
+      actions: [{ action: o.action, roleId: cfg.roleId || null, durationDays: o.durationDays || null }],
+      reason:  o.reason || 'N/A',
+      notes:   o.notes || 'N/A',
+      // Only when there actually is one. A direct action usually has no case
+      // document, and inventing a dead link would be worse than none.
+      caseLink: o.caseLink || null,
+      status:  'APPROVED',
+      logMessageId: o.logMessageId || null,
+      investigatorDiscordUsername: o.issuerName || null,
+    },
+  });
+
+  // The approval, attributed to whoever ran the command.
+  await prisma.caseAction.create({
+    data: {
+      caseId: row.id,
+      actionType: 'APPROVED',
+      performedBy: owner.id,
+      notes: `Issued directly with /discipline by ${o.issuerName || o.issuerDiscordId} — no review required.`,
+    },
+  }).catch(() => {});
+
+  // The punishment rows the record and the rejoin-persistence both read.
+  if (cfg.roleId) {
+    await prisma.casePunishment.create({
+      data: {
+        caseId: row.id,
+        action: o.action,
+        roleId: cfg.roleId,
+        durationDays: o.durationDays || null,
+        expiresAt: cfg.timed && o.durationDays
+          ? new Date(Date.now() + Number(o.durationDays) * 86400000)
+          : null,
+      },
+    }).catch(() => {});
+  }
+
+  return row;
 }
 
 // ── Apply ─────────────────────────────────────────────────────────
@@ -216,12 +346,13 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
  * @param {number} [o.durationDays]   timed actions only
  * @param {string} o.issuerDiscordId
  * @param {string} o.issuerName
+ * @param {string} [o.issuerUsername]
  * @param {function} [o.onStep]       async (stepKey, state, detail) => void
  */
 async function applyDiscipline(o) {
   const cfg = ACTION_CONFIG[o.action] || {};
   const onStep = o.onStep || (async () => {});
-  const result = { ok: true, punishmentId: null, logMessageId: null, steps: {}, warnings: [] };
+  const result = { ok: true, punishmentId: null, logMessageId: null, caseId: null, caseRef: null, steps: {}, warnings: [] };
 
   const step = async (key, fn) => {
     await onStep(key, 'running');
@@ -254,7 +385,9 @@ async function applyDiscipline(o) {
         reason:     o.reason || null,
         issuedById: o.issuerDiscordId ? String(o.issuerDiscordId) : null,
         issuedBy:   o.issuerName || null,
-        caseRef:    o.caseLink || null,
+        // Filled in with the portal case ref once the case is filed, which is
+        // also what links the two rows so the record shows the action once.
+        caseRef:    null,
         active:     true,
         expiresAt,
       },
@@ -292,7 +425,8 @@ async function applyDiscipline(o) {
   await step('log', async () => {
     const { sendApprovalWebhook } = require('./webhook');
     const id = await sendApprovalWebhook({
-      caseRef: o.caseLink || 'Direct action',
+      direct: true,
+      caseRef: o.caseLink || null,
       action:  o.action,
       actions: [{ action: o.action, roleId: cfg.roleId || null, durationDays: o.durationDays || null }],
       reason:  o.reason,
@@ -308,7 +442,25 @@ async function applyDiscipline(o) {
     return 'posted';
   });
 
-  // 5. Tell the officer. Best-effort by nature — plenty of people have DMs
+  // 5. The portal record. Filed after the log so it can carry the log message
+  //    id, which is what lets an appeal edit the original notice in place.
+  await step('record_site', async () => {
+    const row = await fileCase({ ...o, logMessageId: result.logMessageId });
+    result.caseId = row.id;
+    result.caseRef = row.caseRef;
+    // Stamp the punishment with the case it was filed as. The same action now
+    // exists as a MetPunishment (what the bot reads) and a CasePunishment (what
+    // the portal reads), and without this link the record shows it twice.
+    if (result.punishmentId) {
+      await prisma.metPunishment.update({
+        where: { id: result.punishmentId },
+        data:  { caseRef: row.caseRef },
+      }).catch(() => {});
+    }
+    return `case ${row.caseRef}`;
+  });
+
+  // 6. Tell the officer. Best-effort by nature — plenty of people have DMs
   //    closed, and that is not a failure of the punishment.
   await step('notify', async () => {
     if (process.env.MEMBER_ACTION_DM === 'off') return 'skipped (DMs turned off)';
@@ -334,7 +486,7 @@ async function applyDiscipline(o) {
 }
 
 module.exports = {
-  AUTO_STRIKE, COMMAND_ACTIONS, STRIKE_ACTIONS, MAX_STRIKE,
-  strikeLevelOf, currentStrikeLevel, resolveAction,
-  loadRecord, plannedEffects, applyDiscipline,
+  COMMAND_ACTIONS, STRIKE_ACTIONS, KNOWN_STRIKE_ACTIONS, MAX_STRIKE, AFTER_LAST_STRIKE,
+  strikeLevelOf, currentStrikeLevel, escalationFor,
+  loadRecord, plannedEffects, applyDiscipline, fileCase,
 };

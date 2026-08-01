@@ -19,15 +19,26 @@ const ACTION_CONFIG = {
   'Activity Strike':       { get roleId() { return env('ROLE_ACTIVITY_STRIKE', '1219011548714893343'); }, exile: false, timed: false },
   'Disciplinary Strike 1': { get roleId() { return env('ROLE_STRIKE_1', '1191048287361433738'); },        exile: false, timed: false },
   'Disciplinary Strike 2': { get roleId() { return env('ROLE_STRIKE_2', '1191048287361433739'); },        exile: false, timed: false },
-  'Disciplinary Strike 3': { get roleId() { return env('ROLE_STRIKE_3', '1513101097978564739'); },        exile: false, timed: false },
+  // RETIRED. There is no third strike — two strikes and the next step is
+  // Termination, which somebody decides rather than a counter reaching 3. The
+  // entry stays so historical records still resolve their role and their name;
+  // `retired` keeps it out of every list you can pick from.
+  'Disciplinary Strike 3': { get roleId() { return env('ROLE_STRIKE_3', '1513101097978564739'); },        exile: false, timed: false, retired: true },
   'Demotion':              { get roleId() { return null; },                                               exile: false, timed: false },
   'Termination':           { get roleId() { return null; },                                               exile: true,  timed: false },
   'Blacklist':             { get roleId() { return env('ROLE_BLACKLIST', '1195557302250524764'); },       exile: true,  timed: false },
 };
 
-const ACTION_NAMES = Object.keys(ACTION_CONFIG);
+// What you can pick TODAY. Retired actions are excluded, so nothing new is
+// ever filed against one.
+const ACTION_NAMES = Object.keys(ACTION_CONFIG).filter(n => !ACTION_CONFIG[n].retired);
+
+// Every action that has ever existed, for reading old records back. A case
+// filed years ago against a since-retired action must still show its name and
+// resolve its role.
+const ALL_ACTION_NAMES = Object.keys(ACTION_CONFIG);
 
 // The Discord role for an action right now (env-resolved), or null.
 function roleIdForAction(action) { return ACTION_CONFIG[action] ? ACTION_CONFIG[action].roleId : null; }
 
-module.exports = { ACTION_CONFIG, ACTION_NAMES, roleIdForAction };
+module.exports = { ACTION_CONFIG, ACTION_NAMES, ALL_ACTION_NAMES, roleIdForAction };
