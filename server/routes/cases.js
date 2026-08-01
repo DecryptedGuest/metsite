@@ -699,6 +699,14 @@ router.post('/', async (req, res) => {
   if (documentId) {
     const doc = await prisma.caseDocument.findUnique({ where: { id: documentId } }).catch(() => null);
     if (!doc) return res.status(400).json({ error: 'That case document no longer exists.' });
+    // You can only file a case against a document you wrote (High Command may
+    // use anyone's), and never against one already attached to another case —
+    // otherwise a case could point at a file its subject never had a hearing on.
+    const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(req.user.role);
+    if (doc.authorId !== req.user.id && !isElevated)
+      return res.status(403).json({ error: 'That case document belongs to someone else.' });
+    if (doc.caseId)
+      return res.status(409).json({ error: 'That document is already attached to another case.' });
     caseLink = `${publicBaseUrl(req)}/case-doc/${doc.id}`;
   } else if (!caseLink?.trim()) {
     return res.status(400).json({ error: 'Build a case document, or paste a case link.' });
@@ -801,7 +809,7 @@ router.post('/', async (req, res) => {
       category: 'case',
       title: `New Case — ${caseRef}`,
       body:  `${robloxUsername || 'Unknown'} · ${actionDisplay}`,
-      url:   `/dashboard?page=review&case=${newCase.id}`,
+      url:   `/ia/dashboard?page=review&case=${newCase.id}`,
     });
 
     res.status(201).json(newCase);
@@ -1007,7 +1015,10 @@ router.patch('/:id', async (req, res) => {
   try {
     const existing = await prisma.case.findUnique({
       where:   { id: req.params.id },
-      include: { user: { select: { discordUsername: true, displayName: true, discordId: true, robloxId: true, robloxUsername: true } } },
+      include: {
+        casePunishments: true,
+        user: { select: { discordUsername: true, displayName: true, discordId: true, robloxId: true, robloxUsername: true } },
+      },
     });
     if (!existing) return res.status(404).json({ error: 'Case not found' });
 
@@ -1017,6 +1028,22 @@ router.patch('/:id', async (req, res) => {
     const isOwnerPending = existing.userId === req.user.id && existing.status === 'PENDING';
     if (!isElevated && !isOwnerPending) {
       return res.status(403).json({ error: 'You can only edit your own pending case.' });
+    }
+
+    // Blacklists and Terminations are High Command's alone — the same rule that
+    // guards approve, deny and appeal has to guard editing too. Without it a
+    // Supervisor could edit the Termination off a case and then appeal it as
+    // though it had never carried one, laundering their way past the gate.
+    if (req.user.role === 'SUPERVISOR') {
+      if (caseHasHicommOnlyPunishment(existing))
+        return res.status(403).json({ error: 'Only HICOMM can edit a case involving a Blacklist or Termination.' });
+      if (Array.isArray(rawActions) && caseHasHicommOnlyPunishment({ actions: rawActions }))
+        return res.status(403).json({ error: 'Only HICOMM can add a Blacklist or Termination to a case.' });
+    }
+    // Likewise, the submitter's own edit window is for a PENDING case. Once a
+    // case is decided, only elevated staff may touch it.
+    if (!isElevated && Array.isArray(rawActions) && caseHasHicommOnlyPunishment({ actions: rawActions })) {
+      return res.status(403).json({ error: 'Only HICOMM can add a Blacklist or Termination to a case.' });
     }
 
     const data = {};
@@ -1076,7 +1103,7 @@ router.patch('/:id', async (req, res) => {
         userIds: [existing.reviewChanges.byUserId],
         title:   `Changes applied — ${existing.caseRef}`,
         body:    changed.length ? changed.map(c => c.label).join(', ') + ' updated' : 'The submitter updated this case.',
-        url:     `/dashboard?page=review&case=${existing.id}`,
+        url:     `/ia/dashboard?page=review&case=${existing.id}`,
         prefKey: 'caseUpdated',
       }).catch(() => {});
     }
@@ -1170,7 +1197,7 @@ router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
         userIds: [existing.userId],
         title:   `Changes requested — ${existing.caseRef}`,
         body:    note,
-        url:     `/dashboard?page=my-cases&case=${existing.id}`,
+        url:     `/ia/dashboard?page=my-cases&case=${existing.id}`,
       }).catch(() => {});
     }
 
@@ -1194,9 +1221,13 @@ router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
 // GET /api/cases/:id/appeal — whether the current user may appeal this case.
 router.get('/:id/appeal', async (req, res) => {
   try {
+    // casePunishments must be loaded here for the same reason the POST loads
+    // them: the High-Command-only gate reads the punishments actually applied,
+    // not just the (editable) action columns. Without them this endpoint would
+    // say "yes" to an appeal the POST then refuses.
     const c = await prisma.case.findUnique({
       where:   { id: req.params.id },
-      include: { appeals: { orderBy: { createdAt: 'desc' } } },
+      include: { casePunishments: true, appeals: { orderBy: { createdAt: 'desc' } } },
     });
     if (!c) return res.status(404).json({ error: 'Case not found' });
     const verdict = canAppealCase(req.user, c);
@@ -1236,8 +1267,12 @@ router.post('/:id/appeal', async (req, res) => {
     const appealedByName = req.user.displayName || req.user.discordUsername || 'Internal Affairs';
     const now = new Date();
 
-    const updated = await prisma.case.update({
-      where: { id: existing.id },
+    // Claim the appeal with a conditional update: only the request that finds
+    // the case still APPROVED and un-appealed wins. Two people pressing Appeal
+    // at the same moment would otherwise both pass the check above and both
+    // lift the roles, producing two appeal records for one case.
+    const claim = await prisma.case.updateMany({
+      where: { id: existing.id, status: 'APPROVED', appealedAt: null },
       data: {
         status:         'OVERTURNED',
         appealedAt:     now,
@@ -1246,6 +1281,10 @@ router.post('/:id/appeal', async (req, res) => {
         appealReason:   reason,
       },
     });
+    if (claim.count === 0) {
+      return res.status(409).json({ error: 'This case has just been appealed by someone else.' });
+    }
+    const updated = await prisma.case.findUnique({ where: { id: existing.id } });
 
     const appeal = await prisma.caseAppeal.create({
       data: {
@@ -1267,32 +1306,93 @@ router.post('/:id/appeal', async (req, res) => {
     }).catch(() => {});
 
     // Lift the Discord punishment roles this case applied.
-    const lifted = [], failed = [];
+    //
+    // A row is only marked `roleRemoved` when Discord actually confirmed the
+    // removal. If the bot is offline or the call fails, the row is deliberately
+    // left alone so the expiry checker keeps retrying it — marking it removed
+    // would strand the punishment role on the officer forever.
+    const lifted = [], failed = [], kept = [];
     if (existing.officerDiscordId) {
       const { removeRole } = require('../lib/bot');
+
+      // A punishment role can be held because of MORE than one case (two
+      // separate Strike 1s, say). Removing the role for this appeal would
+      // silently lift the other, still-standing case's punishment too — so any
+      // role another live case still relies on is left in place and reported.
+      const heldElsewhere = await prisma.casePunishment.findMany({
+        where: {
+          roleRemoved: false,
+          caseId: { not: existing.id },
+          case: {
+            officerDiscordId: existing.officerDiscordId,
+            status: { in: ['APPROVED', 'PENDING'] },
+          },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        select: { roleId: true, case: { select: { caseRef: true } } },
+      }).catch(() => []);
+      const stillNeeded = new Map();
+      heldElsewhere.forEach(p => { if (p.roleId) stillNeeded.set(p.roleId, p.case?.caseRef || 'another case'); });
+
+      const lift = async (roleId, label) => {
+        if (!roleId) return;
+        if (stillNeeded.has(roleId)) {
+          kept.push(`${label} (still held by ${stillNeeded.get(roleId)})`);
+          return 'kept';
+        }
+        return (await removeRole(existing.officerDiscordId, roleId)) ? 'ok' : 'fail';
+      };
+
       for (const p of (existing.casePunishments || [])) {
         if (!p.roleId || p.roleRemoved) continue;
-        const ok = await removeRole(existing.officerDiscordId, p.roleId);
-        if (ok) lifted.push(p.action); else failed.push(p.action);
-        await prisma.casePunishment.update({ where: { id: p.id }, data: { roleRemoved: true } }).catch(() => {});
+        const result = await lift(p.roleId, p.action);
+        if (result === 'ok') {
+          lifted.push(p.action);
+          await prisma.casePunishment.update({ where: { id: p.id }, data: { roleRemoved: true } }).catch(() => {});
+        } else if (result === 'kept') {
+          // This case's claim on the role is over even though the role stays.
+          await prisma.casePunishment.update({ where: { id: p.id }, data: { roleRemoved: true } }).catch(() => {});
+        } else {
+          failed.push(p.action);
+          // Make it due now so the role-expiry checker (every 5 min) retries the
+          // removal. Permanent punishments have no expiry, so without this a
+          // failed lift would never be attempted again.
+          await prisma.casePunishment.update({
+            where: { id: p.id }, data: { expiresAt: new Date() },
+          }).catch(() => {});
+        }
       }
+
       // Cases approved before punishments were recorded (or with a role added to
       // the config later) still need their current role removed.
       for (const a of actions) {
         const roleId = ACTION_CONFIG[a.action]?.roleId || a.roleId || null;
         if (!roleId) continue;
         if ((existing.casePunishments || []).some(p => p.roleId === roleId)) continue;
-        const ok = await removeRole(existing.officerDiscordId, roleId);
-        if (ok) lifted.push(a.action);
+        const result = await lift(roleId, a.action);
+        if (result === 'ok') lifted.push(a.action);
+        else if (result === 'fail') failed.push(a.action);
       }
     }
 
-    if (lifted.length || failed.length) {
+    // Some punishments can't be undone by the bot: a Roblox group exile can't be
+    // reversed (you cannot force someone back into a group) and a demotion has
+    // no recorded "before" rank. Name them so whoever granted the appeal knows
+    // what is left to do by hand, rather than assuming everything was lifted.
+    const manual = [];
+    for (const a of actions) {
+      if (ACTION_CONFIG[a.action]?.exile) manual.push(`${a.action} — re-invite to the Roblox group manually`);
+      if (a.action === 'Demotion')        manual.push('Demotion — restore the Roblox group rank manually');
+    }
+
+    if (lifted.length || failed.length || kept.length || manual.length) {
       await prisma.caseAction.create({
         data: {
           caseId: existing.id, actionType: 'APPEALED', performedBy: req.user.id,
           notes: `Punishment roles lifted: ${lifted.join(', ') || 'none'}`
-               + (failed.length ? ` · failed: ${failed.join(', ')}` : ''),
+               + (failed.length ? ` · could not remove (queued for retry): ${failed.join(', ')}` : '')
+               + (kept.length   ? ` · left in place: ${kept.join(', ')}` : '')
+               + (manual.length ? ` · needs doing by hand: ${manual.join('; ')}` : ''),
         },
       }).catch(() => {});
     }
@@ -1319,7 +1419,7 @@ router.post('/:id/appeal', async (req, res) => {
         userIds: [existing.userId],
         title:   `Case appealed — ${existing.caseRef}`,
         body:    `${appealedByName} granted an appeal. Punishments have been lifted.`,
-        url:     `/dashboard?case=${existing.id}`,
+        url:     `/ia/dashboard?case=${existing.id}`,
         prefKey: 'caseAppealed',
       }).catch(() => {});
     }
@@ -1327,10 +1427,10 @@ router.post('/:id/appeal', async (req, res) => {
     require('../lib/audit').record({
       req, action: 'CASE_APPEAL', category: 'ia', targetType: 'case', targetId: existing.id,
       summary: `Appeal granted on ${existing.caseRef} — ${lifted.length} punishment role(s) lifted`,
-      metadata: { reason, lifted, failed },
+      metadata: { reason, lifted, failed, kept, manual },
     });
 
-    res.json({ ...updated, appeal, lifted, failed });
+    res.json({ ...updated, appeal, lifted, failed, kept, manual });
   } catch (err) {
     console.error('POST /cases/:id/appeal error:', err);
     res.status(500).json({ error: 'Failed to file the appeal' });

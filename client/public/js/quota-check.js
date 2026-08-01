@@ -55,7 +55,13 @@ function renderMetDbPlan(plan, applied) {
     + '<span><strong>' + (plan.keep || 0) + '</strong> matched</span>'
     + (plan.joinRanks && plan.joinRanks.length
         ? '<span>new joiners: <strong>' + escapeHtml(plan.joinRanks.join(", ")) + '</strong></span>' : '')
-    + '</div>';
+    + ((plan.renamed && plan.renamed.length)
+        ? '<span><strong>' + plan.renamed.length + '</strong> renamed (kept)</span>' : '')
+    + '</div>'
+    + ((plan.renamed && plan.renamed.length)
+        ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> Matched by Discord ID after a Roblox rename: '
+          + plan.renamed.map(function (r) { return escapeHtml(r.was) + ' → ' + escapeHtml(r.now); }).join(", ")
+          + '</div>' : '');
 
   var cols = '<div class="metdb-cols">'
     + metdbList("Remove", plan.remove || [], "bad", function (r) {
@@ -103,11 +109,14 @@ async function applyMetDatabase() {
   var total = (metDbPlan.remove || []).length + (metDbPlan.add || []).length;
   if (!confirm("This will remove " + (metDbPlan.remove || []).length + " member(s) from the database sheet and add "
       + (metDbPlan.add || []).length + " new joiner(s). " + total + " row(s) change. Continue?")) return;
+  // A removed member's whole row is cleared, so this is not reversible from here.
 
   var btn = document.getElementById("btn-metdb-apply");
   if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Applying…"; }
   try {
-    var result = await api("/api/quota/met-database/sync", { method: "POST", body: JSON.stringify({}) });
+    var result = await api("/api/quota/met-database/sync", {
+      method: "POST", body: JSON.stringify({ token: metDbPlan.token || null }),
+    });
     renderMetDbPlan(result, true);
     showToast("MET database synced — removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
     metDbPlan = null;

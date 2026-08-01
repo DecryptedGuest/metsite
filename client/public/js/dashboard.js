@@ -331,8 +331,10 @@ async function openTicketDeepLink(ticketId) {
 }
 
 // Copy a shareable deep-link to a case/ticket detail.
-function copyCaseLink(caseId) { copyDeepLink('/dashboard?case=' + caseId); }
-function copyTicketLink(ticketId) { copyDeepLink('/dashboard?ticket=' + ticketId); }
+// Deep links must point at the IA dashboard: "/dashboard" is the MET profile
+// page, which knows nothing about ?case= / ?ticket=.
+function copyCaseLink(caseId) { copyDeepLink('/ia/dashboard?case=' + caseId); }
+function copyTicketLink(ticketId) { copyDeepLink('/ia/dashboard?ticket=' + ticketId); }
 function copyDeepLink(path) {
   const url = location.origin + path;
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -458,6 +460,9 @@ function showAttachedDoc(doc) {
   const linkEl = document.getElementById('f-case-link');
   if (!doc) {
     if (box) box.style.display = 'none';
+    // Clear the link the document wrote, or the case would still be filed
+    // against a document that is no longer attached.
+    if (linkEl && /\/case-doc\//.test(linkEl.value || '')) linkEl.value = '';
     return;
   }
   if (linkEl) linkEl.value = location.origin + '/case-doc/' + doc.id;
@@ -598,6 +603,16 @@ function openEditCase(caseId) {
 
   renderActionChecklist();
   applyDocPunishments(Array.isArray(c.actions) && c.actions.length ? c.actions : [{ action: c.action }], true);
+
+  // Show the document this case is actually attached to (and nothing if it has
+  // none) rather than whatever was staged by a previous new-case draft.
+  if (c.documentId) {
+    api('/api/case-docs/' + c.documentId)
+      .then(showAttachedDoc)
+      .catch(function () { showAttachedDoc(null); });
+  } else {
+    showAttachedDoc(null);
+  }
 
   const title = document.querySelector('#modal-submit .modal-title');
   if (title) title.innerHTML = '<i class="ti ti-edit" style="font-size:18px;"></i> Edit Case ' + escapeHtml(c.caseRef);
@@ -2251,7 +2266,17 @@ async function openAppealModal(caseId) {
       });
       closeModal('modal-appeal');
       closeModal('modal-detail');
-      showToast(`Appeal granted — ${res.lifted?.length || 0} punishment role(s) lifted.`, 'success');
+      const failed = (res.failed || []).length;
+      const manual = res.manual || [];
+      showToast(
+        `Appeal granted — ${res.lifted?.length || 0} punishment role(s) lifted.`
+        + (failed ? ` ${failed} role(s) couldn't be removed in Discord and will be retried automatically.` : ''),
+        failed ? 'warning' : 'success');
+      // Anything the bot physically cannot undo has to be said out loud, or
+      // people will assume the appeal reversed everything.
+      if (manual.length) {
+        showToast('Still to do by hand: ' + manual.join('; '), 'warning', 12000);
+      }
       await refreshCaseViews();
     } catch (err) {
       showToast(err.message || 'Failed to file the appeal.', 'error');

@@ -450,9 +450,11 @@ async function listGroupRoles() {
 /**
  * List group members, paginated (100/page).
  * Returns { members: [{ userId, username, displayName, roleId }], nextPageToken }.
+ * `groupId` defaults to ROBLOX_GROUP_ID; pass one to list a different group
+ * (the MET database sync mirrors MET_DB_GROUP_ID, which may differ).
  */
-async function listGroupMembers(pageToken = null) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listGroupMembers(pageToken = null, groupIdOverride = null) {
+  const groupId = groupIdOverride || process.env.ROBLOX_GROUP_ID;
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/users?limit=100&sortOrder=Asc`;

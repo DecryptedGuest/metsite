@@ -28,12 +28,20 @@ const HICOMM_ONLY_ACTIONS = ['Blacklist', 'Termination'];
 // Site roles that count as High Command for appeal purposes.
 const HICOMM_ROLES = ['HICOMM', 'DEVELOPER'];
 
-// Every punishment name attached to a case (enriched JSON first, then the
-// legacy comma-joined `action` string).
+// Every punishment name attached to a case: the enriched JSON, the legacy
+// comma-joined `action` string, AND the CasePunishment rows written when the
+// case was approved.
+//
+// The CasePunishment rows matter for the High-Command-only gate: `action` and
+// `actions` are rewritable through the edit endpoint, so if the gate read only
+// those, someone could edit a Termination off a case and then appeal it as if
+// it had never carried one. The punishments actually applied at approval time
+// cannot be laundered that way.
 function caseActionNames(c) {
   const names = [];
   if (c && Array.isArray(c.actions)) c.actions.forEach(a => { if (a && a.action) names.push(String(a.action)); });
   if (c && c.action) String(c.action).split(',').forEach(s => { const t = s.trim(); if (t) names.push(t); });
+  if (c && Array.isArray(c.casePunishments)) c.casePunishments.forEach(p => { if (p && p.action) names.push(String(p.action)); });
   return names;
 }
 

@@ -495,10 +495,20 @@ function officerCell(c) {
   return `<div style="display:flex;align-items:center;gap:7px;">${avatar}${name}</div>`;
 }
 
+// Escape text for interpolation into HTML — including into ATTRIBUTE values.
+//
+// The obvious `div.textContent = s; return div.innerHTML` trick escapes &, <
+// and > but leaves quotes untouched, which is fine inside an element and unsafe
+// inside `title="…"`. Since this helper is used for both, it escapes quotes
+// too: a reviewer's note containing a double quote would otherwise close the
+// attribute and let the rest of the note become markup.
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function emptyRow(colspan, message = 'No cases found') {

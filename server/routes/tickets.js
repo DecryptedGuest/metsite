@@ -14,7 +14,7 @@
 
 const express = require('express');
 const prisma  = require('../lib/db');
-const { requireHICOMM } = require('../middleware/auth');
+const { requireHICOMMStrict } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -148,7 +148,8 @@ router.get('/stats', async (req, res) => {
 });
 
 // ── POST /api/tickets/sync — force a re-scan (HICOMM / Developer) ─
-router.post('/sync', requireHICOMM, async (req, res) => {
+// Strict: matches the button, which is hicomm-strict-only in the UI.
+router.post('/sync', requireHICOMMStrict, async (req, res) => {
   try {
     const { getClient } = require('../lib/bot');
     const client = getClient();

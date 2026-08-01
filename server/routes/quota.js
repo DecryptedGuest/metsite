@@ -131,9 +131,12 @@ router.post('/met-database/sync', requireHICOMMStrict, async (req, res) => {
     const { syncMetDatabase } = require('../lib/metDatabase');
     const result = await syncMetDatabase({
       dry:   false,
+      // The token comes from the dry run the operator just reviewed, so what
+      // gets written is exactly what they were shown.
+      token: (req.body && req.body.token) || null,
       actor: { id: req.user.id, name: req.user.displayName || req.user.discordUsername },
     });
-    if (!result.ok) return res.status(502).json(result);
+    if (!result.ok) return res.status(result.stale ? 409 : 502).json(result);
     res.json(result);
   } catch (err) {
     console.error('[MetDB] sync error:', err.message);

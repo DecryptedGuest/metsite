@@ -110,36 +110,70 @@ async function rowFromMessage(msg) {
   };
 }
 
-// Upsert one message. Returns 'created' | 'updated' | null (not a ticket log).
+// Fields that a transient lookup failure can leave null. When re-ingesting an
+// existing row we must never overwrite a good stored value with null — RoVer
+// being rate-limited for one sweep would otherwise erase every creator name.
+const RESOLVED_FIELDS = [
+  'ticketRef', 'ticketName', 'reason', 'transcriptUrl',
+  'creatorDiscordId', 'creatorUsername', 'creatorRobloxUsername',
+  'closerDiscordId', 'closerUsername', 'closerUserId',
+];
+
+// Upsert one message. Returns 'created' | 'updated' | 'unchanged' | null.
 async function ingestMessage(msg) {
   const data = await rowFromMessage(msg);
   if (!data) return null;
   try {
-    const existing = await prisma.ticketLog.findUnique({
-      where: { messageId: data.messageId }, select: { id: true },
-    });
+    const existing = await prisma.ticketLog.findUnique({ where: { messageId: data.messageId } });
     if (existing) {
-      // Re-parse in place: a closer who has since signed in now resolves to a
-      // site account, and a renamed ticket gets its final name.
-      await prisma.ticketLog.update({ where: { messageId: data.messageId }, data });
+      // Only write what we actually learned. A null from this pass means "we
+      // couldn't resolve it", not "it is empty" — so keep what's already stored.
+      const patch = {};
+      for (const f of RESOLVED_FIELDS) {
+        if (data[f] != null && data[f] !== existing[f]) patch[f] = data[f];
+      }
+      if (data.ticketType && data.ticketType !== existing.ticketType) patch.ticketType = data.ticketType;
+      if (!Object.keys(patch).length) return 'unchanged';
+      await prisma.ticketLog.update({ where: { messageId: data.messageId }, data: patch });
       return 'updated';
     }
     await prisma.ticketLog.create({ data });
     return 'created';
   } catch (err) {
     // A concurrent insert of the same message is harmless.
-    if (err && err.code === 'P2002') return 'updated';
+    if (err && err.code === 'P2002') return 'unchanged';
     console.error('[TicketLogs] ingest error:', err.message);
     return null;
   }
 }
 
+// Has the channel ever been swept end-to-end? Recorded so routine sweeps can
+// take the cheap incremental path instead of re-reading everything, and so a
+// channel with no parseable logs doesn't get re-scanned in full every 5 minutes.
+const FULL_SWEEP_KEY = 'ticketLogFullSweepAt';
+
+async function fullSweepDone() {
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: FULL_SWEEP_KEY } });
+    return !!(row && row.value);
+  } catch (e) { return false; }
+}
+async function markFullSweep() {
+  try {
+    await prisma.systemSetting.upsert({
+      where:  { key: FULL_SWEEP_KEY },
+      update: { value: new Date().toISOString() },
+      create: { key: FULL_SWEEP_KEY, value: new Date().toISOString() },
+    });
+  } catch (e) { /* the sweep still worked; this is only an optimisation */ }
+}
+
 // ── Backfill sweep ────────────────────────────────────────────────
-// Pages backwards through the log channel. Stops early once it has seen
-// `stopAfterKnown` consecutive messages that are already stored — that is the
-// steady state, so routine sweeps cost one page.
+// Pages backwards through the log channel. Routine sweeps stop as soon as they
+// have seen `stopAfterKnown` consecutive messages already stored — the steady
+// state, so they cost one page. `opts.full` reads the whole channel history.
 async function backfill(client, opts = {}) {
-  const stats = { scanned: 0, created: 0, updated: 0, skipped: 0, error: null };
+  const stats = { scanned: 0, created: 0, updated: 0, unchanged: 0, skipped: 0, pages: 0, full: !!opts.full, error: null };
   if (!client) { stats.error = 'bot not ready'; return stats; }
 
   const guildId   = TICKET_LOG_GUILD_ID();
@@ -159,12 +193,16 @@ async function backfill(client, opts = {}) {
     return stats;
   }
 
-  const stored = await prisma.ticketLog.count().catch(() => 0);
-  const limit  = opts.limit || (stored === 0 ? FIRST_BACKFILL_LIMIT() : 400);
-  const stopAfterKnown = opts.full ? Infinity : (stored === 0 ? Infinity : 60);
+  // A first sweep (or an explicit full re-scan) walks the whole history; after
+  // that, sweeps only need to reach back far enough to close any gap.
+  const swept = opts.full ? false : await fullSweepDone();
+  const isFirst = opts.full || !swept;
+  const limit = opts.limit || (isFirst ? (opts.full ? Infinity : FIRST_BACKFILL_LIMIT()) : 400);
+  const stopAfterKnown = isFirst ? Infinity : 60;
+  const maxPages = opts.full ? 400 : 40;   // 400 pages × 100 = 40k messages
 
-  let before, knownStreak = 0, guard = 0;
-  while (stats.scanned < limit && guard++ < 40) {
+  let before, knownStreak = 0, reachedEnd = false;
+  while (stats.scanned < limit && stats.pages < maxPages) {
     let page;
     try {
       page = await channel.messages.fetch({ limit: 100, before });
@@ -172,20 +210,39 @@ async function backfill(client, opts = {}) {
       stats.error = `cannot read ticket logs: ${e.message}`;
       break;
     }
-    if (!page || page.size === 0) break;
+    stats.pages++;
+    if (!page || page.size === 0) { reachedEnd = true; break; }
 
     for (const [, msg] of page) {
       stats.scanned++;
-      const result = await ingestMessage(msg);
-      if (result === 'created')      { stats.created++; knownStreak = 0; }
-      else if (result === 'updated') { stats.updated++; knownStreak++; }
-      else                           { stats.skipped++; }
+      // One malformed message must not abort the whole sweep and strand it on
+      // the same page forever.
+      let result = null;
+      try { result = await ingestMessage(msg); }
+      catch (e) { console.warn('[TicketLogs] skipping message', msg && msg.id, '-', e.message); }
+
+      if (result === 'created')        { stats.created++;   knownStreak = 0; }
+      else if (result === 'updated')   { stats.updated++;   knownStreak = 0; }
+      else if (result === 'unchanged') { stats.unchanged++; knownStreak++; }
+      else                             { stats.skipped++; }
       if (knownStreak >= stopAfterKnown) break;
     }
     if (knownStreak >= stopAfterKnown) break;
 
     before = page.last()?.id;
-    if (!before) break;
+    if (!before) { reachedEnd = true; break; }
+    if (page.size < 100) { reachedEnd = true; break; }   // last page of history
+  }
+
+  // Only claim the history is covered when we actually walked off the end of it.
+  if (isFirst && reachedEnd && !stats.error) await markFullSweep();
+
+  // Reading embeds from another bot needs the (privileged) Message Content
+  // intent. Without it every message parses as "not a ticket log", which looks
+  // exactly like an empty channel — so say so rather than failing silently.
+  if (!stats.error && stats.scanned > 0 && stats.created === 0 && stats.updated === 0 && stats.unchanged === 0) {
+    stats.error = 'Read ' + stats.scanned + ' messages but could not parse any as ticket logs — '
+      + 'check that the "Message Content Intent" is enabled for the bot in the Discord Developer Portal.';
   }
 
   return stats;
@@ -198,7 +255,7 @@ async function sweep(client, opts) {
   _sweeping = true;
   try {
     const s = await backfill(client, opts);
-    if (s.created || s.error) {
+    if (s.created || s.updated || s.error) {
       console.log(`[TicketLogs] sweep — scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}${s.error ? `, error: ${s.error}` : ''}`);
     }
     return s;

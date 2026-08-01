@@ -72,7 +72,9 @@ async function loadTickets() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    myTicketsCache = (await api('/api/tickets')) || [];
+    // The search goes to the server too, so it isn't limited to the rows the
+    // page happens to have loaded.
+    myTicketsCache = (await api('/api/tickets' + (myTicketQuery ? '?q=' + encodeURIComponent(myTicketQuery) : ''))) || [];
     renderTicketsTable();
   } catch (err) {
     tbody.innerHTML = emptyRow(6, 'Failed to load ticket logs.');
@@ -100,7 +102,7 @@ async function loadAllTickets() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    allTicketsCache = (await api('/api/tickets/all')) || [];
+    allTicketsCache = (await api('/api/tickets/all' + (allTicketQuery ? '?q=' + encodeURIComponent(allTicketQuery) : ''))) || [];
     renderAllTicketsTable();
   } catch (err) {
     tbody.innerHTML = emptyRow(7, 'Failed to load ticket logs.');
@@ -203,10 +205,23 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Search
+  // Filter what's on screen instantly, then re-query the server shortly after so
+  // matches beyond the loaded rows show up too.
+  var mineTimer = null, allTimer = null;
   var mine = document.getElementById('tickets-search');
-  if (mine) mine.addEventListener('input', function () { myTicketQuery = mine.value.trim(); renderTicketsTable(); });
+  if (mine) mine.addEventListener('input', function () {
+    myTicketQuery = mine.value.trim();
+    renderTicketsTable();
+    clearTimeout(mineTimer);
+    mineTimer = setTimeout(loadTickets, 350);
+  });
   var all = document.getElementById('all-tickets-search');
-  if (all) all.addEventListener('input', function () { allTicketQuery = all.value.trim(); renderAllTicketsTable(); });
+  if (all) all.addEventListener('input', function () {
+    allTicketQuery = all.value.trim();
+    renderAllTicketsTable();
+    clearTimeout(allTimer);
+    allTimer = setTimeout(loadAllTickets, 350);
+  });
 
   // Manual re-sync (HICOMM / Developer)
   var sync = document.getElementById('btn-ticket-sync');
@@ -215,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var original = sync.innerHTML;
     sync.innerHTML = '<div class="spinner"></div> Syncing…';
     try {
-      var s = await api('/api/tickets/sync', { method: 'POST', body: JSON.stringify({}) });
+      var s = await api('/api/tickets/sync', { method: 'POST', body: JSON.stringify({ full: true }) });
       showToast('Synced — ' + s.created + ' new, ' + s.updated + ' refreshed (scanned ' + s.scanned + ').', 'success');
       loadAllTickets(); loadTickets();
     } catch (err) {
