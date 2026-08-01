@@ -481,7 +481,9 @@ async function applyDiscipline(o) {
       caseLink:  o.caseLink || null,
       expiresAt,
       direct:    true,
-      issuedBy:  o.issuerName || null,
+      avatar:         o.targetAvatar || null,
+      robloxUsername: o.targetName || null,
+      robloxId:       o.targetRobloxId || null,
     });
     if (sent === 'off') return 'skipped (DMs turned off)';
     if (!sent) throw new Error('their DMs are closed');

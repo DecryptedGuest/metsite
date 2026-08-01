@@ -270,22 +270,98 @@ async function loadProfile() {
   }
 
   // ── Punishment history ──
+  // No "Issued By" column. Who disciplined somebody is Internal Affairs'
+  // business; this page belongs to the person it was done to.
   const pun = document.getElementById('p-punishments');
+  window.myPunishments = data.punishments || [];
   if (data.punishments && data.punishments.length) {
-    pun.innerHTML = data.punishments.map(p => `<tr>
+    pun.innerHTML = data.punishments.map((p, idx) => `<tr onclick="openPunishment(${idx})" style="cursor:pointer;" title="See the full details">
       <td>${chip(p.type, punishmentColor(p.type))}${p.caseRef ? ` <span style="color:var(--text-muted);font-size:10px;">${escHtml(p.caseRef)}</span>` : ''}</td>
-      <td>${escHtml(p.reason || '—')}</td>
-      <td>${escHtml(p.issuedBy || '—')}</td>
-      <td>${p.active ? '<span class="badge badge-denied"><span class="badge-dot"></span>Active</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Expired</span>'}</td>
+      <td>${escHtml((p.reason || '—').slice(0, 80))}${(p.reason || '').length > 80 ? '…' : ''}</td>
+      <td>${punishmentStatusBadge(p)}</td>
       <td>${p.expiresAt ? formatDate(p.expiresAt) : (p.active ? '<span style="color:var(--text-muted);">Permanent</span>' : '—')}</td>
       <td>${formatDate(p.issuedAt)}</td>
+      <td style="text-align:right;color:var(--text-muted);"><i class="ti ti-chevron-right"></i></td>
     </tr>`).join('');
   } else {
     pun.innerHTML = window.metEmpty
       ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-shield-check', title: 'No punishments on record', sub: 'Your record is clean.' })}</td></tr>`
       : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No punishments on record.</div></td></tr>`;
   }
+
+  // A DM's "View my full record" button links straight to one entry.
+  const want = new URLSearchParams(location.search).get('record');
+  if (want) {
+    const at = (data.punishments || []).findIndex(p => p.id === want || p.caseRef === want);
+    if (at >= 0) setTimeout(function () { openPunishment(at); }, 250);
+  }
 }
+
+// Active / Expired / Appealed — three different things, and "Expired" for an
+// appealed punishment would be quietly wrong about what happened.
+function punishmentStatusBadge(p) {
+  if (p.appealed) return '<span class="badge badge-purple"><span class="badge-dot"></span>Appealed</span>';
+  if (p.active)   return '<span class="badge badge-denied"><span class="badge-dot"></span>Active</span>';
+  return '<span class="badge badge-approved"><span class="badge-dot"></span>Expired</span>';
+}
+
+// ── One punishment, in full ───────────────────────────────────────
+// Everything the subject is entitled to see, and nothing else. No issuer, no
+// approver, no reviewer, no internal notes about the review.
+function openPunishment(idx) {
+  const p = (window.myPunishments || [])[idx];
+  if (!p) return;
+
+  document.getElementById('pd-title').textContent = p.type || 'Disciplinary action';
+
+  const row = (label, value) => value
+    ? `<div class="detail-field" style="margin-bottom:12px;">
+         <span class="detail-field-label">${escHtml(label)}</span>
+         <span class="detail-field-value">${value}</span>
+       </div>` : '';
+
+  // A multi-action case as the several things it actually was.
+  let actions = '';
+  if (Array.isArray(p.actions) && p.actions.length) {
+    actions = '<ul style="margin:0;padding-left:18px;">' + p.actions.map(a => {
+      const dur = a.durationDays ? ` — <strong>${a.durationDays} days</strong>` : '';
+      const gone = a.lifted ? ' <span style="color:var(--text-muted);">(lifted)</span>' : '';
+      return `<li>${escHtml(a.action || '')}${dur}${gone}</li>`;
+    }).join('') + '</ul>';
+  }
+
+  const meaning = p.appealed
+    ? 'This was appealed and lifted. It stays on your record for the history, but holds nothing against you.'
+    : p.active
+      ? 'This is currently in force.'
+      : 'This has expired and is no longer in force. It stays on your record.';
+
+  document.getElementById('pd-body').innerHTML =
+    `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+       ${chip(p.type, punishmentColor(p.type))}
+       ${punishmentStatusBadge(p)}
+       ${p.direct ? '<span class="badge badge-amber"><span class="badge-dot"></span>Direct action</span>' : ''}
+     </div>`
+    + row('Infraction ID', p.caseRef ? `<span class="mono">${escHtml(p.caseRef)}</span>` : null)
+    + row(Array.isArray(p.actions) && p.actions.length > 1 ? 'Actions' : 'Action', actions)
+    + row('Reason', escHtml(p.reason || 'No reason recorded.'))
+    + row('Notes', p.notes ? escHtml(p.notes) : null)
+    + row('Issued', formatDate(p.issuedAt))
+    + row('Expires', p.expiresAt ? formatDate(p.expiresAt) : (p.active ? 'Does not expire' : '—'))
+    + row('Appealed', p.appealedAt ? formatDate(p.appealedAt) : null)
+    + row('Case document', p.caseLink ? `<a href="${escHtml(p.caseLink)}" target="_blank" rel="noopener">Open</a>` : null)
+    + row('What this means', escHtml(meaning))
+    + (p.appealed ? '' :
+      `<div style="margin-top:16px;padding:11px 13px;border-radius:9px;background:rgba(74,143,255,0.08);border:1px solid rgba(74,143,255,0.28);font-size:12.5px;color:var(--text-secondary);">
+         <strong style="color:var(--text-primary);">Right of appeal.</strong>
+         If you believe this is a mistake, contact Internal Affairs quoting
+         ${p.caseRef ? `<span class="mono">${escHtml(p.caseRef)}</span>` : 'this entry'}.
+         A granted appeal removes it from your record.
+       </div>`);
+
+  openModal('modal-punishment');
+}
+window.openPunishment = openPunishment;
 
 async function loadExamStatus() {
   let s;

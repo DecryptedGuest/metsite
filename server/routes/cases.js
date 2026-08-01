@@ -969,7 +969,10 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
         notes:     existing.notes,
         caseLink:  existing.caseLink || null,
         expiresAt: timed ? new Date(Date.now() + timed.durationDays * 86400000) : null,
-        direct:    false,
+        direct:    existing.origin === 'DISCIPLINE',
+        avatar:         suspectAvatar || null,
+        robloxUsername: existing.robloxUsername || null,
+        robloxId:       existing.robloxUserId || null,
       }).catch(() => {});
     }
     } // end if (!alreadyActioned) — side effects only run on the first approval
@@ -1490,6 +1493,7 @@ router.post('/:id/appeal', async (req, res) => {
         rank:      iaRankLabel(req.user),
         reason,
         manual,
+        robloxUsername: existing.robloxUsername || null,
       }).catch(() => {});
     }
 

@@ -850,11 +850,19 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
       discordId: req.user.discordId, robloxId: req.user.robloxId, robloxUsername: req.user.robloxUsername,
     });
   } catch (e) { casePunishments = []; }
+  // A /discipline action exists as BOTH a MetPunishment (what the bot reads)
+  // and a case (what the portal reads); they share a case ref. Show it once,
+  // preferring the case, which carries the detail and the appeal state.
+  const caseRefs = new Set(casePunishments.map(p => p.caseRef).filter(Boolean));
   const punishments = casePunishments
-    .concat(botPunishments.map(p => ({
-      id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
-      caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt, source: 'bot',
-    })))
+    .concat(botPunishments
+      .filter(p => !(p.caseRef && caseRefs.has(p.caseRef)))
+      .map(p => ({
+        // issuedBy is deliberately absent: who disciplined somebody is
+        // Internal Affairs' business, not the subject's.
+        id: p.id, type: p.type, reason: p.reason,
+        caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt, source: 'bot',
+      })))
     .sort((a, b) => new Date(b.issuedAt) - new Date(a.issuedAt));
 
   // Paid permissions come from the member's MET-server Discord roles (Media,

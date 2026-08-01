@@ -2082,11 +2082,23 @@ async function dmMemberNotice(discordId, o) {
       .setColor(o.color || 0x3b82f6)
       .setTitle(o.title || 'MET Notice')
       .setDescription(o.description || '​')
-      .setFooter({ text: 'Metropolitan Police' });
+      .setFooter({ text: o.footer || 'Metropolitan Police Service' });
+    // A disciplinary notice reads far better as fields than as one block of
+    // text, and the officer's own avatar makes it unmistakably about them.
+    if (Array.isArray(o.fields) && o.fields.length) embed.addFields(o.fields.slice(0, 25));
+    if (o.thumbnail)  embed.setThumbnail(o.thumbnail);
+    if (o.timestamp)  embed.setTimestamp(new Date(o.timestamp));
+    if (o.authorName) embed.setAuthor({ name: o.authorName, iconURL: o.authorIcon || undefined });
+
+    // Any number of link buttons. `appealUrl`/`appealLabel` stay for the
+    // callers that only ever wanted one.
+    const links = Array.isArray(o.links) ? o.links.slice() : [];
+    if (o.appealUrl) links.unshift({ label: o.appealLabel || 'Appeal / view details', url: o.appealUrl });
     const components = [];
-    if (o.appealUrl) {
+    if (links.length) {
       components.push(new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(o.appealLabel || 'Appeal / view details').setURL(o.appealUrl),
+        ...links.slice(0, 5).map(l => new ButtonBuilder()
+          .setStyle(ButtonStyle.Link).setLabel(String(l.label).slice(0, 80)).setURL(l.url)),
       ));
     }
     await user.send({ embeds: [embed], components });

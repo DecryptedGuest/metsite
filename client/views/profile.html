@@ -138,12 +138,15 @@
     <div class="profile-section"><div class="chip-row" id="p-perms"></div></div>
   </div>
 
-  <!-- Punishment history -->
-  <div class="panel glass fade-up stagger-3">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Punishment History</div></div>
+  <!-- Punishment history. "Issued By" is gone on purpose: who disciplined
+       somebody is Internal Affairs' business, and this page is the subject's
+       own. Rows open a detail view with what they ARE entitled to see. -->
+  <div class="panel glass fade-up stagger-3" id="record">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Punishment History</div>
+      <div class="panel-sub" style="font-size:11px;color:var(--text-muted);">Click an entry for the full details</div></div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Type</th><th>Reason</th><th>Issued By</th><th>Status</th><th>Expires</th><th>Date</th></tr></thead>
+        <thead><tr><th>Type</th><th>Reason</th><th>Status</th><th>Expires</th><th>Date</th><th></th></tr></thead>
         <tbody id="p-punishments"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
       </table>
     </div>
@@ -207,6 +210,19 @@
 </div>
 
 <div id="toast-container"></div>
+<!-- One punishment, in full — what the subject of it is entitled to see.
+     Deliberately NOT here: who filed it, who approved it, who granted the
+     appeal, or any review notes. -->
+<div class="modal-overlay" id="modal-punishment">
+  <div class="modal glass-bright" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-gavel" style="font-size:18px;"></i> <span id="pd-title">Disciplinary action</span></div>
+      <button class="modal-close" onclick="closeModal('modal-punishment')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="pd-body"></div>
+  </div>
+</div>
+
 <script src="/js/ui.js?v=81"></script>
 <script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
