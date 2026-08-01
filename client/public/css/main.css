@@ -55,6 +55,15 @@
 
   --transition:     0.18s ease;
   --transition-slow: 0.35s ease;
+
+  /* Compatibility aliases — several components use these bare token names; without
+     them they fell back to browser defaults (grey), which is what made the HICOMM
+     panels look dead. They reference themed tokens so they adapt to light/dark. */
+  --border:    var(--border-mid);
+  --panel:     var(--bg-panel);
+  --surface:   var(--bg-deep);
+  --surface-1: var(--bg-panel);
+  --hover:     var(--blue-dim);
 }
 
 html, body {
@@ -718,4 +727,21 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
   background: var(--blue-dim);
   border-color: var(--border-bright);
   color: var(--text-primary);
+}
+
+/* ── Roblox brand icon fallback ───────────────────────────────────────
+   The `ti-brand-roblox` glyph is missing from the pinned Tabler webfont
+   (2.47.0), so any <i class="ti ti-brand-roblox"> renders blank. Override
+   it to paint an inline Roblox-logo SVG via a CSS mask (inherits the
+   current text colour and font-size like a real icon). !important so it
+   wins over the later-loaded Tabler stylesheet. */
+.ti-brand-roblox::before {
+  content: "" !important;
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.926 23.998L0 18.892 5.075.002 24 5.108 18.926 23.998ZM15.348 10.09l-5.282-1.453-1.414 5.273 5.282 1.453 1.414-5.273Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.926 23.998L0 18.892 5.075.002 24 5.108 18.926 23.998ZM15.348 10.09l-5.282-1.453-1.414 5.273 5.282 1.453 1.414-5.273Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }

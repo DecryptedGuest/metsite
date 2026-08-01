@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IACMS · Dashboard</title>
 <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
-  <link rel="stylesheet" href="/css/main.css?v=73" />
-  <link rel="stylesheet" href="/css/dashboard.css?v=73" />
-  <link rel="stylesheet" href="/css/case-doc.css?v=73" />
-  <link rel="stylesheet" href="/css/aurora.css?v=73" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/main.css?v=77" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=72" />
+  <link rel="stylesheet" href="/css/aurora.css?v=72" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
+  <link rel="stylesheet" href="/css/support-chat.css?v=1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
-<body>
+<body class="div-ia">
 <div class="bg-canvas">
   <div class="bg-grid"></div>
   <div class="bg-glow-1"></div>
@@ -34,6 +35,12 @@
       <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
       <div class="met-switcher-menu" id="met-switcher-menu"></div>
     </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
   </div>
 </div>
 
@@ -91,6 +98,9 @@
         <button class="nav-item" data-page="media">
           <i class="ti ti-photo-video nav-icon"></i><span>Media</span>
         </button>
+        <button class="nav-item" data-page="dq-activity">
+          <i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span>
+        </button>
 
         <!-- ── Command (HICOMM / Supervisor / Developer) ─────── -->
         <div class="nav-section-label hicomm-only supervisor-only" style="display:none;">Command</div>
@@ -104,10 +114,46 @@
           <i class="ti ti-bell nav-icon"></i><span>Notifications</span>
         </button>
 
-        <!-- ── Developer — collapsed by default ─────────────── -->
-        <button class="nav-item nav-group-toggle dev-only" id="nav-dev-toggle" style="display:none;" type="button">
-          <i class="ti ti-shield-cog nav-icon"></i><span>Developer</span>
-          <i class="ti ti-chevron-down nav-chevron"></i>
+        <!-- ── Oversight (HICOMM / Developer) ───────────────── -->
+        <div class="nav-section-label hicomm-strict-only" style="display:none;">Oversight</div>
+        <button class="nav-item hicomm-strict-only" data-page="audit" style="display:none;">
+          <i class="ti ti-list-details nav-icon"></i><span>Audit Log</span>
+        </button>
+        <button class="nav-item hicomm-strict-only" data-page="quota-check" style="display:none;">
+          <i class="ti ti-checklist nav-icon"></i><span>Quota Check</span>
+        </button>
+        <button class="nav-item hicomm-strict-only" data-page="ia-profiles" style="display:none;">
+          <i class="ti ti-user-search nav-icon"></i><span>IA Profiles</span>
+        </button>
+
+        <!-- ── Developer ────────────────────────────────────── -->
+        <div class="nav-section-label dev-only" style="display:none;">Developer</div>
+        <button class="nav-item dev-only" data-page="admin" style="display:none;">
+          <i class="ti ti-shield-cog nav-icon"></i><span>Dev Panel</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="group" style="display:none;">
+          <i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="discord-mod" style="display:none;">
+          <i class="ti ti-gavel nav-icon"></i><span>Discord Moderation</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="visits" style="display:none;">
+          <i class="ti ti-world-search nav-icon"></i><span>Visits</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="security" style="display:none;">
+          <i class="ti ti-shield-lock nav-icon"></i><span>Security</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="site-control" style="display:none;">
+          <i class="ti ti-adjustments-alt nav-icon"></i><span>Site Control</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="send-notif" style="display:none;">
+          <i class="ti ti-send nav-icon"></i><span>Send Notification</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="emergency-alert" style="display:none;">
+          <i class="ti ti-alert-triangle nav-icon"></i><span>Emergency Alert</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="media-admin" style="display:none;">
+          <i class="ti ti-folder-cog nav-icon"></i><span>Media Admin</span><span class="nav-tag">DEV</span>
         </button>
         <div class="nav-group" id="nav-dev-group" style="display:none;">
           <button class="nav-item nav-sub dev-only" data-page="admin"><i class="ti ti-adjustments nav-icon"></i><span>Dev Panel</span></button>
@@ -140,11 +186,6 @@
           <button class="theme-toggle" id="btn-theme-toggle" title="Toggle light/dark theme">
             <i class="ti ti-sun" id="theme-icon" style="font-size:16px;"></i>
           </button>
-          <form action="/auth/logout" method="POST">
-            <button type="submit" class="btn btn-icon btn-ghost" title="Sign out">
-              <i class="ti ti-logout" style="font-size:16px;"></i>
-            </button>
-          </form>
         </div>
       </div>
     </div>
@@ -541,8 +582,14 @@
         <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
       </div>
 
-      <!-- Debug / refresh bar -->
-      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;">
+      <!-- Division switcher + debug / refresh bar -->
+      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+          <i class="ti ti-apps"></i> Division group
+          <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
+            <option value="">Default (ROBLOX_GROUP_ID)</option>
+          </select>
+        </label>
         <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
         <button class="btn btn-ghost btn-sm" onclick="runGroupDebug()"><i class="ti ti-bug"></i> Debug API</button>
         <span id="group-env-badge" style="font-size:10px;color:var(--text-muted);"></span>
@@ -550,7 +597,7 @@
       <div id="group-debug-output" style="display:none;background:rgba(0,0,0,0.4);border:1px solid var(--border-dim);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <span style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:0.06em;">RAW ROBLOX API DEBUG</span>
-          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'">✕</button>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'" title="Hide debug output" aria-label="Hide debug output"><i class="ti ti-x"></i></button>
         </div>
         <pre id="group-debug-pre" style="font-size:10px;color:var(--text-secondary);overflow:auto;max-height:280px;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
@@ -855,9 +902,51 @@
           <div id="dn-recipients" style="display:flex;flex-direction:column;gap:.4rem;max-height:340px;overflow:auto;">
             <div class="table-loading"><div class="spinner"></div></div>
           </div>
-          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only users who have enabled notifications and have an active device will receive the message. A 🔔 means they're reachable.</p>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only users who have enabled notifications and have an active device will receive the message. A <i class="ti ti-bell"></i> means they're reachable.</p>
         </div>
       </div>
+    </section>
+
+    <!-- EMERGENCY ALERT (DEV) -->
+    <section class="page" id="page-emergency-alert">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Emergency Alert</h1>
+          <p class="page-sub">Developer &middot; Full-screen alert to people on the site right now</p>
+        </div>
+        <button class="btn btn-danger" onclick="sendEmergencyAlert()"><i class="ti ti-alert-triangle"></i> Send Emergency Alert</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Message</div></div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Alert message</label>
+            <textarea class="form-control" id="ea-message" rows="3" placeholder="e.g. All units return to the main server immediately." maxlength="1000"></textarea>
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">This takes over the whole screen with a warning icon, plays a loud klaxon (overrides mute), and shows exactly this text. It reaches only people with the site open <strong>right now</strong>.</p>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#9b6dff;box-shadow:0 0 7px #9b6dff;"></span>Who receives it</div></div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="ea-seg"><input type="radio" name="ea-target" value="everyone" checked onchange="renderEmergencyTarget()" /> Everyone on the site</label>
+            <label class="ea-seg"><input type="radio" name="ea-target" value="divisions" onchange="renderEmergencyTarget()" /> Divisions</label>
+            <label class="ea-seg"><input type="radio" name="ea-target" value="users" onchange="renderEmergencyTarget()" /> Specific people</label>
+          </div>
+          <div id="ea-divisions" style="display:none;flex-wrap:wrap;gap:8px;"></div>
+          <div id="ea-users" style="display:none;flex-direction:column;gap:.4rem;max-height:340px;overflow:auto;"></div>
+          <div id="ea-online-note" style="font-size:12px;color:var(--text-secondary);"></div>
+        </div>
+      </div>
+      <style>
+        .ea-seg{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1px solid var(--border,#2a3040);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;}
+        .ea-seg input{accent-color:var(--red,#e2231a);}
+        .ea-div-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid var(--border,#2a3040);border-radius:10px;cursor:pointer;font-size:13px;}
+        .ea-div-chip input{accent-color:var(--red,#e2231a);}
+      </style>
     </section>
 
     <!-- MEDIA LIBRARY (ALL IA) -->
@@ -981,7 +1070,7 @@
       <!-- User Spotlight -->
       <div class="panel glass fade-up stagger-2">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>⭐ User Spotlight</div>
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> User Spotlight</div>
         </div>
         <div style="padding:1.4rem;display:flex;flex-direction:column;gap:.8rem;">
           <div class="form-group" style="margin:0;">
@@ -1018,7 +1107,7 @@
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-auroraTheme" style="accent-color:#a24bff;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🌌 Aurora UI (site-wide)</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-sparkles"></i> Aurora UI (site-wide)</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Switches the entire site from the Classic theme to the new Aurora theme for <strong>every</strong> user. Turn off to return everyone to Classic. Takes effect immediately.</span>
             </span>
           </label>
@@ -1034,49 +1123,49 @@
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-snow" style="accent-color:#7fd0ff;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">❄️ Snowfall</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-snowflake"></i> Snowfall</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Gentle falling-snow effect across the site for everyone.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-confetti" style="accent-color:#ffcf3f;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎉 Approval Confetti</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-confetti"></i> Approval Confetti</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Bursts confetti whenever a case is approved.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-matrixRain" style="accent-color:#00ff41;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🖥️ Matrix Rain</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-binary"></i> Matrix Rain</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Green falling-code rain overlay across the background.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-partyMode" style="accent-color:#ff5d5d;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎊 Party Mode</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-balloon"></i> Party Mode</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Cycles the background glow through all colours in a rainbow pattern.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-fireworks" style="accent-color:#ff8fd0;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎆 Fireworks</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-sparkles"></i> Fireworks</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Random firework bursts fire automatically every few seconds.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-halloween" style="accent-color:#ff6a00;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🎃 Halloween Mode</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-ghost"></i> Halloween Mode</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Shifts the site glow to orange/purple and rains spiders, ghosts, and bats.</span>
             </span>
           </label>
           <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
             <input type="checkbox" id="sc-rainbowCursor" style="accent-color:#c77dff;margin-top:3px;width:16px;height:16px;" />
             <span>
-              <span style="display:block;font-weight:600;font-size:14px;">🌈 Rainbow Cursor</span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-rainbow"></i> Rainbow Cursor</span>
               <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Leaves a trail of rainbow sparkle particles behind everyone's cursor.</span>
             </span>
           </label>
@@ -1235,6 +1324,46 @@
       <div id="rec-results"></div>
     </section>
 
+    <!-- IA PROFILES (HICOMM + Developer only) -->
+    <section class="page" id="page-ia-profiles">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">IA Profiles</h1>
+          <p class="page-sub">Oversight · Search an IA member for their full record</p>
+        </div>
+      </div>
+      <div class="panel glass fade-up" style="margin-bottom:1.2rem;">
+        <div style="padding:1rem 1.2rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="text" class="form-control" id="iap-search" placeholder="Search IA members — name, Discord, or Roblox…" style="flex:1;min-width:220px;" />
+          <button class="btn btn-primary" id="iap-search-btn"><i class="ti ti-search"></i> Search</button>
+        </div>
+        <div id="iap-results" style="padding:0 1.2rem 1rem;"></div>
+      </div>
+      <div id="iap-profile"></div>
+    </section>
+
+    <section class="page" id="page-dq-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every investigator's weekly activity · read-only</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-IA-act-tabs"></span>
+            <span class="text-muted mono" id="dq-IA-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-IA-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUOTA CHECK (HICOMM + Developer only) -->
     <!-- QUOTA & DATABASE (HICOMM + Developer only) -->
     <section class="page" id="page-quota-check">
       <div class="page-header fade-up">
@@ -1272,7 +1401,7 @@
       </div>
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>⭐ Investigator of the Week</div>
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> Investigator of the Week</div>
         </div>
         <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:.7rem;">
           <p style="margin:0;font-size:12px;color:var(--text-secondary);">The selected investigator gets the IOTW role (a reduced quota) when you submit the check. The previous IOTW's role is removed automatically.</p>
@@ -1314,7 +1443,7 @@
   <div class="modal glass-bright">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-file-plus" style="font-size:18px;"></i> Submit New Case</div>
-      <button class="modal-close" onclick="closeModal('modal-submit')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-submit')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div id="next-case-ref-notice" style="display:none;margin-bottom:0.9rem;padding:9px 12px;border-radius:8px;background:rgba(74,143,255,0.1);border:1px solid rgba(74,143,255,0.3);font-size:12px;color:var(--text-secondary);">
@@ -1400,7 +1529,7 @@
   <div class="modal glass-bright" style="max-width:460px;">
     <div class="modal-header">
       <div class="modal-title" style="color:var(--red);"><i class="ti ti-alert-triangle" style="font-size:18px;"></i> Reset All Quota Points</div>
-      <button class="modal-close" onclick="closeModal('modal-quota-reset')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-quota-reset')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;line-height:1.7;color:var(--text-secondary);margin:0 0 0.8rem;">
@@ -1423,7 +1552,7 @@
   <div class="modal glass-bright" style="max-width:560px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-eye" style="font-size:18px;"></i> <span id="embed-preview-title">Administrative Log — Preview</span></div>
-      <button class="modal-close" onclick="closeModal('modal-embed-preview')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-embed-preview')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p id="embed-preview-note" style="font-size:12px;color:var(--text-secondary);margin:0 0 0.9rem;line-height:1.6;"></p>
@@ -1438,7 +1567,7 @@
   <div class="modal glass-bright" style="max-width:560px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-file-description" style="font-size:18px;"></i> <span id="detail-ref">Case Detail</span></div>
-      <button class="modal-close" onclick="closeModal('modal-detail')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-detail')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="detail-body"></div>
     <div class="modal-footer" id="detail-footer"></div>
@@ -1450,7 +1579,7 @@
   <div class="modal glass-bright" style="max-width:420px;">
     <div class="modal-header">
       <div class="modal-title" style="color:var(--red);"><i class="ti ti-ban" style="font-size:18px;"></i> Blacklist User</div>
-      <button class="modal-close" onclick="closeModal('modal-blacklist')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-blacklist')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;">This will block the user from accessing IACMS. They will see a "blacklisted" error on login.</p>
@@ -1471,7 +1600,7 @@
   <div class="modal glass-bright" style="max-width:420px;">
     <div class="modal-header">
       <div class="modal-title" id="dm-action-title" style="color:var(--red);"><i class="ti ti-gavel" style="font-size:18px;"></i> Confirm Action</div>
-      <button class="modal-close" onclick="closeModal('modal-dm-action')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-dm-action')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;" id="dm-action-desc"></p>
@@ -1614,30 +1743,6 @@
   </div>
 </div>
 
-<!-- CLASSIFIED INFORMATION NOTICE (shown after login) -->
-<div class="modal-overlay" id="modal-classified">
-  <div class="modal glass-bright" style="max-width:520px;">
-    <div class="modal-header">
-      <div class="modal-title" style="color:var(--amber);"><i class="ti ti-lock-square-rounded" style="font-size:18px;"></i> Classified Information Notice</div>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:13px;line-height:1.75;color:var(--text-secondary);margin:0 0 0.9rem;">
-        Everything displayed on this platform is <strong style="color:var(--text-primary);">classified</strong>.
-        Do not share any of it with anyone outside Internal Affairs, unless they have been explicitly
-        authorised to view classified material by your Internal Affairs High Command.
-      </p>
-      <p style="font-size:13px;line-height:1.75;color:var(--text-secondary);margin:0;">
-        This system actively monitors for information leaks. Any attempt to leak content can be
-        <strong style="color:var(--text-primary);">traced directly back to the responsible user</strong>,
-        who will face disciplinary action as a result.
-      </p>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" id="btn-ack-classified"><i class="ti ti-shield-check"></i> I Understand &amp; Agree</button>
-    </div>
-  </div>
-</div>
-
 <!-- One-time notification opt-in prompt (HICOMM / SUPERVISOR / DEVELOPER) -->
 <div class="modal-overlay" id="modal-notify-optin">
   <div class="modal glass-bright" style="max-width:480px;">
@@ -1725,7 +1830,7 @@
   <div class="modal glass-bright" style="max-width:520px;">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-upload" style="font-size:18px;"></i> Upload Media</div>
-      <button class="modal-close" onclick="closeModal('modal-media-upload')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-media-upload')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" style="display:flex;flex-direction:column;gap:1rem;">
       <div class="proof-dropzone" id="media-dropzone" onclick="document.getElementById('media-file-input').click()" style="cursor:pointer;">
@@ -1758,7 +1863,7 @@
   <div class="modal glass-bright" style="max-width:780px;">
     <div class="modal-header">
       <div class="modal-title" id="media-view-title"><i class="ti ti-photo" style="font-size:18px;"></i> Media</div>
-      <button class="modal-close" onclick="closeModal('modal-media-view')">✕</button>
+      <button class="modal-close" onclick="closeModal('modal-media-view')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="media-view-body" style="text-align:center;"></div>
     <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
@@ -1771,21 +1876,24 @@
 </div>
 
 <div id="toast-container"></div>
-<script src="/js/guard.js?v=73"></script>
+<script src="/js/guard.js?v=83"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="/js/ui.js?v=73"></script>
-<script src="/js/case-doc.js?v=73"></script>
-<script src="/js/dashboard.js?v=73"></script>
-<script src="/js/tickets.js?v=73"></script>
-<script src="/js/security.js?v=73"></script>
-<script src="/js/records.js?v=73"></script>
-<script src="/js/quota-check.js?v=73"></script>
-<script src="/js/media.js?v=73"></script>
+<script src="/js/ui.js?v=83"></script>
+<script src="/js/case-doc.js?v=83"></script>
+<script src="/js/dashboard.js?v=83"></script>
+<script src="/js/tickets.js?v=83"></script>
+<script src="/js/discord-format.js?v=83"></script>
+<script src="/js/security.js?v=83"></script>
+<script src="/js/records.js?v=83"></script>
+<script src="/js/quota-check.js?v=83"></script>
+<script src="/js/ia-profiles.js?v=83"></script>
+<script src="/js/division-quota.js?v=83"></script>
+<script src="/js/media.js?v=83"></script>
 <script src="/js/passkeys.js"></script>
 <script src="/js/discord-moderation.js"></script>
-<script src="/js/push-client.js?v=73"></script>
-<script src="/js/site-effects.js?v=73"></script>
-<script src="/js/met-topbar.js"></script>
+<script src="/js/push-client.js?v=83"></script>
+<script src="/js/site-effects.js?v=83"></script>
+<script src="/js/met-topbar.js?v=83"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
 <script>initMetTopbar('IA');</script>

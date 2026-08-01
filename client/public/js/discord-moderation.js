@@ -15,7 +15,9 @@ async function searchDiscordMembers() {
   try {
     const members = await api('/api/admin/discord/members?search=' + encodeURIComponent(q));
     if (!members.length) {
-      box.innerHTML = '<div class="table-empty-text">No matching member found (they may have left the server — try Ban/Unban directly by pasting their Discord ID above, then use the Banned Users list to unban).</div>';
+      box.innerHTML = window.metEmpty
+        ? window.metEmpty({ icon: 'ti-users', title: 'No matching member', sub: 'They may have left the server — paste their Discord ID above to Ban/Unban directly, then use the Banned Users list to unban.' })
+        : '<div class="table-empty-text">No matching member found (they may have left the server — try Ban/Unban directly by pasting their Discord ID above, then use the Banned Users list to unban).</div>';
       return;
     }
     box.innerHTML = members.map(memberRowHtml).join('');
@@ -55,7 +57,9 @@ async function loadDiscordBans() {
           <td>${escapeHtmlDM(b.reason || '—')}</td>
           <td><button class="btn btn-success btn-sm" onclick="openDmAction('UNBAN','${b.id}','${escapeHtmlDM(b.username)}')"><i class="ti ti-check"></i> Unban</button></td>
         </tr>`).join('')
-      : `<tr><td colspan="3" class="table-empty"><div class="table-empty-text">No bans${q ? ' matching that search' : ''}.</div></td></tr>`;
+      : (window.metEmpty
+          ? `<tr><td colspan="3">${window.metEmpty({ icon: 'ti-shield', title: 'No banned users' + (q ? ' match that search' : ''), sub: q ? '' : 'Members you ban from the MET server will be listed here.' })}</td></tr>`
+          : `<tr><td colspan="3" class="table-empty"><div class="table-empty-text">No bans${q ? ' matching that search' : ''}.</div></td></tr>`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="3" class="table-empty"><div class="table-empty-text">${escapeHtmlDM(err.message)}</div></td></tr>`;
   }
@@ -75,7 +79,9 @@ async function loadDiscordModLog() {
           <td>${escapeHtmlDM(l.performedBy)}</td>
           <td>${formatDateTime(l.createdAt)}</td>
         </tr>`).join('')
-      : `<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No moderation actions yet.</div></td></tr>`;
+      : (window.metEmpty
+          ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-clipboard-list', title: 'No moderation actions yet', sub: 'Bans, kicks and timeouts you carry out will be logged here.' })}</td></tr>`
+          : `<tr><td colspan="5" class="table-empty"><div class="table-empty-text">No moderation actions yet.</div></td></tr>`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="5" class="table-empty"><div class="table-empty-text">${escapeHtmlDM(err.message)}</div></td></tr>`;
   }

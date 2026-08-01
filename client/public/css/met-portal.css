@@ -19,9 +19,9 @@
   z-index: 50;
 }
 
-.met-topbar-left { display: flex; align-items: center; gap: 0.7rem; min-width: 0; }
+.met-topbar-left { display: flex; align-items: center; gap: 0.7rem; min-width: 0; flex: 1 1 auto; overflow: hidden; }
 .met-topbar-logo { width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0; }
-.met-topbar-title { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.met-topbar-title { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; overflow: hidden; }
 .met-topbar-brand {
   font-family: var(--font-display);
   font-size: 12px;
@@ -29,15 +29,86 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 .met-topbar-division {
   font-size: 11px;
   font-weight: 600;
   color: var(--blue);
   letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 
-.met-topbar-right { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
+/* Right side never shrinks below its buttons, and never wraps to a 2nd line. */
+.met-topbar-right { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; flex-wrap: nowrap; }
+
+/* Breadcrumb (Division › Section) — lives to the right of the logo/title block. */
+.met-breadcrumb { display: none; align-items: center; gap: 6px; min-width: 0; margin-left: 4px;
+  padding-left: 12px; border-left: 1px solid var(--border-mid, rgba(255,255,255,0.1)); font-size: 12px; }
+.met-breadcrumb.has-section { display: flex; }
+.met-breadcrumb .bc-div { color: var(--text-secondary, #b7c0d0); font-weight: 600; white-space: nowrap; }
+.met-breadcrumb .bc-sep { font-size: 13px; opacity: .55; color: var(--text-muted, #8b93a1); }
+.met-breadcrumb .bc-section { color: color-mix(in srgb, var(--dc, #4a8fff) 70%, #ffffff); font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Menu dropdown: grouped section labels + a slightly wider panel. */
+.met-menu-wide { min-width: 232px; }
+.met-menu-label { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-muted, #8b93a1); padding: 8px 10px 4px; }
+.met-menu-label:first-child { padding-top: 4px; }
+.met-menu-empty { font-size: 12px; color: var(--text-muted, #8b93a1); padding: 10px; text-align: center; }
+
+/* ── Live support chat launcher (floating, bottom-left) ─────────────────── */
+.met-chat-fab {
+  position: fixed; right: 18px; bottom: 18px; z-index: 71;
+  width: 62px; height: 62px; border-radius: 50%; border: none; cursor: grab;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  display: flex; align-items: center; justify-content: center; font-size: 28px; color: #fff;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--dc,#4a8fff) 90%, #000), color-mix(in srgb, var(--dc,#4a8fff) 52%, #16203c));
+  box-shadow: 0 10px 28px rgba(0,0,0,.42), 0 0 0 1px color-mix(in srgb, var(--dc,#4a8fff) 42%, transparent);
+  transition: transform .18s ease, box-shadow .2s ease; }
+.met-chat-fab:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 14px 34px rgba(0,0,0,.5), 0 0 0 1px color-mix(in srgb, var(--dc,#4a8fff) 60%, transparent); }
+.met-chat-fab.active { transform: scale(1.05); }
+/* While dragging: no hover lift / transition so it tracks the pointer 1:1. */
+.met-chat-fab.dragging { cursor: grabbing; transform: none !important; transition: none; box-shadow: 0 16px 40px rgba(0,0,0,.55); }
+.met-chat-pop {
+  position: fixed; right: 18px; bottom: 82px; z-index: 71; width: min(300px, 88vw);
+  background: rgba(10,16,32,.98); border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 30%, var(--border-mid, #2a3040));
+  border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.5); padding: 14px;
+  opacity: 0; transform: translateY(10px) scale(.98); pointer-events: none; transform-origin: bottom right;
+  transition: opacity .18s ease, transform .18s ease; }
+.met-chat-pop.open { opacity: 1; transform: none; pointer-events: auto; }
+.met-chat-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.met-chat-title { font-weight: 800; font-size: 14px; color: var(--text-primary,#eaf1ff); display: flex; align-items: center; gap: 6px; }
+.met-chat-title > i { color: var(--dc,#4a8fff); }
+.met-chat-x { background: none; border: none; color: var(--text-muted,#8b93a1); cursor: pointer; font-size: 16px; padding: 2px 4px; border-radius: 6px; line-height: 1; }
+.met-chat-x:hover { color: #fff; background: rgba(255,255,255,.08); }
+.met-chat-body { font-size: 12.5px; color: var(--text-secondary,#b7c0d0); line-height: 1.5; margin-bottom: 12px; }
+.met-chat-cta { width: 100%; justify-content: center; }
+.met-chat-alt { display: block; text-align: center; font-size: 11.5px; color: var(--text-muted,#8b93a1); text-decoration: none; margin-top: 9px; }
+.met-chat-alt:hover { color: var(--dc,#4a8fff); }
+/* Get the FAB out of the way when the mobile nav drawer is open. */
+body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
+
+/* Closed-ticket notice (shown where the composer would be — nobody speaks in a
+   closed ticket until it's reopened). */
+.sd-closed-notice { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 14px; padding: 10px 14px;
+  border-radius: 10px; background: rgba(240,79,94,0.08); border: 1px solid rgba(240,79,94,0.25);
+  color: var(--text-secondary, #b7c0d0); font-size: 13px; }
+.sd-closed-notice > i.ti-lock { color: var(--red, #f04f5e); }
+
+/* Hamburger (mobile only — shown by the <640px rule below). */
+.met-nav-toggle { display: none; margin-right: 2px; }
+
+/* Back-to-top floating button — stacks ABOVE the live-chat FAB (bottom-right). */
+.met-to-top { position: fixed; right: 22px; bottom: 92px; z-index: 70;
+  width: 42px; height: 42px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 45%, transparent);
+  background: color-mix(in srgb, var(--dc,#4a8fff) 22%, rgba(10,14,26,0.92)); color: #eaf1ff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 19px;
+  opacity: 0; transform: translateY(10px); pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease, background .2s ease; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.met-to-top.show { opacity: 1; transform: none; pointer-events: auto; }
+.met-to-top:hover { background: color-mix(in srgb, var(--dc,#4a8fff) 40%, rgba(10,14,26,0.92)); transform: translateY(-2px); }
 
 .met-switcher { position: relative; }
 .met-switcher-menu {
@@ -85,6 +156,87 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 700;
 }
+
+/* ── Mobile: keep the packed topbar from overflowing ───────────────── */
+/* Medium screens: drop the long brand line and the username text (the badge
+   + avatar still identify the division and user), which frees enough room for
+   the button labels to fit. Matches dashboard.css's 900/640 breakpoints. */
+@media (max-width: 900px) {
+  .met-topbar-brand { display: none; }
+  #met-user-name { display: none; }
+  .met-topbar-user { gap: 0; }
+}
+/* Small screens: collapse every topbar-right button to an icon. The labels are
+   bare text nodes next to the icon, so zeroing the button font-size hides the
+   text while the icon (restored below) stays. */
+@media (max-width: 640px) {
+  /* Show the sidebar/drawer hamburger on phones. This lives HERE (not only in
+     dashboard.css) because met-portal.css loads AFTER dashboard.css, and its
+     base `.met-nav-toggle{display:none}` would otherwise win the cascade over
+     dashboard.css's mobile rule at equal specificity — leaving no way to open
+     the sidebar on mobile. */
+  .met-nav-toggle, #met-nav-toggle, #met-mnav-toggle { display: inline-flex !important; }
+  .met-topbar { padding: 0.5rem 0.7rem; gap: 0.4rem; }
+  .met-topbar-logo { width: 26px; height: 26px; }
+  .met-topbar-division { font-size: 12px; }
+  .met-topbar-right { gap: 0.3rem; }
+  /* Collapse every topbar-right button to just its icon (labels are bare text
+     nodes, so zeroing the font hides them; the icon is restored below). */
+  .met-topbar-right .btn-sm { font-size: 0; padding-left: 9px; padding-right: 9px; }
+  .met-topbar-right .btn-sm i { font-size: 17px; }
+  .met-topbar-right .cmdk-kbd { display: none; }
+  /* The help/tour button isn't essential on a phone — free up the space. */
+  #met-tour-btn { display: none; }
+  /* Dropdowns must never spill past the viewport edge. */
+  .met-switcher-menu { min-width: 200px; max-width: calc(100vw - 20px); }
+}
+/* Very narrow phones: tighten further and drop the keyboard-oriented command
+   palette so the core actions (menu, division switch, support, sign-out) fit. */
+@media (max-width: 440px) {
+  .met-topbar { padding: 0.45rem 0.55rem; gap: 0.25rem; }
+  .met-topbar-logo { width: 24px; height: 24px; }
+  .met-topbar-right { gap: 0.18rem; }
+  .met-topbar-right .btn-sm, .met-topbar-right .btn-icon { padding-left: 7px; padding-right: 7px; }
+  .met-topbar-right .btn-icon i, .met-topbar-right .btn-sm i { font-size: 16px; }
+  #met-cmdk-btn { display: none; }
+}
+
+/* ── Mobile nav drawer (topbar-only pages: member dashboard, LOA, exam…) ── */
+.met-mnav {
+  position: fixed; top: 0; left: 0; height: 100vh; height: 100dvh;
+  width: min(84vw, 320px); transform: translateX(-100%);
+  transition: transform .25s cubic-bezier(.2,.7,.3,1);
+  background: var(--panel-solid, #10141d); border-right: 1px solid var(--border, rgba(255,255,255,.1));
+  z-index: 1200; display: flex; flex-direction: column; box-shadow: none;
+}
+.met-mnav.open { transform: translateX(0); box-shadow: 0 0 48px rgba(0,0,0,.6); }
+.met-mnav-scrim {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 1199;
+}
+.met-mnav-scrim.open { opacity: 1; pointer-events: auto; }
+.met-mnav-head { display: flex; align-items: center; gap: 11px; padding: 16px 14px; border-bottom: 1px solid var(--border-dim, rgba(255,255,255,.08)); }
+.met-mnav-crest { width: 40px; height: 40px; border-radius: 10px; box-shadow: none; animation: none; flex-shrink: 0; }
+.met-mnav-crest .met-splash-crest-txt { font-size: 13px; }
+.met-mnav-title { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; line-height: 1.25; }
+.met-mnav-title span { font-weight: 400; font-size: 11px; color: var(--text-muted); }
+.met-mnav-x { margin-left: auto; background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; display: flex; padding: 4px; }
+.met-mnav-list { flex: 1; overflow-y: auto; padding: 10px 8px; }
+.met-mnav-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 12px 10px 5px; }
+.met-mnav-item {
+  display: flex; align-items: center; gap: 11px; padding: 11px 10px; border-radius: 10px;
+  color: var(--text-secondary); font-size: 14px; font-weight: 500;
+}
+.met-mnav-item i { font-size: 19px; width: 22px; text-align: center; flex-shrink: 0; }
+.met-mnav-item span { flex: 1; }
+.met-mnav-item:hover { background: rgba(255,255,255,.05); color: var(--text-primary); }
+.met-mnav-item.current { background: rgba(74,143,255,.14); color: var(--blue, #4a8fff); }
+.met-mnav-tag { font-size: 10px; font-weight: 600; color: var(--text-muted); background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 999px; flex: 0 0 auto; }
+.met-mnav-foot { padding: 12px; border-top: 1px solid var(--border-dim, rgba(255,255,255,.08)); }
+.met-mnav-signout { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.12)); background: transparent; color: var(--text-secondary); font-size: 14px; font-weight: 600; cursor: pointer; }
+.met-mnav-signout:hover { border-color: var(--red, #e0503a); color: var(--red, #e0503a); }
+/* The drawer + its hamburger are phone-only; on desktop the topbar menus suffice. */
+@media (min-width: 641px) { .met-mnav, .met-mnav-scrim, #met-mnav-toggle { display: none !important; } }
 
 /* ── Hub / landing page ────────────────────────────────────────────── */
 .hub-wrap { max-width: 1080px; margin: 0 auto; padding: 3rem 1.5rem 4rem; position: relative; z-index: 1; }
@@ -190,6 +342,10 @@
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip-empty { font-size: 12px; color: var(--text-muted); }
 
+/* Clickable table rows (open a detail modal, like the IA case list). */
+.data-table tr.row-clickable { cursor: pointer; transition: background 0.15s; }
+.data-table tr.row-clickable:hover { background: rgba(74, 143, 255, 0.06); }
+
 .met-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 11px; border-radius: 999px;
@@ -237,3 +393,147 @@
 .stat-card.purple .stat-icon  { background: rgba(120, 80, 240, 0.15); color: var(--purple); }
 .stat-card.purple .stat-value { color: var(--purple); }
 .stat-bar.purple { background: linear-gradient(90deg, transparent, rgba(157, 125, 255, 0.6), transparent); }
+
+/* ── Discord-style message formatting (support tickets) ─────────────── */
+.sup-text .dc-code { background: rgba(0,0,0,0.32); padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }
+.sup-text .dc-codeblock { background: rgba(0,0,0,0.35); border: 1px solid var(--border, #2a3040);
+  padding: 9px 11px; border-radius: 7px; overflow-x: auto; margin: 4px 0; }
+.sup-text .dc-codeblock code { background: none; padding: 0; font-size: 0.86em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+.sup-text .dc-quote { border-left: 3px solid var(--border, #3a4256); margin: 3px 0;
+  padding: 1px 10px; color: var(--text-muted, #9aa3b2); }
+.sup-text .dc-mention { background: rgba(88,101,242,0.28); color: #c7ccf7;
+  border-radius: 3px; padding: 0 3px; font-weight: 500; }
+/* Channel pill (Discord-style). Accessible = blurple #hash chip; locked = muted
+   with a lock icon + a "No-Access" tag, like Discord's no-access channels. */
+.sup-text .dc-channel { display: inline-flex; align-items: center; gap: 2px; }
+.sup-text .dc-channel .dc-ch-hash { opacity: .8; }
+.sup-text .dc-channel .dc-ch-ico { font-size: 12px; margin-right: 1px; }
+.sup-text .dc-channel.locked { background: rgba(148,158,178,0.16); color: var(--text-muted, #9aa3b2); font-weight: 500; }
+.sup-text .dc-channel.locked .dc-ch-na { font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; margin-left: 4px; padding: 0 4px; border-radius: 3px;
+  background: rgba(148,158,178,0.22); color: #b7bfce; }
+.sup-text .dc-spoiler { background: #1c1f27; color: transparent; border-radius: 4px;
+  padding: 0 3px; cursor: pointer; user-select: none; transition: color .1s, background .1s; }
+.sup-text .dc-spoiler.shown { color: inherit; background: rgba(255,255,255,0.08); cursor: text; user-select: text; }
+.sup-text a { color: var(--blue, #4a9eff); text-decoration: none; }
+.sup-text a:hover { text-decoration: underline; }
+.sup-text u { text-decoration: underline; }
+.sup-text del { text-decoration: line-through; }
+
+/* Reply reference shown above a message body */
+.sup-replyref { display: flex; align-items: center; gap: 5px; font-size: 12px;
+  color: var(--text-muted, #9aa3b2); margin-bottom: 3px; cursor: pointer;
+  max-width: 100%; overflow: hidden; opacity: .9; }
+.sup-replyref:hover { opacity: 1; }
+.sup-replyref i { color: var(--blue, #4a9eff); font-size: 14px; flex: 0 0 auto; }
+.sup-replyref-who { font-weight: 600; color: var(--text, #e6e9ef); flex: 0 0 auto; }
+.sup-replyref-snip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* Per-message reply button (revealed on hover of the message) */
+.sup-reply-btn { background: none; border: none; color: var(--text-muted, #9aa3b2);
+  cursor: pointer; padding: 0 4px; margin-left: 4px; font-size: 13px; line-height: 1;
+  opacity: 0; transition: opacity .12s; }
+.sup-msg:hover .sup-reply-btn { opacity: .75; }
+.sup-reply-btn:hover { opacity: 1; color: var(--blue, #4a9eff); }
+
+/* Composer "replying to…" bar */
+.sup-replybar { display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  margin-bottom: 8px; border-left: 3px solid var(--blue, #4a9eff);
+  background: var(--surface-1, rgba(255,255,255,0.04)); border-radius: 6px; font-size: 12px; }
+.sup-replybar i { color: var(--blue, #4a9eff); flex: 0 0 auto; }
+.sup-replybar-who { font-weight: 600; flex: 0 0 auto; }
+.sup-replybar-snip { color: var(--text-muted, #9aa3b2); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.sup-replybar-x { background: none; border: none; color: var(--text-muted, #9aa3b2);
+  cursor: pointer; flex: 0 0 auto; padding: 2px; font-size: 14px; }
+.sup-replybar-x:hover { color: var(--red, #e2231a); }
+
+/* Flash a message when you jump to it from a reply reference */
+.sup-flash { animation: supFlash 1.2s ease-out; }
+@keyframes supFlash { 0% { background: rgba(74,158,255,0.22); } 100% { background: transparent; } }
+
+/* Live formatting preview under the ticket composer */
+.sup-fmt-preview { margin-top: 8px; padding: 8px 11px; border: 1px dashed var(--border, #2a3040);
+  border-radius: 8px; background: var(--surface-1, rgba(255,255,255,0.03)); }
+.sup-fmt-preview-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-muted, #9aa3b2); margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+.sup-fmt-preview .sup-text { font-size: 13px; }
+
+/* Rich (WYSIWYG) markdown composer — formatting renders live in the box */
+.rc-editor { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; overflow-y: auto;
+  max-height: 180px; min-height: 44px; cursor: text; line-height: 1.5; }
+.rc-editor:focus { outline: none; }
+.rc-editor:empty:before { content: attr(data-placeholder); color: var(--text-muted, #9aa3b2); pointer-events: none; }
+.rc-editor .rc-m { opacity: .4; }                 /* dimmed markdown markers */
+.rc-editor .rc-q { color: var(--text-muted, #9aa3b2); }
+.rc-editor .rc-sp { background: rgba(255,255,255,0.10); border-radius: 4px; }
+.rc-editor .rc-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(0,0,0,0.28); border-radius: 4px; padding: 0 3px; font-size: .92em; }
+.rc-editor .rc-mention { background: rgba(88,101,242,0.28); color: #c7ccf7; border-radius: 3px; padding: 0 2px; }
+
+/* Typing indicator (support tickets) */
+.sup-typing { display: flex; align-items: center; gap: 7px; padding: 4px 14px 6px;
+  font-size: 12px; color: var(--text-muted, #9aa3b2); font-style: italic; }
+.sup-typing-dots { display: inline-flex; gap: 3px; }
+.sup-typing-dots span { width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-muted, #9aa3b2); display: inline-block; animation: supTypeBlink 1.2s infinite ease-in-out both; }
+.sup-typing-dots span:nth-child(2) { animation-delay: .2s; }
+.sup-typing-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes supTypeBlink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+/* Mention profile card (click a <@user> pill in a ticket) */
+.dc-mention-card { position: fixed; z-index: 2147483000; min-width: 240px; max-width: 320px;
+  background: rgba(10,14,26,0.98); border: 1px solid var(--border-mid, #2a3040);
+  border-radius: 12px; box-shadow: 0 14px 44px rgba(0,0,0,0.55); padding: 13px 14px;
+  font-size: 13px; color: var(--text-primary, #e6e9ef); animation: dcMcIn .12s ease-out; }
+@keyframes dcMcIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.dc-mc-head { display: flex; align-items: center; gap: 11px; }
+.dc-mc-avs { display: flex; align-items: center; flex-shrink: 0; }
+.dc-mc-fallback { width: 46px; height: 46px; border-radius: 50%; background: var(--blue-dim, rgba(74,158,255,.15));
+  color: var(--blue, #4a9eff); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; }
+.dc-mc-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dc-mc-handles { font-size: 11px; color: var(--text-muted, #9aa3b2); margin-top: 2px; }
+.dc-mc-foot { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border-dim, #1c2230); }
+.dc-mc-link { color: var(--blue, #4a9eff); text-decoration: none; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.dc-mc-link:hover { text-decoration: underline; }
+.dc-mc-note { font-size: 11px; color: var(--text-muted, #9aa3b2); }
+
+/* Discord role colour + icon on names (support tickets) */
+.dc-role-icon { width: 14px; height: 14px; border-radius: 3px; object-fit: cover; vertical-align: -2px; margin-right: 3px; }
+.dc-mc-role { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted, #9aa3b2); margin-top: 3px; font-weight: 600; }
+.dc-mc-role .dc-role-icon { width: 15px; height: 15px; }
+.sup-name .dc-role-icon { width: 13px; height: 13px; }
+
+/* @-autocomplete dropdown (ticket composer) */
+.rc-ac { position: fixed; z-index: 2147483000; min-width: 220px; max-width: 300px;
+  background: rgba(10,14,26,0.98); border: 1px solid var(--border-mid, #2a3040);
+  border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 5px; overflow: hidden; }
+.rc-ac-item { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 7px; cursor: pointer; }
+.rc-ac-item.sel, .rc-ac-item:hover { background: var(--hover, rgba(255,255,255,0.07)); }
+.rc-ac-av { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.rc-ac-fb { display: flex; align-items: center; justify-content: center; background: var(--blue-dim, rgba(74,158,255,.15));
+  color: var(--blue, #4a9eff); font-weight: 700; font-size: 12px; }
+.rc-ac-name { font-size: 13px; font-weight: 600; color: var(--text-primary, #e6e9ef); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-ac-sub { font-size: 11px; color: var(--text-muted, #9aa3b2); margin-left: auto; flex-shrink: 0; }
+/* `#` channel picker rows: a hash chip (or a lock chip + "No-Access" for
+   channels the user can't see), matching Discord's channel autocomplete. */
+.rc-ac-chico { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(88,101,242,0.18); color: #aeb6ff; font-size: 15px; }
+.rc-ac-chico.locked { background: rgba(148,158,178,0.16); color: #9aa3b2; }
+.rc-ac-ch.locked .rc-ac-name { color: var(--text-muted, #9aa3b2); }
+.rc-ac-na { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-left: auto; flex-shrink: 0;
+  padding: 1px 5px; border-radius: 4px; background: rgba(148,158,178,0.2); color: #b7bfce; }
+.rc-ac-ch .rc-ac-sub { margin-left: 8px; }
+.rc-ac-ch.locked .rc-ac-sub { margin-left: 8px; }
+
+/* Discord-style role pills — mirror how Discord shows roles on a profile:
+   a colored dot (or role icon) + the role name in its role color. */
+.dc-rolepills { display: flex; flex-wrap: wrap; gap: 6px; }
+.dc-rolepill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px;
+  border-radius: 8px; background: rgba(127, 140, 165, .1); border: 1px solid rgba(127, 140, 165, .28);
+  font-size: 12px; line-height: 1.45; }
+.dc-rolepill-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+.dc-rolepill-icon { width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: 0 0 auto; }
+.dc-rolepill-name { white-space: nowrap; color: var(--text-primary, #e8edf5); font-weight: 500; }

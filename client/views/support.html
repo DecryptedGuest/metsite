@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET Support · METAdministration</title>
+  <link rel="icon" href="/img/divisions/met.png" />
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .sup-wrap { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
+    .sup-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.3rem; }
+    .sup-panel { display: flex; flex-direction: column; gap: 1rem; padding: 1.8rem; transition: border-color .15s ease, transform .15s ease; }
+    .sup-panel:hover { transform: translateY(-2px); border-color: var(--blue, #4a8fff); }
+    .sup-panel h3 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: .6rem; }
+    .sup-panel h3 i { font-size: 24px; }
+    .sup-panel p { margin: 0; font-size: 14.5px; color: var(--text-secondary); line-height: 1.65; flex: 1; }
+    /* Big, unmissable "open ticket" button — full-width, larger text (overrides btn-sm). */
+    .sup-panel .btn { align-self: stretch; justify-content: center; margin-top: .4rem; padding: .95rem 1.4rem; font-size: 15.5px; font-weight: 700; border-radius: 12px; }
+    .sup-panel .btn i { font-size: 18px; }
+    .sup-restricted { opacity: .75; }
+    .sup-locknote { font-size: 11px; color: var(--amber); display: flex; align-items: center; gap: 4px; }
+    .sup-section-title { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 1.6rem 0 .7rem; color: var(--text-primary); }
+    /* Chat */
+    .sup-chat-head { display: flex; align-items: center; gap: 12px; padding: 1rem 1.2rem; }
+    .sup-chat-head .sup-back { cursor: pointer; }
+    .sup-log { display: flex; flex-direction: column; gap: 12px; padding: 1.2rem; max-height: 58vh; overflow-y: auto; }
+    .sup-msg { display: flex; gap: 10px; }
+    .sup-msg .sup-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; background: var(--surface-2, #222); display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 13px; font-weight: 700; }
+    .sup-msg .sup-av img { width: 100%; height: 100%; object-fit: cover; }
+    .sup-msg .sup-body { flex: 1; min-width: 0; }
+    .sup-msg .sup-meta { font-size: 12px; margin-bottom: 2px; }
+    .sup-msg .sup-name { font-weight: 700; }
+    .sup-msg .sup-time { color: var(--text-muted); font-size: 11px; margin-left: 6px; }
+    .sup-msg .sup-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .sup-msg.bot .sup-name { color: var(--blue); }
+    .sup-msg.staff .sup-name { color: var(--green); }
+    .sup-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .sup-atts a, .sup-atts img, .sup-atts video { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--border, #333); }
+    /* Discord-style link embeds (mirrors support-chat.css). */
+    .sup-embeds { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .met-embed { position: relative; max-width: 480px; background: var(--surface-2, rgba(255,255,255,.035)); border-left: 4px solid var(--emb, var(--accent, #4a8fff)); border-radius: 6px; padding: 10px 12px; overflow: hidden; }
+    .met-emb-main { display: flex; gap: 12px; align-items: flex-start; }
+    .met-emb-body { flex: 1; min-width: 0; }
+    .met-emb-site { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-bottom: 3px; }
+    .met-emb-fav { width: 16px; height: 16px; border-radius: 3px; object-fit: cover; }
+    .met-emb-title { display: block; font-size: 15px; font-weight: 600; color: var(--accent, #4a8fff); line-height: 1.3; margin-bottom: 4px; text-decoration: none; word-break: break-word; }
+    .met-emb-title:hover { text-decoration: underline; }
+    .met-emb-desc { font-size: 13px; color: var(--text-secondary, #b9c2d0); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+    .met-emb-thumb { flex-shrink: 0; }
+    .met-emb-thumb img { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; display: block; }
+    .met-emb-big { display: block; margin-top: 10px; border-radius: 6px; overflow: hidden; position: relative; }
+    .met-emb-big img { display: block; width: 100%; max-height: 300px; object-fit: cover; }
+    .met-emb-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .met-emb-play i { font-size: 30px; color: #fff; background: rgba(0,0,0,.55); width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .met-embed-img { border-left: none; background: none; padding: 0; }
+    .met-embed-img img { max-width: 100%; max-height: 320px; border-radius: 8px; display: block; cursor: pointer; }
+    .sup-drop { outline: 2px dashed var(--accent, #4a8fff); outline-offset: 2px; border-radius: 10px; background: color-mix(in srgb, var(--accent, #4a8fff) 8%, transparent); }
+    .sup-composer { display: flex; flex-direction: column; gap: 8px; padding: 1rem 1.2rem; border-top: 1px solid var(--border, #2a2a2a); }
+    .sup-composer-row { display: flex; gap: 8px; align-items: flex-end; }
+    .sup-composer textarea { flex: 1; resize: vertical; min-height: 44px; }
+    .sup-pending-atts { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sup-att-tile { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 6px; border: 1px solid var(--border, #333); border-radius: 9px; background: rgba(255,255,255,.03); max-width: 240px; }
+    .sup-att-tile.error { border-color: var(--red, #e0503a); }
+    .sup-att-thumb { position: relative; width: 40px; height: 40px; border-radius: 7px; overflow: hidden; flex: 0 0 40px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.05); color: var(--text-muted); font-size: 18px; }
+    .sup-att-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .sup-att-spin { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
+    .sup-att-spin .spinner { width: 18px; height: 18px; }
+    .sup-att-info { min-width: 0; flex: 1; }
+    .sup-att-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sup-att-status { font-size: 10px; color: var(--text-muted); }
+    .sup-att-tile.error .sup-att-status { color: var(--red, #e0503a); }
+    .sup-att-rm { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; display: flex; }
+    .sup-att-rm:hover { color: var(--red, #e0503a); }
+    .sup-hint { font-size: 11px; color: var(--text-muted); }
+    .sup-hidden { display: none !important; }
+    /* System transition panels (transferred to IA, claimed, closed) */
+    .sup-msg-sys { display: flex; justify-content: center; }
+    .sup-sys { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 1px solid var(--border, #333); border-radius: 12px; background: rgba(74,143,255,.06); max-width: 460px; }
+    /* Typing indicator */
+    .sup-typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
+    .sup-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); opacity: .4; animation: sup-blink 1.2s infinite both; }
+    .sup-typing span:nth-child(2) { animation-delay: .2s; }
+    .sup-typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes sup-blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+    /* Resolved-person card */
+    .sup-idcard { display: flex; gap: 12px; align-items: center; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border, #333); border-radius: 10px; max-width: 340px; background: rgba(255,255,255,.02); }
+    .sup-idcard:hover { border-color: var(--blue, #4a8fff); }
+    /* Confirmation buttons after a choice is made */
+    .sup-btn-done { opacity: .4; }
+    .sup-btn-chosen { opacity: 1; }
+    .sup-av[onclick]:hover, .sup-name[onclick]:hover { filter: brightness(1.15); text-decoration: underline; }
+
+    /* Guest banner on the landing */
+    .sup-guest-banner { display: flex; align-items: center; gap: 16px; padding: 16px 20px; margin-bottom: 1.3rem; border: 1px solid color-mix(in srgb, var(--amber, #e8842a) 40%, transparent); background: linear-gradient(100deg, color-mix(in srgb, var(--amber,#e8842a) 10%, transparent), transparent 70%); border-radius: 16px; }
+    .sup-guest-banner .sup-gb-ico { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; background: color-mix(in srgb, var(--amber,#e8842a) 18%, transparent); color: var(--amber,#e8842a); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+    .sup-guest-banner .sup-gb-txt { flex: 1; min-width: 0; }
+    .sup-guest-banner .sup-gb-txt b { font-size: 14.5px; }
+    .sup-guest-banner .sup-gb-txt p { margin: 3px 0 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+    .sup-guest-banner .sup-gb-btn { flex: 0 0 auto; }
+    @media (max-width: 620px) { .sup-guest-banner { flex-wrap: wrap; } .sup-guest-banner .sup-gb-btn { width: 100%; } .sup-guest-banner .sup-gb-btn .btn { width: 100%; justify-content: center; } }
+
+    /* ── Login gate overlay (guest tries to open a ticket) ── */
+    .sup-gate { position: fixed; inset: 0; z-index: 4000; display: none; align-items: center; justify-content: center; padding: 20px;
+      background: radial-gradient(1200px 760px at 50% -12%, rgba(74,143,255,.20), transparent 60%), rgba(6,9,16,.84);
+      backdrop-filter: blur(11px) saturate(120%); -webkit-backdrop-filter: blur(11px) saturate(120%); }
+    .sup-gate.show { display: flex; animation: sup-gate-fade .28s ease both; }
+    @keyframes sup-gate-fade { from { opacity: 0; } to { opacity: 1; } }
+    .sup-gate-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .sup-gate-orb { position: absolute; border-radius: 50%; filter: blur(64px); opacity: .5; animation: sup-gate-drift 15s ease-in-out infinite; }
+    .sup-gate-orb.o1 { width: 440px; height: 440px; background: #4a8fff; top: -140px; left: -90px; }
+    .sup-gate-orb.o2 { width: 380px; height: 380px; background: #5865F2; bottom: -140px; right: -70px; animation-delay: -5s; }
+    .sup-gate-orb.o3 { width: 300px; height: 300px; background: #e2231a; top: 42%; right: 18%; opacity: .28; animation-delay: -9s; }
+    @keyframes sup-gate-drift { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(34px,-22px) scale(1.12); } }
+    .sup-gate-float { position: absolute; color: rgba(255,255,255,.06); font-size: 58px; animation: sup-gate-floaty 13s ease-in-out infinite; }
+    .sup-gate-float.f1 { top: 12%; left: 11%; font-size: 74px; color: rgba(88,101,242,.16); }
+    .sup-gate-float.f2 { top: 18%; right: 13%; font-size: 62px; color: rgba(226,35,26,.16); animation-delay: -3s; }
+    .sup-gate-float.f3 { bottom: 15%; left: 17%; font-size: 54px; animation-delay: -6s; }
+    .sup-gate-float.f4 { bottom: 20%; right: 18%; font-size: 50px; animation-delay: -2s; }
+    .sup-gate-float.f5 { top: 56%; left: 6%; font-size: 44px; color: rgba(88,101,242,.11); animation-delay: -9s; }
+    @keyframes sup-gate-floaty { 0%,100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-26px) rotate(6deg); } }
+    .sup-gate-card { position: relative; width: 100%; max-width: 480px; border-radius: 22px; padding: 34px 30px 24px; text-align: center;
+      border: 1px solid rgba(255,255,255,.12); box-shadow: 0 34px 90px rgba(0,0,0,.62); animation: sup-gate-pop .42s cubic-bezier(.2,.9,.3,1.25) both; }
+    @keyframes sup-gate-pop { from { opacity: 0; transform: translateY(26px) scale(.93); } to { opacity: 1; transform: none; } }
+    .sup-gate-back { position: absolute; top: 13px; left: 13px; background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 9px; transition: background .14s, color .14s; }
+    .sup-gate-back:hover { color: var(--text-primary); background: rgba(255,255,255,.07); }
+    .sup-gate-crest { position: relative; width: 100px; height: 100px; margin: 10px auto 18px; display: flex; align-items: center; justify-content: center; }
+    .sup-gate-crest img { width: 80px; height: 80px; object-fit: contain; filter: drop-shadow(0 8px 20px rgba(74,143,255,.45)); animation: sup-gate-bob 4.2s ease-in-out infinite; }
+    @keyframes sup-gate-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+    .sup-gate-ring { position: absolute; inset: -7px; border-radius: 50%; border: 2px dashed rgba(74,143,255,.42); animation: sup-gate-spin 18s linear infinite; }
+    .sup-gate-ring::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; border: 1px solid rgba(88,101,242,.25); }
+    @keyframes sup-gate-spin { to { transform: rotate(360deg); } }
+    .sup-gate-lock { position: absolute; right: 0; bottom: 2px; width: 34px; height: 34px; border-radius: 50%; background: var(--amber,#e8842a); color: #1a1205; display: flex; align-items: center; justify-content: center; font-size: 17px; box-shadow: 0 5px 14px rgba(0,0,0,.45); animation: sup-gate-pulse 2.4s ease-in-out infinite; }
+    @keyframes sup-gate-pulse { 0%,100% { transform: scale(1); box-shadow: 0 5px 14px rgba(0,0,0,.45); } 50% { transform: scale(1.14); box-shadow: 0 6px 20px rgba(232,132,42,.55); } }
+    .sup-gate-title { margin: 0 0 9px; font-size: 24px; font-weight: 800; font-family: var(--font-display, inherit); letter-spacing: -.01em; }
+    .sup-gate-sub { margin: 0 auto 22px; font-size: 14px; line-height: 1.62; color: var(--text-secondary); max-width: 386px; }
+    .sup-gate-btns { display: flex; flex-direction: column; gap: 12px; }
+    .sup-gate-btn { display: flex; align-items: center; justify-content: center; gap: 11px; padding: 14px 18px; border-radius: 13px; font-size: 15.5px; font-weight: 700; text-decoration: none; transition: transform .14s ease, filter .14s ease, box-shadow .14s ease; }
+    .sup-gate-btn svg { width: 24px; height: 24px; flex: 0 0 auto; }
+    .sup-gate-btn i { font-size: 22px; }
+    .sup-gate-btn.discord { background: #5865F2; color: #fff; box-shadow: 0 10px 28px rgba(88,101,242,.42); }
+    .sup-gate-btn.roblox { background: #fff; color: #17181c; box-shadow: 0 10px 28px rgba(0,0,0,.32); }
+    .sup-gate-btn:hover { transform: translateY(-2px); filter: brightness(1.05); }
+    .sup-gate-btn:active { transform: translateY(0); }
+    .sup-gate-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 17px; font-size: 11.5px; color: var(--text-muted); }
+    .sup-gate-note i { color: var(--green,#2ed896); font-size: 14px; }
+    .sup-gate-ghost { margin-top: 12px; background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .sup-gate-ghost:hover { color: var(--text-secondary); }
+    @media (max-width: 520px) { .sup-gate-card { padding: 30px 20px 20px; } .sup-gate-title { font-size: 21px; } .sup-gate-float { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .sup-gate-orb, .sup-gate-float, .sup-gate-crest img, .sup-gate-ring, .sup-gate-lock, .sup-gate.show, .sup-gate-card { animation: none !important; } }
+  </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+</head>
+<body>
+<div class="bg-canvas">
+  <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
+</div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/divisions/met.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division">Support</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-topbar-user">
+      <img id="sup-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;width:26px;height:26px;border-radius:50%;" />
+      <div class="met-user-avatar-fallback" id="sup-user-fallback">?</div>
+      <span id="sup-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="sup-wrap">
+  <!-- LANDING -->
+  <section id="sup-landing">
+    <div class="page-header fade-up" style="margin-bottom:1rem;">
+      <div>
+        <h1 class="page-title">MET Support</h1>
+        <p class="page-sub" id="sup-page-sub">Need help? Pick an option below to get started.</p>
+      </div>
+    </div>
+
+    <div class="sup-panels" id="sup-panels"><div class="table-loading"><div class="spinner"></div></div></div>
+
+    <div class="sup-section-title">My Tickets</div>
+    <div class="panel glass"><div id="sup-mytickets"><div class="table-loading"><div class="spinner"></div></div></div></div>
+
+    <div id="sup-staff-wrap" class="sup-hidden">
+      <div class="sup-section-title">Staff Queue</div>
+      <div class="panel glass">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Tickets to handle</div>
+          <div class="filter-tabs" id="sup-queue-tabs">
+            <button class="filter-tab active" data-status="active">Active</button>
+            <button class="filter-tab" data-status="OPEN">Unclaimed</button>
+            <button class="filter-tab" data-status="CLAIMED">Claimed</button>
+            <button class="filter-tab" data-status="CLOSED">Closed</button>
+          </div>
+        </div>
+        <div id="sup-queue"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TICKET / CHAT -->
+  <section id="sup-ticket" class="sup-hidden">
+    <div class="panel glass" style="overflow:hidden;padding:0;">
+      <div class="sup-chat-head">
+        <button class="btn btn-icon btn-ghost sup-back" onclick="supBackToLanding()" title="Back"><i class="ti ti-arrow-left"></i></button>
+        <div style="flex:1;">
+          <div style="font-weight:700;" id="sup-t-title">Ticket</div>
+          <div style="font-size:12px;color:var(--text-muted);" id="sup-t-sub"></div>
+        </div>
+        <span id="sup-t-status" class="badge badge-pending"><span class="badge-dot"></span>—</span>
+        <div id="sup-t-actions" style="display:flex;gap:6px;"></div>
+      </div>
+      <div class="sup-log" id="sup-log"></div>
+      <div class="sup-composer" id="sup-composer">
+        <div class="sup-pending-atts" id="sup-pending"></div>
+        <div class="sup-composer-row">
+          <div class="form-control rc-editor" id="sup-input" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Type a message…"></div>
+          <input type="file" id="sup-file" accept="image/*,video/*" multiple class="sup-hidden" />
+          <button class="btn btn-ghost btn-icon" id="sup-attach-btn" title="Attach"><i class="ti ti-paperclip"></i></button>
+          <button class="btn btn-primary" id="sup-send-btn" title="Send message" aria-label="Send message"><i class="ti ti-send"></i></button>
+        </div>
+        <div class="sup-hint" id="sup-hint"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- PROFILE CARD -->
+<div class="modal-overlay" id="modal-sup-profile">
+  <div class="modal glass-bright" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title" id="sup-prof-title">Profile</div>
+      <button class="modal-close" onclick="closeModal('modal-sup-profile')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="sup-prof-body"></div>
+  </div>
+</div>
+
+<!-- LOGIN GATE — shown when a guest tries to open a ticket -->
+<div id="sup-login-gate" class="sup-gate" role="dialog" aria-modal="true" aria-labelledby="sup-gate-title" aria-hidden="true">
+  <div class="sup-gate-bg" aria-hidden="true">
+    <span class="sup-gate-orb o1"></span><span class="sup-gate-orb o2"></span><span class="sup-gate-orb o3"></span>
+    <i class="ti ti-brand-discord sup-gate-float f1"></i>
+    <i class="ti ti-brand-roblox sup-gate-float f2"></i>
+    <i class="ti ti-shield-lock sup-gate-float f3"></i>
+    <i class="ti ti-ticket sup-gate-float f4"></i>
+    <i class="ti ti-brand-discord sup-gate-float f5"></i>
+  </div>
+  <div class="sup-gate-card glass-bright" role="document">
+    <button class="sup-gate-back" onclick="supHideLoginGate()" title="Go back"><i class="ti ti-arrow-left"></i> Go back</button>
+    <div class="sup-gate-crest">
+      <span class="sup-gate-ring"></span>
+      <img src="/img/divisions/met.png" alt="Metropolitan Police" />
+      <span class="sup-gate-lock"><i class="ti ti-lock"></i></span>
+    </div>
+    <h2 class="sup-gate-title" id="sup-gate-title">Sign in to open a ticket</h2>
+    <p class="sup-gate-sub">Support tickets are tied to your account so our officers can help you properly and you can track every reply. Sign in — or link — with <strong>Discord</strong> or <strong>Roblox</strong> to continue.</p>
+    <div class="sup-gate-btns">
+      <a href="/auth/discord" class="sup-gate-btn discord">
+        <svg viewBox="0 0 127.14 96.36" fill="currentColor"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+        <span>Continue with Discord</span>
+      </a>
+      <a href="/auth/roblox" class="sup-gate-btn roblox">
+        <i class="ti ti-brand-roblox"></i>
+        <span>Continue with Roblox</span>
+      </a>
+    </div>
+    <div class="sup-gate-note"><i class="ti ti-shield-check"></i> We only use this to identify you on your tickets — nothing is posted on your behalf.</div>
+    <button class="sup-gate-ghost" onclick="supHideLoginGate()">Not now — back to support</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/met-topbar.js?v=3"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/discord-format.js?v=80"></script>
+<script src="/js/support.js?v=82"></script>
+<script>initMetTopbar('');</script>
+</body>
+</html>

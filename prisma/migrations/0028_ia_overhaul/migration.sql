@@ -102,11 +102,7 @@ CREATE INDEX        IF NOT EXISTS "ticket_logs_closerDiscordId_idx" ON "ticket_l
 CREATE INDEX        IF NOT EXISTS "ticket_logs_closerUserId_idx"    ON "ticket_logs"("closerUserId");
 CREATE INDEX        IF NOT EXISTS "ticket_logs_ticketType_idx"      ON "ticket_logs"("ticketType");
 
--- ── Drop the hand-logged ticket system ───────────────────────────
--- Tickets are no longer submitted, approved or denied on the site; the closed
--- ticket logs above replace them entirely. Quota points are no longer awarded
--- for tickets, so the pending awards are dropped too.
-DELETE FROM "quota_awards" WHERE "refType" = 'ticket';
-DROP TABLE IF EXISTS "tickets";
-DROP TABLE IF EXISTS "ticket_counter";
-DROP TYPE  IF EXISTS "TicketStatus";
+-- NOTE: this migration used to drop the hand-logged ticket tables here. It no
+-- longer does. Migrations 0035-0058 (the /support help desk) build on "tickets",
+-- and they run AFTER this one — dropping it here would break every one of them.
+-- The teardown now lives in its own migration at the end of the sequence.

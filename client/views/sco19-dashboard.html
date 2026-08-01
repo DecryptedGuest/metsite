@@ -8,10 +8,11 @@
   <link rel="stylesheet" href="/css/main.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
-<body>
+<body class="div-sco19">
 <div class="bg-canvas">
   <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
 </div>
@@ -45,27 +46,117 @@
         <div class="brand-logo"><img src="/img/divisions/sco19.png" alt="SCO-19" /></div>
         <div class="brand-text">
           <div class="brand-name">MET · SCO-19</div>
-          <div class="brand-sub">Specialist Firearms</div>
+          <div class="brand-sub">Specialist Firearms Command</div>
         </div>
       </div>
       <div class="sidebar-divider"></div>
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <button class="nav-item" data-page="activity"><i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span></button>
+        <div class="nav-section-label hicomm-only" style="display:none;">High Command</div>
+        <button class="nav-item hicomm-only" data-page="quota" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Review</span></button>
+        <button class="nav-item hicomm-only" data-page="loa" style="display:none;"><i class="ti ti-calendar-stats nav-icon"></i><span>LOA Requests</span><span class="nav-badge pending" id="sco19-loa-badge" style="display:none;"></span></button>
       </nav>
     </div>
   </aside>
 
   <main class="main-content">
+    <!-- OVERVIEW -->
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Specialist Firearms</h1><p class="page-sub">SCO-19 · Overview</p></div>
+        <div><h1 class="page-title">Specialist Firearms Command</h1><p class="page-sub">SCO-19 · Overview</p></div>
+      </div>
+      <div id="sco19-kpis" class="fade-up"></div>
+
+      <div class="panel glass fade-up stagger-1" id="dq-SCO19-mine" style="display:none;"></div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:var(--dc,#4b5563);"></span>Quick actions</div></div>
+        <div class="profile-section" style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="sco19Go('activity')"><i class="ti ti-activity-heartbeat"></i> Activity Tracking</button>
+          <button class="btn btn-ghost btn-sm dq-hicomm" style="display:none;" onclick="sco19Go('quota')"><i class="ti ti-checklist"></i> Quota Review</button>
+          <button class="btn btn-ghost btn-sm dq-hicomm" style="display:none;" onclick="sco19Go('loa')"><i class="ti ti-calendar-stats"></i> LOA Requests</button>
+          <a class="btn btn-ghost btn-sm" href="/loa"><i class="ti ti-calendar-plus"></i> Request LOA</a>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>About SCO-19</div></div>
+        <div style="padding:1.6rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
+          SCO-19 is the Metropolitan Police Service's Specialist Firearms Command — the unit's authorised firearms
+          officers. Your rank and standing below are read directly from the SCO-19 Roblox group.
+          <br><br>
+          Firearms authorisation and unit progression are handled in-server and through the group ranks; there is no
+          tryout process to sign up for here.
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY TRACKING (read-only, every SCO-19 member) -->
+    <section class="page" id="page-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every officer's weekly activity · read-only</p></div>
       </div>
       <div class="panel glass fade-up stagger-1">
-        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
-          <div style="font-size:40px;margin-bottom:1rem;">🚧</div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
-          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">SCO-19 tools are being built. You have access to this division — check back soon for its features.</div>
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>SCO-19 Officers</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-SCO19-act-tabs"></span>
+            <span class="text-muted mono" id="dq-SCO19-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Officer</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-SCO19-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUOTA REVIEW (SCO-19 High Command) -->
+    <section class="page" id="page-quota">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Quota Review</h1><p class="page-sub">SCO-19 High Command · Reviews the SCO-19 database</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="DivQuota.reset('SCO19')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="DivQuota.submit('SCO19')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>SCO-19 Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-SCO19-rev-tabs"></span>
+            <button class="btn btn-ghost btn-sm" onclick="DivQuota.auto('SCO19')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="dq-SCO19-rev-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="dq-SCO19-rev-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOA REQUESTS (SCO-19 High Command) -->
+    <section class="page" id="page-loa">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">LOA Requests</h1><p class="page-sub">Leave of Absence requests sent for SCO-19</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Requests</div>
+          <span class="text-muted mono" id="loa-SCO19-count" style="font-size:11px;"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Dates</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="loa-SCO19-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -73,10 +164,12 @@
 </div>
 
 <div id="toast-container"></div>
-<script src="/js/ui.js"></script>
-<script src="/js/met-topbar.js"></script>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
-<script src="/js/events-client.js"></script>
+<script src="/js/division-quota.js"></script>
+<script src="/js/loa-review.js"></script>
+<script src="/js/sco19-dashboard.js"></script>
 <script>initMetTopbar('SCO19');</script>
 </body>
 </html>

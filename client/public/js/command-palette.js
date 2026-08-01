@@ -1,196 +1,247 @@
-// client/public/js/command-palette.js
-// Global ⌘K / Ctrl-K command palette. Self-contained: injects its own styles +
-// overlay, builds a command list from the signed-in user's divisions and role,
-// and fuzzy-filters as you type. Plain fetch — no dependency on ui.js.
+/* command-palette.js — site-wide ⌘K / Ctrl-K quick launcher.
+   Jumps between divisions/pages and (for HICOMM/dev) searches officers.
+   Self-contained; include on any dashboard after ui.js. */
 (function () {
-  if (window.__metPaletteLoaded) return;
-  window.__metPaletteLoaded = true;
+  const esc = window.escapeHtml || (s => String(s == null ? '' : s));
+  let el, input, list, open = false, items = [], sel = 0, officerTimer = null;
 
-  var DIV_LABEL = { CID: 'CID', SCO19: 'SCO-19', IA: 'Internal Affairs', FLP: 'FLP', HPC: 'HPC' };
-  var commands = [];
-  var built = false;
-  var overlay, input, list, activeIndex = 0, filtered = [];
+  const NAV = [
+    { label: 'My Profile', icon: 'ti-user', url: '/profile' },
+    { label: 'Install on phone / Get the app', icon: 'ti-device-mobile', url: '/app' },
+    { label: 'MET High Command', icon: 'ti-shield-star', url: '/hicomm/dashboard' },
+    { label: 'HPC Dashboard', icon: 'ti-school', url: '/hpc/dashboard' },
+    { label: 'CID Dashboard', icon: 'ti-fingerprint', url: '/cid/dashboard' },
+    { label: 'SCO-19 Dashboard', icon: 'ti-target', url: '/sco19/dashboard' },
+    { label: 'FLP Dashboard', icon: 'ti-shield', url: '/flp/dashboard' },
+    { label: 'IA Dashboard', icon: 'ti-scale', url: '/ia/dashboard' },
+    { label: 'Dev Panel', icon: 'ti-code', url: '/dev/dashboard' },
+    { label: 'Dev · Security Center', icon: 'ti-shield-lock', url: '/dev/security' },
+    { label: 'Toggle theme', icon: 'ti-moon', action: () => {
+        const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', cur); try { localStorage.setItem('iacms_theme', cur); } catch (e) {}
+      } },
+    { label: 'Toggle reduce motion', icon: 'ti-accessible', action: () => {
+        let pref = ''; try { pref = localStorage.getItem('iacms_reduce_motion') || ''; } catch (e) {}
+        const osReduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const next = !(pref === 'on' || (pref !== 'off' && osReduce));
+        try { localStorage.setItem('iacms_reduce_motion', next ? 'on' : 'off'); } catch (e) {}
+        if (window.applyReduceMotion) window.applyReduceMotion(next);
+        if (window.showToast) showToast(next ? 'Reduced motion on' : 'Reduced motion off', 'info');
+      } },
+    { label: 'Toggle compact layout', icon: 'ti-layout-rows', action: () => {
+        var on = false; try { on = localStorage.getItem('iacms_density') === 'compact'; } catch (e) {}
+        var next = !on;
+        try { localStorage.setItem('iacms_density', next ? 'compact' : 'cosy'); } catch (e) {}
+        if (window.applyDensity) window.applyDensity(next);
+        if (window.showToast) showToast(next ? 'Compact layout on' : 'Comfortable layout', 'info');
+      } },
+    { label: 'Copy link to this page', icon: 'ti-link', action: () => {
+        if (window.copyText) window.copyText(location.href, 'Page link');
+      } },
+    // IA actions. pageItems() already turns every sidebar tab into a command,
+    // so only the things with no sidebar entry need listing here. Each is a
+    // no-op on pages where the handler doesn't exist.
+    { label: 'Submit a case', icon: 'ti-plus', action: () => {
+        if (typeof window.openNewCaseModal === 'function') window.openNewCaseModal();
+        else window.location.href = '/ia/dashboard';
+      } },
+    { label: 'New case document', icon: 'ti-file-plus', action: () => {
+        if (window.CaseDoc) window.CaseDoc.openBuilder({});
+        else window.location.href = '/ia/dashboard';
+      } },
+    { label: 'Sign out', icon: 'ti-logout', action: () => {
+        const f = document.createElement('form'); f.method = 'POST'; f.action = '/auth/logout';
+        document.body.appendChild(f); f.submit();
+      } },
+  ];
 
-  function isMac() { return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent); }
-
-  function injectStyles() {
-    var css = '' +
-      '.cmdk-overlay{position:fixed;inset:0;z-index:9999;display:none;align-items:flex-start;justify-content:center;background:rgba(4,6,12,.6);backdrop-filter:blur(4px);padding-top:12vh}' +
-      '.cmdk-overlay.open{display:flex}' +
-      '.cmdk-box{width:min(600px,92vw);background:var(--panel,#12151d);border:1px solid var(--border,#252a36);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.5);overflow:hidden;animation:cmdk-in .12s ease}' +
-      '@keyframes cmdk-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}' +
-      '.cmdk-input{width:100%;box-sizing:border-box;border:0;outline:0;background:transparent;color:var(--text,#e6e9ef);font-size:16px;padding:18px 20px;border-bottom:1px solid var(--border-dim,#1c2029)}' +
-      '.cmdk-input::placeholder{color:var(--text-muted,#7c8598)}' +
-      '.cmdk-list{max-height:52vh;overflow-y:auto;padding:8px}' +
-      '.cmdk-item{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:9px;cursor:pointer;color:var(--text,#e6e9ef);font-size:14px}' +
-      '.cmdk-item .ti{font-size:18px;color:var(--text-muted,#7c8598);width:20px;text-align:center}' +
-      '.cmdk-item .cmdk-sub{margin-left:auto;font-size:11px;color:var(--text-muted,#7c8598)}' +
-      '.cmdk-item.active,.cmdk-item:hover{background:var(--accent-dim,rgba(74,143,255,.14))}' +
-      '.cmdk-item.active .ti{color:var(--accent,#4a8fff)}' +
-      '.cmdk-empty{padding:26px;text-align:center;color:var(--text-muted,#7c8598);font-size:13px}' +
-      '.cmdk-hint{display:flex;gap:14px;padding:9px 16px;border-top:1px solid var(--border-dim,#1c2029);font-size:11px;color:var(--text-muted,#7c8598)}' +
-      '.cmdk-hint kbd{background:var(--border-dim,#1c2029);border-radius:4px;padding:1px 6px;font-family:inherit}';
-    var s = document.createElement('style');
-    s.textContent = css;
-    document.head.appendChild(s);
-  }
-
-  function buildDom() {
-    injectStyles();
-    overlay = document.createElement('div');
-    overlay.className = 'cmdk-overlay';
-    overlay.innerHTML =
-      '<div class="cmdk-box" role="dialog" aria-modal="true">' +
-        '<input class="cmdk-input" type="text" placeholder="Search pages and actions…" autocomplete="off" spellcheck="false" />' +
-        '<div class="cmdk-list"></div>' +
-        '<div class="cmdk-hint"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>' +
-      '</div>';
-    document.body.appendChild(overlay);
-    input = overlay.querySelector('.cmdk-input');
-    list  = overlay.querySelector('.cmdk-list');
-
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
-    input.addEventListener('input', function () { activeIndex = 0; render(); });
+  function build() {
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'cmdk';
+    el.style.cssText = 'display:none;position:fixed;inset:0;z-index:11000;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);align-items:flex-start;justify-content:center;';
+    el.innerHTML = `<div style="margin-top:12vh;width:min(560px,92vw);background:var(--panel-solid,#151821);border:1px solid var(--border,#2a2a2a);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border,#2a2a2a);">
+        <i class="ti ti-search" style="font-size:18px;color:var(--text-muted);"></i>
+        <input id="cmdk-input" placeholder="Jump to a page, division, or search an officer…" style="flex:1;background:none;border:none;outline:none;color:var(--text-primary,#fff);font-size:15px;" />
+        <span style="font-size:10px;color:var(--text-muted);border:1px solid var(--border);border-radius:5px;padding:2px 6px;">ESC</span>
+      </div>
+      <div id="cmdk-list" style="max-height:52vh;overflow:auto;padding:6px;"></div></div>`;
+    document.body.appendChild(el);
+    input = el.querySelector('#cmdk-input');
+    list = el.querySelector('#cmdk-list');
+    el.addEventListener('click', e => { if (e.target === el) close(); });
+    input.addEventListener('input', onType);
     input.addEventListener('keydown', onKey);
   }
 
-  function navCmd(label, href, icon, sub) {
-    return { label: label, icon: icon || 'ti-arrow-right', sub: sub || '', run: function () { window.location.href = href; } };
-  }
-
-  // A command that switches tab inside the IA dashboard instead of navigating.
-  function pageCmd(label, page, icon, sub) {
-    return { label: label, icon: icon || 'ti-arrow-right', sub: sub || 'Internal Affairs',
-             run: function () { window.navigateTo(page); } };
-  }
-
-  async function buildCommands() {
-    commands = [
-      navCmd('My Dashboard', '/dashboard', 'ti-layout-dashboard'),
-      navCmd('My Profile', '/profile', 'ti-user'),
-    ];
-
-    // When we're inside the IA dashboard, every tab and the primary actions
-    // become palette commands — that's the fastest way around the site.
-    if (typeof window.navigateTo === 'function') {
-      commands.push(
-        pageCmd('Overview',        'dashboard',   'ti-layout-dashboard'),
-        pageCmd('My Cases',        'my-cases',    'ti-folder'),
-        pageCmd('All Cases',       'all-cases',   'ti-database'),
-        pageCmd('Review Queue',    'review',      'ti-clipboard-check'),
-        pageCmd('Records lookup',  'records',     'ti-id-badge-2'),
-        pageCmd('Case Documents',  'case-docs',   'ti-file-text'),
-        pageCmd('My Tickets',      'tickets',     'ti-ticket'),
-        pageCmd('All Tickets',     'all-tickets', 'ti-tags'),
-        pageCmd('Media',           'media',       'ti-photo-video'),
-        pageCmd('Quota & Database','quota-check', 'ti-checklist'),
-        pageCmd('Audit Log',       'audit',       'ti-list-details'),
-        { label: 'Submit a case', icon: 'ti-plus', sub: 'Action',
-          run: function () { if (typeof window.openNewCaseModal === 'function') window.openNewCaseModal(); } },
-        { label: 'New case document', icon: 'ti-file-plus', sub: 'Action',
-          run: function () { if (window.CaseDoc) window.CaseDoc.openBuilder({}); } },
-      );
-    }
-
-    try {
-      var me = await fetch('/api/me', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; });
-      var divs = await fetch('/api/me/divisions', { credentials: 'include' }).then(function (r) { return r.ok ? r.json() : null; });
-      if (divs && divs.mine) {
-        divs.mine.forEach(function (d) {
-          commands.push(navCmd(DIV_LABEL[d.division] || d.name, '/' + d.slug + '/dashboard', 'ti-shield-half', 'Division'));
-        });
-      }
-      // Role-gated shortcuts.
-      if (me && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].indexOf(me.role) !== -1) {
-        commands.push(navCmd('Internal Affairs — Cases', '/ia/dashboard', 'ti-folder', 'IA'));
-      }
-      if (me && me.role === 'DEVELOPER') {
-        commands.push(navCmd('Admin — Users', '/ia/dashboard#admin', 'ti-settings', 'Developer'));
-      }
-    } catch (e) { /* build a minimal palette if the API is unreachable */ }
-
-    commands.push({
-      label: 'Sign out', icon: 'ti-logout', sub: '', run: function () {
-        var f = document.createElement('form'); f.method = 'POST'; f.action = '/auth/logout';
-        document.body.appendChild(f); f.submit();
-      },
-    });
-    built = true;
-  }
-
-  function score(cmd, q) {
-    var hay = (cmd.label + ' ' + cmd.sub).toLowerCase();
-    if (!q) return 1;
-    if (hay.indexOf(q) !== -1) return 2;
-    // subsequence match
-    var qi = 0;
-    for (var i = 0; i < hay.length && qi < q.length; i++) if (hay[i] === q[qi]) qi++;
-    return qi === q.length ? 1 : 0;
-  }
-
   function render() {
-    var q = input.value.trim().toLowerCase();
-    filtered = commands
-      .map(function (c) { return { c: c, s: score(c, q) }; })
-      .filter(function (x) { return x.s > 0; })
-      .sort(function (a, b) { return b.s - a.s; })
-      .map(function (x) { return x.c; });
-
-    if (!filtered.length) { list.innerHTML = '<div class="cmdk-empty">No matches.</div>'; return; }
-    if (activeIndex >= filtered.length) activeIndex = filtered.length - 1;
-
-    list.innerHTML = filtered.map(function (c, i) {
-      return '<div class="cmdk-item' + (i === activeIndex ? ' active' : '') + '" data-i="' + i + '">' +
-        '<i class="ti ' + c.icon + '"></i><span>' + escapeHtml(c.label) + '</span>' +
-        (c.sub ? '<span class="cmdk-sub">' + escapeHtml(c.sub) + '</span>' : '') + '</div>';
-    }).join('');
-
-    Array.prototype.forEach.call(list.querySelectorAll('.cmdk-item'), function (el) {
-      el.addEventListener('click', function () { runIndex(parseInt(el.getAttribute('data-i'), 10)); });
-    });
+    list.innerHTML = items.map((it, i) => `
+      <div class="cmdk-row" data-i="${i}" style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:9px;cursor:pointer;${i === sel ? 'background:var(--hover,rgba(255,255,255,.06));' : ''}">
+        ${it.avatar ? `<img src="${esc(it.avatar)}" style="width:26px;height:26px;border-radius:50%;">` : `<i class="ti ${it.icon || 'ti-arrow-right'}" style="font-size:17px;width:26px;text-align:center;color:var(--text-secondary);"></i>`}
+        <div style="flex:1;min-width:0;"><div style="font-size:14px;">${esc(it.label)}</div>${it.sub ? `<div style="font-size:11px;color:var(--text-muted);">${esc(it.sub)}</div>` : ''}</div>
+      </div>`).join('') || '<div style="padding:18px;text-align:center;color:var(--text-muted);font-size:13px;">No matches</div>';
+    list.querySelectorAll('.cmdk-row').forEach(r => r.addEventListener('click', () => run(items[+r.dataset.i])));
   }
 
-  function runIndex(i) {
-    var c = filtered[i];
-    if (c) { close(); c.run(); }
+  // ── Recently visited pages (MRU) ──
+  function getRecents() {
+    try { return JSON.parse(localStorage.getItem('iacms_recent_pages') || '[]'); } catch (e) { return []; }
+  }
+  function recordVisit() {
+    try {
+      const url = location.pathname + location.hash;
+      if (!location.pathname || location.pathname === '/' || location.pathname === '/login') return;
+      let label = (document.title || '').replace(/^MET\s*[·»|-]\s*/i, '').trim() || location.pathname;
+      let list = getRecents().filter(r => r.url !== url);
+      list.unshift({ label, url, icon: 'ti-history' });
+      list = list.slice(0, 5);
+      localStorage.setItem('iacms_recent_pages', JSON.stringify(list));
+    } catch (e) { /* ignore */ }
   }
 
-  function onKey(e) {
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = Math.min(activeIndex + 1, filtered.length - 1); render(); scrollActive(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); render(); scrollActive(); }
-    else if (e.key === 'Enter') { e.preventDefault(); runIndex(activeIndex); }
-  }
-
-  function scrollActive() {
-    var el = list.querySelector('.cmdk-item.active');
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
-  }
-
-  async function open() {
-    if (!overlay) buildDom();
-    if (!built) { input.value = ''; list.innerHTML = '<div class="cmdk-empty">Loading…</div>'; overlay.classList.add('open'); await buildCommands(); }
-    overlay.classList.add('open');
-    input.value = ''; activeIndex = 0; render();
-    setTimeout(function () { input.focus(); }, 0);
-  }
-
-  function close() { if (overlay) overlay.classList.remove('open'); }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-
-  document.addEventListener('keydown', function (e) {
-    var mod = isMac() ? e.metaKey : e.ctrlKey;
-    if (mod && (e.key === 'k' || e.key === 'K')) {
-      e.preventDefault();
-      if (overlay && overlay.classList.contains('open')) close(); else open();
+  // Fuzzy subsequence scorer: higher = better, -1 = no match. A contiguous
+  // substring beats a scattered subsequence; word-start hits score higher.
+  function fuzzyScore(q, text) {
+    if (!q) return 0;
+    q = q.toLowerCase(); text = String(text || '').toLowerCase();
+    const idx = text.indexOf(q);
+    if (idx >= 0) return 1000 - idx - text.length * 0.1;   // contiguous wins big
+    let ti = 0, score = 0, run = 0, prev = -2;
+    for (let qi = 0; qi < q.length; qi++) {
+      let found = -1;
+      for (; ti < text.length; ti++) { if (text[ti] === q[qi]) { found = ti; break; } }
+      if (found < 0) return -1;
+      run = (found === prev + 1) ? run + 1 : 0;
+      const boundary = found === 0 || /[\s\-_/·]/.test(text[found - 1] || '');
+      score += 10 + run * 5 + (boundary ? 8 : 0);
+      prev = found; ti = found + 1;
     }
-  });
+    return score;
+  }
 
-  // Expose for an optional on-screen trigger button.
-  window.openCommandPalette = open;
+  // The current dashboard's own sidebar pages — so the palette can jump between
+  // sections of the page you're on (uses each dashboard's own nav handler).
+  function pageItems() {
+    const badge = document.getElementById('met-division-badge');
+    const div = (badge && badge.textContent.trim()) || '';
+    return [].slice.call(document.querySelectorAll('.sidebar-nav .nav-item[data-page]'))
+      .filter(b => b.offsetParent !== null)   // skip hidden (role-gated) items
+      .map(b => {
+        const span = b.querySelector('span:not(.nav-badge):not(.nav-tag)');
+        const iconEl = b.querySelector('.nav-icon');
+        const icon = iconEl ? ([].slice.call(iconEl.classList).find(c => /^ti-/.test(c)) || 'ti-arrow-right') : 'ti-arrow-right';
+        return { label: (span ? span.textContent : b.textContent).trim(), sub: (div ? div + ' · ' : '') + 'Page',
+                 icon, page: b.dataset.page, pathname: location.pathname };
+      });
+  }
+
+  function baseItems(q) {
+    // With no query, surface recent pages first (skipping the page we're on),
+    // then the destination/action list. Pages are only merged in when searching,
+    // so the empty view stays short.
+    if (!q) {
+      const here = location.pathname + location.hash;
+      const recents = getRecents()
+        .filter(r => r.url !== here)
+        .map(r => ({ label: r.label, sub: 'Recent', icon: 'ti-history', url: r.url }));
+      const recentUrls = new Set(recents.map(r => r.url));
+      return recents.concat(NAV.filter(n => !n.url || !recentUrls.has(n.url)));
+    }
+    // Fuzzy-rank NAV + the current dashboard's pages together.
+    return NAV.concat(pageItems())
+      .map(it => ({ it, s: fuzzyScore(q, it.label) }))
+      .filter(x => x.s >= 0)
+      .sort((a, b) => b.s - a.s)
+      .map(x => x.it);
+  }
+  function onType() {
+    const q = input.value.trim();
+    items = baseItems(q); sel = 0; render();
+    // Officer search (works if the HICOMM API is reachable; silently ignored otherwise).
+    if (q.length >= 2) {
+      clearTimeout(officerTimer);
+      officerTimer = setTimeout(async () => {
+        try {
+          const rows = await fetch('/api/hicomm/officer/search?q=' + encodeURIComponent(q), { headers: { 'x-support-fp': '' } }).then(r => r.ok ? r.json() : []);
+          if (input.value.trim() !== q) return;
+          const off = rows.map(u => ({ label: u.name, sub: `@${u.discordUsername || ''} · ${u.role || ''} — open 360°`, avatar: u.avatar, url: `/hicomm/dashboard#officer:${u.id}`, officerId: u.id }));
+          items = baseItems(q).concat(off); render();
+        } catch (e) { /* not HICOMM → nav only */ }
+      }, 220);
+    }
+  }
+  function onKey(e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, items.length - 1); render(); scroll(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); render(); scroll(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (items[sel]) run(items[sel]); }
+    else if (e.key === 'Escape') close();
+  }
+  function scroll() { const r = list.querySelector(`[data-i="${sel}"]`); if (r) r.scrollIntoView({ block: 'nearest' }); }
+  function run(it) {
+    if (!it) return;
+    close();
+    if (it.action) return it.action();
+    // A page within a dashboard: switch in place if we're already on it (reusing
+    // the dashboard's own nav handler), otherwise deep-link via ?page=.
+    if (it.page) {
+      if (it.pathname === location.pathname) {
+        const btn = document.querySelector('.sidebar-nav .nav-item[data-page="' + it.page + '"]');
+        if (btn) { btn.click(); btn.scrollIntoView({ block: 'nearest' }); return; }
+      }
+      location.href = it.pathname + '?page=' + encodeURIComponent(it.page);
+      return;
+    }
+    if (it.officerId && /\/hicomm\/dashboard/.test(location.pathname)) {
+      // Already on HICOMM → open the officer inline.
+      if (typeof window.hcOfficer === 'function') {
+        document.querySelector('.nav-item[data-page="officer"]').click();
+        setTimeout(() => window.hcOfficer(it.officerId), 60);
+        return;
+      }
+    }
+    if (it.url) location.href = it.url;
+  }
+
+  // Deep-link bootstrap: /<dash>?page=<key> activates that sidebar page on load
+  // (used by cross-dashboard palette jumps). Clicks the nav item so the
+  // dashboard's own switch logic runs; harmless if the dashboard already handles it.
+  function pageBootstrap() {
+    try {
+      const p = new URLSearchParams(location.search).get('page');
+      if (!p) return;
+      const btn = document.querySelector('.sidebar-nav .nav-item[data-page="' + p + '"]');
+      if (btn && !btn.classList.contains('active')) { btn.click(); btn.scrollIntoView({ block: 'nearest' }); }
+    } catch (e) { /* ignore */ }
+  }
+  if (document.readyState === 'complete') setTimeout(pageBootstrap, 150);
+  else window.addEventListener('load', () => setTimeout(pageBootstrap, 150));
+
+  // Keyboard: "g" then 1-9 jumps to the Nth sidebar page (Linear/Discord style).
+  let gArmed = false, gTimer = null;
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    if (typing || open || e.metaKey || e.ctrlKey || e.altKey) { gArmed = false; return; }
+    if (e.key === 'g' || e.key === 'G') { gArmed = true; clearTimeout(gTimer); gTimer = setTimeout(() => { gArmed = false; }, 900); return; }
+    if (gArmed && /^[1-9]$/.test(e.key)) {
+      gArmed = false;
+      const pages = document.querySelectorAll('.sidebar-nav .nav-item[data-page]');
+      const btn = pages[parseInt(e.key, 10) - 1];
+      if (btn) { e.preventDefault(); btn.click(); btn.scrollIntoView({ block: 'nearest' }); }
+      return;
+    }
+    gArmed = false;
+  });
+  function openPalette() { build(); open = true; el.style.display = 'flex'; items = baseItems(''); sel = 0; render(); input.value = ''; setTimeout(() => input.focus(), 30); }
+  function close() { open = false; if (el) el.style.display = 'none'; }
+
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); open ? close() : openPalette(); }
+  });
+  window.openCommandPalette = openPalette;
+
+  // Remember this page so it can appear under "Recent" next time.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', recordVisit);
+  else recordVisit();
 })();

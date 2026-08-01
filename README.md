@@ -459,6 +459,68 @@ The bot connects with the same `DATABASE_URL` and writes these rows; nothing els
 site needs to change for the profile to light up. Division rank/quota and division access
 continue to come from Roblox groups (above), independent of this bot data.
 
+**Perms and standing flags the site derives itself (no bot needed).** In addition to any
+bot-written `perms`, the profile now derives:
+
+* **Permissions** from the member's rank in the **perms group** (`PERMS_GROUP_ID`, default
+  `381582724`) — every rank `2..99` becomes a perm chip (QUOTA EXEMPT, GANG PERMS, MULTI
+  DIVISION PERMS, the BUYER perms, the RANK-LOCK perms, …), coloured by the group's colour
+  scheme. Guest/Member and rank `100+` (MET ADMINISTRATION / HICOMM / Overseer / HOLDER)
+  are the member's MET *rank*, not a perm, so they're filtered out, as are the divider
+  roles (`-----`). Site-derived and bot-written perms are merged and de-duplicated. The
+  catalogue and filtering live in `server/lib/permsGroup.js`. **Multiple roles per group:**
+  Roblox now lets a member hold more than one role in a single group; the site collects
+  **every** perm role the account holds (via `getUserGroupRoles`), so all their perms show —
+  not just one.
+* **Standing flags** from the disciplinary Discord roles (`ROLE_ACTIVITY_STRIKE`,
+  `ROLE_STRIKE_1/2/3`, `ROLE_SUSPENDED`, `ROLE_VERBAL_WARNING`, `ROLE_ZT`) — captured from
+  the member's Discord roles at login (`users.metRoleIds`) and shown as coloured chips.
+
+**Punishment history** on the profile now includes the member's own **Internal Affairs
+cases** (`cases` + `case_punishments`, matched by their Roblox id / username / suspect
+Discord id) with reason, issuer, expiry and active/expired status — merged with any
+bot-written `met_punishments` and shown newest-first. See `server/lib/punishments.js`.
+*Note:* that history lives in the Postgres DB, not in the repo. If this site already points
+at the same `DATABASE_URL` as the old IA site, the cases are already there and now show.
+Otherwise, either point `DATABASE_URL` at the IA database, or `pg_dump` the IA DB's
+`cases` / `case_actions` / `case_punishments` (and `case_counter`) tables and restore them
+into this database.
+
+**Divisions render as coloured role chips** following the MET Discord colour scheme (FLP
+blue, SCO-19 grey, CID orange, HPC white, IA teal; MI5 sky-blue reserved) — see
+`META[...].color` in `server/lib/divisions.js`.
+
+### Developer division
+
+The developer tools (Dev Panel, Group Panel, Discord Moderation, Visits, Security, Site
+Control, Send Notification, Media Admin) are their own **Developer division** at
+`/dev/dashboard` — no longer mixed into the Internal Affairs section. The IA dashboard view
+is reused: served from `/dev` it switches to "developer mode" (dev nav only, IA nav hidden);
+served from `/ia/dashboard` the dev nav is never shown, even to developers. Access is
+developers-only (`role === 'DEVELOPER'`), and the division appears in developers' profile +
+division switcher.
+
+### Tryout server lock (live from the game)
+
+Tryout announcements show the live **server-lock** state (Adonis `:serverlock on/off` /
+`:slock`) of the Hendon Police Campus game — not a static "shift-lock". When the lock
+toggles in-game, the game POSTs `/api/game/serverlock` (authenticated with the
+`x-game-secret` header = `TRYOUT_GAME_SECRET`), and the site updates the tryout and edits
+its Discord announcement in real time. In-game HTTP example (Adonis command hook /
+HttpService):
+
+```lua
+game:GetService("HttpService"):PostAsync(
+  "https://<your-site>/api/game/serverlock",
+  game:GetService("HttpService"):JSONEncode({ locked = true }),  -- or false
+  Enum.HttpContentType.ApplicationJson, false,
+  { ["x-game-secret"] = "<TRYOUT_GAME_SECRET>" }
+)
+```
+
+Body accepts `{ locked: true|false }` (or `state: "on"/"off"`), and optionally `tryoutId`
+or `privateServerId` to target a specific tryout (otherwise the current live one is used).
+
 ## Division → Roblox group mapping
 
 The four new divisions resolve membership + rank from a Roblox group held by

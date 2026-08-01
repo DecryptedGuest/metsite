@@ -8,10 +8,11 @@
   <link rel="stylesheet" href="/css/main.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
-<body>
+<body class="div-flp">
 <div class="bg-canvas">
   <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
 </div>
@@ -52,8 +53,18 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Logs</div>
+        <button class="nav-item" data-page="patrols"><i class="ti ti-clipboard-check nav-icon"></i><span>Patrol Logs</span><span class="nav-badge pending" id="flp-patrol-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="events"><i class="ti ti-calendar-star nav-icon"></i><span>Event Logs</span><span class="nav-badge pending" id="flp-event-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
+        <div class="nav-section-label quota-only" style="display:none;">Quota</div>
+        <button class="nav-item quota-only" data-page="quota-flp" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check (FLP)</span></button>
+        <button class="nav-item quota-only" data-page="quota-met" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>MET Quota Review</span></button>
+        <div class="nav-section-label group-admin-only" style="display:none;">High Command</div>
+        <button class="nav-item group-admin-only" data-page="group" style="display:none;"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
         <div class="nav-section-label">Activity</div>
-        <button class="nav-item" data-page="logs"><i class="ti ti-clipboard-check nav-icon"></i><span>Patrol &amp; Event Logs</span><span class="nav-badge" id="nav-logs-pending" style="display:none;">0</span></button>
+        <button class="nav-item" data-page="dq-activity"><i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span></button>
+        <button class="nav-item dq-hicomm" data-page="dq-loa" style="display:none;"><i class="ti ti-calendar-stats nav-icon"></i><span>LOA Requests</span><span class="nav-badge pending" id="dq-FLP-loa-badge" style="display:none;"></span></button>
       </nav>
     </div>
   </aside>
@@ -62,103 +73,191 @@
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
         <div><h1 class="page-title">Frontline Policing</h1><p class="page-sub">FLP · Overview</p></div>
-        <button class="btn btn-ghost btn-sm" id="btn-logs-sync" style="display:none;"><i class="ti ti-refresh"></i> Re-sync logs</button>
       </div>
-
-      <div class="stats-grid">
-        <div class="stat-card amber fade-up stagger-1">
-          <div class="stat-card-inner">
-            <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
-            <div class="stat-body">
-              <div class="stat-label">Awaiting sign-off</div>
-              <div class="stat-value" id="stat-logs-pending">—</div>
-            </div>
-          </div>
-          <div class="stat-bar amber"></div>
-        </div>
-        <div class="stat-card blue fade-up stagger-2">
-          <div class="stat-card-inner">
-            <div class="stat-icon"><i class="ti ti-clipboard-text"></i></div>
-            <div class="stat-body">
-              <div class="stat-label">My logs (7d)</div>
-              <div class="stat-value" id="stat-logs-week">—</div>
-            </div>
-          </div>
-          <div class="stat-bar blue"></div>
-        </div>
-        <div class="stat-card green fade-up stagger-3">
-          <div class="stat-card-inner">
-            <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
-            <div class="stat-body">
-              <div class="stat-label">My approved</div>
-              <div class="stat-value" id="stat-logs-approved">—</div>
-            </div>
-          </div>
-          <div class="stat-bar green"></div>
-        </div>
-        <div class="stat-card red fade-up stagger-4">
-          <div class="stat-card-inner">
-            <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
-            <div class="stat-body">
-              <div class="stat-label">My denied</div>
-              <div class="stat-value" id="stat-logs-denied">—</div>
-            </div>
-          </div>
-          <div class="stat-bar red"></div>
-        </div>
-      </div>
-
-      <div class="panel glass fade-up stagger-3">
+      <div id="flp-kpis" class="fade-up"></div>
+      <div class="panel glass fade-up" id="dq-FLP-mine" style="display:none;"></div>
+      <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>My Recent Logs</div>
-          <a class="btn btn-ghost btn-sm" href="#" id="link-all-logs"><i class="ti ti-arrow-right"></i> View all</a>
+          <div class="panel-title"><span class="panel-dot blue"></span>Activity</div>
+          <select class="form-control" id="flp-ov-days" style="width:auto;" onchange="loadFlpOverview()">
+            <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
+          </select>
         </div>
-        <div class="table-wrap">
+        <div style="padding:0.6rem 1rem 1.1rem;" id="flp-activity-chart"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Quick actions</div></div>
+        <div class="profile-section" style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('patrols')"><i class="ti ti-clipboard-check"></i> Patrol Logs</button>
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('events')"><i class="ti ti-calendar-star"></i> Event Logs</button>
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('analytics')"><i class="ti ti-chart-histogram"></i> Analytics</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PATROL LOGS (FLP review — bot reacts ✅/❌) -->
+    <section class="page" id="page-patrols">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Patrol Logs</h1><p class="page-sub">Review shift logs from the patrol-logs channel · approve <i class="ti ti-circle-check"></i> / deny <i class="ti ti-circle-x"></i></p></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div class="filter-tabs" id="flp-patrol-tabs">
+            <button class="filter-tab active" data-filter="ALL">All</button>
+            <button class="filter-tab" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+          <button class="btn btn-ghost btn-sm flp-dev-only" style="display:none;color:var(--amber);" onclick="flpVoidAllPending('PATROL')" title="Developer: mark every pending patrol log approved (no Discord reaction)"><i class="ti ti-checks"></i> Void all pending</button>
+        </div>
+      </div>
+      <div id="flp-patrols-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- EVENT LOGS (approve → +1 on the MET database) -->
+    <section class="page" id="page-events">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Event Logs</h1><p class="page-sub">Approve → +1 on the MET database for that day/rank · deny → <i class="ti ti-circle-x"></i></p></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div class="filter-tabs" id="flp-event-tabs">
+            <button class="filter-tab active" data-filter="ALL">All</button>
+            <button class="filter-tab" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+          <button class="btn btn-ghost btn-sm flp-dev-only" style="display:none;color:var(--amber);" onclick="flpVoidAllPending('EVENT')" title="Developer: mark every pending event log approved (no Discord reaction, no points)"><i class="ti ti-checks"></i> Void all pending</button>
+        </div>
+      </div>
+      <div id="flp-events-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- GROUP PANEL (FLP Assistant Director+) -->
+    <section class="page" id="page-group">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Group Panel</h1><p class="page-sub">FLP High Command · Department of Performance group</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadFlpGroup()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header"><div class="panel-title">
+          <button class="btn btn-icon btn-ghost btn-sm" onclick="flpToggleSection('flp-pending', this)" title="Collapse/expand"><i class="ti ti-chevron-right"></i></button>
+          <span class="panel-dot amber"></span>Pending Join Requests <span id="flp-pending-count" style="font-size:11px;color:var(--text-muted);"></span></div></div>
+        <div class="profile-section" id="flp-pending" style="display:none;"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="flpToggleSection('flp-members-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot blue"></span>Members</div>
+          <input type="text" class="form-control" id="flp-member-search" placeholder="Search members…" style="width:200px;padding:5px 10px;font-size:12px;" oninput="renderFlpMembers()" />
+        </div>
+        <div class="table-wrap" id="flp-members-body">
           <table class="data-table">
-            <thead><tr><th>Type</th><th>Log</th><th>Status</th><th>Signed off by</th><th>Logged</th></tr></thead>
-            <tbody id="my-logs-tbody">
-              <tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>
-            </tbody>
+            <thead><tr><th>Member</th><th>Rank</th><th>Change rank</th><th></th></tr></thead>
+            <tbody id="flp-members-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <section class="page" id="page-logs">
+    <section class="page" id="page-analytics">
       <div class="page-header fade-up">
-        <div>
-          <h1 class="page-title">Patrol &amp; Event Logs</h1>
-          <p class="page-sub">Signed off by ticking or crossing the log in Discord — whoever does it.</p>
+        <div><h1 class="page-title">FLP Analytics</h1><p class="page-sub">Patrol &amp; event activity across the frontline</p></div>
+        <select class="form-control" id="flp-an-days" style="width:auto;" onchange="loadFlpAnalytics()">
+          <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
+        </select>
+      </div>
+      <div id="flp-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- QUOTA CHECK (FLP) — FLP High Command, reviews the FLP sheet -->
+    <section class="page" id="page-quota-flp">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Quota Check (FLP)</h1><p class="page-sub">FLP High Command · Weekly quota review</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="flpQuotaReset('FLP')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="flpQuotaSubmit('FLP')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
         </div>
       </div>
-
       <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>All Logs</div>
-          <div class="panel-tools">
-            <div class="search-box">
-              <i class="ti ti-search"></i>
-              <input type="text" id="logs-search" placeholder="Search logs…" autocomplete="off" />
-            </div>
-            <div class="filter-tabs" id="logs-kind-tabs">
-              <button class="filter-tab active" data-kind="all">All</button>
-              <button class="filter-tab" data-kind="PATROL">Patrols</button>
-              <button class="filter-tab" data-kind="EVENT">Events</button>
-            </div>
-            <div class="filter-tabs" id="logs-status-tabs">
-              <button class="filter-tab active" data-status="all">Any</button>
-              <button class="filter-tab" data-status="PENDING">Pending</button>
-              <button class="filter-tab" data-status="APPROVED">Approved</button>
-              <button class="filter-tab" data-status="DENIED">Denied</button>
-            </div>
+          <div class="panel-title"><span class="panel-dot blue"></span>FLP Members</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost btn-sm" onclick="flpQuotaAuto('FLP')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="flpq-FLP-count" style="font-size:11px;"></span>
           </div>
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Type</th><th>Officer</th><th>Log</th><th>Status</th><th>Signed off by</th><th>Logged</th><th></th></tr></thead>
-            <tbody id="all-logs-tbody">
-              <tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>
-            </tbody>
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="flpq-FLP-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MET QUOTA REVIEW — FLP High Command, reviews the MET sheet -->
+    <section class="page" id="page-quota-met">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">MET Quota Review</h1><p class="page-sub">FLP High Command · Reviews the MET database sheet</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="flpQuotaReset('MET')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="flpQuotaSubmit('MET')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>MET Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="flpq-MET-tabs"></span>
+            <button class="btn btn-ghost btn-sm" onclick="flpQuotaAuto('MET')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="flpq-MET-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="flpq-MET-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY TRACKING (read-only, every FLP member) -->
+    <section class="page" id="page-dq-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every member's weekly activity · read-only</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>FLP Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-FLP-act-tabs"></span>
+            <span class="text-muted mono" id="dq-FLP-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-FLP-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOA REQUESTS (FLP High Command) -->
+    <section class="page" id="page-dq-loa">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">LOA Requests</h1><p class="page-sub">Leave of Absence requests sent for FLP</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Requests</div>
+          <span class="text-muted mono" id="loa-FLP-count" style="font-size:11px;"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Dates</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="loa-FLP-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -166,25 +265,17 @@
   </main>
 </div>
 
-<!-- Log detail -->
-<div class="modal-overlay" id="modal-log">
-  <div class="modal" style="max-width:680px;">
-    <div class="modal-header">
-      <h2 class="modal-title" id="log-modal-title">Log</h2>
-      <button class="modal-close" onclick="closeModal('modal-log')"><i class="ti ti-x"></i></button>
-    </div>
-    <div class="modal-body" id="log-modal-body"></div>
-    <div class="modal-footer" id="log-modal-footer"></div>
-  </div>
-</div>
-
 <div id="toast-container"></div>
-<script src="/js/ui.js"></script>
-<script src="/js/met-topbar.js"></script>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
-<script src="/js/activity-logs.js?v=1"></script>
-<script src="/js/flp.js?v=1"></script>
+<script src="/js/flp-quota-check.js"></script>
+<script src="/js/flp-dashboard.js"></script>
+<script src="/js/division-quota.js"></script>
+<script src="/js/loa-review.js"></script>
+<script>(function(){var DIV='FLP';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var ll=once(function(){window.LoaReview&&LoaReview.load(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);var l=document.querySelector('.nav-item[data-page="dq-loa"]');if(l)l.addEventListener('click',ll);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});api('/api/loa/review?division='+DIV).then(function(r){var p=(r||[]).filter(function(x){return x.status==='PENDING';}).length;var b=document.getElementById('dq-'+DIV+'-loa-badge');if(b&&p){b.textContent=p;b.style.display='';}}).catch(function(){});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('FLP');</script>
 </body>
 </html>

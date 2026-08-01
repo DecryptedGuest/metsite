@@ -1,0 +1,2275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · Developer</title>
+<script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css?v=77" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=73" />
+  <link rel="stylesheet" href="/css/aurora.css?v=73" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
+  <link rel="stylesheet" href="/css/support-chat.css?v=1" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+</head>
+<body class="div-dev">
+<div class="bg-canvas">
+  <div class="bg-grid"></div>
+  <div class="bg-glow-1"></div>
+  <div class="bg-glow-2"></div>
+  <div class="bg-scanline"></div>
+</div>
+
+<!-- ── Shared MET portal chrome (added for the multi-division portal) ── -->
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/divisions/dev.svg" class="met-topbar-logo" alt="DEV" onerror="this.src='/img/divisions/dev.png'" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division" id="met-division-badge" style="color:#f5c518;">DEVELOPER</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <!-- ── SIDEBAR ─────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <img src="/img/divisions/dev.svg" alt="DEV" onerror="this.src='/img/divisions/dev.png'" />
+        </div>
+        <div class="brand-text">
+          <div class="brand-name">MET · DEV</div>
+          <div class="brand-sub">Developer Tools</div>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <nav class="sidebar-nav">
+        <!-- ── Overview ─────────────────────────────────────── -->
+        <div class="nav-section-label">Overview</div>
+        <button class="nav-item active" data-page="dashboard">
+          <i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span>
+        </button>
+
+        <!-- ── Cases ────────────────────────────────────────── -->
+        <div class="nav-section-label">Cases</div>
+        <button class="nav-item" data-page="my-cases">
+          <i class="ti ti-folder nav-icon"></i><span>My Cases</span>
+          <span class="nav-badge pending" id="nav-badge-my" style="display:none;"></span>
+        </button>
+        <button class="nav-item" data-page="all-cases">
+          <i class="ti ti-database nav-icon"></i><span>All Cases</span>
+        </button>
+        <button class="nav-item" data-page="records">
+          <i class="ti ti-id-badge-2 nav-icon"></i><span>Records</span>
+        </button>
+
+        <!-- ── Tickets ──────────────────────────────────────── -->
+        <div class="nav-section-label">Tickets</div>
+        <button class="nav-item" data-page="tickets">
+          <i class="ti ti-ticket nav-icon"></i><span>My Tickets</span>
+          <span class="nav-badge pending" id="nav-badge-tickets" style="display:none;"></span>
+        </button>
+        <button class="nav-item" data-page="all-tickets">
+          <i class="ti ti-tags nav-icon"></i><span>All Tickets</span>
+        </button>
+        <button class="nav-item" data-page="support-tickets">
+          <i class="ti ti-headset nav-icon"></i><span>Support Desk</span>
+          <span class="nav-badge" id="nav-badge-support" style="display:none;background:var(--blue);"></span>
+        </button>
+
+        <!-- ── Tools ────────────────────────────────────────── -->
+        <div class="nav-section-label">Tools</div>
+        <button class="nav-item" data-page="ai-review">
+          <i class="ti ti-robot nav-icon"></i><span>AI Review</span>
+        </button>
+        <button class="nav-item" data-page="media">
+          <i class="ti ti-photo-video nav-icon"></i><span>Media</span>
+        </button>
+
+        <!-- ── Review (HICOMM / Supervisor) ─────────────────── -->
+        <div class="nav-section-label hicomm-only supervisor-only" style="display:none;">Review</div>
+        <button class="nav-item hicomm-only supervisor-only" data-page="review" style="display:none;">
+          <i class="ti ti-clipboard-check nav-icon"></i><span>Pending Cases</span>
+          <span class="nav-badge pending" id="nav-badge-review" style="display:none;"></span>
+        </button>
+        <button class="nav-item hicomm-only supervisor-only" data-page="ticket-review" style="display:none;">
+          <i class="ti ti-ticket nav-icon"></i><span>Pending Tickets</span>
+          <span class="nav-badge pending" id="nav-badge-ticket-review" style="display:none;"></span>
+        </button>
+        <button class="nav-item hicomm-only supervisor-only" data-page="notif-settings" style="display:none;">
+          <i class="ti ti-bell nav-icon"></i><span>Notifications</span>
+        </button>
+
+        <!-- ── Oversight (HICOMM / Developer) ───────────────── -->
+        <div class="nav-section-label hicomm-strict-only" style="display:none;">Oversight</div>
+        <button class="nav-item hicomm-strict-only" data-page="audit" style="display:none;">
+          <i class="ti ti-list-details nav-icon"></i><span>Audit Log</span>
+        </button>
+        <button class="nav-item hicomm-strict-only" data-page="quota-check" style="display:none;">
+          <i class="ti ti-checklist nav-icon"></i><span>Quota Check</span>
+        </button>
+
+        <!-- ── Developer ────────────────────────────────────── -->
+        <div class="nav-section-label dev-only" style="display:none;">Developer</div>
+        <a class="nav-item dev-only" href="/dev/security" style="display:none;text-decoration:none;">
+          <i class="ti ti-shield-lock nav-icon" style="color:#f5c518;"></i><span>Security Center</span><span class="nav-tag">DEV</span>
+        </a>
+        <button class="nav-item dev-only" data-page="admin" style="display:none;">
+          <i class="ti ti-shield-cog nav-icon"></i><span>Dev Panel</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="group" style="display:none;">
+          <i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="discord-mod" style="display:none;">
+          <i class="ti ti-gavel nav-icon"></i><span>Discord Moderation</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="gamelogs" style="display:none;">
+          <i class="ti ti-device-gamepad-2 nav-icon"></i><span>Game Logs</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="visits" style="display:none;">
+          <i class="ti ti-world-search nav-icon"></i><span>Visits</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="security" style="display:none;">
+          <i class="ti ti-shield-lock nav-icon"></i><span>Security</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="site-control" style="display:none;">
+          <i class="ti ti-adjustments-alt nav-icon"></i><span>Site Control</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="send-notif" style="display:none;">
+          <i class="ti ti-send nav-icon"></i><span>Send Notification</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="emergency-alert" style="display:none;">
+          <i class="ti ti-alert-triangle nav-icon"></i><span>Emergency Alert</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="media-admin" style="display:none;">
+          <i class="ti ti-folder-cog nav-icon"></i><span>Media Admin</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="imports" style="display:none;">
+          <i class="ti ti-database-import nav-icon"></i><span>Imports</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="ticket-ip" style="display:none;">
+          <i class="ti ti-map-pin-search nav-icon"></i><span>Guest IP Lookup</span><span class="nav-tag">DEV</span>
+        </button>
+        <button class="nav-item dev-only" data-page="cad" style="display:none;">
+          <i class="ti ti-radio nav-icon"></i><span>CAD Dispatch</span><span class="nav-tag">DEV</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-divider"></div>
+      <div class="user-card">
+        <div class="user-avatar-wrap">
+          <img id="user-avatar" src="" alt="" style="display:none;" />
+          <div class="user-avatar-fallback" id="user-avatar-fallback">?</div>
+        </div>
+        <div class="user-info">
+          <div class="user-name" id="user-name">Loading…</div>
+          <div class="user-role-badge" id="user-role-badge"></div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <button class="theme-toggle" id="btn-prefs" title="Preferences">
+            <i class="ti ti-adjustments" style="font-size:16px;"></i>
+          </button>
+          <button class="theme-toggle" id="btn-theme-toggle" title="Toggle light/dark theme">
+            <i class="ti ti-sun" id="theme-icon" style="font-size:16px;"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ──────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- DASHBOARD -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-sub">Internal Affairs · Case Overview</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="btn-new-case-dash">
+            <i class="ti ti-plus"></i> Submit Case
+          </button>
+          <button class="btn btn-primary" id="btn-new-ticket-dash">
+            <i class="ti ti-ticket"></i> Submit Ticket Log
+          </button>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card blue fade-up stagger-1">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-files"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">Total Cases</div>
+              <div class="stat-value" id="stat-total"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar blue"></div>
+        </div>
+        <div class="stat-card amber fade-up stagger-2">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">Pending Review</div>
+              <div class="stat-value" id="stat-pending"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar amber"></div>
+        </div>
+        <div class="stat-card green fade-up stagger-3">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">Approved</div>
+              <div class="stat-value" id="stat-approved"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar green"></div>
+        </div>
+        <div class="stat-card red fade-up stagger-4">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">Denied</div>
+              <div class="stat-value" id="stat-denied"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar red"></div>
+        </div>
+      </div>
+
+      <!-- My Cases — current user's own submissions only -->
+      <div class="stat-section-label" style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin:0.4rem 0 0.8rem;">
+        <i class="ti ti-user" style="font-size:13px;"></i> My Cases
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card blue fade-up stagger-1">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-folder"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Total</div>
+              <div class="stat-value" id="stat-my-total"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar blue"></div>
+        </div>
+        <div class="stat-card amber fade-up stagger-2">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Pending</div>
+              <div class="stat-value" id="stat-my-pending"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar amber"></div>
+        </div>
+        <div class="stat-card green fade-up stagger-3">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Approved</div>
+              <div class="stat-value" id="stat-my-approved"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar green"></div>
+        </div>
+        <div class="stat-card red fade-up stagger-4">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Denied</div>
+              <div class="stat-value" id="stat-my-denied"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar red"></div>
+        </div>
+      </div>
+
+      <!-- My Ticket Logs — current user's own submissions only -->
+      <div class="stat-section-label" style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin:0.4rem 0 0.8rem;">
+        <i class="ti ti-ticket" style="font-size:13px;"></i> My Ticket Logs
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card blue fade-up stagger-1">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-tags"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Total</div>
+              <div class="stat-value" id="stat-my-ticket-total"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar blue"></div>
+        </div>
+        <div class="stat-card amber fade-up stagger-2">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Pending</div>
+              <div class="stat-value" id="stat-my-ticket-pending"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar amber"></div>
+        </div>
+        <div class="stat-card green fade-up stagger-3">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Approved</div>
+              <div class="stat-value" id="stat-my-ticket-approved"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar green"></div>
+        </div>
+        <div class="stat-card red fade-up stagger-4">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
+            <div class="stat-body">
+              <div class="stat-label">My Denied</div>
+              <div class="stat-value" id="stat-my-ticket-denied"><div class="skeleton" style="height:28px;width:40px;"></div></div>
+            </div>
+          </div>
+          <div class="stat-bar red"></div>
+        </div>
+      </div>
+
+      <!-- My Activity Points (from the IA Database sheet) -->
+      <div class="panel glass fade-up stagger-2" id="points-panel" style="display:none;margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>My Activity Points</div>
+          <span id="points-total" style="font-size:12px;color:var(--text-secondary);"></span>
+        </div>
+        <div id="points-body" style="padding:1rem 1.2rem;">
+          <div class="table-loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Recent Cases</div>
+          <div class="filter-tabs" id="dash-filter-tabs">
+            <button class="filter-tab active" data-filter="all">All</button>
+            <button class="filter-tab" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Case Ref</th><th>Action</th><th>Reason</th><th>Status</th><th>Submitted</th>
+              <th class="hicomm-only supervisor-only" style="display:none;">Decision</th>
+            </tr></thead>
+            <tbody id="dash-cases-tbody">
+              <tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Recent Ticket Logs</div>
+          <div class="filter-tabs" id="dash-ticket-filter-tabs">
+            <button class="filter-tab active" data-tfilter="all">All</button>
+            <button class="filter-tab" data-tfilter="PENDING">Pending</button>
+            <button class="filter-tab" data-tfilter="APPROVED">Approved</button>
+            <button class="filter-tab" data-tfilter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ticket Ref</th><th>Roblox User</th><th>Type</th><th>Status</th><th>Submitted</th>
+            </tr></thead>
+            <tbody id="dash-tickets-tbody">
+              <tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MY CASES -->
+    <section class="page" id="page-my-cases">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">My Cases</h1><p class="page-sub">Your submitted case history</p></div>
+        <button class="btn btn-primary btn-new-case"><i class="ti ti-plus"></i> Submit Case</button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Submitted Cases</div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Case Ref</th><th>Action</th><th>Reason</th><th>Notes</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="my-cases-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEW QUEUE (HICOMM) -->
+    <section class="page" id="page-review">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Pending Cases</h1><p class="page-sub">HICOMM · Pending Cases</p></div>
+        <div class="panel-dot amber pulse-anim" style="width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);align-self:center;"></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Pending Cases</div>
+          <span class="text-muted mono" id="pending-count-label" style="font-size:11px;"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Case Ref</th><th>Investigator</th><th>Officer</th><th>Action</th><th>Reason</th><th>Notes</th><th>Submitted</th><th>Decision</th></tr></thead>
+            <tbody id="review-tbody"><tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TICKET REVIEW QUEUE (HICOMM) -->
+    <section class="page" id="page-ticket-review">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Pending Ticket Logs</h1><p class="page-sub">HICOMM · Pending Ticket Logs</p></div>
+        <div class="panel-dot amber pulse-anim" style="width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);align-self:center;"></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Pending Tickets</div>
+          <span class="text-muted mono" id="ticket-pending-count-label" style="font-size:11px;"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Ticket Ref</th><th>Investigator</th><th>Roblox User</th><th>Type</th><th>Time</th><th>Submitted</th><th>Decision</th></tr></thead>
+            <tbody id="ticket-review-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALL CASES (HICOMM) -->
+    <section class="page" id="page-all-cases">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Case Archive</h1><p class="page-sub">HICOMM · All submitted cases</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>All Cases</div>
+          <div class="filter-tabs" id="all-filter-tabs">
+            <button class="filter-tab active" data-filter="all">All</button>
+            <button class="filter-tab" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Case Ref</th><th>Investigator</th><th>Officer</th><th>Action</th><th>Reason</th><th>Status</th><th>Date</th><th class="hicomm-only supervisor-only" style="display:none;">Decision</th></tr></thead>
+            <tbody id="all-cases-tbody"><tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- AUDIT LOG (HICOMM) -->
+    <section class="page" id="page-audit">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Audit Log</h1><p class="page-sub">Immutable action history</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>Action History</div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Timestamp</th><th>Action</th><th>Case Ref</th><th>Performed By</th><th>Notes</th></tr></thead>
+            <tbody id="audit-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADMIN PANEL (DEVELOPER) -->
+    <section class="page" id="page-admin">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Admin Panel</h1>
+          <p class="page-sub">Developer · System Management</p>
+        </div>
+        <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ACCESS</span>
+      </div>
+
+      <!-- Admin stats -->
+      <div class="stats-grid fade-up stagger-1" id="admin-stats-grid">
+        <div class="stat-card blue">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-users"></i></div>
+            <div class="stat-body"><div class="stat-label">Total Users</div><div class="stat-value" id="admin-stat-users">—</div></div>
+          </div><div class="stat-bar blue"></div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-files"></i></div>
+            <div class="stat-body"><div class="stat-label">Total Cases</div><div class="stat-value" id="admin-stat-cases">—</div></div>
+          </div><div class="stat-bar amber"></div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-ban"></i></div>
+            <div class="stat-body"><div class="stat-label">Blacklisted</div><div class="stat-value" id="admin-stat-blacklisted">—</div></div>
+          </div><div class="stat-bar red"></div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-card-inner">
+            <div class="stat-icon"><i class="ti ti-activity"></i></div>
+            <div class="stat-body"><div class="stat-label">Audit Actions</div><div class="stat-value" id="admin-stat-actions">—</div></div>
+          </div><div class="stat-bar green"></div>
+        </div>
+      </div>
+
+      <!-- User management -->
+      <div class="panel glass fade-up stagger-2" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>User Management</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadAdminUsers()"><i class="ti ti-refresh"></i> Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>User</th><th>Discord ID</th><th>Roblox</th><th>IP Address</th><th>Role / MET rank</th><th>Cases</th><th>Status</th><th>Notifications</th><th>Last Login</th><th>Actions</th></tr></thead>
+            <tbody id="admin-users-tbody"><tr><td colspan="10" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Authorised Access (grant site access without Discord roles) -->
+      <div class="panel glass fade-up stagger-3" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>Authorised Access</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadAccessGrants()"><i class="ti ti-refresh"></i> Refresh</button>
+        </div>
+        <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.6;">
+            Grant a Discord user access to the site at a chosen rank <strong>without</strong> requiring them to hold the
+            Internal Affairs / HICOMM Discord roles. Takes effect on their next login. Revoke any time.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <div style="flex:1;min-width:200px;">
+              <label class="form-label" style="font-size:11px;">Discord User ID</label>
+              <input type="text" class="form-control" id="grant-discord-id" placeholder="e.g. 1227866745201627137" />
+            </div>
+            <div style="width:150px;">
+              <label class="form-label" style="font-size:11px;">Rank</label>
+              <select class="form-control" id="grant-role">
+                <option value="IA">Internal Affairs</option>
+                <option value="HICOMM">HICOMM</option>
+                <option value="DEVELOPER">Developer</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:160px;">
+              <label class="form-label" style="font-size:11px;">Note (optional)</label>
+              <input type="text" class="form-control" id="grant-note" placeholder="Reason / who this is" />
+            </div>
+            <button class="btn btn-primary" onclick="addAccessGrant()"><i class="ti ti-user-plus"></i> Authorise</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Discord ID</th><th>Rank</th><th>Note</th><th>Granted</th><th>Actions</th></tr></thead>
+            <tbody id="access-grants-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- System Settings -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>System Settings</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">System Name</label>
+            <input type="text" class="form-control" id="setting-systemName" placeholder="Internal Affairs Case Management System" />
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Discord Webhook URL</label>
+            <input type="text" class="form-control" id="setting-webhookUrl" placeholder="https://discord.com/api/webhooks/..." />
+          </div>
+          <div style="display:flex;align-items:center;gap:1rem;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
+              <input type="checkbox" id="setting-maintenanceMode" style="accent-color:var(--amber);" />
+              Maintenance Mode (blocks all non-developer logins)
+            </label>
+          </div>
+          <div style="display:flex;justify-content:flex-end;">
+            <button class="btn btn-primary" onclick="saveSettings()"><i class="ti ti-device-floppy"></i> Save Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Maintenance — dedupe IA→MET migration logs -->
+      <div class="panel glass fade-up stagger-4" style="margin-top:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Data Maintenance</div>
+        </div>
+        <div style="padding:1.2rem 1.4rem;display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.6;">
+            Remove <strong>duplicate case &amp; ticket logs</strong> left over from the old IA website → MET website
+            migration (e.g. a ticket imported as both <code>TKT-0001</code> and <code>TKT-0001-IA</code>). Always
+            <strong>scan first</strong> to preview — deletion keeps the canonical (native) record and removes the copies.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" onclick="dedupeMigration(false)"><i class="ti ti-search"></i> Scan (preview)</button>
+            <button class="btn btn-danger" onclick="dedupeMigration(true)"><i class="ti ti-trash"></i> Remove duplicates</button>
+          </div>
+          <div id="dedupe-results" style="font-size:12px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GROUP MANAGEMENT (DEVELOPER ONLY) -->
+    <section class="page" id="page-group">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Group Management</h1>
+          <p class="page-sub">Developer · Roblox Group Control</p>
+        </div>
+        <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
+      </div>
+
+      <!-- Division switcher + debug / refresh bar -->
+      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+          <i class="ti ti-apps"></i> Division group
+          <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
+            <option value="">Default (ROBLOX_GROUP_ID)</option>
+          </select>
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
+        <button class="btn btn-ghost btn-sm" onclick="runGroupDebug()"><i class="ti ti-bug"></i> Debug API</button>
+        <span id="group-env-badge" style="font-size:10px;color:var(--text-muted);"></span>
+      </div>
+      <div id="group-debug-output" style="display:none;background:rgba(0,0,0,0.4);border:1px solid var(--border-dim);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:0.06em;">RAW ROBLOX API DEBUG</span>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" title="Hide debug output" aria-label="Hide debug output" onclick="document.getElementById('group-debug-output').style.display='none'"><i class="ti ti-x"></i></button>
+        </div>
+        <pre id="group-debug-pre" style="font-size:10px;color:var(--text-secondary);overflow:auto;max-height:280px;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+
+      <!-- Pending Join Requests -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('pending-body', this)" title="Collapse/expand"><i class="ti ti-chevron-right"></i></button>
+            <span class="panel-dot amber pulse-anim"></span>Pending Join Requests
+            <span id="pending-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="pending-search" oninput="renderPendingRequests()" placeholder="Search user…" style="height:30px;font-size:12px;width:170px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadPendingRequests()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div id="pending-body" style="display:none;">
+          <div id="pending-requests-container" style="padding:0.5rem 0;">
+            <div class="table-loading"><div class="spinner"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current Members -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('members-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot blue"></span>Group Members
+            <span id="members-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="members-search" oninput="renderGroupMembers()" placeholder="Search user…" style="height:30px;font-size:12px;width:150px;" />
+            <select class="form-control" id="members-rank-filter" onchange="renderGroupMembers()" style="height:30px;font-size:12px;width:180px;">
+              <option value="">All ranks</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadGroupMembers(true)"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div id="members-body">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Roblox User</th><th>Current Rank</th><th>Change Rank</th><th>Actions</th></tr></thead>
+              <tbody id="group-members-tbody">
+                <tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DISCORD MODERATION (DEVELOPER ONLY) -->
+    <section class="page" id="page-discord-mod">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Discord Moderation</h1>
+          <p class="page-sub">Developer &middot; Ban / Unban / Kick / Timeout MET server members</p>
+        </div>
+        <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
+      </div>
+
+      <!-- Member search + actions -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Find a Member</div>
+        </div>
+        <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:0.9rem;">
+          <p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.6;">
+            Search by Discord username, nickname, or paste a Discord user ID directly (works even if the
+            member already left the server — useful for unbanning).
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="dm-search" placeholder="Username or Discord ID…" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')searchDiscordMembers()" />
+            <button class="btn btn-primary" onclick="searchDiscordMembers()"><i class="ti ti-search"></i> Search</button>
+          </div>
+          <div id="dm-results" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <!-- Currently banned -->
+      <div class="panel glass fade-up stagger-2" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot red"></span>Banned Users</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="dm-ban-search" oninput="loadDiscordBans()" placeholder="Filter by username/ID…" style="height:30px;font-size:12px;width:180px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadDiscordBans()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Discord User</th><th>Ban Reason</th><th>Actions</th></tr></thead>
+            <tbody id="dm-bans-tbody"><tr><td colspan="3" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit log -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>Moderation Log</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadDiscordModLog()"><i class="ti ti-refresh"></i> Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Action</th><th>Target</th><th>Reason</th><th>By</th><th>When</th></tr></thead>
+            <tbody id="dm-log-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- WEBSITE VISITS (DEVELOPER ONLY) -->
+    <section class="page" id="page-visits">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Website Visits</h1>
+          <p class="page-sub">Developer · Visitor log with linked accounts &amp; IPs</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="visits-count-badge" style="font-size:10px;color:var(--text-muted);"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadVisits()"><i class="ti ti-refresh"></i> Refresh</button>
+          <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>Recent Visits</div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Time</th>
+              <th>Discord</th>
+              <th>Roblox (via RoVer)</th>
+              <th>IP Address</th>
+              <th>Page</th>
+            </tr></thead>
+            <tbody id="visits-tbody">
+              <tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECURITY (DEVELOPER ONLY) -->
+    <section class="page" id="page-security">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Security</h1>
+          <p class="page-sub">Developer · Screenshot &amp; capture detection</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="security-count-badge" style="font-size:10px;color:var(--text-muted);"></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadSecurity()"><i class="ti ti-refresh"></i> Refresh</button>
+          <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
+        </div>
+      </div>
+
+      <!-- Privacy guard control -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>Privacy Guard</div>
+        </div>
+        <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:0.8rem;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
+            <input type="checkbox" id="guard-blur-toggle" style="accent-color:var(--amber);" onchange="toggleBlurGuard(this.checked)" />
+            Blur the site whenever the window loses focus (anti-shoulder-surf / capture deterrent)
+          </label>
+          <p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.6;">
+            When enabled, the entire site is obscured the moment the tab/window is no longer focused. Every detected
+            screenshot shortcut (PrintScreen, Win+Shift+S, macOS capture combos) is logged below with full device detail.
+            This setting applies to your browser via this control.
+          </p>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot red"></span>Capture Events</div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Time</th>
+              <th>Method</th>
+              <th>User (Discord / Roblox)</th>
+              <th>IP</th>
+              <th>OS</th>
+              <th>Browser</th>
+              <th>Screen</th>
+              <th>Page</th>
+            </tr></thead>
+            <tbody id="security-tbody">
+              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- NOTIFICATION SETTINGS (HICOMM / SUPERVISOR / DEVELOPER) -->
+    <section class="page" id="page-notif-settings">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Notifications</h1>
+          <p class="page-sub">Manage how and when you're notified</p>
+        </div>
+        <button class="btn btn-primary" onclick="saveNotifSettings()"><i class="ti ti-device-floppy"></i> Save Changes</button>
+      </div>
+
+      <!-- Master toggle -->
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Master Switch</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="ns-enabled" style="accent-color:var(--blue);margin-top:3px;width:18px;height:18px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;">Enable notifications</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Receive push notifications on this device, even when the site is closed. Turning this on will ask your browser for permission.</span>
+            </span>
+          </label>
+          <div id="ns-perm-warning" style="display:none;font-size:12px;color:var(--amber);background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.3);border-radius:8px;padding:10px 12px;">
+            <i class="ti ti-alert-triangle"></i> Notifications are blocked in your browser settings for this site. Enable them in your browser to receive alerts.
+          </div>
+        </div>
+      </div>
+
+      <!-- Granular prefs — hidden until enabled AND browser permission granted -->
+      <div class="panel glass fade-up stagger-2" id="ns-prefs-panel" style="display:none;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#9b6dff;box-shadow:0 0 7px #9b6dff;"></span>What to notify me about</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1.2rem;">
+          <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="ns-newCase" style="accent-color:var(--blue);width:16px;height:16px;" />
+            <span style="font-weight:600;font-size:14px;"><i class="ti ti-folder"></i> New cases submitted</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="ns-newTicket" style="accent-color:var(--blue);width:16px;height:16px;" />
+            <span style="font-weight:600;font-size:14px;"><i class="ti ti-ticket"></i> New ticket logs submitted</span>
+          </label>
+          <div id="ns-tickettypes" style="margin-left:28px;display:flex;flex-direction:column;gap:.6rem;border-left:2px solid var(--border-dim);padding-left:14px;">
+            <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;">Only these ticket types</span>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text-secondary);"><input type="checkbox" class="ns-tt" value="GENERAL_SUPPORT" style="accent-color:var(--blue);" /> General Support</label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text-secondary);"><input type="checkbox" class="ns-tt" value="HICOMM" style="accent-color:var(--blue);" /> HICOMM</label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text-secondary);"><input type="checkbox" class="ns-tt" value="OFFICER_REPORT" style="accent-color:var(--blue);" /> Officer Report</label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text-secondary);"><input type="checkbox" class="ns-tt" value="APPEAL" style="accent-color:var(--blue);" /> Disciplinary Action Appeal</label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEND NOTIFICATION (DEVELOPER ONLY) -->
+    <section class="page" id="page-send-notif">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Send Notification</h1>
+          <p class="page-sub">Developer &middot; Push a custom notification to staff</p>
+        </div>
+        <button class="btn btn-primary" onclick="sendDevNotification()"><i class="ti ti-send"></i> Send Notification</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Compose</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Title</label>
+            <input type="text" class="form-control" id="dn-title" placeholder="e.g. System maintenance tonight" maxlength="80" />
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Message</label>
+            <textarea class="form-control" id="dn-body" rows="3" placeholder="The notification body text…" maxlength="300"></textarea>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Link when clicked (optional)</label>
+            <input type="text" class="form-control" id="dn-url" placeholder="/dashboard" />
+          </div>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#9b6dff;box-shadow:0 0 7px #9b6dff;"></span>Recipients</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:14px;">
+            <input type="checkbox" id="dn-all" style="accent-color:var(--blue);width:16px;height:16px;" onchange="toggleDevRecipientList()" /> Send to everyone
+          </label>
+          <div id="dn-recipients" style="display:flex;flex-direction:column;gap:.4rem;max-height:340px;overflow:auto;">
+            <div class="table-loading"><div class="spinner"></div></div>
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only users who have enabled notifications and have an active device will receive the message. A <i class="ti ti-bell"></i> means they're reachable.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- EMERGENCY ALERT (DEV) -->
+    <section class="page" id="page-emergency-alert">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Emergency Alert</h1>
+          <p class="page-sub">Developer &middot; Full-screen alert to people on the site right now</p>
+        </div>
+        <button class="btn btn-danger" onclick="sendEmergencyAlert()"><i class="ti ti-alert-triangle"></i> Send Emergency Alert</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Message</div></div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Alert message</label>
+            <textarea class="form-control" id="ea-message" rows="3" placeholder="e.g. All units return to the main server immediately." maxlength="1000"></textarea>
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">This takes over the whole screen with a warning icon, plays a loud klaxon (overrides mute), and shows exactly this text. It reaches only people with the site open <strong>right now</strong>.</p>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#9b6dff;box-shadow:0 0 7px #9b6dff;"></span>Who receives it</div></div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="ea-seg"><input type="radio" name="ea-target" value="everyone" checked onchange="renderEmergencyTarget()" /> Everyone on the site</label>
+            <label class="ea-seg"><input type="radio" name="ea-target" value="divisions" onchange="renderEmergencyTarget()" /> Divisions</label>
+            <label class="ea-seg"><input type="radio" name="ea-target" value="users" onchange="renderEmergencyTarget()" /> Specific people</label>
+          </div>
+          <div id="ea-divisions" style="display:none;flex-wrap:wrap;gap:8px;"></div>
+          <div id="ea-users" style="display:none;flex-direction:column;gap:.4rem;max-height:340px;overflow:auto;"></div>
+          <div id="ea-online-note" style="font-size:12px;color:var(--text-secondary);"></div>
+        </div>
+      </div>
+      <style>
+        .ea-seg{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1px solid var(--border,#2a3040);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;}
+        .ea-seg input{accent-color:var(--red,#e2231a);}
+        .ea-div-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid var(--border,#2a3040);border-radius:10px;cursor:pointer;font-size:13px;}
+        .ea-div-chip input{accent-color:var(--red,#e2231a);}
+      </style>
+    </section>
+
+    <!-- MEDIA LIBRARY (ALL IA) -->
+    <section class="page" id="page-media">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Media</h1>
+          <p class="page-sub">Internal Affairs &middot; Hosted images &amp; videos</p>
+        </div>
+        <button class="btn btn-primary" onclick="openMediaUpload()"><i class="ti ti-upload"></i> Upload</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Library</div>
+          <div class="filter-tabs" id="media-filter-tabs">
+            <button class="filter-tab active" data-mfilter="all">All</button>
+            <button class="filter-tab" data-mfilter="image">Images</button>
+            <button class="filter-tab" data-mfilter="video">Videos</button>
+            <button class="filter-tab" data-mfilter="mine">Mine</button>
+          </div>
+        </div>
+        <div style="padding:1.2rem;">
+          <div id="media-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;">
+            <div class="table-loading"><div class="spinner"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MEDIA ADMIN (DEVELOPER ONLY) -->
+    <section class="page" id="page-media-admin">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Media Admin</h1>
+          <p class="page-sub">Developer &middot; Manage all hosted media</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadMediaAdmin()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom:1.2rem;">
+        <div class="stat-card blue"><div class="stat-card-inner"><div class="stat-icon"><i class="ti ti-photo-video"></i></div><div><div class="stat-value" id="media-stat-count">0</div><div class="stat-label">Files</div></div></div></div>
+        <div class="stat-card amber"><div class="stat-card-inner"><div class="stat-icon"><i class="ti ti-database"></i></div><div><div class="stat-value" id="media-stat-size">0</div><div class="stat-label">Total Size</div></div></div></div>
+        <div class="stat-card green"><div class="stat-card-inner"><div class="stat-icon"><i class="ti ti-eye"></i></div><div><div class="stat-value" id="media-stat-views">0</div><div class="stat-label">Total Views</div></div></div></div>
+      </div>
+
+      <!-- Storage usage -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div style="padding:1.1rem 1.3rem;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:9px;">
+            <span style="color:var(--text-secondary);"><i class="ti ti-database"></i> Media storage used</span>
+            <span id="media-storage-label" style="color:var(--text-primary);font-weight:600;">—</span>
+          </div>
+          <div style="height:10px;border-radius:6px;background:rgba(255,255,255,0.07);overflow:hidden;">
+            <div id="media-storage-bar" style="height:100%;width:0%;background:var(--blue);transition:width .3s,background .3s;"></div>
+          </div>
+          <div id="media-storage-sub" style="margin-top:7px;font-size:11px;color:var(--text-muted);"></div>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span>All Media</div></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Preview</th><th>Title / File</th><th>Uploader</th><th>Type</th><th>Size</th><th>Views</th><th>Visibility</th><th>Uploaded</th><th>Actions</th></tr></thead>
+            <tbody id="media-admin-tbody"><tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMPORTS (DEVELOPER ONLY) -->
+    <section class="page" id="page-imports">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Imports</h1><p class="page-sub">Developer &middot; Backfill logs and sync external data</p></div>
+      </div>
+
+      <!-- Patrol / event log backfill -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Patrol &amp; Event Log Import</div></div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Imports <strong>every</strong> patrol and event log from the configured channels (even the oldest),
+            reusing the live parser and skipping misc messages. Idempotent — safe to run repeatedly; it only adds
+            what's missing. Historical logs are written straight in as <strong>Approved</strong> (no review queue,
+            no sheet points). Runs in the background; final counts are written to the Audit Trail.
+          </p>
+          <button class="btn btn-primary" id="imp-patrol-btn" onclick="runPatrolBackfill()"><i class="ti ti-download"></i> Import patrol &amp; event logs</button>
+          <div id="imp-patrol-result" style="margin-top:0.9rem;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- IA cases + tickets sync -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>IA Cases &amp; Tickets Sync</div></div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Pulls cases and tickets (pending and resolved) from the live IA database (<code>IA_DATABASE_URL</code>)
+            into this dashboard. Idempotent — keyed on case/ticket reference. Requires <code>IA_DATABASE_URL</code> to be set.
+          </p>
+          <button class="btn btn-primary" id="imp-ia-btn" onclick="runIaSync()"><i class="ti ti-refresh"></i> Sync IA cases &amp; tickets</button>
+          <div id="imp-ia-result" style="margin-top:0.9rem;font-size:13px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GAME LOGS (Adonis / join / leave / chat from the training game) -->
+    <section class="page" id="page-gamelogs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Game Logs</h1><p class="page-sub">Developer &middot; Training game · Adonis, joins, leaves and chat</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Live Feed</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select class="form-control" id="dev-gl-source" onchange="loadDevGameLogs()" style="height:30px;font-size:12px;width:130px;">
+              <option value="">All types</option>
+              <option value="ADONIS">Adonis</option>
+              <option value="JOIN">Joins</option>
+              <option value="LEAVE">Leaves</option>
+              <option value="CHAT">Chat</option>
+            </select>
+            <input type="text" class="form-control" id="dev-gl-q" placeholder="Search…" style="height:30px;font-size:12px;width:160px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadDevGameLogs()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>When</th><th>Type</th><th>Actor</th><th>Action</th><th>Target</th><th>Message</th></tr></thead>
+          <tbody id="dev-gl-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- SITE CONTROL (DEVELOPER ONLY) -->
+    <section class="page" id="page-site-control">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Site Control</h1>
+          <p class="page-sub">Developer &middot; Site-wide controls &amp; event features</p>
+        </div>
+        <button class="btn btn-primary" onclick="saveSiteControl()"><i class="ti ti-device-floppy"></i> Save Changes</button>
+      </div>
+
+      <!-- Access controls -->
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:var(--red);box-shadow:0 0 7px var(--red);"></span>Access Controls</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1.1rem;">
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-loginLockdown" style="accent-color:var(--amber);margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;">Login Lockdown</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Blocks <strong>all logins</strong> except developers. Existing sessions stay active.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-sitePrivate" style="accent-color:var(--red);margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;color:var(--red);">Private Mode</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Hides the <strong>entire site, including the login page</strong>, from everyone except developers. Visitors see a "site is private" curtain. Developers can still sign in via the curtain link.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Announcement -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#3c6eff;box-shadow:0 0 7px #3c6eff;"></span>Announcement Banner</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
+          <div class="form-group" style="margin:0;">
+            <input type="text" class="form-control" id="sc-bannerText" placeholder="Leave empty to hide the banner" maxlength="160" />
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <label style="font-size:12px;color:var(--text-secondary);">Accent colour</label>
+            <input type="color" id="sc-bannerColor" value="#3c6eff" style="width:42px;height:30px;border:none;background:none;cursor:pointer;" />
+          </div>
+        </div>
+      </div>
+
+      <!-- User Spotlight -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> User Spotlight</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:.8rem;">
+          <div class="form-group" style="margin:0;">
+            <input type="text" class="form-control" id="sc-spotlightUser" placeholder="Roblox username to spotlight (leave empty to disable)" maxlength="80" />
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Shows a glowing gold banner at the bottom of the screen spotlighting that user for all visitors.</p>
+        </div>
+      </div>
+
+      <!-- Event Countdown -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#5dff9b;box-shadow:0 0 7px #5dff9b;"></span>⏱️ Event Countdown</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:.8rem;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Event Label</label>
+            <input type="text" class="form-control" id="sc-countdownLabel" placeholder="e.g. Patrol Night (leave empty to disable)" maxlength="60" />
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Target Date &amp; Time</label>
+            <input type="datetime-local" class="form-control" id="sc-countdownTarget" />
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Displays a live countdown clock in the top-right corner for all visitors.</p>
+        </div>
+      </div>
+
+      <!-- Site theme -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#a24bff;box-shadow:0 0 7px #a24bff;"></span>Site Theme</div>
+        </div>
+        <div style="padding:1.4rem;">
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-auroraTheme" style="accent-color:#a24bff;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-sparkles"></i> Aurora UI (site-wide)</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Switches the entire site from the Classic theme to the new Aurora theme for <strong>every</strong> user. Turn off to return everyone to Classic. Takes effect immediately.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Visual effects -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#9b6dff;box-shadow:0 0 7px #9b6dff;"></span>Visual Effects</div>
+        </div>
+        <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1.2rem;">
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-snow" style="accent-color:#7fd0ff;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-snowflake"></i> Snowfall</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Gentle falling-snow effect across the site for everyone.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-confetti" style="accent-color:#ffcf3f;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-confetti"></i> Approval Confetti</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Bursts confetti whenever a case is approved.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-matrixRain" style="accent-color:#00ff41;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-binary"></i> Matrix Rain</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Green falling-code rain overlay across the background.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-partyMode" style="accent-color:#ff5d5d;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-balloon"></i> Party Mode</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Cycles the background glow through all colours in a rainbow pattern.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-fireworks" style="accent-color:#ff8fd0;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-sparkles"></i> Fireworks</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Random firework bursts fire automatically every few seconds.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-halloween" style="accent-color:#ff6a00;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-ghost"></i> Halloween Mode</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Shifts the site glow to orange/purple and rains spiders, ghosts, and bats.</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:12px;cursor:pointer;">
+            <input type="checkbox" id="sc-rainbowCursor" style="accent-color:#c77dff;margin-top:3px;width:16px;height:16px;" />
+            <span>
+              <span style="display:block;font-weight:600;font-size:14px;"><i class="ti ti-rainbow"></i> Rainbow Cursor</span>
+              <span style="display:block;font-size:12px;color:var(--text-secondary);margin-top:2px;">Leaves a trail of rainbow sparkle particles behind everyone's cursor.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- TICKETS -->
+    <section class="page" id="page-tickets">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Tickets</h1>
+          <p class="page-sub">Internal Affairs &middot; Support &amp; Report Logging</p>
+        </div>
+        <button class="btn btn-primary" id="btn-new-ticket">
+          <i class="ti ti-plus"></i> Submit Ticket Log
+        </button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Ticket Log</div>
+          <div class="filter-tabs" id="ticket-filter-tabs">
+            <button class="filter-tab active" data-tfilter="all">All</button>
+            <button class="filter-tab" data-tfilter="PENDING">Pending</button>
+            <button class="filter-tab" data-tfilter="APPROVED">Approved</button>
+            <button class="filter-tab" data-tfilter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ticket Ref</th>
+              <th>Roblox User</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Proof</th>
+              <th>Submitted</th>
+              <th class="hicomm-only" style="display:none;">Investigator</th>
+              <th class="hicomm-only supervisor-only" style="display:none;">Decision</th>
+            </tr></thead>
+            <tbody id="tickets-tbody">
+              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALL TICKETS -->
+    <section class="page" id="page-all-tickets">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">All Tickets</h1>
+          <p class="page-sub">Internal Affairs &middot; Every submitted ticket</p>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Ticket Logs</div>
+          <div class="filter-tabs" id="all-ticket-filter-tabs">
+            <button class="filter-tab active" data-atfilter="all">All</button>
+            <button class="filter-tab" data-atfilter="PENDING">Pending</button>
+            <button class="filter-tab" data-atfilter="APPROVED">Approved</button>
+            <button class="filter-tab" data-atfilter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ticket Ref</th>
+              <th>Investigator</th>
+              <th>Roblox User</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Proof</th>
+              <th>Submitted</th>
+              <th class="hicomm-only supervisor-only" style="display:none;">Decision</th>
+            </tr></thead>
+            <tbody id="all-tickets-tbody">
+              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SUPPORT DESK (staff-side handling of /support tickets) -->
+    <section class="page" id="page-support-tickets">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Support Desk</h1>
+          <p class="page-sub">Internal Affairs &middot; Handle live community support tickets</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadSupportTickets()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Queue</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <div class="filter-tabs" id="sd-filter-tabs">
+              <button class="filter-tab active" data-sdfilter="active">Active</button>
+              <button class="filter-tab" data-sdfilter="unclaimed">Unclaimed</button>
+              <button class="filter-tab" data-sdfilter="mine">Mine</button>
+              <button class="filter-tab" data-sdfilter="escalated">Escalated</button>
+              <button class="filter-tab" data-sdfilter="CLOSED">Closed</button>
+            </div>
+            <select class="form-control" id="sd-type-filter" style="width:auto;font-size:12px;padding:4px 8px;"><option value="">All types</option></select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Priority</th><th>Type</th><th>Opener</th><th>Status</th><th>Claimed by</th><th>Ticket Age</th><th></th></tr></thead>
+            <tbody id="sd-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- RECORDS (Internal Affairs officer lookup) -->
+    <section class="page" id="page-records">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Records</h1>
+          <p class="page-sub">Internal Affairs &middot; Officer Record Lookup</p>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Search Officer</div>
+        </div>
+        <div style="padding:1.1rem 1.2rem;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+          <div style="flex:0 0 200px;min-width:170px;">
+            <label class="form-label">Lookup by</label>
+            <select class="form-control" id="rec-type">
+              <option value="auto">Auto-detect</option>
+              <option value="robloxUsername">Roblox Username</option>
+              <option value="robloxId">Roblox User ID</option>
+              <option value="discordUsername">Discord Username</option>
+              <option value="discordId">Discord ID</option>
+            </select>
+          </div>
+          <div style="flex:1 1 240px;min-width:200px;">
+            <label class="form-label">Value</label>
+            <input type="text" class="form-control" id="rec-query" placeholder="Enter username or ID…" autocomplete="off" />
+          </div>
+          <button class="btn btn-primary" id="btn-rec-search" style="height:42px;">
+            <i class="ti ti-search"></i> Search
+          </button>
+        </div>
+      </div>
+
+      <div id="rec-results"></div>
+    </section>
+
+    <!-- QUOTA CHECK (HICOMM + Developer only) -->
+    <section class="page" id="page-quota-check">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">Quota Check</h1>
+          <p class="page-sub">HICOMM · Weekly quota review</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" id="btn-reset-quota">
+            <i class="ti ti-trash"></i> Reset All Points
+          </button>
+          <button class="btn btn-primary" id="btn-submit-quota-check">
+            <i class="ti ti-send"></i> Submit &amp; Post Results
+          </button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> Investigator of the Week</div>
+        </div>
+        <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:.7rem;">
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">The selected investigator gets the IOTW role (a reduced quota) when you submit the check. The previous IOTW's role is removed automatically.</p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <select class="form-control" id="iotw-select" style="max-width:340px;"></select>
+            <span id="iotw-tie-note" style="font-size:11px;color:var(--amber);display:none;"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost btn-sm" id="btn-quota-autofill" title="Set pass/fail from quota targets">
+              <i class="ti ti-wand"></i> Auto from quota
+            </button>
+            <span class="text-muted mono" id="quota-check-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th>
+            </tr></thead>
+            <tbody id="quota-check-tbody">
+              <tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI EVIDENCE REVIEW -->
+    <section class="page" id="page-ai-review">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">AI Evidence Review</h1>
+          <p class="page-sub">Internal Affairs · Suggests offences from evidence</p>
+        </div>
+      </div>
+
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Submit Evidence</div>
+        </div>
+        <div style="padding:1.2rem 1.3rem;display:flex;flex-direction:column;gap:1rem;">
+          <div id="ai-row-describe" class="form-group" style="margin:0;">
+            <label class="form-label">What did the suspect do? <span style="color:var(--red);">*</span>
+              <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— describe the incident in as much detail as you can</span>
+            </label>
+            <textarea class="form-control" id="ai-description" rows="4" placeholder="Describe the incident…"></textarea>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary" id="btn-ai-analyze"><i class="ti ti-sparkles"></i> Analyse Evidence</button>
+            <span id="ai-status" style="font-size:11px;color:var(--text-muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div id="ai-results"></div>
+    </section>
+
+    <!-- GUEST IP LOOKUP (support-ticket forensics) -->
+    <section class="page" id="page-ticket-ip">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Guest IP Lookup</h1><p class="page-sub">Developer &middot; Reveal the IP(s) captured for any support ticket — past or present</p></div>
+      </div>
+
+      <!-- Direct lookup by transcript link -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Look up a ticket</div></div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Paste a <strong>transcript link</strong> (<code>/support?ticket=&hellip;</code>), an IA-desk link
+            (<code>?supportTicket=&hellip;</code>), a raw ticket id, or a <code>TKT-####</code> reference. Works for
+            <strong>closed and historical</strong> tickets too. Every lookup is written to the Audit Trail.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input type="text" class="form-control" id="dev-tip-q" placeholder="Paste transcript link / ticket id / TKT-0001…"
+                   style="flex:1;min-width:280px;" onkeydown="if(event.key==='Enter')devTicketIpLookup()">
+            <button class="btn btn-primary" onclick="devTicketIpLookup()"><i class="ti ti-map-pin-search"></i> Look up IP</button>
+          </div>
+          <div id="dev-tip-out" style="margin-top:1rem;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- Or browse every ticket -->
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Browse all tickets</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="dev-tk-q" placeholder="Search name, IP, id…"
+                   style="height:30px;font-size:12px;width:180px;" onkeydown="if(event.key==='Enter')loadDevTickets(0)">
+            <select class="form-control" id="dev-tk-status" onchange="loadDevTickets(0)" style="height:30px;font-size:12px;width:120px;">
+              <option value="">All statuses</option>
+              <option value="INTAKE">Intake</option>
+              <option value="OPEN">Open</option>
+              <option value="CLAIMED">Claimed</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+            <select class="form-control" id="dev-tk-type" onchange="loadDevTickets(0)" style="height:30px;font-size:12px;width:150px;">
+              <option value="">All types</option>
+              <option value="OFFICER_COMPLAINT">Officer complaint</option>
+              <option value="DISCIPLINARY_APPEAL">Disciplinary appeal</option>
+              <option value="IA_COMPLAINT">IA complaint</option>
+              <option value="GENERAL_SUPPORT">General support</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);white-space:nowrap;">
+              <input type="checkbox" id="dev-tk-guest" onchange="loadDevTickets(0)"> Guests only
+            </label>
+            <button class="btn btn-secondary" onclick="loadDevTickets(0)" style="height:30px;padding:0 12px;font-size:12px;"><i class="ti ti-refresh"></i></button>
+          </div>
+        </div>
+        <div class="profile-section" style="padding-top:0;">
+          <div id="dev-tk-out" style="font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- Active ticket blacklists -->
+      <div class="panel glass fade-up stagger-3" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot red"></span>Active ticket blacklists</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="dev-bl-q" placeholder="Search name, IP, id…" style="height:30px;font-size:12px;width:180px;" onkeydown="if(event.key==='Enter')loadDevBlacklist()">
+            <button class="btn btn-secondary" onclick="loadDevBlacklist()" style="height:30px;padding:0 12px;font-size:12px;"><i class="ti ti-refresh"></i></button>
+          </div>
+        </div>
+        <div class="profile-section" style="padding-top:0;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 0.8rem;line-height:1.6;">People currently barred from opening support tickets. Lifting a blacklist lets them open tickets again — it never affects their other MET access.</p>
+          <div id="dev-bl-out" style="font-size:13px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CAD — Metropolitan Police dispatch console -->
+    <section class="page" id="page-cad">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">CAD Dispatch</h1><p class="page-sub">Developer &middot; Metropolitan Police computer-aided dispatch — control console</p></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="cad-status-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+          <button class="btn btn-secondary" onclick="cadSeedPnc(this)" title="Seed fictional PNC records"><i class="ti ti-database-plus"></i> Seed PNC</button>
+        </div>
+      </div>
+
+      <div class="cad-grid">
+        <!-- LEFT: units board + book-on -->
+        <div class="cad-col">
+          <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Units on duty</div><span id="cad-board-count" class="nav-tag"></span></div>
+            <div class="profile-section" style="padding-top:0;"><div id="cad-board"></div></div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Book a unit on</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:1;min-width:90px;"><label class="cad-lbl">Callsign</label><input class="form-control" id="cad-bo-cs" placeholder="MP-1"></div>
+                <div style="flex:2;min-width:140px;"><label class="cad-lbl">Officer name</label><input class="form-control" id="cad-bo-name" placeholder="PC J. Smith"></div>
+                <button class="btn btn-primary" onclick="cadBookOn()"><i class="ti ti-user-plus"></i> Book on</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MIDDLE: incidents -->
+        <div class="cad-col">
+          <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Open incidents</div><span id="cad-inc-count" class="nav-tag"></span></div>
+            <div class="profile-section" style="padding-top:0;"><div id="cad-incidents"></div></div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Create incident</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div style="width:120px;"><label class="cad-lbl">Grade</label>
+                  <select class="form-control" id="cad-inc-grade">
+                    <option value="I">I — Immediate</option><option value="S">S — Significant</option>
+                    <option value="E">E — Extended</option><option value="R">R — Referred</option>
+                  </select></div>
+                <div style="flex:1;min-width:140px;"><label class="cad-lbl">Category</label><input class="form-control" id="cad-inc-cat" placeholder="Affray"></div>
+                <div style="flex:1;min-width:140px;"><label class="cad-lbl">Location</label><input class="form-control" id="cad-inc-loc" placeholder="Trafalgar Square"></div>
+              </div>
+              <div style="margin-top:8px;"><label class="cad-lbl">Description</label><textarea class="form-control" id="cad-inc-desc" rows="2" placeholder="Details passed by informant…"></textarea></div>
+              <button class="btn btn-primary" style="margin-top:8px;" onclick="cadCreateIncident()"><i class="ti ti-plus"></i> Create &amp; broadcast</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: voice + PNC + transmit + feed -->
+        <div class="cad-col">
+          <div class="panel glass fade-up stagger-1">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Voice output</div><span id="cad-voice-state" class="nav-tag"></span></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:130px;"><label class="cad-lbl">Server</label>
+                  <select class="form-control" id="cad-voice-guild" onchange="cadLoadVoiceChannels()"><option value="">Loading…</option></select></div>
+                <div style="flex:1;min-width:130px;"><label class="cad-lbl">Voice channel</label>
+                  <select class="form-control" id="cad-voice-channel"><option value="">Pick a server first</option></select></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="cadVoiceJoin(this)"><i class="ti ti-plug"></i> Join &amp; save</button>
+                <button class="btn btn-secondary" onclick="cadVoiceLeave()"><i class="ti ti-plug-off"></i> Leave</button>
+                <button class="btn btn-secondary" onclick="cadVoiceTest()"><i class="ti ti-volume"></i> Radio check</button>
+              </div>
+              <div id="cad-voice-note" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+            </div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot purple"></span>PNC lookup</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;align-items:flex-end;">
+                <div style="flex:1;"><label class="cad-lbl">Vehicle (VRM)</label><input class="form-control" id="cad-pnc-vrm" placeholder="LG21 XYZ" onkeydown="if(event.key==='Enter')cadVehicle()"></div>
+                <button class="btn btn-secondary" onclick="cadVehicle()"><i class="ti ti-car"></i></button>
+              </div>
+              <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;">
+                <div style="flex:1;"><label class="cad-lbl">Surname</label><input class="form-control" id="cad-pnc-sur" placeholder="Petrova" onkeydown="if(event.key==='Enter')cadPerson()"></div>
+                <div style="flex:1;"><label class="cad-lbl">Forename</label><input class="form-control" id="cad-pnc-fore" placeholder="(optional)" onkeydown="if(event.key==='Enter')cadPerson()"></div>
+                <button class="btn btn-secondary" onclick="cadPerson()"><i class="ti ti-user"></i></button>
+              </div>
+              <div id="cad-pnc-out" style="margin-top:10px;font-size:13px;"></div>
+            </div>
+          </div>
+          <div class="panel glass fade-up stagger-2" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Control transmission</div></div>
+            <div class="profile-section">
+              <div style="display:flex;gap:8px;align-items:flex-end;">
+                <div style="flex:1;"><input class="form-control" id="cad-tx" placeholder="All units, be aware…" onkeydown="if(event.key==='Enter')cadTransmit()"></div>
+                <button class="btn btn-primary" onclick="cadTransmit()"><i class="ti ti-broadcast"></i> Send</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel glass fade-up stagger-3" style="margin-top:1rem;">
+            <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Radio feed</div></div>
+            <div class="profile-section" style="padding-top:0;"><div id="cad-feed" style="max-height:360px;overflow-y:auto;"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- SUBMIT CASE MODAL -->
+<div class="modal-overlay" id="modal-submit">
+  <div class="modal glass-bright">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-plus" style="font-size:18px;"></i> Submit New Case</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-submit')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="next-case-ref-notice" style="display:none;margin-bottom:0.9rem;padding:9px 12px;border-radius:8px;background:rgba(74,143,255,0.1);border:1px solid rgba(74,143,255,0.3);font-size:12px;color:var(--text-secondary);">
+        This case will be logged as approximately <strong id="next-case-ref-val" style="color:var(--text-primary);">#…</strong> — please update your document's title to this ID if you haven't already.
+      </div>
+      <!-- Import method: Import-from-link / Build-manually / AI (temporarily disabled) -->
+      <div class="filter-tabs" id="case-mode-tabs" style="margin-bottom:1rem;">
+        <button class="filter-tab active" type="button" data-casemode="import"><i class="ti ti-link"></i> Import from link</button>
+        <button class="filter-tab" type="button" data-casemode="manual"><i class="ti ti-pencil"></i> Build manually</button>
+        <button class="filter-tab" type="button" data-casemode="ai" disabled title="Temporarily unavailable" style="opacity:.4;cursor:not-allowed;"><i class="ti ti-sparkles"></i> AI Document</button>
+      </div>
+
+      <div id="case-manual-import" class="form-group" style="background:rgba(74,143,255,0.06);border:1px solid var(--border-dim);border-radius:8px;padding:10px;">
+        <label class="form-label" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <i class="ti ti-file-import"></i> Import from case doc
+          <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— autofills the fields below</span>
+        </label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-control" id="f-import-url" placeholder="Paste Google Doc link…" style="flex:1;" />
+          <button class="btn btn-ghost btn-sm" id="btn-import-doc" type="button" style="white-space:nowrap;padding:0 0.9rem;">
+            <i class="ti ti-download"></i> Import
+          </button>
+        </div>
+        <div id="import-doc-result" style="margin-top:6px;font-size:11px;display:none;"></div>
+      </div>
+      <div id="case-fields">
+      <div class="form-group">
+        <label class="form-label">Officer — Discord/Roblox ID or username <span>*</span></label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-control" id="f-officer-id" placeholder="Discord/Roblox ID or username" style="flex:1;" />
+          <button class="btn btn-ghost btn-sm" id="btn-lookup-officer" type="button" style="white-space:nowrap;padding:0 0.9rem;">
+            <i class="ti ti-search"></i> Lookup
+          </button>
+        </div>
+        <div id="officer-lookup-result" style="margin-top:6px;font-size:11px;display:none;"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Punishments <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— select one or more</span></label>
+        <div class="action-checklist" id="action-checklist">
+          <!-- Populated by JS -->
+        </div>
+        <div id="action-warning" style="display:none;margin-top:6px;"></div>
+      </div>
+
+      <!-- AI document fields (shown in AI mode) -->
+      <div id="case-ai-section" style="display:none;background:rgba(74,143,255,0.05);border:1px solid var(--border-dim);border-radius:10px;padding:14px;margin-bottom:1rem;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#90b8ff;margin-bottom:12px;"><i class="ti ti-sparkles"></i> AI Document Generation</div>
+        <div class="form-group">
+          <label class="form-label">Your email <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— gets edit access to the generated document</span></label>
+          <input type="email" class="form-control" id="ai-email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Penal code(s) <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— comma-separated, e.g. PL-M304, TA-D402</span></label>
+          <input type="text" class="form-control" id="ai-penal" placeholder="PL-M304, TA-D402" />
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Evidence <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— links and/or uploaded images/videos</span></label>
+          <div id="ai-evidence-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="addEvidenceLinkRow()"><i class="ti ti-link"></i> Add link</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('ai-evidence-file').click()"><i class="ti ti-upload"></i> Upload file</button>
+            <input type="file" id="ai-evidence-file" accept="image/*,video/*" multiple style="display:none;" onchange="addEvidenceFiles(this.files)" />
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--border-dim);margin-top:14px;padding-top:14px;">
+          <button class="btn btn-primary" type="button" id="btn-ai-generate" onclick="generateAiDocument()" style="width:100%;justify-content:center;"><i class="ti ti-sparkles"></i> Generate Case Document</button>
+          <p style="margin:8px 0 0;font-size:11px;color:var(--text-muted);">The suspect's rank &amp; ID are taken from the officer lookup above. The document is created, filled in, shared with you, and its link is used automatically.</p>
+          <div id="ai-doc-result" style="margin-top:9px;font-size:12px;display:none;"></div>
+        </div>
+      </div>
+
+      <div class="form-group" id="case-reason-group">
+        <label class="form-label">Reason <span>*</span></label>
+        <textarea class="form-control" id="f-reason" rows="3" placeholder="Describe the reason for this case…"></textarea>
+      </div>
+      <div class="form-group" id="case-link-group">
+        <label class="form-label">Case Link <span>*</span></label>
+        <input type="text" class="form-control" id="f-case-link" placeholder="https://… (Google Doc / case file)" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Notes <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+        <textarea class="form-control" id="f-notes" rows="2" placeholder="Additional notes… (defaults to N/A if blank)"></textarea>
+      </div>
+      </div><!-- /#case-fields -->
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-submit')">Cancel</button>
+      <button class="btn btn-primary" id="btn-submit-case"><i class="ti ti-send"></i> Submit Case</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUOTA RESET CONFIRMATION MODAL -->
+<div class="modal-overlay" id="modal-quota-reset">
+  <div class="modal glass-bright" style="max-width:460px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--red);"><i class="ti ti-alert-triangle" style="font-size:18px;"></i> Reset All Quota Points</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-quota-reset')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;line-height:1.7;color:var(--text-secondary);margin:0 0 0.8rem;">
+        This will set <strong style="color:var(--text-primary);">every member's weekly quota points to 0</strong> directly on the
+        database/sheet. It affects <strong style="color:var(--text-primary);">everyone</strong> and
+        <strong style="color:#f07070;">cannot be undone</strong>. (Exempt "EX" members are left as exempt.)
+      </p>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 0.6rem;">Type <strong style="color:var(--text-primary);">RESET</strong> to confirm:</p>
+      <input type="text" class="form-control" id="quota-reset-confirm-input" placeholder="RESET" autocomplete="off" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-quota-reset')">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-quota-reset" disabled><i class="ti ti-trash"></i> Reset everyone to 0</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADMINISTRATIVE LOG / NOTICE PREVIEW MODAL -->
+<div class="modal-overlay" id="modal-embed-preview">
+  <div class="modal glass-bright" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-eye" style="font-size:18px;"></i> <span id="embed-preview-title">Administrative Log — Preview</span></div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-embed-preview')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p id="embed-preview-note" style="font-size:12px;color:var(--text-secondary);margin:0 0 0.9rem;line-height:1.6;"></p>
+      <div id="embed-preview-body"></div>
+    </div>
+    <div class="modal-footer" id="embed-preview-footer"></div>
+  </div>
+</div>
+
+<!-- CASE DETAIL MODAL -->
+<div class="modal-overlay" id="modal-detail">
+  <div class="modal glass-bright" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-description" style="font-size:18px;"></i> <span id="detail-ref">Case Detail</span></div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-detail')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="detail-body"></div>
+    <div class="modal-footer" id="detail-footer"></div>
+  </div>
+</div>
+
+<!-- BLACKLIST MODAL -->
+<div class="modal-overlay" id="modal-blacklist">
+  <div class="modal glass-bright" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--red);"><i class="ti ti-ban" style="font-size:18px;"></i> Blacklist User</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-blacklist')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;">This will block the user from accessing IACMS. They will see a "blacklisted" error on login.</p>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Reason</label>
+        <textarea class="form-control" id="f-blacklist-reason" rows="2" placeholder="Reason for blacklist…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-blacklist')">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-blacklist"><i class="ti ti-ban"></i> Confirm Blacklist</button>
+    </div>
+  </div>
+</div>
+
+<!-- DISCORD MODERATION ACTION MODAL (Ban / Kick / Timeout / Unban) -->
+<div class="modal-overlay" id="modal-dm-action">
+  <div class="modal glass-bright" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title" id="dm-action-title" style="color:var(--red);"><i class="ti ti-gavel" style="font-size:18px;"></i> Confirm Action</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-dm-action')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;" id="dm-action-desc"></p>
+      <div class="form-group" id="dm-duration-group" style="display:none;">
+        <label class="form-label">Duration (minutes, max 40320 = 28 days)</label>
+        <input type="number" class="form-control" id="dm-duration" min="1" max="40320" value="60" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Reason</label>
+        <textarea class="form-control" id="dm-reason" rows="2" placeholder="Reason (shown in Discord's audit log)…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-dm-action')">Cancel</button>
+      <button class="btn btn-danger" id="dm-action-confirm"><i class="ti ti-check"></i> Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- PREFERENCES MODAL -->
+<div class="modal-overlay" id="modal-prefs">
+  <div class="modal glass-bright" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-adjustments" style="font-size:18px;"></i> Preferences</div>
+      <button class="modal-close" onclick="closeModal('modal-prefs')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Notification duration <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— how long pop-up notifications stay on screen</span></label>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <input type="range" id="pref-toast-secs" min="1" max="30" step="0.5" value="3.5" style="flex:1;accent-color:var(--blue);" />
+          <input type="number" class="form-control" id="pref-toast-secs-num" min="1" max="30" step="0.5" value="3.5" style="width:82px;" />
+          <span style="color:var(--text-muted);font-size:12px;">sec</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="pref-toast-test" type="button" style="margin-top:12px;"><i class="ti ti-bell"></i> Test notification</button>
+        <p style="margin:10px 0 0;font-size:11px;color:var(--text-muted);">Saved in this browser. Tip: click any notification to dismiss it instantly.</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-prefs')">Close</button>
+      <button class="btn btn-primary" id="pref-save"><i class="ti ti-device-floppy"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- SUBMIT TICKET MODAL -->
+<div class="modal-overlay" id="modal-ticket">
+  <div class="modal glass-bright" style="max-width:580px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-ticket" style="font-size:18px;"></i> Submit Ticket Log</div>
+      <button class="modal-close" onclick="closeModal('modal-ticket')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <!-- Import method selector -->
+      <div class="filter-tabs" id="ticket-mode-tabs" style="margin-bottom:1rem;">
+        <button class="filter-tab active" type="button" data-tmode="import"><i class="ti ti-link"></i> Import from link</button>
+        <button class="filter-tab" type="button" data-tmode="manual"><i class="ti ti-pencil"></i> Build manually</button>
+        <button class="filter-tab" type="button" data-tmode="ai" disabled title="Case documents only — temporarily unavailable" style="opacity:.4;cursor:not-allowed;"><i class="ti ti-sparkles"></i> AI Document</button>
+      </div>
+
+      <!-- Import-from-transcript panel -->
+      <div id="ticket-import-panel" class="form-group" style="background:rgba(74,143,255,0.06);border:1px solid var(--border-dim);border-radius:8px;padding:10px;">
+        <label class="form-label" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <i class="ti ti-file-import"></i> Import from transcript link
+          <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— autofills the fields below</span>
+        </label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-control" id="t-import-url" placeholder="Paste the ticket's View Transcript link…" style="flex:1;" />
+          <button class="btn btn-ghost btn-sm" id="btn-import-transcript" type="button" style="white-space:nowrap;padding:0 0.9rem;">
+            <i class="ti ti-download"></i> Import
+          </button>
+        </div>
+        <div id="t-import-result" style="margin-top:6px;font-size:11px;display:none;"></div>
+      </div>
+
+      <div id="ticket-fields">
+      <div class="form-group">
+        <label class="form-label">
+          Roblox Username <span>*</span>
+          <span id="ticket-roblox-loading" style="font-size:10px;color:var(--text-muted);margin-left:6px;display:none;">fetching...</span>
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" class="form-control" id="t-roblox-username"
+                 placeholder="Roblox username, or Discord/Roblox ID" style="flex:1;" />
+          <span id="ticket-roblox-tag" style="display:none;font-size:11px;padding:3px 8px;border-radius:4px;
+                background:rgba(46,216,150,0.12);border:1px solid rgba(46,216,150,0.3);
+                color:var(--green);white-space:nowrap;">&#x2713; auto-filled</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ticket Type <span>*</span></label>
+        <select class="form-control" id="t-ticket-type">
+          <option value="">Select type...</option>
+          <option value="GENERAL_SUPPORT">General Support</option>
+          <option value="HICOMM">HICOMM</option>
+          <option value="OFFICER_REPORT">Officer Report</option>
+          <option value="APPEAL">Disciplinary Action Appeal</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Time <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— select the date &amp; time</span></label>
+        <div style="display:flex;gap:8px;">
+          <input type="datetime-local" class="form-control" id="t-submitted-at"
+                 style="flex:1;" />
+          <input type="text" class="form-control" id="t-timezone-display"
+                 placeholder="Timezone" title="Timezone (editable)"
+                 style="width:170px;font-size:11px;" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Conclusion <span>*</span></label>
+        <textarea class="form-control" id="t-conclusion" rows="4"
+                  placeholder="Describe the outcome or conclusion of this ticket..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ticket Transcript Link <span>*</span></label>
+        <input type="text" class="form-control" id="t-transcript-link"
+               placeholder="https://… (link to the ticket transcript)" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">
+          Proof
+          <span style="color:var(--text-muted);font-weight:400;">(optional, up to 10 images)</span>
+        </label>
+        <div class="proof-dropzone" id="proof-dropzone"
+             onclick="document.getElementById('t-proof-input').click()"
+             ondragover="event.preventDefault();this.classList.add('proof-dropzone-over')"
+             ondragleave="this.classList.remove('proof-dropzone-over')"
+             ondrop="event.preventDefault();this.classList.remove('proof-dropzone-over');handleProofFiles(event.dataTransfer.files)">
+          <i class="ti ti-photo-up" style="font-size:28px;color:var(--text-muted);"></i>
+          <span style="font-size:12px;color:var(--text-muted);margin-top:6px;">Click to upload or drag &amp; drop</span>
+          <span style="font-size:10px;color:var(--text-tiny);">PNG, JPG, GIF, WEBP max 5 MB each</span>
+          <input type="file" id="t-proof-input" accept="image/*" multiple style="display:none;"
+                 onchange="handleProofFiles(this.files)" />
+        </div>
+        <div id="proof-preview-grid" class="proof-preview-grid"></div>
+      </div>
+      </div><!-- /#ticket-fields -->
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-ticket')">Cancel</button>
+      <button class="btn btn-primary" id="btn-submit-ticket">
+        <i class="ti ti-send"></i> Submit Ticket Log
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TICKET DETAIL MODAL -->
+<div class="modal-overlay" id="modal-ticket-detail">
+  <div class="modal glass-bright" style="max-width:620px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="ti ti-ticket" style="font-size:18px;"></i>
+        <span id="tdetail-ref">Ticket Detail</span>
+      </div>
+      <button class="modal-close" onclick="closeModal('modal-ticket-detail')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="tdetail-body"></div>
+    <div class="modal-footer" id="tdetail-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-ticket-detail')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SECURITY EVENT DETAIL MODAL -->
+<div class="modal-overlay" id="modal-security-detail">
+  <div class="modal glass-bright" style="max-width:640px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-shield-lock" style="font-size:18px;color:var(--amber);"></i> Capture Event</div>
+      <button class="modal-close" onclick="closeModal('modal-security-detail')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="secdetail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-security-detail')">Close</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- One-time notification opt-in prompt (HICOMM / SUPERVISOR / DEVELOPER) -->
+<div class="modal-overlay" id="modal-notify-optin">
+  <div class="modal glass-bright" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--blue);"><i class="ti ti-bell" style="font-size:18px;"></i> Stay Notified?</div>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;line-height:1.75;color:var(--text-secondary);margin:0 0 0.6rem;">
+        Would you like to be notified the moment a new <strong style="color:var(--text-primary);">ticket log</strong>
+        or <strong style="color:var(--text-primary);">case</strong> is submitted — even when this site is closed?
+      </p>
+      <p style="font-size:12px;line-height:1.6;color:var(--text-muted);margin:0;">
+        You can change this any time in <strong>Notification Settings</strong>. We'll only ask you once.
+      </p>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost"   id="btn-notify-no"><i class="ti ti-x"></i> No thanks</button>
+      <button class="btn btn-primary" id="btn-notify-yes"><i class="ti ti-bell-ringing"></i> Yes, notify me</button>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt shown after "Yes" telling them to click Allow on the browser prompt -->
+<div class="modal-overlay" id="modal-notify-allow">
+  <div class="modal glass-bright" style="max-width:460px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--blue);"><i class="ti ti-bell-ringing" style="font-size:18px;"></i> One more step</div>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;line-height:1.75;color:var(--text-secondary);margin:0;">
+        Your browser will now ask for permission — please click <strong style="color:var(--text-primary);">Allow</strong>
+        to turn on notifications. If you don't see a prompt, check the address bar for a blocked-notifications icon.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-notify-allow')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reviewer: request changes on a pending case -->
+<div class="modal-overlay" id="modal-request-changes">
+  <div class="modal glass-bright" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--amber);"><i class="ti ti-edit-circle" style="font-size:18px;"></i> Request Changes</div>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);margin:0 0 0.8rem;">
+        Tell the submitter what to change. The case stays pending and they'll be notified.
+        Mention a punishment (e.g. <em>"change it to Strike 1"</em>) and we'll offer them a one-click fix.
+      </p>
+      <textarea class="form-control" id="rc-note" rows="4" maxlength="500" placeholder="e.g. Change the punishment from Termination to Disciplinary Strike 1."></textarea>
+      <div id="rc-detected" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(60,110,255,.08);border:1px solid rgba(60,110,255,.3);font-size:12px;color:var(--text-secondary);"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-request-changes')">Cancel</button>
+      <button class="btn btn-primary" id="btn-send-request-changes"><i class="ti ti-send"></i> Send to Submitter</button>
+    </div>
+  </div>
+</div>
+
+<!-- Submitter: apply the reviewer's requested punishment changes -->
+<div class="modal-overlay" id="modal-apply-changes">
+  <div class="modal glass-bright" style="max-width:500px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--amber);"><i class="ti ti-edit-circle" style="font-size:18px;"></i> Changes Requested</div>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);margin:0 0 0.8rem;">A reviewer asked you to change this case:</p>
+      <div id="ac-note" style="padding:10px 12px;border-radius:8px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.35);font-size:13px;color:var(--text-primary);line-height:1.5;margin-bottom:1rem;"></div>
+      <div id="ac-suggest" style="display:none;">
+        <p style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);margin:0 0 6px;">Detected punishment change</p>
+        <div id="ac-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" id="btn-edit-manually">Edit manually</button>
+      <button class="btn btn-success" id="btn-apply-changes"><i class="ti ti-wand"></i> Apply &amp; review</button>
+    </div>
+  </div>
+</div>
+
+<!-- Media upload -->
+<div class="modal-overlay" id="modal-media-upload">
+  <div class="modal glass-bright" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-upload" style="font-size:18px;"></i> Upload Media</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-media-upload')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:1rem;">
+      <div class="proof-dropzone" id="media-dropzone" onclick="document.getElementById('media-file-input').click()" style="cursor:pointer;">
+        <i class="ti ti-cloud-upload" style="font-size:30px;color:var(--text-muted);"></i>
+        <span style="font-size:12px;color:var(--text-muted);margin-top:6px;" id="media-file-name">Click to choose an image or video</span>
+        <input type="file" id="media-file-input" accept="image/*,video/*" style="display:none;" onchange="onMediaFilePick(this.files)" />
+      </div>
+      <div id="media-upload-preview" style="display:none;"></div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Title <span style="color:var(--text-muted);font-weight:400;font-size:11px;">(optional)</span></label>
+        <input type="text" class="form-control" id="media-title" maxlength="120" placeholder="e.g. Spawn camping clip — Player123" />
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Who can view this?</label>
+        <select class="form-control" id="media-visibility">
+          <option value="PUBLIC" selected>Public — anyone with the link</option>
+          <option value="IA">Internal Affairs+ (must be logged in)</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-media-upload')">Cancel</button>
+      <button class="btn btn-primary" id="btn-media-upload-submit" onclick="submitMediaUpload()"><i class="ti ti-upload"></i> Upload</button>
+    </div>
+  </div>
+</div>
+
+<!-- Media viewer -->
+<div class="modal-overlay" id="modal-media-view">
+  <div class="modal glass-bright" style="max-width:780px;">
+    <div class="modal-header">
+      <div class="modal-title" id="media-view-title"><i class="ti ti-photo" style="font-size:18px;"></i> Media</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-media-view')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="media-view-body" style="text-align:center;"></div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+      <span id="media-view-meta" style="font-size:11px;color:var(--text-muted);margin-right:auto;align-self:center;"></span>
+      <button class="btn btn-ghost" id="media-view-copy"><i class="ti ti-link"></i> Copy link</button>
+      <a class="btn btn-ghost" id="media-view-open" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Open</a>
+      <button class="btn btn-danger" id="media-view-delete" style="display:none;"><i class="ti ti-trash"></i> Delete</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<!-- SUPPORT DESK — ticket detail + handling tools -->
+<div class="modal-overlay" id="modal-sd-ticket">
+  <div class="modal glass-bright" style="max-width:820px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-headset" style="font-size:18px;"></i> <span id="sd-title">Ticket</span></div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-sd-ticket')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <div id="sd-toolbar" style="padding:12px 16px;border-bottom:1px solid var(--border,#2a2a2a);display:flex;gap:8px;flex-wrap:wrap;align-items:center;"></div>
+      <div id="sd-log" style="display:flex;flex-direction:column;gap:12px;padding:16px;max-height:52vh;overflow-y:auto;"></div>
+      <div id="sd-composer" style="padding:12px 16px;border-top:1px solid var(--border,#2a2a2a);">
+        <div id="sd-pending" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+          <textarea class="form-control" id="sd-input" rows="1" placeholder="Type a message…" style="flex:1;resize:vertical;min-height:42px;"></textarea>
+          <input type="file" id="sd-file" accept="image/*,video/*" multiple style="display:none;" />
+          <button class="btn btn-ghost btn-icon" id="sd-attach" title="Attach"><i class="ti ti-paperclip"></i></button>
+          <button class="btn btn-primary" id="sd-send" title="Send message" aria-label="Send message"><i class="ti ti-send"></i></button>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);margin-top:6px;cursor:pointer;">
+          <input type="checkbox" id="sd-internal" /> Internal note (staff-only — the opener won't see this)
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SUPPORT DESK — canned responses picker -->
+<div class="modal-overlay" id="modal-sd-canned">
+  <div class="modal glass-bright" style="max-width:520px;">
+    <div class="modal-header"><div class="modal-title"><i class="ti ti-message-2-bolt"></i> Quick Replies</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-sd-canned')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="sd-canned-body"></div>
+  </div>
+</div>
+
+<!-- SUPPORT DESK — settings (claim greetings + quick replies) -->
+<div class="modal-overlay" id="modal-sd-settings">
+  <div class="modal glass-bright" style="max-width:640px;">
+    <div class="modal-header"><div class="modal-title"><i class="ti ti-settings"></i> Support Desk Settings</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-sd-settings')"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body" id="sd-settings-body" style="max-height:60vh;overflow:auto;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sd-settings')">Cancel</button>
+      <button class="btn btn-primary" onclick="sdSaveSettings()"><i class="ti ti-device-floppy"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/guard.js?v=73"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/dashboard.js?v=82"></script>
+<script src="/js/cad-console.js?v=82"></script>
+<script src="/js/tickets.js?v=81"></script>
+<script src="/js/discord-format.js?v=80"></script>
+<script src="/js/support-staff.js?v=82"></script>
+<script src="/js/security.js?v=73"></script>
+<script src="/js/records.js?v=73"></script>
+<script src="/js/quota-check.js?v=73"></script>
+<script src="/js/ai-review.js?v=73"></script>
+<script src="/js/media.js?v=73"></script>
+<script src="/js/passkeys.js"></script>
+<script src="/js/discord-moderation.js"></script>
+<script src="/js/push-client.js?v=73"></script>
+<script src="/js/site-effects.js?v=82"></script>
+<script src="/js/met-topbar.js?v=3"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/events-client.js"></script>
+<script>initMetTopbar('DEVELOPER');</script>
+</body>
+</html>

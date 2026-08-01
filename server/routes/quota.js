@@ -42,10 +42,18 @@ router.post('/check', requireHICOMMStrict, async (req, res) => {
     // (reducing their quota) and remove it from the previous holder. If the same
     // person is re-selected, the role simply stays. Non-blocking on failure.
     let iotwApplied = null;
-    if (iotwDiscordId || iotwUsername) {
-      iotwApplied = await setInvestigatorOfWeek(iotwDiscordId || null);
+    if (iotwDiscordId) {
+      // Guard on the Discord ID, not the username: calling setInvestigatorOfWeek(null)
+      // as a side effect of a selection that merely lacked an ID would strip the
+      // IOTW role from the PREVIOUS holder and grant it to nobody.
+      iotwApplied = await setInvestigatorOfWeek(iotwDiscordId);
       if (iotwApplied && !iotwApplied.ok)
         console.warn('[Quota] IOTW role update failed:', iotwApplied.error);
+    } else if (iotwUsername) {
+      // A member was picked but their sheet row has no Discord ID — surface it as
+      // a failure instead of silently clearing everyone's IOTW role.
+      iotwApplied = { ok: false, error: 'No Discord ID on file for the selected Investigator of the Week.' };
+      console.warn('[Quota] IOTW selection had no Discord ID — skipping role change for', iotwUsername);
     }
 
     const ok = await sendQuotaCheckWebhook({

@@ -69,6 +69,11 @@ async function notifyStaff(payload) {
     });
     await deliver(eligible, {
       title: payload.title, body: payload.body, url: payload.url,
+      // Optional richer-notification fields (action buttons, per-action URLs,
+      // keep-on-screen, vibration, coalescing tag) passed straight to the SW.
+      actions: payload.actions, viewUrl: payload.viewUrl, claimUrl: payload.claimUrl,
+      claimApi: payload.claimApi, claimToken: payload.claimToken, ticketId: payload.ticketId,
+      requireInteraction: payload.requireInteraction, vibrate: payload.vibrate, tag: payload.tag,
     });
   } catch (e) {
     console.error('[Push] notifyStaff error:', e.message);
@@ -77,11 +82,12 @@ async function notifyStaff(payload) {
 
 // Targeted notification: a developer announcement, or a per-user event such as
 // "changes requested on your case" / "your case was appealed".
-//   opts: { userIds?: string[], all?: boolean, title, body, url, prefKey? }
+//   opts: { userIds?: string[], all?: boolean, title, body, url, prefKey?, … }
 // `prefKey` (e.g. 'caseUpdated', 'caseAppealed') honours that user preference;
 // omit it for admin announcements, which always go out. Users who turned
-// notifications off are always skipped.
-async function sendCustomNotification({ userIds, all, title, body, url, prefKey }) {
+// notifications off are always skipped. The remaining fields are passed
+// straight through to the service worker (action buttons, tag, vibrate…).
+async function sendCustomNotification({ userIds, all, title, body, url, prefKey, actions, viewUrl, requireInteraction, vibrate, tag }) {
   if (!CONFIGURED) return { sent: 0 };
   try {
     const where = all ? {} : { userId: { in: userIds || [] } };
@@ -91,7 +97,7 @@ async function sendCustomNotification({ userIds, all, title, body, url, prefKey 
     });
     const targets = subs.filter(s =>
       s.user && s.user.notifyEnabled && (!prefKey || getPrefs(s.user)[prefKey] !== false));
-    await deliver(targets, { title, body, url: url || '/dashboard' });
+    await deliver(targets, { title, body, url: url || '/dashboard', actions, viewUrl, requireInteraction, vibrate, tag });
     return { sent: targets.length };
   } catch (e) {
     console.error('[Push] sendCustomNotification error:', e.message);

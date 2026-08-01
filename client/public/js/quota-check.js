@@ -158,7 +158,10 @@ async function loadQuotaCheck() {
   try {
     var d = await api("/api/quota/members");
     if (!d || !d.configured) {
-      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span></td></tr>";
+      var CFG = window.metEmpty
+        ? window.metEmpty({ icon: "ti-alert-triangle", title: "Quota sheet not configured", sub: "Read access needs the Google service account." })
+        : "<span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span>";
+      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + CFG + "</td></tr>";
       return;
     }
     quotaMembersCache = d.members || [];
@@ -174,7 +177,10 @@ function renderQuotaCheck() {
   var countEl = document.getElementById("quota-check-count");
   if (!tbody) return;
   if (!quotaMembersCache.length) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>No members found in the sheet.</span></td></tr>";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
+      : "<span class='table-empty-text'>No members found in the sheet.</span>";
+    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + EMPTY + "</td></tr>";
     if (countEl) countEl.textContent = "";
     return;
   }
@@ -196,10 +202,10 @@ function renderQuotaCheck() {
     var ptColor = (exempt || status === "exempt" || status === "loa") ? "var(--purple)" : (m.met ? "var(--green)" : "var(--amber)");
 
     var sel = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' onchange='setQuotaStatus(" + i + ",this.value)'>"
-      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">✅ Pass</option>"
-      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">❌ Fail</option>"
-      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">🟣 Exempt</option>"
-      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">🟠 Leave of Absence</option>"
+      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">Pass</option>"
+      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">Fail</option>"
+      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">Exempt</option>"
+      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">Leave of Absence</option>"
       + "</select>";
     var reason = "<input type='text' class='form-control' style='padding:4px 8px;height:auto;font-size:12px;"
       + (status === "fail" ? "" : "display:none;") + "' id='quota-reason-" + i + "' placeholder='Reason…' value='"
@@ -239,7 +245,7 @@ function populateIotwSelector() {
 
   var opts = "<option value=''>— No Investigator of the Week —</option>";
   quotaMembersCache.forEach(function (m, i) {
-    var star = tops.indexOf(i) >= 0 ? " ⭐" : "";
+    var star = tops.indexOf(i) >= 0 ? " ★" : "";
     opts += "<option value='" + i + "'" + (i === defaultIdx ? " selected" : "") + ">"
       + escapeHtml(m.username) + (m.rank ? " · " + escapeHtml(m.rank) : "")
       + " — " + (Number(m.total) || 0) + " pts" + star + "</option>";
@@ -249,7 +255,7 @@ function populateIotwSelector() {
   if (tie) {
     if (tops.length > 1) {
       tie.style.display = "";
-      tie.textContent = "⚠ Tie for highest (" + max + " pts) between "
+      tie.textContent = "Tie for highest (" + max + " pts) between "
         + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " — pick one.";
     } else {
       tie.style.display = "none";

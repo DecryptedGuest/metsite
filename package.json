@@ -13,6 +13,8 @@
     "db:studio": "npx prisma studio",
     "import:cases": "node scripts/import-forum-cases.js",
     "discover:divisions": "node scripts/discover-divisions.js",
+    "test": "node --test test/cad/units.service.test.js test/cad/dispatch.service.test.js",
+    "test:cad": "node --test test/cad/units.service.test.js test/cad/dispatch.service.test.js",
     "postinstall": "npx prisma generate"
   },
   "dependencies": {
@@ -24,16 +26,26 @@
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "googleapis": "^140.0.1",
+    "javascript-obfuscator": "^4.2.2",
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^2.7.0",
     "prisma": "^5.10.0",
+    "qrcode": "^1.5.4",
     "terser": "^5.31.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
   },
+  "//optionalDependencies": "CAD voice (TTS into a voice channel). Optional so a native-build failure can never break `npm install`; the CAD runs text-only until these are present. Install with: npm i @discordjs/voice opusscript libsodium-wrappers ffmpeg-static",
+  "optionalDependencies": {
+    "@discordjs/voice": "^0.18.0",
+    "opusscript": "^0.1.1",
+    "libsodium-wrappers": "^0.7.13",
+    "ffmpeg-static": "^5.2.0"
+  },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

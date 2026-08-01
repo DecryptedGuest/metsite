@@ -39,25 +39,30 @@ function localIcon(slug) {
 // `match` recognises the group by name during holder auto-discovery.
 // Roblox group ids are known/fixed (provided by MET), so they're the defaults;
 // the GROUP_* / IA_GROUP_ID env vars still override if ever needed.
+// `color` is the division's colour from the MET brief — CID orange, SCO-19
+// black, IA administrative orange, FLP light blue, HPC white — and is what the
+// profile renders as a role chip.
 //
-// `accent` / `short` / `tagline` are pure branding: every /<slug>/… page is
-// themed with its division's own accent colour, logo, wordmark and favicon so
-// you can tell at a glance which division's side of the portal you're on.
-// Accents are deliberately kept clear of the semantic status hues (green
-// #2ed896 approved, amber #f5b730 pending, red #f04f5e denied) so badges stay
-// readable whatever the chrome is tinted.
+// `accent` is that same identity rendered for UI chrome: every /<slug>/… page is
+// themed with it, alongside the division's logo, wordmark and favicon, so you
+// can tell at a glance whose side of the portal you're on. It matches `color`
+// wherever the brief colour works as an accent; SCO-19's black and HPC's white
+// are lifted to a readable sibling of the same hue, because the accent has to
+// carry nav text and borders on BOTH the dark and light themes. Accents stay
+// clear of the semantic status hues (green approved, amber pending, red denied)
+// so badges read the same in every division.
 const META = {
-  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i,
-           short: 'Criminal Investigation', tagline: 'Investigations · Casework', accent: '#19c6d8' },
-  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i,
-           short: 'Specialist Firearms',   tagline: 'Armed Response · Deployments', accent: '#ff6b4a' },
-  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i,
-           short: 'Internal Affairs',      tagline: 'Case Management System',       accent: '#8b7cff' },
-  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i,
-           short: 'Frontline Policing',    tagline: 'Patrols · Response',           accent: '#4a8fff' },
-  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i,
-           short: 'Hendon Police College', tagline: 'Training · Examinations',      accent: '#d966e8' },
+  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', color: '#e8842a', accent: '#e8842a', short: 'Criminal Investigation', tagline: 'Investigations · Casework',    groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
+  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       color: '#4b5563', accent: '#8fa3bd', short: 'Specialist Firearms',    tagline: 'Armed Response · Deployments', groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
+  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  color: '#c2701f', accent: '#c2701f', short: 'Internal Affairs',       tagline: 'Case Management System',       groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
+  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                color: '#5cc0ff', accent: '#5cc0ff', short: 'Frontline Policing',     tagline: 'Patrols · Response',           groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
+  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             color: '#e8eef7', accent: '#9fb4d0', short: 'Hendon Police College',  tagline: 'Training · Examinations',      groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
 };
+
+// Extra divisional colours for divisions that exist in the MET server but not
+// (yet) as portal divisions — kept so a perms-group chip / future division can
+// reuse the same palette. MI5 = Military Intelligence 5 (sky), SAS (purple).
+const DIVISION_COLORS_EXTRA = { MI5: '#38bdf8', SAS: '#9b6ef3' };
 
 // The top-level Metropolitan Police group — the umbrella every officer belongs
 // to. Its rank drives MET-wide quota (low rank / senior officer / high rank),
@@ -97,6 +102,13 @@ const LEAD_RANK_PATTERNS = {
 function isLeadRank(division, roleName, rankNumber) {
   const envMin = parseInt(process.env[`LEAD_MIN_RANK_${division}`], 10);
   if (Number.isFinite(envMin)) return Number(rankNumber) >= envMin;
+  // Prefer the authoritative rank→tier table (ranks.js): LEAD = the division's
+  // HIGH tier. This avoids the loose regex swallowing lower ranks by substring
+  // (e.g. "Unit Commander" is MIDDLE, not Command; "Assistant Director" is HIGH).
+  const { tierForRank } = require('./ranks');
+  const t = tierForRank(division, roleName);
+  if (t) return t === 'HIGH';
+  // Fallback for role names not present in the table (whitespace/suffix variants).
   const pat = LEAD_RANK_PATTERNS[division];
   return pat ? pat.test(String(roleName || '')) : false;
 }
@@ -189,6 +201,9 @@ async function resolveGroupDivisions(robloxId) {
     let role = null;
     try { role = await getUserGroupRole(robloxId, groupId); } catch (e) { role = null; }
     if (role && Number(role.rank) > 0) {
+      // HPC only counts as a division site-wide for Junior Instructor and above —
+      // cadets / lower HPC group ranks don't get the HPC division on the portal.
+      if (division === 'HPC' && !hpcRankAtLeast(role.name, role.rank, 'instructor')) continue;
       out.push({
         division,
         rank:     Number(role.rank),
@@ -201,15 +216,30 @@ async function resolveGroupDivisions(robloxId) {
 }
 
 // Client-safe metadata only — never leak group ids / discovery regexes.
+// The Developer "division" — not a real MET division (never in ALL / the public
+// switcher), but developers get it in their `mine` list so it shows on their
+// profile + division switcher and links to the developer tools at /dev/dashboard.
+const DEV_META = { name: 'DEV', slug: 'dev', fullName: 'Developer Tools', color: '#f5c518', icon: '/img/divisions/dev.svg' };
+
 function meta(division) {
+  if (division === 'DEV') return { ...DEV_META };
   const m = META[division];
   return m ? {
     name: m.name, slug: m.slug, fullName: m.fullName,
     short: m.short || m.fullName, tagline: m.tagline || '',
-    accent: m.accent || MET_BRAND.accent, logo: brandLogo(m.slug),
+    color: m.color || null,
+    accent: m.accent || m.color || MET_BRAND.accent,
+    logo: brandLogo(m.slug),
   } : null;
 }
+
+// The MET role-scheme colour for a division (or null if unknown).
+function divisionColor(division) {
+  if (division === 'DEV') return DEV_META.color;
+  return (META[division] && META[division].color) || DIVISION_COLORS_EXTRA[division] || null;
+}
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
+
 
 // ── Per-division page branding ───────────────────────────────────────
 // Everything under /ia, /cid, /sco19, /flp and /hpc is themed with its own
@@ -229,7 +259,8 @@ function brandLogo(slug) { return localIcon(slug) || '/img/logo.png'; }
 function brandFor(division) {
   const m = division && META[division];
   const base = m
-    ? { name: m.name, slug: m.slug, fullName: m.fullName, short: m.short || m.fullName, tagline: m.tagline || '', accent: m.accent || MET_BRAND.accent }
+    ? { name: m.name, slug: m.slug, fullName: m.fullName, short: m.short || m.fullName,
+        tagline: m.tagline || '', accent: m.accent || m.color || MET_BRAND.accent }
     : { ...MET_BRAND };
   return { ...base, logo: brandLogo(base.slug) };
 }
@@ -268,6 +299,24 @@ function brandHead(division) {
   ].join('\n');
 }
 
+// ── Group-panel targets ──────────────────────────────────────────────
+// Selectable groups for the developer Group Panel: every division (so future
+// ones added to ALL appear automatically) plus the MET umbrella group.
+function panelGroups() {
+  const out = ALL.map(d => ({ key: d, name: META[d].name, fullName: META[d].fullName, groupId: explicitGroupId(d) }));
+  out.push({ key: 'MET', name: 'MET', fullName: 'Metropolitan Police', groupId: metGroupId() });
+  return out.filter(g => g.groupId);
+}
+
+// Resolve a panel-group key ('CID' | 'IA' | 'FLP' | 'HPC' | 'SCO19' | 'MET') to
+// its Roblox group id. Returns null for an unknown key.
+function groupIdForKey(key) {
+  if (!key) return null;
+  if (key === 'MET') return metGroupId();
+  if (ALL.includes(key)) return explicitGroupId(key);
+  return null;
+}
+
 // ── HPC-specific rank gates ──────────────────────────────────────────
 // HPC has finer, named access tiers on top of the group rank:
 //   • Junior Instructor and above  → can access the HPC division
@@ -295,8 +344,8 @@ function hpcExamRoleId() { return process.env.HPC_EXAM_ROLE_ID || '1509521712058
 function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || null; }
 
 module.exports = {
-  ALL, GROUP_DIVISIONS, META,
-  meta, allMeta,
+  ALL, GROUP_DIVISIONS, META, DIVISION_COLORS_EXTRA,
+  meta, allMeta, divisionColor, panelGroups, groupIdForKey,
   brandFor, brandHead, brandLogo, MET_BRAND,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,

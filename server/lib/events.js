@@ -10,7 +10,10 @@
 const clients = new Map();
 let heartbeat = null;
 
-function subscribe(userId, res) {
+function subscribe(rawUserId, res) {
+  // Key by String so it always matches publishToUser (which stringifies) — a
+  // non-string id would otherwise subscribe under a key no publish ever hits.
+  const userId = String(rawUserId);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -74,4 +77,8 @@ function connectionCount() {
   return n;
 }
 
-module.exports = { subscribe, publishToUser, broadcast, connectionCount };
+// The distinct user ids with at least one live SSE connection right now — i.e.
+// everyone currently "on the site" with an open page.
+function connectedUserIds() { return [...clients.keys()]; }
+
+module.exports = { subscribe, publishToUser, broadcast, connectionCount, connectedUserIds };
