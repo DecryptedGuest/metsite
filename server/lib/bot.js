@@ -3,7 +3,24 @@
 // Handles: role assignment after case approval, member lookup.
 
 const { Client, GatewayIntentBits, Partials, SlashCommandBuilder,
-        EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder } = require('discord.js');
+        EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, UserSelectMenuBuilder,
+        StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
+        GuildScheduledEventEntityType, GuildScheduledEventPrivacyLevel } = require('discord.js');
+
+// Per-division co-host restriction: a tryout co-host must be "staff" in that
+// division's server (a specific role). The picker then only offers those members.
+// HPC is restricted by default (role provided); CID only when its role env is
+// set; any other division stays unrestricted (pick anyone) unless configured.
+const HPC_GUILD_ID      = () => process.env.HPC_GUILD_ID || process.env.DISCORD_GUILD_ID;
+const HPC_STAFF_ROLE_ID = () => process.env.HPC_STAFF_ROLE_ID || '1426660644093952281';
+function coHostStaffConfig(division) {
+  const d = String(division || '').toUpperCase();
+  if (d === 'HPC') return { guildId: HPC_GUILD_ID(), roleId: HPC_STAFF_ROLE_ID() };
+  if (d === 'CID' && process.env.CID_STAFF_ROLE_ID) {
+    return { guildId: process.env.CID_GUILD_ID || process.env.DISCORD_GUILD_ID, roleId: process.env.CID_STAFF_ROLE_ID };
+  }
+  return null; // unrestricted → pick anybody in the server
+}
 
 // The bulk-import feature needs to read forum starter messages, and the ticket
 // transcript import needs to read Tickety's log embeds + "View Transcript"
@@ -20,7 +37,22 @@ const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || '145587742458
 // forum starter messages + Tickety transcript logs), but must never take the
 // whole bot offline over it — so startBot() logs in WITH it and transparently
 // retries WITHOUT it if the portal rejects it (role assignment etc. keep working).
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID);
+// Patrol-log + event-log channels — the bot reads new logs here (needs Message
+// Content) and reacts ✅/❌ once the site approves/denies them.
+const PATROL_CHANNEL_ID    = process.env.PATROL_CHANNEL_ID || null;
+const EVENTLOGS_CHANNEL_ID = process.env.EVENTLOGS_CHANNEL_ID || null;
+// Promotions/demotions channel → RankHistory; infractions/strikes → punishment
+// history. Both are ingested the same way patrol logs are (needs Message Content).
+const PROMOTIONS_CHANNEL_ID  = process.env.PROMOTIONS_CHANNEL_ID  || null;
+const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || null;
+// CAD radio channel — officers type free-text transmissions here; the CAD
+// intent parser reads them (needs Message Content), so enabling it turns the
+// message-content intent on.
+const CAD_RADIO_CHANNEL_ID = process.env.CAD_RADIO_CHANNEL_ID || null;
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || PROMOTIONS_CHANNEL_ID || INFRACTIONS_CHANNEL_ID || CAD_RADIO_CHANNEL_ID);
+// A patrol/event log is signed off by somebody ticking or crossing the message
+// in Discord, so those channels also need the reaction gateway events.
+const WANT_REACTIONS = !!(PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID);
 
 let ready = false;
 let client;
@@ -29,17 +61,53 @@ async function onReady() {
   ready = true;
   console.log(`🤖  Discord bot online as ${client.user.tag}`);
   await registerImportCommand();
+  // Bring up the CAD dispatch system (radio listener + voice). Best-effort —
+  // never let a CAD misconfig take the bot down.
+  try { require('./cad').init(client); } catch (e) { console.warn('[CAD] init failed:', e.message); }
+  // Mirror the closed-ticket logs onto the site (All Tickets / My Tickets).
+  try { require('./ticketIngest').startTicketLogWorker(client); }
+  catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
+  // Re-read tick/cross reactions on recent patrol/event logs. Gateway events
+  // are not replayed after a disconnect, so without this a sign-off made while
+  // the bot was restarting would never reach the site.
+  try { require('./patrolReactions').startReactionReconciler(client); }
+  catch (e) { console.warn('[PatrolLog] reaction reconciler not started:', e.message); }
 }
 
 function buildClient(withMessageContent) {
-  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers];
+  // GuildVoiceStates is REQUIRED by @discordjs/voice — without it a voice
+  // connection can't complete its handshake and churns connect→drop. It's a
+  // non-privileged intent, so it's always safe to request.
+  const intents  = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
+  const partials = [Partials.GuildMember];
   if (withMessageContent) intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
-  const c = new Client({ intents, partials: [Partials.GuildMember] });
+  if (WANT_REACTIONS) {
+    // GuildMessageReactions is NOT privileged, so requesting it can't fail login
+    // the way MessageContent can. The partials are what let us see a reaction on
+    // a message posted before the bot started.
+    intents.push(GatewayIntentBits.GuildMessageReactions);
+    partials.push(Partials.Message, Partials.Channel, Partials.Reaction, Partials.User);
+  }
+  const c = new Client({ intents, partials });
   c.once('ready', onReady);
   c.on('interactionCreate', onInteraction);
+  if (withMessageContent) c.on('messageCreate', onPatrolMessage);
+  if (WANT_REACTIONS) {
+    // Ticking or crossing a patrol/event log IS the sign-off, whoever does it.
+    const onReaction = added => (reaction, user) =>
+      require('./patrolReactions').applyReaction(reaction, user, added)
+        .catch(e => console.warn('[PatrolLog] reaction handler error:', e.message));
+    c.on('messageReactionAdd',    onReaction(true));
+    c.on('messageReactionRemove', onReaction(false));
+  }
   c.on('error', err => console.error('Discord bot error:', err.message));
   return c;
 }
+
+// The live client, for callers that need to talk to Discord directly (the
+// ticket-log backfill sweep, the MET database sync). Null until the gateway
+// connects.
+function getClient() { return ready ? client : null; }
 
 client = buildClient(WANT_MESSAGE_CONTENT);
 
@@ -67,7 +135,10 @@ async function registerImportCommand() {
 // Handle the import slash command (restricted to the developer user)
 async function onInteraction(interaction) {
   // Tryout DM buttons / co-host select menu.
-  if (interaction.isButton() || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())) {
+  if (interaction.isButton()
+      || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())
+      || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())
+      || (interaction.isModalSubmit && interaction.isModalSubmit())) {
     if ((interaction.customId || '').startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
     }
@@ -171,6 +242,63 @@ async function getMemberDisplayName(discordUserId) {
   }
 }
 
+// List every text-like channel in the MET guild, flagged with whether the given
+// member can VIEW it (locked = No-Access), plus its category. Powers the ticket
+// composer's Discord-style `#` channel picker. When no user id is given, access is
+// judged against @everyone. Cached briefly per user (channels change rarely).
+const _channelListCache = new Map(); // key(discordUserId||'@everyone') → { at, list }
+const CHANNEL_LIST_TTL = 5 * 60 * 1000;
+async function listGuildChannels(forDiscordUserId) {
+  if (!ready) return [];
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) return [];
+  const key = forDiscordUserId ? String(forDiscordUserId) : '@everyone';
+  const hit = _channelListCache.get(key);
+  if (hit && Date.now() - hit.at < CHANNEL_LIST_TTL) return hit.list;
+  try {
+    const { ChannelType, PermissionsBitField } = require('discord.js');
+    const guild = await client.guilds.fetch(guildId);
+    const chans = await guild.channels.fetch();
+    let member = null;
+    if (forDiscordUserId) { try { member = await guild.members.fetch(forDiscordUserId); } catch (e) { member = null; } }
+    const subject = member || guild.roles.everyone;
+    const VIEW = PermissionsBitField.Flags.ViewChannel;
+    const TYPE_LABEL = {
+      [ChannelType.GuildText]: 'text',
+      [ChannelType.GuildAnnouncement]: 'announcement',
+      [ChannelType.GuildForum]: 'forum',
+      [ChannelType.GuildVoice]: 'voice',
+      [ChannelType.GuildStageVoice]: 'stage',
+    };
+    const list = [];
+    chans.forEach((c) => {
+      if (!c || !(c.type in TYPE_LABEL)) return;
+      let locked = true;
+      try { const p = c.permissionsFor(subject); locked = !(p && p.has(VIEW)); } catch (e) { locked = true; }
+      const parent = c.parentId ? chans.get(c.parentId) : null;
+      list.push({
+        id: c.id,
+        name: c.name,
+        type: TYPE_LABEL[c.type],
+        category: parent ? parent.name : null,
+        categoryPosition: parent ? parent.rawPosition : -1,
+        position: typeof c.rawPosition === 'number' ? c.rawPosition : 0,
+        locked,
+      });
+    });
+    list.sort((a, b) =>
+      (a.categoryPosition - b.categoryPosition) ||
+      String(a.category || '').localeCompare(String(b.category || '')) ||
+      (a.position - b.position) ||
+      String(a.name).localeCompare(String(b.name)));
+    _channelListCache.set(key, { at: Date.now(), list });
+    return list;
+  } catch (e) {
+    console.error('[bot] listGuildChannels failed:', e.message);
+    return hit ? hit.list : [];
+  }
+}
+
 // A member's display name (nickname) and avatar URL in a SPECIFIC guild.
 // Used for the administrative-log "Signed, <name>" author. Returns null if the
 // bot can't read that guild or the member isn't in it.
@@ -185,6 +313,93 @@ async function getGuildMemberInfo(discordUserId, guildId) {
     };
   } catch {
     return null;
+  }
+}
+
+// A member's roles + names in a SPECIFIC guild, or null. Used to validate a
+// picked co-host still holds the HPC-staff role.
+async function getGuildMemberRoles(discordUserId, guildId) {
+  if (!ready || !guildId || !discordUserId) return null;
+  try {
+    const guild  = await client.guilds.fetch(guildId);
+    const member = await guild.members.fetch(discordUserId);
+    return {
+      id: member.id,
+      username: member.user.username,
+      displayName: member.displayName || member.user.username,
+      roleIds: member.roles.cache.map(r => r.id),
+    };
+  } catch { return null; }
+}
+
+// A member's Discord DISPLAY style in a guild — like Discord colours a name:
+//   { color, gradient, roleName, roleIcon }
+//   color    — hex of the highest-position role that has a colour (or null)
+//   gradient — [hex,…] when that role is a holographic/gradient role (or null)
+//   roleName — the name of that colour role (the "role on their name")
+//   roleIcon — that role's icon URL (or null)
+// Best-effort: null on any failure. Cached briefly (roles/members change rarely).
+const _roleStyleCache = new Map(); // `${guildId}:${discordId}` → { at, style }
+function _hex(n) { if (n == null) return null; var v = (Number(n) >>> 0) & 0xffffff; return '#' + v.toString(16).padStart(6, '0'); }
+async function getMemberRoleStyle(discordUserId, guildId) {
+  if (!ready || !guildId || !discordUserId) return null;
+  const key = guildId + ':' + discordUserId;
+  const hit = _roleStyleCache.get(key);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.style;
+  try {
+    const guild  = await client.guilds.fetch(guildId);
+    const member = await guild.members.fetch(discordUserId);
+    const roles = [...member.roles.cache.values()].filter(r => r.id !== guild.id).sort((a, b) => b.position - a.position);
+    // Highest-position role that actually sets a colour (Discord's rule).
+    const colourRole = roles.find(r => (r.color && r.color !== 0) || (r.colors && r.colors.primaryColor != null)) || null;
+    const nameRole = colourRole || roles[0] || null;
+    let color = null, gradient = null;
+    if (colourRole) {
+      try { color = colourRole.hexColor && colourRole.hexColor !== '#000000' ? colourRole.hexColor : _hex(colourRole.color); } catch (e) { color = _hex(colourRole.color); }
+      try {
+        var c = colourRole.colors;
+        if (c && c.secondaryColor != null) {
+          gradient = [c.primaryColor, c.secondaryColor, c.tertiaryColor].filter(x => x != null).map(_hex).filter(Boolean);
+          if (!color && gradient.length) color = gradient[0];
+        }
+      } catch (e) {}
+    }
+    let roleIcon = null;
+    if (nameRole) { try { roleIcon = nameRole.iconURL ? nameRole.iconURL({ size: 32, extension: 'png' }) : null; } catch (e) {} }
+    const style = { color: color || null, gradient: gradient || null, roleName: nameRole ? nameRole.name : null, roleIcon };
+    _roleStyleCache.set(key, { at: Date.now(), style });
+    return style;
+  } catch (e) { return null; }
+}
+
+// Every member of `guildId` holding `roleId` → [{ id, username, displayName }],
+// sorted by display name. Requires the Guild Members intent. [] on any failure.
+async function listGuildRoleMembers(guildId, roleId) {
+  if (!ready || !guildId || !roleId) return [];
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    const role  = await guild.roles.fetch(roleId).catch(() => null);
+    if (!role) { console.warn(`[Bot] role ${roleId} not found in guild ${guildId}`); return []; }
+    // role.members only reflects the members currently in the cache — right after
+    // boot that can be just a handful (or none), so it must NOT be trusted on its
+    // own. Fetch the full member list first (needs the GuildMembers privileged
+    // intent, requested in startBot()) so everyone holding the role is seen.
+    let members = null;
+    try {
+      const all = await guild.members.fetch();
+      members = all.filter(m => m.roles.cache.has(roleId));
+    } catch (e) {
+      // Full fetch failed (intent disabled / gateway hiccup) — fall back to
+      // whatever the role cache already holds rather than returning nothing.
+      console.warn('[Bot] members.fetch failed, using role cache (enable the GuildMembers intent):', e.message);
+      members = role.members;
+    }
+    return [...members.values()]
+      .map(m => ({ id: m.id, username: m.user.username, displayName: m.displayName || m.user.username }))
+      .sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+  } catch (e) {
+    console.error('[Bot] listGuildRoleMembers failed:', e.message);
+    return [];
   }
 }
 
@@ -209,6 +424,30 @@ async function assignRole(discordUserId, roleId) {
     return true;
   } catch (err) {
     console.error(`Failed to assign role ${roleId} to ${discordUserId}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Set a guild member's server nickname (max 32 chars). Used by the RoVer-style
+ * rank sync to keep "RANK | RobloxUsername" current after a rank change. Needs
+ * the bot to have Manage Nicknames and a role above the target. Best-effort.
+ */
+async function setMemberNickname(discordUserId, nick) {
+  if (!ready || !nick) return false;
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) return false;
+  try {
+    const guild  = await client.guilds.fetch(guildId);
+    const member = await guild.members.fetch(discordUserId);
+    if (!member) return false;
+    const clean = String(nick).slice(0, 32);
+    if (member.nickname === clean) return true; // already correct — no-op
+    await member.setNickname(clean, 'RoVer-style rank sync');
+    console.log(`[rover] nickname set for ${discordUserId} → "${clean}"`);
+    return true;
+  } catch (err) {
+    console.warn(`[rover] setNickname failed for ${discordUserId}:`, err.message);
     return false;
   }
 }
@@ -451,6 +690,45 @@ async function setExclusiveRoleHolder(guildId, roleId, discordId) {
 }
 
 // Roblox username → Discord member by scanning server nicknames (reverse RoVer fallback).
+// Full MET-server profile for a Discord member: their nickname, the Roblox
+// username + rank parsed from that nick, and every role NAME they hold (not just
+// ids). Reads the primary guild (DISCORD_GUILD_ID = the MET server) unless an
+// explicit guildId is passed. Returns null if the bot is down or they're not in
+// the server. Used by the officer 360 to show MET details for anyone — even
+// members who never signed into the dashboard.
+async function getMetMemberProfile(discordUserId, guildId) {
+  if (!ready || !discordUserId) return null;
+  const gId = targetGuildId(guildId);
+  if (!gId) return null;
+  try {
+    const guild  = await guild_(gId);
+    const member = await guild.members.fetch(String(discordUserId));
+    const parsed = parseRankNick(member.displayName || member.user.username);
+    const roles  = [...member.roles.cache.values()]
+      .filter(r => r.name && r.name !== '@everyone')
+      .sort((a, b) => b.position - a.position)
+      .map(r => ({
+        id: r.id, name: r.name,
+        color: r.hexColor && r.hexColor !== '#000000' ? r.hexColor : null,
+        icon: (typeof r.iconURL === 'function' ? r.iconURL({ size: 24 }) : null) || null,
+      }));
+    return {
+      inServer:    true,
+      discordId:   member.user.id,
+      username:    member.user.username,
+      nick:        member.displayName || member.user.username,
+      avatar:      member.user.displayAvatarURL({ size: 128, extension: 'png' }),
+      robloxName:  parsed.robloxUsername || null,
+      rank:        parsed.rank || null,
+      roles,
+      joinedAt:    member.joinedAt ? member.joinedAt.toISOString() : null,
+      timedOutUntil: member.communicationDisabledUntil ? member.communicationDisabledUntil.toISOString() : null,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 async function findMemberByRobloxNick(robloxUsername) {
   const target = String(robloxUsername || '').trim().toLowerCase();
   if (!target) return null;
@@ -545,33 +823,668 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
   return { matched: false, error: 'no matching transcript found in recent ticket logs' };
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 // MET tryouts — DM the host when their tryout fires, with buttons to pick a
 // co-host and post the announcement. Interaction handlers live in
 // onInteraction (customIds prefixed "tryout_").
-// ─────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────
+
+// The "Private server link" DM field. Manual-link divisions (CID / MET) prompt
+// the host to set their own link; SCO-19 shows the auto-provisioned one.
+function privateServerLinkField(tryout) {
+  const manual = require('./tryouts').tryoutManualLink(tryout.division);
+  if (tryout.privateServerLink) return { name: 'Private server link', value: String(tryout.privateServerLink).slice(0, 1000), inline: false };
+  if (manual) return { name: 'Private server link', value: '⚠️ **Not set** — click **Set Private Server Link** below and paste your own private-server link.', inline: false };
+  return { name: 'Private server link', value: 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false };
+}
+
+// The action buttons attached to a host's tryout DM: (set link,) pick a co-host,
+// and post/update the channel announcement. The announce label reflects whether
+// the announcement has already gone out (the game flow auto-announces first).
+function tryoutHostDmButtons(tryout) {
+  const announced = !!tryout.announcementMsgId;
+  const joinable  = !!tryout.joinable;
+  const manualLink = require('./tryouts').tryoutManualLink(tryout.division);
+  const row = new ActionRowBuilder();
+  // Manual-link divisions get a prominent "Set / Update Private Server Link" button.
+  if (manualLink) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`tryout_setlink_${tryout.id}`)
+      .setLabel(tryout.privateServerLink ? 'Update Server Link' : 'Set Private Server Link')
+      .setStyle(tryout.privateServerLink ? ButtonStyle.Secondary : ButtonStyle.Primary)
+      .setEmoji('🔗'));
+  }
+  row.addComponents(
+    new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
+  );
+  // No manual "Update Announcement" — once posted, the announcement updates
+  // itself automatically on any change (co-host, lock state, join link). We only
+  // offer a one-time "Send Announcement" when it hasn't gone out yet.
+  if (!announced) {
+    row.addComponents(new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success));
+  }
+  row.addComponents(new ButtonBuilder().setCustomId(`tryout_join_${tryout.id}`).setLabel(joinable ? 'Remove Join Link' : 'Post Join Link').setStyle(joinable ? ButtonStyle.Danger : ButtonStyle.Primary));
+  return row;
+}
 
 // DM the host their tryout details + action buttons. Returns the DM message id.
 async function sendTryoutHostDM(tryout) {
   if (!ready) { console.warn('[Tryout] bot not ready — cannot DM host'); return null; }
   try {
     const user  = await client.users.fetch(tryout.hostDiscordId);
+    const cfg   = require('./tryouts').divisionConfig(tryout.division);
     const embed = new EmbedBuilder()
       .setColor(tryout.privateServerLink ? 0x2ed896 : 0xf5b730)
-      .setTitle('🎓 Your MET Tryout is live')
-      .setDescription('Your scheduled Metropolitan Police tryout has started. Pick a co-host, then post the announcement when you\'re ready.')
+      .setTitle(cfg.dmTitle)
+      .setDescription(`Your scheduled ${cfg.eventType} has started. Pick a co-host (if applicable), then post the announcement when you\'re ready.`)
       .addFields(
-        { name: 'Private server link', value: tryout.privateServerLink || '⚠️ Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false },
-        { name: 'Shift-lock', value: tryout.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED', inline: true },
+        privateServerLinkField(tryout),
+        { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
       );
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success),
-    );
-    const msg = await user.send({ embeds: [embed], components: [row] });
+    const msg = await user.send({ embeds: [embed], components: [tryoutHostDmButtons(tryout)] });
     return msg.id;
   } catch (e) {
     console.error('[Tryout] sendTryoutHostDM failed:', e.message);
+    return null;
+  }
+}
+
+// ── Patrol + event logs ────────────────────────────────────────────────────
+// A new message in PATROL_CHANNEL_ID / EVENTLOGS_CHANNEL_ID that looks like a
+// log → capture it for site review. (Pure chat without "shift" and no image is
+// ignored.)
+async function onPatrolMessage(message) {
+  try {
+    const ch = String(message.channelId);
+
+    // Closed-ticket logs are posted BY a bot (Tickety), so this has to run
+    // before the not-a-bot guard below.
+    if (TICKET_LOG_CHANNEL_ID && ch === String(TICKET_LOG_CHANNEL_ID)) {
+      try { await require('./ticketIngest').ingestMessage(message); }
+      catch (e) { console.warn('[TicketLogs] live ingest error:', e.message); }
+      return;
+    }
+
+    if (message.author && message.author.bot) return;
+
+    // Promotions/demotions → RankHistory; infractions/strikes → punishment log.
+    if (PROMOTIONS_CHANNEL_ID && ch === String(PROMOTIONS_CHANNEL_ID)) {
+      await require('./discordIngest').ingestPromotion(message);
+      return;
+    }
+    if (INFRACTIONS_CHANNEL_ID && ch === String(INFRACTIONS_CHANNEL_ID)) {
+      await require('./discordIngest').ingestInfraction(message);
+      return;
+    }
+
+    let type = null;
+    if (PATROL_CHANNEL_ID && ch === String(PATROL_CHANNEL_ID)) type = 'PATROL';
+    else if (EVENTLOGS_CHANNEL_ID && ch === String(EVENTLOGS_CHANNEL_ID)) type = 'EVENT';
+    if (!type) return;
+    if (!looksLikeLog(message, type)) return; // skip misc chatter — only actual logs
+    const { createFromMessage } = require('./patrolLog');
+    await createFromMessage(message, type);
+  } catch (e) {
+    console.error('[Log] messageCreate error:', e.message);
+  }
+}
+
+// The "is this a log (vs misc chatter)?" test, shared by live ingestion and the
+// backfill. PATROL logs mention a shift or carry proof. EVENT logs vary a lot
+// (no reliable keyword), so any non-bot message with real content or an
+// attachment in the event channel counts — that's why event logs were being
+// dropped before.
+function looksLikeLog(message, type) {
+  if (message.author && message.author.bot) return false;
+  const content = (message.content || '').trim();
+  if (type === 'EVENT') {
+    const hasAttach = message.attachments && message.attachments.size > 0;
+    return hasAttach || content.length > 0;
+  }
+  // PATROL: the word "shift" alone is NOT enough — casual chatter like
+  // "No vc photo on shift end." mentions it but is not a log. Require the message
+  // to actually PARSE as a patrol log (a real shift start/end time, or a stated
+  // total), or to carry a proof image (image-only logs are still captured).
+  const { parsePatrolLog, imageUrls } = require('./patrolLog');
+  const parsed = parsePatrolLog(content);
+  if (parsed.shiftStart || parsed.shiftEnd || parsed.totalMinutes != null) return true;
+  return imageUrls(message).length > 0;
+}
+
+// Backfill: walk a log channel's ENTIRE history (oldest included) and ingest
+// every patrol/event log through the same createFromMessage path. Idempotent
+// (createFromMessage keys on messageId), so it's safe to run repeatedly and
+// picks up only what's missing. Best-effort + paced to respect rate limits.
+async function backfillLogChannel(channelId, type, opts = {}) {
+  if (!ready) return { ok: false, reason: 'bot not ready' };
+  if (!channelId) return { ok: false, reason: 'channel not configured' };
+  const max = opts.max || 1000000;
+  const { createFromMessage } = require('./patrolLog');
+  let channel;
+  try { channel = await client.channels.fetch(String(channelId)); }
+  catch (e) { return { ok: false, reason: 'channel fetch failed: ' + e.message }; }
+  if (!channel || typeof channel.messages?.fetch !== 'function') return { ok: false, reason: 'not a text channel' };
+
+  let before = null, scanned = 0, imported = 0, skipped = 0, pages = 0;
+  while (scanned < max) {
+    // Fetch a page, retrying transient errors so one blip doesn't end the run.
+    let batch = null;
+    for (let attempt = 0; attempt < 3 && !batch; attempt++) {
+      try { batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }); }
+      catch (e) { console.warn(`[Backfill] fetch retry ${attempt + 1}:`, e.message); await new Promise(r => setTimeout(r, 800 * (attempt + 1))); }
+    }
+    if (!batch) { console.warn('[Backfill] giving up after fetch errors at', before); break; }
+    if (batch.size === 0) break;
+
+    // Page strictly backward by the OLDEST (smallest snowflake) id in the batch,
+    // regardless of the collection's iteration order.
+    let oldest = null;
+    for (const msg of batch.values()) {
+      scanned++;
+      if (oldest === null || BigInt(msg.id) < BigInt(oldest)) oldest = msg.id;
+      if (!looksLikeLog(msg, type)) { skipped++; continue; }
+      // Reconcile so a re-run also corrects the status/date of earlier imports.
+      try { const row = await createFromMessage(msg, type, { reconcile: true }); if (row) imported++; else skipped++; }
+      catch (e) { skipped++; }
+    }
+    before = oldest;
+    pages++;
+    if (batch.size < 100) break; // reached the start of the channel
+    await new Promise(r => setTimeout(r, 350)); // gentle pacing
+  }
+  console.log(`[Backfill] ${type} ${channelId}: scanned ${scanned}, imported ${imported}, skipped ${skipped} (${pages} pages)`);
+  return { ok: true, type, scanned, imported, skipped, pages };
+}
+
+// Backfill both configured log channels (patrol + event).
+async function backfillPatrolLogs(opts = {}) {
+  const out = {};
+  if (PATROL_CHANNEL_ID)    out.patrol = await backfillLogChannel(PATROL_CHANNEL_ID, 'PATROL', opts);
+  if (EVENTLOGS_CHANNEL_ID) out.event  = await backfillLogChannel(EVENTLOGS_CHANNEL_ID, 'EVENT', opts);
+  return out;
+}
+
+// Post a message (content and/or embeds) to a channel by id. Returns the message
+// id, or null. Used as a delivery fallback when a webhook isn't configured.
+async function postChannelMessage(channelId, payload) {
+  if (!ready || !channelId || !payload) return null;
+  try {
+    const ch = await client.channels.fetch(String(channelId));
+    const msg = await ch.send(payload);
+    return msg.id;
+  } catch (e) {
+    console.warn('[Bot] postChannelMessage failed:', e.message);
+    return null;
+  }
+}
+
+// Post a Tickety-style "Ticket Closed" (or "Ticket Created") log for a MET-site
+// support ticket to the ticket-log channel, using the MET bot. Same layout as
+// Tickety but MET-branded (footer + colour). Best-effort; null on any failure.
+async function postTicketCloseLog(data = {}) {
+  if (!ready || !TICKET_LOG_GUILD_ID || !TICKET_LOG_CHANNEL_ID) return null;
+  try {
+    const guild = await client.guilds.fetch(TICKET_LOG_GUILD_ID);
+    const channel = await guild.channels.fetch(TICKET_LOG_CHANNEL_ID);
+    if (!channel || typeof channel.send !== 'function') return null;
+    const created = data.kind === 'created';
+    const na = (v) => (v == null || v === '') ? 'N/A' : String(v);
+    const embed = new EmbedBuilder()
+      .setColor(0x1d4ed8) // MET blue
+      .setTitle(created ? 'Ticket Created' : 'Ticket Closed')
+      .setDescription(`${data.executorMention || na(data.executorName)} ${created ? 'created' : 'closed'} a ticket.`)
+      .addFields(
+        { name: created ? 'Ticket Information' : 'Close Information',
+          value: `**Ticket Name:** ${na(data.ticketName)}\n**Ticket ID:** ${na(data.ticketId)}` + (created ? '' : `\n**Reason:** ${na(data.reason || 'Resolved')}`) },
+        { name: 'Creator Information',
+          value: `**Creator:** ${data.creatorMention || na(data.creatorName)}\n**Creator Username:** ${data.creatorUsername ? '@' + data.creatorUsername : 'N/A'}\n**Creator ID:** ${na(data.creatorId)}` },
+      );
+    if (!created) {
+      embed.addFields({ name: 'Executor Information',
+        value: `**Executor:** ${data.executorMention || na(data.executorName)}\n**Executor Username:** ${data.executorUsername ? '@' + data.executorUsername : 'N/A'}\n**Executor ID:** ${na(data.executorId)}` });
+    }
+    let iconURL; try { iconURL = guild.iconURL({ size: 64 }) || undefined; } catch (e) {}
+    embed.setFooter({ text: 'Metropolitan Police Service · Internal Affairs', iconURL }).setTimestamp(new Date());
+    const components = [];
+    if (data.transcriptUrl) {
+      components.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setLabel('View Transcript').setStyle(ButtonStyle.Link).setURL(data.transcriptUrl)));
+    }
+    const msg = await channel.send({ embeds: [embed], components });
+    return msg.id;
+  } catch (e) { console.warn('[Bot] postTicketCloseLog failed:', e.message); return null; }
+}
+
+// Post a "final exam log" to the HPC server's #final-exam-log channel — the
+// marking record (who marked it, the student, percentage, proof) that pings the
+// Database Manager role for verification. Format mirrors how it's posted today.
+async function postHpcExamLog(data = {}) {
+  if (!ready) return null;
+  const chId = process.env.FINAL_EXAM_LOG_CHANNEL_ID || '1510117564733460600';
+  const gId  = process.env.HPC_GUILD_ID || '1404258349981372589';
+  try {
+    const channel = await client.channels.fetch(chId);
+    if (!channel || typeof channel.send !== 'function') return null;
+    // Resolve the "Database Manager" role to ping — by env id (defaulted to the
+    // known role), else by name in the guild.
+    let roleId = process.env.HPC_DATABASE_MANAGER_ROLE_ID || '1412734182227972117';
+    if (!roleId) {
+      try { const guild = await client.guilds.fetch(gId); const roles = await guild.roles.fetch(); const role = roles.find(r => /database\s*manager/i.test(r.name)); if (role) roleId = role.id; } catch (e) {}
+    }
+    const dmMention = roleId ? `<@&${roleId}>` : '@Database Manager';
+    const marker = data.markerDiscordId ? `<@${data.markerDiscordId}>` : (data.markerName || 'Unknown');
+    const content =
+      `Username: ${marker}\n` +
+      `Student: ${data.studentName || 'Unknown'}\n` +
+      `Percentage: ${data.percentage}%\n` +
+      `Proof:\n` +
+      `${dmMention}\n` +
+      `Roblox Username: ${data.robloxUsername || 'N/A'}\n` +
+      `Discord Username: ${data.discordUsername ? '@' + data.discordUsername : 'N/A'}`;
+    // Ping ONLY the Database Manager role — never the marker/student.
+    const msg = await channel.send({ content, allowedMentions: { roles: roleId ? [roleId] : [], parse: [] } });
+    return msg.id;
+  } catch (e) { console.warn('[Bot] postHpcExamLog failed:', e.message); return null; }
+}
+
+// Edit a message the bot posted to a channel (by ids). Returns true on success.
+async function editChannelMessage(channelId, messageId, payload) {
+  if (!ready || !channelId || !messageId || !payload) return false;
+  try {
+    const ch  = await client.channels.fetch(String(channelId));
+    const msg = await ch.messages.fetch(String(messageId));
+    await msg.edit(payload);
+    return true;
+  } catch (e) {
+    console.warn('[Bot] editChannelMessage failed:', e.message);
+    return false;
+  }
+}
+
+// React to a message with an emoji (used to mark a patrol log ✅ approved / ❌ denied).
+async function reactToMessage(channelId, messageId, emoji) {
+  if (!ready) return false;
+  try {
+    const ch  = await client.channels.fetch(String(channelId));
+    const msg = await ch.messages.fetch(String(messageId));
+    await msg.react(emoji);
+    return true;
+  } catch (e) {
+    console.warn('[Patrol] reactToMessage failed:', e.message);
+    return false;
+  }
+}
+
+// Post the tryout announcement to the configured channel and record the message
+// id on the tryout. Returns the message id, or null if it couldn't post.
+async function postTryoutAnnouncement(tryout) {
+  if (!ready) return null;
+  // Never post twice (e.g. auto-post on schedule + the host's "Send Announcement").
+  if (tryout && tryout.announcementSent) return tryout.announcementMsgId || null;
+  const db = require('./db');
+  // Atomically claim the announcement BEFORE posting so a double-click or a
+  // concurrent auto-announce can't both post (and double-ping the role). Only
+  // the caller that flips announcementSent false→true proceeds; a loser returns
+  // the existing message id. The flag is rolled back if the Discord post fails.
+  const claim = await db.tryout.updateMany({ where: { id: tryout.id, announcementSent: false }, data: { announcementSent: true } }).catch(() => ({ count: 0 }));
+  if (!claim.count) {
+    const fresh = await db.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null);
+    return (fresh && fresh.announcementMsgId) || (tryout && tryout.announcementMsgId) || null;
+  }
+  const { formatAnnouncement, formatCidRecruitment, announcementAllowedMentions, divisionConfig, announceChannelId } = require('./tryouts');
+  const chId = announceChannelId(tryout);
+  if (!chId) {
+    console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} — cannot announce.`);
+    await db.tryout.update({ where: { id: tryout.id }, data: { announcementSent: false } }).catch(() => {}); // release claim
+    return null;
+  }
+  try {
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.send({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
+    const data = { announcementMsgId: msg.id };
+
+    // CID: auto-react ✅ so members react toward the 3-reaction start threshold.
+    // TODO(CONFIRM): detect when 3 ✅ is reached and ping/notify the host.
+    if (String(tryout.division).toUpperCase() === 'CID') await msg.react('✅').catch(() => {});
+
+    // Optional CID recruitment cross-post (longer format in a second channel).
+    const cfg = divisionConfig(tryout.division);
+    if (cfg.division === 'CID' && cfg.recruitmentChannelId) {
+      try {
+        const rch  = await client.channels.fetch(cfg.recruitmentChannelId);
+        const rmsg = await rch.send({ content: formatCidRecruitment(tryout), allowedMentions: announcementAllowedMentions(tryout) });
+        data.recruitmentMsgId = rmsg.id;
+      } catch (e) { console.warn('[Tryout] CID recruitment cross-post failed:', e.message); }
+    }
+
+    await db.tryout.update({ where: { id: tryout.id }, data }).catch(() => {});
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] postTryoutAnnouncement failed:', e.message);
+    // Release the claim so a later retry can announce (the send never happened).
+    await db.tryout.update({ where: { id: tryout.id }, data: { announcementSent: false } }).catch(() => {});
+    return null;
+  }
+}
+
+// The host-DM status embed — a live "Status" field so it can be rebuilt
+// identically when we edit the DM. While the tryout is running the Status
+// tracks the server lock (🔒 Locked / 🔓 Unlocked); once the tryout is
+// cancelled or concluded it flips to a terminal ❌ Cancelled / ✅ Concluded.
+function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
+  const status = String(tryout.status || '').toUpperCase();
+  const cfg    = require('./tryouts').divisionConfig(tryout.division);
+
+  if (status === 'CANCELLED') {
+    return new EmbedBuilder()
+      .setColor(0xe74c3c)
+      .setTitle(`${cfg.eventType} — Cancelled`)
+      .setDescription('This tryout has been cancelled and its announcement removed from the channel.')
+      .addFields({ name: 'Status', value: 'Cancelled', inline: true });
+  }
+  if (status === 'COMPLETED') {
+    return new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle(`${cfg.eventType} — Concluded`)
+      .setDescription('This tryout has concluded and its announcement removed from the channel. Review and post the results on the site.')
+      .addFields(
+        { name: 'Status', value: 'Concluded', inline: true },
+        ...(reviewUrl ? [{ name: 'Review & post results', value: reviewUrl, inline: false }] : []),
+      );
+  }
+
+  const joinUrl = require('./tryouts').tryoutJoinUrl(tryout);
+  // HPC hosts run their tryouts from the Public Tryout stage — prompt them to
+  // join it. CID/SCO-19 have no VC step, so cfg.stageUrl is undefined for them.
+  const stageUrl = cfg.stageUrl;
+  return new EmbedBuilder()
+    .setColor(cfg.dmColor || 0x2ed896)
+    .setTitle(cfg.dmTitle)
+    .setDescription(`Your tryout has started and been announced. Run it in-game from the ${cfg.panelName}, then conclude it to log the results.`)
+    .addFields(
+      privateServerLinkField(tryout),
+      { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
+      { name: 'Joining', value: tryout.joinable ? '🟢 Open — players can join via the link below' : '🔴 Closed', inline: true },
+      ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
+      ...(joinUrl ? [{ name: '🔗 Join link', value: joinUrl, inline: false }] : []),
+      ...(stageUrl ? [{ name: '🎙️ Public Tryout stage', value: `Join the stage to run your tryout: ${stageUrl}`, inline: false }] : []),
+      ...(reviewUrl ? [{ name: 'Review & post afterwards', value: reviewUrl, inline: false }] : []),
+    );
+}
+
+// DM a user their one-time "open on your phone" install link (with a tap button).
+// Returns true if delivered. Best-effort.
+async function dmInstallLink(discordId, url) {
+  if (!ready || !discordId || !url) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle('Open the MET Dashboard on your phone')
+      .setDescription('Tap the button on your phone to open the dashboard **already signed in**, then add it to your home screen. This link is single-use and expires in 5 minutes.');
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open MET Dashboard').setURL(url),
+    );
+    await user.send({ embeds: [embed], components: [row] });
+    return true;
+  } catch (e) {
+    console.warn('[App] dmInstallLink failed:', e.message);
+    return false;
+  }
+}
+
+// DM an IA investigator that a ticket is ready to claim, with a one-tap "Claim"
+// link and a one-click "opt out of these DMs" link. Best-effort — returns false
+// on closed DMs / not-in-a-shared-guild / bot offline. Requires absolute https
+// URLs (Discord link buttons reject relative/invalid URLs).
+async function dmTicketAlert(discordId, opts) {
+  opts = opts || {};
+  if (!ready || !discordId || !/^https:\/\//i.test(opts.claimUrl || '')) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const desc  = `**${opts.typeLabel || 'Support ticket'}** opened by **${opts.openerName || 'a member'}**.`
+      + (opts.preview ? `\n\n> ${String(opts.preview).slice(0, 300)}` : '')
+      + `\n\nTap **Claim ticket** to take it. Don't want these DMs? Use **Opt out** — you can turn them back on any time.`;
+    const embed = new EmbedBuilder()
+      .setColor(0x4a8fff)
+      .setTitle('🎫 New Internal Affairs ticket')
+      .setDescription(desc);
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Claim ticket').setURL(opts.claimUrl),
+    );
+    if (/^https:\/\//i.test(opts.optOutUrl || '')) {
+      row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Opt out of DMs').setURL(opts.optOutUrl));
+    }
+    await user.send({ embeds: [embed], components: [row] });
+    return true;
+  } catch (e) {
+    return false; // closed DMs / no shared guild — never noisy
+  }
+}
+
+// DM the host that their tryout was created + announced. Returns the DM message
+// id (so it can be edited in real time when the lock state changes), or null.
+async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
+  if (!ready || !tryout || !tryout.hostDiscordId) return null;
+  try {
+    const user = await client.users.fetch(tryout.hostDiscordId);
+    const components = ['CANCELLED', 'COMPLETED'].includes(String(tryout.status || '').toUpperCase())
+      ? [] : [tryoutHostDmButtons(tryout)];
+    const msg  = await user.send({ embeds: [tryoutDmEmbed(tryout, { reviewUrl })], components });
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] dmTryoutStarted failed:', e.message);
+    return null;
+  }
+}
+
+// Login-code DMs, tracked so we can delete them once the code is used or
+// expires — a 6-digit sign-in code shouldn't linger in the member's DMs.
+const _loginDms = new Map(); // challengeId -> { message, timer }
+const LOGIN_DM_TTL_MS = 10 * 60 * 1000;
+
+// DM a one-time 6-digit sign-in code to a user. Returns true if delivered.
+// Used by the "get a code in Discord" login option. Best-effort. If a
+// challengeId is given, the DM is auto-deleted after the code's lifetime and
+// can be deleted early via deleteLoginDm() once it's consumed.
+async function dmLoginCode(discordId, code, challengeId) {
+  if (!ready || !discordId || !code) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle('Your MET sign-in code')
+      .setDescription(`Enter this code on the sign-in page to log in:\n\n## \`${code}\`\n\nIt expires in 10 minutes and can only be used once. If you didn't request this, ignore this message — nobody can sign in without it.`);
+    const msg = await user.send({ embeds: [embed] });
+    if (challengeId) {
+      const timer = setTimeout(() => deleteLoginDm(challengeId), LOGIN_DM_TTL_MS);
+      if (timer.unref) timer.unref();
+      _loginDms.set(String(challengeId), { message: msg, timer });
+    }
+    return true;
+  } catch (e) {
+    console.warn('[Auth] dmLoginCode failed:', e.message);
+    return false;
+  }
+}
+
+// Delete a previously-sent login-code DM (once the code is used/expired).
+async function deleteLoginDm(challengeId) {
+  const key = String(challengeId || '');
+  const rec = _loginDms.get(key);
+  if (!rec) return false;
+  _loginDms.delete(key);
+  if (rec.timer) clearTimeout(rec.timer);
+  try { await rec.message.delete(); return true; } catch (e) { return false; }
+}
+
+// DM the host that their tryout was auto-cancelled for inactivity (they left the
+// server and didn't return within the absence window). Best-effort.
+async function dmTryoutAutoCancelled(tryout, minutes) {
+  if (!ready || !tryout || !tryout.hostDiscordId) return false;
+  try {
+    const cfg  = require('./tryouts').divisionConfig(tryout.division);
+    const user = await client.users.fetch(tryout.hostDiscordId);
+    const embed = new EmbedBuilder()
+      .setColor(0xe74c3c)
+      .setTitle(`${cfg.eventType} — auto-cancelled`)
+      .setDescription(`Your tryout was automatically cancelled because you left the server for more than ${minutes} minutes without returning. Its announcement has been removed. Start a new tryout in-game whenever you're ready.`);
+    await user.send({ embeds: [embed] });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] dmTryoutAutoCancelled failed:', e.message);
+    return false;
+  }
+}
+
+// DM the host that their concluded tryout has a DRAFT log waiting on the site,
+// with a button that deep-links straight to it. Best-effort; returns the DM id.
+async function dmTryoutLogReady(log) {
+  if (!ready || !log || !log.hostDiscordId) return null;
+  try {
+    const cfg  = require('./tryouts').divisionConfig(log.division);
+    const base = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/$/, '') : null;
+    const url  = base ? `${base}/${cfg.dashboardSlug}/dashboard?tryoutLog=${log.id}` : null;
+    const user = await client.users.fetch(log.hostDiscordId);
+    const embed = new EmbedBuilder()
+      .setColor(0x3b82f6)
+      .setTitle(`${cfg.eventType} — log ready to review`)
+      .setDescription('Your tryout concluded and a draft log has been queued on the site. Review the attendees, make any edits, then post it for approval.')
+      .addFields(
+        { name: 'Attendees', value: String(log.totalAttendees ?? 0), inline: true },
+        { name: '✅ Passed',  value: String(log.passedCount ?? 0), inline: true },
+        { name: '❌ Failed',  value: String(log.failedCount ?? 0), inline: true },
+      );
+    const components = url ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Review & post log').setURL(url),
+    )] : [];
+    const msg = await user.send({ embeds: [embed], components });
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] dmTryoutLogReady failed:', e.message);
+    return null;
+  }
+}
+
+// Re-render the host's tryout DM in place so its Status field tracks the live
+// lock state. Best-effort; no-ops if we never recorded the DM message id.
+async function editTryoutHostDM(tryout) {
+  if (!ready || !tryout || !tryout.hostDmMessageId || !tryout.hostDiscordId) return false;
+  try {
+    const base = require('./tryouts').reviewUrl(tryout);
+    const user = await client.users.fetch(tryout.hostDiscordId);
+    const dm   = await user.createDM();
+    const msg  = await dm.messages.fetch(tryout.hostDmMessageId);
+    const status  = String(tryout.status || '').toUpperCase();
+    const payload = { embeds: [tryoutDmEmbed(tryout, { reviewUrl: base })] };
+    // Once the tryout is finished, strip the action buttons; while it's running,
+    // re-render them so labels stay current (e.g. the "Allow joining" toggle).
+    payload.components = (status === 'CANCELLED' || status === 'COMPLETED') ? [] : [tryoutHostDmButtons(tryout)];
+    await msg.edit(payload);
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] editTryoutHostDM failed:', e.message);
+    return false;
+  }
+}
+
+// Delete the posted announcement from the tryouts channel (on cancel/conclude).
+// Clears the stored message id so a later edit can't target a deleted message.
+// Best-effort; no-ops if nothing was ever posted or the message is already gone.
+async function deleteTryoutAnnouncement(tryout) {
+  if (!ready || !tryout || !tryout.announcementMsgId) return false;
+  const { divisionConfig, announceChannelId } = require('./tryouts');
+  const chId = announceChannelId(tryout);
+  if (!chId) return false;
+  try {
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.messages.fetch(tryout.announcementMsgId);
+    await msg.delete();
+    // Remove the optional CID recruitment cross-post too, if we posted one.
+    const cfg = divisionConfig(tryout.division);
+    if (tryout.recruitmentMsgId && cfg.recruitmentChannelId) {
+      try {
+        const rch  = await client.channels.fetch(cfg.recruitmentChannelId);
+        const rmsg = await rch.messages.fetch(tryout.recruitmentMsgId);
+        await rmsg.delete();
+      } catch (e) { /* cross-post already gone */ }
+    }
+    await require('./db').tryout.update({
+      where: { id: tryout.id }, data: { announcementSent: false, announcementMsgId: null, recruitmentMsgId: null },
+    }).catch(() => {});
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] deleteTryoutAnnouncement failed:', e.message);
+    return false;
+  }
+}
+
+// Re-render the posted tryout announcement in place (e.g. after the game's
+// server-lock state changes). No-ops safely if the announcement was never
+// posted, the channel/message is gone, or the bot isn't ready.
+async function editTryoutAnnouncement(tryout) {
+  if (!ready) return false;
+  if (!tryout || !tryout.announcementMsgId) return false;
+  const chId = require('./tryouts').announceChannelId(tryout);
+  if (!chId) return false;
+  try {
+    const { formatAnnouncement, announcementAllowedMentions } = require('./tryouts');
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.messages.fetch(tryout.announcementMsgId);
+    // Editing on lock/unlock must not re-introduce a ping while suppressed.
+    await msg.edit({ content: formatAnnouncement(tryout), allowedMentions: announcementAllowedMentions(tryout) });
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] editTryoutAnnouncement failed:', e.message);
+    return false;
+  }
+}
+
+// The channel a post-tryout summary card is posted to (by division). Prefers a
+// dedicated summary channel, then the events-log channel, then the announce
+// channel. All optional — returns null (→ no post) if none is configured.
+function tryoutSummaryChannelId(division) {
+  const d = String(division || '').toUpperCase();
+  if (d === 'CID') {
+    return process.env.CID_TRYOUT_SUMMARY_CHANNEL_ID || process.env.TRYOUT_SUMMARY_CHANNEL_ID
+      || EVENTLOGS_CHANNEL_ID || process.env.CID_TRYOUT_CHANNEL_ID || null;
+  }
+  return process.env.TRYOUT_SUMMARY_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || process.env.TRYOUT_ANNOUNCE_CHANNEL_ID || null;
+}
+
+// Post a compact post-tryout summary card to the events-log channel. Best-effort
+// (fired once after a tryout concludes). Returns the message id, or null.
+async function postTryoutSummary(summary) {
+  if (!ready || !summary) return null;
+  const div  = String(summary.division || 'HPC').toUpperCase();
+  const chId = tryoutSummaryChannelId(div);
+  if (!chId) return null;
+  try {
+    const cfg    = require('./tryouts').divisionConfig(div);
+    const host   = summary.host || {};
+    const coHost = summary.coHost || null;
+    const n      = (v) => (Number.isFinite(+v) ? +v : 0);
+    const fmtDur = (s) => { s = Math.max(0, Math.round(+s || 0)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return (h ? `${h}h ` : '') + `${m}m`; };
+    const embed = new EmbedBuilder()
+      .setColor(cfg.dmColor || 0x3b82f6)
+      .setTitle(`${cfg.eventType} — Summary`)
+      .addFields(
+        { name: 'Host',      value: host.username ? String(host.username) : '—', inline: true },
+        { name: 'Co-Host',   value: coHost && coHost.username ? String(coHost.username) : 'N/A', inline: true },
+        { name: 'Duration',  value: fmtDur(summary.durationSecs), inline: true },
+        { name: 'Attendees', value: String(n(summary.attendees)), inline: true },
+        { name: '✅ Passed', value: String(n(summary.passed)), inline: true },
+        { name: '❌ Failed', value: String(n(summary.failed)), inline: true },
+        { name: '⚠ Strikes', value: String(n(summary.strikes)), inline: true },
+        { name: '👢 Kicked', value: String(n(summary.kicked)), inline: true },
+        { name: '🚪 Left',   value: String(n(summary.left)), inline: true },
+      )
+      .setTimestamp(new Date());
+    const ch  = await client.channels.fetch(chId);
+    const msg = await ch.send({ embeds: [embed] });
+    return msg.id;
+  } catch (e) {
+    console.warn('[Tryout] postTryoutSummary failed:', e.message);
     return null;
   }
 }
@@ -580,50 +1493,188 @@ async function handleTryoutComponent(interaction) {
   const prisma = require('./db');
   const id = interaction.customId || '';
 
+  // "Set / Update Private Server Link" → open a form for the host to paste theirs.
+  if (id.startsWith('tryout_setlink_') && interaction.isButton()) {
+    const tryoutId = id.slice('tryout_setlink_'.length);
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId }, select: { privateServerLink: true, status: true } }).catch(() => null);
+    if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
+      return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
+    }
+    const input = new TextInputBuilder()
+      .setCustomId('link')
+      .setLabel('Private server link')
+      .setPlaceholder('https://www.roblox.com/games/...?privateServerLinkCode=...')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setMaxLength(500);
+    if (t.privateServerLink) input.setValue(String(t.privateServerLink).slice(0, 500));
+    const modal = new ModalBuilder()
+      .setCustomId(`tryout_setlinkmodal_${tryoutId}`)
+      .setTitle('Private server link')
+      .addComponents(new ActionRowBuilder().addComponents(input));
+    return interaction.showModal(modal);
+  }
+
+  // Host submitted the private-server-link form → validate, save, re-render.
+  if (id.startsWith('tryout_setlinkmodal_') && interaction.isModalSubmit && interaction.isModalSubmit()) {
+    const tryoutId = id.slice('tryout_setlinkmodal_'.length);
+    const link = (interaction.fields.getTextInputValue('link') || '').trim();
+    if (!/^https?:\/\/(www\.)?roblox\.com\//i.test(link)) {
+      return interaction.reply({ content: '⚠️ That doesn’t look like a Roblox link. Paste the full private-server link (it starts with `https://www.roblox.com/…`).', flags: 64 });
+    }
+    const updated = await prisma.tryout.update({ where: { id: tryoutId }, data: { privateServerLink: link.slice(0, 500) } }).catch(() => null);
+    if (!updated) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    if (updated.announcementMsgId) await editTryoutAnnouncement(updated).catch(() => {});
+    await editTryoutHostDM(updated).catch(() => {});
+    return interaction.reply({
+      content: '✅ Private server link saved — it’s now in your tryout details' + (updated.announcementMsgId ? ' and the announcement has been updated.' : '. Post the announcement when you’re ready.'),
+      flags: 64,
+    });
+  }
+
   // "Pick Co-Host" → show a member picker.
   if (id.startsWith('tryout_cohost_') && interaction.isButton()) {
     const tryoutId = id.slice('tryout_cohost_'.length);
-    const row = new ActionRowBuilder().addComponents(
-      new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
-    );
-    return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId }, select: { hostDiscordId: true, division: true } }).catch(() => null);
+    const cfg = coHostStaffConfig(t && t.division);
+    // Unrestricted division → keep the original "pick anybody" user select.
+    if (!cfg) {
+      const row = new ActionRowBuilder().addComponents(
+        new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
+      );
+      return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
+    }
+    // Restricted → only offer members holding the division's staff role.
+    let staff = [];
+    try { staff = await listGuildRoleMembers(cfg.guildId, cfg.roleId); }
+    catch (e) { console.error('[Bot] co-host staff fetch failed:', e.message); }
+    staff = staff.filter(m => !t || String(m.id) !== String(t.hostDiscordId)); // not yourself
+    if (!staff.length) {
+      // The staff role is empty / misconfigured, or the member list couldn't be
+      // fetched. Don't dead-end the host — fall back to the open picker so they
+      // can still choose any member as co-host.
+      console.warn(`[Bot] co-host: no members for staff role ${cfg.roleId} in guild ${cfg.guildId} — falling back to the open picker.`);
+      const row = new ActionRowBuilder().addComponents(
+        new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
+      );
+      return interaction.reply({ content: 'Select the co-host for this tryout:', components: [row], flags: 64 });
+    }
+    const capped = staff.slice(0, 25); // Discord select menus allow at most 25 options
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`tryout_cohostsel_${tryoutId}`)
+      .setPlaceholder('Select a staff co-host')
+      .setMinValues(1).setMaxValues(1)
+      .addOptions(capped.map(m => ({ label: (m.displayName || m.username || 'Unknown').slice(0, 100), description: ('@' + (m.username || '')).slice(0, 100), value: m.id })));
+    const row = new ActionRowBuilder().addComponents(menu);
+    const note = staff.length > 25 ? `\n(Showing the first 25 of ${staff.length} staff.)` : '';
+    return interaction.reply({ content: 'Select the co-host for this tryout (staff only):' + note, components: [row], flags: 64 });
   }
 
-  // Co-host chosen.
+  // Co-host chosen via the ANYBODY user-select (unrestricted divisions).
   if (id.startsWith('tryout_cohostsel_') && interaction.isUserSelectMenu && interaction.isUserSelectMenu()) {
     const tryoutId = id.slice('tryout_cohostsel_'.length);
     const picked   = interaction.users.first();
     const coName   = picked ? (picked.globalName || picked.username) : null;
     await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: picked ? picked.id : null, coHostName: coName } }).catch(() => {});
-    return interaction.update({ content: `✅ Co-host set to **${coName}**. You can now send the announcement.`, components: [] });
+    const fresh0 = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
+    if (fresh0) { await editTryoutAnnouncement(fresh0).catch(() => {}); await editTryoutHostDM(fresh0).catch(() => {}); }
+    return interaction.update({ content: `✅ Co-host set to **${coName}**.`, components: [] });
   }
 
-  // "Send Announcement" → post to the tryout announcement channel.
+  // Co-host chosen via the STAFF-only string select — value is the member's id.
+  if (id.startsWith('tryout_cohostsel_') && interaction.isStringSelectMenu && interaction.isStringSelectMenu()) {
+    const tryoutId = id.slice('tryout_cohostsel_'.length);
+    const pickedId = (interaction.values && interaction.values[0]) || null;
+    const t2  = await prisma.tryout.findUnique({ where: { id: tryoutId }, select: { division: true } }).catch(() => null);
+    const cfg = coHostStaffConfig(t2 && t2.division);
+    // Re-validate the pick still holds the division's staff role (defence in depth).
+    let coName = null, ok = false;
+    if (pickedId && cfg) {
+      try {
+        const info = await getGuildMemberRoles(pickedId, cfg.guildId);
+        if (info && Array.isArray(info.roleIds) && info.roleIds.map(String).includes(String(cfg.roleId))) {
+          ok = true; coName = info.displayName || info.username || null;
+        }
+      } catch (e) { /* fall through to rejection */ }
+    }
+    if (!ok) return interaction.update({ content: '⚠️ That member is not eligible staff — co-host not set.', components: [] });
+    await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: pickedId, coHostName: coName } }).catch(() => {});
+    // Reflect the co-host in the already-posted announcement + the host DM.
+    const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
+    if (fresh) {
+      await editTryoutAnnouncement(fresh).catch(() => {});
+      await editTryoutHostDM(fresh).catch(() => {});
+    }
+    return interaction.update({ content: `✅ Co-host set to **${coName}**.`, components: [] });
+  }
+
+  // "Allow players to join" / "Stop new joins" → toggle the joinable flag, then
+  // re-render the announcement (adds/removes the Join launch link) and the host
+  // DM (flips the button label + Joining field).
+  if (id.startsWith('tryout_join_') && interaction.isButton()) {
+    const tryoutId = id.slice('tryout_join_'.length);
+    const t = await prisma.tryout.findUnique({ where: { id: tryoutId } });
+    if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
+    if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
+      return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
+    }
+    const joinable = !t.joinable;
+    const updated  = await prisma.tryout.update({ where: { id: t.id }, data: { joinable } });
+    if (updated.announcementMsgId) await editTryoutAnnouncement(updated).catch(() => {});
+    await editTryoutHostDM(updated).catch(() => {});
+    const hasLink = !!require('./tryouts').tryoutJoinUrl(updated);
+    return interaction.reply({
+      content: joinable
+        ? (hasLink ? '✅ Joining is **open** — the Join link is now in the announcement.'
+                   : '✅ Joining is **open**. (No place id configured, so no launch link was added — set `TRYOUT_JOIN_PLACE_ID`.)')
+        : '🛑 Joining is **closed** — new joins are stopped and the Join link removed.',
+      flags: 64,
+    });
+  }
+
+  // "Send Announcement" → post to the division's announcement channel (one-time).
+  // After this, the post updates itself automatically on any change — there's no
+  // manual "update" button. Refresh the host DM so the send button drops off.
   if (id.startsWith('tryout_announce_') && interaction.isButton()) {
     const tryoutId = id.slice('tryout_announce_'.length);
     const t = await prisma.tryout.findUnique({ where: { id: tryoutId } });
     if (!t) return interaction.reply({ content: 'That tryout no longer exists.', flags: 64 });
-    const chId = process.env.TRYOUT_ANNOUNCE_CHANNEL_ID;
-    if (!chId) return interaction.reply({ content: '⚠️ No announcement channel configured — set `TRYOUT_ANNOUNCE_CHANNEL_ID`.', flags: 64 });
-
-    const { formatAnnouncement } = require('./tryouts');
-    try {
-      const ch  = await client.channels.fetch(chId);
-      const msg = await ch.send({ content: formatAnnouncement(t), allowedMentions: { parse: ['roles', 'users', 'everyone'] } });
-      await prisma.tryout.update({ where: { id: t.id }, data: { announcementSent: true, announcementMsgId: msg.id } }).catch(() => {});
-      return interaction.reply({ content: '📢 Announcement posted!', flags: 64 });
-    } catch (e) {
-      return interaction.reply({ content: 'Failed to post the announcement: ' + e.message, flags: 64 });
+    if (['CANCELLED', 'COMPLETED'].includes(String(t.status || '').toUpperCase())) {
+      return interaction.reply({ content: 'This tryout is already finished.', flags: 64 });
     }
+    const { announceChannelId, tryoutManualLink } = require('./tryouts');
+    // Manual-link divisions must have their private-server link set before the
+    // announcement goes out (so it isn't posted with a "TBA" link).
+    if (tryoutManualLink(t.division) && !t.privateServerLink) {
+      return interaction.reply({ content: '⚠️ Set your **private server link** first (click **Set Private Server Link** above), then post the announcement.', flags: 64 });
+    }
+    if (!announceChannelId(t)) {
+      return interaction.reply({ content: '⚠️ No announcement channel configured for this division.', flags: 64 });
+    }
+    let msgId, updated = false;
+    if (t.announcementMsgId) { updated = await editTryoutAnnouncement(t); msgId = t.announcementMsgId; }
+    else msgId = await postTryoutAnnouncement(t);
+    // Re-render the host DM so its buttons reflect the now-announced state.
+    if (msgId) {
+      const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
+      if (fresh) await editTryoutHostDM(fresh).catch(() => {});
+    }
+    return interaction.reply({
+      content: msgId
+        ? (updated ? '📢 Announcement updated!' : '📢 Announcement posted! It will now update itself automatically whenever anything changes.')
+        : 'Failed to post the announcement.',
+      flags: 64,
+    });
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 // Discord moderation — ban / unban / kick / timeout ("mute"). Used by the
 // Dev Panel's Discord Moderation tool (server/routes/admin.js). Every action
 // operates on DISCORD_GUILD_ID by default, or an explicit guildId if passed
 // (e.g. the MET server, if it differs from the portal's primary guild).
-// ─────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
 
 function targetGuildId(guildId) { return guildId || process.env.DISCORD_GUILD_ID; }
 
@@ -647,8 +1698,27 @@ async function searchGuildMembers(query, limit = 25, guildId) {
     }
   }
 
-  const results = await guild.members.fetch({ query: String(query || '').trim(), limit: Math.min(limit, 100) });
-  return [...results.values()].slice(0, limit).map(memberSummary);
+  const q = String(query || '').trim();
+  const out = new Map();
+  try {
+    const results = await guild.members.fetch({ query: q, limit: Math.min(limit, 100) });
+    for (const m of results.values()) out.set(m.id, m);
+  } catch (e) { /* fall through to the cache pass */ }
+
+  // Substring pass over the cached members. Discord's `query` search only matches
+  // the START of a username/nickname, so a Roblox name that sits mid-nickname
+  // (RoVer nicknames are "RANK | RobloxName") is never returned. Scanning the
+  // cache for a substring match catches those.
+  const ql = q.toLowerCase();
+  if (ql.length >= 2) {
+    for (const m of guild.members.cache.values()) {
+      if (out.has(m.id)) continue;
+      const hay = ((m.nickname || '') + ' ' + ((m.user && m.user.username) || '') + ' ' + (m.displayName || '')).toLowerCase();
+      if (hay.includes(ql)) out.set(m.id, m);
+      if (out.size >= limit * 4) break;
+    }
+  }
+  return [...out.values()].slice(0, limit).map(memberSummary);
 }
 
 function memberSummary(member) {
@@ -665,6 +1735,52 @@ function memberSummary(member) {
 }
 
 async function guild_(guildId) { return client.guilds.fetch(guildId); }
+
+// Which guild a tryout's Scheduled Event lives in: CID tryouts → CID server;
+// everything else (HPC/MET, SCO-19) → the MET server.
+function tryoutGuildId(division) {
+  if (String(division || '').toUpperCase() === 'CID') return process.env.CID_GUILD_ID || null;
+  return process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+}
+
+// Create a native Discord Scheduled Event for a tryout (best-effort). External
+// events REQUIRE an end time + a location. Returns the event id, or null.
+async function createTryoutScheduledEvent(tryout, guildId) {
+  if (!ready || !guildId || !tryout) return null;
+  try {
+    const cfg   = require('./tryouts').divisionConfig(tryout.division);
+    const guild = await guild_(guildId);
+    const start = new Date(tryout.scheduledAt);
+    if (isNaN(start) || start.getTime() <= Date.now()) return null; // must be future
+    const end   = new Date(start.getTime() + 60 * 60 * 1000);
+    const ev = await guild.scheduledEvents.create({
+      name: cfg.eventType,
+      scheduledStartTime: start,
+      scheduledEndTime: end,
+      privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
+      entityType: GuildScheduledEventEntityType.External,
+      entityMetadata: { location: process.env.TRYOUT_EVENT_LOCATION || 'Hendon Police Campus' },
+      description: `${cfg.eventType} hosted by ${tryout.hostName}`,
+    });
+    return ev.id;
+  } catch (e) {
+    console.warn('[Tryout] createTryoutScheduledEvent failed:', e.message);
+    return null;
+  }
+}
+
+// Delete a tryout's Scheduled Event (best-effort) on cancel/complete.
+async function deleteTryoutScheduledEvent(tryout, guildId) {
+  if (!ready || !guildId || !tryout || !tryout.scheduledEventId) return false;
+  try {
+    const guild = await guild_(guildId);
+    await guild.scheduledEvents.delete(tryout.scheduledEventId);
+    return true;
+  } catch (e) {
+    console.warn('[Tryout] deleteTryoutScheduledEvent failed:', e.message);
+    return false;
+  }
+}
 
 // List (optionally filtered by username/ID substring) currently-banned users.
 // Discord has no server-side ban search, so this fetches the full ban list
@@ -746,11 +1862,73 @@ async function timeoutMember(discordUserId, { durationMinutes, reason, guildId }
   return true;
 }
 
+// Generic DM to a member with an optional "Appeal / view details" link button.
+// Used for punishment, demotion and promotion notices. Best-effort — a member
+// with DMs closed just silently doesn't receive it.
+async function dmMemberNotice(discordId, o) {
+  if (!ready || !discordId || !o) return false;
+  try {
+    const user  = await client.users.fetch(String(discordId));
+    const embed = new EmbedBuilder()
+      .setColor(o.color || 0x3b82f6)
+      .setTitle(o.title || 'MET Notice')
+      .setDescription(o.description || '​')
+      .setFooter({ text: 'Metropolitan Police' });
+    const components = [];
+    if (o.appealUrl) {
+      components.push(new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(o.appealLabel || 'Appeal / view details').setURL(o.appealUrl),
+      ));
+    }
+    await user.send({ embeds: [embed], components });
+    return true;
+  } catch (e) {
+    console.warn('[Notice] dmMemberNotice failed:', e.message);
+    return false;
+  }
+}
+
+// ── CAD voice picker helpers ─────────────────────────────────────────
+// Every guild the bot is a member of (for the CAD server picker).
+async function listBotGuilds() {
+  if (!ready) return [];
+  try {
+    const guilds = [];
+    for (const g of client.guilds.cache.values()) guilds.push({ id: g.id, name: g.name });
+    guilds.sort((a, b) => a.name.localeCompare(b.name));
+    return guilds;
+  } catch (e) { return []; }
+}
+// Voice + stage channels in a guild (for the CAD voice-channel picker).
+async function listGuildVoiceChannels(guildId) {
+  if (!ready || !guildId) return [];
+  try {
+    const { ChannelType } = require('discord.js');
+    const guild = await client.guilds.fetch(String(guildId));
+    const chans = await guild.channels.fetch();
+    const out = [];
+    chans.forEach((c) => {
+      if (c && (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice)) {
+        out.push({ id: c.id, name: c.name, stage: c.type === ChannelType.GuildStageVoice });
+      }
+    });
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  } catch (e) { return []; }
+}
+
 module.exports = {
-  startBot, assignRole, removeRole, getMemberDisplayName, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
+  listBotGuilds, listGuildVoiceChannels,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
-  getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, startRoleExpiryChecker,
-  matchTicketTranscript,
+  getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
+  matchTicketTranscript, getClient,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
-  sendTryoutHostDM,
+  sendTryoutHostDM, editTryoutAnnouncement, postTryoutAnnouncement, deleteTryoutAnnouncement, dmTryoutStarted, editTryoutHostDM,
+  postTryoutSummary, dmTryoutLogReady, dmTryoutAutoCancelled, dmInstallLink, dmTicketAlert, dmLoginCode, deleteLoginDm,
+  reactToMessage, postChannelMessage, editChannelMessage, postTicketCloseLog, postHpcExamLog,
+  createTryoutScheduledEvent, deleteTryoutScheduledEvent, tryoutGuildId,
+  backfillLogChannel, backfillPatrolLogs,
+  getGuildMemberRoles, listGuildRoleMembers, getMemberRoleStyle,
+  isReady: () => ready,
 };

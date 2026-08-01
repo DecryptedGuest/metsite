@@ -1,387 +1,272 @@
 // server/routes/tickets.js
+// Closed-ticket logs, mirrored from the IA ticket-logs Discord channel.
+//
+// Nobody logs a ticket on the site. Rows arrive automatically from Discord via
+// lib/ticketIngest.js — but a supervisor still SIGNS THEM OFF here, which is the
+// one thing that isn't read-only. Approving a ticket log awards the investigator
+// who CLOSED it 2 quota points (an approved case is worth 4).
+//
+//   GET  /api/tickets            → tickets the current user closed ("My Tickets")
+//   GET  /api/tickets/all        → every closed ticket ("All Tickets")
+//   GET  /api/tickets/stats      → counts for the dashboard + nav
+//   GET  /api/tickets/:id        → one ticket log
+//   POST /api/tickets/sync       → force a re-scan of the log channel (HICOMM+)
+//   POST /api/tickets/:id/review → approve / deny a ticket log (Supervisor+)
+
 const express = require('express');
 const prisma  = require('../lib/db');
-const { notifyStaff } = require('../lib/push');
-const { requireHICOMM } = require('../middleware/auth');
-const { getRobloxIdFromDiscord, getRobloxUserInfo, getRobloxIdFromUsername,
-        getRobloxAvatarHeadshot, getGroupMembership } = require('../lib/roblox');
-const { findMemberByUsername, matchTicketTranscript, parseRankNick, getRobloxNameFromNick } = require('../lib/bot');
+const { requireHICOMMStrict, requireHICOMM } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Resolve any of: Roblox username / Roblox ID / Discord ID / Discord username
-// into a canonical Roblox username. Falls back to the raw input on failure.
-async function resolveToRobloxUsername(input) {
-  const raw = (input || '').trim().replace(/^@/, '');
-  if (!raw) return input;
-  try {
-    if (/^\d{17,20}$/.test(raw)) {                 // Discord ID
-      const rid = await getRobloxIdFromDiscord(raw);
-      if (rid) { const info = await getRobloxUserInfo(rid); if (info?.username) return info.username; }
-    } else if (/^\d{1,16}$/.test(raw)) {           // Roblox ID
-      const info = await getRobloxUserInfo(raw);
-      if (info?.username) return info.username;
-    } else {                                       // a username
-      const r = await getRobloxIdFromUsername(raw);
-      if (r?.username) return r.username;          // canonical Roblox username
-      const m = await findMemberByUsername(raw);   // Discord username → RoVer → Roblox
-      if (m) {
-        const rid = await getRobloxIdFromDiscord(m.id);
-        if (rid) { const info = await getRobloxUserInfo(rid); if (info?.username) return info.username; }
-      }
-    }
-  } catch (e) { /* keep raw input */ }
-  return input.trim();
+const TYPES    = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
+const STATUSES = ['PENDING', 'APPROVED', 'DENIED'];
+
+// Free-text search across everything on a ticket worth searching by.
+function searchClause(q) {
+  const s = (q || '').toString().trim();
+  if (!s) return null;
+  const like = { contains: s, mode: 'insensitive' };
+  return {
+    OR: [
+      { ticketRef:             like },
+      { ticketName:            like },
+      { reason:                like },
+      { creatorUsername:       like },
+      { creatorRobloxUsername: like },
+      { creatorDiscordId:      like },
+      { closerUsername:        like },
+      { closerDiscordId:       like },
+      { transcriptUrl:         like },
+    ],
+  };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
-async function nextTicketRef() {
-  const counter = await prisma.ticketCounter.upsert({
-    where:  { id: 1 },
-    update: { count: { increment: 1 } },
-    create: { id: 1, count: 1 },
-  });
-  return `TKT-${String(counter.count).padStart(4, '0')}`;
+// Every ticket the current user closed. Matched on the site account first, and
+// on the raw Discord id too so tickets closed before they ever signed in still
+// appear under their name.
+function mineClause(user) {
+  const or = [{ closerUserId: user.id }];
+  if (user.discordId) or.push({ closerDiscordId: String(user.discordId) });
+  return { OR: or };
 }
 
-// ── GET /api/tickets/my-roblox ────────────────────────────────────
-// Returns the logged-in user's Roblox username via RoVer.
-router.get('/my-roblox', async (req, res) => {
-  try {
-    const robloxId = await getRobloxIdFromDiscord(req.user.discordId);
-    if (!robloxId) return res.json({ linked: false });
+function buildWhere(req, base) {
+  const filters = [];
+  if (base) filters.push(base);
+  const type = (req.query.type || '').toString();
+  if (TYPES.includes(type)) filters.push({ ticketType: type });
+  const status = (req.query.status || '').toString().toUpperCase();
+  if (STATUSES.includes(status)) filters.push({ status });
+  const search = searchClause(req.query.q);
+  if (search) filters.push(search);
+  return filters.length ? { AND: filters } : {};
+}
 
-    const info = await getRobloxUserInfo(robloxId);
-    res.json({ linked: true, robloxUsername: info?.username || null, robloxId });
+function take(req, fallback = 500) {
+  const n = parseInt(req.query.take, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 2000) : fallback;
+}
+
+// Resolve a promise, or give up and return `fallback` after `ms`. Used so a
+// slow third-party lookup can never hold a page open.
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise(resolve => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+// The ticket creator's Roblox identity (avatar, profile link, MET rank).
+async function enrichCreator(ticket) {
+  if (!ticket.creatorRobloxUsername) return null;
+  const { getRobloxIdFromUsername, getGroupMembership, getRobloxAvatarHeadshot } = require('../lib/roblox');
+  const r = await getRobloxIdFromUsername(ticket.creatorRobloxUsername);
+  if (!r) return null;
+  const [membership, avatar] = await Promise.all([
+    getGroupMembership(r.id).catch(() => null),
+    getRobloxAvatarHeadshot(r.id).catch(() => null),
+  ]);
+  return {
+    robloxId:    r.id,
+    username:    r.username,
+    displayName: r.displayName,
+    avatar,
+    profileUrl:  `https://www.roblox.com/users/${r.id}/profile`,
+    inGroup:     !!membership,
+    groupRole:   membership?.role?.name ?? null,
+    groupRank:   membership?.role?.rank ?? null,
+  };
+}
+
+// ── GET /api/tickets — "My Tickets" (tickets I closed) ────────────
+router.get('/', async (req, res) => {
+  try {
+    const tickets = await prisma.ticketLog.findMany({
+      where:   buildWhere(req, mineClause(req.user)),
+      orderBy: { closedAt: 'desc' },
+      take:    take(req),
+    });
+    res.json(tickets);
   } catch (err) {
-    console.error('[Tickets] my-roblox error:', err.message);
-    res.json({ linked: false, error: err.message });
+    console.error('[TicketLogs] list error:', err.message);
+    res.status(500).json({ error: 'Failed to load ticket logs.' });
   }
 });
 
-// ── POST /api/tickets/import-transcript ───────────────────────────
-// Autofill a ticket from a Tickety "View Transcript" link. Scans the recent
-// closed-ticket logs, matches the transcript URL, and returns the fields to
-// prefill the form: Roblox username (resolved from the creator), ticket type
-// (from the ticket's original name), the close reason, and the log's timestamp.
-router.post('/import-transcript', async (req, res) => {
-  const link = (req.body?.transcriptLink || '').trim();
-  if (!link) return res.status(400).json({ matched: false, error: 'A transcript link is required.' });
-
+// ── GET /api/tickets/all — every closed ticket ────────────────────
+router.get('/all', async (req, res) => {
   try {
-    const result = await matchTicketTranscript(link);
-    if (!result.matched) {
-      return res.status(404).json({ matched: false, error: result.error || 'No matching ticket log found.' });
-    }
-    const log = result.log;
-
-    // Resolve the ticket creator → Roblox username, in order of confidence:
-    //  1. The embed already shows a "RANK | RobloxUsername" nickname.
-    //  2. Their server nickname ("RANK | RobloxUsername") looked up by Discord ID.
-    //  3. Convert their Discord ID via RoVer (DB-first + cooldown-aware — the
-    //     existing rate-limit-friendly path).
-    //  4. Only then: Unverified/Unknown.
-    let robloxUsername = null;
-    if (log.creatorRaw && log.creatorRaw.includes('|')) {
-      robloxUsername = parseRankNick(log.creatorRaw).robloxUsername || null;
-    }
-    if (!robloxUsername && log.creatorId) {
-      try { robloxUsername = (await getRobloxNameFromNick(log.creatorId)) || null; } catch (e) { /* try RoVer next */ }
-    }
-    if (!robloxUsername && log.creatorId) {
-      try {
-        const rid = await getRobloxIdFromDiscord(log.creatorId);
-        if (rid) { const info = await getRobloxUserInfo(rid); robloxUsername = info?.username || null; }
-      } catch (e) { /* fall through to Unverified/Unknown */ }
-    }
-    if (!robloxUsername) robloxUsername = 'Unverified/Unknown';
-
-    res.json({
-      matched:        true,
-      robloxUsername,
-      ticketType:     log.ticketType || 'GENERAL_SUPPORT',
-      conclusion:     log.reason || '',
-      submittedAt:    log.sentAt || new Date().toISOString(),
-      timezone:       'UTC',
-      transcriptLink: log.transcriptUrl || link,
-      meta: {
-        ticketName:      log.effectiveName || log.ticketName || null,
-        creatorId:       log.creatorId || null,
-        creatorUsername: log.creatorUsername || null,
-      },
+    const tickets = await prisma.ticketLog.findMany({
+      where:   buildWhere(req, null),
+      orderBy: { closedAt: 'desc' },
+      take:    take(req, 1000),
     });
+    res.json(tickets);
   } catch (err) {
-    console.error('[Tickets] import-transcript error:', err.message);
-    res.status(500).json({ matched: false, error: 'Failed to look up ticket transcript.' });
-  }
-});
-
-// ── POST /api/tickets ─────────────────────────────────────────────
-// Submit a new ticket.
-router.post('/', async (req, res) => {
-  const { robloxUsername, ticketType, submittedAt, timezone, conclusion, proofImages, transcriptLink } = req.body;
-
-  if (!robloxUsername?.trim())  return res.status(400).json({ error: 'Roblox username is required.' });
-  if (!ticketType)              return res.status(400).json({ error: 'Ticket type is required.' });
-  if (!conclusion?.trim())      return res.status(400).json({ error: 'Conclusion is required.' });
-  if (!transcriptLink?.trim())  return res.status(400).json({ error: 'Ticket transcript link is required.' });
-
-  const validTypes = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
-  if (!validTypes.includes(ticketType)) return res.status(400).json({ error: 'Invalid ticket type.' });
-
-  // Validate proof images (max 10, each base64 string)
-  if (proofImages && (!Array.isArray(proofImages) || proofImages.length > 10))
-    return res.status(400).json({ error: 'Too many proof images (max 10).' });
-
-  try {
-    const ticketRef = await nextTicketRef();
-    const resolvedRoblox = await resolveToRobloxUsername(robloxUsername);
-
-    const ticket = await prisma.ticket.create({
-      data: {
-        ticketRef,
-        userId:        req.user.id,
-        robloxUsername: resolvedRoblox,
-        ticketType,
-        submittedAt:   submittedAt || new Date().toISOString(),
-        timezone:      timezone    || 'UTC',
-        conclusion:    conclusion.trim(),
-        transcriptLink: transcriptLink.trim(),
-        proofImages:   proofImages || [],
-      },
-      include: { user: { select: { displayName: true, discordUsername: true } } },
-    });
-
-    const typeLabels = {
-      GENERAL_SUPPORT: 'General Support', HICOMM: 'HICOMM',
-      OFFICER_REPORT: 'Officer Report', APPEAL: 'Disciplinary Action Appeal',
-    };
-    notifyStaff({
-      category: 'ticket',
-      ticketType,
-      title: `New Ticket — ${ticketRef}`,
-      body:  `${resolvedRoblox} · ${typeLabels[ticketType] || ticketType}`,
-      url:   `/dashboard?page=ticket-review&ticket=${ticket.id}`,
-    });
-
-    res.status(201).json(ticket);
-  } catch (err) {
-    console.error('[Tickets] create error:', err.message);
-    res.status(500).json({ error: 'Failed to create ticket.' });
+    console.error('[TicketLogs] all error:', err.message);
+    res.status(500).json({ error: 'Failed to load ticket logs.' });
   }
 });
 
 // ── GET /api/tickets/stats ────────────────────────────────────────
-// `pending` etc. are scoped to the user's OWN tickets (My Tickets badge).
-// `pendingAll` is every pending ticket (the HICOMM "Pending Tickets" review badge).
+// `mine` powers the dashboard tiles; `total` the All Tickets header. `week`
+// is how many the user closed in the last 7 days.
 router.get('/stats', async (req, res) => {
   try {
-    const isElevated = ['HICOMM','SUPERVISOR','DEVELOPER'].includes(req.user.role);
-    const own = { userId: req.user.id };
-    const [total, pending, approved, denied, pendingAll] = await Promise.all([
-      prisma.ticket.count({ where: own }),
-      prisma.ticket.count({ where: { ...own, status: 'PENDING'  } }),
-      prisma.ticket.count({ where: { ...own, status: 'APPROVED' } }),
-      prisma.ticket.count({ where: { ...own, status: 'DENIED'   } }),
-      isElevated ? prisma.ticket.count({ where: { status: 'PENDING' } }) : Promise.resolve(0),
+    const mine = mineClause(req.user);
+    const weekAgo = new Date(Date.now() - 7 * 86400000);
+    const [total, mineCount, mineWeek, byType, byStatus, pending] = await Promise.all([
+      prisma.ticketLog.count(),
+      prisma.ticketLog.count({ where: mine }),
+      prisma.ticketLog.count({ where: { AND: [mine, { closedAt: { gte: weekAgo } }] } }),
+      prisma.ticketLog.groupBy({ by: ['ticketType'], _count: { _all: true } }).catch(() => []),
+      prisma.ticketLog.groupBy({ by: ['status'], _count: { _all: true } }).catch(() => []),
+      prisma.ticketLog.count({ where: { status: 'PENDING' } }).catch(() => 0),
     ]);
-    res.json({ total, pending, approved, denied, pendingAll });
+    const types = {};
+    for (const row of byType) types[row.ticketType] = row._count._all;
+    const statuses = { PENDING: 0, APPROVED: 0, DENIED: 0 };
+    for (const row of byStatus) statuses[row.status] = row._count._all;
+    res.json({ total, mine: mineCount, mineWeek, types, statuses, pending });
   } catch (err) {
-    console.error('[Tickets] stats error:', err.message);
+    console.error('[TicketLogs] stats error:', err.message);
     res.status(500).json({ error: 'Failed to fetch ticket stats.' });
   }
 });
 
-// ── GET /api/tickets ──────────────────────────────────────────────
-// "My Tickets" — always only the current user's own tickets (any role).
-router.get('/', async (req, res) => {
+// ── POST /api/tickets/sync — force a re-scan (HICOMM / Developer) ─
+// Strict: matches the button, which is hicomm-strict-only in the UI.
+router.post('/sync', requireHICOMMStrict, async (req, res) => {
   try {
-    const { status } = req.query;
-    const where = { userId: req.user.id };
-    if (status && ['PENDING', 'APPROVED', 'DENIED'].includes(status)) where.status = status;
-
-    const tickets = await prisma.ticket.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { displayName: true, discordUsername: true, discordAvatar: true } } },
-    });
-
-    // Strip proof image data from list view (send count only)
-    const safe = tickets.map(t => ({
-      ...t,
-      proofImages: undefined,
-      proofCount: Array.isArray(t.proofImages) ? t.proofImages.length : 0,
-    }));
-
-    res.json(safe);
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet — try again shortly.' });
+    const { sweep } = require('../lib/ticketIngest');
+    const stats = await sweep(client, { full: !!(req.body && req.body.full) });
+    if (!stats) return res.status(409).json({ error: 'A sync is already running.' });
+    if (stats.error) return res.status(502).json({ error: stats.error, ...stats });
+    res.json(stats);
   } catch (err) {
-    console.error('[Tickets] list error:', err.message);
-    res.status(500).json({ error: 'Failed to load tickets.' });
+    console.error('[TicketLogs] sync error:', err.message);
+    res.status(500).json({ error: 'Failed to sync ticket logs.' });
   }
 });
 
-// ── GET /api/tickets/all ──────────────────────────────────────────
-// Every ticket — readable by any authenticated user (IA + HICOMM).
-// HICOMM-only actions (approve/deny) remain gated on their own endpoints.
-router.get('/all', async (req, res) => {
+// ── POST /api/tickets/:id/review — approve / deny a ticket log ────
+// Body: { action: 'approve' | 'deny' }
+//
+// This is the ONLY write on a ticket. It records a supervisor's decision on a
+// log that was ingested from Discord — it does not create, edit or delete the
+// log. Approving one awards TICKET_POINTS (2) to the investigator who closed
+// the ticket; denying one awards nothing.
+router.post('/:id/review', requireHICOMM, async (req, res) => {
+  const action = ((req.body && req.body.action) || '').toString().toLowerCase();
+  if (!['approve', 'deny'].includes(action)) {
+    return res.status(400).json({ error: "action must be 'approve' or 'deny'." });
+  }
+  const status = action === 'approve' ? 'APPROVED' : 'DENIED';
   try {
-    const { status } = req.query;
-    const where = {};
-    if (status && ['PENDING', 'APPROVED', 'DENIED'].includes(status)) where.status = status;
+    const ticket = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket log not found.' });
 
-    const tickets = await prisma.ticket.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { displayName: true, discordUsername: true, discordAvatar: true } } },
+    // A supervisor can't sign off a ticket they closed themselves.
+    const own = ticket.closerUserId === req.user.id ||
+      (req.user.discordId && ticket.closerDiscordId &&
+       String(ticket.closerDiscordId) === String(req.user.discordId));
+    if (own && req.user.role !== 'DEVELOPER') {
+      return res.status(403).json({ error: 'You cannot review a ticket you closed.' });
+    }
+
+    const updated = await prisma.ticketLog.update({
+      where: { id: ticket.id },
+      data: {
+        status,
+        reviewedById:   req.user.id,
+        reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt:     new Date(),
+      },
     });
 
-    const safe = tickets.map(t => ({
-      ...t,
-      proofImages: undefined,
-      proofCount: Array.isArray(t.proofImages) ? t.proofImages.length : 0,
-    }));
+    // +2 quota points for the investigator who closed the ticket. Queued
+    // durably and keyed on the ticket id, so re-approving (or a retry) can never
+    // double-award — and a later deny simply leaves the existing award alone
+    // rather than clawing it back.
+    if (status === 'APPROVED' && (ticket.closerDiscordId || ticket.closerUserId)) {
+      const { enqueueQuotaAward, TICKET_POINTS } = require('../lib/quota');
+      let closer = null;
+      if (ticket.closerUserId) {
+        closer = await prisma.user.findUnique({
+          where:  { id: ticket.closerUserId },
+          select: { discordId: true, robloxUsername: true },
+        }).catch(() => null);
+      }
+      const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
+      if (discordId) {
+        enqueueQuotaAward({
+          refType: 'ticket', refId: ticket.id,
+          discordId,
+          // Only the matched site account's Roblox name — NEVER
+          // creatorRobloxUsername, which is the person who OPENED the ticket.
+          // With no Roblox name the sheet still matches on the Discord id.
+          robloxUsername: (closer && closer.robloxUsername) || null,
+          points: TICKET_POINTS(),
+          label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
+        }).catch(() => {});
+      }
+    }
 
-    res.json(safe);
+    require('../lib/audit').record({
+      req, action: status === 'APPROVED' ? 'TICKET_APPROVE' : 'TICKET_DENY',
+      category: 'ia', targetType: 'ticketLog', targetId: ticket.id,
+      summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`
+             + (status === 'APPROVED' ? ` (+${require('../lib/quota').TICKET_POINTS()} pts)` : ''),
+    });
+
+    res.json(updated);
   } catch (err) {
-    console.error('[Tickets] all error:', err.message);
-    res.status(500).json({ error: 'Failed to load tickets.' });
+    console.error('[TicketLogs] review error:', err.message);
+    res.status(500).json({ error: 'Failed to record the decision.' });
   }
 });
 
 // ── GET /api/tickets/:id ──────────────────────────────────────────
-// Get a single ticket with full proof images.
+// Registered last so it doesn't shadow /all, /stats or /sync.
 router.get('/:id', async (req, res) => {
   try {
-    const ticket = await prisma.ticket.findUnique({
-      where:   { id: req.params.id },
-      include: { user: { select: { displayName: true, discordUsername: true } } },
-    });
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+    const ticket = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket log not found.' });
 
-    // Any authenticated IA member can view a ticket's detail — the All Tickets
-    // tab lists everyone's tickets and is meant to be clickable. Acting on a
-    // ticket (approve/deny) stays gated on its own HICOMM-only endpoints.
+    // Enrich the ticket's creator with their Roblox identity, the same way the
+    // records lookup does, so the detail view can show who opened it. This is a
+    // nicety, not the point of the page — so it is time-boxed: if Roblox is slow
+    // or unreachable the ticket still opens instantly, just without the extras.
+    const target = await withTimeout(enrichCreator(ticket), 2500, null);
 
-    // Attach reviewer display name if the ticket has been decided
-    let reviewer = null;
-    if (ticket.reviewedBy) {
-      reviewer = await prisma.user.findUnique({
-        where:  { id: ticket.reviewedBy },
-        select: { displayName: true, discordUsername: true },
-      });
-    }
-
-    // Resolve the target Roblox user for richer detail (non-fatal on failure)
-    let target = null;
-    try {
-      const r = await getRobloxIdFromUsername(ticket.robloxUsername);
-      if (r) {
-        const [membership, avatar] = await Promise.all([
-          getGroupMembership(r.id),
-          getRobloxAvatarHeadshot(r.id),
-        ]);
-        target = {
-          robloxId:    r.id,
-          username:    r.username,
-          displayName: r.displayName,
-          avatar,
-          profileUrl:  `https://www.roblox.com/users/${r.id}/profile`,
-          inGroup:     !!membership,
-          groupRole:   membership?.role?.name ?? null,
-          groupRank:   membership?.role?.rank ?? null,
-        };
-      }
-    } catch (e) {
-      console.error('[Tickets] target resolve error:', e.message);
-    }
-
-    res.json({ ...ticket, reviewer, target });
+    res.json({ ...ticket, target });
   } catch (err) {
-    console.error('[Tickets] detail error:', err.message);
-    res.status(500).json({ error: 'Failed to load ticket.' });
-  }
-});
-
-// ── PATCH /api/tickets/:id/approve ────────────────────────────────
-router.patch('/:id/approve', requireHICOMM, async (req, res) => {
-  try {
-    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
-    if (!existing)                     return res.status(404).json({ error: 'Ticket not found.' });
-    if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Ticket is not pending.' });
-    // IA Complaints (HICOMM tickets) are a High Command matter — Supervisors
-    // (and IA, already blocked by requireHICOMM) cannot action them.
-    if (existing.ticketType === 'HICOMM' && req.user.role === 'SUPERVISOR')
-      return res.status(403).json({ error: 'Only HICOMM can action IA Complaint (HICOMM) tickets.' });
-
-    const updated = await prisma.ticket.update({
-      where: { id: req.params.id },
-      data:  { status: 'APPROVED', reviewedBy: req.user.id, reviewedAt: new Date() },
-    });
-
-    // +2 quota points for the IA member who logged the ticket
-    try {
-      const submitter = await prisma.user.findUnique({
-        where:  { id: existing.userId },
-        select: { discordId: true, robloxUsername: true },
-      });
-      if (submitter) {
-        // If robloxUsername isn't cached, do a live RoVer lookup so the sheet
-        // can match by username even when there's no Discord ID column.
-        let robloxUsername = submitter.robloxUsername;
-        if (!robloxUsername && submitter.discordId) {
-          try {
-            const { getRobloxIdFromDiscord, getRobloxUserInfo } = require('../lib/roblox');
-            const rbxId = await getRobloxIdFromDiscord(submitter.discordId);
-            if (rbxId) {
-              const info = await getRobloxUserInfo(rbxId);
-              robloxUsername = info?.username || null;
-              // Cache it for next time
-              if (robloxUsername) {
-                await prisma.user.update({
-                  where: { id: existing.userId },
-                  data:  { robloxId: rbxId, robloxUsername },
-                }).catch(() => {});
-              }
-            }
-          } catch (rvErr) {
-            console.warn('[Tickets] RoVer lookup for quota failed:', rvErr.message);
-          }
-        }
-        // Queue the award durably so it's retried until it lands — never lost
-        // to a transient failure or a rapid approve burst.
-        const { enqueueQuotaAward } = require('../lib/quota');
-        await enqueueQuotaAward({
-          refType: 'ticket', refId: existing.id,
-          discordId: submitter.discordId, robloxUsername,
-          points: 2, label: `ticket ${existing.ticketRef}`,
-        }).catch(err => { console.warn('[Tickets] quota enqueue error:', err.message); });
-      }
-    } catch (e) { console.warn('[Tickets] quota award skipped:', e.message); }
-
-    res.json(updated);
-  } catch (err) {
-    console.error('[Tickets] approve error:', err.message);
-    res.status(500).json({ error: 'Failed to approve ticket.' });
-  }
-});
-
-// ── PATCH /api/tickets/:id/deny ───────────────────────────────────
-router.patch('/:id/deny', requireHICOMM, async (req, res) => {
-  try {
-    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
-    if (!existing)                     return res.status(404).json({ error: 'Ticket not found.' });
-    if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Ticket is not pending.' });
-    if (existing.ticketType === 'HICOMM' && req.user.role === 'SUPERVISOR')
-      return res.status(403).json({ error: 'Only HICOMM can action IA Complaint (HICOMM) tickets.' });
-
-    const updated = await prisma.ticket.update({
-      where: { id: req.params.id },
-      data:  { status: 'DENIED', reviewedBy: req.user.id, reviewedAt: new Date() },
-    });
-    res.json(updated);
-  } catch (err) {
-    console.error('[Tickets] deny error:', err.message);
-    res.status(500).json({ error: 'Failed to deny ticket.' });
+    console.error('[TicketLogs] detail error:', err.message);
+    res.status(500).json({ error: 'Failed to load ticket log.' });
   }
 });
 

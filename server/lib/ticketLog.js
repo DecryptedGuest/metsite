@@ -55,7 +55,8 @@ function ticketTypeFromName(name) {
   if (/hicomm|high[\s-]*command|ia[\s-]*complaint/.test(s)) return 'HICOMM';
   // "officer-complaint", "officer report", "report" → officer report
   if (/officer|complaint|report|misconduct/.test(s))      return 'OFFICER_REPORT';
-  if (/general|support|question|inquir|help/.test(s))     return 'GENERAL_SUPPORT';
+  // "website-support-<user>" (Tickety) and other general enquiries.
+  if (/general|website|support|question|inquir|help/.test(s)) return 'GENERAL_SUPPORT';
   return 'GENERAL_SUPPORT';
 }
 
@@ -111,6 +112,7 @@ function parseTicketLogEmbed(embed) {
   if (!looksLikeTickety) return null;
 
   const ticketName = labelled(text, 'Ticket Name');
+  const ticketId   = labelled(text, 'Ticket ID');
   const oldName    = labelled(text, 'Old Name');
   const newName    = labelled(text, 'New Name');
   // Classify off the OLD name when a rename happened, else the current name.
@@ -128,6 +130,7 @@ function parseTicketLogEmbed(embed) {
 
   return {
     ticketName,
+    ticketId,
     oldName,
     newName,
     effectiveName,

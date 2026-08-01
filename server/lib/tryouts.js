@@ -10,22 +10,267 @@ const prisma = require('./db');
 
 const TRYOUT_PING_ROLE = () => process.env.TRYOUT_PING_ROLE_ID || '1432426322059329567';
 
-// The Discord announcement text, in the exact MET format. `status` is one of
-// 'SLOCKED' | 'UNSLOCKED' (shift-lock state).
-function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
+// The MET custom guild emoji. Discord only renders a custom emoji from its full
+// token `<:name:id>` — a bare `:HPC:` shows as literal text. Overridable via env
+// in case the emoji is re-uploaded (new id).
+const HPC_EMOJI = () => process.env.TRYOUT_HPC_EMOJI || '<:HPC:1191469403087319120>';
+
+// Split a comma/space-separated list of Discord ids into a clean array.
+function splitIds(v) { return String(v || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean); }
+
+// Per-division tryout config. HPC is the original programme; CID is a parallel
+// programme with its own Discord channel, ping roles, custom emoji and labels.
+// Everything no-ops gracefully until the relevant env vars are set. `division`
+// on a Tryout/TryoutLog row selects which config applies — HPC and CID never mix.
+function divisionConfig(division) {
+  const d = String(division || 'HPC').toUpperCase();
+  if (d === 'CID') {
+    // Ping roles: the two named env vars (CID_TRYOUT_PING_ROLE_1/2) take
+    // precedence; fall back to the comma-separated CID_TRYOUT_PING_ROLE_IDS.
+    const namedPings = [process.env.CID_TRYOUT_PING_ROLE_1, process.env.CID_TRYOUT_PING_ROLE_2].filter(Boolean);
+    return {
+      division:               'CID',
+      channelId:              process.env.CID_TRYOUT_CHANNEL_ID || null,
+      pingRoleIds:            namedPings.length ? namedPings : splitIds(process.env.CID_TRYOUT_PING_ROLE_IDS),
+      // Full custom-emoji token — a bare `:CID:` renders as literal text in Discord.
+      emoji:                  process.env.CID_EMOJI || '<:CID:1438625241999085790>',
+      eventType:              'CID Tryout',
+      // Host-DM presentation (CID-specific, so a CID host never sees HPC wording).
+      dashboardSlug:          'cid',
+      panelName:              'CID Tryout Panel',
+      dmTitle:                'Your CID Tryout is live',
+      dmColor:                0xe8842a,
+      recruitmentChannelId:   process.env.CID_RECRUITMENT_CHANNEL_ID || null,
+      recruitmentPingRoleIds: splitIds(process.env.CID_RECRUITMENT_PING_ROLE_IDS),
+      recruitmentInvite:      process.env.CID_RECRUITMENT_INVITE || 'https://discord.gg/PEV6H9suC6',
+      recruitmentInfo:        process.env.CID_RECRUITMENT_INFO || null,
+      logWebhook:             process.env.CID_TRYOUT_LOG_WEBHOOK || null,
+    };
+  }
+  if (d === 'SCO19') {
+    const namedPings = [process.env.SCO19_TRYOUT_PING_ROLE_1, process.env.SCO19_TRYOUT_PING_ROLE_2].filter(Boolean);
+    return {
+      division:      'SCO19',
+      channelId:     process.env.SCO19_TRYOUT_CHANNEL_ID || null,
+      pingRoleIds:   namedPings.length ? namedPings : splitIds(process.env.SCO19_TRYOUT_PING_ROLE_IDS),
+      emoji:         process.env.SCO19_EMOJI || ':SCO19:',
+      eventType:     'SCO-19 Tryout',
+      dashboardSlug: 'sco19',
+      panelName:     'SCO-19 Firearms Panel',
+      dmTitle:       'Your SCO-19 Tryout is live',
+      dmColor:       0x8b93a1,
+      logWebhook:    process.env.SCO19_TRYOUT_LOG_WEBHOOK || null,
+    };
+  }
+  return {
+    division:    'HPC',
+    channelId:   process.env.TRYOUT_ANNOUNCE_CHANNEL_ID || null,
+    pingRoleIds: [TRYOUT_PING_ROLE()],
+    emoji:       HPC_EMOJI(),
+    eventType:   'MET Tryout',
+    dashboardSlug: 'hpc',
+    panelName:     'HPC Instructor Panel',
+    dmTitle:       'Your MET Tryout is live',
+    dmColor:       0x2ed896,
+    logWebhook:  process.env.HPC_TRYOUT_LOG_WEBHOOK || null,
+    // HPC runs its tryouts from a Discord stage — hosts are prompted to join it,
+    // and its link is included in the announcement. CID/SCO-19 have no VC step.
+    stageUrl:    process.env.HPC_TRYOUT_STAGE_URL || 'https://discord.com/channels/1191048287315304470/1486839548146356386',
+  };
+}
+
+// The site dashboard URL a host reviews/posts their tryout on (by division).
+function reviewUrl(tryout) {
+  const base = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/$/, '') : null;
+  if (!base) return null;
+  return `${base}/${divisionConfig(tryout && tryout.division).dashboardSlug}/dashboard`;
+}
+
+// The Discord channel a tryout's announcement lives in (by division).
+function announceChannelId(tryout) { return divisionConfig(tryout && tryout.division).channelId; }
+
+// The Roblox place the tryout launch link points at (same place for every
+// division — the game's own router reads launchData and teleports the player
+// into the reserved server after calling /joincode). Configurable via env.
+function tryoutPlaceId() {
+  return process.env.TRYOUT_JOIN_PLACE_ID || process.env.TRYOUT_PLACE_ID || process.env.HENDON_PLACE_ID || null;
+}
+
+// The public "Join this tryout" launch link, or null when joining is off / no
+// place id is configured. launchData carries { t: tryoutId, d: division } so the
+// in-game router knows what to ask /joincode for.
+function tryoutJoinUrl(tryout) {
+  const pid = tryoutPlaceId();
+  if (!pid || !tryout || !tryout.joinable) return null;
+  const launch = encodeURIComponent(JSON.stringify({ t: tryout.id, d: divisionConfig(tryout.division).division }));
+  return `https://www.roblox.com/games/start?placeId=${pid}&launchData=${launch}`;
+}
+
+// The privacy-INDEPENDENT launch link for the member "Join" button: it opens the
+// game's own place and the in-game router teleports the player into the reserved
+// server via its access code (TeleportService), so it never depends on any
+// account's private-server/friend privacy settings the way a raw shared
+// private-server link does. Same as tryoutJoinUrl but without the `joinable`
+// gate (the member /join route already gates on LIVE). Null when no place id set.
+function tryoutLaunchUrl(tryout) {
+  const pid = tryoutPlaceId();
+  if (!pid || !tryout) return null;
+  const launch = encodeURIComponent(JSON.stringify({ t: tryout.id, d: divisionConfig(tryout.division).division }));
+  return `https://www.roblox.com/games/start?placeId=${pid}&launchData=${launch}`;
+}
+
+// Format the scheduled start as HH:MM in the configured timezone (for CID's
+// "Starting at" line). Falls back to the literal placeholder if unparseable.
+function fmtStartAt(tryout) {
+  try {
+    const tz = process.env.TRYOUT_TIMEZONE || process.env.QUOTA_TIMEZONE || 'Europe/London';
+    return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz })
+      .format(new Date(tryout.scheduledAt));
+  } catch (e) { return 'XX:XX'; }
+}
+
+// The ping line for an announcement: role mentions, or plain "(test mode)" when
+// suppressPings is set (so a test announcement pings nobody).
+function pingLine(cfg, tryout) {
+  if (tryout.suppressPings) return 'Ping: (test mode — no ping)';
+  return cfg.pingRoleIds.length ? cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ') : '';
+}
+
+// Is the tryout's game server LOCKED (Adonis :serverlock on / :slock)? The lock
+// state is reported live by the Hendon game; we default to LOCKED. Accepts the
+// legacy SLOCKED/UNSLOCKED values as well as the current LOCKED/UNLOCKED ones.
+function isServerLocked(tryout) {
+  const s = String((tryout && tryout.lockState) || '').toUpperCase();
+  return !(s === 'UNLOCKED' || s === 'UNSLOCKED');
+}
+
+// allowed_mentions for a tryout announcement: no pings at all when the tryout is
+// in test mode (suppressPings), otherwise mention roles/users normally.
+function announcementAllowedMentions(tryout) {
+  return (tryout && tryout.suppressPings) ? { parse: [] } : { parse: ['roles', 'users', 'everyone'] };
+}
+
+// Dispatch to the right announcement template by division. HPC and CID have
+// different formats; both track the live lock state in a STATUS line so it can
+// be edited in place on :serverlock on/off.
+function formatAnnouncement(tryout, opts = {}) {
+  const d = String(tryout && tryout.division).toUpperCase();
+  if (d === 'CID')   return formatCidAnnouncement(tryout, opts);
+  if (d === 'SCO19') return formatSco19Announcement(tryout, opts);
+  return formatHpcAnnouncement(tryout, opts);
+}
+
+// The SCO-19 (Specialist Firearms) tryout announcement.
+function formatSco19Announcement(tryout, { hostMention, coHostText } = {}) {
+  const cfg    = divisionConfig('SCO19');
+  const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
+  const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
+  const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
+  const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
+  const e      = cfg.emoji;
+  const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
+  return [
+    `${e} SCO-19 FIREARMS TRYOUT ${e}`,
+    `Host: ${host}`,
+    `Co-Host: ${coHost}`,
+    `Starting: ${fmtDiscordTs(tryout)}`,
+    `Game link: ${link}`,
+    `STATUS: ${status}`,
+    'Information:',
+    '`• SCO-19 is the Metropolitan Police Service\'s Specialist Firearms Command — the elite armed response unit.',
+    '- Candidates are tested on discipline, marksmanship and command response.',
+    '- Tryout lasts approximately 30–50 minutes.`',
+    'Requirements: CON+ RANK',
+    'THIS TRYOUT WILL BE HOSTED IN HENDON POLICE CAMPUS',
+    ...(ping ? [ping] : []),
+  ].join('\n');
+}
+
+// A Discord dynamic timestamp for the tryout start — renders in each viewer's
+// local timezone: full date/time, plus a relative "in 2 hours".
+function fmtDiscordTs(tryout) {
+  const ms = tryout.scheduledAt ? new Date(tryout.scheduledAt).getTime() : Date.now();
+  const s  = Math.floor(ms / 1000);
+  return `<t:${s}:F> (<t:${s}:R>)`;
+}
+
+// The CID tryout announcement (posted to the CID Discord by the same game-driven
+// flow as HPC). Wording/emoji/structure are kept verbatim to the CID spec.
+function formatCidAnnouncement(tryout, { hostMention, coHostText } = {}) {
+  const cfg    = divisionConfig('CID');
+  const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || ''));
+  const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
+  const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
+  const e      = cfg.emoji;
+  const ping   = tryout.suppressPings ? '' : cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ');
+  return [
+    `${e} CID TRYOUT ${e}`,
+    `Host: ${host}`,
+    `Co-Host: ${coHost}`,
+    `Starting: ${fmtDiscordTs(tryout)}`,
+    'Reactions: 3+',
+    `Game link: ${link}`,
+    'Information:',
+    "`• CID is the Metropolitan Police Service's (MPS) Criminal Investigations unit. This elite group of individuals are trained for immediate responses to any crime scene.",
+    '- The standard weapon issued to CID is a GlockS.',
+    '- Members who achieve the rank of Detective Inspector+ will be able to host.',
+    '- Tryout will last approximately 30–50 minutes.`',
+    'Notes: If you are a Community Support Officer, let your Instructor know beforehand and they will put you on the waiting list.',
+    'Requirements: CSO+ RANK',
+    'Join CID Today! Together we are unstoppable.',
+    'THIS TRYOUT WILL BE HOSTED IN HENDON POLICE CAMPUS',
+    ...(ping ? [ping] : []),
+  ].join('\n');
+}
+
+// The longer CID recruitment cross-post (optional — only when
+// CID_RECRUITMENT_CHANNEL_ID is set). The info block is configurable via
+// CID_RECRUITMENT_INFO so the exact wording lives in config, not code.
+function formatCidRecruitment(tryout) {
+  const cfg    = divisionConfig('CID');
+  const host   = tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || '');
+  const coHost = tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A');
+  const ping   = tryout.suppressPings
+    ? '(test mode — no ping)'
+    : (cfg.recruitmentPingRoleIds.length ? cfg.recruitmentPingRoleIds.map(id => `<@&${id}>`).join(' ') : '');
+  return [
+    `#  ${cfg.emoji} CID TRYOUT ${cfg.emoji}`,
+    '',
+    `Host: ${host}`,
+    `Co-Host: ${coHost}`,
+    `[Discord Link](${cfg.recruitmentInvite})`,
+    '**Information:**',
+    cfg.recruitmentInfo || '• CID is the MPS Criminal Investigations unit.',
+    '**Requirements:** CSO or CON rank',
+    ...(ping ? [ping] : []),
+  ].join('\n');
+}
+
+// The Discord announcement text, in the exact MET format. STATUS reflects the
+// live server-lock state (:serverlock on/off) of the Hendon tryout server.
+// When the tryout is in test mode (suppressPings) the Ping line is rendered as
+// plain text with NO role mention.
+function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const host   = hostMention || (tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : tryout.hostName);
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
-  const link   = tryout.privateServerLink || 'TBA';
-  const status = tryout.lockState === 'UNSLOCKED' ? 'UNSLOCKED' : 'SLOCKED';
+  const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
+  const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
+  const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
+  const hpc    = HPC_EMOJI();
+  const stage  = divisionConfig('HPC').stageUrl;
+  // The Public Tryout stage is only surfaced once the join link is actually
+  // posted (i.e. joining is open) — no point sending attendees to the VC early.
+  const stageLine = (stage && link !== 'TBA') ? [`Public Tryout Stage: ${stage}`] : [];
   return [
-    ':HPC: College Entrance :HPC:',
+    `${hpc} College Entrance ${hpc}`,
     'Metropolitan Police Tryout',
     `HOST: ${host}`,
     `CO-HOST: ${coHost}`,
     `Link: ${link}`,
+    ...stageLine,
     '',
     `STATUS: ${status}`,
-    `Ping: <@&${TRYOUT_PING_ROLE()}>`,
+    ping,
     '**Requirements,**',
     '▫️Must wear blocky avatar.',
     '▫️Must be in Uniform and shoulder to shoulder.',
@@ -36,14 +281,26 @@ function formatAnnouncement(tryout, { hostMention, coHostText } = {}) {
   ].join('\n');
 }
 
+// Divisions whose host must paste their OWN private-server link (via a button +
+// form in the host DM) instead of the site auto-provisioning one. Per request:
+// CID and MET (the general MET tryout, run from the HPC config). SCO-19 keeps
+// auto-provisioning.
+function tryoutManualLink(division) {
+  const d = String(division || '').toUpperCase();
+  return d === 'CID' || d === 'HPC' || d === 'MET';
+}
+
 // Provision (or reuse) a Roblox private server link for the tryout.
 // Strategy, in order:
+//   0. Manual-link divisions (CID / MET) — never auto-provision; the host sets
+//      their own link from the DM button.
 //   1. TRYOUT_PRIVATE_SERVER_LINK — a fixed reusable private-server link MET
 //      created in-game once. Simplest and reliable; returned as-is.
 //   2. Roblox authenticated API (roblox.createPrivateServer) — dynamic per
 //      tryout; only if configured (place with private servers + ROBLOX_COOKIE).
 // Returns { link, id } or { link:null } if nothing is configured yet.
 async function getServerLink(tryout) {
+  if (tryoutManualLink(tryout && tryout.division)) return { link: null, id: null };
   const fixed = process.env.TRYOUT_PRIVATE_SERVER_LINK;
   if (fixed) return { link: fixed, id: null };
   try {
@@ -63,6 +320,9 @@ async function fireTryout(t) {
     where: { id: t.id },
     data: {
       status: 'LIVE',
+      // A fresh tryout server is open — default to UNLOCKED so the first DM/
+      // announcement shows the real status (the game corrects it via /serverlock).
+      lockState: t.lockState || 'UNLOCKED',
       privateServerLink: link || null,
       privateServerId: id || null,
       serverCreatedAt: new Date(),
@@ -90,6 +350,41 @@ async function fireTryout(t) {
   return updated;
 }
 
+// How long a host can be away from their tryout server before it auto-cancels.
+function hostAbsenceMs() {
+  const m = parseInt(process.env.TRYOUT_HOST_ABSENCE_MINUTES, 10);
+  return (Number.isFinite(m) && m > 0 ? m : 20) * 60 * 1000;
+}
+
+// Auto-cancel LIVE tryouts the host has walked away from: if we haven't seen the
+// host in their server for longer than the absence window (and they haven't
+// started a new one — a new tryout refreshes hostLastSeenAt), cancel it, pull the
+// announcement, and DM the host why. hostLastSeenAt is refreshed by every live
+// snapshot / serverlock / heartbeat from the host's in-game panel.
+async function checkAbandonedTryouts() {
+  try {
+    const cutoff = new Date(Date.now() - hostAbsenceMs());
+    const live = await prisma.tryout.findMany({ where: { status: 'LIVE' }, take: 50 });
+    for (const t of live) {
+      const lastSeen = t.hostLastSeenAt || t.serverCreatedAt || t.updatedAt || t.createdAt;
+      if (!lastSeen || new Date(lastSeen) > cutoff) continue;
+      try {
+        const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
+        const bot = require('./bot');
+        await bot.deleteTryoutAnnouncement(updated).catch(() => {});
+        await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
+        await bot.editTryoutHostDM(updated).catch(() => {});
+        if (typeof bot.dmTryoutAutoCancelled === 'function') {
+          await bot.dmTryoutAutoCancelled(updated, Math.round(hostAbsenceMs() / 60000)).catch(() => {});
+        }
+        console.log(`[Tryout] auto-cancelled ${t.id} — host absent > ${Math.round(hostAbsenceMs() / 60000)} min`);
+      } catch (e) { console.warn('[Tryout] auto-cancel failed for', t.id, e.message); }
+    }
+  } catch (e) {
+    console.error('[Tryout] checkAbandonedTryouts error:', e.message);
+  }
+}
+
 async function processDueTryouts() {
   try {
     const due = await prisma.tryout.findMany({
@@ -107,9 +402,16 @@ async function processDueTryouts() {
 }
 
 function startTryoutWorker() {
-  // Check shortly after boot, then every 30s.
+  // Check shortly after boot, then every 30s: fire due tryouts + auto-cancel
+  // abandoned ones (host gone too long).
   setTimeout(processDueTryouts, 20 * 1000);
-  setInterval(processDueTryouts, 30 * 1000);
+  setInterval(() => { processDueTryouts(); checkAbandonedTryouts(); }, 30 * 1000);
 }
 
-module.exports = { startTryoutWorker, processDueTryouts, fireTryout, formatAnnouncement, getServerLink, TRYOUT_PING_ROLE };
+module.exports = {
+  startTryoutWorker, processDueTryouts, checkAbandonedTryouts, fireTryout,
+  formatAnnouncement, formatCidRecruitment, announcementAllowedMentions,
+  isServerLocked, getServerLink, TRYOUT_PING_ROLE,
+  divisionConfig, announceChannelId, reviewUrl,
+  tryoutJoinUrl, tryoutLaunchUrl, tryoutPlaceId, tryoutManualLink,
+};

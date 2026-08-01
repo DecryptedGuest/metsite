@@ -1,6 +1,10 @@
 # railway.toml
+# Railway retired the NIXPACKS builder — the only supported builders are now
+# RAILPACK and DOCKERFILE, so a build pinned to NIXPACKS fails instantly at the
+# build-image stage with no output. RAILPACK is the drop-in successor
+# (auto-detects Node); it honours buildCommand + the deploy startCommand below.
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 buildCommand = "npm install && npx prisma generate"
 
 [deploy]

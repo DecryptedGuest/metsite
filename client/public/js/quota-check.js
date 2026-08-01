@@ -15,7 +15,118 @@ document.addEventListener("DOMContentLoaded", function () {
     var btn = document.getElementById("btn-confirm-quota-reset");
     if (btn) btn.disabled = ri.value.trim().toUpperCase() !== "RESET";
   });
+
+  // MET database sync
+  var mc = document.getElementById("btn-metdb-check");
+  if (mc) mc.addEventListener("click", checkMetDatabase);
+  var ma = document.getElementById("btn-metdb-apply");
+  if (ma) ma.addEventListener("click", applyMetDatabase);
 });
+
+// ── MET database sync ─────────────────────────────────────────────
+// "Check" is a dry run: it shows exactly who would be removed (no longer in the
+// MET group) and who would be added (newly joined constables) before anything
+// is written. "Apply" performs the same plan for real.
+var metDbPlan = null;
+
+function metdbList(title, items, colour, render) {
+  if (!items.length) {
+    return '<div class="metdb-col"><div class="metdb-col-head">' + title
+      + ' <span class="metdb-count">0</span></div>'
+      + '<div class="metdb-empty">Nothing to do.</div></div>';
+  }
+  return '<div class="metdb-col"><div class="metdb-col-head">' + title
+    + ' <span class="metdb-count ' + colour + '">' + items.length + '</span></div>'
+    + '<ul class="metdb-list">' + items.map(render).join("") + '</ul></div>';
+}
+
+function renderMetDbPlan(plan, applied) {
+  var box = document.getElementById("metdb-result");
+  if (!box) return;
+
+  if (plan.error) {
+    box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(plan.error) + '</div>';
+    return;
+  }
+
+  var summary = '<div class="metdb-summary">'
+    + '<span><strong>' + (plan.sheetRows || 0) + '</strong> on the sheet</span>'
+    + '<span><strong>' + (plan.groupSize || 0) + '</strong> in the MET group</span>'
+    + '<span><strong>' + (plan.keep || 0) + '</strong> matched</span>'
+    + (plan.joinRanks && plan.joinRanks.length
+        ? '<span>new joiners: <strong>' + escapeHtml(plan.joinRanks.join(", ")) + '</strong></span>' : '')
+    + ((plan.renamed && plan.renamed.length)
+        ? '<span><strong>' + plan.renamed.length + '</strong> renamed (kept)</span>' : '')
+    + '</div>'
+    + ((plan.renamed && plan.renamed.length)
+        ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> Matched by Discord ID after a Roblox rename: '
+          + plan.renamed.map(function (r) { return escapeHtml(r.was) + ' → ' + escapeHtml(r.now); }).join(", ")
+          + '</div>' : '');
+
+  var cols = '<div class="metdb-cols">'
+    + metdbList("Remove", plan.remove || [], "bad", function (r) {
+        return '<li><span class="metdb-name">' + escapeHtml(r.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(r.why || "not in the MET group") + '</span></li>';
+      })
+    + metdbList("Add", plan.add || [], "good", function (a) {
+        return '<li><span class="metdb-name">' + escapeHtml(a.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(a.rank || "") + '</span></li>';
+      })
+    + '</div>';
+
+  var footer = applied
+    ? '<div class="metdb-applied"><i class="ti ti-check"></i> Applied — removed '
+      + (plan.removed || 0) + ', added ' + (plan.added || 0)
+      + (plan.errors && plan.errors.length ? ' (' + escapeHtml(plan.errors.join("; ")) + ')' : '') + '</div>'
+    : ((plan.remove || []).length || (plan.add || []).length
+        ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> Nothing has been written yet. Press <strong>Apply changes</strong> to make it so.</div>'
+        : '<div class="metdb-hint"><i class="ti ti-check"></i> The database already matches the MET group.</div>');
+
+  box.innerHTML = summary + cols + footer;
+}
+
+async function checkMetDatabase() {
+  var btn = document.getElementById("btn-metdb-check");
+  var apply = document.getElementById("btn-metdb-apply");
+  var box = document.getElementById("metdb-result");
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Checking…"; }
+  try {
+    metDbPlan = await api("/api/quota/met-database");
+    renderMetDbPlan(metDbPlan, false);
+    if (apply) apply.disabled = !((metDbPlan.remove || []).length || (metDbPlan.add || []).length);
+  } catch (err) {
+    metDbPlan = null;
+    if (box) box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(err.message || "Check failed.") + '</div>';
+    if (apply) apply.disabled = true;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-search'></i> Check"; }
+  }
+}
+
+async function applyMetDatabase() {
+  if (!metDbPlan) { showToast("Run a check first.", "error"); return; }
+  var total = (metDbPlan.remove || []).length + (metDbPlan.add || []).length;
+  if (!confirm("This will remove " + (metDbPlan.remove || []).length + " member(s) from the database sheet and add "
+      + (metDbPlan.add || []).length + " new joiner(s). " + total + " row(s) change. Continue?")) return;
+  // A removed member's whole row is cleared, so this is not reversible from here.
+
+  var btn = document.getElementById("btn-metdb-apply");
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Applying…"; }
+  try {
+    var result = await api("/api/quota/met-database/sync", {
+      method: "POST", body: JSON.stringify({ token: metDbPlan.token || null }),
+    });
+    renderMetDbPlan(result, true);
+    showToast("MET database synced — removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
+    metDbPlan = null;
+    if (typeof loadQuotaCheck === "function") loadQuotaCheck();
+  } catch (err) {
+    showToast(err.message || "Sync failed.", "error");
+  } finally {
+    if (btn) { btn.innerHTML = "<i class='ti ti-refresh'></i> Apply changes"; btn.disabled = true; }
+  }
+}
 
 function openQuotaResetModal() {
   var ri = document.getElementById("quota-reset-confirm-input");
@@ -47,7 +158,10 @@ async function loadQuotaCheck() {
   try {
     var d = await api("/api/quota/members");
     if (!d || !d.configured) {
-      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span></td></tr>";
+      var CFG = window.metEmpty
+        ? window.metEmpty({ icon: "ti-alert-triangle", title: "Quota sheet not configured", sub: "Read access needs the Google service account." })
+        : "<span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span>";
+      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + CFG + "</td></tr>";
       return;
     }
     quotaMembersCache = d.members || [];
@@ -63,7 +177,10 @@ function renderQuotaCheck() {
   var countEl = document.getElementById("quota-check-count");
   if (!tbody) return;
   if (!quotaMembersCache.length) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>No members found in the sheet.</span></td></tr>";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
+      : "<span class='table-empty-text'>No members found in the sheet.</span>";
+    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + EMPTY + "</td></tr>";
     if (countEl) countEl.textContent = "";
     return;
   }
@@ -85,10 +202,10 @@ function renderQuotaCheck() {
     var ptColor = (exempt || status === "exempt" || status === "loa") ? "var(--purple)" : (m.met ? "var(--green)" : "var(--amber)");
 
     var sel = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' onchange='setQuotaStatus(" + i + ",this.value)'>"
-      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">✅ Pass</option>"
-      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">❌ Fail</option>"
-      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">🟣 Exempt</option>"
-      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">🟠 Leave of Absence</option>"
+      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">Pass</option>"
+      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">Fail</option>"
+      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">Exempt</option>"
+      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">Leave of Absence</option>"
       + "</select>";
     var reason = "<input type='text' class='form-control' style='padding:4px 8px;height:auto;font-size:12px;"
       + (status === "fail" ? "" : "display:none;") + "' id='quota-reason-" + i + "' placeholder='Reason…' value='"
@@ -128,7 +245,7 @@ function populateIotwSelector() {
 
   var opts = "<option value=''>— No Investigator of the Week —</option>";
   quotaMembersCache.forEach(function (m, i) {
-    var star = tops.indexOf(i) >= 0 ? " ⭐" : "";
+    var star = tops.indexOf(i) >= 0 ? " ★" : "";
     opts += "<option value='" + i + "'" + (i === defaultIdx ? " selected" : "") + ">"
       + escapeHtml(m.username) + (m.rank ? " · " + escapeHtml(m.rank) : "")
       + " — " + (Number(m.total) || 0) + " pts" + star + "</option>";
@@ -138,7 +255,7 @@ function populateIotwSelector() {
   if (tie) {
     if (tops.length > 1) {
       tie.style.display = "";
-      tie.textContent = "⚠ Tie for highest (" + max + " pts) between "
+      tie.textContent = "Tie for highest (" + max + " pts) between "
         + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " — pick one.";
     } else {
       tie.style.display = "none";

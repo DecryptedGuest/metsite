@@ -35,6 +35,12 @@ function requireCsrf(req, res, next) {
   const method = req.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next();
 
+  // Machine-to-machine callbacks authenticate with their own shared secret and
+  // carry NO browser cookies, so CSRF (a cookie-riding attack) doesn't apply.
+  // Exempt the Roblox game callbacks and anything presenting the game secret.
+  const url = req.originalUrl || req.url || '';
+  if (url.startsWith('/api/game') || req.headers['x-game-secret']) return next();
+
   const cookieToken = req.cookies && req.cookies[COOKIE];
   const headerToken = req.headers['x-csrf-token'];
 

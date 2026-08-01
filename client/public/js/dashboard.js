@@ -46,6 +46,9 @@ let groupMembersCache   = [];
 let pendingCache        = [];
 // Bot account's rank — members at this rank or above cannot be managed by the bot
 const BOT_RANK_NAME     = 'Deputy Assistant Commissioner';
+// The managing bot account (METAdministration). Its live rank in each group is
+// the real ceiling: Roblox rejects managing anyone at the bot's rank or above.
+const MET_ADMIN_USER_ID = '11077193582';
 
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -58,33 +61,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupFilterTabs();
   setupOfficerLookup();
   renderActionChecklist();
-  loadDashboard();
+  // Developer division lands on the Dev Panel; IA lands on the dashboard.
+  if (isDevContext() && currentUser && currentUser.role === 'DEVELOPER') navigateTo('admin');
+  else loadDashboard();
   startNavBadgePolling();   // keep the pending case/ticket badges current
-  showClassifiedNotice();
+  maybeShowNotifyOptIn();   // offer to turn on ticket notifications (once)
   startSessionHeartbeat();
   handleNotificationLaunch(); // open a case/ticket if arriving from a notification
 });
 
-// Keep the sidebar "pending" badges (cases + tickets) up to date without having
-// to open the relevant tab — refreshes on load, on a timer, and whenever the
-// tab regains focus (so counts are current when you come back to an open tab).
+// Keep the sidebar "pending" badges up to date without having to open the
+// relevant tab — refreshes on load, on a timer, and whenever the tab regains
+// focus (so counts are current when you come back to an open tab).
 async function refreshNavBadges() {
   try {
-    const [caseStats, caseMineStats, ticketStats] = await Promise.all([
-      api('/api/cases/stats').catch(() => null),           // scope depends on role (all-pending for elevated)
+    const [caseStats, caseMineStats] = await Promise.all([
+      api('/api/cases/stats').catch(() => null),            // scope depends on role (all-pending for elevated)
       api('/api/cases/stats?scope=mine').catch(() => null), // always the user's OWN pending
-      api('/api/tickets/stats').catch(() => null),
     ]);
     const setBadge = (id, n) => {
       const el = document.getElementById(id);
       if (el) { el.textContent = n; el.style.display = n > 0 ? '' : 'none'; }
     };
-    if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);      // Pending Cases (review)
-    if (caseMineStats) setBadge('nav-badge-my',     caseMineStats.pending || 0);  // My Cases (own pending)
-    if (ticketStats) {
-      setBadge('nav-badge-tickets',       ticketStats.pending || 0);
-      setBadge('nav-badge-ticket-review', ticketStats.pendingAll != null ? ticketStats.pendingAll : 0);
-    }
+    if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);
+    // "My Cases" badges what's on the submitter's plate: cases sent back to them.
+    if (caseMineStats) setBadge('nav-badge-my', caseMineStats.changesRequested || 0);
   } catch (e) { /* non-blocking */ }
 }
 
@@ -95,27 +96,6 @@ function startNavBadgePolling() {
   _navBadgeTimer = setInterval(refreshNavBadges, 45 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshNavBadges(); });
   window.addEventListener('focus', refreshNavBadges);
-}
-
-// ── Pending-ticket nav badge (loaded on startup) ──────────────────
-async function loadTicketNavBadge() {
-  try {
-    const stats = await api('/api/tickets/stats');
-    if (!stats) return;
-    // My Tickets badge = the user's OWN pending submissions
-    const badge = document.getElementById('nav-badge-tickets');
-    if (badge) {
-      badge.textContent   = stats.pending;
-      badge.style.display = stats.pending > 0 ? '' : 'none';
-    }
-    // Pending Tickets (review) badge = EVERY pending ticket (HICOMM/Supervisor)
-    const reviewBadge = document.getElementById('nav-badge-ticket-review');
-    if (reviewBadge) {
-      const allPending = stats.pendingAll != null ? stats.pendingAll : 0;
-      reviewBadge.textContent   = allPending;
-      reviewBadge.style.display = allPending > 0 ? '' : 'none';
-    }
-  } catch (err) { /* non-blocking */ }
 }
 
 // ── Session heartbeat — picks up blacklist/revoke within ~20s ─────
@@ -133,25 +113,6 @@ function startSessionHeartbeat() {
   }, 20000);
 }
 
-// ── Classified information notice (shown once per session) ────────
-function showClassifiedNotice() {
-  let alreadyAcked = false;
-  try { alreadyAcked = sessionStorage.getItem('iacms_classified_ack') === '1'; } catch (e) {}
-  if (alreadyAcked) {
-    // Rules already acknowledged this session — go straight to the opt-in check.
-    maybeShowNotifyOptIn();
-    return;
-  }
-  const btn = document.getElementById('btn-ack-classified');
-  if (btn) {
-    btn.onclick = () => {
-      try { sessionStorage.setItem('iacms_classified_ack', '1'); } catch (e) {}
-      closeModal('modal-classified');
-      maybeShowNotifyOptIn(); // ask about notifications once the rules are accepted
-    };
-  }
-  openModal('modal-classified');
-}
 
 // ── Load current user ─────────────────────────────────────────────
 async function loadCurrentUser() {
@@ -173,18 +134,24 @@ async function loadCurrentUser() {
 
     const roleEl = document.getElementById('user-role-badge');
     if (roleEl) {
-      const labels  = { DEVELOPER: '⚙ Developer', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', IA: 'Internal Affairs' };
+      const labels  = { DEVELOPER: 'Developer', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', IA: 'Internal Affairs' };
       const classes = { DEVELOPER: 'dev', HICOMM: 'hicomm', SUPERVISOR: 'hicomm', IA: 'ia' };
       roleEl.textContent = labels[currentUser.role] || currentUser.role;
       roleEl.className   = `user-role-badge ${classes[currentUser.role] || 'ia'}`;
     }
 
-    if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role))
+    if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) {
       document.querySelectorAll('.hicomm-only, .supervisor-only').forEach(el => el.style.display = '');
+      // Supervisor and above sign ticket logs off (tickets.js reads this).
+      window.canReviewTickets = true;
+    }
     if (['HICOMM', 'DEVELOPER'].includes(currentUser.role))
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
-    if (currentUser.role === 'DEVELOPER')
-      document.querySelectorAll('.dev-only').forEach(el => el.style.display = '');
+
+    // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
+    // not mixed into the Internal Affairs section. The dev nav is therefore only
+    // revealed in that context — never on the IA dashboard, even for developers.
+    if (isDevContext() && currentUser.role === 'DEVELOPER') applyDevContext();
 
     // Register the service worker for elevated roles (no permission prompt yet)
     if (window.pushClient) window.pushClient.initForStaff(currentUser.role).catch(() => {});
@@ -193,7 +160,7 @@ async function loadCurrentUser() {
 
 // ── One-time notification opt-in prompt (after rules acknowledged) ──
 async function maybeShowNotifyOptIn() {
-  if (!currentUser || !['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) return;
+  if (!currentUser || !['IA', 'HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) return;
   if (!window.pushClient || !window.pushClient.supported()) return;
   let state;
   try { state = await api('/api/notifications/me'); } catch { return; }
@@ -223,11 +190,54 @@ async function maybeShowNotifyOptIn() {
   openModal('modal-notify-optin');
 }
 
+// ── Developer division context ─────────────────────────────────────
+// The IA dashboard view is reused for the Developer division at /dev/dashboard.
+// In that context we show ONLY the developer tools and hide the IA nav, so the
+// two are cleanly separated (dev tools are no longer part of the IA section).
+function isDevContext() { return location.pathname.startsWith('/dev'); }
+
+function applyDevContext() {
+  // Reveal the developer nav + pages.
+  document.querySelectorAll('.dev-only').forEach(el => el.style.display = '');
+  // Hide every non-developer nav entry (Overview / Cases / Tickets / Tools /
+  // Review / Oversight) — the Developer division shows dev tools only.
+  document.querySelectorAll('.sidebar-nav .nav-item, .sidebar-nav .nav-section-label').forEach(el => {
+    if (!el.classList.contains('dev-only')) el.style.display = 'none';
+  });
+  // Rebrand the sidebar + tab for the Developer division.
+  const bn = document.querySelector('.brand-name'); if (bn) bn.textContent = 'MET · DEV';
+  const bs = document.querySelector('.brand-sub');  if (bs) bs.textContent = 'Developer Tools';
+  document.title = 'MET · Developer';
+}
+
 // ── Navigation ────────────────────────────────────────────────────
 function setupNav() {
   document.querySelectorAll('.nav-item[data-page]').forEach(btn =>
     btn.addEventListener('click', () => navigateTo(btn.dataset.page))
   );
+
+  // The developer tools live in a collapsed group so they don't dominate the
+  // sidebar for the people who can see them.
+  const devToggle = document.getElementById('nav-dev-toggle');
+  const devGroup  = document.getElementById('nav-dev-group');
+  if (devToggle && devGroup) {
+    const open = localStorage.getItem('iacms_nav_dev') === '1';
+    devGroup.style.display = open ? '' : 'none';
+    devToggle.classList.toggle('nav-open', open);
+    devToggle.addEventListener('click', () => {
+      const nowOpen = devGroup.style.display === 'none';
+      devGroup.style.display = nowOpen ? '' : 'none';
+      devToggle.classList.toggle('nav-open', nowOpen);
+      localStorage.setItem('iacms_nav_dev', nowOpen ? '1' : '0');
+    });
+  }
+
+  // The sidebar search chip opens the command palette (Ctrl/Cmd+K).
+  const navSearch = document.getElementById('nav-search-btn');
+  if (navSearch) navSearch.addEventListener('click', () => {
+    if (typeof openCommandPalette === 'function') openCommandPalette();
+    else navigateTo('all-cases');
+  });
 }
 
 function navigateTo(pageId) {
@@ -250,17 +260,89 @@ function navigateTo(pageId) {
     security:        loadSecurity,
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
-    'ticket-review': loadTicketReview,
+    'case-docs':     loadCaseDocs,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
     'quota-check':   (typeof loadQuotaCheck === 'function' ? loadQuotaCheck : null),
-    'ai-review':     (typeof loadAiReview === 'function' ? loadAiReview : null),
+    'ia-profiles':   (typeof loadIaProfiles === 'function' ? loadIaProfiles : null),
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
     'send-notif':    loadDevNotifSender,
+    'emergency-alert': (typeof loadEmergencyAlert === 'function' ? loadEmergencyAlert : null),
     media:           (typeof loadMedia === 'function' ? loadMedia : null),
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
+    'dq-activity':   (typeof DivQuota !== 'undefined' ? () => DivQuota.loadActivity('IA') : null),
+    gamelogs:        loadDevGameLogs,
+    cad:             (typeof loadCad === 'function' ? loadCad : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
+}
+
+// ── Game Logs (in-game Adonis / join / leave / chat feed) ──────────
+const DEV_GL_ICON = { ADONIS: ['ti-shield-bolt', '#f59e0b'], JOIN: ['ti-login', '#2ed896'], LEAVE: ['ti-logout', '#8b93a1'], CHAT: ['ti-message', '#3b82f6'] };
+async function loadDevGameLogs() {
+  const srcEl = document.getElementById('dev-gl-source');
+  const qEl   = document.getElementById('dev-gl-q');
+  const tb    = document.getElementById('dev-gl-tbody');
+  if (!tb) return;
+  const src = srcEl ? srcEl.value : '';
+  const q   = qEl ? qEl.value.trim() : '';
+  tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  let rows;
+  try { rows = await api(`/api/dev/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); }
+  catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${escapeHtml(e.message)}</td></tr>`; return; }
+  tb.innerHTML = rows.length ? rows.map(g => {
+    const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
+    return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
+      <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
+      <td>${escapeHtml(g.actor || '—')}</td>
+      <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '—'}</td>
+      <td>${escapeHtml(g.target || '—')}</td>
+      <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
+  }).join('') : (window.metEmpty
+    ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-file-off', title: 'No game logs yet', sub: 'In-game activity will appear here.' })}</td></tr>`
+    : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
+}
+
+let _devGlT = null;
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
+
+// ── Developer Imports tab ──────────────────────────────────────────
+async function runPatrolBackfill() {
+  const btn = document.getElementById('imp-patrol-btn');
+  const out = document.getElementById('imp-patrol-result');
+  if (!(await uiConfirm('Import every patrol & event log from the channels? Runs in the background and adds any missing logs as approved.'))) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Starting…'; }
+  if (out) out.innerHTML = '';
+  try {
+    const r = await api('/api/dev/patrol-backfill', { method: 'POST' });
+    if (out) out.innerHTML = `<span style="color:var(--green);"><i class="ti ti-check"></i> ${escapeHtml(r.message || 'Import started.')}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-download"></i> Import patrol &amp; event logs'; } }
+}
+
+async function runIaSync() {
+  const btn = document.getElementById('imp-ia-btn');
+  const out = document.getElementById('imp-ia-result');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Syncing…'; }
+  if (out) out.innerHTML = '';
+  try {
+    const r = await api('/api/dev/ia-sync', { method: 'POST' });
+    // Surface a sub-sync failure (e.g. IA_DATABASE_URL wrong, or an IA schema/
+    // column mismatch) instead of a meaningless "+?/?" — that's what makes a
+    // silent failure look like "nothing happened".
+    const failed = (r.cases && r.cases.ok === false) || (r.tickets && r.tickets.ok === false);
+    const fmt = (lbl, x) => {
+      if (!x) return `${lbl}: —`;
+      if (x.ok === false) return `${lbl}: ⚠ ${x.reason || 'failed'}`;
+      return `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}${x.skipped ? ` (${x.skipped} skipped)` : ''}`;
+    };
+    if (out) out.innerHTML = failed
+      ? `<span style="color:var(--amber,#e8842a);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`
+      : `<span style="color:var(--green);"><i class="ti ti-check"></i> Synced. ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Sync IA cases &amp; tickets'; } }
 }
 
 // ── Open a case/ticket from a clicked notification ─────────────────
@@ -277,12 +359,8 @@ async function handleNotificationTarget(page, caseId, ticketId) {
     else showToast('This case is no longer pending — it has already been reviewed.', 'info');
   }
 
-  if (ticketId) {
-    let t = null;
-    try { t = await api('/api/tickets/' + ticketId); } catch (e) {}
-    if (t && t.status === 'PENDING') openTicketDetail(ticketId);
-    else showToast('This ticket log is no longer pending — it has already been reviewed.', 'info');
-  }
+  // Ticket logs are read-only records — a deep link just opens the log.
+  if (ticketId) openTicketDetail(ticketId);
 }
 
 // On a fresh load triggered by a notification click, the SW opens
@@ -338,16 +416,18 @@ async function openTicketDeepLink(ticketId) {
 }
 
 // Copy a shareable deep-link to a case/ticket detail.
-function copyCaseLink(caseId) { copyDeepLink('/dashboard?case=' + caseId); }
-function copyTicketLink(ticketId) { copyDeepLink('/dashboard?ticket=' + ticketId); }
+// Deep links must point at the IA dashboard: "/dashboard" is the MET profile
+// page, which knows nothing about ?case= / ?ticket=.
+function copyCaseLink(caseId) { copyDeepLink('/ia/dashboard?case=' + caseId); }
+function copyTicketLink(ticketId) { copyDeepLink('/ia/dashboard?ticket=' + ticketId); }
 function copyDeepLink(path) {
   const url = location.origin + path;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(
       function () { showToast('Link copied.', 'success'); },
-      function () { prompt('Copy this link:', url); });
+      function () { uiPrompt('Copy this link:', { title: 'Copy link', value: url, confirmText: 'Done' }); });
   } else {
-    prompt('Copy this link:', url);
+    uiPrompt('Copy this link:', { title: 'Copy link', value: url, confirmText: 'Done' });
   }
 }
 
@@ -355,6 +435,24 @@ function copyDeepLink(path) {
 function setupNewCaseButtons() {
   document.getElementById('btn-new-case-dash')?.addEventListener('click', openNewCaseModal);
   document.querySelectorAll('.btn-new-case').forEach(btn => btn.addEventListener('click', openNewCaseModal));
+
+  // Case-document entry points
+  document.getElementById('btn-build-doc')?.addEventListener('click', buildCaseDocument);
+  document.getElementById('btn-pick-doc')?.addEventListener('click', openDocPicker);
+  const newDoc = () => CaseDoc.openBuilder({ onSaved: () => { loadCaseDocs(); } });
+  document.getElementById('btn-new-doc')?.addEventListener('click', newDoc);
+  document.getElementById('btn-new-doc-dash')?.addEventListener('click', newDoc);
+
+  // Documents tab controls
+  const dq = document.getElementById('docs-search');
+  if (dq) dq.addEventListener('input', () => { docsQuery = dq.value.trim(); renderCaseDocs(); });
+  document.querySelectorAll('#docs-scope-tabs .filter-tab').forEach(tab =>
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('#docs-scope-tabs .filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      docsScope = tab.dataset.dscope;
+      loadCaseDocs();
+    }));
 }
 
 // Draft persistence: a new-case draft is kept in the DOM while the modal is
@@ -383,13 +481,11 @@ function resetCaseForm() {
   if (importBox) importBox.style.display = '';
   // Fresh case: no method picked yet — show only the selector until they choose.
   if (typeof setCaseMode === 'function') setCaseMode('');
-  aiEvidence = [];
-  if (typeof renderEvidenceList === 'function') renderEvidenceList();
-  ['ai-email', 'ai-penal'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  const aiRes = document.getElementById('ai-doc-result'); if (aiRes) aiRes.style.display = 'none';
+  showAttachedDoc(null);
   renderActionChecklist();
 }
 
+window.openNewCaseModal = openNewCaseModal;
 function openNewCaseModal() {
   // Start fresh only if there's no draft in progress (or we were editing).
   if (!caseDraftActive || editingCaseId) { resetCaseForm(); caseDraftActive = true; }
@@ -403,29 +499,31 @@ function setupCaseModeTabs() {
     tab.addEventListener('click', () => setCaseMode(tab.dataset.casemode)));
 }
 // mode '' / null → nothing picked yet: show only the selector chips.
+//   build  — write the case document here on the site (the normal path)
+//   import — pull the details out of an existing (Google) doc link
+//   manual — type everything in, paste your own link
 function setCaseMode(mode) {
   document.querySelectorAll('#case-mode-tabs .filter-tab').forEach(t => {
     if (t.disabled) return;
     t.classList.toggle('active', !!mode && t.dataset.casemode === mode);
   });
   const imp    = document.getElementById('case-manual-import');
-  const ai     = document.getElementById('case-ai-section');
+  const build  = document.getElementById('case-doc-section');
   const fields = document.getElementById('case-fields');
   const link   = document.getElementById('case-link-group');
-  if (!mode) { // pick a method first — hide the import panel and all fields
+  if (!mode) { // pick a method first — hide the panels and all fields
     if (imp)    imp.style.display    = 'none';
-    if (ai)     ai.style.display     = 'none';
+    if (build)  build.style.display  = 'none';
     if (fields) fields.style.display = 'none';
     return;
   }
-  // Import panel only in import mode; AI section only in (the disabled) ai mode.
   if (imp)    imp.style.display    = mode === 'import' ? '' : 'none';
-  if (ai)     ai.style.display     = mode === 'ai' ? '' : 'none';
+  if (build)  build.style.display  = mode === 'build'  ? '' : 'none';
   if (fields) fields.style.display = '';
-  // In AI mode the case link is generated automatically — hide the manual field.
-  if (link)   link.style.display   = mode === 'ai' ? 'none' : '';
-  // Import mode greys the manual fields until a doc import fills them; manual mode
-  // leaves them immediately editable.
+  // In build mode the link is produced by the document itself.
+  if (link)   link.style.display   = mode === 'build' ? 'none' : '';
+  // Import mode greys the manual fields until a doc import fills them; the other
+  // modes leave them immediately editable.
   setCaseFieldsEnabled(mode !== 'import');
 }
 function setCaseFieldsEnabled(enabled) {
@@ -435,81 +533,123 @@ function setCaseFieldsEnabled(enabled) {
   box.querySelectorAll('input, textarea, select, button').forEach(el => { el.disabled = !enabled; });
 }
 
-// Evidence collected for the AI document
-let aiEvidence = [];
-function renderEvidenceList() {
-  const box = document.getElementById('ai-evidence-list');
-  if (!box) return;
-  box.innerHTML = aiEvidence.map((e, i) => {
-    const label = String.fromCharCode(65 + i);
-    if (e.kind === 'link') {
-      return `<div style="display:flex;gap:6px;align-items:center;">
-        <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
-        <input type="text" class="form-control" style="flex:1;font-size:12px;padding:5px 8px;" placeholder="https://medal.tv/… or any link" value="${escapeHtml(e.url || '')}" oninput="aiEvidence[${i}].url=this.value" />
-        <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
-      </div>`;
-    }
-    return `<div style="display:flex;gap:6px;align-items:center;">
-      <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
-      <span style="flex:1;font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="ti ti-paperclip"></i> ${escapeHtml(e.name || e.filename)}</span>
-      <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
-    </div>`;
-  }).join('') || '<div style="font-size:11px;color:var(--text-muted);">No evidence added yet.</div>';
-}
-function addEvidenceLinkRow() { aiEvidence.push({ kind: 'link', url: '' }); renderEvidenceList(); }
-function removeEvidence(i) { aiEvidence.splice(i, 1); renderEvidenceList(); }
-function addEvidenceFiles(files) {
-  Array.prototype.forEach.call(files || [], f => {
-    const r = new FileReader();
-    r.onload = e => { aiEvidence.push({ kind: 'file', dataBase64: e.target.result, mimeType: f.type, filename: f.name, name: f.name }); renderEvidenceList(); };
-    r.readAsDataURL(f);
-  });
-  const inp = document.getElementById('ai-evidence-file'); if (inp) inp.value = '';
-}
+// ── Built-in case document ────────────────────────────────────────
+// The document the case links to is now written on the site. attachedDocId is
+// sent with the case so the server can point caseLink at /case-doc/<id> and
+// mark the document final.
+let attachedDocId = null;
 
-async function generateAiDocument() {
-  const v = id => (document.getElementById(id) || {}).value || '';
-  const email = v('ai-email').trim();
-  const penalCodes = v('ai-penal').split(',').map(s => s.trim()).filter(Boolean);
-  // Suspect details come from the officer lookup (same source as Records).
-  const suspectName = (officerProfile && (officerProfile.robloxUsername || officerProfile.username)) || '';
-  const suspectRank = (officerProfile && officerProfile.groupRole) || '';
-  const suspectId   = (officerProfile && (officerProfile.discordId || officerProfile.robloxId)) || '';
-  const punishment  = getSelectedActions().map(a => a.action).join(', ');
-
-  if (!officerProfile || !suspectName) { showToast('Look up the officer (suspect) first.', 'error'); return; }
-  if (!email)            { showToast('Enter your email address.', 'error'); return; }
-  if (!penalCodes.length){ showToast('Enter at least one penal code.', 'error'); return; }
-  if (!punishment)       { showToast('Select at least one punishment.', 'error'); return; }
-
-  const evidence = aiEvidence
-    .map(e => e.kind === 'link' ? { url: e.url } : { dataBase64: e.dataBase64, mimeType: e.mimeType, filename: e.filename })
-    .filter(e => (e.url && e.url.trim()) || e.dataBase64);
-
-  const btn = document.getElementById('btn-ai-generate');
-  const resEl = document.getElementById('ai-doc-result');
-  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Generating…"; }
-  try {
-    const d = await api('/api/cases/ai-document', { method: 'POST', body: JSON.stringify({
-      email, penalCodes, punishment,
-      suspect: { user: suspectName, rank: suspectRank, userId: suspectId },
-      evidence,
-    }) });
-    const linkEl = document.getElementById('f-case-link'); if (linkEl) linkEl.value = d.url || '';
-    const reasonEl = document.getElementById('f-reason');
-    if (reasonEl && Array.isArray(d.allegations))
-      reasonEl.value = d.allegations.map(a => a.code + (a.offense ? ' (' + a.offense + ')' : '')).join(', ');
-    if (resEl) {
-      resEl.style.display = '';
-      resEl.innerHTML = "✅ Document created &amp; shared with you. <a href='" + escapeHtml(d.url) + "' target='_blank' rel='noopener' style='color:var(--blue);'>Open document</a> — review it, then Submit Case below.";
-    }
-    showToast('Case document generated.', 'success');
-  } catch (err) {
-    if (resEl) { resEl.style.display = ''; resEl.innerHTML = "<span style='color:var(--red);'>" + escapeHtml(err.message || 'Failed to generate document.') + "</span>"; }
-    showToast(err.message || 'Failed to generate document.', 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-sparkles'></i> Generate Case Document"; }
+function showAttachedDoc(doc) {
+  attachedDocId = doc ? doc.id : null;
+  const box = document.getElementById('case-doc-attached');
+  const linkEl = document.getElementById('f-case-link');
+  if (!doc) {
+    if (box) box.style.display = 'none';
+    // Clear the link the document wrote, or the case would still be filed
+    // against a document that is no longer attached.
+    if (linkEl && /\/case-doc\//.test(linkEl.value || '')) linkEl.value = '';
+    return;
   }
+  if (linkEl) linkEl.value = location.origin + '/case-doc/' + doc.id;
+  if (box) {
+    box.style.display = '';
+    box.innerHTML = `<div class="doc-attached">
+      <i class="ti ti-file-check"></i>
+      <span><strong>${escapeHtml(doc.docRef || 'Document')}</strong> — ${escapeHtml(doc.title || 'Case document')}</span>
+      <a href="/case-doc/${escapeHtml(doc.id)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-external-link"></i> Open</a>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="editAttachedDoc()"><i class="ti ti-pencil"></i> Edit</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="showAttachedDoc(null)"><i class="ti ti-x"></i></button>
+    </div>`;
+  }
+}
+
+function editAttachedDoc() {
+  if (!attachedDocId) return;
+  CaseDoc.openBuilder({ docId: attachedDocId, onAttach: showAttachedDoc });
+}
+
+function buildCaseDocument() {
+  CaseDoc.openBuilder({
+    docId:        attachedDocId || null,
+    officerInput: (document.getElementById('f-officer-id') || {}).value || '',
+    prefill:      { punishments: getSelectedActions() },
+    onAttach:     showAttachedDoc,
+  });
+}
+
+// Pick one of your existing documents instead of writing a new one.
+async function openDocPicker() {
+  const body = document.getElementById('doc-picker-body');
+  if (!body) return;
+  body.innerHTML = '<div class="table-loading" style="padding:2rem;"><div class="spinner"></div></div>';
+  openModal('modal-doc-picker');
+  try {
+    const docs = await api('/api/case-docs');
+    if (!docs.length) {
+      body.innerHTML = '<div style="padding:1.4rem;text-align:center;color:var(--text-muted);font-size:13px;">'
+        + 'You haven\'t written any case documents yet.</div>';
+      return;
+    }
+    body.innerHTML = '<div class="doc-picker-list">' + docs.map(d => `
+      <button type="button" class="doc-picker-item" onclick="pickDoc('${d.id}')">
+        <span class="doc-picker-ref">${escapeHtml(d.docRef)}</span>
+        <span class="doc-picker-title">${escapeHtml(d.title)}</span>
+        <span class="doc-picker-meta">${d.status === 'FINAL' ? 'Final' : 'Draft'} · ${formatDate(d.updatedAt)}</span>
+      </button>`).join('') + '</div>';
+  } catch (err) {
+    body.innerHTML = '<div style="padding:1.4rem;color:var(--red);">' + escapeHtml(err.message || 'Failed to load documents.') + '</div>';
+  }
+}
+
+async function pickDoc(id) {
+  try {
+    const doc = await api('/api/case-docs/' + id);
+    showAttachedDoc(doc);
+    closeModal('modal-doc-picker');
+    showToast('Document attached.', 'success');
+  } catch (err) { showToast(err.message || 'Could not attach that document.', 'error'); }
+}
+
+// ── Case Documents tab ────────────────────────────────────────────
+let docsCache = [], docsScope = 'mine', docsQuery = '';
+
+async function loadCaseDocs() {
+  const tbody = document.getElementById('docs-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  try {
+    docsCache = (await api('/api/case-docs?scope=' + docsScope)) || [];
+    renderCaseDocs();
+  } catch { tbody.innerHTML = emptyRow(6, 'Failed to load documents.'); }
+}
+
+function renderCaseDocs() {
+  const tbody = document.getElementById('docs-tbody');
+  if (!tbody) return;
+  const q = docsQuery.toLowerCase();
+  const rows = docsCache.filter(d => !q
+    || (d.title || '').toLowerCase().includes(q)
+    || (d.docRef || '').toLowerCase().includes(q)
+    || (d.author || '').toLowerCase().includes(q));
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(6, docsCache.length
+      ? 'No documents match that search.'
+      : 'No case documents yet — press “New Document” to write one.');
+    return;
+  }
+  tbody.innerHTML = rows.map(d => `
+    <tr onclick="CaseDoc.openBuilder({docId:'${d.id}', onSaved:function(){loadCaseDocs();}})">
+      <td><span class="case-ref">${escapeHtml(d.docRef)}</span></td>
+      <td><span style="font-size:12.5px;">${escapeHtml(d.title)}</span></td>
+      <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(d.author || '—')}</span></td>
+      <td>${d.status === 'FINAL'
+            ? '<span class="badge badge-approved"><span class="badge-dot"></span>Final</span>'
+            : '<span class="badge badge-pending"><span class="badge-dot"></span>Draft</span>'}</td>
+      <td><span class="date-cell">${formatDateTime(d.updatedAt)}</span></td>
+      <td onclick="event.stopPropagation();">
+        <a class="row-btn" href="/case-doc/${escapeHtml(d.id)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Open</a>
+      </td>
+    </tr>`).join('');
 }
 
 // Show the (estimated) case ID the next submission will receive.
@@ -548,6 +688,16 @@ function openEditCase(caseId) {
 
   renderActionChecklist();
   applyDocPunishments(Array.isArray(c.actions) && c.actions.length ? c.actions : [{ action: c.action }], true);
+
+  // Show the document this case is actually attached to (and nothing if it has
+  // none) rather than whatever was staged by a previous new-case draft.
+  if (c.documentId) {
+    api('/api/case-docs/' + c.documentId)
+      .then(showAttachedDoc)
+      .catch(function () { showAttachedDoc(null); });
+  } else {
+    showAttachedDoc(null);
+  }
 
   const title = document.querySelector('#modal-submit .modal-title');
   if (title) title.innerHTML = '<i class="ti ti-edit" style="font-size:18px;"></i> Edit Case ' + escapeHtml(c.caseRef);
@@ -695,7 +845,7 @@ async function importCaseFromDoc() {
     if (resEl) {
       resEl.style.display = '';
       resEl.style.color   = 'var(--green)';
-      resEl.innerHTML = '✓ Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
+      resEl.innerHTML = '<i class="ti ti-check"></i> Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
         + (sus.groupRole ? ' · ' + escapeHtml(sus.groupRole) : '')
         + (d.punishments?.length ? ' · ' + d.punishments.map(p => escapeHtml(p.action)).join(', ') : '')
         + ' — review before submitting.';
@@ -728,14 +878,14 @@ function renderActionChecklist(precheck = null) {
     const isBlacklist = a.name === 'Blacklist';
 
     let badge = '';
-    if (isExile)     badge = `<span class="ac-badge ac-exile">⚡ ${isBlacklist ? 'EXILE + ROLE' : 'EXILE'}</span>`;
+    if (isExile)     badge = `<span class="ac-badge ac-exile"><i class="ti ti-bolt"></i> ${isBlacklist ? 'EXILE + ROLE' : 'EXILE'}</span>`;
     else if (hasRole) badge = `<span class="ac-badge ac-role">AUTO-ROLE</span>`;
     else              badge = `<span class="ac-badge ac-norole">NO ROLE</span>`;
 
     const onRecordBadge = onRecord
-      ? `<span class="ac-badge ac-onrecord">⚠ on record</span>` : '';
+      ? `<span class="ac-badge ac-onrecord"><i class="ti ti-alert-triangle"></i> on record</span>` : '';
     const suggestedBadge = isSuggested
-      ? `<span class="ac-badge ac-suggested">★ Recommended</span>` : '';
+      ? `<span class="ac-badge ac-suggested"><i class="ti ti-star"></i> Recommended</span>` : '';
 
     // Duration only shown when the checkbox is checked; hidden otherwise
     const durationSelect = hasRole ? `
@@ -850,7 +1000,7 @@ async function lookupOfficer() {
       : '';
 
     const suggestedNote = data.suggestedAction
-      ? `<span class="officer-suggested-note">⚠ ${escapeHtml(data.warning)} — <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
+      ? `<span class="officer-suggested-note"><i class="ti ti-alert-triangle"></i> ${escapeHtml(data.warning)} — <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
       : '';
 
     resultEl.innerHTML = `
@@ -876,26 +1026,37 @@ async function lookupOfficer() {
   }
 }
 
-// ── Filter tabs ───────────────────────────────────────────────────
+// ── Filters + search ──────────────────────────────────────────────
+// Every case list has the same pair of controls: a status filter and a search
+// box. This wires them all the same way so they behave identically.
 function setupFilterTabs() {
-  document.querySelectorAll('#dash-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#dash-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); dashFilter = tab.dataset.filter; renderDashTable();
-    })
-  );
-  document.querySelectorAll('#all-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#all-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); allPageFilter = tab.dataset.filter; renderAllCasesTable();
-    })
-  );
-  document.querySelectorAll('#dash-ticket-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#dash-ticket-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); dashTicketFilter = tab.dataset.tfilter; renderDashTickets();
-    })
-  );
+  const tabs = (selector, attr, apply) => {
+    document.querySelectorAll(`${selector} .filter-tab`).forEach(tab =>
+      tab.addEventListener('click', () => {
+        document.querySelectorAll(`${selector} .filter-tab`).forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        apply(tab.dataset[attr]);
+      })
+    );
+  };
+  tabs('#dash-filter-tabs',   'filter',   v => { dashFilter    = v; renderDashTable(); });
+  tabs('#all-filter-tabs',    'filter',   v => { allPageFilter = v; renderAllCasesTable(); });
+  tabs('#my-filter-tabs',     'myfilter', v => { myFilter      = v; renderMyCasesTable(); });
+  tabs('#review-filter-tabs', 'rfilter',  v => { reviewFilter  = v; renderReviewTable(); });
+
+  const search = (id, apply) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => apply(el.value.trim()));
+    // Escape clears the box — the fastest way back to the full list.
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { el.value = ''; apply(''); }
+    });
+  };
+  search('dash-search',      q => { dashQuery   = q; renderDashTable(); });
+  search('my-cases-search',  q => { myQuery     = q; renderMyCasesTable(); });
+  search('all-cases-search', q => { allQuery    = q; renderAllCasesTable(); });
+  search('review-search',    q => { reviewQuery = q; renderReviewTable(); });
 }
 
 // ── Submit Case ───────────────────────────────────────────────────
@@ -913,7 +1074,9 @@ function submitCase() {
   if (!officerInput) { showToast('Officer Discord/Roblox ID or username is required.', 'error'); return; }
   if (!actions.length) { showToast('Select at least one punishment.', 'error'); return; }
   if (!reason)         { showToast('Reason is required.', 'error'); return; }
-  if (!caseLink)       { showToast('Case link is required.', 'error'); return; }
+  if (!caseLink && !attachedDocId) {
+    showToast('Build a case document, or paste a case link.', 'error'); return;
+  }
 
   // Edit mode: save changes + re-post (no submit preview)
   if (editingCaseId) { return doEditCase({ actions, reason, notes, caseLink }); }
@@ -931,7 +1094,7 @@ function submitCase() {
       { label: '<i class="ti ti-arrow-left"></i> Back to editing', class: 'btn btn-ghost',
         onClick: () => { closeModal('modal-embed-preview'); openModal('modal-submit'); } },
       { label: '<i class="ti ti-check"></i> Agree &amp; Submit', class: 'btn btn-primary',
-        onClick: () => doSubmitCase({ actions, reason, notes, officerInput, caseLink }) },
+        onClick: () => doSubmitCase({ actions, reason, notes, officerInput, caseLink, documentId: attachedDocId }) },
     ],
   });
 }
@@ -976,98 +1139,150 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────
-async function loadDashboard() { await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadPoints()]); }
+async function loadDashboard() {
+  if (typeof DivQuota !== 'undefined') DivQuota.loadMyQuota('IA', 'dq-IA-mine');
+  await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadQuotaHero()]);
+  renderAttention();
+}
 
-// My Activity Points — read from the linked IA Database Google Sheet
-async function loadPoints() {
-  const panel = document.getElementById('points-panel');
-  const body  = document.getElementById('points-body');
-  const totalEl = document.getElementById('points-total');
-  if (!panel || !body) return;
+// ── Weekly quota hero ─────────────────────────────────────────────
+// The weekly target depends on rank (30 Low Command / 20 Middle Command,
+// High Command and LOA exempt). It's the number people actually care about, so
+// it gets the top of the page rather than a panel halfway down.
+async function loadQuotaHero() {
+  const hero = document.getElementById('quota-hero');
+  if (!hero) return;
   try {
     const d = await api('/api/me/points');
-    if (!d || !d.configured || !d.found) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
+    if (!d || !d.configured || !d.found) { hero.style.display = 'none'; return; }
+    hero.style.display = '';
 
-    const q = d.quota || {};
-    // Header summary (top-right)
-    if (totalEl) {
-      if (q.exempt) {
-        totalEl.innerHTML = `<span style="color:var(--purple);font-weight:700;">EXEMPT</span> · ${escapeHtml(d.rank || 'High Command')}`;
-      } else if (q.target != null) {
-        const met = d.total >= q.target;
-        totalEl.innerHTML = `${d.total} / ${q.target} pts`
-          + (met
-              ? ` · <span style="color:var(--green);font-weight:700;">Quota met ✓</span>`
-              : ` · <span style="color:var(--amber);font-weight:700;">${d.remaining} to go</span>`);
-      } else {
-        totalEl.textContent = `Total this week: ${d.total}`;
-      }
-    }
+    const q      = d.quota || {};
+    // No target for an unrecognised rank — show the raw total rather than
+    // inventing a number to measure them against.
+    const target = q.target != null ? q.target : null;
+    const total  = d.total || 0;
+    const met    = q.exempt || (target != null && total >= target);
+    const pct    = q.exempt || target == null ? 100 : Math.min(100, Math.round((total / Math.max(1, target)) * 100));
 
-    // Progress bar + breakdown
-    let progressHtml = '';
-    if (q.exempt) {
-      progressHtml = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
-        ${escapeHtml(d.rank || '')} — exempt from the weekly quota (EX).</div>`;
-    } else if (q.target != null) {
-      const pct = Math.min(100, Math.round((d.total / q.target) * 100));
-      const met = d.total >= q.target;
-      progressHtml = `
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:5px;">
-          <span>${escapeHtml(d.rank || '')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''} — ${q.target} pts/week</span>
-          <span>${d.total}/${q.target}${met ? '' : ` · ${d.remaining} left`}</span>
-        </div>
-        <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:5px;overflow:hidden;margin-bottom:12px;">
-          <div style="height:100%;width:${pct}%;background:${met ? 'var(--green)' : 'var(--amber)'};border-radius:5px;transition:width .3s;"></div>
-        </div>`;
-    }
+    document.getElementById('quota-hero-points').textContent = q.exempt ? 'EX' : total;
+    document.getElementById('quota-hero-target').textContent = (q.exempt || target == null) ? '' : ` / ${target} pts`;
+    document.getElementById('quota-hero-sub').innerHTML = q.exempt
+      ? `${escapeHtml(d.rank || 'High Command')} — exempt from the weekly quota.`
+      : `${escapeHtml(d.rank || 'Internal Affairs')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''}`
+        + (target == null ? ''
+            : met
+              ? ' · <strong style="color:var(--green);">Quota met</strong>'
+              : ` · <strong style="color:var(--amber);">${Math.max(0, target - total)} points to go</strong>`);
+
+    const fill = document.getElementById('quota-hero-fill');
+    fill.style.width = pct + '%';
+    fill.style.background = met ? 'var(--green)' : 'var(--amber)';
+    hero.classList.toggle('quota-met', met);
 
     const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const daysHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${
-      order.map(day => {
-        const v = d.days[day];
-        return `<div style="flex:1;min-width:64px;text-align:center;background:rgba(255,255,255,0.03);border:1px solid var(--border-dim);border-radius:6px;padding:8px 4px;">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">${day}</div>
-          <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:2px;">${escapeHtml(String(v))}</div>
-        </div>`;
-      }).join('')
-    }</div>`;
+    document.getElementById('quota-hero-days').innerHTML = order.map(day => {
+      const v = d.days[day];
+      const has = typeof v === 'number' ? v > 0 : !!v;
+      return `<div class="quota-day${has ? ' quota-day-on' : ''}">
+        <span class="quota-day-name">${day}</span>
+        <span class="quota-day-val">${escapeHtml(String(v))}</span>
+      </div>`;
+    }).join('');
+  } catch (err) { hero.style.display = 'none'; }
+}
 
-    body.innerHTML = progressHtml + daysHtml;
-  } catch (err) { panel.style.display = 'none'; }
+// ── "Needs your attention" ────────────────────────────────────────
+// One place that answers "what do I actually have to do?" — cases sent back to
+// you, and (for reviewers) the queue waiting on a decision.
+let attentionState = { changes: [], pending: 0 };
+
+function renderAttention() {
+  const panel = document.getElementById('attention-panel');
+  const box   = document.getElementById('attention-items');
+  if (!panel || !box) return;
+
+  const items = [];
+  attentionState.changes.forEach(c => {
+    items.push(`<button class="attention-item" onclick="openDetail('${c.id}')">
+      <i class="ti ti-edit-circle" style="color:var(--amber);"></i>
+      <span><strong>${escapeHtml(c.caseRef)}</strong> needs changes — ${escapeHtml((c.reviewNote || '').slice(0, 90))}</span>
+      <i class="ti ti-chevron-right"></i>
+    </button>`);
+  });
+  if (attentionState.pending > 0 && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role)) {
+    items.push(`<button class="attention-item" onclick="navigateTo('review')">
+      <i class="ti ti-clipboard-check" style="color:var(--blue);"></i>
+      <span><strong>${attentionState.pending}</strong> case${attentionState.pending === 1 ? '' : 's'} waiting on a decision</span>
+      <i class="ti ti-chevron-right"></i>
+    </button>`);
+  }
+
+  if (!items.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  box.innerHTML = items.join('');
 }
 
 async function loadStats() {
   try {
-    const [stats, mine, myTickets] = await Promise.all([
+    const [stats, mine, tickets] = await Promise.all([
       api('/api/cases/stats'),
       api('/api/cases/stats?scope=mine'),
-      api('/api/tickets/stats?scope=mine'),
+      api('/api/tickets/stats').catch(() => null),
     ]);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     if (stats) {
-      document.getElementById('stat-total').textContent    = stats.total;
-      document.getElementById('stat-pending').textContent  = stats.pending;
-      document.getElementById('stat-approved').textContent = stats.approved;
-      document.getElementById('stat-denied').textContent   = stats.denied;
+      set('stat-total',      stats.total);
+      set('stat-pending',    stats.pending);
+      set('stat-approved',   stats.approved);
+      set('stat-denied',     stats.denied);
+      set('stat-overturned', stats.overturned || 0);
       const badge = document.getElementById('nav-badge-review');
       if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
+      attentionState.pending = stats.pending || 0;
     }
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     if (mine) {
-      set('stat-my-total',    mine.total);
-      set('stat-my-pending',  mine.pending);
-      set('stat-my-approved', mine.approved);
-      set('stat-my-denied',   mine.denied);
+      const myBadge = document.getElementById('nav-badge-my');
+      if (myBadge) {
+        myBadge.textContent = mine.changesRequested || 0;
+        myBadge.style.display = (mine.changesRequested || 0) > 0 ? '' : 'none';
+      }
     }
-    if (myTickets) {
-      set('stat-my-ticket-total',    myTickets.total);
-      set('stat-my-ticket-pending',  myTickets.pending);
-      set('stat-my-ticket-approved', myTickets.approved);
-      set('stat-my-ticket-denied',   myTickets.denied);
+    if (tickets) {
+      set('stat-tickets-week', tickets.mineWeek || 0);
+      // How many ticket logs are still waiting on a supervisor — shown on the
+      // All Tickets "Pending" tab and the nav, so the sign-off queue is visible
+      // without having to go looking for it.
+      const waiting = tickets.pending || 0;
+      for (const id of ['all-tickets-pending-badge', 'nav-badge-tickets']) {
+        const b = document.getElementById(id);
+        if (b) { b.textContent = waiting; b.style.display = waiting > 0 ? '' : 'none'; }
+      }
     }
   } catch (err) { console.error('Stats error:', err); }
 }
+
+// ── Case search + filter helpers ──────────────────────────────────
+// One matcher shared by every case list, so search behaves identically on the
+// dashboard, My Cases, All Cases and the review queue.
+function caseMatches(c, q) {
+  if (!q) return true;
+  const hay = [
+    c.caseRef, c.action, c.reason, c.notes, c.robloxUsername, c.robloxUserId,
+    c.officerDiscordId, c.suspectRobloxDisplayName, c.investigatorRobloxUsername,
+    c.investigatorDiscordUsername, c.punishmentsSummary, c.appealedByName, c.reviewNote,
+    c.user && (c.user.displayName || c.user.discordUsername),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
+
+function filterCases(list, status, q) {
+  return (list || [])
+    .filter(c => status === 'all' || c.status === status)
+    .filter(c => caseMatches(c, q));
+}
+
+let dashQuery = '', myQuery = '', myFilter = 'all', allQuery = '', reviewQuery = '', reviewFilter = 'all';
 
 async function loadDashCases() {
   const tbody = document.getElementById('dash-cases-tbody');
@@ -1076,7 +1291,9 @@ async function loadDashCases() {
   try {
     const cases = await api('/api/cases/my');
     allCasesCache = cases || [];
+    attentionState.changes = allCasesCache.filter(caseAwaitingChanges);
     renderDashTable();
+    renderAttention();
   } catch {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><span class="table-empty-text">Failed to load cases.</span></td></tr>`;
   }
@@ -1086,10 +1303,10 @@ function renderDashTable() {
   const tbody = document.getElementById('dash-cases-tbody');
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
-  const filtered   = dashFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === dashFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, 'No cases found'); return; }
+  const filtered   = filterCases(allCasesCache, dashFilter, dashQuery).slice(0, 25);
+  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, dashQuery ? 'No cases match that search.' : 'No cases yet — press “Submit Case” to file one.'); return; }
   tbody.innerHTML = filtered.map(c => `
-    <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
@@ -1099,39 +1316,47 @@ function renderDashTable() {
     </tr>`).join('');
 }
 
-// ── Recent Ticket Logs (the user's own) ───────────────────────────
-let dashTicketFilter  = 'all';
-let dashTicketsCache  = [];
+// Row highlight: amber for "needs your changes", blue for "submitter updated it".
+function caseRowClass(c) {
+  if (caseAwaitingChanges(c)) return 'row-changes';
+  if (caseWasUpdated(c))      return 'row-updated';
+  return '';
+}
+
+// ── Tickets I closed (dashboard preview) ──────────────────────────
+let dashTicketsCache = [];
 
 async function loadDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const tickets = await api('/api/tickets');
-    dashTicketsCache = tickets || [];
+    dashTicketsCache = (await api('/api/tickets?take=8')) || [];
     renderDashTickets();
   } catch {
-    tbody.innerHTML = '<tr><td colspan="5" class="table-empty"><span class="table-empty-text">Failed to load tickets.</span></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="table-empty"><span class="table-empty-text">Failed to load ticket logs.</span></td></tr>';
   }
 }
 
 function renderDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
-  const filtered = dashTicketFilter === 'all' ? dashTicketsCache : dashTicketsCache.filter(t => t.status === dashTicketFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(5, 'No ticket logs found'); return; }
+  const rows = dashTicketsCache.slice(0, 8);
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(5, 'No tickets closed by you yet — they appear here automatically.');
+    return;
+  }
   const TLmap = (typeof TL !== 'undefined') ? TL : {};
   const TCmap = (typeof TC !== 'undefined') ? TC : {};
-  tbody.innerHTML = filtered.map(t => {
+  tbody.innerHTML = rows.map(t => {
     const c = TCmap[t.ticketType] || 'blue';
     const l = TLmap[t.ticketType] || t.ticketType;
     return `<tr onclick="openTicketDetail('${t.id}')">
-      <td><span class="case-ref">${escapeHtml(t.ticketRef)}</span></td>
-      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.robloxUsername || '—')}</span></td>
+      <td><span class="case-ref">${escapeHtml(t.ticketRef || t.ticketName || '—')}</span></td>
+      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.creatorRobloxUsername || t.creatorUsername || '—')}</span></td>
       <td><span class="badge badge-${c}"><span class="badge-dot"></span>${escapeHtml(l)}</span></td>
-      <td>${statusBadge(t.status)}</td>
-      <td><span class="date-cell">${formatDate(t.createdAt)}</span></td>
+      <td><span class="case-reason-cell">${escapeHtml(t.reason || '—')}</span></td>
+      <td><span class="date-cell">${formatDate(t.closedAt)}</span></td>
     </tr>`;
   }).join('');
 }
@@ -1142,44 +1367,76 @@ async function loadMyCases() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/my');
-    allCasesCache = cases || [];
-    if (!cases?.length) { tbody.innerHTML = emptyRow(6, 'No cases submitted yet.'); return; }
-    tbody.innerHTML = cases.map(c => `
-      <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
-        <td>${actionBadges(cleanAction(c.action))}</td>
-        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-        <td><span class="case-notes-cell">${escapeHtml(c.notes)}</span></td>
-        <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
-        <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
-      </tr>`).join('');
+    allCasesCache = (await api('/api/cases/my')) || [];
+    renderMyCasesTable();
   } catch { tbody.innerHTML = emptyRow(6, 'Failed to load cases.'); }
+}
+
+function renderMyCasesTable() {
+  const tbody = document.getElementById('my-cases-tbody');
+  if (!tbody) return;
+  const rows = filterCases(allCasesCache, myFilter, myQuery);
+  const count = document.getElementById('my-cases-count');
+  if (count) count.textContent = `${rows.length} of ${allCasesCache.length} shown`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(6, allCasesCache.length ? 'No cases match that search.' : 'No cases submitted yet.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
+      <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
+      <td>${officerCell(c)}</td>
+      <td>${actionBadges(cleanAction(c.action))}</td>
+      <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
+      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
+    </tr>`).join('');
 }
 
 // ── Review Queue ──────────────────────────────────────────────────
 async function loadReview() {
   const tbody = document.getElementById('review-tbody');
-  const label = document.getElementById('pending-count-label');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/all?status=PENDING');
-    allCasesCache = cases || [];
-    if (label) label.textContent = `${cases?.length || 0} awaiting decision`;
-    if (!cases?.length) { tbody.innerHTML = emptyRow(8, 'No pending cases — all caught up.'); return; }
-    tbody.innerHTML = cases.map(c => `
-      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${caseAwaitingChanges(c) ? '<br>' + changesBadge(c) : ''}</td>
+    allCasesCache = (await api('/api/cases/all?status=PENDING')) || [];
+    renderReviewTable();
+  } catch { tbody.innerHTML = emptyRow(8, 'Failed to load cases.'); }
+}
+
+function renderReviewTable() {
+  const tbody = document.getElementById('review-tbody');
+  const label = document.getElementById('pending-count-label');
+  if (!tbody) return;
+
+  let rows = allCasesCache.filter(c => caseMatches(c, reviewQuery));
+  if (reviewFilter === 'changes')      rows = rows.filter(caseAwaitingChanges);
+  else if (reviewFilter === 'updated') rows = rows.filter(caseWasUpdated);
+  else if (reviewFilter === 'new')     rows = rows.filter(c => !caseAwaitingChanges(c) && !caseWasUpdated(c));
+
+  if (label) label.textContent = `${rows.length} of ${allCasesCache.length} awaiting decision`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(8, allCasesCache.length ? 'Nothing matches that filter.' : 'No pending cases — all caught up.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => {
+    const rev = lastRevision(c);
+    return `
+      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseRowClass(c)}">
+        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${changesBadge(c) ? '<br>' + changesBadge(c) : ''}</td>
         <td>${caseInvestigatorCell(c)}</td>
         <td>${officerCell(c)}</td>
         <td>${actionBadges(cleanAction(c.action))}</td>
-        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
+        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span>${
+          caseWasUpdated(c) && rev
+            ? `<div class="row-diff-hint" title="${escapeHtml(rev.changes.map(x => x.label + ': ' + x.before + ' → ' + x.after).join(' · '))}">
+                 <i class="ti ti-git-compare"></i> ${escapeHtml(rev.changes.map(x => x.label).join(', '))} updated
+               </div>` : ''}</td>
         <td><span class="case-notes-cell">${escapeHtml(c.notes)}</span></td>
         <td><span class="date-cell">${formatDateTime(c.createdAt)}</span></td>
         <td onclick="event.stopPropagation();">${rowActions(c)}</td>
-      </tr>`).join('');
-  } catch { tbody.innerHTML = emptyRow(8, 'Failed to load cases.'); }
+      </tr>`;
+  }).join('');
 }
 
 // ── All Cases ─────────────────────────────────────────────────────
@@ -1188,8 +1445,7 @@ async function loadAllCases() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/all');
-    allCasesCache = cases || [];
+    allCasesCache = (await api('/api/cases/all')) || [];
     renderAllCasesTable();
   } catch { tbody.innerHTML = emptyRow(7, 'Failed to load cases.'); }
 }
@@ -1199,10 +1455,15 @@ function renderAllCasesTable() {
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
   const cols = isElevated ? 8 : 7;
-  const filtered = allPageFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === allPageFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(cols, 'No cases found.'); return; }
-  tbody.innerHTML = filtered.map(c => `
-    <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
+  const rows = filterCases(allCasesCache, allPageFilter, allQuery);
+  const count = document.getElementById('all-cases-count');
+  if (count) count.textContent = `${rows.length} of ${allCasesCache.length} shown`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(cols, allCasesCache.length ? 'No cases match that search.' : 'No cases found.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${caseInvestigatorCell(c)}</td>
       <td>${officerCell(c)}</td>
@@ -1223,7 +1484,12 @@ async function loadAudit() {
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const actions = await api('/api/cases/audit');
-    if (!actions?.length) { tbody.innerHTML = emptyRow(5, 'No audit entries yet.'); return; }
+    if (!actions?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-list-details', title: 'No audit entries yet', sub: 'Case actions will be recorded here.' })}</td></tr>`
+        : emptyRow(5, 'No audit entries yet.');
+      return;
+    }
     const actionBadges = {
       CREATED:       '<span class="badge badge-ia"><span class="badge-dot"></span>Created</span>',
       APPROVED:      '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
@@ -1253,7 +1519,12 @@ async function loadAccessGrants() {
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const grants = await api('/api/admin/access-grants');
-    if (!grants?.length) { tbody.innerHTML = emptyRow(5, 'No authorised users yet.'); return; }
+    if (!grants?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-users', title: 'No authorised users yet', sub: 'Grant access using the form above.' })}</td></tr>`
+        : emptyRow(5, 'No authorised users yet.');
+      return;
+    }
     const roleLabel = { IA: 'Internal Affairs', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', DEVELOPER: 'Developer' };
     tbody.innerHTML = grants.map(g => `
       <tr>
@@ -1283,7 +1554,7 @@ async function addAccessGrant() {
 }
 
 async function revokeAccessGrant(id) {
-  if (!confirm('Revoke this user\'s authorised access? They will be logged out immediately and can only return if they hold the required Discord roles.')) return;
+  if (!(await uiConfirm('Revoke this user\'s authorised access? They will be logged out immediately and can only return if they hold the required Discord roles.'))) return;
   try {
     await api(`/api/admin/access-grants/${id}`, { method: 'DELETE' });
     showToast('Access revoked.', 'info');
@@ -1301,15 +1572,232 @@ async function loadAdminStats() {
   } catch {}
 }
 
+// The MET umbrella group's rank ladder (for the MET-rank override dropdown),
+// fetched once and cached for the session.
+let _metRolesCache = null;
+async function metRolesOnce() {
+  if (_metRolesCache) return _metRolesCache;
+  try { _metRolesCache = await api('/api/admin/met-roles'); } catch (e) { _metRolesCache = []; }
+  return _metRolesCache || [];
+}
+// ── Custom site-UI dropdowns for the admin user row ──────────────────
+// Two developer controls, styled to the site (not native <select>s):
+//   1. Panels — a multi-select of every divisional panel (+ each division's
+//      HICOMM, IA Supervisor, and MET High Command). Additive: the panels a
+//      user already has via group rank are shown "(default)" and locked on;
+//      ticking extras GRANTS that access site-wide.
+//   2. MET rank — a single-select of every MET rank; their natural (group)
+//      rank is marked "(default)" and pre-selected when no override is set.
+
+// The panel catalogue (order + labels). token → { label, div, lead }
+const PANEL_CATALOG = [
+  { token: 'MET',            label: 'MET High Command',    group: 'MET' },
+  { token: 'CID',            label: 'CID',                 group: 'CID' },
+  { token: 'CID:LEAD',       label: 'CID High Command',    group: 'CID' },
+  { token: 'SCO19',          label: 'SCO-19',              group: 'SCO19' },
+  { token: 'SCO19:LEAD',     label: 'SCO-19 High Command', group: 'SCO19' },
+  { token: 'IA',             label: 'Internal Affairs',    group: 'IA' },
+  { token: 'IA:SUPERVISOR',  label: 'IA Supervisor',       group: 'IA' },
+  { token: 'IA:LEAD',        label: 'IA High Command',     group: 'IA' },
+  { token: 'FLP',            label: 'Frontline Policing',  group: 'FLP' },
+  { token: 'FLP:LEAD',       label: 'FLP High Command',    group: 'FLP' },
+  { token: 'HPC',            label: 'Hendon Police College',group: 'HPC' },
+  { token: 'HPC:LEAD',       label: 'HPC High Command',    group: 'HPC' },
+];
+const PANEL_COLORS = { MET: '#4a8fff', CID: '#e8842a', SCO19: '#4b5563', IA: '#c2701f', FLP: '#5cc0ff', HPC: '#e8eef7' };
+
+// Which tokens a user holds NATURALLY (from group rank) — from their cached
+// divisions, excluding developer-granted entries.
+function naturalPanelTokens(u) {
+  const set = new Set();
+  const divs = Array.isArray(u.divisions) ? u.divisions.filter(d => d && !d.granted) : [];
+  if (divs.some(d => d.metHicomm)) set.add('MET');
+  for (const d of divs) {
+    if (!d.division) continue;
+    if (d.division === 'MET') { set.add('MET'); continue; }
+    set.add(d.division);                              // member-level
+    if (d.tier === 'LEAD') set.add(d.division + ':LEAD'); // + HICOMM tier
+  }
+  return set;
+}
+function grantedPanelTokens(u) {
+  return new Set(Array.isArray(u.panelGrant) ? u.panelGrant.map(String) : []);
+}
+
+function panelsDropdownTrigger(u) {
+  const nat = naturalPanelTokens(u), grant = grantedPanelTokens(u);
+  const active = PANEL_CATALOG.filter(p => nat.has(p.token) || grant.has(p.token));
+  const chips = active.length
+    ? active.slice(0, 4).map(p => `<span class="met-cd-chip" style="--c:${PANEL_COLORS[p.group] || '#8b93a1'}">${escapeHtml(p.label)}</span>`).join('')
+      + (active.length > 4 ? `<span class="met-cd-chip more">+${active.length - 4}</span>` : '')
+    : '<span style="color:var(--text-muted);font-size:11px;">No panels</span>';
+  return `<button type="button" class="met-cd-trigger" title="Panel access" onclick="openPanelsDropdown('${u.id}',event)">
+    <span class="met-cd-chips">${chips}</span><i class="ti ti-chevron-down met-cd-caret"></i></button>`;
+}
+function metRankDropdownTrigger(u, metRoles) {
+  const override = u.metRankOverride && u.metRankOverride.name;
+  const natural  = u.metRankNatural && u.metRankNatural.name;
+  const label = override || natural || 'No MET rank';
+  const tag = override ? '<span class="met-cd-tag over">override</span>' : (natural ? '<span class="met-cd-tag def">default</span>' : '');
+  return `<button type="button" class="met-cd-trigger" title="Site-only MET rank" onclick="openMetRankDropdown('${u.id}',event)">
+    <span class="met-cd-rank">${escapeHtml(label)}</span>${tag}<i class="ti ti-chevron-down met-cd-caret"></i></button>`;
+}
+
+// ── Shared popover host (body-appended so the table never clips it) ──
+let _metCdOutside = null;
+function closeMetCd() {
+  const p = document.getElementById('met-cd-pop'); if (p) p.remove();
+  if (_metCdOutside) { document.removeEventListener('mousedown', _metCdOutside, true); document.removeEventListener('keydown', _metCdEsc, true); _metCdOutside = null; }
+}
+function _metCdEsc(e) { if (e.key === 'Escape') closeMetCd(); }
+function openMetCd(anchorEl, innerHtml, onMount) {
+  closeMetCd();
+  const pop = document.createElement('div');
+  pop.id = 'met-cd-pop'; pop.className = 'met-cd-pop glass';
+  pop.innerHTML = innerHtml;
+  document.body.appendChild(pop);
+  const r = anchorEl.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6); // flip up
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  _metCdOutside = (e) => { if (!pop.contains(e.target)) closeMetCd(); };
+  setTimeout(() => { document.addEventListener('mousedown', _metCdOutside, true); document.addEventListener('keydown', _metCdEsc, true); }, 0);
+  if (onMount) onMount(pop);
+}
+
+// ── Panels multi-select popover ─────────────────────────────────────
+window.openPanelsDropdown = function (userId, ev) {
+  if (ev) ev.stopPropagation();
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const anchor = ev && ev.currentTarget ? ev.currentTarget : ev.target.closest('.met-cd-trigger');
+  const nat = naturalPanelTokens(u), grant = grantedPanelTokens(u);
+  let rowsHtml = '';
+  let lastGroup = null;
+  for (const p of PANEL_CATALOG) {
+    if (p.group !== lastGroup) { lastGroup = p.group; }
+    const isDefault = nat.has(p.token);
+    const checked = isDefault || grant.has(p.token);
+    const c = PANEL_COLORS[p.group] || '#8b93a1';
+    rowsHtml += `<label class="met-cd-opt ${isDefault ? 'is-default' : ''}">
+      <input type="checkbox" data-token="${p.token}" ${checked ? 'checked' : ''} ${isDefault ? 'disabled' : ''}>
+      <span class="met-cd-dot" style="background:${c}"></span>
+      <span class="met-cd-lbl">${escapeHtml(p.label)}</span>
+      ${isDefault ? '<span class="met-cd-def">(default)</span>' : ''}
+    </label>`;
+  }
+  const html = `<div class="met-cd-head">Panel access<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
+    <div class="met-cd-note">Defaults come from their group ranks and stay on. Tick extras to grant access.</div>
+    <div class="met-cd-list">${rowsHtml}</div>
+    <div class="met-cd-foot">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="savePanelGrants('${u.id}')"><i class="ti ti-check"></i> Save</button>
+    </div>`;
+  openMetCd(anchor, html);
+};
+window.savePanelGrants = async function (userId) {
+  const pop = document.getElementById('met-cd-pop'); if (!pop) return;
+  // Save only the NON-default ticked tokens (defaults are effective anyway).
+  const grants = [].slice.call(pop.querySelectorAll('input[type="checkbox"][data-token]'))
+    .filter(cb => cb.checked && !cb.disabled).map(cb => cb.getAttribute('data-token'));
+  try {
+    const r = await api(`/api/admin/users/${userId}/panels`, { method: 'PATCH', body: JSON.stringify({ grants }) });
+    const u = (window._adminUsers || {})[userId]; if (u) u.panelGrant = r.panelGrant || null;
+    // Refresh just this row's trigger.
+    const btn = document.querySelector(`.met-cd-trigger[onclick*="openPanelsDropdown('${userId}'"]`);
+    if (btn && u) btn.outerHTML = panelsDropdownTrigger(u);
+    closeMetCd();
+    showToast(grants.length ? 'Panel access granted (applies on their next request)' : 'Extra panel grants cleared', 'success');
+  } catch (e) { showToast(e.message || 'Failed to save panels', 'error'); }
+};
+
+// ── MET rank single-select popover ──────────────────────────────────
+window.openMetRankDropdown = async function (userId, ev) {
+  if (ev) ev.stopPropagation();
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const anchor = ev && ev.currentTarget ? ev.currentTarget : ev.target.closest('.met-cd-trigger');
+  const metRoles = await metRolesOnce();
+  const curRank = u.metRankOverride ? Number(u.metRankOverride.rank) : null;
+  const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
+  const selRank = curRank != null ? curRank : natRank;   // default-select the natural rank
+  let opts = `<label class="met-cd-opt"><input type="radio" name="metrank" value="" ${selRank == null ? 'checked' : ''}><span class="met-cd-lbl" style="color:var(--text-muted);">— No MET rank —</span></label>`;
+  opts += (metRoles || []).map(r => {
+    const isDef = natRank != null && Number(r.rank) === natRank;
+    return `<label class="met-cd-opt ${isDef ? 'is-default' : ''}"><input type="radio" name="metrank" value="${r.rank}" ${Number(r.rank) === selRank ? 'checked' : ''}>
+      <span class="met-cd-lbl">${escapeHtml(r.name)}</span>${isDef ? '<span class="met-cd-def">(default)</span>' : ''}</label>`;
+  }).join('');
+  const html = `<div class="met-cd-head">MET rank<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
+    <div class="met-cd-note">Site-only. Deputy Commissioner+ grants MET High Command everywhere. Picking their (default) clears the override.</div>
+    <div class="met-cd-list">${opts}</div>
+    <div class="met-cd-foot">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="saveMetRank('${u.id}')"><i class="ti ti-check"></i> Save</button>
+    </div>`;
+  openMetCd(anchor, html);
+};
+window.saveMetRank = async function (userId) {
+  const pop = document.getElementById('met-cd-pop'); if (!pop) return;
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const picked = pop.querySelector('input[name="metrank"]:checked');
+  const rankVal = picked ? picked.value : '';
+  const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
+  let body;
+  if (!rankVal || (natRank != null && Number(rankVal) === natRank)) {
+    body = { clear: true };                              // none, or their natural rank → clear override
+  } else {
+    const roles = _metRolesCache || [];
+    const role = roles.find(r => String(r.rank) === String(rankVal));
+    if (!role) return;
+    body = { name: role.name, rank: role.rank };
+  }
+  try {
+    const r = await api(`/api/admin/users/${userId}/met-rank`, { method: 'PATCH', body: JSON.stringify(body) });
+    u.metRankOverride = r.metRankOverride || null;
+    const btn = document.querySelector(`.met-cd-trigger[onclick*="openMetRankDropdown('${userId}'"]`);
+    if (btn) btn.outerHTML = metRankDropdownTrigger(u);
+    closeMetCd();
+    showToast(body.clear ? 'MET rank set to their default' : 'MET rank override set (applies on their next request)', 'success');
+  } catch (e) { showToast(e.message || 'Failed to set MET rank', 'error'); }
+};
+
+// Dedupe IA→MET migration duplicate case/ticket logs. preview=false → apply.
+async function dedupeMigration(apply) {
+  const box = document.getElementById('dedupe-results');
+  if (apply && !confirm('Delete the duplicate case/ticket logs? The canonical (native) record is kept. This cannot be undone.')) return;
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:8px;"><div class="spinner"></div></div>';
+  try {
+    const r = await api('/api/admin/dedupe-migration-logs', { method: 'POST', body: JSON.stringify({ apply, scope: 'all' }) });
+    const line = (name, s) => `<div style="margin-top:6px;"><strong>${name}:</strong> ${s.count} duplicate(s)${apply ? ` — deleted ${s.deleted}` : ''}` +
+      (s.report && s.report.length ? `<ul style="margin:4px 0 0 16px;color:var(--text-muted);">${s.report.slice(0, 40).map(g =>
+        `<li>keep <code>${escapeHtml(g.keep)}</code> (${escapeHtml(g.keepOrigin)}) — remove ${g.remove.map(x => `<code>${escapeHtml(x.ref)}</code>`).join(', ')}</li>`).join('')}</ul>` : '') + '</div>';
+    if (box) box.innerHTML = `<div style="border:1px solid var(--border,#2a3040);border-radius:8px;padding:10px;">
+      ${apply ? '<div style="color:var(--green,#28c76f);font-weight:600;">Cleanup applied.</div>' : '<div style="color:var(--amber);font-weight:600;">Preview only — nothing deleted.</div>'}
+      ${line('Tickets', r.tickets)}${line('Cases', r.cases)}
+      ${(r.tickets.count + r.cases.count) === 0 ? '<div style="margin-top:6px;color:var(--text-muted);">No migration duplicates found. 🎉</div>' : ''}
+    </div>`;
+    if (apply) showToast(`Removed ${r.tickets.deleted + r.cases.deleted} duplicate log(s)`, 'success');
+  } catch (e) {
+    if (box) box.innerHTML = `<div style="color:var(--red,#e2231a);">${escapeHtml(e.message || 'Failed')}</div>`;
+  }
+}
+
 async function loadAdminUsers() {
   const tbody = document.getElementById('admin-users-tbody');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="10" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const users = await api('/api/admin/users');
-    if (!users?.length) { tbody.innerHTML = emptyRow(10, 'No users found.'); return; }
-    const roleOptions = r => ['IA','HICOMM','SUPERVISOR','DEVELOPER'].map(v =>
-      `<option value="${v}" ${r === v ? 'selected' : ''}>${v}</option>`).join('');
+    const [users, metRoles] = await Promise.all([api('/api/admin/users'), metRolesOnce()]);
+    if (!users?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="10">${window.metEmpty({ icon: 'ti-users', title: 'No users found', sub: 'No accounts match yet.' })}</td></tr>`
+        : emptyRow(10, 'No users found.');
+      return;
+    }
+    // Stash each user so the custom panel/MET-rank dropdowns can read their
+    // divisions, grants and natural rank when opened.
+    window._adminUsers = {};
+    users.forEach(u => { window._adminUsers[u.id] = u; });
     tbody.innerHTML = users.map(u => `
       <tr class="${u.isBlacklisted ? 'blacklisted-row' : ''}">
         <td>
@@ -1329,14 +1817,17 @@ async function loadAdminUsers() {
                </div>`
             : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>'}</td>
         <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
-        <td><select class="role-select" onchange="changeUserRole('${u.id}',this.value)">${roleOptions(u.role)}</select></td>
+        <td><div style="display:flex;flex-direction:column;gap:6px;min-width:210px;">
+          ${panelsDropdownTrigger(u)}
+          ${metRankDropdownTrigger(u, metRoles)}
+        </div></td>
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
         <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>
         <td>${u.notifyEnabled && u.hasPush
-            ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span>🔔 On</span>'
+            ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span><i class="ti ti-bell"></i> On</span>'
             : (u.notifyEnabled
-                ? '<span class="badge badge-amber" title="Enabled but no active device subscribed">🔔 No device</span>'
-                : '<span style="font-size:11px;color:var(--text-muted);">🔕 Off</span>')}</td>
+                ? '<span class="badge badge-amber" title="Enabled but no active device subscribed"><i class="ti ti-bell"></i> No device</span>'
+                : '<span style="font-size:11px;color:var(--text-muted);"><i class="ti ti-bell-off"></i> Off</span>')}</td>
         <td><span class="date-cell">${formatDate(u.lastLogin)}</span></td>
         <td><div class="admin-actions">
           ${u.isBlacklisted
@@ -1344,7 +1835,7 @@ async function loadAdminUsers() {
             : `<button class="row-btn row-btn-deny btn-sm" onclick="openBlacklistModal('${u.id}')"><i class="ti ti-ban"></i> Blacklist</button>`}
         </div></td>
       </tr>`).join('');
-  } catch { tbody.innerHTML = emptyRow(9, 'Failed to load users.'); }
+  } catch { tbody.innerHTML = emptyRow(10, 'Failed to load users.'); }
 }
 
 // ── Website Visits (Developer) ────────────────────────────────────
@@ -1356,7 +1847,12 @@ async function loadVisits() {
     const visits = await api('/api/admin/visits');
     const badge  = document.getElementById('visits-count-badge');
     if (badge) badge.textContent = `${visits?.length || 0} recent visit(s)`;
-    if (!visits?.length) { tbody.innerHTML = emptyRow(5, 'No visits recorded yet.'); return; }
+    if (!visits?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-world-search', title: 'No visits recorded yet', sub: 'Visitor activity will appear here.' })}</td></tr>`
+        : emptyRow(5, 'No visits recorded yet.');
+      return;
+    }
 
     tbody.innerHTML = visits.map(v => {
       const discord = v.discordUsername || v.discordId
@@ -1400,7 +1896,12 @@ async function loadSecurity() {
     securityCache = logs || [];
     const badge = document.getElementById('security-count-badge');
     if (badge) badge.textContent = `${logs?.length || 0} event(s)`;
-    if (!logs?.length) { tbody.innerHTML = emptyRow(8, 'No capture events recorded.'); return; }
+    if (!logs?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="8">${window.metEmpty({ icon: 'ti-shield', title: 'No capture events recorded', sub: 'Screenshot attempts will be logged here.' })}</td></tr>`
+        : emptyRow(8, 'No capture events recorded.');
+      return;
+    }
 
     tbody.innerHTML = logs.map(v => {
       const user = v.discordUsername || v.discordId || v.robloxUsername
@@ -1587,10 +2088,10 @@ async function loadNotifSettings() {
   // "Active" only if enabled in settings AND permission granted on this device.
   const active = s.enabled && notifPermGranted();
 
-  set('ns-enabled',   active);
-  set('ns-newCase',   s.prefs.newCase);
-  set('ns-newTicket', s.prefs.newTicket);
-  document.querySelectorAll('.ns-tt').forEach(cb => { cb.checked = (s.prefs.ticketTypes || []).includes(cb.value); });
+  set('ns-enabled',      active);
+  set('ns-newCase',      s.prefs.newCase);
+  set('ns-caseUpdated',  s.prefs.caseUpdated);
+  set('ns-caseAppealed', s.prefs.caseAppealed);
   setNotifPrefsVisible(active);
 
   // Warn if the browser has blocked notifications
@@ -1626,15 +2127,18 @@ async function loadNotifSettings() {
 }
 
 async function saveNotifSettings() {
-  const enabled = document.getElementById('ns-enabled')?.checked || false;
   const prefs = {
-    newCase:       document.getElementById('ns-newCase')?.checked   || false,
-    newTicket:     document.getElementById('ns-newTicket')?.checked || false,
+    newCase:      document.getElementById('ns-newCase')?.checked      || false,
+    caseUpdated:  document.getElementById('ns-caseUpdated')?.checked  || false,
+    caseAppealed: document.getElementById('ns-caseAppealed')?.checked || false,
     announcements: true, // developer announcements are always on
-    ticketTypes:   Array.from(document.querySelectorAll('.ns-tt')).filter(cb => cb.checked).map(cb => cb.value),
   };
   try {
-    await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ enabled, prefs }) });
+    // Send ONLY prefs. The account-wide `enabled` flag is owned by the master
+    // toggle's own onchange handler; re-sending it from here would push the
+    // per-device checkbox state (which is false on any device that hasn't granted
+    // browser permission) and silently disable notifications account-wide.
+    await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ prefs }) });
     showToast('Notification settings saved.', 'success');
   } catch (err) { showToast(err.message || 'Failed to save settings.', 'error'); }
 }
@@ -1661,10 +2165,10 @@ function renderDevRecipients() {
   //   Off       → notifications disabled
   const statusHtml = (u) => {
     if (u.notifyEnabled && u.hasPush)
-      return '<span style="color:var(--green);font-size:11px;font-weight:600;white-space:nowrap;">🔔 On</span>';
+      return '<span style="color:var(--green);font-size:11px;font-weight:600;white-space:nowrap;"><i class="ti ti-bell"></i> On</span>';
     if (u.notifyEnabled)
-      return '<span style="color:var(--amber);font-size:11px;font-weight:600;white-space:nowrap;" title="Enabled but no active device">🔔 No device</span>';
-    return '<span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">🔕 Off</span>';
+      return '<span style="color:var(--amber);font-size:11px;font-weight:600;white-space:nowrap;" title="Enabled but no active device"><i class="ti ti-bell"></i> No device</span>';
+    return '<span style="color:var(--text-muted);font-size:11px;white-space:nowrap;"><i class="ti ti-bell-off"></i> Off</span>';
   };
 
   const onCount = devRecipients.filter(u => u.notifyEnabled && u.hasPush).length;
@@ -1682,6 +2186,54 @@ function toggleDevRecipientList() {
   const all = document.getElementById('dn-all')?.checked;
   const box = document.getElementById('dn-recipients');
   if (box) { box.style.opacity = all ? '.4' : '1'; box.style.pointerEvents = all ? 'none' : 'auto'; }
+}
+
+// ── Emergency alert (dev) ───────────────────────────────────────────────
+let eaOnline = { users: [], divisions: [] };
+async function loadEmergencyAlert() {
+  try { eaOnline = await api('/api/dev/online'); } catch { eaOnline = { users: [], divisions: ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'] }; }
+  renderEmergencyTarget();
+}
+function eaTarget() { const el = document.querySelector('input[name="ea-target"]:checked'); return el ? el.value : 'everyone'; }
+function renderEmergencyTarget() {
+  const t = eaTarget();
+  const divBox = document.getElementById('ea-divisions');
+  const userBox = document.getElementById('ea-users');
+  const note = document.getElementById('ea-online-note');
+  if (!divBox || !userBox) return;
+  divBox.style.display = t === 'divisions' ? 'flex' : 'none';
+  userBox.style.display = t === 'users' ? 'flex' : 'none';
+  const divisions = eaOnline.divisions || ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'];
+  divBox.innerHTML = divisions.map(d =>
+    `<label class="ea-div-chip"><input type="checkbox" class="ea-div" value="${escapeHtml(d)}"> ${escapeHtml(d)}</label>`).join('');
+  const users = eaOnline.users || [];
+  userBox.innerHTML = users.length
+    ? users.map(u => `<label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;padding:6px 8px;border-radius:6px;border:1px solid var(--border-dim);">
+        <input type="checkbox" class="ea-user" value="${escapeHtml(u.id)}" style="accent-color:var(--red,#e2231a);">
+        <span style="flex:1;">${escapeHtml(u.name)} <span style="color:var(--text-muted);font-size:11px;">· ${escapeHtml((u.divisions || []).join(', ') || u.role || '')}</span></span>
+      </label>`).join('')
+    : '<p style="color:var(--text-secondary);">Nobody is on the site right now.</p>';
+  if (note) note.textContent = `${users.length} ${users.length === 1 ? 'person is' : 'people are'} on the site right now.`;
+}
+async function sendEmergencyAlert() {
+  const message = (document.getElementById('ea-message')?.value || '').trim();
+  if (!message) { showToast('Enter an alert message.', 'error'); return; }
+  const target = eaTarget();
+  const payload = { target, message };
+  if (target === 'divisions') {
+    payload.divisions = Array.from(document.querySelectorAll('.ea-div')).filter(c => c.checked).map(c => c.value);
+    if (!payload.divisions.length) { showToast('Pick at least one division.', 'error'); return; }
+  } else if (target === 'users') {
+    payload.userIds = Array.from(document.querySelectorAll('.ea-user')).filter(c => c.checked).map(c => c.value);
+    if (!payload.userIds.length) { showToast('Select at least one person.', 'error'); return; }
+  }
+  const who = target === 'everyone' ? 'everyone on the site' : (target === 'divisions' ? payload.divisions.join(', ') : `${payload.userIds.length} person(s)`);
+  if (!(await uiConfirm(`Send a full-screen EMERGENCY ALERT to ${who} right now?`))) return;
+  try {
+    const r = await api('/api/dev/emergency-alert', { method: 'POST', body: JSON.stringify(payload) });
+    showToast(`Emergency alert sent to ${r.recipients} recipient(s).`, 'success');
+    const m = document.getElementById('ea-message'); if (m) m.value = '';
+  } catch (e) { showToast(e.message || 'Failed to send.', 'error'); }
 }
 
 async function sendDevNotification() {
@@ -1702,7 +2254,7 @@ async function sendDevNotification() {
 }
 
 async function deleteCase(caseId) {
-  if (!confirm('Permanently delete this case? This cannot be undone.')) return;
+  if (!(await uiConfirm('Permanently delete this case? This cannot be undone.'))) return;
   try {
     await api(`/api/admin/cases/${caseId}`, { method: 'DELETE' });
     closeModal('modal-detail');
@@ -1721,16 +2273,49 @@ function groupError(msg) {
   </div>`;
 }
 
+// Which division's Roblox group the panel is currently managing ('' = the
+// default ROBLOX_GROUP_ID). The dev panel can switch between every division.
+let currentGroupDivision = '';
+
+// Build a query string carrying the selected division (+ any extra params).
+function gq(params) {
+  const p = new URLSearchParams(params || {});
+  if (currentGroupDivision) p.set('division', currentGroupDivision);
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
+// Populate the division switcher from the registry (future divisions auto-appear).
+async function loadGroupDivisions() {
+  const sel = document.getElementById('group-division-select');
+  if (!sel) return;
+  try {
+    const divs = await api('/api/admin/group/divisions');
+    sel.innerHTML = `<option value="">Default (ROBLOX_GROUP_ID)</option>` +
+      divs.map(d => `<option value="${d.key}">${d.name}${d.fullName && d.fullName !== d.name ? ' — ' + d.fullName : ''}</option>`).join('');
+    sel.value = currentGroupDivision;
+  } catch (e) { /* switcher optional */ }
+}
+
+// Switch the group the panel manages, then reload it.
+function changeGroupDivision(key) {
+  currentGroupDivision = key || '';
+  groupRolesCache = null;
+  groupMembersNextToken = null;
+  loadGroupPanel();
+}
+
 async function loadGroupPanel() {
+  loadGroupDivisions();
   // Always reload roles fresh so rank dropdowns are populated
   try {
-    groupRolesCache = await api('/api/admin/group/roles');
+    groupRolesCache = await api('/api/admin/group/roles' + gq());
     const badge = document.getElementById('group-env-badge');
     if (badge) badge.textContent = `${groupRolesCache.length} role(s) loaded`;
   } catch (err) {
     groupRolesCache = [];
     const badge = document.getElementById('group-env-badge');
-    if (badge) badge.textContent = `⚠ Roles failed: ${err.message}`;
+    if (badge) badge.textContent = `Roles failed: ${err.message}`;
     console.error('[Group panel] roles error:', err.message);
     // Auto-show debug output so developer can see what's wrong
     runGroupDebug();
@@ -1785,12 +2370,12 @@ function botRankThreshold() {
 async function loadPendingRequests() {
   const container = document.getElementById('pending-requests-container');
   if (!container) return;
-  container.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  container.innerHTML = window.metSkeleton ? window.metSkeleton('feed', 4) : '<div class="table-loading"><div class="spinner"></div></div>';
   try {
     pendingCache = [];
     let token = null, pages = 0;
     do {
-      const url  = '/api/admin/group/pending' + (token ? `?pageToken=${encodeURIComponent(token)}` : '');
+      const url  = '/api/admin/group/pending' + gq(token ? { pageToken: token } : {});
       const data = await api(url);
       pendingCache = pendingCache.concat(data?.requests || []);
       token = data?.nextPageToken || null;
@@ -1817,7 +2402,9 @@ function renderPendingRequests() {
   if (countEl) countEl.textContent = `(${list.length})`;
 
   if (!list.length) {
-    container.innerHTML = `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`;
+    container.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-inbox', title: 'No pending join requests', sub: 'New group join requests will appear here.' })
+      : `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`;
     return;
   }
 
@@ -1845,7 +2432,7 @@ function renderPendingRequests() {
 
 async function resolveRequest(userId, action, username) {
   try {
-    await api(`/api/admin/group/pending/${userId}/${action}`, { method: 'POST' });
+    await api(`/api/admin/group/pending/${userId}/${action}` + gq(), { method: 'POST' });
     showToast(`${username} ${action === 'approve' ? 'accepted' : 'declined'}.`,
               action === 'approve' ? 'success' : 'info');
     loadPendingRequests();
@@ -1863,7 +2450,7 @@ async function loadGroupMembers() {
     groupMembersCache = [];
     let token = null, pages = 0;
     do {
-      const url    = '/api/admin/group/members' + (token ? `?pageToken=${encodeURIComponent(token)}` : '');
+      const url    = '/api/admin/group/members' + gq(token ? { pageToken: token } : {});
       const result = await api(url);
       groupMembersCache = groupMembersCache.concat(result?.members || []);
       token = result?.nextPageToken || null;
@@ -1882,7 +2469,10 @@ async function loadGroupMembers() {
 // Derived from the live member list / roles so it works even if the role list
 // failed to load.
 function botRankValue() {
-  // Prefer the roles list; fall back to scanning members for the named rank.
+  // Prefer the bot account's OWN live rank in this group (the true ceiling).
+  const bot = groupMembersCache.find(x => String(x.userId) === MET_ADMIN_USER_ID);
+  if (bot && bot.roleRank != null) return bot.roleRank;
+  // Fall back to the named rank (roles list, then members).
   const r = (groupRolesCache || []).find(x => (x.name || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
   if (r) return r.rank;
   const m = groupMembersCache.find(x => (x.roleName || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
@@ -1930,7 +2520,12 @@ function renderGroupMembers() {
   const countEl = document.getElementById('members-count');
   if (countEl) countEl.textContent = `(${list.length}${list.length !== groupMembersCache.length ? ' / ' + groupMembersCache.length : ''})`;
 
-  if (!list.length) { tbody.innerHTML = emptyRow(4, 'No members found.'); return; }
+  if (!list.length) {
+    tbody.innerHTML = window.metEmpty
+      ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No members found', sub: 'Try a different search or rank filter.' })}</td></tr>`
+      : emptyRow(4, 'No members found.');
+    return;
+  }
 
   // Only ranks strictly below the bot's rank can be assigned
   const assignable = roles.filter(r => r.rank < threshold).sort((a, b) => b.rank - a.rank);
@@ -1952,7 +2547,7 @@ function renderGroupMembers() {
         </td>
         <td>
           <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(m._roleName)}</span>
-          ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;">🔒 above bot rank</span>' : ''}
+          ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}
         </td>
         <td>
           ${locked
@@ -1982,7 +2577,7 @@ async function changeGroupRankUI(userId, username) {
   const roleId = sel?.value;
   if (!roleId) { showToast('Select a rank first.', 'error'); return; }
   try {
-    await api(`/api/admin/group/members/${userId}/rank`, {
+    await api(`/api/admin/group/members/${userId}/rank` + gq(), {
       method: 'PATCH',
       body:   JSON.stringify({ roleId }),
     });
@@ -1995,9 +2590,9 @@ async function changeGroupRankUI(userId, username) {
 }
 
 async function kickGroupMember(userId, username) {
-  if (!confirm(`Kick ${username} from the Roblox group?`)) return;
+  if (!(await uiConfirm(`Kick ${username} from the Roblox group?`))) return;
   try {
-    await api(`/api/admin/group/members/${userId}`, { method: 'DELETE' });
+    await api(`/api/admin/group/members/${userId}` + gq(), { method: 'DELETE' });
     showToast(`${username} kicked from group.`, 'success');
     loadGroupMembers();
   } catch (err) {
@@ -2017,6 +2612,130 @@ function caseHasHicommOnlyPunishment(c) {
 function supervisorBlockedFromCase(c) {
   return currentUser?.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(c);
 }
+
+// ── Appeals ───────────────────────────────────────────────────────
+// Mirrors server/lib/iaRank.js so the button can be hidden (or explained)
+// instead of being offered and then rejected. The server is the authority.
+function canAppealLocally(c) {
+  if (!c) return { show: false, allowed: false, reason: '' };
+  if (c.status === 'OVERTURNED' || c.appealedAt)
+    return { show: false, allowed: false, reason: 'This case has already been appealed.' };
+  if (c.status !== 'APPROVED')
+    return { show: false, allowed: false, reason: 'Only an approved case can be appealed.' };
+  if (!currentUser?.isSiPlus)
+    return { show: false, allowed: false, reason: 'Appeals can only be filed by Senior Investigator and above.' };
+  if (caseHasHicommOnlyPunishment(c) && !currentUser?.isHicomm)
+    return { show: true, allowed: false, reason: 'Only High Command can appeal a Termination or Blacklist.' };
+  return { show: true, allowed: true, reason: '' };
+}
+
+// Find a case in whichever cache is loaded, fetching it if we have to.
+async function getCase(caseId) {
+  const hit = (allCasesCache || []).find(x => x.id === caseId);
+  if (hit) return hit;
+  try {
+    const c = await api('/api/cases/' + caseId);
+    if (c) allCasesCache.push(c);
+    return c;
+  } catch (e) { return null; }
+}
+
+// Open the appeal dialog. Works from any case card on the site (My Cases, All
+// Cases, the review queue and the Records lookup).
+async function openAppealModal(caseId) {
+  const c = await getCase(caseId);
+  if (!c) { showToast('That case could not be loaded.', 'error'); return; }
+
+  const refEl  = document.getElementById('appeal-ref');
+  const warnEl = document.getElementById('appeal-warning');
+  const punEl  = document.getElementById('appeal-punishments');
+  const noteEl = document.getElementById('appeal-reason');
+  const btn    = document.getElementById('btn-confirm-appeal');
+  if (!btn || !noteEl) return;
+
+  if (refEl) refEl.textContent = c.caseRef || '';
+  noteEl.value = '';
+
+  // Ask the server whether this user may appeal THIS case — it knows the rank.
+  let verdict = null;
+  try { verdict = await api('/api/cases/' + caseId + '/appeal'); } catch (e) { /* fall back to local */ }
+  const local = canAppealLocally(c);
+  const allowed = verdict ? verdict.canAppeal : local.allowed;
+  const reason  = verdict ? verdict.reason    : local.reason;
+
+  if (warnEl) {
+    if (!allowed) {
+      warnEl.style.display = '';
+      warnEl.innerHTML = `<i class="ti ti-lock"></i> ${escapeHtml(reason || 'You cannot appeal this case.')}`;
+    } else if (verdict && verdict.hicommOnly) {
+      warnEl.style.display = '';
+      warnEl.innerHTML = `<i class="ti ti-alert-triangle"></i> This case carries a <strong>Termination or Blacklist</strong>. `
+        + `You are appealing it as <strong>${escapeHtml(verdict.rankLabel || 'High Command')}</strong>.`;
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
+
+  const actions = (Array.isArray(c.actions) && c.actions.length)
+    ? c.actions
+    : [{ action: c.action, durationDays: null }];
+  if (punEl) {
+    punEl.innerHTML = `<div class="appeal-lift">
+      <div class="appeal-lift-label">Punishments that will be lifted</div>
+      <div class="appeal-lift-list">${actions.map(a =>
+        `<span class="badge badge-red"><span class="badge-dot"></span>${escapeHtml(a.action)}${a.durationDays ? ` (${a.durationDays}d)` : ''}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  btn.disabled = !allowed;
+  btn.onclick = async () => {
+    const text = noteEl.value.trim();
+    if (!text) { showToast('A reason for the appeal is required.', 'error'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Granting…';
+    try {
+      const res = await api('/api/cases/' + caseId + '/appeal', {
+        method: 'POST', body: JSON.stringify({ reason: text }),
+      });
+      closeModal('modal-appeal');
+      closeModal('modal-detail');
+      const failed = (res.failed || []).length;
+      const manual = res.manual || [];
+      showToast(
+        `Appeal granted — ${res.lifted?.length || 0} punishment role(s) lifted.`
+        + (failed ? ` ${failed} role(s) couldn't be removed in Discord and will be retried automatically.` : ''),
+        failed ? 'warning' : 'success');
+      // Anything the bot physically cannot undo has to be said out loud, or
+      // people will assume the appeal reversed everything.
+      if (manual.length) {
+        showToast('Still to do by hand: ' + manual.join('; '), 'warning', 12000);
+      }
+      await refreshCaseViews();
+    } catch (err) {
+      showToast(err.message || 'Failed to file the appeal.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ti ti-gavel"></i> Grant appeal';
+    }
+  };
+
+  openModal('modal-appeal');
+}
+window.openAppealModal = openAppealModal;
+
+// Reload whichever case list is currently on screen.
+async function refreshCaseViews() {
+  const active = document.querySelector('.page.active');
+  const id = active ? active.id : '';
+  if (id === 'page-dashboard')  return loadDashboard();
+  if (id === 'page-my-cases')   return loadMyCases();
+  if (id === 'page-all-cases')  return loadAllCases();
+  if (id === 'page-review')     return loadReview();
+  if (id === 'page-records' && typeof runRecordLookup === 'function') return runRecordLookup();
+  return loadDashboard();
+}
+window.refreshCaseViews = refreshCaseViews;
 
 function rowActions(c) {
   if (supervisorBlockedFromCase(c)) {
@@ -2178,9 +2897,18 @@ function promptApplyChanges(c) {
 }
 
 // ── Case Detail Modal ─────────────────────────────────────────────
+// Open a case detail from anywhere on the site — including the Records lookup,
+// where the case isn't in any list cache yet.
+async function openCaseDetail(caseId) {
+  const c = await getCase(caseId);
+  if (!c) { showToast("That case couldn't be loaded.", 'error'); return; }
+  openDetail(caseId);
+}
+window.openCaseDetail = openCaseDetail;
+
 function openDetail(caseId) {
   const c = allCasesCache.find(x => x.id === caseId);
-  if (!c) return;
+  if (!c) { openCaseDetail(caseId); return; }
 
   document.getElementById('detail-ref').textContent = c.caseRef;
 
@@ -2215,7 +2943,7 @@ function openDetail(caseId) {
     <div class="detail-field full">
       <span class="detail-field-label">Group Exile</span>
       <span class="detail-field-value" style="font-size:12px;color:${ea.notes.includes('failed') ? 'var(--status-denied)' : 'var(--status-approved)'};">
-        ${ea.notes.includes('failed') ? '⚠ ' : '✓ '}${escapeHtml(ea.notes)}
+        ${ea.notes.includes('failed') ? '<i class="ti ti-alert-triangle"></i> ' : '<i class="ti ti-check"></i> '}${escapeHtml(ea.notes)}
       </span>
     </div>`).join('')}
   ` : '';
@@ -2253,6 +2981,18 @@ function openDetail(caseId) {
           : '<i class="ti ti-clock"></i> Sent back to the submitter. It stays pending until they update it.'}
       </div>
     </div>` : ''}
+    ${caseIsAppealed(c) ? `
+    <div class="appeal-banner">
+      <div class="appeal-banner-head">
+        <span><i class="ti ti-gavel"></i> Appeal granted — punishments lifted</span>
+        <span class="appeal-banner-when">${c.appealedAt ? formatDateTime(c.appealedAt) : ''}</span>
+      </div>
+      <div class="appeal-banner-by">by <strong>${escapeHtml(c.appealedByName || 'Internal Affairs')}</strong>${
+        (c.appeals && c.appeals[0] && c.appeals[0].appealedByRank) ? ' · ' + escapeHtml(c.appeals[0].appealedByRank) : ''}</div>
+      ${c.appealReason ? `<div class="appeal-banner-reason">${escapeHtml(c.appealReason)}</div>` : ''}
+      <div class="appeal-banner-note">This case no longer counts toward the officer's record.</div>
+    </div>` : ''}
+    ${renderRevisionHistory(c)}
     <div class="detail-grid">
       <div class="detail-field">
         <span class="detail-field-label">Case Reference</span>
@@ -2279,11 +3019,19 @@ function openDetail(caseId) {
         <span class="detail-field-label">Notes</span>
         <span class="detail-field-value" style="color:var(--text-secondary);">${escapeHtml(c.notes)}</span>
       </div>
-      ${c.caseLink ? `
+      ${c.documentId ? `
+      <div class="detail-field full">
+        <span class="detail-field-label">Case Document</span>
+        <span class="detail-field-value">
+          <a href="/case-doc/${escapeHtml(c.documentId)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">
+            <i class="ti ti-file-text"></i> Open the case document
+          </a>
+        </span>
+      </div>` : (c.caseLink ? `
       <div class="detail-field full">
         <span class="detail-field-label">Case Link</span>
         <span class="detail-field-value"><a href="${escapeHtml(c.caseLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);word-break:break-all;">${escapeHtml(c.caseLink)}</a></span>
-      </div>` : ''}
+      </div>` : '')}
       ${robloxSection}
       ${investigatorSection}
       <div class="detail-divider"></div>
@@ -2319,6 +3067,19 @@ function openDetail(caseId) {
   linkBtn.className = 'btn btn-ghost'; linkBtn.innerHTML = '<i class="ti ti-link"></i> Copy link';
   linkBtn.onclick = () => copyCaseLink(c.id);
   footer.appendChild(linkBtn);
+
+  // Appeal — Senior Investigator and above, High Command only for
+  // Terminations/Blacklists. The server enforces the same rule.
+  const appealCheck = canAppealLocally(c);
+  if (appealCheck.show) {
+    const appealBtn = document.createElement('button');
+    appealBtn.className = 'btn btn-ghost btn-appeal';
+    appealBtn.innerHTML = '<i class="ti ti-gavel"></i> Appeal';
+    appealBtn.disabled = !appealCheck.allowed;
+    if (!appealCheck.allowed) appealBtn.title = appealCheck.reason;
+    appealBtn.onclick = () => openAppealModal(c.id);
+    footer.appendChild(appealBtn);
+  }
 
   if (isDev) {
     const delBtn = document.createElement('button');

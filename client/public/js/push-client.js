@@ -89,7 +89,7 @@
   // For elevated roles: register the SW on load so push delivery + click-to-open
   // work for already-subscribed users. No permission prompt here.
   async function initForStaff(role) {
-    if (!['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(role)) return;
+    if (!['IA', 'HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(role)) return;
     await registerSW();
     // Refresh an existing subscription server-side (in case the row was pruned)
     try {
@@ -110,7 +110,7 @@
   // (fires when a notification is clicked while a tab is already open). Fresh
   // loads are handled by dashboard.js's handleNotificationLaunch() once init
   // has finished, so we don't add our own early DOMContentLoaded handler here.
-  function handlePushNav(url) {
+  function handlePushNav(url, msg) {
     try {
       var params   = new URLSearchParams((url.split('?')[1] || ''));
       var page     = params.get('page');
@@ -123,7 +123,7 @@
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', function (e) {
-      if (e.data && e.data.type === 'PUSH_NAV' && e.data.url) handlePushNav(e.data.url);
+      if (e.data && e.data.type === 'PUSH_NAV' && e.data.url) handlePushNav(e.data.url, e.data);
     });
   }
 

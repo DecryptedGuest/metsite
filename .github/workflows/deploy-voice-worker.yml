@@ -1,0 +1,55 @@
+# Deploys the CAD voice worker (voice-worker/) to Fly.io with NO local commands.
+# Runs on GitHub's servers when you tap "Run workflow" (or on a push that changes
+# voice-worker/). It creates the Fly app if needed, pushes the secrets you stored
+# in GitHub, and deploys. See voice-worker/README.md → "Deploy from your phone".
+name: Deploy CAD Voice Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: "Fly app name (globally unique). Change only if a deploy says the name is taken."
+        required: true
+        default: "metsite-cad-voice"
+  push:
+    branches: [claude/group-roles-permissions-6yn2fq]
+    paths:
+      - "voice-worker/**"
+      - ".github/workflows/deploy-voice-worker.yml"
+
+concurrency: fly-deploy-voice
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      APP_NAME: ${{ github.event.inputs.app_name || vars.VOICE_APP_NAME || 'metsite-cad-voice' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create the Fly app if it doesn't exist yet
+        run: flyctl apps create "$APP_NAME" --org personal || echo "App already exists — continuing."
+
+      - name: Store the worker's secrets on Fly
+        run: |
+          flyctl secrets set \
+            VOICE_BOT_TOKEN="${{ secrets.VOICE_BOT_TOKEN }}" \
+            WORKER_SECRET="${{ secrets.WORKER_SECRET }}" \
+            ELEVENLABS_API_KEY="${{ secrets.ELEVENLABS_API_KEY }}" \
+            --app "$APP_NAME" --stage
+
+      - name: Deploy
+        working-directory: voice-worker
+        run: flyctl deploy --remote-only --app "$APP_NAME"
+
+      - name: Done
+        run: |
+          echo "----------------------------------------------------------------"
+          echo "Voice worker deployed."
+          echo "Its URL is:  https://$APP_NAME.fly.dev"
+          echo "Put that in Railway as CAD_VOICE_WORKER_URL (see README Part 4)."
+          echo "----------------------------------------------------------------"

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>MET Dashboard · Get the App</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b0f1a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MET Dashboard" />
+  <link rel="apple-touch-icon" href="/img/divisions/met.png" />
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-portal.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .app-wrap{max-width:520px;margin:0 auto;padding:28px 20px 60px;}
+    .app-card{border:1px solid var(--border,#2a2a2a);border-radius:18px;padding:26px;background:var(--panel,rgba(255,255,255,.02));text-align:center;}
+    .app-logo{width:72px;height:72px;border-radius:18px;margin:0 auto 14px;display:block;}
+    .qr-box{background:#fff;border-radius:16px;padding:14px;display:inline-block;margin:14px 0;box-shadow:0 8px 30px rgba(0,0,0,.25);}
+    .qr-box img{display:block;width:260px;height:260px;}
+    .step{display:flex;gap:12px;align-items:flex-start;text-align:left;padding:12px 0;border-bottom:1px solid var(--border,#2a2a2a);}
+    .step .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--blue,#3b82f6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;}
+    .muted{color:var(--text-muted);font-size:13px;line-height:1.6;}
+    .big-btn{width:100%;padding:14px;border-radius:12px;font-size:15px;font-weight:700;margin-top:10px;}
+  </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+</head>
+<body>
+<div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div></div>
+
+<div class="app-wrap">
+  <div class="app-card fade-up">
+    <img src="/img/divisions/met.png" class="app-logo" alt="MET" />
+    <h1 style="font-size:22px;margin:0 0 4px;">MET Dashboard</h1>
+    <p class="muted" id="app-sub">Install the dashboard on your phone.</p>
+    <div id="app-body" style="margin-top:14px;"><div class="table-loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Approve a sign-in on another device by scanning its QR code -->
+  <div class="app-card fade-up" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:6px;">
+      <i class="ti ti-qrcode" style="font-size:22px;color:var(--blue,#3b82f6);"></i>
+      <h2 style="font-size:17px;margin:0;">Sign in another device</h2>
+    </div>
+    <p class="muted">On a computer, open the MET sign-in page and choose <strong>“Scan a QR code”</strong>. Scan that code here to approve the sign-in — no password needed.</p>
+    <button id="qr-scan-btn" class="btn btn-primary big-btn"><i class="ti ti-camera"></i> Scan QR code</button>
+  </div>
+
+  <div style="text-align:center;margin-top:20px;">
+    <a href="/profile" class="btn btn-ghost btn-sm"><i class="ti ti-arrow-left"></i> Back to dashboard</a>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/push-client.js"></script>
+<script src="/js/app-install.js"></script>
+<script>
+// ── QR sign-in scanner ────────────────────────────────────────────
+// Scans a desktop's "/link/approve?id=…" QR and navigates there to approve.
+// Uses the BarcodeDetector API where available (Android/Chrome); falls back to
+// a pasted link + native-camera instructions (e.g. iOS Safari).
+(function () {
+  var btn = document.getElementById('qr-scan-btn');
+  if (!btn) return;
+  var overlay = null, stream = null, raf = null, detector = null;
+
+  function isApproveUrl(v) {
+    try { var u = new URL(v, location.origin); return u.origin === location.origin && u.pathname === '/link/approve'; }
+    catch (e) { return false; }
+  }
+  function stop() {
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    if (overlay) { overlay.remove(); overlay = null; }
+  }
+  function go(url) { stop(); location.href = url; }
+  function msg(t) { var el = document.getElementById('qr-scan-msg'); if (el) el.textContent = t; }
+
+  async function open() {
+    overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:12000;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;';
+    overlay.innerHTML =
+      '<video id="qr-vid" playsinline muted style="width:100%;max-width:420px;border-radius:14px;background:#111;aspect-ratio:1/1;object-fit:cover;"></video>' +
+      '<div id="qr-scan-msg" style="color:#cdd3df;font-size:13px;text-align:center;max-width:420px;line-height:1.5;">Point your camera at the QR code on the other device.</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">' +
+        '<input id="qr-paste" placeholder="…or paste the sign-in link" style="padding:10px 12px;border-radius:10px;border:1px solid #333;background:#111;color:#fff;min-width:220px;font-size:13px;">' +
+        '<button id="qr-paste-go" class="btn btn-primary btn-sm">Go</button>' +
+      '</div>' +
+      '<button id="qr-cancel" class="btn btn-ghost btn-sm" style="color:#fff;">Cancel</button>';
+    document.body.appendChild(overlay);
+    document.getElementById('qr-cancel').onclick = stop;
+    document.getElementById('qr-paste-go').onclick = function () {
+      var v = (document.getElementById('qr-paste').value || '').trim();
+      if (isApproveUrl(v)) go(v); else msg('That doesn’t look like a MET sign-in link.');
+    };
+
+    var vid = document.getElementById('qr-vid');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      vid.srcObject = stream; await vid.play();
+    } catch (e) {
+      msg('Camera unavailable — use your phone’s Camera app to scan the code, or paste the link above.'); return;
+    }
+    if (!('BarcodeDetector' in window)) {
+      msg('In-app scanning isn’t supported on this browser — use your phone’s Camera app to scan, or paste the link above.'); return;
+    }
+    try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); }
+    catch (e) { msg('Scanning unavailable here — paste the link above instead.'); return; }
+
+    (function scan() {
+      if (!overlay) return;
+      detector.detect(vid).then(function (codes) {
+        for (var i = 0; i < codes.length; i++) { if (isApproveUrl(codes[i].rawValue)) { go(codes[i].rawValue); return; } }
+        raf = requestAnimationFrame(scan);
+      }).catch(function () { raf = requestAnimationFrame(scan); });
+    })();
+  }
+  btn.addEventListener('click', open);
+})();
+</script>
+<script src="/js/command-palette.js"></script>
+</body>
+</html>

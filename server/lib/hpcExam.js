@@ -26,8 +26,8 @@ const QUESTIONS = [
     prompt: 'If someone has their gun holstered, can you arrest them?' },
   { id: 'revolver',           type: 'paragraph', points: 2, required: true,  minSentences: 2,
     prompt: 'When patrolling, a suspect points a loaded revolver at you. How will you handle the situation? Your life may be at harm…' },
-  { id: 'frisk_cause',        type: 'choice',    points: 2, required: true,  options: ['Probable Cause', 'Reasonable Cause'],
-    prompt: 'A known thug, Jamal Smith, is with local gang members and criminals. He approaches you and looks violent. You are able to detain and frisk him on behalf of?' },
+  { id: 'frisk_cause',        type: 'choice',    points: 2, required: true,  options: ['Probable Cause', 'Reasonable Suspicion'],
+    prompt: 'A known thug, Jamal Smith, is with local gang members and criminals. He approaches you and looks violent. You are able to detain and frisk him on the basis of?' },
   { id: 'rifle_store',        type: 'paragraph', points: 2, required: true,  minSentences: 2,
     prompt: 'There is a fella standing outside of a store with a massive rifle holstered. He looks suspicious. What step would you take next?' },
   { id: 'shooter_booking',    type: 'paragraph', points: 2, required: true,  minSentences: 2,
@@ -37,7 +37,8 @@ const QUESTIONS = [
   { id: 'shoes',              type: 'choice',    points: 2, required: true,  options: ['Black', 'White', 'Any shoes.'],
     prompt: 'What shoes should you be wearing when patrolling?' },
   { id: 'agreement',          type: 'agreement', points: 2, required: true,
-    prompt: 'Put your username below agreeing to the terms for Hendon Police College with the format: "I (USERNAME) Agree that I will not leak this exam or cheat and use help with Google or a friend for this exam or I will be blacklisted and banned."' },
+    statement: 'I, (USERNAME), agree that I will not leak, share, or distribute this exam, and that I will not use Google, AI, or assistance from another person while completing it. I understand that violating these rules may result in being blacklisted and permanently banned from the Metropolitan Police Service.',
+    prompt: 'Agree to the Hendon Police College exam terms. Use the Copy button to copy the statement with your Roblox username filled in, then paste it into the box below.' },
 ];
 
 function totalPoints() { return QUESTIONS.reduce((s, q) => s + q.points, 0); }
@@ -61,6 +62,7 @@ function publicPaper() {
     questions: QUESTIONS.map(q => ({
       id: q.id, type: q.type, points: q.points, required: q.required,
       options: q.options || null, minSentences: q.minSentences || null, prompt: q.prompt,
+      statement: q.statement || null,
     })),
   };
 }
@@ -118,18 +120,19 @@ function computeFlags(answers, detection) {
   // Per-answer: pasting / autofill on written questions.
   for (const q of QUESTIONS) {
     if (q.type !== 'paragraph' && q.type !== 'short') continue;
+    const n = QUESTIONS.indexOf(q) + 1; // 1-based question number (matches the marker's view)
     const pq = per[q.id] || {};
     const ans = (answers && answers[q.id]) || '';
     const text = String(ans).trim();
     const len = text.length;
     if ((pq.pastedChars || 0) > 0) {
-      add('high', 'paste', `Pasted into "${q.id}"`, `${pq.pastedChars} characters pasted (${pq.pasteCount || 1} paste${(pq.pasteCount || 1) > 1 ? 's' : ''}).`);
+      add('high', 'paste', `Pasted into Q${n}`, `${pq.pastedChars} characters pasted (${pq.pasteCount || 1} paste${(pq.pasteCount || 1) > 1 ? 's' : ''}).`);
     } else if (len >= 25 && (pq.keystrokes || 0) < len * 0.5) {
-      add('high', 'autofill', `"${q.id}" likely auto-filled`, `Answer is ${len} chars but only ${pq.keystrokes || 0} keystrokes were recorded (typical of paste / autofill).`);
+      add('high', 'autofill', `Q${n} likely auto-filled`, `Answer is ${len} chars but only ${pq.keystrokes || 0} keystrokes were recorded (typical of paste / autofill).`);
     }
     // Very fast, long, "written" answer → possible pre-written/AI paste.
     if (len >= 60 && (pq.activeMs || 0) > 0 && (pq.activeMs || 0) < 4000) {
-      add('medium', 'fast_answer', `"${q.id}" written very fast`, `${len} chars in ${(pq.activeMs / 1000).toFixed(1)}s of focus.`);
+      add('medium', 'fast_answer', `Q${n} written very fast`, `${len} chars in ${(pq.activeMs / 1000).toFixed(1)}s of focus.`);
     }
 
     // AI-writing heuristics on the answer text itself (works even if the cadet
@@ -137,9 +140,9 @@ function computeFlags(answers, detection) {
     if (q.type === 'paragraph' && len >= 40) {
       const ai = aiWritingSignals(text);
       if (ai.score >= 3) {
-        add('high', 'ai_writing', `"${q.id}" reads as AI-generated`, `AI-writing signals: ${ai.reasons.join('; ')}.`);
+        add('high', 'ai_writing', `Q${n} reads as AI-generated`, `AI-writing signals: ${ai.reasons.join('; ')}.`);
       } else if (ai.score === 2) {
-        add('medium', 'ai_writing', `"${q.id}" may be AI-assisted`, `Possible AI-writing signals: ${ai.reasons.join('; ')}.`);
+        add('medium', 'ai_writing', `Q${n} may be AI-assisted`, `Possible AI-writing signals: ${ai.reasons.join('; ')}.`);
       }
     }
 
@@ -150,12 +153,12 @@ function computeFlags(answers, detection) {
       const active = pq.activeMs || 0;
       if (active >= 1000 && (pq.pastedChars || 0) === 0) {
         const cps = len / (active / 1000);
-        if (cps > 13) add('high', 'superhuman_typing', `"${q.id}" typed impossibly fast`, `${cps.toFixed(1)} chars/sec sustained over ${len} chars — beyond human typing.`);
+        if (cps > 13) add('high', 'superhuman_typing', `Q${n} typed impossibly fast`, `${cps.toFixed(1)} chars/sec sustained over ${len} chars — beyond human typing.`);
       }
       // Coefficient of variation of inter-keystroke gaps: human typing is bursty
       // (cv typically > 0.5); a near-constant rhythm suggests automation.
       if (typeof pq.cadenceCv === 'number' && (pq.keystrokes || 0) >= 30 && pq.cadenceCv < 0.18) {
-        add('medium', 'robotic_cadence', `"${q.id}" typed with robotic rhythm`, `Keystroke timing was near-uniform (cv ${pq.cadenceCv.toFixed(2)}), unusual for natural typing.`);
+        add('medium', 'robotic_cadence', `Q${n} typed with robotic rhythm`, `Keystroke timing was near-uniform (cv ${pq.cadenceCv.toFixed(2)}), unusual for natural typing.`);
       }
     }
   }

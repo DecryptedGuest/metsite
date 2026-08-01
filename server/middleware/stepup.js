@@ -29,4 +29,35 @@ function requireStepUp(req, res, next) {
   })();
 }
 
-module.exports = { requireStepUp, STEP_UP_WINDOW_MS };
+// Enforced variant: when the `requirePasskeyElevated` toggle is on, elevated
+// staff (HICOMM/SUPERVISOR/DEVELOPER) MUST have a passkey — if they have none,
+// the action is blocked with an "enrol a passkey" message. If they do have one
+// (enforced or not), a fresh passkey step-up is required. Non-elevated users
+// with no passkey pass through (never locked out of a control they never set up).
+function requireStepUpEnforced(req, res, next) {
+  (async () => {
+    try {
+      const elevated = req.user && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(req.user.role);
+      const enforce  = require('../lib/siteConfig').isOn('requirePasskeyElevated');
+      const count    = await prisma.passkey.count({ where: { userId: req.user.id } });
+
+      if (enforce && elevated && count === 0) {
+        return res.status(401).json({ error: 'Your role requires a passkey. Add one in your profile (Passkeys & 2FA), then retry.', code: 'PASSKEY_ENROLL_REQUIRED' });
+      }
+      if (count === 0) return next(); // not enrolled, not enforced → allow
+
+      let ok = false;
+      if (req.sessionId) {
+        const s = await prisma.session.findUnique({ where: { id: req.sessionId }, select: { stepUpAt: true } });
+        ok = !!(s && s.stepUpAt && (Date.now() - new Date(s.stepUpAt).getTime()) < STEP_UP_WINDOW_MS);
+      }
+      if (ok) return next();
+      return res.status(401).json({ error: 'Passkey verification required.', code: 'STEP_UP_REQUIRED' });
+    } catch (e) {
+      console.warn('[StepUp] enforced check failed (allowing):', e.message);
+      return next();
+    }
+  })();
+}
+
+module.exports = { requireStepUp, requireStepUpEnforced, STEP_UP_WINDOW_MS };

@@ -30,30 +30,56 @@ function recField(label, value, mono) {
     + "<span class=\"detail-field-value" + (mono ? " mono" : "") + "\">" + (value || "<span style=\"color:var(--text-muted);\">—</span>") + "</span></div>";
 }
 
+// Reuse the shared status badge so Records reads identically to My/All Cases.
 function recStatusBadge(s) {
-  var m = {
-    PENDING:  "<span class=\"badge badge-pending\"><span class=\"badge-dot\"></span>Pending</span>",
-    APPROVED: "<span class=\"badge badge-approved\"><span class=\"badge-dot\"></span>Approved</span>",
-    DENIED:   "<span class=\"badge badge-denied\"><span class=\"badge-dot\"></span>Denied</span>"
-  };
-  return m[s] || "<span class=\"badge\">" + escapeHtml(s || "") + "</span>";
+  return (typeof statusBadge === "function")
+    ? statusBadge(s)
+    : "<span class=\"badge\">" + escapeHtml(s || "") + "</span>";
 }
 
+// Records case rows are the SAME cards as My Cases / All Cases: clicking one
+// opens the full case detail modal (with the appeal control), and an inline
+// Appeal button is offered wherever the viewer is allowed to use it.
 function recCaseRows(list, emptyText) {
-  if (!list || !list.length)
-    return "<tr><td colspan=\"5\" class=\"table-empty\"><span class=\"table-empty-text\">" + emptyText + "</span></td></tr>";
+  // Six columns, because Records now carries the appeal control alongside the
+  // same case card the other lists use.
+  if (!list || !list.length) {
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-folder-off", title: emptyText })
+      : "<span class=\"table-empty-text\">" + emptyText + "</span>";
+    return "<tr><td colspan=\"6\" class=\"table-empty\">" + EMPTY + "</td></tr>";
+  }
   return list.map(function (c) {
     var act = c.actions && c.actions.length
       ? c.actions.map(function (a) { return escapeHtml(a.action); }).join(", ")
       : escapeHtml(c.action || "—");
-    return "<tr>"
+
+    var appeal = "";
+    if (typeof canAppealLocally === "function") {
+      var verdict = canAppealLocally(c);
+      if (verdict.show) {
+        appeal = "<button class=\"row-btn btn-appeal\" " + (verdict.allowed ? "" : "disabled title=\"" + escapeHtml(verdict.reason) + "\" ")
+          + "onclick=\"event.stopPropagation();openAppealModal('" + c.id + "')\"><i class=\"ti ti-gavel\"></i> Appeal</button>";
+      }
+    }
+    var appealed = (typeof appealBadge === "function") ? appealBadge(c) : "";
+
+    return "<tr class=\"rec-case-row\" onclick=\"openCaseDetail('" + c.id + "')\" title=\"Open this case\">"
       + "<td><span class=\"case-ref\">" + escapeHtml(c.caseRef) + "</span></td>"
       + "<td><span style=\"font-size:12px;\">" + act + "</span></td>"
       + "<td><span style=\"font-size:12px;color:var(--text-secondary);\">" + escapeHtml(c.reason || "—") + "</span></td>"
-      + "<td>" + recStatusBadge(c.status) + "</td>"
+      + "<td>" + recStatusBadge(c.status) + " " + appealed + "</td>"
       + "<td><span class=\"date-cell\">" + formatDateTime(c.createdAt) + "</span></td>"
+      + "<td onclick=\"event.stopPropagation();\">" + appeal + "</td>"
       + "</tr>";
   }).join("");
+}
+
+function recCaseTable(list, emptyText) {
+  return "<div class=\"table-wrap\"><table class=\"data-table\">"
+    + "<thead><tr><th>Case Ref</th><th>Action</th><th>Reason</th><th>Status</th><th>Date</th><th></th></tr></thead>"
+    + "<tbody>" + recCaseRows(list, emptyText) + "</tbody>"
+    + "</table></div>";
 }
 
 async function runRecordLookup() {
@@ -88,8 +114,11 @@ function renderRecord(d) {
       ? "<ul style=\"margin:.6rem 0 0;padding-left:1.1rem;color:var(--text-secondary);font-size:12px;\">"
         + d.notes.map(function (n) { return "<li>" + escapeHtml(n) + "</li>"; }).join("") + "</ul>"
       : "";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-user-off", title: "No matching user found.", sub: "Check the spelling, or try a Roblox/Discord username or ID." })
+      : "<div style=\"font-weight:600;color:var(--text-primary);\">No matching user found.</div>";
     out.innerHTML = "<div class=\"panel glass\" style=\"margin-top:1.1rem;padding:1.4rem;\">"
-      + "<div style=\"font-weight:600;color:var(--text-primary);\">No matching user found.</div>" + noteHtml + "</div>";
+      + EMPTY + noteHtml + "</div>";
     return;
   }
 
@@ -143,19 +172,25 @@ function renderRecord(d) {
         ? rec.map(function (a) { return recChip(escapeHtml(a), "muted"); }).join("")
         : "<span style=\"color:var(--text-muted);font-size:13px;\">No approved punishments on record.</span>")
     + "</div>"
-    + "<div class=\"table-wrap\"><table class=\"data-table\">"
-    + "<thead><tr><th>Case Ref</th><th>Action</th><th>Reason</th><th>Status</th><th>Date</th></tr></thead>"
-    + "<tbody>" + recCaseRows(d.approvedCases, "No approved cases against this user.") + "</tbody>"
-    + "</table></div></div>";
+    + recCaseTable(d.approvedCases, "No approved cases against this user.")
+    + "</div>";
+
+  // ── Appealed (overturned — lifted, no longer on record) ──────────
+  var overturned = d.overturnedCases || [];
+  if (overturned.length) {
+    html += "<div class=\"panel glass fade-up\" style=\"margin-top:1.1rem;\">"
+      + "<div class=\"panel-header\"><div class=\"panel-title\"><span class=\"panel-dot purple\"></span>Appealed Cases</div>"
+      + "<span class=\"text-muted mono\" style=\"font-size:11px;\">overturned · punishments lifted</span></div>"
+      + recCaseTable(overturned, "No appealed cases.")
+      + "</div>";
+  }
 
   // ── Pending / Denied (logged but NOT counted) ────────────────────
   html += "<div class=\"panel glass fade-up\" style=\"margin-top:1.1rem;margin-bottom:1.5rem;\">"
     + "<div class=\"panel-header\"><div class=\"panel-title\"><span class=\"panel-dot\"></span>Pending &amp; Denied Cases</div>"
     + "<span class=\"text-muted mono\" style=\"font-size:11px;\">logged only · not counted toward record</span></div>"
-    + "<div class=\"table-wrap\"><table class=\"data-table\">"
-    + "<thead><tr><th>Case Ref</th><th>Action</th><th>Reason</th><th>Status</th><th>Date</th></tr></thead>"
-    + "<tbody>" + recCaseRows(d.otherCases, "No pending or denied cases.") + "</tbody>"
-    + "</table></div></div>";
+    + recCaseTable(d.otherCases, "No pending or denied cases.")
+    + "</div>";
 
   // ── Notes / warnings ─────────────────────────────────────────────
   if (d.notes && d.notes.length) {

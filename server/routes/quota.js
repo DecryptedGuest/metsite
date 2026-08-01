@@ -42,10 +42,18 @@ router.post('/check', requireHICOMMStrict, async (req, res) => {
     // (reducing their quota) and remove it from the previous holder. If the same
     // person is re-selected, the role simply stays. Non-blocking on failure.
     let iotwApplied = null;
-    if (iotwDiscordId || iotwUsername) {
-      iotwApplied = await setInvestigatorOfWeek(iotwDiscordId || null);
+    if (iotwDiscordId) {
+      // Guard on the Discord ID, not the username: calling setInvestigatorOfWeek(null)
+      // as a side effect of a selection that merely lacked an ID would strip the
+      // IOTW role from the PREVIOUS holder and grant it to nobody.
+      iotwApplied = await setInvestigatorOfWeek(iotwDiscordId);
       if (iotwApplied && !iotwApplied.ok)
         console.warn('[Quota] IOTW role update failed:', iotwApplied.error);
+    } else if (iotwUsername) {
+      // A member was picked but their sheet row has no Discord ID — surface it as
+      // a failure instead of silently clearing everyone's IOTW role.
+      iotwApplied = { ok: false, error: 'No Discord ID on file for the selected Investigator of the Week.' };
+      console.warn('[Quota] IOTW selection had no Discord ID — skipping role change for', iotwUsername);
     }
 
     const ok = await sendQuotaCheckWebhook({
@@ -104,6 +112,43 @@ router.post('/reset', requireHICOMMStrict, async (req, res) => {
   } catch (err) {
     console.error('[Quota] reset error:', err.message);
     res.status(500).json({ error: 'Failed to reset quota.' });
+  }
+});
+
+// ── MET database sync ─────────────────────────────────────────────
+// Removes members who are no longer in the MET Roblox group from the database
+// sheet, and adds newly joined constables into the rows that frees up.
+//
+//   GET  /api/quota/met-database         → what the sync WOULD do (dry run)
+//   POST /api/quota/met-database/sync    → actually do it
+
+router.get('/met-database', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const plan = await syncMetDatabase({ dry: true });
+    if (!plan.ok) return res.status(plan.error ? 400 : 500).json(plan);
+    res.json(plan);
+  } catch (err) {
+    console.error('[MetDB] plan error:', err.message);
+    res.status(500).json({ error: 'Could not read the MET database: ' + err.message });
+  }
+});
+
+router.post('/met-database/sync', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const result = await syncMetDatabase({
+      dry:   false,
+      // The token comes from the dry run the operator just reviewed, so what
+      // gets written is exactly what they were shown.
+      token: (req.body && req.body.token) || null,
+      actor: { id: req.user.id, name: req.user.displayName || req.user.discordUsername },
+    });
+    if (!result.ok) return res.status(result.stale ? 409 : 502).json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('[MetDB] sync error:', err.message);
+    res.status(500).json({ error: 'MET database sync failed: ' + err.message });
   }
 });
 

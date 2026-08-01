@@ -21,13 +21,13 @@ function fmtBytes(n) {
   return (n / 1048576).toFixed(1) + ' MB';
 }
 function visLabel(v) {
-  return { PUBLIC: '🌐 Public', IA: '🛡️ Internal Affairs+', STAFF: '⭐ Staff only', DEVELOPER: '⚙ Developer' }[v] || v;
+  return { PUBLIC: 'Public', IA: 'Internal Affairs+', STAFF: 'Staff only', DEVELOPER: 'Developer' }[v] || v;
 }
 
 // ── Library (all IA) ──────────────────────────────────────────────
 async function loadMedia() {
   var grid = document.getElementById('media-grid');
-  if (grid) grid.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  if (grid) grid.innerHTML = window.metSkeleton ? '<div style="grid-column:1/-1;">' + window.metSkeleton('cards', 8) + '</div>' : '<div class="table-loading"><div class="spinner"></div></div>';
   try {
     mediaCache = await api('/api/media') || [];
     renderMediaGrid();
@@ -45,7 +45,12 @@ function renderMediaGrid() {
     if (mediaFilter === 'mine')  return m.uploaderId === (currentUser && currentUser.id);
     return true;
   });
-  if (!list.length) { grid.innerHTML = '<p style="grid-column:1/-1;color:var(--text-muted);font-size:13px;">No media yet. Click Upload to add an image or video.</p>'; return; }
+  if (!list.length) {
+    grid.innerHTML = window.metEmpty
+      ? '<div style="grid-column:1/-1;">' + window.metEmpty({ icon: 'ti-photo', title: 'No media yet', sub: 'Upload an image or video to add it to the library.', cta: 'Upload media', ctaIcon: 'ti-upload', onclick: 'openMediaUpload()' }) + '</div>'
+      : '<p style="grid-column:1/-1;color:var(--text-muted);font-size:13px;">No media yet. Click Upload to add an image or video.</p>';
+    return;
+  }
 
   grid.innerHTML = list.map(function (m) {
     var thumb = m.kind === 'image'
@@ -214,7 +219,7 @@ async function submitMediaUpload() {
 }
 
 async function deleteMedia(id, fromViewer) {
-  if (!confirm('Delete this media permanently? The link will stop working.')) return;
+  if (!(await uiConfirm('Delete this media permanently? The link will stop working.'))) return;
   try {
     await api('/api/media/' + id, { method: 'DELETE' });
     showToast('Deleted.', 'success');
@@ -229,7 +234,7 @@ var mediaAdminCache = [];
 
 async function loadMediaAdmin() {
   var tbody = document.getElementById('media-admin-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>';
+  if (tbody) tbody.innerHTML = window.metSkeleton ? '<tr><td colspan="9">' + window.metSkeleton('rows', 6) + '</td></tr>' : '<tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     mediaAdminCache = await api('/api/media/all') || [];
   } catch (e) {
@@ -246,7 +251,12 @@ async function loadMediaAdmin() {
 
   loadMediaStorage();
 
-  if (!mediaAdminCache.length) { if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="table-empty"><span class="table-empty-text">No media uploaded yet.</span></td></tr>'; return; }
+  if (!mediaAdminCache.length) {
+    if (tbody) tbody.innerHTML = window.metEmpty
+      ? '<tr><td colspan="9">' + window.metEmpty({ icon: 'ti-photo', title: 'No media uploaded yet', sub: 'Uploaded images and videos will appear here.' }) + '</td></tr>'
+      : '<tr><td colspan="9" class="table-empty"><span class="table-empty-text">No media uploaded yet.</span></td></tr>';
+    return;
+  }
 
   var visOpts = function (cur) {
     return ['PUBLIC', 'IA', 'STAFF', 'DEVELOPER'].map(function (v) {
@@ -271,8 +281,8 @@ async function loadMediaAdmin() {
       + '<td><select class="role-select" onchange="setMediaVisibility(\'' + m.id + '\',this.value)">' + visOpts(m.visibility) + '</select></td>'
       + '<td><span class="date-cell">' + formatDate(m.createdAt) + '</span></td>'
       + '<td><div class="admin-actions">'
-      + '<button class="row-btn btn-sm" onclick="copyToClipboard(location.origin+\'' + (m.pageUrl || ('/m/' + m.id)) + '\')"><i class="ti ti-link"></i></button>'
-      + '<button class="row-btn row-btn-deny btn-sm" onclick="deleteMedia(\'' + m.id + '\')"><i class="ti ti-trash"></i></button>'
+      + '<button class="row-btn btn-sm" title="Copy share link" aria-label="Copy share link" onclick="copyToClipboard(location.origin+\'' + (m.pageUrl || ('/m/' + m.id)) + '\')"><i class="ti ti-link"></i></button>'
+      + '<button class="row-btn row-btn-deny btn-sm" title="Delete media" aria-label="Delete media" onclick="deleteMedia(\'' + m.id + '\')"><i class="ti ti-trash"></i></button>'
       + '</div></td>'
       + '</tr>';
   }).join('');
