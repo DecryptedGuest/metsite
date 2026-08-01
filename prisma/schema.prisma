@@ -233,9 +233,9 @@ model CaseDocument {
 }
 
 // A closed ticket, ingested from the Tickety "Ticket Closed" log embeds in the
-// IA ticket-logs Discord channel. Read-only on the site: nobody logs tickets by
-// hand any more, there is no pending/approved state, and no quota points are
-// awarded for them.
+// IA ticket-logs Discord channel. Nobody logs a ticket by hand any more — the
+// row arrives automatically — but a supervisor still approves or denies it on
+// the site, and an approved log awards the closer 2 quota points.
 model TicketLog {
   id                    String     @id @default(uuid())
   messageId             String     @unique   // Discord message id of the log embed

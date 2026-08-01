@@ -79,7 +79,10 @@ sign-off. The bot copies the **"Ticket Closed"** logs into `ticket_logs`
 minutes and a backfill on first run — so **IA never logs a ticket by hand**. A
 **Supervisor or above then approves or denies each log on the site**
 (`POST /api/tickets/:id/review`); you can't sign off a ticket you closed yourself.
-Approving one **awards no quota points** — the weekly quota is cases only.
+Approving one awards the investigator who closed it **2 quota points**
+(`IA_TICKET_POINTS`) — an approved case is worth 4. The award is queued durably and
+keyed on the ticket id, so re-approving can never double-award, and denying awards
+nothing.
 
 *My Tickets* is every ticket you closed; *All Tickets* is every ticket logged.
 
@@ -115,9 +118,10 @@ both unset the bot requests no reaction intent. `PATROL_APPROVE_EMOJI` /
 
 The weekly IA target is set **per rank**: Low Command (Junior / Probationary
 Investigator) **30**, Middle Command (Senior Investigator / Supervisor) **20**, and
-Director / LOA **exempt**. An approved case is worth 4 points (`IA_CASE_POINTS`);
-**tickets award nothing**. Holding the Investigator-of-the-Week role takes 10 off the
-target while they hold it.
+Director / LOA **exempt**. An approved case is worth **4** points
+(`IA_CASE_POINTS`) to its investigator and an approved ticket log **2**
+(`IA_TICKET_POINTS`) to whoever closed it. Holding the Investigator-of-the-Week role
+takes 10 off the target while they hold it.
 
 ### MET database sync
 

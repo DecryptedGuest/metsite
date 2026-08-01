@@ -3,8 +3,8 @@
 //
 // Nobody logs a ticket on the site. Rows arrive automatically from Discord via
 // lib/ticketIngest.js — but a supervisor still SIGNS THEM OFF here, which is the
-// one thing that isn't read-only. Approving a ticket awards NO quota points; the
-// weekly quota is cases only.
+// one thing that isn't read-only. Approving a ticket log awards the investigator
+// who CLOSED it 2 quota points (an approved case is worth 4).
 //
 //   GET  /api/tickets            → tickets the current user closed ("My Tickets")
 //   GET  /api/tickets/all        → every closed ticket ("All Tickets")
@@ -178,7 +178,8 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
 //
 // This is the ONLY write on a ticket. It records a supervisor's decision on a
 // log that was ingested from Discord — it does not create, edit or delete the
-// log, and it deliberately awards NO quota points.
+// log. Approving one awards TICKET_POINTS (2) to the investigator who closed
+// the ticket; denying one awards nothing.
 router.post('/:id/review', requireHICOMM, async (req, res) => {
   const action = ((req.body && req.body.action) || '').toString().toLowerCase();
   if (!['approve', 'deny'].includes(action)) {
@@ -207,10 +208,39 @@ router.post('/:id/review', requireHICOMM, async (req, res) => {
       },
     });
 
+    // +2 quota points for the investigator who closed the ticket. Queued
+    // durably and keyed on the ticket id, so re-approving (or a retry) can never
+    // double-award — and a later deny simply leaves the existing award alone
+    // rather than clawing it back.
+    if (status === 'APPROVED' && (ticket.closerDiscordId || ticket.closerUserId)) {
+      const { enqueueQuotaAward, TICKET_POINTS } = require('../lib/quota');
+      let closer = null;
+      if (ticket.closerUserId) {
+        closer = await prisma.user.findUnique({
+          where:  { id: ticket.closerUserId },
+          select: { discordId: true, robloxUsername: true },
+        }).catch(() => null);
+      }
+      const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
+      if (discordId) {
+        enqueueQuotaAward({
+          refType: 'ticket', refId: ticket.id,
+          discordId,
+          // Only the matched site account's Roblox name — NEVER
+          // creatorRobloxUsername, which is the person who OPENED the ticket.
+          // With no Roblox name the sheet still matches on the Discord id.
+          robloxUsername: (closer && closer.robloxUsername) || null,
+          points: TICKET_POINTS(),
+          label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
+        }).catch(() => {});
+      }
+    }
+
     require('../lib/audit').record({
       req, action: status === 'APPROVED' ? 'TICKET_APPROVE' : 'TICKET_DENY',
       category: 'ia', targetType: 'ticketLog', targetId: ticket.id,
-      summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
+      summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`
+             + (status === 'APPROVED' ? ` (+${require('../lib/quota').TICKET_POINTS()} pts)` : ''),
     });
 
     res.json(updated);

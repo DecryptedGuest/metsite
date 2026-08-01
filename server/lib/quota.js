@@ -1,11 +1,11 @@
 // server/lib/quota.js
 // Adds quota points to the Internal Affairs Database Google Sheet when a case
-// (+4) is approved. Matches the IA member's row by Discord ID or Roblox
-// username and increments the column for the current day of the week.
+// (+4) or a ticket log (+2) is approved. Matches the IA member's row by Discord
+// ID or Roblox username and increments the column for the current day of the
+// week.
 //
-// Tickets award no points at all. The weekly target is per rank — 30 for Low
-// Command, 20 for Middle Command, exempt for High Command and LOA (see
-// quotaForRank).
+// The weekly target is per rank — 30 for Low Command, 20 for Middle Command,
+// exempt for High Command and LOA (see quotaForRank).
 //
 // Required env:
 //   GOOGLE_SERVICE_ACCOUNT_JSON  full service-account key JSON (one line)
@@ -420,8 +420,10 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 //   High Command (Director / Deputy Director)              → exempt (EX)
 //   Middle Command (Senior Investigator / Supervisor)      → 20
 //   Low Command (Junior / Probationary Investigator)       → 30
-// An approved case is worth CASE_POINTS (4); tickets award nothing.
-const CASE_POINTS = () => { const n = parseInt(process.env.IA_CASE_POINTS || '4', 10); return Number.isFinite(n) ? n : 4; };
+// An approved case is worth CASE_POINTS (4) to its investigator; an approved
+// ticket log is worth TICKET_POINTS (2) to whoever closed the ticket.
+const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
+const TICKET_POINTS = () => { const n = parseInt(process.env.IA_TICKET_POINTS || '2', 10); return Number.isFinite(n) ? n : 2; };
 
 function quotaForRank(rank) {
   const r = (rank || '').toString().trim().toLowerCase();
@@ -988,7 +990,7 @@ module.exports = {
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
-  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS,
+  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank,
 };

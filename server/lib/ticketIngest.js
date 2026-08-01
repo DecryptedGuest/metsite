@@ -3,9 +3,9 @@
 // stores them as TicketLog rows, so the site can show real closed tickets in
 // All Tickets / My Tickets without anyone hand-logging anything.
 //
-// Nobody submits, approves or denies a ticket any more, and tickets no longer
-// award quota points — this is a read-only mirror of what the Tickety bot
-// already posts in Discord.
+// Nobody submits a ticket on the site — this mirrors what the Tickety bot
+// already posts in Discord. A supervisor then approves or denies each log on
+// the site (see routes/tickets.js), which awards the closer 2 quota points.
 //
 // Two paths keep it current:
 //   * live   — bot.js forwards every new message in the log channel here.

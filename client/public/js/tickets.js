@@ -2,9 +2,10 @@
 // Closed ticket logs, mirrored from the IA ticket-logs Discord channel.
 //
 // Nobody logs a ticket here — rows arrive automatically from the Discord
-// ticket-log channel. A supervisor still approves or denies each one on the
-// site, and that decision awards NO quota points. "My Tickets" is every ticket
-// YOU closed; "All Tickets" is every ticket the channel has logged.
+// ticket-log channel. A supervisor approves or denies each one on the site, and
+// an approved log gives the investigator who closed it 2 quota points (an
+// approved case is worth 4). "My Tickets" is every ticket YOU closed;
+// "All Tickets" is every ticket the channel has logged.
 
 // Ticket-type labels + badge colours, shared with the dashboard tables.
 var TL = {
@@ -70,7 +71,7 @@ function ticketReviewCell(t) {
   return '<span style="font-size:11px;">' + escapeHtml(t.reviewedByName || '—') + '</span>';
 }
 
-// Approve or deny a ticket log. No points are awarded either way.
+// Approve or deny a ticket log. Approving awards the closer 2 quota points.
 async function reviewTicket(ticketId, action) {
   try {
     await api('/api/tickets/' + encodeURIComponent(ticketId) + '/review', {
@@ -218,7 +219,7 @@ async function openTicketDetail(ticketId) {
     + targetHtml
     + '</div>'
     + '<div style="margin-top:1rem;padding:9px 12px;border-radius:8px;background:var(--blue-dim);border:1px solid var(--border-dim);font-size:11.5px;color:var(--text-secondary);">'
-    +   '<i class="ti ti-info-circle"></i> Ticket logs are mirrored from Discord automatically — nobody logs one by hand. Approving or denying one awards no quota points.'
+    +   '<i class="ti ti-info-circle"></i> Ticket logs are mirrored from Discord automatically — nobody logs one by hand. Approving one awards the investigator who closed it <strong>2 quota points</strong>.'
     + '</div>'
     + ((t.status || 'PENDING') === 'PENDING' && canReview()
         ? '<div style="margin-top:0.9rem;display:flex;gap:8px;justify-content:flex-end;">'
