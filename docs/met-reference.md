@@ -132,6 +132,59 @@ IA already ships penal-code / offense libraries (`server/lib/penalCodes.js`,
   in `server/lib/hpcExam.js`.
 - ❓ HPC rank ladder (group `35685825`) to make the "and above" tiers exact.
 
+## `/discipline` (Discord) ✅
+
+Direct disciplinary action, no case attached — the IA case pipeline with the
+case removed and the case link demoted to an optional field.
+
+- Runs in `DISCIPLINE_GUILD_ID` (defaults to `DISCORD_GUILD_ID`).
+- **Who can run it**: Internal Affairs (the IA site role), or Deputy
+  Commissioner and above in the MET group. Checked in this order: the portal
+  account's IA role → a configured Discord role (`METHICOMM_ROLE_ID`,
+  `IA_COMMAND_ROLE_IDS`) → live MET group rank via RoVer. Nobody needs a portal
+  account to use it.
+- **Strikes escalate.** Picking "Strike (auto-escalate)" reads what the officer
+  already has — from the punishment table, from approved cases, and from the
+  strike roles they are actually wearing — and issues the next one up. Naming a
+  specific strike explicitly overrides the ladder. It refuses to guess what
+  comes after Strike 3 and asks for an explicit Termination / Blacklist /
+  Suspension instead.
+- **Nothing happens until Confirm.** The panel is ephemeral and shows the
+  officer, their MET rank, their record, what the action resolved to and every
+  side effect it is about to cause, then asks. It warns about the two things
+  that silently do nothing: an exile with no linked Roblox account, and a timed
+  punishment with no `days`.
+- Applies the Discord role, demotes or exiles in the group where the action
+  calls for it, posts the **same administrative-log embed the case system
+  posts**, and DMs the officer with a link to their record.
+- A failing step doesn't abandon the rest — the panel says which step failed and
+  whether the punishment is on record. A closed DM is not treated as a failure.
+
+**Punishment roles survive a rejoin** (`server/lib/punishmentPersist.js`).
+Discord drops roles when someone leaves, which used to make leaving-and-
+rejoining a way to shed a strike. On `guildMemberAdd` the bot re-applies the
+roles for punishments that are still active — not expired, not lifted, not
+appealed. `PUNISHMENT_REAPPLY=off` disables it.
+
+## MET emoji ✅
+
+Everywhere the bot, its embeds, the webhooks and the site used a stock unicode
+emoji, they use a MET one instead, so Discord and the dashboard show the same
+mark for the same thing. Tabler icons are untouched.
+
+- Artwork: `scripts/emoji/manifest.js` (flat SVG, read at ~22px).
+- `node scripts/build-emoji.js` rasterises it to `client/public/img/emoji/*.png`
+  (committed) and regenerates `client/public/js/emoji-map.js`.
+- Discord: `server/lib/emoji.js` uploads them to `EMOJI_GUILD_ID` 12s after the
+  bot connects and re-checks hourly. `e('met_tick')` in bot/webhook code.
+- Site: `met.e('met_tick')` from `client/public/js/emoji.js`.
+- It degrades rather than breaks — until the upload lands (or if it can't:
+  missing "Manage Expressions", no emoji slots left) everything falls back to
+  the unicode character it replaced. `GET /api/dev/emoji` shows what is live;
+  `POST /api/dev/emoji/sync {"force":true}` re-uploads after an artwork change.
+- Manifest order is upload priority, because a full guild stops the upload
+  part-way.
+
 ## Deferred (still to build)
 
 - **Nav reframe**: a normal sign-in landing + a single MET dashboard where

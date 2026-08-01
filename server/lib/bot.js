@@ -69,7 +69,7 @@ async function onReady() {
   // e('met_tick') resolves to our artwork instead of falling back to unicode.
   try { require('./emoji').startEmojiSync(client); }
   catch (e) { console.warn('[Emoji] sync not started:', e.message); }
-  await registerImportCommand();
+  await registerCommands();
   // Bring up the CAD dispatch system (radio listener + voice). Best-effort —
   // never let a CAD misconfig take the bot down.
   try { require('./cad').init(client); } catch (e) { console.warn('[CAD] init failed:', e.message); }
@@ -109,6 +109,12 @@ function buildClient(withMessageContent) {
     c.on('messageReactionAdd',    onReaction(true));
     c.on('messageReactionRemove', onReaction(false));
   }
+  // A punishment role has to survive somebody leaving and rejoining, or every
+  // punishment is one /leave away from being undone. GuildMembers is already
+  // requested above, which is what makes this event fire at all.
+  c.on('guildMemberAdd', member =>
+    require('./punishmentPersist').reapplyOnJoin(member)
+      .catch(e => console.warn('[Punishments] rejoin re-apply failed:', e.message)));
   c.on('error', err => console.error('Discord bot error:', err.message));
   return c;
 }
@@ -120,24 +126,53 @@ function getClient() { return ready ? client : null; }
 
 client = buildClient(WANT_MESSAGE_CONTENT);
 
-// Register the dev-only /import-cases command in the import guild
-async function registerImportCommand() {
-  if (!IMPORT_GUILD_ID) return;
+// Where /discipline lives: the MET server, where the punishment roles are.
+const DISCIPLINE_GUILD_ID = () => process.env.DISCIPLINE_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+
+// Register slash commands, GROUPED BY GUILD.
+//
+// guild.commands.set() replaces that guild's whole command list, so every
+// command for a guild has to go in one call — registering them one at a time
+// would have each one delete the last. That was harmless while /import-cases
+// was the only command and lived in its own private guild; it stops being
+// harmless the moment two commands share a guild.
+async function registerCommands() {
+  const byGuild = new Map();
+  const add = (guildId, json) => {
+    if (!guildId) return;
+    if (!byGuild.has(guildId)) byGuild.set(guildId, []);
+    byGuild.get(guildId).push(json);
+  };
+
+  if (IMPORT_GUILD_ID) {
+    add(IMPORT_GUILD_ID, new SlashCommandBuilder()
+      .setName('import-cases')
+      .setDescription('Bulk-import cases from a forum channel into the website')
+      .addChannelOption(o => o.setName('channel').setDescription('The forum channel to import from').setRequired(true))
+      .addBooleanOption(o => o.setName('dry').setDescription('Preview only — write nothing'))
+      // Visible to everyone in the (private) import guild; execution is gated
+      // in code to the developer user ID below — so admins see it but can't run it.
+      .toJSON());
+  }
+
+  // /discipline is visible to everyone; who may actually run it is decided in
+  // code (Internal Affairs, or Deputy Commissioner and above). Gating it with
+  // Discord's own default_member_permissions would tie it to a permission bit
+  // rather than to rank, which is not the same thing at all.
   try {
-    const guild = await client.guilds.fetch(IMPORT_GUILD_ID);
-    await guild.commands.set([
-      new SlashCommandBuilder()
-        .setName('import-cases')
-        .setDescription('Bulk-import cases from a forum channel into the website')
-        .addChannelOption(o => o.setName('channel').setDescription('The forum channel to import from').setRequired(true))
-        .addBooleanOption(o => o.setName('dry').setDescription('Preview only — write nothing'))
-        // Visible to everyone in the (private) import guild; execution is gated
-        // in code to the developer user ID below — so admins see it but can't run it.
-        .toJSON(),
-    ]);
-    console.log(`🤖  /import-cases registered in guild ${IMPORT_GUILD_ID}`);
+    add(DISCIPLINE_GUILD_ID(), require('./disciplineCommand').buildCommand());
   } catch (err) {
-    console.error('Failed to register /import-cases:', err.message);
+    console.error('[Bot] could not build /discipline:', err.message);
+  }
+
+  for (const [guildId, cmds] of byGuild) {
+    try {
+      const guild = await client.guilds.fetch(guildId);
+      await guild.commands.set(cmds);
+      console.log(`[Bot] registered ${cmds.map(c => '/' + c.name).join(' ')} in guild ${guildId}`);
+    } catch (err) {
+      console.error(`[Bot] command registration failed for guild ${guildId}:`, err.message);
+    }
   }
 }
 
@@ -148,13 +183,33 @@ async function onInteraction(interaction) {
       || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())
       || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())
       || (interaction.isModalSubmit && interaction.isModalSubmit())) {
-    if ((interaction.customId || '').startsWith('tryout_')) {
+    const cid = interaction.customId || '';
+    if (cid.startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
+    }
+    if (cid.startsWith('disc_')) {
+      return require('./disciplineCommand').handleDisciplineButton(interaction)
+        .catch(e => console.error('[Bot] discipline button error:', e.message));
     }
     return;
   }
 
-  if (!interaction.isChatInputCommand() || interaction.commandName !== 'import-cases') return;
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'discipline') {
+    return require('./disciplineCommand').handleDisciplineCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /discipline failed:', err.message);
+        // The panel is ephemeral and already deferred by this point, so the
+        // issuer would otherwise be left staring at "thinking…" forever.
+        const msg = { content: `${e('met_cross')} Something went wrong running that — nothing was issued. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName !== 'import-cases') return;
 
   const DEV = process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
   if (interaction.user.id !== DEV) {
