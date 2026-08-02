@@ -154,6 +154,7 @@ const DISCIPLINE_GUILD_IDS = () => metGuildIds('DISCIPLINE_GUILD_ID');
 const XP_GUILD_IDS         = () => metGuildIds('XP_GUILD_ID');
 const IA_GUILD_IDS         = () => metGuildIds('IA_PANEL_GUILD_ID');
 const PROMOTE_GUILD_IDS    = () => metGuildIds('PROMOTE_GUILD_ID');
+const LOA_GUILD_IDS        = () => metGuildIds('LOA_GUILD_ID');
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -234,6 +235,17 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /promote:', err.message);
   }
 
+  // /loa — leave of absence. Everyone can request and manage their own; the
+  // reviewing half is gated in code to the LOA admin role, not by a Discord
+  // permission bit, for the same reason /discipline is.
+  try {
+    const cmd = require('./loaCommand').buildCommand();
+    add(LOA_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /loa:', err.message);
+  }
+
   return { byGuild, global };
 }
 
@@ -310,6 +322,7 @@ async function listRegisteredCommands() {
     xpTargets: XP_GUILD_IDS(),
     iaTargets: IA_GUILD_IDS(),
     promoteTargets: PROMOTE_GUILD_IDS(),
+    loaTargets:     LOA_GUILD_IDS(),
   };
   try {
     for (const g of client.guilds.cache.values()) out.botGuilds.push({ id: g.id, name: g.name });
@@ -318,7 +331,7 @@ async function listRegisteredCommands() {
     const g = await client.application.commands.fetch();
     out.global = [...g.values()].map(c => c.name);
   } catch (e) { out.global = { error: e.message }; }
-  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
+  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), ...LOA_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
     try {
       const guild = await client.guilds.fetch(guildId);
       const cmds = await guild.commands.fetch();
@@ -352,6 +365,21 @@ async function onInteraction(interaction) {
     if (cid.startsWith('prom_')) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
+    }
+    if (cid.startsWith('loa_')) {
+      const LC = require('./loaCommand');
+      // The extend/reduce modals share the loa_ prefix with the buttons that
+      // open them, so which handler runs depends on what came back.
+      const run = (interaction.isModalSubmit && interaction.isModalSubmit())
+        ? LC.handleLoaModal(interaction)
+        : LC.handleLoaButton(interaction);
+      return run.catch(async (err) => {
+        console.error('[Bot] LOA component error:', err.message);
+        const msg = { embeds: [], components: [], content: `${e('met_cross')} Something went wrong. (${err.message})` };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
     }
     return;
   }
@@ -398,6 +426,17 @@ async function onInteraction(interaction) {
       .catch(async (err) => {
         console.error('[Bot] /ia failed:', err.message);
         const msg = { content: `${e('met_cross')} Something went wrong opening that. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'loa') {
+    return require('./loaCommand').handleLoaCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /loa failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong — nothing was changed. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});

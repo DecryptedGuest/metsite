@@ -944,27 +944,59 @@ model GameLog {
 // ── Leave of Absence requests ────────────────────────────────────────
 // Any MET member requests an LOA for a division or MET-wide; it forwards to the
 // divisional HICOMM (division scope) or MET HICOMM (MET scope) for review.
+// Leave of absence. Requested, reviewed and managed entirely through /loa in
+// Discord — there is no page for it, because the people who need it are in
+// Discord and the people who approve it are in Discord.
+//
+// `userId` is nullable: somebody who has never signed in to the dashboard can
+// still ask for leave, and `discordId` is what actually identifies a requester.
 model LoaRequest {
   id           String    @id @default(uuid())
-  userId       String // requester (User.id)
+  userId       String? // requester's site account, when they have one
   userName     String? // snapshot for listing
+  // Who they are in Discord. This is the identity the command works from —
+  // every subcommand resolves a person by it.
+  discordId       String?
+  discordUsername String?
   scope        String    @default("DIVISION") // MET | DIVISION
   division     String? // set when scope=DIVISION
   reason       String?
   startAt      DateTime
   endAt        DateTime
-  status       String    @default("PENDING") // PENDING | APPROVED | DENIED | CANCELLED
-  forwardedTo  String? // human label of the reviewing tier (e.g. "CID HICOMM")
+  status       String    @default("PENDING") // PENDING | APPROVED | DENIED | CANCELLED | ENDED | EXPIRED
+  forwardedTo  String? // human label of the reviewing tier (e.g. "Jade Command")
   reviewerId   String?
   reviewerName String?
   reviewNote   String?
   reviewedAt   DateTime?
+
+  // The request card posted for review, so a decision can edit it in place
+  // instead of leaving a stale "pending" message in the channel.
+  messageId    String?
+  channelId    String?
+
+  // Ended before its end date — by the member coming back early, or by command.
+  endedAt      DateTime?
+  endedById    String?
+  endedByName  String?
+
+  // A change the member has asked for on an approved leave:
+  // { kind: 'EXTEND' | 'REDUCE', endAt, reason, at }. Held here rather than as
+  // a second request so one leave stays one row.
+  changeRequest Json?
+
+  // Set when the end date passed and the leave was closed off automatically,
+  // so a sweep cannot close the same one twice.
+  expiredAt    DateTime?
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([userId])
+  @@index([discordId])
   @@index([status])
   @@index([division])
+  @@index([endAt])
   @@map("loa_requests")
 }
 

@@ -149,6 +149,9 @@ if (RUN_WORKERS) {
   // the Roblox group — drop members who left, add newly joined constables.
   require('./lib/metDatabase').startMetDatabaseWorker();
   require('./lib/iaSync').startIaSync(); // no-op unless IA_DATABASE_URL is set
+  // Close off leave whose end date has passed, and tell the member they are
+  // back. Without it /loa active fills with people who returned weeks ago.
+  require('./lib/loaCommand').startLoaWorker();
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');

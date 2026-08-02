@@ -181,6 +181,31 @@ const EMOJI = [
     svg: disc(C.green)
        + `<path d="M64 30 L98 68 H78 V98 H50 V68 H30 Z" fill="#08210f"/>` },
 
+  // ── Leave of absence ────────────────────────────────────────────
+  // /loa needs marks of its own: a date range, time left to run, and coming
+  // back. met_leave is a door and reads as "gone", which is the wrong idea —
+  // an LOA is a return date, not a departure.
+  { name: 'met_calendar', fallback: '\u{1F4C5}', desc: 'a date / a leave period',
+    svg: `<rect x="12" y="24" width="104" height="92" rx="12" fill="${C.paper}"/>`
+       + `<rect x="12" y="24" width="104" height="26" rx="12" fill="${C.blue}"/>`
+       + `<rect x="34" y="12" width="12" height="24" rx="6" fill="${C.ink}"/>`
+       + `<rect x="82" y="12" width="12" height="24" rx="6" fill="${C.ink}"/>`
+       + `<g fill="${C.ink}"><rect x="30" y="62" width="18" height="16" rx="4"/>`
+       + `<rect x="56" y="62" width="18" height="16" rx="4"/>`
+       + `<rect x="82" y="62" width="18" height="16" rx="4"/>`
+       + `<rect x="30" y="86" width="18" height="16" rx="4"/>`
+       + `<rect x="56" y="86" width="18" height="16" rx="4"/></g>` },
+  { name: 'met_hourglass', fallback: '\u{23F3}', desc: 'time left to run',
+    svg: `<path d="M32 12 h64 v18 L74 64 l22 34 v18 H32 v-18 l22 -34 -22 -34 Z" fill="${C.amber}"/>`
+       + `<rect x="24" y="8" width="80" height="12" rx="6" fill="${C.ink}"/>`
+       + `<rect x="24" y="108" width="80" height="12" rx="6" fill="${C.ink}"/>`
+       + `<path d="M50 96 h28 l-14 -20 Z" fill="${C.ink}" opacity=".45"/>` },
+  { name: 'met_return',   fallback: '\u{1F519}', desc: 'back from leave',
+    svg: disc(C.green)
+       + `<path d="M78 40 H56 a22 22 0 1 0 0 44 h6" fill="none" stroke="#08210f"`
+       + ` stroke-width="12" stroke-linecap="round"/>`
+       + `<path d="M68 26 L86 40 L68 54 Z" fill="#08210f"/>` },
+
   // ── Loading animation ───────────────────────────────────────────
   // Four frames of one spinner. The bot doesn't use animated emoji — it edits
   // the ephemeral embed frame by frame, which renders as a spin and degrades to
