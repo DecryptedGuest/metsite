@@ -196,15 +196,38 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
       prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
       prisma.ticketLog.count({ where: { reviewedByName: 'Backlog cleared' } }),
     ]);
+    // Ask the DATABASE the same question, in the same SQL the clear uses.
+    // If this disagrees with Prisma's count, the disagreement IS the bug —
+    // a different schema on the search path, an enum that is really text, a
+    // view standing in for the table. Better to see it than to theorise.
+    let rawPending = null, rawError = null;
+    try {
+      const r = await prisma.$queryRaw`
+        SELECT COUNT(*)::int AS n FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus"`;
+      rawPending = r && r[0] ? Number(r[0].n) : null;
+    } catch (e) { rawError = e.message; }
+
+    let tableIs = null;
+    try {
+      const t = await prisma.$queryRaw`
+        SELECT current_schema() AS schema,
+               to_regclass('ticket_logs')::text AS resolves_to,
+               pg_typeof('PENDING'::"TicketStatus")::text AS status_type`;
+      tableIs = t && t[0] ? t[0] : null;
+    } catch (e) { tableIs = { error: e.message }; }
+
     const { backlogClearedAt } = require('../lib/ticketIngest');
     res.json({
       // Bumped whenever the clear logic changes, so a stale deploy is obvious.
-      clearBuild: 3,
+      clearBuild: 4,
       pending, clearableWithDateCutoff: beforeNow, datedInTheFuture: future,
       oldestPending: oldest, newestPending: newest,
       blankHandlers: blank, alreadyBacklogCleared: cleared,
       watermark: await backlogClearedAt().catch(() => null),
       serverTime: now,
+      // The two numbers that must agree.
+      rawPending, rawError, tableIs,
+      agrees: rawPending === pending,
     });
   } catch (err) {
     console.error('[TicketLogs] backlog status error:', err.message);
@@ -247,7 +270,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
         prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
       ]);
       return res.json({
-        clearBuild: 3,
+        clearBuild: 4,
         dryRun: true, wouldClear: waiting, pendingTotal: total,
         // Rows the cutoff would strand — a ticket dated in the future is never
         // "before now", so without saying so it would sit there unexplained.
@@ -280,9 +303,12 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
     // you something, and the old response had no way to say it.
     const pendingTotal = await prisma.ticketLog.count({ where: { status: 'PENDING' } });
 
-    // When nothing moved but rows remain, say why rather than shrugging.
+    // Diagnose whenever anything is still pending — not only when the clear
+    // moved nothing. A partial clear that keeps stalling needs explaining too,
+    // and the previous version could return `diagnosis: null` alongside a
+    // non-zero pending count, which told nobody anything.
     let diagnosis = null;
-    if (!out.cleared && pendingTotal > 0) {
+    if (pendingTotal > 0) {
       const [future, sample] = await Promise.all([
         prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { gte: new Date() } } }),
         prisma.ticketLog.findFirst({
@@ -290,20 +316,39 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
           select: { id: true, ticketNo: true, closedAt: true, status: true, messageId: true },
         }),
       ]);
+      // What the DATABASE thinks, in the clear's own SQL. If this disagrees
+      // with Prisma's count then the two are not looking at the same rows, and
+      // that is the whole answer.
+      let rawPending = null, rawError = null;
+      try {
+        const rp = await prisma.$queryRaw`
+          SELECT COUNT(*)::int AS n FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus"`;
+        rawPending = rp && rp[0] ? Number(rp[0].n) : null;
+      } catch (e) { rawError = e.message; }
+
       diagnosis = {
-        pendingTotal, matchedByFilter: 0, datedInTheFuture: future,
+        cleared: out.cleared, pendingTotal, datedInTheFuture: future,
+        rawPending, rawError, agrees: rawPending === pendingTotal,
         oldestPending: sample,
-        why: body.all === true
-          ? 'Rows are pending but the update matched none of them. This is not a filter problem — check the server log for the failing statement.'
-          : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
+        why: out.cleared
+          ? `Cleared ${out.cleared}; ${pendingTotal} still pending. Press again to continue.`
+          : rawError
+            ? `The clear statement failed: ${rawError}`
+            : rawPending !== pendingTotal
+              ? `The database and the ORM disagree — SQL sees ${rawPending} pending, the ORM sees ${pendingTotal}. `
+                + 'They are not reading the same rows; check DATABASE_URL and the schema search path.'
+              : body.all === true
+                ? `${pendingTotal} rows are pending and the UPDATE matched none of them. `
+                  + 'Open /api/tickets/backlog-status — it reports what the raw SQL sees.'
+                : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
       };
-      console.warn('[TicketLogs] backlog clear moved nothing:', JSON.stringify(diagnosis));
+      if (!out.cleared) console.warn('[TicketLogs] backlog clear moved nothing:', JSON.stringify(diagnosis));
     }
 
     console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
       + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
       + `${handlers.fixed} handler(s) filled in`);
-    res.json({ clearBuild: 3, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
+    res.json({ clearBuild: 4, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
     res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });
