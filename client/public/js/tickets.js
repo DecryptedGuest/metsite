@@ -412,7 +412,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // that, rather than cheerfully reporting success.
         if (dry.pendingTotal) {
           showToast(dry.pendingTotal + ' ticket(s) are still pending but the clear matched none of them. '
-            + (dry.clearBuild >= 3
+            + (dry.clearBuild >= 4
                 ? 'Open /api/tickets/backlog-status to see why.'
                 : 'The server is running an older build — redeploy, then try again.'), 'error', 12000);
           return;
@@ -446,7 +446,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // what the server said about why instead of a silent "cleared 0".
         if (!r.cleared && (r.pendingTotal || r.remaining)) {
           var why = (r.diagnosis && r.diagnosis.why)
-            || (r.clearBuild >= 3
+            || (r.clearBuild >= 4
                 ? 'Open /api/tickets/backlog-status to see why.'
                 : 'The server is running an older build — redeploy, then try again.');
           showToast('Cleared ' + total + '. ' + (r.pendingTotal || r.remaining)

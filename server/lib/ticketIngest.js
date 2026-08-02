@@ -148,15 +148,63 @@ const RESOLVED_FIELDS = [
 
 // The next readable ticket number, from a Postgres sequence — concurrent
 // ingests can't collide on it and there are no gaps to reason about.
+// Whether we have already tried to create the sequence this process. One
+// attempt is enough — retrying per row would hammer the database.
+let _seqChecked = false;
+
 async function nextTicketNo() {
   try {
     const r = await prisma.$queryRaw`SELECT nextval('ticket_log_no_seq')::int AS n`;
     return r && r[0] ? Number(r[0].n) : null;
   } catch (e) {
-    // A missing sequence must not stop a log being stored — the row simply has
-    // no number and falls back to Tickety's own id in the table.
+    // The sequence is missing. This is not hypothetical: `prisma db push` syncs
+    // the schema's columns and enums but never runs a migration's hand-written
+    // SQL, so a deployment done that way has the ticketNo COLUMN and no
+    // sequence to fill it — which is how nine thousand rows ended up numbered
+    // null. Create it once, seeded past whatever is already stored, then retry.
+    if (!_seqChecked) {
+      _seqChecked = true;
+      try {
+        const top = await prisma.ticketLog.aggregate({ _max: { ticketNo: true } });
+        const start = (top && top._max && top._max.ticketNo ? top._max.ticketNo : 0) + 1;
+        await prisma.$executeRawUnsafe(
+          `CREATE SEQUENCE IF NOT EXISTS ticket_log_no_seq START WITH ${Math.max(1, start)}`);
+        console.warn('[TicketLogs] ticket_log_no_seq was missing — created it, starting at ' + start);
+        const again = await prisma.$queryRaw`SELECT nextval('ticket_log_no_seq')::int AS n`;
+        return again && again[0] ? Number(again[0].n) : null;
+      } catch (e2) {
+        console.error('[TicketLogs] could not create ticket_log_no_seq:', e2.message);
+      }
+    }
+    // Still no sequence. A log without a number is still worth storing.
     return null;
   }
+}
+
+/**
+ * Give a number to every stored log that has none.
+ *
+ * Rows written while the sequence was missing carry ticketNo = null, so the
+ * table shows Tickety's random id instead of "#0001". Numbering them by the
+ * order they were closed is the only ordering that means anything.
+ */
+async function backfillTicketNumbers(limit = 20000) {
+  const rows = await prisma.ticketLog.findMany({
+    where: { ticketNo: null }, orderBy: { closedAt: 'asc' },
+    select: { id: true }, take: limit,
+  });
+  if (!rows.length) return { numbered: 0 };
+  let numbered = 0;
+  for (const r of rows) {
+    const n = await nextTicketNo();
+    if (n == null) break;                       // no sequence — stop, don't spin
+    try {
+      await prisma.ticketLog.update({ where: { id: r.id }, data: { ticketNo: n } });
+      numbered++;
+    } catch (e) { /* a clash just means that number is taken; move on */ }
+  }
+  console.log(`[TicketLogs] numbered ${numbered} log(s) that had none`);
+  return { numbered };
 }
 
 /**
@@ -266,27 +314,67 @@ async function clearBacklogBefore(when, opts = {}) {
   //
   // Still bounded: LIMIT keeps each statement small enough that no pooler or
   // proxy timeout can reach it, and the loop commits as it goes.
+  // TWO independent ways to do the same update, because one of them has been
+  // silently doing nothing in production and I could not tell which layer was
+  // at fault from here. Raw SQL first — it is one statement the database runs
+  // itself. If that throws, or runs and moves nothing while rows plainly match,
+  // fall through to the ORM. Whatever goes wrong is RECORDED and returned
+  // rather than swallowed, so the next press explains itself instead of
+  // reporting a cheerful zero.
+  //
+  // The LIMIT is inlined as a literal integer rather than bound as a parameter:
+  // it is a number this function clamps itself, never anything a caller typed,
+  // and a bind parameter in LIMIT is one more thing that can behave differently
+  // between environments.
   let cleared = 0;
+  let via = null;
+  const errors = [];
+
   while (cleared < maxRows) {
-    const take = Math.min(batch, maxRows - cleared);
-    const n = opts.all
-      ? await prisma.$executeRaw`
-          UPDATE ticket_logs SET
-            status = 'APPROVED'::"TicketStatus",
-            "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
-          WHERE id IN (
-            SELECT id FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus" LIMIT ${take}
-          )`
-      : await prisma.$executeRaw`
-          UPDATE ticket_logs SET
-            status = 'APPROVED'::"TicketStatus",
-            "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
-          WHERE id IN (
-            SELECT id FROM ticket_logs
-            WHERE status = 'PENDING'::"TicketStatus" AND "closedAt" < ${cutoff}
-            LIMIT ${take}
-          )`;
-    if (!n) break;
+    const take = Math.max(1, Math.min(batch, maxRows - cleared) | 0);
+    let n = null;
+
+    try {
+      const filter = opts.all
+        ? `status = 'PENDING'::"TicketStatus"`
+        : `status = 'PENDING'::"TicketStatus" AND "closedAt" < '${cutoff.toISOString()}'::timestamp`;
+      n = await prisma.$executeRawUnsafe(
+        `UPDATE ticket_logs SET
+           status = 'APPROVED'::"TicketStatus",
+           "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
+         WHERE id IN (SELECT id FROM ticket_logs WHERE ${filter} LIMIT ${take})`);
+      if (n) via = via || 'sql';
+    } catch (err) {
+      if (!errors.length) console.error('[TicketLogs] raw clear failed:', err.message);
+      errors.push('sql: ' + err.message);
+      n = null;
+    }
+
+    // The raw path did nothing. Before believing the queue is empty, ask the
+    // ORM — and if IT can see rows, do the update its way.
+    if (!n) {
+      const slice = await prisma.ticketLog.findMany({ where, select: { id: true }, take });
+      if (!slice.length) break;                 // genuinely nothing left
+      try {
+        const res = await prisma.ticketLog.updateMany({
+          where: { id: { in: slice.map(r => r.id) } },
+          data: {
+            status: 'APPROVED',
+            voidedAt: new Date(), reviewedAt: new Date(), reviewedByName: 'Backlog cleared',
+          },
+        });
+        n = res.count;
+        if (n) via = via || 'orm';
+      } catch (err) {
+        errors.push('orm: ' + err.message);
+        console.error('[TicketLogs] ORM clear failed too:', err.message);
+        break;                                  // both paths are broken — stop
+      }
+      // Both paths ran and neither moved a row the ORM can see. Spinning would
+      // not help; report it.
+      if (!n) { errors.push('both paths matched 0 rows while ' + slice.length + ' were readable'); break; }
+    }
+
     cleared += n;
     if (n < take) break;   // that was the last of them
   }
@@ -303,8 +391,15 @@ async function clearBacklogBefore(when, opts = {}) {
 
   console.log(`[TicketLogs] cleared ${cleared} pending log(s)`
     + (opts.all ? '' : ` closed before ${cutoff.toISOString()}`)
-    + ` (approved, no points) — ${remaining} still waiting`);
-  return { cleared, remaining, done: remaining === 0, clearedBefore: cutoff };
+    + ` (approved, no points, via ${via || 'nothing'}) — ${remaining} still waiting`
+    + (errors.length ? ` · errors: ${errors.join(' | ')}` : ''));
+  return {
+    cleared, remaining, done: remaining === 0, clearedBefore: cutoff,
+    // Which path did the work, and anything that went wrong on the way. This is
+    // returned rather than logged-and-forgotten because the server log is not
+    // where the person pressing the button is looking.
+    via, errors,
+  };
 }
 
 /**
@@ -595,10 +690,11 @@ function startTicketLogWorker(client) {
 }
 
 module.exports = {
-  nextTicketNo, clearBacklogBefore, backfillHandlers, rowFromMessageId,
+  nextTicketNo, backfillTicketNumbers, clearBacklogBefore, backfillHandlers, rowFromMessageId,
   backlogClearedAt, setBacklogClearedAt, statusForNewRow,
   // Tests only: the watermark is cached for the life of the process.
   __resetWatermark: () => { _watermark = null; },
+  __resetSeqCheck:  () => { _seqChecked = false; },
   ingestMessage,
   backfill,
   sweep,

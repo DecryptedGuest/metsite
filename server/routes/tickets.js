@@ -219,10 +219,13 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
     const { backlogClearedAt } = require('../lib/ticketIngest');
     res.json({
       // Bumped whenever the clear logic changes, so a stale deploy is obvious.
-      clearBuild: 4,
+      clearBuild: 5,
       pending, clearableWithDateCutoff: beforeNow, datedInTheFuture: future,
       oldestPending: oldest, newestPending: newest,
       blankHandlers: blank, alreadyBacklogCleared: cleared,
+      // Unnumbered rows mean the ticket-number sequence was missing when they
+      // were stored — the same missing-migration-SQL problem.
+      unnumbered: await prisma.ticketLog.count({ where: { ticketNo: null } }).catch(() => null),
       watermark: await backlogClearedAt().catch(() => null),
       serverTime: now,
       // The two numbers that must agree.
@@ -270,7 +273,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
         prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
       ]);
       return res.json({
-        clearBuild: 4,
+        clearBuild: 5,
         dryRun: true, wouldClear: waiting, pendingTotal: total,
         // Rows the cutoff would strand — a ticket dated in the future is never
         // "before now", so without saying so it would sit there unexplained.
@@ -279,7 +282,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
       });
     }
 
-    const { clearBacklogBefore, backfillHandlers } = require('../lib/ticketIngest');
+    const { clearBacklogBefore } = require('../lib/ticketIngest');
     const out = await clearBacklogBefore(cutoff, {
       all: body.all === true,
       batch: body.batch,
@@ -288,15 +291,12 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
       maxRows: body.maxRows || 3000,
     });
 
-    // The handler repair is per-row and can involve a Discord fetch each, so it
-    // is capped hard and never allowed to refetch here — the sweep picks up the
-    // rest a few at a time in the background.
-    let handlers = { fixed: 0, stillBlank: 0, checked: 0 };
-    try {
-      handlers = await backfillHandlers(150, { refetch: false });
-    } catch (e) {
-      console.warn('[TicketLogs] handler repair skipped during clear:', e.message);
-    }
+    // The handler repair used to run here. It does not belong in this request:
+    // it is per-row work over four and a half thousand blank handlers, none of
+    // which has anything to do with clearing the queue, and it was the only
+    // thing in here that could take an unbounded amount of time. The sweep does
+    // it in the background, and POST /backfill-handlers does it on demand.
+    const handlers = { fixed: 0, stillBlank: 0, checked: 0, movedTo: 'the background sweep' };
 
     // The TRUE pending count, not just what this filter matched. A clear that
     // reports "0 cleared" while nine thousand rows are still pending is telling
@@ -329,8 +329,13 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
       diagnosis = {
         cleared: out.cleared, pendingTotal, datedInTheFuture: future,
         rawPending, rawError, agrees: rawPending === pendingTotal,
+        // Which code path did the work, and anything either path complained
+        // about. This is the bit that was missing every time this went wrong.
+        via: out.via || null, pathErrors: out.errors || [],
         oldestPending: sample,
-        why: out.cleared
+        why: (out.errors && out.errors.length)
+          ? `Both update paths reported: ${out.errors.join(' | ')}`
+          : out.cleared
           ? `Cleared ${out.cleared}; ${pendingTotal} still pending. Press again to continue.`
           : rawError
             ? `The clear statement failed: ${rawError}`
@@ -348,10 +353,30 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
     console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
       + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
       + `${handlers.fixed} handler(s) filled in`);
-    res.json({ clearBuild: 4, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
+    res.json({ clearBuild: 5, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
     res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });
+  }
+});
+
+// ── POST /api/tickets/backfill-numbers ────────────────────────────
+// Give a number to every log that has none.
+//
+// A deployment done with `prisma db push` gets the schema's columns but never
+// runs a migration's hand-written SQL — so ticketNo exists and the sequence
+// that fills it does not, and every row lands unnumbered. nextTicketNo() now
+// creates the sequence when it finds it missing; this numbers the rows that
+// were already stored without one, oldest first.
+router.post('/backfill-numbers', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { backfillTicketNumbers } = require('../lib/ticketIngest');
+    const out = await backfillTicketNumbers();
+    const left = await prisma.ticketLog.count({ where: { ticketNo: null } });
+    res.json({ ...out, stillUnnumbered: left });
+  } catch (err) {
+    console.error('[TicketLogs] number backfill error:', err.message);
+    res.status(500).json({ error: 'Failed to number the logs: ' + err.message });
   }
 });
 
