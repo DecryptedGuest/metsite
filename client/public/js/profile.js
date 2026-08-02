@@ -203,9 +203,11 @@ async function loadProfile() {
   // ── MET XP ──
   renderXp(data);
 
-  // ── MET weekly quota ── (anyone ranked Constable → Chief Inspector, whether
-  // or not they're in a division — a division adds a quota, it doesn't
-  // replace the MET one).
+  // ── MET weekly quota ── Constable, Sergeant, Inspector and Chief Inspector
+  // all have to meet it, whether or not they're in a division — a division adds
+  // a quota, it doesn't replace the MET one. The only thing that lifts it is a
+  // bought Quota Exempt. Three events a week; one database point is one event,
+  // which is why the card counts events rather than the raw point total.
   const mq = data.metQuota;
   const mqPanel = document.getElementById('p-metquota-panel');
   if (mq && mqPanel) {
@@ -219,10 +221,15 @@ async function loadProfile() {
       </div>`;
     if (mq.exempt) {
       const loa = mq.exemptKind === 'LOA';
+      const bought = mq.exemptKind === 'PURCHASED';
       const bc = loa ? 'var(--blue,#4a8fff)' : 'var(--purple,#9b6dff)';
       const bicon = loa ? 'ti-calendar-off' : 'ti-shield-check';
-      const blabel = loa ? 'Leave of Absence' : 'Exempt';
-      const bsub = loa ? "you're on leave — there's no weekly quota to meet." : "you're exempt from the weekly quota.";
+      const blabel = loa ? 'Leave of Absence' : bought ? 'Quota Exempt' : 'Exempt';
+      const bsub = loa
+        ? "you're on leave — there's no weekly quota to meet."
+        : bought
+          ? 'you bought Quota Exempt, so the weekly MET quota does not apply to you.'
+          : "you're exempt from the weekly quota.";
       host.innerHTML =
         `<div style="display:flex;align-items:center;gap:15px;padding:16px 4px;">
           <div style="font-size:32px;color:${bc};line-height:1;flex:0 0 auto;"><i class="ti ${bicon}"></i></div>
@@ -233,14 +240,18 @@ async function loadProfile() {
       const hasTarget = mq.target != null;
       const met = mq.met === true;
       const col = met ? 'var(--green)' : 'var(--amber)';
-      const note = !hasTarget
-        ? `points are tracked on the MET database.`
-        : (met
-            ? `you've <strong style="color:var(--green);">met</strong> your weekly quota.`
-            : `<strong style="color:var(--amber);">${mq.remaining}</strong> more point${mq.remaining === 1 ? '' : 's'} to go this week.`);
+      // One point on the MET database is one event, so the card speaks in
+      // events — that's the unit the quota is actually set in.
+      const note = mq.onDatabase === false
+        ? `you're not on the MET database yet — ask a supervisor to add you.`
+        : !hasTarget
+          ? `events are tracked on the MET database.`
+          : (met
+              ? `you've <strong style="color:var(--green);">met</strong> your weekly quota.`
+              : `<strong style="color:var(--amber);">${mq.remaining}</strong> more event${mq.remaining === 1 ? '' : 's'} to go this week.`);
       host.innerHTML =
         `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
-          ${stat(mq.total, 'Points this week', col)}
+          ${stat(mq.total, 'Events this week', col)}
           ${stat(hasTarget ? mq.target : '—', 'Target')}
           ${stat(hasTarget ? (met ? '✓' : mq.remaining) : '—', hasTarget ? (met ? 'Quota met' : 'Remaining') : 'No target', hasTarget ? col : '')}
           <div style="font-size:13px;color:var(--text-muted);flex:1;min-width:160px;"><strong style="color:var(--text);">${rank}</strong> — ${note}</div>
@@ -320,19 +331,21 @@ function renderXp(data) {
     ? `<img src="${escHtml(data.metRankEmoji)}" alt="" class="rank-insignia">` : '';
 
   const next = x.next
-    ? `<div class="xp-next"><strong>${x.need}</strong> more XP to <strong>${escHtml(x.next.name)}</strong>
-         <span style="color:var(--text-muted);">(${x.next.at} XP)</span></div>`
+    ? `<div class="xp-next"><strong>${x.need}</strong> more to go — <strong>${escHtml(x.next.name)}</strong>
+         <span style="color:var(--text-muted);">at ${x.next.at} XP</span></div>`
     : `<div class="xp-next"><i class="ti ti-star-filled" style="color:var(--amber);"></i>
          Top of the ladder — nothing left to climb.</div>`;
 
   const bar = x.next
     ? `<div class="xp-bar"><div class="xp-bar-fill" style="width:${pct}%;"></div></div>
-       <div class="xp-bar-scale"><span>${x.rank.at} XP</span><span>${x.have}/${x.span}</span><span>${x.next.at} XP</span></div>`
+       <div class="xp-bar-scale"><span>${x.rank.at} XP</span><span>${x.xp}/${x.next.at}</span><span>${x.next.at} XP</span></div>`
     : '';
 
+  // XP is a climb to the NEXT rank, so the denominator is what that rank costs
+  // — a CSO on 1 XP reads "1 / 2 XP". Only at the top does the ceiling apply.
   document.getElementById('p-xp').innerHTML =
     `<div class="xp-head">
-       <div class="xp-total"><span class="xp-num">${x.xp}</span><span class="xp-unit">/ ${x.max} XP</span></div>
+       <div class="xp-total"><span class="xp-num">${x.xp}</span><span class="xp-unit">/ ${x.next ? x.next.at : x.max} XP</span></div>
        <div class="xp-rank">${badge}${escHtml(x.rank.name)}</div>
      </div>
      ${bar}

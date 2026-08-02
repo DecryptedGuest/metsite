@@ -205,8 +205,10 @@ async function buildCard(o, client) {
   ]);
 
   const p = o.progress;
+  // The XP field already says how many more are needed, so this names the rank
+  // they're climbing towards rather than repeating the count back at them.
   const nextLine = p.next
-    ? `${e('met_promote')} **${p.need}** more to **${p.next.name}** (${p.next.at} XP)`
+    ? `${e('met_promote')} **${p.next.name}** at **${p.next.at} XP**`
     : `${e('met_star')} Top of the XP ladder — nothing left to climb.`;
 
   const embed = new EmbedBuilder()
@@ -219,8 +221,13 @@ async function buildCard(o, client) {
         : ' · *no Roblox account linked*'))
     .addFields(
       { name: 'Rank',     value: rankLine(o, client), inline: true },
+      // XP measures the climb to the NEXT rank, so the denominator is what that
+      // rank costs — not the ceiling. A CSO on 1 XP reads "1 / 2 XP", which is
+      // the number they actually care about.
       { name: 'XP',       value: o.ranked
-          ? `${o.xp} / ${p.next ? p.next.at : XP.maxXp()}${p.next ? '' : '  ·  max'}`
+          ? (p.next
+              ? `${o.xp} / ${p.next.at} XP\n${p.need} more to go!`
+              : `${o.xp} / ${XP.maxXp()} XP\nMax rank reached.`)
           : '—', inline: true },
       { name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true },
       { name: 'Next rank', value: o.ranked
@@ -274,10 +281,11 @@ function buildTable(officers, client) {
   const lines = officers.map(o => {
     if (!o.ranked) return `${e('met_user')} <@${o.discordId}> — *unranked*`;
     const p = o.progress;
-    const tail = p.next ? `${p.need} to ${p.next.code}` : 'max';
     const name = (o.groupRole && o.groupRole.name) || o.rank.name;
     const icon = require('./rankEmoji').forRank(client, name, e('met_rank'));
-    return `${icon} <@${o.discordId}> — **${o.xp}** XP · ${short(name, 30)} · *${tail}*`;
+    const score = p.next ? `**${o.xp}/${p.next.at}** XP` : `**${o.xp}** XP`;
+    const tail = p.next ? `${p.need} more to ${p.next.code}` : 'max';
+    return `${icon} <@${o.discordId}> — ${score} · ${short(name, 30)} · *${tail}*`;
   });
   return new EmbedBuilder()
     .setColor(COLOR.card)

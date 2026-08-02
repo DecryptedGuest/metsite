@@ -110,7 +110,41 @@ function sco19QuotaForRank(rank) {
   return { exempt: false, target: null, tier: null };
 }
 
-const BUILTIN_TARGETS = { CID: cidQuotaForRank, SCO19: sco19QuotaForRank };
+// Built-in MET weekly quota (env <MET_QUOTA_TARGETS> still overrides):
+//   Constable / Sergeant / Inspector / Chief Inspector → 3 events a week, and
+//   one point on the MET database is one event — so the target is 3 points.
+//   That holds whether or not they are in a division: a division adds a quota,
+//   it does not replace the MET one. Only a bought Quota Exempt lifts it.
+//
+//   Community Support Officers are still in training and are not on the list;
+//   everyone above Chief Inspector (Superintendent upwards) has no MET quota of
+//   their own. Both are exempt rather than "unknown" so the site says plainly
+//   that there is nothing to meet instead of showing a blank target.
+//
+// "Chief Superintendent" must be matched before the bare "Chief Inspector"
+// test would otherwise be reached, and "Chief Inspector" before "Inspector".
+function metQuotaForRank(rank) {
+  const r = (rank || '').toString().trim().toLowerCase();
+  if (!r) return { exempt: false, target: null, tier: null };
+  if (r === 'loa')                                return { exempt: true,  target: 0, tier: 'LOA' };
+  if (/community\s*support|\bcso\b/.test(r))      return { exempt: true,  target: 0, tier: 'In Training' };
+  if (/awaiting\s*training|recruit|trainee/.test(r)) return { exempt: true, target: 0, tier: 'In Training' };
+  if (/superintendent|commander|commissioner|chief\s*of/.test(r)) return { exempt: true, target: 0, tier: 'High Command' };
+  if (/chief\s*inspector/.test(r))                return { exempt: false, target: MET_TARGET(), tier: 'Officer' };
+  if (/inspector/.test(r))                        return { exempt: false, target: MET_TARGET(), tier: 'Officer' };
+  if (/sergeant/.test(r))                         return { exempt: false, target: MET_TARGET(), tier: 'Officer' };
+  if (/constable/.test(r))                        return { exempt: false, target: MET_TARGET(), tier: 'Officer' };
+  return { exempt: false, target: null, tier: null };
+}
+
+// MET quota is 3 events a week; one database point is one event. Tunable
+// without a deploy, because "3" is a policy number and policy numbers move.
+function MET_TARGET() {
+  const n = parseInt(process.env.MET_QUOTA_EVENTS || '3', 10);
+  return Number.isFinite(n) ? n : 3;
+}
+
+const BUILTIN_TARGETS = { CID: cidQuotaForRank, SCO19: sco19QuotaForRank, MET: metQuotaForRank };
 
 // Resolve the full per-division config. division ∈ {'IA','FLP','MET'} (default IA).
 function quotaConfig(division) {
@@ -466,6 +500,30 @@ function holdsReductionRole(holders, discordId) {
   return holders.has(String(discordId).replace(/\D/g, ''));
 }
 
+// ── Bought Quota Exempt (MET) ────────────────────────────────────
+// Quota Exempt is a paid permission, held as a MET-server Discord role. One
+// role-holder lookup covers the whole database — the same shape as the IA
+// reduction role above — so marking the buyers exempt costs one call, not one
+// per member.
+const EXEMPT_GUILD_ID = () => process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || '';
+const EXEMPT_ROLE_ID  = () => process.env.QUOTA_EXEMPT_ROLE_ID || '';
+
+async function getQuotaExemptHolders() {
+  const gid = EXEMPT_GUILD_ID(), rid = EXEMPT_ROLE_ID();
+  if (!gid || !rid) return null;
+  try {
+    const { getRoleHolders } = require('./bot');
+    return await getRoleHolders(gid, rid);
+  } catch (e) { return null; }
+}
+
+// Digit-tolerant, same as the reduction check — sheets carry Discord IDs with
+// stray formatting often enough that an exact match would silently miss buyers.
+function holdsQuotaExempt(holders, discordId) {
+  if (!holders || !discordId) return false;
+  return holders.has(String(discordId).replace(/\D/g, ''));
+}
+
 // Set the Investigator of the Week: gives `discordId` the reduction/IOTW role
 // and removes it from the previous holder. Pass falsy to clear it from everyone.
 async function setInvestigatorOfWeek(discordId) {
@@ -495,6 +553,7 @@ async function getMemberPoints(member, division = 'IA') {
     const resolved = await resolveMember(member);
     const tabs = await resolveQuotaTabs(sheets, cfg);
     const holders = cfg.division === 'IA' ? await getReductionHolders() : null;
+    const exemptHolders = cfg.division === 'MET' ? await getQuotaExemptHolders() : null;
     const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     for (const tab of tabs) {
@@ -531,13 +590,21 @@ async function getMemberPoints(member, division = 'IA') {
         const did = cols.discordId != null ? (rows[rowIdx][cols.discordId] || '').toString().trim() : (resolved.discordId || '');
         if (holdsReductionRole(holders, did)) quota = applyQuotaReduction(quota);
       }
-      // Exempt if the rank/target says so OR the sheet cells are marked EX/LOA.
-      const exempt = !!quota.exempt || exCell || loaCell;
+      // Bought Quota Exempt — a paid MET permission, held as a Discord role.
+      let bought = false;
+      if (cfg.division === 'MET' && exemptHolders) {
+        const did = cols.discordId != null ? (rows[rowIdx][cols.discordId] || '').toString().trim() : (resolved.discordId || '');
+        bought = holdsQuotaExempt(exemptHolders, did) || holdsQuotaExempt(exemptHolders, resolved.discordId);
+      }
+      // Exempt if the rank/target says so OR the sheet cells are marked EX/LOA
+      // OR they bought the exemption.
+      const exempt = !!quota.exempt || exCell || loaCell || bought;
       quota = { ...quota, exempt };
-      // Distinguish Leave of Absence from an ordinary exemption so the UI can say
-      // exactly which it is (LOA cell, or an LOA-tier rank).
+      // Distinguish Leave of Absence from a bought exemption from an ordinary
+      // one, so the UI can say exactly which it is rather than a flat "Exempt".
       let exemptKind = null;
       if (loaCell || /loa/i.test(quota.tier || '')) exemptKind = 'LOA';
+      else if (bought) exemptKind = 'PURCHASED';
       else if (exempt) exemptKind = 'EXEMPT';
       const remaining = exempt || quota.target == null ? 0 : Math.max(0, quota.target - total);
       return { found: true, rank, quota, remaining, days, total, exemptKind };
@@ -591,7 +658,7 @@ function isMemberRow(uname, rank) {
 // `fallbackRank` (the tab name) is used as the rank when the tab has no rank
 // column — this is how MET-style databases that split ranks across TABS work
 // (each rank tab has username + day columns but no rank column of its own).
-function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank) {
+function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank, exemptHolders) {
   const cols = findColumns(rows);
   if (cols.username == null && cols.rank == null) return [];
   const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -616,8 +683,15 @@ function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank) {
     }
     let quota = cfg.targets(rank);
     if (cfg.division === 'IA' && holdsReductionRole(reductionHolders, did)) quota = applyQuotaReduction(quota);
+    // Bought Quota Exempt — the one thing that lifts the MET quota.
+    let bought = false;
+    if (holdsQuotaExempt(exemptHolders, did)) {
+      bought = true;
+      quota = { ...quota, exempt: true, target: 0, tier: quota.tier || 'Exempt' };
+    }
     members.push({
       username: uname, discordId: did || null, rank, quota, total, days,
+      exemptKind: bought ? 'PURCHASED' : (quota.exempt ? 'EXEMPT' : null),
       met: quota.exempt ? true : (quota.target != null ? total >= quota.target : null),
     });
   }
@@ -648,6 +722,7 @@ async function getAllMembersViaServiceAccount(cfg) {
     if (!cfg.sheetId) return null;
     const tabs = await resolveQuotaTabs(sheets, cfg);
     const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null;
+    const exemptHolders = cfg.division === 'MET' ? await getQuotaExemptHolders() : null;
     const seen = new Set();
     const out = [];
     for (const tab of tabs) {
@@ -659,7 +734,7 @@ async function getAllMembersViaServiceAccount(cfg) {
         rows = resp.data.values || [];
       } catch (e) { continue; } // skip an unreadable tab rather than failing the whole read
       // The tab name is the rank fallback for split-by-rank databases (MET).
-      for (const m of buildMembersFromRows(rows, cfg, reductionHolders, tab)) {
+      for (const m of buildMembersFromRows(rows, cfg, reductionHolders, tab, exemptHolders)) {
         const key = (m.username || '').toLowerCase();
         if (key && !seen.has(key)) { seen.add(key); out.push(m); }
       }
@@ -690,12 +765,13 @@ async function getAllMembersViaWebhook(cfg) {
     }
     // IA's Investigator-of-the-Week quota reduction still applies on the webhook path.
     const reductionHolders = cfg.division === 'IA' ? await getReductionHolders() : null;
+    const exemptHolders = cfg.division === 'MET' ? await getQuotaExemptHolders() : null;
     const seen = new Set();
     const out = [];
     for (const tab of data.tabs) {
       const rows = Array.isArray(tab && tab.values) ? tab.values : [];
       // The tab name is the rank fallback for split-by-rank databases (MET).
-      for (const m of buildMembersFromRows(rows, cfg, reductionHolders, tab && tab.name)) {
+      for (const m of buildMembersFromRows(rows, cfg, reductionHolders, tab && tab.name, exemptHolders)) {
         const key = (m.username || '').toLowerCase();
         if (key && !seen.has(key)) { seen.add(key); out.push(m); }
       }
@@ -992,5 +1068,6 @@ module.exports = {
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
   normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
-  quotaConfig, quotaForRank,
+  quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET,
+  getQuotaExemptHolders, holdsQuotaExempt,
 };

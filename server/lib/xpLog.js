@@ -45,11 +45,17 @@ function short(s, n) {
 }
 
 // A ten-pip bar showing how far through the current rank band they are.
+//
+// The pips measure the band (that's what a bar is for), but the numbers beside
+// them are the officer's actual XP against what the next rank costs — "1/2 XP",
+// not "1/2 of the band". Those coincide at the bottom of the ladder and diverge
+// higher up, and the absolute pair is the one people quote at each other.
 function progressBar(p, width = 10) {
   if (!p.next) return `${e('met_star')} Top of the ladder`;
   const filled = Math.max(0, Math.min(width, Math.round(p.pct * width)));
+  const xp = p.rank.at + p.have;
   return e('met_dot_on').repeat(filled) + e('met_dot_off').repeat(width - filled)
-    + `  **${p.have}/${p.span}** to ${p.next.name}`;
+    + `  **${xp}/${p.next.at} XP** to ${p.next.name}`;
 }
 
 /**

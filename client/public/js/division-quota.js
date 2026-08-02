@@ -144,10 +144,13 @@
   // Leave of Absence — so they never see a misleading "0 / target".
   function dqExemptBanner(kind, rank) {
     var loa = kind === 'LOA';
+    var bought = kind === 'PURCHASED';
     var color = loa ? 'var(--blue,#4a8fff)' : 'var(--purple,#9b6dff)';
     var icon = loa ? 'ti-calendar-off' : 'ti-shield-check';
-    var label = loa ? 'Leave of Absence' : 'Exempt';
-    var sub = loa ? "You're on leave — there's no weekly quota to meet." : "You're exempt from the weekly quota.";
+    var label = loa ? 'Leave of Absence' : bought ? 'Quota Exempt' : 'Exempt';
+    var sub = loa ? "You're on leave — there's no weekly quota to meet."
+      : bought ? 'You bought Quota Exempt, so the weekly quota does not apply to you.'
+      : "You're exempt from the weekly quota.";
     return "<div class='profile-section'><div style='display:flex;align-items:center;gap:15px;padding:18px 16px;border-radius:12px;"
       + "background:color-mix(in srgb," + color + " 12%,transparent);border:1px solid color-mix(in srgb," + color + " 42%,transparent);'>"
       + "<div style='font-size:32px;color:" + color + ";line-height:1;flex:0 0 auto;'><i class='ti " + icon + "'></i></div>"

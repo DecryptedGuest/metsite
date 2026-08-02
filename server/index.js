@@ -904,17 +904,16 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     medals = medalsForMember({ metRoleIds: roleIds, awardsRank });
   } catch (e) { medals = []; }
 
-  // MET quota card — for anyone holding a tracked MET quota rank (Constable →
-  // Chief Inspector, the four MET database tabs).
+  // MET quota card — Constable, Sergeant, Inspector and Chief Inspector all
+  // have to meet the MET quota, whether or not they're in a division: a
+  // division adds a quota, it does not replace the MET one. The only thing
+  // that lifts it is a bought Quota Exempt.
   //
-  // It used to require having NO division, on the reasoning that a division
-  // member has their own quota. But a CID detective is still a MET officer with
-  // a MET quota to meet, and hiding it meant the only place they could see
-  // whether they were behind was a spreadsheet. Being in a division adds a
-  // quota; it does not remove one.
-  //
-  // Above Chief Inspector there is no MET quota tab, so metQuotaRankName
-  // returns null and nothing is shown — which is the same gate as before.
+  // MET quota is 3 events a week, and one point on the MET database is one
+  // event — so the target read off the sheet is 3 points (see
+  // quota.metQuotaForRank). Above Chief Inspector metQuotaRankName returns null
+  // and nothing is shown.
+  const boughtExempt = perms.some(p => p && p.key === 'quota_exempt');
   let metQuota = null;
   try {
     const rankMatch = metQuotaRankName(metRankName);
@@ -924,17 +923,28 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
         { discordId: req.user.discordId, robloxUsername: req.user.robloxUsername }, 'MET',
       );
       if (row && row.found) {
-        const exempt = !!(row.quota && row.quota.exempt);
+        // The sheet read resolves the exemption from the Discord role too, but
+        // the perm chip is the same fact from a source that's already loaded —
+        // honour it even when the role-holder lookup was unavailable.
+        const exempt = !!(row.quota && row.quota.exempt) || boughtExempt;
         const target = row.quota ? row.quota.target : null;
         metQuota = {
           rank:       row.rank || rankMatch,
           exempt,
-          exemptKind: row.exemptKind || (exempt ? 'EXEMPT' : null),
+          exemptKind: row.exemptKind || (boughtExempt ? 'PURCHASED' : (exempt ? 'EXEMPT' : null)),
           total:      row.total,
           target,
-          remaining:  row.remaining,
+          remaining:  exempt ? 0 : row.remaining,
           tier:       row.quota ? row.quota.tier : null,
           met:        exempt ? true : (target != null ? row.total >= target : null),
+        };
+      } else if (boughtExempt || row) {
+        // Not on the database yet (or the sheet is unreadable) — still say what
+        // their quota is rather than showing nothing at all.
+        metQuota = {
+          rank: rankMatch, exempt: boughtExempt, exemptKind: boughtExempt ? 'PURCHASED' : null,
+          total: 0, target: boughtExempt ? 0 : q.MET_TARGET(), remaining: boughtExempt ? 0 : q.MET_TARGET(),
+          tier: 'Officer', met: boughtExempt ? true : false, onDatabase: false,
         };
       }
     }
