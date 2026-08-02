@@ -158,6 +158,18 @@
   </main>
 </div>
 
+
+<!-- MEMBER ACTIONS — opened by clicking a live-presence card -->
+<div class="modal-overlay" id="modal-member">
+  <div class="modal glass-bright" style="max-width:860px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-user-cog" style="font-size:18px;"></i> <span id="mem-title">Member</span></div>
+      <button class="modal-close" onclick="closeModal('modal-member')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="mem-body"><div class="table-loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 <script src="/js/ui.js?v=81"></script>
 <script src="/js/panel-collapse.js?v=1"></script>

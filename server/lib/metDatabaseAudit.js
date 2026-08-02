@@ -69,8 +69,14 @@ async function auditMet(opts = {}) {
   const division = (opts.division || 'MET').toString().toUpperCase();
   const cfg = quota.quotaConfig(division);
   const sheets = quota.getSheetsClient(cfg);
-  if (!sheets) return { ok: false, error: `Google Sheets is not configured for ${division}.` };
-  if (!cfg.sheetId) return { ok: false, error: `No ${division} sheet configured.` };
+  // Name the setting. "Not configured" without saying WHICH variable is missing
+  // is a dead end for whoever has to fix it.
+  const sheetEnv = division === 'IA' ? 'QUOTA_SHEET_ID' : `${division}_SHEET_ID`;
+  if (!sheets) {
+    return { ok: false, error: `Google Sheets is not configured for ${division} `
+      + `(set GOOGLE_SERVICE_ACCOUNT_JSON / ${division}_GOOGLE_SERVICE_ACCOUNT_JSON).` };
+  }
+  if (!cfg.sheetId) return { ok: false, error: `No ${division} sheet configured (set ${sheetEnv}).` };
 
   const report = {
     ok: true,
@@ -254,17 +260,24 @@ async function normaliseMet(opts = {}) {
   const dryRun = !!opts.dryRun;
   if (!fillBlanks && !reset) return { ok: false, error: 'Nothing to do — pass fillBlanks or reset.' };
 
-  const cfg = quota.quotaConfig('MET');
+  const division = (opts.division || 'MET').toString().toUpperCase();
+  const cfg = quota.quotaConfig(division);
   const sheets = quota.getSheetsClient(cfg);
-  if (!sheets) return { ok: false, error: 'Google Sheets is not configured for MET.' };
-  if (!cfg.sheetId) return { ok: false, error: 'No MET sheet configured (set MET_SHEET_ID).' };
+  // Name the setting. "Not configured" without saying WHICH variable is missing
+  // is a dead end for whoever has to fix it.
+  const sheetEnv = division === 'IA' ? 'QUOTA_SHEET_ID' : `${division}_SHEET_ID`;
+  if (!sheets) {
+    return { ok: false, error: `Google Sheets is not configured for ${division} `
+      + `(set GOOGLE_SERVICE_ACCOUNT_JSON / ${division}_GOOGLE_SERVICE_ACCOUNT_JSON).` };
+  }
+  if (!cfg.sheetId) return { ok: false, error: `No ${division} sheet configured (set ${sheetEnv}).` };
 
   let tabs;
   try { tabs = await quota.resolveQuotaTabs(sheets, cfg); }
   catch (err) { return { ok: false, error: `Could not list the sheet's tabs: ${err.message}` }; }
 
   const data = [];
-  const out = { ok: true, dryRun, cellsWritten: 0, filled: 0, cleared: 0, kept: 0, tabs: [] };
+  const out = { ok: true, division, dryRun, cellsWritten: 0, filled: 0, cleared: 0, kept: 0, tabs: [] };
 
   for (const tab of tabs) {
     let rows;

@@ -1453,10 +1453,10 @@
         </div>
       </div>
 
-      <!-- MET database sync — kick people who left, add new constables -->
+      <!-- IA database sync — kick people who left, add new joiners -->
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot purple"></span>MET Database Sync</div>
+          <div class="panel-title"><span class="panel-dot purple"></span>IA Database Sync</div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-ghost btn-sm" id="btn-metdb-check"><i class="ti ti-search"></i> Check</button>
             <button class="btn btn-primary btn-sm" id="btn-metdb-apply" disabled><i class="ti ti-refresh"></i> Apply changes</button>
@@ -1464,18 +1464,20 @@
         </div>
         <div style="padding:1rem 1.2rem;">
           <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-            Compares the database sheet against the MET Roblox group. Anyone no longer in the group is
-            removed, and newly joined constables are written into the rows that frees up. Always run
-            <strong>Check</strong> first — it shows exactly what will change before anything is written.
+            Compares the <strong>Internal Affairs database</strong> against the IA Roblox group. Anyone no
+            longer in the group is removed, and newly joined members are written into the rows that frees
+            up — with their Discord ID filled in where it can be resolved. Timezone, WTBT and anything
+            else the sheet carries are left blank rather than guessed at. Always run <strong>Check</strong>
+            first: it shows exactly what will change before anything is written.
           </p>
           <div id="metdb-result"></div>
         </div>
       </div>
 
-      <!-- MET database audit — is the sheet itself correct? -->
+      <!-- IA database audit — is the sheet itself correct? -->
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot purple"></span>MET Database Audit</div>
+          <div class="panel-title"><span class="panel-dot purple"></span>IA Database Audit</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn btn-ghost btn-sm" id="btn-metaudit-run"><i class="ti ti-list-search"></i> Audit</button>
             <button class="btn btn-ghost btn-sm" id="btn-metaudit-fill" disabled><i class="ti ti-eraser"></i> Fill blanks with 0</button>
@@ -1484,7 +1486,8 @@
         </div>
         <div style="padding:1rem 1.2rem;">
           <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-            Checks every rank tab against the MET Roblox group: who is on the wrong tab, who is in the
+            Checks every rank tab of the <strong>Internal Affairs database</strong> against the IA Roblox
+            group: who is on the wrong tab, who is in the
             group but on no tab, who is on the sheet but has left, duplicate rows, blank day cells and
             anything in a day column that isn't a number. <strong>Fill blanks</strong> writes 0 into
             empty or unreadable day cells. <strong>Reset all points</strong> zeroes every day cell so

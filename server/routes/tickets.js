@@ -235,9 +235,35 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
       console.warn('[TicketLogs] handler repair skipped during clear:', e.message);
     }
 
+    // The TRUE pending count, not just what this filter matched. A clear that
+    // reports "0 cleared" while nine thousand rows are still pending is telling
+    // you something, and the old response had no way to say it.
+    const pendingTotal = await prisma.ticketLog.count({ where: { status: 'PENDING' } });
+
+    // When nothing moved but rows remain, say why rather than shrugging.
+    let diagnosis = null;
+    if (!out.cleared && pendingTotal > 0) {
+      const [future, sample] = await Promise.all([
+        prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { gte: new Date() } } }),
+        prisma.ticketLog.findFirst({
+          where: { status: 'PENDING' }, orderBy: { closedAt: 'asc' },
+          select: { id: true, ticketNo: true, closedAt: true, status: true, messageId: true },
+        }),
+      ]);
+      diagnosis = {
+        pendingTotal, matchedByFilter: 0, datedInTheFuture: future,
+        oldestPending: sample,
+        why: body.all === true
+          ? 'Rows are pending but the update matched none of them. This is not a filter problem — check the server log for the failing statement.'
+          : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
+      };
+      console.warn('[TicketLogs] backlog clear moved nothing:', JSON.stringify(diagnosis));
+    }
+
     console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
-      + `${out.cleared} cleared, ${out.remaining} left, ${handlers.fixed} handler(s) filled in`);
-    res.json({ dryRun: false, ...out, handlers, before: cutoff });
+      + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
+      + `${handlers.fixed} handler(s) filled in`);
+    res.json({ dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
     res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });

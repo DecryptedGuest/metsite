@@ -188,11 +188,15 @@
     try {
       const r = await api('/api/dev/security/presence');
       const b = $('sec-presence-badge'); if (b) { b.style.display = r.online.length ? 'inline-flex' : 'none'; b.textContent = r.online.length; }
+      // Each card opens that person: seeing who is online is only half of it,
+      // the other half is being able to do something about them without going
+      // and finding them in three other panels first.
       box.innerHTML = r.online.length ? `<div style="display:flex;flex-wrap:wrap;gap:12px;">${r.online.map(u => `
-        <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--border,#2a2a2a);border-radius:11px;padding:10px 14px;min-width:210px;">
+        <div class="presence-card" onclick="secOpenMember('${esc(u.id)}')" title="Open ${esc(u.name)}">
           <div style="position:relative;">${u.avatar ? `<img src="${esc(u.avatar)}" style="width:36px;height:36px;border-radius:50%;">` : `<div style="width:36px;height:36px;border-radius:50%;background:#222;"></div>`}
             <span style="position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--panel-solid,#151821);"></span></div>
-          <div><div style="font-size:13px;font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(u.role || '')} · ${esc(u.ip || '')}</div></div>
+          <div style="min-width:0;"><div style="font-size:13px;font-weight:600;">${esc(u.name)}</div><div style="font-size:11px;color:var(--text-muted);">${esc(u.role || '')} · ${esc(u.ip || '')}</div></div>
+          <i class="ti ti-chevron-right" style="margin-left:auto;color:var(--text-muted);"></i>
         </div>`).join('')}</div>` : (window.metEmpty ? window.metEmpty({ icon: 'ti-users', title: 'Nobody is active right now' }) : '<div class="table-empty-text">Nobody is active right now.</div>');
     } catch (e) { box.innerHTML = `<div class="table-empty-text">${esc(e.message)}</div>`; }
   };
@@ -286,3 +290,272 @@ async function rebaselineAudit(btn) {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-flag"></i> Re-baseline older rows'; }
   }
 }
+
+// ── Live-presence member card ─────────────────────────────────────
+// Clicking somebody on Live Presence opens everything known about them and
+// everything that can be done to them, in one place. Seeing who is online is
+// only half the job — the other half was spread across four other panels.
+//
+// Every destructive action confirms by name first, and each one is already
+// audited server-side, so this adds reach rather than a new way to do damage
+// quietly.
+(function () {
+  var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
+  var $ = function (id) { return document.getElementById(id); };
+  var MEM = null;
+
+  function when(d) {
+    if (!d) return 'never';
+    try { return window.formatDateTime ? formatDateTime(d) : new Date(d).toLocaleString(); }
+    catch (e) { return String(d); }
+  }
+  function ago(d) {
+    if (!d) return '';
+    var s = Math.max(0, Math.floor((Date.now() - new Date(d)) / 1000));
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+
+  function row(label, value, mono) {
+    return '<div class="mem-kv"><span class="mem-k">' + esc(label) + '</span>'
+      + '<span class="mem-v' + (mono ? ' mono' : '') + '">' + (value || '<span class="text-muted">—</span>') + '</span></div>';
+  }
+
+  function action(id, icon, label, tone) {
+    return '<button class="mem-action' + (tone ? ' mem-action-' + tone : '') + '" data-mem-act="' + id + '">'
+      + '<i class="ti ti-' + icon + '"></i><span>' + esc(label) + '</span></button>';
+  }
+
+  window.secOpenMember = async function (id) {
+    var body = $('mem-body');
+    if (!body) { showToast('The member panel is unavailable on this page.', 'error'); return; }
+    body.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+    var t = $('mem-title'); if (t) t.textContent = 'Member';
+    openModal('modal-member');
+    try {
+      MEM = await api('/api/dev/security/member/' + encodeURIComponent(id));
+      render();
+    } catch (err) {
+      body.innerHTML = '<div class="table-empty-text" style="padding:18px;">' + esc(err.message || 'Failed to load that member.') + '</div>';
+    }
+  };
+
+  function render() {
+    var u = MEM.user, body = $('mem-body');
+    var t = $('mem-title'); if (t) t.textContent = u.displayName || u.discordUsername || 'Member';
+
+    var live = MEM.sessions.filter(function (s) { return s.live; });
+    var open = MEM.sessions.filter(function (s) { return !s.revoked && !s.expired; });
+
+    var divisions = (u.divisions || []).length
+      ? u.divisions.map(function (d) {
+          return '<span class="badge badge-blue"><span class="badge-dot"></span>' + esc(d.division)
+            + (d.rankName ? ' · ' + esc(d.rankName) : '') + (d.hicomm ? ' · HC' : '') + '</span>';
+        }).join(' ')
+      : null;
+
+    var identity = '<div class="mem-head">'
+      + (u.discordAvatar ? '<img src="' + esc(u.discordAvatar) + '" class="mem-avatar">' : '<div class="mem-avatar"></div>')
+      + '<div style="min-width:0;">'
+      +   '<div class="mem-name">' + esc(u.displayName || u.discordUsername || 'Unknown') + '</div>'
+      +   '<div class="mem-sub">' + esc(u.role || '') + (u.discordUsername ? ' · @' + esc(u.discordUsername) : '') + '</div>'
+      + '</div>'
+      + (u.isBlacklisted ? '<span class="badge badge-denied" style="margin-left:auto;"><span class="badge-dot"></span>Blacklisted</span>' : '')
+      + '</div>';
+
+    var facts = '<div class="mem-grid">'
+      + row('Discord ID', u.discordId ? esc(u.discordId) : null, true)
+      + row('Roblox', u.robloxUsername
+          ? '<a href="https://www.roblox.com/users/' + esc(u.robloxId) + '/profile" target="_blank" rel="noopener" style="color:var(--blue);">'
+            + esc(u.robloxUsername) + '</a>' : null)
+      + row('Divisions', divisions)
+      + row('Passkeys', MEM.passkeys
+          ? '<span class="badge badge-approved"><span class="badge-dot"></span>' + MEM.passkeys + ' enrolled</span>'
+          : '<span class="badge badge-denied"><span class="badge-dot"></span>None</span>')
+      + row('Live sessions', live.length + ' now · ' + open.length + ' open')
+      + row('Last seen', esc(when(u.lastLogin)) + ' <span class="text-muted">' + esc(ago(u.lastLogin)) + '</span>')
+      + row('Last real IP', u.lastRealIp ? esc(u.lastRealIp) : null, true)
+      + row('Filed', MEM.counts.cases + ' case(s) · ' + MEM.counts.tickets + ' ticket(s)')
+      + row('Account since', esc(when(u.createdAt)))
+      + (u.isBlacklisted && u.blacklistReason ? row('Blacklist reason', esc(u.blacklistReason)) : '')
+      + '</div>';
+
+    // Everything that can be done to them, grouped by how much it hurts.
+    var actions = '<div class="mem-actions">'
+      + '<div class="mem-actions-head">Look up</div>'
+      + '<div class="mem-action-row">'
+      +   action('copy-discord', 'copy', 'Copy Discord ID')
+      +   action('copy-id', 'hash', 'Copy account ID')
+      +   (u.robloxId ? action('roblox', 'brand-appstore', 'Open Roblox profile') : '')
+      +   action('records', 'id-badge-2', 'Look up in Records')
+      +   action('audit', 'list-details', 'Their audit trail')
+      + '</div>'
+
+      + '<div class="mem-actions-head">Session</div>'
+      + '<div class="mem-action-row">'
+      +   action('refresh', 'refresh', 'Refresh this card')
+      +   (open.length ? action('reauth', 'logout', 'Sign out everywhere (' + open.length + ')', 'warn') : '')
+      + '</div>'
+
+      + '<div class="mem-actions-head">Account</div>'
+      + '<div class="mem-action-row">'
+      +   action('notify', 'bell', 'Send them a notification')
+      +   action('role', 'user-shield', 'Change site role', 'warn')
+      +   (u.isBlacklisted
+            ? action('unblacklist', 'lock-open', 'Lift the blacklist', 'warn')
+            : action('blacklist', 'ban', 'Blacklist from the site', 'danger'))
+      + '</div>'
+      + '</div>';
+
+    var sessions = MEM.sessions.length
+      ? '<div class="mem-actions-head" style="margin-top:14px;">Sessions</div>'
+        + '<div class="table-wrap"><table class="data-table"><thead><tr>'
+        + '<th>Device</th><th>IP</th><th>Last seen</th><th>State</th><th></th></tr></thead><tbody>'
+        + MEM.sessions.map(function (s) {
+            return '<tr>'
+              + '<td><span style="font-size:12px;">' + esc(s.device || 'Unknown') + '</span></td>'
+              + '<td><span class="mono" style="font-size:11.5px;">' + esc(s.ip || '—')
+                + (s.ipVpn ? ' <span class="badge badge-amber"><span class="badge-dot"></span>VPN</span>' : '') + '</span></td>'
+              + '<td><span class="date-cell">' + esc(ago(s.lastSeenAt)) + '</span></td>'
+              + '<td>' + (s.revoked ? '<span class="badge badge-muted"><span class="badge-dot"></span>Revoked</span>'
+                        : s.expired ? '<span class="badge badge-muted"><span class="badge-dot"></span>Expired</span>'
+                        : s.live    ? '<span class="badge badge-approved"><span class="badge-dot"></span>Live</span>'
+                                    : '<span class="badge badge-pending"><span class="badge-dot"></span>Idle</span>') + '</td>'
+              + '<td>' + (!s.revoked && !s.expired
+                  ? '<button class="row-btn row-btn-deny" data-mem-kill="' + esc(s.id) + '" title="Kill this session"><i class="ti ti-plug-off"></i></button>'
+                  : '') + '</td>'
+              + '</tr>';
+          }).join('')
+        + '</tbody></table></div>'
+      : '';
+
+    var recent = MEM.recent.length
+      ? '<div class="mem-actions-head" style="margin-top:14px;">Recent activity</div>'
+        + '<ul class="mem-recent">' + MEM.recent.map(function (a) {
+            return '<li><span class="mem-recent-when">' + esc(ago(a.createdAt)) + '</span>'
+              + '<span class="mem-recent-what">' + esc(a.summary || (a.category + ' · ' + a.action)) + '</span></li>';
+          }).join('') + '</ul>'
+      : '';
+
+    body.innerHTML = identity + facts + actions + sessions + recent;
+  }
+
+  // One delegated listener on the modal, bound once — the body is rebuilt on
+  // every open, so per-element listeners would stack up.
+  document.addEventListener('DOMContentLoaded', function () {
+    var modal = $('modal-member');
+    if (!modal || modal.dataset.wired === '1') return;
+    modal.dataset.wired = '1';
+    modal.addEventListener('click', function (e) {
+      var kill = e.target.closest('[data-mem-kill]');
+      if (kill) return killSession(kill.dataset.memKill);
+      var act = e.target.closest('[data-mem-act]');
+      if (act) return runAction(act.dataset.memAct);
+    });
+  });
+
+  async function killSession(id) {
+    var okd = await confirmIt('Kill this session?\n\nThey are signed out on that device immediately.');
+    if (!okd) return;
+    try {
+      await api('/api/dev/security/sessions/' + encodeURIComponent(id) + '/revoke', { method: 'POST' });
+      showToast('Session killed.', 'success');
+      secOpenMember(MEM.user.id);
+      if (typeof secLoadPresence === 'function') secLoadPresence();
+    } catch (err) { showToast(err.message || 'Could not kill that session.', 'error'); }
+  }
+
+  function confirmIt(msg) {
+    return typeof uiConfirm === 'function' ? uiConfirm(msg) : Promise.resolve(confirm(msg));
+  }
+  function askFor(msg, opts) {
+    return typeof uiPrompt === 'function' ? uiPrompt(msg, opts) : Promise.resolve(prompt(msg));
+  }
+
+  async function runAction(id) {
+    var u = MEM.user;
+    var name = u.displayName || u.discordUsername || 'this member';
+
+    if (id === 'refresh')       return secOpenMember(u.id);
+    if (id === 'copy-discord')  return copyIt(u.discordId, 'Discord ID');
+    if (id === 'copy-id')       return copyIt(u.id, 'Account ID');
+    if (id === 'roblox')        return window.open('https://www.roblox.com/users/' + u.robloxId + '/profile', '_blank', 'noopener');
+    if (id === 'records')       return window.open('/ia/dashboard#records=' + encodeURIComponent(u.robloxUsername || u.discordId || ''), '_blank', 'noopener');
+    if (id === 'audit')         return window.open('/dev/security#audit=' + encodeURIComponent(u.id), '_blank', 'noopener');
+
+    if (id === 'reauth') {
+      if (!(await confirmIt('Sign ' + name + ' out everywhere?\n\nEvery open session is revoked and they have to sign in again.'))) return;
+      try {
+        var r = await api('/api/dev/security/users/' + encodeURIComponent(u.id) + '/force-reauth', { method: 'POST' });
+        showToast('Signed out — ' + r.killed + ' session(s) killed.', 'success');
+        secOpenMember(u.id);
+        if (typeof secLoadPresence === 'function') secLoadPresence();
+      } catch (err) { showToast(err.message || 'Could not sign them out.', 'error'); }
+      return;
+    }
+
+    if (id === 'notify') {
+      var msg = await askFor('What should ' + name + ' be told?', { multiline: true });
+      if (!msg || !String(msg).trim()) return;
+      try {
+        await api('/api/notifications/send', {
+          method: 'POST',
+          body: JSON.stringify({ userIds: [u.id], title: 'Message from a developer', body: String(msg).trim() }),
+        });
+        showToast('Sent.', 'success');
+      } catch (err) { showToast(err.message || 'Could not send that.', 'error'); }
+      return;
+    }
+
+    if (id === 'role') {
+      var role = await askFor('New site role for ' + name + '?\n\nNONE, IA, SUPERVISOR, HICOMM or DEVELOPER.',
+        { value: u.role || 'NONE' });
+      if (!role) return;
+      role = String(role).trim().toUpperCase();
+      if (['NONE', 'IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].indexOf(role) === -1) {
+        showToast('That is not a role.', 'error'); return;
+      }
+      if (role === u.role) { showToast('That is already their role.', 'success'); return; }
+      if (!(await confirmIt('Change ' + name + ' from ' + (u.role || 'NONE') + ' to ' + role + '?'))) return;
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(u.id) + '/role',
+          { method: 'PATCH', body: JSON.stringify({ role: role }) });
+        showToast('Role changed to ' + role + '.', 'success');
+        secOpenMember(u.id);
+      } catch (err) { showToast(err.message || 'Could not change their role.', 'error'); }
+      return;
+    }
+
+    if (id === 'blacklist') {
+      var why = await askFor('Blacklist ' + name + ' from the site?\n\nThey lose access immediately. Say why:', { multiline: true });
+      if (!why || !String(why).trim()) return;
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(u.id) + '/blacklist',
+          { method: 'POST', body: JSON.stringify({ reason: String(why).trim() }) });
+        showToast('Blacklisted.', 'success');
+        secOpenMember(u.id);
+        if (typeof secLoadPresence === 'function') secLoadPresence();
+      } catch (err) { showToast(err.message || 'Could not blacklist them.', 'error'); }
+      return;
+    }
+
+    if (id === 'unblacklist') {
+      if (!(await confirmIt('Lift the blacklist on ' + name + '?'))) return;
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(u.id) + '/unblacklist', { method: 'POST' });
+        showToast('Blacklist lifted.', 'success');
+        secOpenMember(u.id);
+      } catch (err) { showToast(err.message || 'Could not lift it.', 'error'); }
+      return;
+    }
+  }
+
+  function copyIt(value, what) {
+    if (!value) { showToast('There is no ' + what + ' on this account.', 'error'); return; }
+    if (typeof copyText === 'function') return copyText(value, what);
+    try { navigator.clipboard.writeText(value); showToast(what + ' copied.', 'success'); }
+    catch (e) { showToast('Could not copy it.', 'error'); }
+  }
+})();

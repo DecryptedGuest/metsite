@@ -72,6 +72,84 @@ function scopeDivision(req) {
   return s === 'MET' ? 'MET' : 'FLP';
 }
 
+
+// ── MET database (FLP High Command) ───────────────────────────────
+// FLP High Command maintain the MET database, so the same sync and audit IA
+// runs against its own sheet are available here against the MET one. Identical
+// machinery, identical safety rails — the only difference is which sheet and
+// which Roblox group.
+//
+//   GET  /api/flp/met-database            what the sync WOULD do
+//   POST /api/flp/met-database/sync       do it (needs the dry run's token)
+//   GET  /api/flp/met-database/audit      what is wrong with the sheet
+//   POST /api/flp/met-database/normalise  fix the fixable half
+
+router.get('/met-database', requireFlpHicomm, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const plan = await syncMetDatabase({ dry: true, division: 'MET' });
+    if (!plan.ok) return res.status(plan.error ? 400 : 500).json(plan);
+    res.json(plan);
+  } catch (err) {
+    console.error('[FLP MetDB] plan error:', err.message);
+    res.status(500).json({ error: 'Could not read the MET database: ' + err.message });
+  }
+});
+
+router.post('/met-database/sync', requireFlpHicomm, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const result = await syncMetDatabase({
+      dry:      false,
+      division: 'MET',
+      // The token comes from the dry run just reviewed, so what gets written is
+      // exactly what was on screen.
+      token: (req.body && req.body.token) || null,
+      actor: { id: req.user.id, name: req.user.displayName || req.user.discordUsername },
+    });
+    if (!result.ok) return res.status(result.stale ? 409 : 502).json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('[FLP MetDB] sync error:', err.message);
+    res.status(500).json({ error: 'MET database sync failed: ' + err.message });
+  }
+});
+
+router.get('/met-database/audit', requireFlpHicomm, async (req, res) => {
+  try {
+    const { auditMet, summarise } = require('../lib/metDatabaseAudit');
+    const report = await auditMet({ checkGroup: req.query.group !== '0', division: 'MET' });
+    if (!report.ok) return res.status(400).json(report);
+    res.json({ ...report, summaryText: summarise(report) });
+  } catch (err) {
+    console.error('[FLP MetDB] audit error:', err.message);
+    res.status(500).json({ error: 'MET database audit failed: ' + err.message });
+  }
+});
+
+router.post('/met-database/normalise', requireFlpHicomm, async (req, res) => {
+  const body = req.body || {};
+  try {
+    const { normaliseMet } = require('../lib/metDatabaseAudit');
+    const result = await normaliseMet({
+      division:   'MET',
+      fillBlanks: body.fillBlanks !== false,
+      reset:      !!body.reset,
+      // Zeroing a live database is not something to do by accident.
+      dryRun:     body.apply !== true,
+    });
+    if (!result.ok) return res.status(400).json(result);
+    if (!result.dryRun) {
+      console.log(`[FLP MetDB] normalised by ${req.user.displayName || req.user.discordUsername}`
+        + ` — ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[FLP MetDB] normalise error:', err.message);
+    res.status(500).json({ error: 'MET database normalise failed: ' + err.message });
+  }
+});
+
 router.get('/', (req, res) => res.json({ division: 'flp' }));
 
 // What the FLP dashboard can show for this user (drives the UI).

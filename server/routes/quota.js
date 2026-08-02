@@ -115,17 +115,42 @@ router.post('/reset', requireHICOMMStrict, async (req, res) => {
   }
 });
 
-// ── MET database sync ─────────────────────────────────────────────
-// Removes members who are no longer in the MET Roblox group from the database
-// sheet, and adds newly joined constables into the rows that frees up.
+// ── Database sync ─────────────────────────────────────────────────
+// Removes members who are no longer in the group from the database sheet, and
+// adds newly joined members into the rows that frees up.
 //
-//   GET  /api/quota/met-database         → what the sync WOULD do (dry run)
-//   POST /api/quota/met-database/sync    → actually do it
+// WHICH database is a parameter. IA runs this against its own sheet from the IA
+// dashboard; FLP High Command runs the same thing against the MET sheet from
+// theirs. Same comparison, same safety rails, different sheet and group.
+//
+//   GET  /api/quota/met-database?division=IA|MET   → what it WOULD do
+//   POST /api/quota/met-database/sync              → actually do it
 
-router.get('/met-database', requireHICOMMStrict, async (req, res) => {
+// Only these two have a database this machinery understands, and letting the
+// query string name any division would point a destructive sync at a sheet
+// nobody meant.
+const DB_DIVISIONS = ['IA', 'MET'];
+function dbDivision(req) {
+  const d = ((req.query && req.query.division) || (req.body && req.body.division) || 'IA')
+    .toString().toUpperCase();
+  return DB_DIVISIONS.includes(d) ? d : 'IA';
+}
+
+// The MET database belongs to FLP High Command as well as to developers — they
+// are the ones who maintain it. IA's own database stays HICOMM-strict.
+function canTouchDatabase(req, res, next) {
+  const division = dbDivision(req);
+  if (division !== 'MET') return requireHICOMMStrict(req, res, next);
+  const divs = Array.isArray(req.user.divisions) ? req.user.divisions : [];
+  const flpHicomm = divs.some(d => d && d.division === 'FLP' && (d.hicomm || d.metHicomm));
+  if (req.user.role === 'DEVELOPER' || req.user.role === 'HICOMM' || flpHicomm) return next();
+  return res.status(403).json({ error: 'The MET database is maintained by FLP High Command.' });
+}
+
+router.get('/met-database', canTouchDatabase, async (req, res) => {
   try {
     const { syncMetDatabase } = require('../lib/metDatabase');
-    const plan = await syncMetDatabase({ dry: true });
+    const plan = await syncMetDatabase({ dry: true, division: dbDivision(req) });
     if (!plan.ok) return res.status(plan.error ? 400 : 500).json(plan);
     res.json(plan);
   } catch (err) {
@@ -134,11 +159,12 @@ router.get('/met-database', requireHICOMMStrict, async (req, res) => {
   }
 });
 
-router.post('/met-database/sync', requireHICOMMStrict, async (req, res) => {
+router.post('/met-database/sync', canTouchDatabase, async (req, res) => {
   try {
     const { syncMetDatabase } = require('../lib/metDatabase');
     const result = await syncMetDatabase({
-      dry:   false,
+      dry:      false,
+      division: dbDivision(req),
       // The token comes from the dry run the operator just reviewed, so what
       // gets written is exactly what they were shown.
       token: (req.body && req.body.token) || null,
@@ -161,10 +187,10 @@ router.post('/met-database/sync', requireHICOMMStrict, async (req, res) => {
 // row, and never touches a cell holding EX or LOA. Moving somebody to their
 // correct rank tab is reported, not performed: that is a structural edit to a
 // live sheet with no undo, and the operator should be the one making it.
-router.get('/met-database/audit', requireHICOMMStrict, async (req, res) => {
+router.get('/met-database/audit', canTouchDatabase, async (req, res) => {
   try {
     const { auditMet, summarise } = require('../lib/metDatabaseAudit');
-    const report = await auditMet({ checkGroup: req.query.group !== '0' });
+    const report = await auditMet({ checkGroup: req.query.group !== '0', division: dbDivision(req) });
     if (!report.ok) return res.status(400).json(report);
     res.json({ ...report, summaryText: summarise(report) });
   } catch (err) {
@@ -173,11 +199,12 @@ router.get('/met-database/audit', requireHICOMMStrict, async (req, res) => {
   }
 });
 
-router.post('/met-database/normalise', requireHICOMMStrict, async (req, res) => {
+router.post('/met-database/normalise', canTouchDatabase, async (req, res) => {
   const body = req.body || {};
   try {
     const { normaliseMet } = require('../lib/metDatabaseAudit');
     const result = await normaliseMet({
+      division:   dbDivision(req),
       fillBlanks: body.fillBlanks !== false,
       reset:      !!body.reset,
       // Default to a dry run. Zeroing a live database is not something to do by

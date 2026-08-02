@@ -406,7 +406,18 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
       var dry = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({ all: true }) });
       clear.innerHTML = original;
-      if (!dry.wouldClear) { showToast('Nothing waiting — the queue is already clear.', 'success'); return; }
+      if (!dry.wouldClear) {
+        // "Nothing to clear" is only true if nothing is pending. If the queue is
+        // full and the count came back zero, the count is what is wrong — say
+        // that, rather than cheerfully reporting success.
+        if (dry.pendingTotal) {
+          showToast(dry.pendingTotal + ' ticket(s) are still pending but the clear matched none of them. '
+            + 'The server is running an older build — redeploy and try again.', 'error', 9000);
+          return;
+        }
+        showToast('Nothing waiting — the queue is already clear.', 'success');
+        return;
+      }
       var okd = await (typeof uiConfirm === 'function'
         ? uiConfirm('Clear the ticket backlog?\n\n' + dry.wouldClear + ' log(s) waiting will be marked APPROVED '
           + 'and stamped as a backlog clear. NO quota points are awarded for any of them.\n\n'
@@ -429,6 +440,17 @@ document.addEventListener('DOMContentLoaded', function () {
         total += r.cleared || 0;
         fixed += (r.handlers && r.handlers.fixed) || 0;
         rounds++;
+        // Nothing moved but rows remain — going round again would spin. Report
+        // what the server said about why instead of a silent "cleared 0".
+        if (!r.cleared && (r.pendingTotal || r.remaining)) {
+          var why = (r.diagnosis && r.diagnosis.why)
+            || 'The server cleared nothing and did not say why.';
+          showToast('Cleared ' + total + '. ' + (r.pendingTotal || r.remaining)
+            + ' still pending — ' + why, 'error', 12000);
+          allTicketsCache = [];
+          loadPendingTickets(); loadAllTickets();
+          return;
+        }
         if (r.done || !r.cleared) break;
         // A guard, not a limit: 40 rounds is 120,000 rows. Anything past that
         // is a loop that is not converging, and spinning forever would be worse

@@ -193,6 +193,65 @@ router.get('/presence', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load presence' }); }
 });
 
+
+// GET /api/dev/security/member/:id — everything worth knowing about one person,
+// for the live-presence card. One request rather than six, because the card is
+// opened on a hunch and half a dozen round trips to fill it in is a lag nobody
+// wants when they are chasing something.
+router.get('/member/:id', async (req, res) => {
+  try {
+    const u = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true, displayName: true, discordUsername: true, discordId: true, discordAvatar: true,
+        robloxId: true, robloxUsername: true, role: true, divisions: true,
+        isBlacklisted: true, blacklistReason: true, mustReauth: true,
+        createdAt: true, lastLogin: true, lastRealIp: true, lastRealIpAt: true,
+      },
+    });
+    if (!u) return res.status(404).json({ error: 'That account no longer exists.' });
+
+    const now = new Date();
+    const [sessions, passkeys, recent, cases, tickets] = await Promise.all([
+      prisma.session.findMany({
+        where: { userId: u.id }, orderBy: { lastSeenAt: 'desc' }, take: 20,
+      }).catch(() => []),
+      prisma.passkey.count({ where: { userId: u.id } }).catch(() => 0),
+      // What they have actually been doing, from the audit trail.
+      prisma.auditLog.findMany({
+        where: { actorId: u.id }, orderBy: { createdAt: 'desc' }, take: 15,
+        select: { action: true, category: true, summary: true, createdAt: true },
+      }).catch(() => []),
+      prisma.case.count({ where: { userId: u.id } }).catch(() => 0),
+      prisma.ticketLog.count({ where: { closerUserId: u.id } }).catch(() => 0),
+    ]);
+
+    res.json({
+      user: {
+        ...u,
+        // Never ship the raw divisions blob — it carries cached group data the
+        // card has no use for.
+        divisions: (Array.isArray(u.divisions) ? u.divisions : [])
+          .map(d => ({ division: d.division, rankName: d.rankName, hicomm: !!d.hicomm })),
+      },
+      passkeys,
+      counts: { cases, tickets },
+      sessions: sessions.map(sn => ({
+        id: sn.id, ip: sn.ip, ipVpn: !!sn.ipVpn, ipOrg: sn.ipOrg || null,
+        device: sn.device, userAgent: sn.userAgent,
+        createdAt: sn.createdAt, lastSeenAt: sn.lastSeenAt,
+        revoked: !!sn.revokedAt, expired: sn.expiresAt <= now,
+        live: !sn.revokedAt && sn.expiresAt > now && (now - new Date(sn.lastSeenAt)) < 5 * 60 * 1000,
+        current: sn.id === req.sessionId,
+      })),
+      recent,
+    });
+  } catch (e) {
+    console.error('[DevSec] member card failed:', e.message);
+    res.status(500).json({ error: 'Failed to load that member.' });
+  }
+});
+
 // ── Audit integrity ───────────────────────────────────────────────────
 // POST /api/dev/security/audit/rebaseline — accept the current contents of
 // every row written before `before` (default: now) as the baseline.

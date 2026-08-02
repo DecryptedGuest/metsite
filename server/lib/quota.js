@@ -1026,14 +1026,36 @@ function startQuotaWorker() {
 // duplicating (and drifting from) them.
 
 // Resolve the tab name once — env override, else the first tab.
-async function resolveSheetName(sheets, spreadsheetId) {
-  if (process.env.QUOTA_SHEET_NAME) return process.env.QUOTA_SHEET_NAME;
+async function resolveSheetName(sheets, spreadsheetId, cfg) {
+  // A division's own sheet name when one is configured; QUOTA_SHEET_NAME is
+  // IA's and must not be applied to somebody else's spreadsheet.
+  if (cfg && cfg.sheetName) return cfg.sheetName;
+  if (!cfg && process.env.QUOTA_SHEET_NAME) return process.env.QUOTA_SHEET_NAME;
   const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
   return meta.data.sheets?.[0]?.properties?.title || 'Sheet1';
 }
 
 // Read the whole sheet: { sheets, spreadsheetId, sheetName, rows, cols }.
 // Returns null when the read path (service account) isn't configured.
+/**
+ * Read a specific division's sheet, rather than IA's.
+ *
+ * readSheet() below is hardwired to QUOTA_SHEET_ID — the IA database — which is
+ * right for everything IA does and wrong the moment another division wants the
+ * same machinery pointed at its own sheet.
+ */
+async function readSheetFor(cfg) {
+  const sheets = getSheetsClient(cfg);
+  if (!sheets || !cfg || !cfg.sheetId) return null;
+  const sheetName = await resolveSheetName(sheets, cfg.sheetId, cfg);
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId: cfg.sheetId, range: sheetName,
+    valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+  });
+  const rows = resp.data.values || [];
+  return { sheets, spreadsheetId: cfg.sheetId, sheetName, rows, cols: findColumns(rows) };
+}
+
 async function readSheet() {
   const sheets = getSheetsClient();
   if (!sheets) return null;
@@ -1061,6 +1083,7 @@ async function callQuotaWebhook(payload) {
 
 module.exports = {
   addQuotaPoints, getMemberPoints, getAllMembersPoints, resetAllQuota, setMemberExempt, setMemberLOA,
+  readSheetFor,
   enqueueQuotaAward, processQuotaAwards, startQuotaWorker,
   setInvestigatorOfWeek,
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)

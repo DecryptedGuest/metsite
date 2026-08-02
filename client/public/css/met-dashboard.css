@@ -608,3 +608,71 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
 .ev-chip-id { border-color: rgba(46, 216, 150, 0.35); color: var(--green); }
 
 tr.ev-void > td { opacity: .55; }
+
+/* ── Live-presence member card ────────────────────────────────────
+   Clicking somebody on Live Presence opens everything known about them and
+   everything that can be done to them, so the card has to look pressable. */
+.presence-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-dim);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.presence-card:hover { border-color: var(--blue); background: var(--blue-dim); }
+
+.mem-head { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.mem-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--bg-input); flex-shrink: 0; }
+.mem-name { font-size: 17px; font-weight: 700; }
+.mem-sub  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.mem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: .5rem .9rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-dim);
+}
+.mem-kv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mem-k {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.mem-v { font-size: 13px; word-break: break-word; }
+.mem-v.mono { font-family: var(--font-mono); font-size: 12px; }
+
+.mem-actions { padding-top: .9rem; }
+.mem-actions-head {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--text-muted); margin: .8rem 0 .45rem;
+}
+.mem-actions-head:first-child { margin-top: 0; }
+.mem-action-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+.mem-action {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .42rem .8rem; border-radius: var(--radius-md);
+  background: var(--bg-input); border: 1px solid var(--border-dim);
+  color: var(--text-secondary); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: var(--transition);
+}
+.mem-action:hover { border-color: var(--blue); color: var(--text-primary); background: var(--blue-dim); }
+.mem-action i { font-size: 14px; }
+/* Reaches into somebody's account. */
+.mem-action-warn { color: var(--amber); border-color: rgba(220, 155, 10, 0.35); }
+.mem-action-warn:hover { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+/* Takes their access away. */
+.mem-action-danger { color: var(--red); border-color: rgba(200, 40, 60, 0.35); }
+.mem-action-danger:hover { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+
+.mem-recent { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.mem-recent li {
+  display: flex; gap: .7rem; align-items: baseline;
+  padding: .35rem 0; border-bottom: 1px solid var(--border-dim); font-size: 12px;
+}
+.mem-recent li:last-child { border-bottom: 0; }
+.mem-recent-when { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); flex-shrink: 0; min-width: 62px; }
+.mem-recent-what { color: var(--text-secondary); }

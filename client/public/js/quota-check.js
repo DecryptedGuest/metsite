@@ -1,6 +1,26 @@
 // client/public/js/quota-check.js — HICOMM weekly quota review
 var quotaMembersCache = [];
 
+// Which database the sync/audit panels on THIS page are about.
+//
+// IA maintains its own; FLP High Command maintains the MET one. The panels are
+// identical, so rather than a second copy of all this the page says which it
+// is: the FLP dashboard sets window.MET_DB_BASE = '/api/flp' before loading.
+function metDbUrl(path, params) {
+  var base = window.MET_DB_BASE || '/api/quota';
+  var url = base + '/met-database' + (path || '');
+  var qs = [];
+  // The IA route serves both databases and defaults to IA; the FLP route only
+  // ever serves the MET one and takes no division.
+  if (base === '/api/quota') qs.push('division=' + encodeURIComponent(window.MET_DB_DIVISION || 'IA'));
+  if (params) Object.keys(params).forEach(function (k) {
+    qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+  });
+  return qs.length ? url + '?' + qs.join('&') : url;
+}
+// What to call it on screen, so a message never says "MET" on the IA page.
+function metDbName() { return (window.MET_DB_BASE === '/api/flp' ? 'MET' : (window.MET_DB_DIVISION || 'IA')); }
+
 document.addEventListener("DOMContentLoaded", function () {
   var sb = document.getElementById("btn-submit-quota-check");
   if (sb) sb.addEventListener("click", submitQuotaCheck);
@@ -127,7 +147,7 @@ async function runMetAudit() {
   if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
   if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Auditing…"; }
   try {
-    metAudit = await api("/api/quota/met-database/audit");
+    metAudit = await api(metDbUrl("/audit"));
     renderMetAudit(metAudit);
     var t = document.getElementById("metaudit-target");
     if (t && metAudit.target != null) t.textContent = metAudit.target;
@@ -162,7 +182,7 @@ async function normaliseMetDb(reset) {
   var label = btn ? btn.innerHTML : "";
   if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Writing…"; }
   try {
-    var result = await api("/api/quota/met-database/normalise", {
+    var result = await api(metDbUrl("/normalise"), {
       method: "POST",
       body: JSON.stringify({ reset: !!reset, fillBlanks: true, apply: true }),
     });
@@ -247,7 +267,7 @@ async function checkMetDatabase() {
   if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
   if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Checking…"; }
   try {
-    metDbPlan = await api("/api/quota/met-database");
+    metDbPlan = await api(metDbUrl(""));
     renderMetDbPlan(metDbPlan, false);
     if (apply) apply.disabled = !((metDbPlan.remove || []).length || (metDbPlan.add || []).length);
   } catch (err) {
@@ -269,7 +289,7 @@ async function applyMetDatabase() {
   var btn = document.getElementById("btn-metdb-apply");
   if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Applying…"; }
   try {
-    var result = await api("/api/quota/met-database/sync", {
+    var result = await api(metDbUrl("/sync"), {
       method: "POST", body: JSON.stringify({ token: metDbPlan.token || null }),
     });
     renderMetDbPlan(result, true);

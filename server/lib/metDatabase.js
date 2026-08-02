@@ -27,6 +27,28 @@ const prisma = require('./db');
 const quota  = require('./quota');
 
 const GROUP_ID   = () => process.env.MET_DB_GROUP_ID || process.env.ROBLOX_GROUP_ID || null;
+
+// Which database this run is about.
+//
+// IA runs this against its OWN sheet from the IA dashboard; FLP High Command
+// runs the same thing against the MET sheet from theirs. Same comparison, same
+// safety rails, different sheet and different group — so the sheet id, the
+// group and the entry ranks all travel together rather than being read from
+// whichever env var happened to be nearest.
+function scopeFor(division) {
+  const div = (division || 'IA').toString().toUpperCase();
+  const cfg = quota.quotaConfig(div);
+  if (div === 'MET') {
+    return {
+      division: 'MET',
+      cfg,
+      groupId: process.env.MET_GROUP_ID || process.env.MET_DB_GROUP_ID || '17275620',
+      joinRanks: (process.env.MET_DB_JOIN_RANKS || 'Constable')
+        .split(',').map(x => x.trim().toLowerCase()).filter(Boolean),
+    };
+  }
+  return { division: div, cfg, groupId: GROUP_ID(), joinRanks: JOIN_RANKS() };
+}
 const JOIN_RANKS = () => (process.env.MET_DB_JOIN_RANKS || 'Constable')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const MIN_RANK   = () => { const n = parseInt(process.env.MET_DB_MIN_RANK || '', 10); return Number.isFinite(n) ? n : null; };
@@ -58,8 +80,10 @@ function isMemberRow(cols, row) {
 
 // ── Read the current roster off the sheet ─────────────────────────
 // [{ rowIndex (0-based), username, discordId, rank }]
-async function readRoster() {
-  const sheet = await quota.readSheet();
+async function readRoster(scope) {
+  const sheet = scope && scope.division !== 'IA'
+    ? await quota.readSheetFor(scope.cfg)
+    : await quota.readSheet();
   if (!sheet) return null;
   const { rows, cols } = sheet;
   const roster = [];
@@ -77,8 +101,8 @@ async function readRoster() {
 
 // ── Read the group's live membership ──────────────────────────────
 // Returns a Map keyed by normalised username → { userId, username, roleName, roleRank }.
-async function readGroupMembers() {
-  const groupId = GROUP_ID();
+async function readGroupMembers(scope) {
+  const groupId = (scope && scope.groupId) || GROUP_ID();
   if (!groupId) throw new Error('No MET group configured (set MET_DB_GROUP_ID or ROBLOX_GROUP_ID).');
   const { listGroupMembers } = require('./roblox');
 
@@ -113,13 +137,13 @@ async function readGroupMembers() {
  * Work out what the sync WOULD do. Pure — touches nothing.
  * Returns { remove: [...], add: [...], keep: n, groupSize, note }.
  */
-async function planSync() {
-  const rosterRead = await readRoster();
+async function planSync(scope) {
+  const rosterRead = await readRoster(scope);
   if (!rosterRead) {
     return { error: 'The quota sheet is not readable (set GOOGLE_SERVICE_ACCOUNT_JSON).', remove: [], add: [], keep: 0 };
   }
   const { sheet, roster } = rosterRead;
-  const { byName, all }   = await readGroupMembers();
+  const { byName, all }   = await readGroupMembers(scope);
 
   // Roblox ids of everyone in the group, so a member who simply RENAMED is
   // recognised instead of being treated as having left. The sheet's Discord id
@@ -171,7 +195,7 @@ async function planSync() {
   // Newly joined members at the entry rank who aren't on the sheet yet.
   // `keptKeys` (not just the raw sheet names) is what stops a renamed member
   // from being re-added alongside the row they already occupy.
-  const joinRanks = JOIN_RANKS();
+  const joinRanks = (scope && scope.joinRanks) || JOIN_RANKS();
   const onSheet   = new Set(roster.map(r => quota.normName(r.username)));
   const add = [];
   for (const m of all) {
@@ -182,6 +206,18 @@ async function planSync() {
     add.push({ username: m.username, robloxId: m.userId, rank: m.roleName });
     if (add.length >= MAX_ADD()) break;
   }
+
+  // Their Discord id, so a new row is not written with the column blank.
+  //
+  // A member added with no Discord id can never be matched by id afterwards —
+  // every points write, every quota read and every later sync has to fall back
+  // to matching them by NAME, which breaks the moment they rename. Resolving it
+  // once, here, is what keeps the row usable.
+  //
+  // Resolved from accounts already linked on this site first (free, no API
+  // call), then RoVer for anybody who has never signed in. Best-effort: an
+  // unresolvable member is still added, just without the id.
+  await attachDiscordIds(add);
 
   // Last line of defence against a bad read wiping the roster: if the sync wants
   // to remove most of the sheet, something is wrong with the data, not the
@@ -210,6 +246,45 @@ async function planSync() {
   };
 }
 
+/**
+ * Fill in `discordId` on the members about to be added, in place.
+ * Never throws — a lookup that fails leaves the id blank, which is the same
+ * position the sheet was in before.
+ */
+async function attachDiscordIds(add) {
+  if (!add.length) return;
+  const ids = add.map(a => String(a.robloxId)).filter(Boolean);
+  if (!ids.length) return;
+
+  // 1. Accounts already linked here.
+  try {
+    const linked = await prisma.user.findMany({
+      where:  { robloxId: { in: ids } },
+      select: { robloxId: true, discordId: true },
+    });
+    const byRoblox = new Map(linked.map(u => [String(u.robloxId), u.discordId]));
+    for (const a of add) {
+      const hit = byRoblox.get(String(a.robloxId));
+      if (hit) a.discordId = String(hit);
+    }
+  } catch (e) { /* the sheet write does not depend on this */ }
+
+  // 2. RoVer, for the ones nobody has signed in as. Sequential and capped —
+  //    this runs inside a sync somebody is waiting on, and RoVer is rate
+  //    limited, so it is better to leave a few blank than to stall the plan.
+  const missing = add.filter(a => !a.discordId).slice(0, 25);
+  if (!missing.length) return;
+  try {
+    const { getDiscordFromRoblox } = require('./roblox');
+    for (const a of missing) {
+      try {
+        const matches = await getDiscordFromRoblox(a.robloxId);
+        if (matches && matches.length) a.discordId = String(matches[0].discordId);
+      } catch (e) { /* leave it blank */ }
+    }
+  } catch (e) { /* roblox lib unavailable — leave them all blank */ }
+}
+
 // Stable fingerprint of a plan — order-independent, content-sensitive.
 function planToken(remove, add) {
   const parts = [
@@ -222,7 +297,7 @@ function planToken(remove, add) {
 // ── Apply: clear removed rows, then write the new joiners in ──────
 // Prefers the Apps Script webhook (it owns the sheet), falls back to the
 // service account. Returns { ok, removed, added, errors }.
-async function applySync(plan) {
+async function applySync(plan, scope) {
   const errors = [];
   let removed = 0, added = 0;
 
@@ -234,7 +309,7 @@ async function applySync(plan) {
     const viaWebhook = await quota.callQuotaWebhook({
       action:  'roster',
       remove:  plan.remove.map(r => ({ username: r.username, discordId: r.discordId || null })),
-      add:     plan.add.map(a => ({ username: a.username, rank: a.rank || '', discordId: '' })),
+      add:     plan.add.map(a => ({ username: a.username, rank: a.rank || '', discordId: a.discordId || '' })),
     }).catch(err => ({ ok: false, error: err.message }));
 
     if (viaWebhook && viaWebhook.ok) {
@@ -256,7 +331,9 @@ async function applySync(plan) {
   //    Rows are re-located by name in a FRESH read: the plan's row indices came
   //    from an earlier snapshot and someone may have edited the sheet since,
   //    which would otherwise clear whoever now sits at that index.
-  const sheetRead = await quota.readSheet();
+  const sheetRead = scope && scope.division !== 'IA'
+    ? await quota.readSheetFor(scope.cfg)
+    : await quota.readSheet();
   if (!sheetRead) {
     return { ok: false, removed, added, errors: errors.concat('No write path configured (no webhook, no service account).') };
   }
@@ -295,7 +372,10 @@ async function applySync(plan) {
     const target = appendAt++;
     if (cols.username  != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.username)}${target + 1}`,  values: [[a.username]] });
     if (cols.rank      != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.rank)}${target + 1}`,      values: [[a.rank || '']] });
-    if (cols.discordId != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.discordId)}${target + 1}`, values: [['']] });
+    // The resolved Discord id, or blank when nobody could be matched. Timezone,
+    // WTBT and every other column are left untouched — they are not ours to
+    // guess at, and a blank is honest.
+    if (cols.discordId != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.discordId)}${target + 1}`, values: [[a.discordId || '']] });
     for (const d of Object.values(cols.days)) {
       writes.push({ range: `${sheetName}!${quota.colLetter(d)}${target + 1}`, values: [[0]] });
     }
@@ -325,16 +405,17 @@ async function applySync(plan) {
 async function syncMetDatabase(opts = {}) {
   const dry = opts.dry !== false;
   const startedAt = new Date();
+  const scope = scopeFor(opts.division || 'IA');
   let plan;
   try {
-    plan = await planSync();
+    plan = await planSync(scope);
   } catch (err) {
     return { ok: false, dry, error: err.message };
   }
   if (plan.error) return { ok: false, dry, error: plan.error, ...plan };
 
   if (dry) {
-    return { ok: true, dry: true, startedAt, ...plan, removed: 0, added: 0 };
+    return { ok: true, dry: true, division: scope.division, startedAt, ...plan, removed: 0, added: 0 };
   }
 
   if (opts.token && opts.token !== plan.token) {
@@ -345,7 +426,7 @@ async function syncMetDatabase(opts = {}) {
     };
   }
 
-  const result = await applySync(plan);
+  const result = await applySync(plan, scope);
   const summary = `MET database sync — removed ${result.removed}, added ${result.added}`;
   console.log(`[MetDB] ${summary}${result.errors.length ? ` (errors: ${result.errors.join('; ')})` : ''}`);
 
