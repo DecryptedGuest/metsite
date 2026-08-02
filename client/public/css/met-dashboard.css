@@ -609,6 +609,90 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
 
 tr.ev-void > td { opacity: .55; }
 
+/* The attendee picker — a Discord-style mention list under the roll box.
+   Typing a name, a mention or an id searches; picking somebody attaches their
+   Discord ID, which is what both the quota award and the XP award are keyed
+   on. Typed-and-not-picked still works, it is just only as reliable as the
+   spelling. */
+.ev-picker-wrap { position: relative; }
+.ev-suggest {
+  position: absolute;
+  left: 0; right: 0;
+  z-index: 40;
+  margin-top: 3px;
+  max-height: 244px;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated, #131c2e);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
+}
+.ev-sug {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .45rem .65rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-dim);
+}
+.ev-sug:last-child { border-bottom: 0; }
+.ev-sug.active, .ev-sug:hover { background: var(--bg-input); }
+.ev-sug-av {
+  width: 26px; height: 26px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+  background: var(--bg-input);
+}
+.ev-sug-av-fallback {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-muted); font-size: 14px;
+}
+.ev-sug-main { min-width: 0; flex: 1; }
+.ev-sug-name {
+  font-size: 12.5px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ev-sug-sub {
+  font-size: 10.5px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ev-sug-hint { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
+.ev-sug-empty { padding: .55rem .65rem; font-size: 11.5px; color: var(--text-muted); font-style: italic; }
+/* Somebody picked from the list, so their id is attached. */
+.ev-chip-picked { border-color: rgba(74, 143, 255, .45); color: var(--blue, #4a8fff); }
+
+/* Proof — screenshots are uploaded, not linked. A link dies with whoever was
+   hosting it; the evidence should outlive that. */
+.ev-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .3rem;
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  transition: border-color .15s ease, background .15s ease;
+}
+.ev-drop.over { border-color: var(--blue, #4a8fff); background: rgba(74, 143, 255, .07); }
+.ev-drop > i { font-size: 20px; color: var(--text-muted); }
+.ev-drop-btn {
+  background: none; border: 0; padding: 0;
+  color: var(--blue, #4a8fff); font: inherit; cursor: pointer; text-decoration: underline;
+}
+.ev-drop-hint { font-size: 10.5px; color: var(--text-muted); }
+.ev-shots { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .55rem; }
+.ev-shot { position: relative; width: 78px; height: 78px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-dim); }
+.ev-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ev-shot-x {
+  position: absolute; top: 2px; right: 2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 0; cursor: pointer; line-height: 1;
+  background: rgba(0, 0, 0, .66); color: #fff; font-size: 11px;
+}
+
 /* ── Live-presence member card ────────────────────────────────────
    Clicking somebody on Live Presence opens everything known about them and
    everything that can be done to them, so the card has to look pressable. */

@@ -151,6 +151,37 @@ function problemsWith({ eventType, startedAt, attendees, durationMins }) {
   return problems;
 }
 
+// Proof of the event. Screenshots are uploaded rather than linked — an image
+// hosted somewhere else stops being evidence the day that host expires, and
+// asking somebody to go and upload it elsewhere first is how proof ends up not
+// being attached at all. They arrive as data URLs in the body, the same way
+// ticket-log proof already does.
+//
+// A link is still accepted, because sometimes the evidence IS a link.
+const MAX_PROOF       = 10;
+const MAX_PROOF_BYTES = 6 * 1024 * 1024;   // per image, before base64 inflation
+const DATA_IMAGE      = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i;
+
+function normaliseProof(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = [];
+  for (const item of list) {
+    const v = String(item == null ? '' : item).trim();
+    if (!v) continue;
+    if (DATA_IMAGE.test(v)) {
+      // base64 is 4 characters per 3 bytes, so the decoded size is 3/4 of the
+      // payload. Checking the decoded size means the cap means what it says.
+      const b64 = v.slice(v.indexOf(',') + 1).replace(/\s/g, '');
+      if ((b64.length * 3) / 4 > MAX_PROOF_BYTES) continue;
+      out.push(v);
+    } else if (/^https?:\/\//i.test(v)) {
+      out.push(v.slice(0, 500));
+    }
+    if (out.length >= MAX_PROOF) break;
+  }
+  return out;
+}
+
 /**
  * File an event and pay the roll.
  *
@@ -180,9 +211,7 @@ async function submitEvent(input, host) {
   }
   if (problems.length) return { ok: false, problems };
 
-  const proof = Array.isArray(input.proof)
-    ? input.proof.map(u => clean(u, 500)).filter(u => /^https?:\/\//i.test(u)).slice(0, 20)
-    : [];
+  const proof = normaliseProof(input.proof);
 
   const pointsEach = POINTS_EACH();
   const xpEach     = XP_EACH();
@@ -375,6 +404,7 @@ async function listEvents({ mine, hostId, take = 100 } = {}) {
 
 module.exports = {
   EVENT_TYPES, MAX_ATTENDEES, POINTS_EACH, XP_EACH,
+  MAX_PROOF, MAX_PROOF_BYTES, normaliseProof,
   normaliseAttendees, problemsWith, nextEventRef,
   submitEvent, voidEvent, listEvents,
 };

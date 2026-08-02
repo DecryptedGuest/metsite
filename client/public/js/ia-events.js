@@ -9,10 +9,21 @@
   var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
   var $ = function (id) { return document.getElementById(id); };
 
-  var META  = { eventTypes: [], pointsEach: 2, xpEach: 2, maxAttendees: 60 };
+  var META  = { eventTypes: [], pointsEach: 2, xpEach: 2, maxAttendees: 60, maxProof: 10, maxProofMb: 6 };
   var cache = [];
   var scope = 'all';
   var query = '';
+
+  // People picked from the suggestion list, keyed by the exact line text that
+  // was written for them. A picked person carries their Discord id, which is
+  // what both the quota award and the XP award are keyed on — a typed name is
+  // only as reliable as its spelling. The line stays human-readable; the id
+  // rides along here rather than being stuffed into the textarea.
+  var picked = {};          // lowercased line text → { discordId, name }
+  var suggestTimer = null;
+  var suggestions = [];
+  var sugIndex = -1;
+  var sugToken = null;      // { start, end, text } — the line being typed
 
   // ── Parsing the roll ────────────────────────────────────────────
   // The same rules as the server, so what the form promises is what happens.
@@ -26,9 +37,15 @@
       if (!raw) continue;
 
       var discordId = null, name = raw;
+
+      // Somebody chosen from the picker: their id is already known, so the
+      // spelling of the line stops mattering.
+      var hit = picked[raw.toLowerCase()];
+      if (hit) { discordId = hit.discordId; name = hit.name || ''; }
+
       var mention = /^<@!?(\d{15,21})>$/.exec(raw);
-      if (mention) { discordId = mention[1]; name = ''; }
-      else if (/^\d{15,21}$/.test(raw)) { discordId = raw; name = ''; }
+      if (!discordId && mention) { discordId = mention[1]; name = ''; }
+      else if (!discordId && /^\d{15,21}$/.test(raw)) { discordId = raw; name = ''; }
 
       if (name.indexOf('|') !== -1) {
         var tail = name.split('|').pop().trim();
@@ -44,6 +61,177 @@
       if (out.length >= META.maxAttendees) break;
     }
     return { roll: out, dupes: dupes, over: lines.filter(function (l) { return l.trim(); }).length > META.maxAttendees };
+  }
+
+  // ── The attendee picker ─────────────────────────────────────────
+  // Typing in the roll box searches everybody who has signed in, the way a
+  // Discord mention does. The line under the caret is the query; picking a
+  // result rewrites that line and records the person's Discord id.
+
+  // The line the caret is currently in.
+  function tokenAt(ta) {
+    var v = ta.value, c = ta.selectionStart;
+    var start = v.lastIndexOf('\n', c - 1) + 1;
+    var end = v.indexOf('\n', c);
+    if (end < 0) end = v.length;
+    return { start: start, end: end, text: v.slice(start, end).trim() };
+  }
+
+  function hideSuggest() {
+    var box = $('ev-suggest');
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+    suggestions = []; sugIndex = -1; sugToken = null;
+  }
+
+  function drawSuggest() {
+    var box = $('ev-suggest');
+    if (!box) return;
+    if (!suggestions.length) {
+      box.innerHTML = '<div class="ev-sug-empty">Nobody matches that — you can still type the name in full.</div>';
+      box.style.display = '';
+      return;
+    }
+    box.innerHTML = suggestions.map(function (p, i) {
+      var sub = [p.discordUsername && '@' + p.discordUsername, p.robloxUsername, p.role]
+        .filter(Boolean).join(' · ');
+      var av = p.avatar
+        ? '<img class="ev-sug-av" src="' + esc(p.avatar) + '" alt="" onerror="this.style.display=\'none\'" />'
+        : '<span class="ev-sug-av ev-sug-av-fallback"><i class="ti ti-user"></i></span>';
+      return '<div class="ev-sug' + (i === sugIndex ? ' active' : '') + '" role="option"'
+        + ' data-i="' + i + '">' + av
+        + '<span class="ev-sug-main">'
+        + '<span class="ev-sug-name">' + esc(p.name) + '</span>'
+        + (sub ? '<span class="ev-sug-sub">' + esc(sub) + '</span>' : '')
+        + '</span>'
+        + (i === sugIndex ? '<span class="ev-sug-hint">Enter</span>' : '')
+        + '</div>';
+    }).join('');
+    box.style.display = '';
+  }
+
+  // Put the chosen person on the line the caret was in, and remember their id.
+  function choose(i) {
+    var p = suggestions[i];
+    var ta = $('ev-attendees');
+    if (!p || !ta || !sugToken) return;
+    var line = p.name;
+    picked[line.toLowerCase()] = { discordId: p.discordId, name: p.name };
+    var before = ta.value.slice(0, sugToken.start);
+    var after  = ta.value.slice(sugToken.end);
+    // A newline after them, so the next name can just be typed.
+    var insert = line + (after.charAt(0) === '\n' ? '' : '\n');
+    ta.value = before + insert + after;
+    var caret = (before + insert).length;
+    ta.focus();
+    ta.setSelectionRange(caret, caret);
+    hideSuggest();
+    renderRoll();
+  }
+
+  async function runSearch(q) {
+    try {
+      var rows = await api('/api/ia-events/people?q=' + encodeURIComponent(q));
+      // The answer to a query the user has already moved on from is noise.
+      var ta = $('ev-attendees');
+      if (!ta || tokenAt(ta).text !== q) return;
+      // Don't offer somebody already on the roll.
+      var already = {};
+      parseRoll(ta.value).roll.forEach(function (a) { if (a.discordId) already[a.discordId] = 1; });
+      suggestions = (rows || []).filter(function (p) { return !already[p.discordId]; });
+      sugIndex = suggestions.length ? 0 : -1;
+      sugToken = tokenAt(ta);
+      drawSuggest();
+    } catch (e) { hideSuggest(); }
+  }
+
+  function onRollInput() {
+    var ta = $('ev-attendees');
+    if (!ta) return;
+    renderRoll();
+    var tok = tokenAt(ta);
+    clearTimeout(suggestTimer);
+    // A line that is already a bare id or a mention needs no picker — it is
+    // unambiguous as typed.
+    if (tok.text.length < 2 || /^<@!?\d{15,21}>$/.test(tok.text)) { hideSuggest(); return; }
+    suggestTimer = setTimeout(function () { runSearch(tok.text); }, 160);
+  }
+
+  function onRollKey(ev) {
+    if (!suggestions.length && ev.key !== 'Escape') return;
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); sugIndex = (sugIndex + 1) % suggestions.length; drawSuggest(); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); sugIndex = (sugIndex - 1 + suggestions.length) % suggestions.length; drawSuggest(); }
+    else if (ev.key === 'Enter' || ev.key === 'Tab') {
+      if (sugIndex >= 0) { ev.preventDefault(); choose(sugIndex); }
+    } else if (ev.key === 'Escape') { hideSuggest(); }
+  }
+
+  // ── Proof ───────────────────────────────────────────────────────
+  // Screenshots, uploaded. A link to somebody else's host stops being evidence
+  // the day that host expires.
+  var shots = [];
+
+  function drawShots() {
+    var box = $('ev-proof-shots');
+    if (!box) return;
+    box.innerHTML = shots.map(function (src, i) {
+      return '<div class="ev-shot"><img src="' + esc(src) + '" alt="proof ' + (i + 1) + '" />'
+        + '<button type="button" class="ev-shot-x" title="Remove" data-shot="' + i + '">&#x2715;</button></div>';
+    }).join('');
+    var hint = $('ev-proof-hint');
+    if (hint) {
+      hint.textContent = shots.length
+        ? shots.length + ' of ' + META.maxProof + ' attached'
+        : 'PNG, JPG, GIF or WEBP · up to ' + META.maxProof + ' images, ' + META.maxProofMb + ' MB each';
+    }
+  }
+
+  function addFiles(files) {
+    var list = Array.prototype.slice.call(files || []);
+    var rejected = 0;
+    list.forEach(function (f) {
+      if (!f || !/^image\//.test(f.type)) { rejected++; return; }
+      if (shots.length >= META.maxProof) { rejected++; return; }
+      if (f.size > META.maxProofMb * 1024 * 1024) { rejected++; return; }
+      var r = new FileReader();
+      r.onload = function () { shots.push(r.result); drawShots(); };
+      r.readAsDataURL(f);
+    });
+    if (rejected && window.showToast) {
+      showToast(rejected + ' file(s) skipped — images only, up to ' + META.maxProof
+        + ' of them, ' + META.maxProofMb + ' MB each.', 'warning');
+    }
+  }
+
+  function wireProof() {
+    var drop = $('ev-drop'), input = $('ev-proof-input'), browse = $('ev-proof-browse');
+    if (!drop || drop.dataset.wired) return;
+    drop.dataset.wired = '1';
+    if (browse) browse.addEventListener('click', function () { input.click(); });
+    drop.addEventListener('click', function (ev) {
+      if (ev.target === browse) return;
+      input.click();
+    });
+    if (input) input.addEventListener('change', function () { addFiles(input.files); input.value = ''; });
+    ['dragenter', 'dragover'].forEach(function (t) {
+      drop.addEventListener(t, function (ev) { ev.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (t) {
+      drop.addEventListener(t, function (ev) { ev.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (ev) { addFiles(ev.dataTransfer && ev.dataTransfer.files); });
+    // Pasting a screenshot straight in is how most of these arrive.
+    var modal = $('modal-event');
+    if (modal) modal.addEventListener('paste', function (ev) {
+      var items = (ev.clipboardData && ev.clipboardData.files) || null;
+      if (items && items.length) { ev.preventDefault(); addFiles(items); }
+    });
+    var shotBox = $('ev-proof-shots');
+    if (shotBox) shotBox.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-shot]');
+      if (!b) return;
+      shots.splice(parseInt(b.dataset.shot, 10), 1);
+      drawShots();
+    });
   }
 
   function renderRoll() {
@@ -159,6 +347,9 @@
       var d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
       started.value = d.toISOString().slice(0, 16);
     }
+    wireProof();
+    drawShots();
+    hideSuggest();
     renderRoll();
     openModal('modal-event');
   }
@@ -192,7 +383,7 @@
         durationMins: $('ev-duration').value === '' ? null : parseInt($('ev-duration').value, 10),
         notes:        $('ev-notes').value.trim(),
         attendees:    parsed.roll.map(function (a) { return { discordId: a.discordId, name: a.name }; }),
-        proof:        $('ev-proof').value.split(/\s+/).map(function (s) { return s.trim(); }).filter(Boolean),
+        proof:        shots.slice(),
       };
       var out = await api('/api/ia-events', { method: 'POST', body: JSON.stringify(body) });
       closeModal('modal-event');
@@ -201,9 +392,13 @@
         + (out.xpEach ? ', ' + (out.xpAwarded || 0) + ' given ' + out.xpEach + ' XP' : '') + '.'
         + (out.xpSkipped ? ' ' + out.xpSkipped + ' had no Discord ID, so got no XP.' : '')
         + (out.selfRemoved ? ' You were taken off your own roll.' : ''), 'success');
-      ['ev-title', 'ev-cohost', 'ev-duration', 'ev-attendees', 'ev-proof', 'ev-notes'].forEach(function (id) {
+      ['ev-title', 'ev-cohost', 'ev-duration', 'ev-attendees', 'ev-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
       });
+      shots.length = 0;
+      picked = {};
+      hideSuggest();
+      drawShots();
       renderRoll();
       load();
       if (typeof loadStats === 'function') loadStats();
@@ -233,7 +428,22 @@
   function wire() {
     var nb = $('btn-new-event'); if (nb) nb.addEventListener('click', openForm);
     var sb = $('btn-submit-event'); if (sb) sb.addEventListener('click', submit);
-    var at = $('ev-attendees'); if (at) at.addEventListener('input', renderRoll);
+    var at = $('ev-attendees');
+    if (at) {
+      at.addEventListener('input', onRollInput);
+      at.addEventListener('keydown', onRollKey);
+      at.addEventListener('click', onRollInput);
+      // Leaving the box closes the list, but not before a click on it lands.
+      at.addEventListener('blur', function () { setTimeout(hideSuggest, 140); });
+    }
+    var sug = $('ev-suggest');
+    if (sug) sug.addEventListener('mousedown', function (ev) {
+      var row = ev.target.closest('[data-i]');
+      if (!row) return;
+      ev.preventDefault();          // keep the caret in the textarea
+      choose(parseInt(row.dataset.i, 10));
+    });
+    wireProof();
     var q  = $('ev-search'); if (q) q.addEventListener('input', function () { query = q.value.trim(); render(); });
     var tabs = $('ev-scope-tabs');
     if (tabs) tabs.addEventListener('click', function (e) {

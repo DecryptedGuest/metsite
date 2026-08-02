@@ -1809,16 +1809,25 @@
 
       <div class="form-group">
         <label class="form-label">Attendees <span>*</span>
-          <span style="color:var(--text-muted);font-weight:400;">&mdash; paste names, mentions or IDs, one per line</span>
+          <span style="color:var(--text-muted);font-weight:400;">&mdash; start typing a name and pick them from the list, one per line</span>
         </label>
-        <textarea class="form-control" id="ev-attendees" rows="6"
-                  placeholder="CSUP | someone&#10;@another.person&#10;1143555310569664522"></textarea>
+        <div class="ev-picker-wrap">
+          <textarea class="form-control" id="ev-attendees" rows="6" autocomplete="off"
+                    spellcheck="false" placeholder="Type a name, a mention or a Discord ID…"></textarea>
+          <div class="ev-suggest" id="ev-suggest" role="listbox" style="display:none;"></div>
+        </div>
         <div class="ev-roll" id="ev-roll"></div>
       </div>
 
       <div class="form-group">
-        <label class="form-label">Proof <span style="color:var(--text-muted);font-weight:400;">(optional &mdash; links, one per line)</span></label>
-        <textarea class="form-control" id="ev-proof" rows="2" placeholder="https://…"></textarea>
+        <label class="form-label">Proof <span style="color:var(--text-muted);font-weight:400;">(optional &mdash; screenshots of the event)</span></label>
+        <div class="ev-drop" id="ev-drop">
+          <input type="file" id="ev-proof-input" accept="image/*" multiple hidden />
+          <i class="ti ti-photo-up"></i>
+          <span>Drop screenshots here, paste them, or <button type="button" class="ev-drop-btn" id="ev-proof-browse">choose files</button></span>
+          <span class="ev-drop-hint" id="ev-proof-hint"></span>
+        </div>
+        <div class="ev-shots" id="ev-proof-shots"></div>
       </div>
 
       <div class="form-group" style="margin-bottom:0;">
