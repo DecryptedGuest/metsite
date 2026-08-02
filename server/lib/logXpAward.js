@@ -7,14 +7,17 @@
 //
 // The rules, exactly:
 //
-//   EVENT   every attendee gets EVENT_ATTENDEE_XP (2). The HOST gets none —
-//           hosting is already worth a point on the FLP database, and paying
-//           somebody XP for running an event they also attend is how you get
-//           people hosting events for themselves. The MET database point per
-//           attendee is unchanged and still written by awardEventPoints().
-//   PATROL  the officer who filed it gets one XP per PATROL_XP_MINUTES (30) of
-//           patrol, ROUNDED UP — 45 minutes is 2, not 1. Partial time counts;
-//           the officer was on duty for it.
+//   EVENT   one event is worth EVENT_ATTENDEE_XP (1) to every attendee, and
+//           one point on the MET database — the same event counted once in
+//           each system. The HOST gets no XP: hosting is already worth a point
+//           on the FLP database, and paying somebody XP for running an event
+//           they also attend is how you get people hosting events for
+//           themselves. The MET point per attendee is written by
+//           awardEventPoints().
+//   PATROL  one XP per completed PATROL_XP_MINUTES (30) of patrol: half an
+//           hour is 1, an hour is 2, an hour and a half is 3. Rounded DOWN,
+//           because it is paid per block served — 45 minutes is one completed
+//           half hour, not two.
 //
 // Who can trigger it:
 //
@@ -32,8 +35,8 @@ const prisma = require('./db');
 const XP = require('./xp');
 
 const EVENT_ATTENDEE_XP = () => {
-  const n = parseInt(process.env.EVENT_ATTENDEE_XP || '2', 10);
-  return Number.isFinite(n) ? n : 2;
+  const n = parseInt(process.env.EVENT_ATTENDEE_XP || '1', 10);
+  return Number.isFinite(n) ? n : 1;
 };
 const PATROL_XP_MINUTES = () => {
   const n = parseInt(process.env.PATROL_XP_MINUTES || '30', 10);
@@ -41,15 +44,15 @@ const PATROL_XP_MINUTES = () => {
 };
 
 /**
- * XP for a patrol of `minutes`. One per block, rounding UP: an officer who
- * patrolled 31 minutes did more than one block's work, and rounding down would
- * pay them for less time than they served. 0 and negatives pay nothing rather
- * than throwing.
+ * XP for a patrol of `minutes`. One per COMPLETED block: 30 minutes is 1, an
+ * hour is 2, an hour and a half is 3. A part-finished block pays nothing — the
+ * rule is a block served, and 45 minutes is one of them. Anything at or below
+ * zero, or unparseable, pays nothing rather than throwing.
  */
 function patrolXpFor(minutes) {
   const m = Number(minutes);
   if (!Number.isFinite(m) || m <= 0) return 0;
-  return Math.ceil(m / PATROL_XP_MINUTES());
+  return Math.floor(m / PATROL_XP_MINUTES());
 }
 
 /**
