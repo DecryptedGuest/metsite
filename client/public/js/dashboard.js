@@ -146,13 +146,16 @@ async function loadCurrentUser() {
       // Supervisor and above sign ticket logs off (tickets.js reads this).
       window.canReviewTickets = true;
     }
-    if (['HICOMM', 'DEVELOPER'].includes(currentUser.role))
+    if (['HICOMM', 'DEVELOPER'].includes(currentUser.role)) {
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
-      // The ticket re-sync shares the casework header with "Submit Case", so
-      // the selector decides when it is on screen — this only records that the
-      // user is allowed to see it at all.
-      const syncBtn = document.getElementById('btn-ticket-sync');
-      if (syncBtn) { syncBtn.dataset.allowed = '1'; syncBtn.style.display = 'none'; }
+      // Withdrawing an event reverses everybody's points, so it is theirs.
+      window.canVoidEvents = true;
+    }
+    // The ticket re-sync shares the casework header with "Submit Case", so the
+    // selector decides when it is on screen — this only records that the user
+    // is allowed to see it at all.
+    const syncBtn = document.getElementById('btn-ticket-sync');
+    if (syncBtn) { syncBtn.dataset.allowed = '1'; syncBtn.style.display = 'none'; }
 
     // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
     // not mixed into the Internal Affairs section. The dev nav is therefore only
@@ -372,6 +375,7 @@ function navigateTo(pageId) {
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
+    events:          () => { if (typeof loadIaEvents === 'function') loadIaEvents(); },
     // Activity tracking is part of this page now, so it loads with it.
     'quota-check':   () => {
       if (typeof loadQuotaCheck === 'function') loadQuotaCheck();

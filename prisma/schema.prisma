@@ -84,6 +84,7 @@ model User {
   caseActions        CaseAction[]
   caseAppeals        CaseAppeal[]
   caseDocuments      CaseDocument[]
+  iaEventsHosted     IaEventLog[]     @relation("IaEventHost")
   pushSubscriptions  PushSubscription[]
   media              Media[]
   cidCases           CidCase[]
@@ -386,6 +387,45 @@ model QuotaAward {
   @@unique([refType, refId])
   @@index([status])
   @@map("quota_awards")
+}
+
+// An Internal Affairs event, logged on the site by whoever hosted it.
+//
+// Unlike PatrolLog — which mirrors what a bot read out of a Discord channel —
+// this is filled in by a person on the dashboard, and submitting it IS the
+// award: every attendee gets their quota points the moment it is filed. There
+// is no approval step, so the record has to carry enough to audit it after the
+// fact: who hosted, who attended, when, and what proof was offered.
+model IaEventLog {
+  id            String   @id @default(uuid())
+  // Sequential, human-readable: "EVT-0042".
+  eventRef      String   @unique
+  eventType     String                      // Training | Briefing | Interview panel | …
+  title         String?
+  hostId        String                      // the site account that filed it
+  hostDiscordId String?
+  hostName      String?
+  coHostName    String?
+  startedAt     DateTime
+  durationMins  Int?
+  // [{ discordId, username, name, awarded }] — the roll, and what each was paid.
+  attendees     Json
+  attendeeCount Int      @default(0)
+  pointsEach    Int      @default(2)
+  notes         String?
+  proof         Json?                       // links / screenshots offered as evidence it happened
+  // Set when an event is withdrawn. The points already awarded are reversed by
+  // their own award rows, so this is the record of the decision, not the undo.
+  voidedAt      DateTime?
+  voidedById    String?
+  voidedReason  String?
+  createdAt     DateTime @default(now())
+
+  host User @relation("IaEventHost", fields: [hostId], references: [id])
+
+  @@index([startedAt])
+  @@index([hostId])
+  @@map("ia_event_logs")
 }
 
 model PushSubscription {
