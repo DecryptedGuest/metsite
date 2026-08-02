@@ -264,7 +264,7 @@ async function handleDisciplineCommand(interaction) {
   const displayName = member ? member.displayName : target.username;
   const effects = D.plannedEffects(action, { hasRoblox: !!robloxId, durationDays: days });
   const rankIcon = metRole
-    ? require('./rankEmoji').forRank(interaction.client, metRole.name, e('met_rank'))
+    ? require('./rankEmoji').forRank(interaction.client, metRole.name)
     : '';
 
   // Who signs the notice. Internal Affairs High Command over the IA badge is
@@ -289,7 +289,7 @@ async function handleDisciplineCommand(interaction) {
     .setDescription(
       `${e('met_user')} <@${target.id}>`
       + (info ? ` · [${info.username}](https://www.roblox.com/users/${robloxId}/profile)` : ' · *no Roblox account linked*')
-      + (metRole ? `\n${rankIcon} ${metRole.name}` : '\n*MET rank not found*'))
+      + (metRole ? `\n${rankIcon ? rankIcon + ' ' : ''}${metRole.name}` : '\n*MET rank not found*'))
     .addFields(
       // Plain, not bold. Discord already renders a field name bold-white and
       // its value plain-grey; bolding the value was what made "Action" and

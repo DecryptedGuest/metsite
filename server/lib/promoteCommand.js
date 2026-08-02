@@ -206,7 +206,12 @@ async function handlePromoteCommand(interaction) {
     }).catch(() => {});
   }
 
-  const icon = n => require('./rankEmoji').forRank(interaction.client, n, e('met_rank'));
+  // No fallback mark. The server's own rank badge or nothing — a generic
+  // stand-in next to a real insignia reads as a different, lesser rank.
+  const icon = n => {
+    const i = require('./rankEmoji').forRank(interaction.client, n);
+    return i ? i + ' ' : '';
+  };
   const token = keep({
     ownerId: interaction.user.id,
     targetId: target.id,

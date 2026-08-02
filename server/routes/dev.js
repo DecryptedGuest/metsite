@@ -264,14 +264,40 @@ router.get('/emoji', (req, res) => {
   res.json(require('../lib/emoji').status());
 });
 
-// POST /api/dev/emoji/sync  { force: true } re-uploads even the ones already
-// there — that's how you push new artwork for an existing name.
+// POST /api/dev/emoji/sync
+//   { force: true }       re-upload even the ones already there — that's how
+//                         you push new artwork for an existing name
+//   { purgeGuild: true }  delete the copies still sitting in a server. These
+//                         live on the bot now, so a guild copy is redundant;
+//                         only emoji whose name is exactly one of ours are
+//                         touched, so the server's own rank badges are safe.
 router.post('/emoji/sync', async (req, res) => {
   const bot = require('../lib/bot');
   if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  const body = req.body || {};
   try {
-    const out = await require('../lib/emoji').syncGuildEmoji(bot.getClient(), { force: !!(req.body && req.body.force) });
+    const out = await require('../lib/emoji').syncGuildEmoji(bot.getClient(), {
+      force: !!body.force,
+      purgeGuild: !!body.purgeGuild,
+    });
     res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/dev/emoji/purge-guild — the cleanup on its own, without a re-sync.
+router.post('/emoji/purge-guild', async (req, res) => {
+  const bot = require('../lib/bot');
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  try {
+    const emoji = require('../lib/emoji');
+    const strays = await emoji.findGuildStrays(bot.getClient());
+    // A dry run by default: say what would go before anything does.
+    if (!(req.body && req.body.apply)) {
+      return res.json({ dryRun: true, found: strays.map(s => ({ name: s.name, guild: s.guildName })) });
+    }
+    res.json({ dryRun: false, ...(await emoji.purgeGuildEmoji(bot.getClient(), strays)) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

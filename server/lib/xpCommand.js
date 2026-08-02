@@ -77,12 +77,14 @@ function buildCommand() {
  */
 function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, total } = {}) {
   const lines = rows.map((r, i) => {
-    const icon = require('./rankEmoji').forRank(client, r.rank.name, e('met_rank'));
+    // The server's own badge for the rank, or nothing at all — never a
+    // generic stand-in, which reads as a rank of its own beside real insignia.
+    const badge = require('./rankEmoji').forRank(client, r.rank.name);
     // Top of the board gets the star; everyone else gets their number in a
     // fixed-width block so the names line up in a column.
     const mark = i === 0 ? e('met_star') : `\`${String(r.position).padStart(2, ' ')}\``;
     const me   = viewerId && String(r.discordId) === String(viewerId) ? '  ←  you' : '';
-    return `${mark} ${icon} <@${r.discordId}> — **${r.xp}** XP${me}`;
+    return `${mark} ${badge ? badge + ' ' : ''}<@${r.discordId}> — **${r.xp}** XP${me}`;
   });
 
   const embed = new EmbedBuilder()
@@ -381,8 +383,8 @@ async function buildCard(o, client) {
 function rankLine(o, client) {
   const name = (o.groupRole && o.groupRole.name) || (o.ranked ? o.rank.name : null);
   if (!name) return 'Unranked';
-  const icon = require('./rankEmoji').forRank(client, name);
-  return `${icon ? icon + ' ' : ''}${short(name, 40)}`;
+  const badge = require('./rankEmoji').forRank(client, name);
+  return `${badge ? badge + ' ' : ''}${short(name, 40)}`;
 }
 
 /** A compact table when several officers were named at once. */
@@ -391,10 +393,10 @@ function buildTable(officers, client) {
     if (!o.ranked) return `${e('met_user')} <@${o.discordId}> — *unranked*`;
     const p = o.progress;
     const name = (o.groupRole && o.groupRole.name) || o.rank.name;
-    const icon = require('./rankEmoji').forRank(client, name, e('met_rank'));
+    const badge = require('./rankEmoji').forRank(client, name);
     const score = p.next ? `**${o.xp}/${p.next.at}** XP` : `**${o.xp}** XP`;
     const tail = p.next ? `${p.need} more to ${p.next.code}` : 'max';
-    return `${icon} <@${o.discordId}> — ${score} · ${short(name, 30)} · *${tail}*`;
+    return `${badge ? badge + ' ' : ''}<@${o.discordId}> — ${score} · ${short(name, 30)} · *${tail}*`;
   });
   return new EmbedBuilder()
     .setColor(COLOR.card)

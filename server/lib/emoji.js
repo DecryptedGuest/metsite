@@ -8,15 +8,23 @@
 //              missing is uploaded from its committed PNG. Ones already there
 //              are adopted by name, so a re-sync is free.
 //
-//              They are uploaded as APPLICATION emoji, not guild emoji. An
-//              application emoji belongs to the bot rather than to a server, so
-//              it renders in DMs, in servers the bot was never given emoji
-//              permissions in, and in every embed the bot sends anywhere —
-//              which a guild emoji does not. There are 2000 slots instead of
+//              They are uploaded as APPLICATION emoji, and ONLY as application
+//              emoji. An application emoji belongs to the bot rather than to a
+//              server, so it renders in DMs, in servers the bot was never given
+//              emoji permissions in, and in every embed the bot sends anywhere
+//              — which a guild emoji does not. There are 2000 slots instead of
 //              50, and no "Manage Expressions" permission to chase.
 //
-//              A guild is still used as a fallback for the case where the
-//              application route is refused.
+//              Nothing is ever uploaded into the MET server. These are the
+//              bot's own marks; putting them in the server would fill 50 slots
+//              nobody asked for with emoji only the bot uses. If the
+//              application route is unavailable, e() falls back to unicode —
+//              which is the whole point of the fallback — rather than quietly
+//              dumping them somewhere they don't belong.
+//
+//              EMOJI_STORE=guild opts back into the old behaviour, for a
+//              deployment that genuinely wants them in a server. It has to be
+//              asked for; it never happens by accident.
 //   * RESOLVE— e('met_tick') → "<:met_tick:123…>" for use in message content
 //              and embeds.
 //   * FALL BACK — if the upload never happened (no Manage Expressions
@@ -148,27 +156,36 @@ function status() {
 // here must not stop the bot coming up, it just means e() keeps returning
 // unicode.
 //
-// Application emoji first — those are the ones that work in DMs. If the
-// application route is refused for any reason, fall back to uploading into a
-// guild, which is where these used to live.
+// Application emoji, and nothing else unless a deployment explicitly asks for a
+// guild. These belong to the bot: they work in DMs, they work in servers the
+// bot has no emoji permission in, and they cost the MET server none of its 50
+// slots. A failure here is not a reason to put them somewhere they don't
+// belong — e() returns unicode, which is exactly what that fallback is for.
 async function syncEmoji(client, opts = {}) {
-  const out = { ok: false, where: null, adopted: 0, created: 0, failed: 0, skipped: 0, errors: [] };
+  const out = { ok: false, where: null, adopted: 0, created: 0, failed: 0, skipped: 0, errors: [], strayGuild: [] };
   if (!client) { out.errors.push('bot not ready'); return out; }
 
+  const wantGuild = opts.store === 'guild' || process.env.EMOJI_STORE === 'guild';
+
   let store = null;
-  if (client.application && client.application.emojis && process.env.EMOJI_STORE !== 'guild') {
+  if (!wantGuild) {
+    if (!client.application || !client.application.emojis) {
+      out.errors.push('this discord.js build has no application emoji support — set EMOJI_STORE=guild to upload into a server instead');
+      return out;
+    }
     try {
       await client.application.emojis.fetch();
       store = { kind: 'application', manager: client.application.emojis, label: 'the bot application' };
     } catch (err) {
-      out.errors.push(`application emoji unavailable (${err.message}) — falling back to a guild`);
+      // Deliberately NOT a fallback to the guild. Uploading 40-odd emoji into
+      // somebody's server because a fetch failed is not a recovery.
+      out.errors.push(`application emoji unavailable (${err.message}) — nothing uploaded; e() will use unicode`);
+      return out;
     }
-  }
-
-  if (!store) {
+  } else {
     const gid = opts.guildId || guildId();
     if (!gid) {
-      out.errors.push('no application emoji and no guild configured (set EMOJI_GUILD_ID)');
+      out.errors.push('EMOJI_STORE=guild but no guild configured (set EMOJI_GUILD_ID)');
       return out;
     }
     try {
@@ -231,12 +248,82 @@ async function syncEmoji(client, opts = {}) {
     }
   }
 
+  // Anything of ours still sitting in a server from before these moved to the
+  // bot. Reported every sync so it can't be forgotten about, and removed when
+  // asked — deleting from a live server is somebody's decision, not a side
+  // effect of a restart.
+  if (store.kind === 'application') {
+    try {
+      out.strayGuild = await findGuildStrays(client);
+      if (out.strayGuild.length) {
+        if (opts.purgeGuild || process.env.EMOJI_PURGE_GUILD === '1') {
+          out.purged = await purgeGuildEmoji(client, out.strayGuild);
+        } else {
+          console.warn(`[Emoji] ${out.strayGuild.length} MET emoji are still uploaded in `
+            + `${[...new Set(out.strayGuild.map(x => x.guildName))].join(', ')}. `
+            + `They are on the bot now and those copies are redundant — `
+            + `set EMOJI_PURGE_GUILD=1 (or POST the sync with purgeGuild) to remove them.`);
+        }
+      }
+    } catch (err) { /* tidying is never worth failing a sync over */ }
+  }
+
   out.ok = out.failed === 0;
   lastSync = { at: new Date().toISOString(), ...out };
   const total = out.adopted + out.created;
   console.log(`[Emoji] ${total}/${EMOJI.filter(d => d.discord !== false).length} available on ${store.label} `
     + `(${out.created} uploaded, ${out.adopted} already there)`
+    + (out.strayGuild && out.strayGuild.length ? ` — ${out.strayGuild.length} stray guild copies` : '')
     + (out.failed ? ` — ${out.failed} failed: ${out.errors[0]}` : ''));
+  return out;
+}
+
+// ── Guild copies ──────────────────────────────────────────────────
+/**
+ * MET emoji that are still uploaded into a server the bot is in.
+ *
+ * Matched by EXACT manifest name only. The MET server's own rank emoji (:CON:,
+ * :SGT:, …) are not ours and are never touched — those are the badges the whole
+ * rank display depends on.
+ */
+async function findGuildStrays(client) {
+  const ours = new Set(EMOJI.map(d => d.name));
+  const out = [];
+  if (!client || !client.guilds || !client.guilds.cache) return out;
+  for (const guild of client.guilds.cache.values()) {
+    const cache = guild && guild.emojis && guild.emojis.cache;
+    if (!cache) continue;
+    for (const em of cache.values()) {
+      if (em && em.name && ours.has(em.name)) {
+        out.push({ id: em.id, name: em.name, guildId: guild.id, guildName: guild.name, emoji: em });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Delete those copies. Only ever emoji whose name is exactly one of ours —
+ * nothing else in the server is at risk, and the artwork is committed to the
+ * repo, so a mistaken removal is one re-sync away from being undone.
+ *
+ * @returns {Promise<{ removed: string[], failed: string[] }>}
+ */
+async function purgeGuildEmoji(client, strays) {
+  const list = strays || await findGuildStrays(client);
+  const out = { removed: [], failed: [] };
+  for (const s of list) {
+    try {
+      await s.emoji.delete('MET emoji live on the bot now, not in the server');
+      out.removed.push(`${s.name} (${s.guildName})`);
+    } catch (err) {
+      out.failed.push(`${s.name} (${s.guildName}): ${err.message}`);
+    }
+  }
+  if (out.removed.length) console.log(`[Emoji] removed ${out.removed.length} guild copies: ${out.removed.join(', ')}`);
+  if (out.failed.length) console.warn(`[Emoji] could not remove: ${out.failed.join(' | ')}`);
+  // The index is now stale — a deleted emoji must stop resolving.
+  foreignByClient.delete(client);
   return out;
 }
 
@@ -252,5 +339,6 @@ module.exports = {
   e, reactionFor, urlFor, isSynced, status,
   byGuildName, firstGuildEmoji,
   syncEmoji, syncGuildEmoji, startEmojiSync,
+  findGuildStrays, purgeGuildEmoji,
   EMOJI, PNG_DIR,
 };

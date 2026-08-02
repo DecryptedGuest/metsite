@@ -277,7 +277,7 @@ async function overviewView(subject, client) {
   ]);
 
   const rankIcon = subject.metRank
-    ? require('./rankEmoji').forRank(client, subject.metRank.name, e('met_rank'))
+    ? require('./rankEmoji').forRank(client, subject.metRank.name)
     : '';
 
   const byStatus = {};
@@ -288,7 +288,7 @@ async function overviewView(subject, client) {
     .setColor(COLOR.panel)
     .setTitle(`${e('met_folder')} ${short(subject.displayName, 60)}`)
     .setDescription(headline(subject)
-      + (subject.metRank ? `\n${rankIcon} ${subject.metRank.name}` : '\n*MET rank not found*')
+      + (subject.metRank ? `\n${rankIcon ? rankIcon + ' ' : ''}${subject.metRank.name}` : '\n*MET rank not found*')
       + (subject.inGuild === false ? `\n${e('met_leave')} **Not in the server.**` : ''))
     .addFields(
       { name: 'Cases', value: cases.length
