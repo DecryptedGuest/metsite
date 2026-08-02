@@ -904,14 +904,21 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     medals = medalsForMember({ metRoleIds: roleIds, awardsRank });
   } catch (e) { medals = []; }
 
-  // MET quota card — ONLY for a plain MET officer: in NO division, but in MET,
-  // and holding a tracked quota rank (Constable → Chief Inspector, the four MET
-  // database tabs). HICOMM / division members never see it. Reads their row from
-  // the MET database (all rank tabs); EX/LOA cells surface as "exempt".
+  // MET quota card — for anyone holding a tracked MET quota rank (Constable →
+  // Chief Inspector, the four MET database tabs).
+  //
+  // It used to require having NO division, on the reasoning that a division
+  // member has their own quota. But a CID detective is still a MET officer with
+  // a MET quota to meet, and hiding it meant the only place they could see
+  // whether they were behind was a spreadsheet. Being in a division adds a
+  // quota; it does not remove one.
+  //
+  // Above Chief Inspector there is no MET quota tab, so metQuotaRankName
+  // returns null and nothing is shown — which is the same gate as before.
   let metQuota = null;
   try {
     const rankMatch = metQuotaRankName(metRankName);
-    if (!mine.length && linked && rankMatch) {
+    if (linked && rankMatch) {
       const q = require('./lib/quota');
       const row = await q.getMemberPoints(
         { discordId: req.user.discordId, robloxUsername: req.user.robloxUsername }, 'MET',
@@ -933,7 +940,40 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     }
   } catch (e) { metQuota = null; }
 
+  // ── XP ──
+  // Their standing on the MET XP ladder. Everything here is a database read
+  // once they have been placed; seedFromRank only touches Roblox if their group
+  // rank has to be resolved, and metRankInfo already did that above.
+  let xp = null;
+  try {
+    const XP = require('./lib/xp');
+    await XP.seedFromRank(req.user.discordId, metRankInfo).catch(() => {});
+    const row = await XP.getBalance(req.user.discordId);
+    if (row) {
+      const p = XP.progress(row.xp);
+      const [standing, history] = await Promise.all([
+        XP.standing(req.user.discordId).catch(() => ({ position: 0, total: 0 })),
+        XP.history(req.user.discordId, 8).catch(() => []),
+      ]);
+      xp = {
+        xp: row.xp,
+        max: XP.maxXp(),
+        rank: { code: p.rank.code, name: p.rank.name, at: p.rank.at },
+        next: p.next ? { code: p.next.code, name: p.next.name, at: p.next.at } : null,
+        need: p.need, have: p.have, span: p.span, pct: p.pct,
+        position: standing.position, of: standing.total,
+        // No issuedBy: who moved somebody's XP is command's business, the same
+        // way who disciplined them is.
+        history: history.map(h => ({
+          kind: h.kind, delta: h.delta, after: h.after,
+          reason: h.reason, fromRank: h.fromRank, toRank: h.toRank, at: h.createdAt,
+        })),
+      };
+    }
+  } catch (e) { xp = null; }
+
   res.json({
+    xp,
     user: {
       id:              req.user.id,
       discordId:       req.user.discordId,

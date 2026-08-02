@@ -772,3 +772,52 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
   margin-right: 4px;
   object-fit: contain;
 }
+
+/* ── MET XP on the profile ────────────────────────────────────────────
+   The same numbers /xp shows in Discord. The balance is the headline; the
+   bar is how far through the current rank band they are. */
+.xp-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.xp-num  { font-size: 34px; font-weight: 800; line-height: 1; }
+.xp-unit { font-size: 13px; color: var(--text-muted); margin-left: 7px; }
+.xp-rank { font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; }
+
+.xp-bar {
+  height: 9px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.07);
+  overflow: hidden;
+}
+.xp-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--blue), #7fb4ff);
+  transition: width .5s cubic-bezier(.2,.7,.3,1);
+}
+.xp-bar-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+.xp-next { margin-top: 11px; font-size: 13px; color: var(--text-secondary); }
+
+.xp-hist { margin-top: 16px; border-top: 1px solid var(--border-dim); padding-top: 12px; }
+.xp-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  padding: 5px 0;
+  color: var(--text-secondary);
+}
+.xp-hist-row > span:first-of-type { flex: 1; min-width: 0; }
+.xp-hist-when { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.xp-hist-empty { margin-top: 14px; font-size: 12.5px; color: var(--text-muted); }

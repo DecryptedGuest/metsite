@@ -200,8 +200,12 @@ async function loadProfile() {
       : `<div class="table-empty-text">You're not a member of any division yet.</div>`;
   }
 
-  // ── MET weekly quota ── (server only sends metQuota for a plain MET officer
-  // with no division, ranked Constable → Chief Inspector).
+  // ── MET XP ──
+  renderXp(data);
+
+  // ── MET weekly quota ── (anyone ranked Constable → Chief Inspector, whether
+  // or not they're in a division — a division adds a quota, it doesn't
+  // replace the MET one).
   const mq = data.metQuota;
   const mqPanel = document.getElementById('p-metquota-panel');
   if (mq && mqPanel) {
@@ -295,6 +299,68 @@ async function loadProfile() {
     const at = (data.punishments || []).findIndex(p => p.id === want || p.caseRef === want);
     if (at >= 0) setTimeout(function () { openPunishment(at); }, 250);
   }
+}
+
+// ── MET XP ───────────────────────────────────────────────────────
+// The same numbers /xp shows in Discord, so an officer never has to ask the
+// bot where they stand. Nothing here names who awarded or removed XP — that is
+// command's business, the same way who disciplined somebody is.
+function renderXp(data) {
+  const x = data.xp;
+  const panel = document.getElementById('p-xp-panel');
+  if (!panel) return;
+  if (!x) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const standing = document.getElementById('p-xp-standing');
+  if (standing) standing.textContent = x.of ? `#${x.position} of ${x.of}` : '';
+
+  const pct = Math.max(0, Math.min(100, Math.round((x.pct || 0) * 100)));
+  const badge = data.metRankEmoji
+    ? `<img src="${escHtml(data.metRankEmoji)}" alt="" class="rank-insignia">` : '';
+
+  const next = x.next
+    ? `<div class="xp-next"><strong>${x.need}</strong> more XP to <strong>${escHtml(x.next.name)}</strong>
+         <span style="color:var(--text-muted);">(${x.next.at} XP)</span></div>`
+    : `<div class="xp-next"><i class="ti ti-star-filled" style="color:var(--amber);"></i>
+         Top of the ladder — nothing left to climb.</div>`;
+
+  const bar = x.next
+    ? `<div class="xp-bar"><div class="xp-bar-fill" style="width:${pct}%;"></div></div>
+       <div class="xp-bar-scale"><span>${x.rank.at} XP</span><span>${x.have}/${x.span}</span><span>${x.next.at} XP</span></div>`
+    : '';
+
+  document.getElementById('p-xp').innerHTML =
+    `<div class="xp-head">
+       <div class="xp-total"><span class="xp-num">${x.xp}</span><span class="xp-unit">/ ${x.max} XP</span></div>
+       <div class="xp-rank">${badge}${escHtml(x.rank.name)}</div>
+     </div>
+     ${bar}
+     ${next}
+     ${renderXpHistory(x.history)}`;
+}
+
+function renderXpHistory(hist) {
+  if (!hist || !hist.length) return '<div class="xp-hist-empty">No XP activity yet.</div>';
+  return '<div class="xp-hist">' + hist.map(h => {
+    if (h.kind === 'PROMOTION') {
+      return `<div class="xp-hist-row"><i class="ti ti-arrow-big-up-filled" style="color:var(--green);"></i>
+        <span>Promoted to <strong>${escHtml(h.toRank || '')}</strong></span>
+        <span class="xp-hist-when">${formatDate(h.at)}</span></div>`;
+    }
+    if (h.kind === 'DEMOTION') {
+      return `<div class="xp-hist-row"><i class="ti ti-arrow-big-down-filled" style="color:var(--amber);"></i>
+        <span>Rank changed to <strong>${escHtml(h.toRank || '')}</strong></span>
+        <span class="xp-hist-when">${formatDate(h.at)}</span></div>`;
+    }
+    const up = h.delta > 0;
+    const sign = up ? `+${h.delta}` : String(h.delta);
+    return `<div class="xp-hist-row">
+      <i class="ti ${up ? 'ti-plus' : 'ti-minus'}" style="color:${up ? 'var(--green)' : 'var(--red)'};"></i>
+      <span><strong>${sign} XP</strong>${h.reason ? ' · ' + escHtml(h.reason) : ''}
+        <span style="color:var(--text-muted);">→ ${h.after}</span></span>
+      <span class="xp-hist-when">${formatDate(h.at)}</span></div>`;
+  }).join('') + '</div>';
 }
 
 // Active / Expired / Appealed — three different things, and "Expired" for an
