@@ -38,6 +38,7 @@ let blacklistTargetId   = null;
 let officerProfile      = null;
 let importedCaseExtra   = null;  // identity fields autofilled from a parsed case doc
 let editingCaseId       = null;  // when set, the submit modal is editing this case
+let editingCaseRef      = '';    // its reference, offered to the document builder
 let editingCaseApproved = false; // whether the case being edited is APPROVED
 let groupRolesCache     = null;
 let groupMembersNextToken = null;
@@ -577,6 +578,7 @@ function resetCaseForm() {
   officerProfile = null;
   importedCaseExtra = null;
   editingCaseId = null;
+  editingCaseRef = '';
   editingCaseApproved = false;
   const resultEl = document.getElementById('officer-lookup-result');
   if (resultEl) resultEl.style.display = 'none';
@@ -681,13 +683,16 @@ function showAttachedDoc(doc) {
 
 function editAttachedDoc() {
   if (!attachedDocId) return;
-  CaseDoc.openBuilder({ docId: attachedDocId, onAttach: showAttachedDoc });
+  CaseDoc.openBuilder({ docId: attachedDocId, caseRef: editingCaseRef, onAttach: showAttachedDoc });
 }
 
 function buildCaseDocument() {
   CaseDoc.openBuilder({
     docId:        attachedDocId || null,
     officerInput: (document.getElementById('f-officer-id') || {}).value || '',
+    // Only an existing case HAS a reference — a new one is numbered on submit,
+    // so there is nothing honest to offer until then.
+    caseRef:      editingCaseRef,
     prefill:      { punishments: getSelectedActions() },
     onAttach:     showAttachedDoc,
   });
@@ -788,6 +793,7 @@ function openEditCase(caseId) {
   officerProfile = null;
   importedCaseExtra = null;
   editingCaseId = c.id;
+  editingCaseRef = c.caseRef || '';
   editingCaseApproved = c.status === 'APPROVED';
   caseDraftActive = false; // editing isn't a resumable new-case draft
 
@@ -1244,7 +1250,7 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
       body:   JSON.stringify({ actions, reason, notes, caseLink, repost }),
     });
     closeModal('modal-submit');
-    editingCaseId = null; editingCaseApproved = false; caseDraftActive = false;
+    editingCaseId = null; editingCaseRef = ''; editingCaseApproved = false; caseDraftActive = false;
     showToast(repost ? 'Case updated — log updated.' : 'Case updated.', 'success');
     await loadDashboard(); loadAllCases(); loadReview();
   } catch (err) {
