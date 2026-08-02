@@ -197,13 +197,26 @@ async function auditMet(opts = {}) {
 
   // ── Cross-check against the live group ──
   if (opts.checkGroup !== false) {
+    // The DIVISION'S OWN group — IA against the IA group, MET against the
+    // umbrella one. Called with no scope this used to fall back to whatever
+    // MET_DB_GROUP_ID / ROBLOX_GROUP_ID held, so the IA audit cross-checked
+    // the IA sheet against the MET roster and called everybody a stranger.
+    const metDatabase = require('./metDatabase');
+    const scope = metDatabase.scopeFor(division);
+    report.groupId = scope.groupId;
+    report.groupName = scope.name;
     let group = null;
-    try { group = await require('./metDatabase').readGroupMembers(); }
+    try { group = await metDatabase.readGroupMembers(scope); }
     catch (err) { report.groupError = err.message; }
 
     if (group) {
       report.summary.groupSize = group.all.length;
       const onSheet = new Set(report.members.map(m => quota.normName(m.username)));
+      // Only the MET database is split one-tab-per-rank. IA's is a single
+      // roster with a rank column, so "wrong tab" and "rank not tracked" are
+      // not questions that can be asked of it — asking them anyway is what
+      // flagged every IA member at once.
+      const hasRankTabs = report.summary.rankTabs > 0;
 
       for (const m of report.members) {
         const hit = group.byName.get(quota.normName(m.username));
@@ -214,6 +227,7 @@ async function auditMet(opts = {}) {
         }
         m.groupRank = hit.roleRank != null ? Number(hit.roleRank) : null;
         m.groupRankName = hit.roleName || null;
+        if (!hasRankTabs) continue;
         const should = tabForRank(hit.roleName);
         // Only a rank the database actually tracks can be on a wrong tab; a
         // Superintendent on a rank tab is a different problem (they have no MET
@@ -226,12 +240,13 @@ async function auditMet(opts = {}) {
         }
       }
 
-      // In the group at a tracked rank, on no tab at all.
+      // In the group, on no tab at all. Where the database tracks ranks, only
+      // a tracked rank counts as missing; where it doesn't, everyone does.
       for (const g of group.all) {
         const should = tabForRank(g.roleName);
-        if (!should) continue;
+        if (hasRankTabs && !should) continue;
         if (onSheet.has(quota.normName(g.username))) continue;
-        report.missingFromSheet.push({ username: g.username, rank: g.roleName, shouldBe: should, userId: g.userId });
+        report.missingFromSheet.push({ username: g.username, rank: g.roleName, shouldBe: should || null, userId: g.userId });
       }
       report.summary.missingFromSheet = report.missingFromSheet.length;
     }

@@ -14,8 +14,10 @@
 // the service account when no webhook is configured.
 //
 // Env:
-//   MET_DB_GROUP_ID     Roblox group whose membership the sheet mirrors
-//                       (default: ROBLOX_GROUP_ID, i.e. the IA group).
+//   MET_DB_GROUP_ID     override for the Roblox group whose membership the
+//                       sheet mirrors. Normally unset: each division's group
+//                       comes from the division registry (IA -> IA_GROUP_ID,
+//                       MET -> the umbrella group), so IA syncs against IA.
 //   MET_DB_JOIN_RANKS   comma-separated rank names treated as "newly joined"
 //                       and eligible to be added (default "Constable").
 //   MET_DB_MIN_RANK     optional numeric floor — members below this group rank
@@ -41,13 +43,34 @@ function scopeFor(division) {
   if (div === 'MET') {
     return {
       division: 'MET',
+      name: 'MET',
       cfg,
-      groupId: process.env.MET_GROUP_ID || process.env.MET_DB_GROUP_ID || '17275620',
+      // The umbrella Metropolitan Police group — the same id the rest of the
+      // site resolves for MET-wide rank, not whatever MET_DB_GROUP_ID happens
+      // to hold.
+      groupId: process.env.MET_GROUP_ID || require('./divisions').metGroupId(),
+      groupEnv: 'MET_GROUP_ID',
       joinRanks: (process.env.MET_DB_JOIN_RANKS || 'Constable')
         .split(',').map(x => x.trim().toLowerCase()).filter(Boolean),
     };
   }
-  return { division: div, cfg, groupId: GROUP_ID(), joinRanks: JOIN_RANKS() };
+  // Everything else is a division, so its group comes from the division
+  // registry (IA → IA_GROUP_ID / 407296071). MET_DB_GROUP_ID stays as a
+  // deliberate override only; falling back to it — or to ROBLOX_GROUP_ID —
+  // is what made the IA sync and audit read the MET group.
+  const divisions = require('./divisions');
+  const known = divisions.ALL.includes(div);
+  const groupId = process.env.MET_DB_GROUP_ID
+    || (known ? divisions.explicitGroupId(div) : null)
+    || GROUP_ID();
+  return {
+    division: div,
+    name: known ? divisions.META[div].name : div,
+    cfg,
+    groupId,
+    groupEnv: known ? divisions.META[div].groupEnv : 'MET_DB_GROUP_ID',
+    joinRanks: JOIN_RANKS(),
+  };
 }
 const JOIN_RANKS = () => (process.env.MET_DB_JOIN_RANKS || 'Constable')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -102,8 +125,10 @@ async function readRoster(scope) {
 // ── Read the group's live membership ──────────────────────────────
 // Returns a Map keyed by normalised username → { userId, username, roleName, roleRank }.
 async function readGroupMembers(scope) {
-  const groupId = (scope && scope.groupId) || GROUP_ID();
-  if (!groupId) throw new Error('No MET group configured (set MET_DB_GROUP_ID or ROBLOX_GROUP_ID).');
+  const sc      = scope || scopeFor('IA');
+  const groupId = sc.groupId || GROUP_ID();
+  const who     = sc.name || sc.division || 'MET';
+  if (!groupId) throw new Error(`No ${who} group configured (set ${sc.groupEnv || 'MET_DB_GROUP_ID'}).`);
   const { listGroupMembers } = require('./roblox');
 
   const byName = new Map();
@@ -114,11 +139,12 @@ async function readGroupMembers(scope) {
     // mark every member for removal. Any error aborts the whole sync.
     let page;
     try {
-      // Pass the group explicitly — the MET database may mirror a different
-      // group from the one the Group Panel manages (ROBLOX_GROUP_ID).
+      // Pass the group explicitly — each database mirrors its OWN division's
+      // group (IA → IA_GROUP_ID, MET → the umbrella group), never whichever
+      // group the Group Panel happens to be pointed at.
       page = await listGroupMembers(cursor, groupId);
     } catch (err) {
-      throw new Error(`Could not read the MET group membership (page ${pages + 1}): ${err.message}`);
+      throw new Error(`Could not read the ${who} group membership (page ${pages + 1}): ${err.message}`);
     }
     pages++;
     for (const m of page.members) {
@@ -128,9 +154,9 @@ async function readGroupMembers(scope) {
     cursor = page.nextPageToken;
   } while (cursor && guard++ < 200);   // 200 pages × 100 = 20k members
 
-  if (cursor) throw new Error('The MET group is larger than this sync can page through — aborting rather than removing members it never saw.');
-  if (!all.length) throw new Error('The MET group returned no members — refusing to treat that as "everyone left".');
-  return { byName, all };
+  if (cursor) throw new Error(`The ${who} group is larger than this sync can page through — aborting rather than removing members it never saw.`);
+  if (!all.length) throw new Error(`The ${who} group returned no members — refusing to treat that as "everyone left".`);
+  return { byName, all, groupId, division: sc.division };
 }
 
 /**
@@ -144,6 +170,7 @@ async function planSync(scope) {
   }
   const { sheet, roster } = rosterRead;
   const { byName, all }   = await readGroupMembers(scope);
+  const groupName = (scope && (scope.name || scope.division)) || 'MET';
 
   // Roblox ids of everyone in the group, so a member who simply RENAMED is
   // recognised instead of being treated as having left. The sheet's Discord id
@@ -181,7 +208,7 @@ async function planSync(scope) {
     }
 
     if (!member) {
-      remove.push({ ...row, why: 'not in the MET group' });
+      remove.push({ ...row, why: `not in the ${groupName} group` });
       continue;
     }
     if (minRank != null && Number(member.roleRank) < minRank) {
@@ -228,7 +255,7 @@ async function planSync(scope) {
     return {
       error: `Refusing to sync: ${remove.length} of ${roster.length} rows (${Math.round(removeShare * 100)}%) `
            + `would be removed, which is over the ${Math.round(guardShare * 100)}% safety limit. `
-           + `Check that the MET group id is right and Roblox is reachable, then raise MET_DB_MAX_REMOVE_SHARE if this really is correct.`,
+           + `Check that the ${groupName} group id is right and Roblox is reachable, then raise MET_DB_MAX_REMOVE_SHARE if this really is correct.`,
       remove, add, keep: keptKeys.size, groupSize: all.length, sheetRows: roster.length, joinRanks,
     };
   }
@@ -421,13 +448,13 @@ async function syncMetDatabase(opts = {}) {
   if (opts.token && opts.token !== plan.token) {
     return {
       ok: false, dry: false, ...plan, removed: 0, added: 0,
-      error: 'The MET group has changed since you ran the check — nothing was written. Run Check again and review the new plan.',
+      error: 'The group has changed since you ran the check — nothing was written. Run Check again and review the new plan.',
       stale: true,
     };
   }
 
   const result = await applySync(plan, scope);
-  const summary = `MET database sync — removed ${result.removed}, added ${result.added}`;
+  const summary = `${(scope && (scope.name || scope.division)) || 'MET'} database sync — removed ${result.removed}, added ${result.added}`;
   console.log(`[MetDB] ${summary}${result.errors.length ? ` (errors: ${result.errors.join('; ')})` : ''}`);
 
   // Record it so High Command can see who ran a destructive roster change.
@@ -466,4 +493,4 @@ function startMetDatabaseWorker() {
   setInterval(run, 24 * 60 * 60 * 1000);   // then daily
 }
 
-module.exports = { planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, startMetDatabaseWorker };
+module.exports = { planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor, startMetDatabaseWorker };

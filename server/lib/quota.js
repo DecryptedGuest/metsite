@@ -674,15 +674,29 @@ function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank, exemptH
 
     let total = 0;
     const days = {};
+    // EX / LOA in a day cell are deliberate marks, not missing numbers: whoever
+    // wrote one meant "this person has no quota this week". Reading them as
+    // NaN and moving on is what made a sheet-exempt member still show a target
+    // and a "Quota not met" chip.
+    let exCell = false, loaCell = false;
     for (let d = 0; d < 7; d++) {
       const col = cols.days[d];
       const raw = col != null ? (rows[r][col] || '').toString().trim() : '';
       const num = parseFloat(raw);
       if (Number.isFinite(num)) total += num;
+      else if (/^loa$/i.test(raw)) loaCell = true;
+      else if (/^ex$/i.test(raw))  exCell  = true;
       days[labels[d]] = raw && isNaN(num) ? raw : (Number.isFinite(num) ? num : 0);
     }
     let quota = cfg.targets(rank);
     if (cfg.division === 'IA' && holdsReductionRole(reductionHolders, did)) quota = applyQuotaReduction(quota);
+    // Marked exempt on the sheet itself. Applied before the purchased role so
+    // "bought it" still wins the label when both are true.
+    let marked = null;
+    if (!quota.exempt && (exCell || loaCell)) {
+      marked = loaCell ? 'LOA' : 'EXEMPT';
+      quota = { ...quota, exempt: true, target: 0, tier: loaCell ? 'LOA' : (quota.tier || 'Exempt') };
+    }
     // Bought Quota Exempt — the one thing that lifts the MET quota.
     let bought = false;
     if (holdsQuotaExempt(exemptHolders, did)) {
@@ -691,7 +705,7 @@ function buildMembersFromRows(rows, cfg, reductionHolders, fallbackRank, exemptH
     }
     members.push({
       username: uname, discordId: did || null, rank, quota, total, days,
-      exemptKind: bought ? 'PURCHASED' : (quota.exempt ? 'EXEMPT' : null),
+      exemptKind: bought ? 'PURCHASED' : (marked || (quota.exempt ? 'EXEMPT' : null)),
       met: quota.exempt ? true : (quota.target != null ? total >= quota.target : null),
     });
   }
@@ -1092,5 +1106,6 @@ module.exports = {
   normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
+  buildMembersFromRows,
   getQuotaExemptHolders, holdsQuotaExempt,
 };

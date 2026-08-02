@@ -155,7 +155,7 @@ async function notifyPunished(o) {
 
   return require('./bot').dmMemberNotice(o.discordId, {
     color: COLOR.punished,
-    authorName: 'Metropolitan Police Service · Professional Standards',
+    authorName: 'Metropolitan Police Service',
     title: 'You have received a disciplinary action',
     description: lines.join('\n'),
     fields,
@@ -201,7 +201,7 @@ async function notifyAppealed(o) {
 
   return require('./bot').dmMemberNotice(o.discordId, {
     color: COLOR.appealed,
-    authorName: 'Metropolitan Police Service · Professional Standards',
+    authorName: 'Metropolitan Police Service',
     title: 'A disciplinary action against you has been lifted',
     description: `${e('met_celebrate')} **Your appeal has been granted.**`
       + (o.robloxUsername ? `\n\n${e('met_user')} **${o.robloxUsername}**` : ''),

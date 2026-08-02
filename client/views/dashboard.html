@@ -1486,9 +1486,9 @@
         </div>
         <div style="padding:1rem 1.2rem;">
           <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-            Checks every rank tab of the <strong>Internal Affairs database</strong> against the IA Roblox
-            group: who is on the wrong tab, who is in the
-            group but on no tab, who is on the sheet but has left, duplicate rows, blank day cells and
+            Checks the <strong>Internal Affairs database</strong> against the IA Roblox
+            group: who is in the group but not on the sheet, who is on the sheet but has
+            left the group, duplicate rows, blank day cells and
             anything in a day column that isn't a number. <strong>Fill blanks</strong> writes 0 into
             empty or unreadable day cells. <strong>Reset all points</strong> zeroes every day cell so
             counting starts clean — the weekly quota is
@@ -1513,10 +1513,14 @@
         </div>
       </div>
 
+      <!-- One roster, not two: this table is both the activity view (points,
+           target, whether the quota was met) and the review the decision is
+           made in. There is no second copy to keep in step. -->
       <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
-          <div style="display:flex;gap:8px;align-items:center;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="quota-check-filter"></span>
             <button class="btn btn-ghost btn-sm" id="btn-quota-autofill" title="Set pass/fail from quota targets">
               <i class="ti ti-wand"></i> Auto from quota
             </button>
@@ -1526,28 +1530,11 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th>
+              <th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th><th>Decision</th><th>Reason (if fail — optional)</th>
             </tr></thead>
             <tbody id="quota-check-tbody">
-              <tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>
+              <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
             </tbody>
-          </table>
-        </div>
-      </div>
-    
-      <!-- Activity tracking, folded in from its own tab. -->
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Internal Affairs Members</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <span id="dq-IA-act-tabs"></span>
-            <span class="text-muted mono" id="dq-IA-act-count" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
-            <tbody id="dq-IA-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
       </div>

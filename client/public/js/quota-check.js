@@ -98,7 +98,7 @@ function renderMetAudit(report) {
     + pill(s.markers || 0, "EX/LOA (kept)")
     + '</div>'
     + (report.groupError
-        ? '<div class="metdb-hint"><i class="ti ti-alert-triangle"></i> Couldn\'t read the MET Roblox group, so the rank cross-check was skipped: '
+        ? '<div class="metdb-hint"><i class="ti ti-alert-triangle"></i> Couldn\'t read the ' + escapeHtml(report.groupName || metDbName()) + ' Roblox group, so the group cross-check was skipped: '
           + escapeHtml(report.groupError) + '</div>'
         : "");
 
@@ -109,9 +109,12 @@ function renderMetAudit(report) {
         return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
           + '<span class="metdb-why">' + where(m) + " — " + escapeHtml(p.detail || "") + '</span></li>';
       })
-    + auditGroup("In the group, on no tab", report.missingFromSheet || [], "bad", function (g) {
+    + auditGroup("In the group, not on the sheet", report.missingFromSheet || [], "bad", function (g) {
+        // Only the MET database is split by rank tab, so only it can say WHERE
+        // the row belongs. On a single-roster database the rank is the answer.
         return '<li><span class="metdb-name">' + escapeHtml(g.username) + '</span>'
-          + '<span class="metdb-why">' + escapeHtml(g.rank || "") + ' — add to "' + escapeHtml(g.shouldBe) + '"</span></li>';
+          + '<span class="metdb-why">' + escapeHtml(g.rank || "")
+          + (g.shouldBe ? ' — add to "' + escapeHtml(g.shouldBe) + '"' : " — not on the sheet") + '</span></li>';
       })
     + auditGroup("On the sheet, not in the group", problemsOf(report, "NOT_IN_GROUP"), "bad", function (m) {
         return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
@@ -171,7 +174,7 @@ async function normaliseMetDb(reset) {
     // Zeroing a live database is not something to do by accident, and there is
     // no undo — so the confirmation says the number out loud.
     var ok = await (typeof uiConfirm === "function"
-      ? uiConfirm("Reset EVERY day cell on the MET database to 0? That clears "
+      ? uiConfirm("Reset EVERY day cell on the " + metDbName() + " database to 0? That clears "
           + (s.pointsToClear || 0) + " point(s) across " + (s.members || 0)
           + " member(s). EX and LOA cells are left alone. This cannot be undone.")
       : Promise.resolve(confirm("Reset every day cell to 0? This cannot be undone.")));
@@ -187,7 +190,7 @@ async function normaliseMetDb(reset) {
       body: JSON.stringify({ reset: !!reset, fillBlanks: true, apply: true }),
     });
     showToast(reset
-      ? "MET database reset — " + result.cleared + " cell(s) cleared, " + result.filled
+      ? metDbName() + " database reset — " + result.cleared + " cell(s) cleared, " + result.filled
         + " blank(s) filled, " + result.kept + " EX/LOA kept."
       : "Filled " + result.filled + " blank cell(s).", "success");
     await runMetAudit();
@@ -226,7 +229,7 @@ function renderMetDbPlan(plan, applied) {
 
   var summary = '<div class="metdb-summary">'
     + '<span><strong>' + (plan.sheetRows || 0) + '</strong> on the sheet</span>'
-    + '<span><strong>' + (plan.groupSize || 0) + '</strong> in the MET group</span>'
+    + '<span><strong>' + (plan.groupSize || 0) + '</strong> in the ' + escapeHtml(metDbName()) + ' group</span>'
     + '<span><strong>' + (plan.keep || 0) + '</strong> matched</span>'
     + (plan.joinRanks && plan.joinRanks.length
         ? '<span>new joiners: <strong>' + escapeHtml(plan.joinRanks.join(", ")) + '</strong></span>' : '')
@@ -241,7 +244,7 @@ function renderMetDbPlan(plan, applied) {
   var cols = '<div class="metdb-cols">'
     + metdbList("Remove", plan.remove || [], "bad", function (r) {
         return '<li><span class="metdb-name">' + escapeHtml(r.username) + '</span>'
-          + '<span class="metdb-why">' + escapeHtml(r.why || "not in the MET group") + '</span></li>';
+          + '<span class="metdb-why">' + escapeHtml(r.why || ("not in the " + metDbName() + " group")) + '</span></li>';
       })
     + metdbList("Add", plan.add || [], "good", function (a) {
         return '<li><span class="metdb-name">' + escapeHtml(a.username) + '</span>'
@@ -255,7 +258,7 @@ function renderMetDbPlan(plan, applied) {
       + (plan.errors && plan.errors.length ? ' (' + escapeHtml(plan.errors.join("; ")) + ')' : '') + '</div>'
     : ((plan.remove || []).length || (plan.add || []).length
         ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> Nothing has been written yet. Press <strong>Apply changes</strong> to make it so.</div>'
-        : '<div class="metdb-hint"><i class="ti ti-check"></i> The database already matches the MET group.</div>');
+        : '<div class="metdb-hint"><i class="ti ti-check"></i> The database already matches the ' + escapeHtml(metDbName()) + ' group.</div>');
 
   box.innerHTML = summary + cols + footer;
 }
@@ -293,7 +296,7 @@ async function applyMetDatabase() {
       method: "POST", body: JSON.stringify({ token: metDbPlan.token || null }),
     });
     renderMetDbPlan(result, true);
-    showToast("MET database synced — removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
+    showToast(metDbName() + " database synced — removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
     metDbPlan = null;
     if (typeof loadQuotaCheck === "function") loadQuotaCheck();
   } catch (err) {
@@ -329,22 +332,57 @@ async function confirmQuotaReset() {
 async function loadQuotaCheck() {
   var tbody = document.getElementById("quota-check-tbody");
   if (!tbody) return;
-  tbody.innerHTML = "<tr><td colspan='7' class='table-loading'><div class='spinner'></div></td></tr>";
+  tbody.innerHTML = "<tr><td colspan='8' class='table-loading'><div class='spinner'></div></td></tr>";
   try {
     var d = await api("/api/quota/members");
     if (!d || !d.configured) {
       var CFG = window.metEmpty
         ? window.metEmpty({ icon: "ti-alert-triangle", title: "Quota sheet not configured", sub: "Read access needs the Google service account." })
         : "<span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span>";
-      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + CFG + "</td></tr>";
+      tbody.innerHTML = "<tr><td colspan='8' class='table-empty'>" + CFG + "</td></tr>";
       return;
     }
     quotaMembersCache = d.members || [];
     renderQuotaCheck();
     populateIotwSelector();
   } catch (e) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Failed to load quota data.</span></td></tr>";
+    tbody.innerHTML = "<tr><td colspan='8' class='table-empty'><span class='table-empty-text'>Failed to load quota data.</span></td></tr>";
   }
+}
+
+// Which rank the table is filtered to ("ALL" = everyone).
+var quotaRankFilter = "ALL";
+
+function setQuotaRankFilter(v) { quotaRankFilter = v || "ALL"; renderQuotaCheck(); }
+
+// The rank picker, built from the ranks actually present on the sheet.
+function renderQuotaFilter() {
+  var host = document.getElementById("quota-check-filter");
+  if (!host) return;
+  var ranks = [];
+  quotaMembersCache.forEach(function (m) {
+    var r = (m.rank || "").trim();
+    if (r && ranks.indexOf(r) < 0) ranks.push(r);
+  });
+  var w = window.metRankWeight || function () { return 0; };
+  ranks.sort(function (a, b) { return w(a) - w(b); });
+  if (ranks.length < 2) { host.innerHTML = ""; return; }
+  var opts = ["<option value='ALL'" + (quotaRankFilter === "ALL" ? " selected" : "") + ">All ranks</option>"];
+  ranks.forEach(function (r) {
+    opts.push("<option value='" + escapeHtml(r) + "'" + (quotaRankFilter === r ? " selected" : "") + ">" + escapeHtml(r) + "</option>");
+  });
+  host.innerHTML = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' "
+    + "title='Filter by rank' onchange='setQuotaRankFilter(this.value)'>" + opts.join("") + "</select>";
+}
+
+// Whether the quota was met, as a chip. Same wording as every other division's
+// table: "MET" on its own reads as the police service, so it says which.
+function quotaStatusChip(m) {
+  var q = m.quota || {};
+  if (q.exempt) return "<span class='badge badge-approved' style='background:color-mix(in srgb,var(--purple,#9b6dff) 20%,transparent);color:var(--purple,#9b6dff);'><span class='badge-dot'></span>Quota exempt</span>";
+  if (m.met === true)  return "<span class='badge badge-approved'><span class='badge-dot'></span>Quota met</span>";
+  if (m.met === false) return "<span class='badge badge-pending'><span class='badge-dot'></span>Quota not met</span>";
+  return "<span class='text-muted' style='font-size:12px;'>—</span>";
 }
 
 function renderQuotaCheck() {
@@ -355,13 +393,35 @@ function renderQuotaCheck() {
     var EMPTY = window.metEmpty
       ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
       : "<span class='table-empty-text'>No members found in the sheet.</span>";
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'>" + EMPTY + "</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='8' class='table-empty'>" + EMPTY + "</td></tr>";
     if (countEl) countEl.textContent = "";
+    renderQuotaFilter();
     return;
   }
-  if (countEl) countEl.textContent = quotaMembersCache.length + " members";
+  renderQuotaFilter();
 
-  tbody.innerHTML = quotaMembersCache.map(function (m, i) {
+  // Rank order, highest first — and the index kept, because the decision
+  // dropdowns write back into quotaMembersCache by position.
+  var w = window.metRankWeight || function () { return 0; };
+  var idxs = [];
+  for (var n = 0; n < quotaMembersCache.length; n++) {
+    if (quotaRankFilter !== "ALL" && (quotaMembersCache[n].rank || "").trim() !== quotaRankFilter) continue;
+    idxs.push(n);
+  }
+  idxs.sort(function (a, b) { return (w(quotaMembersCache[a].rank) - w(quotaMembersCache[b].rank)) || (a - b); });
+
+  if (countEl) {
+    countEl.textContent = idxs.length === quotaMembersCache.length
+      ? quotaMembersCache.length + " members"
+      : idxs.length + " of " + quotaMembersCache.length + " members";
+  }
+  if (!idxs.length) {
+    tbody.innerHTML = "<tr><td colspan='8' class='table-empty'><span class='table-empty-text'>No members at that rank.</span></td></tr>";
+    return;
+  }
+
+  tbody.innerHTML = idxs.map(function (i) {
+    var m = quotaMembersCache[i];
     var q       = m.quota || {};
     var exempt  = !!q.exempt;
     var reduced = (!exempt && q.reducedBy && q.target != null);
@@ -392,6 +452,7 @@ function renderQuotaCheck() {
       + "<td><span class='text-muted' style='font-size:11px;'>" + escapeHtml(q.tier || "") + "</span></td>"
       + "<td><span style='font-weight:700;color:" + ptColor + ";'>" + (exempt ? "EX" : m.total) + "</span></td>"
       + "<td><span class='mono' style='font-size:12px;'>" + target + reducedNote + "</span></td>"
+      + "<td>" + quotaStatusChip(m) + "</td>"
       + "<td>" + sel + "</td>"
       + "<td>" + reason + "</td>"
       + "</tr>";

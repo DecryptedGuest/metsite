@@ -376,11 +376,9 @@ function navigateTo(pageId) {
     'all-tickets':   loadAllTickets,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
     events:          () => { if (typeof loadIaEvents === 'function') loadIaEvents(); },
-    // Activity tracking is part of this page now, so it loads with it.
-    'quota-check':   () => {
-      if (typeof loadQuotaCheck === 'function') loadQuotaCheck();
-      if (typeof DivQuota !== 'undefined') DivQuota.loadActivity('IA');
-    },
+    // Activity tracking is part of this page now — the same table, not a
+    // second copy of it.
+    'quota-check':   () => { if (typeof loadQuotaCheck === 'function') loadQuotaCheck(); },
     'ia-profiles':   (typeof loadIaProfiles === 'function' ? loadIaProfiles : null),
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
