@@ -18,7 +18,11 @@
 //
 // Everything the reviewer sees is ephemeral except the request card, which is
 // posted publicly in the review channel and edited in place when it is decided
-// — so the channel never carries a stale "pending" message.
+// — so the channel never carries a stale "pending" message. Every LATER change
+// also replies to that card: ended early, ended by command, run its course,
+// extended, refused. An edit is silent, and somebody scrolling the channel a
+// week later needs to be able to see that a leave finished; a reply puts it in
+// the timeline and keeps one request reading as one thread.
 
 const {
   SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
@@ -234,13 +238,13 @@ async function tell(r, kind, extra = {}) {
       color: COLOR.approved,
       title: 'Your leave of absence has been approved',
       lead: `${e('met_tick')} **Approved.** Your leave starts now.`,
-      note: `Come back any time with \`/loa manage\` — you do not have to wait for the end date.`,
+      note: `\`/loa manage\` if anything changes.`,
     },
     DENIED: {
       color: COLOR.denied,
       title: 'Your leave of absence was denied',
       lead: `${e('met_cross')} **Denied.**`,
-      note: `You can ask again with \`/loa request\`. If the reason has changed, say so — it is read.`,
+      note: `\`/loa request\` if you need to ask again.`,
     },
     ENDED: {
       color: COLOR.ended,
@@ -248,13 +252,13 @@ async function tell(r, kind, extra = {}) {
       lead: extra.byThem
         ? `${e('met_return')} **Your leave has ended.** Your quota counts again from today.`
         : `${e('met_return')} **Your leave has been ended by command.**`,
-      note: `If you need more time, file a new request with \`/loa request\`.`,
+      note: null,
     },
     EXPIRED: {
       color: COLOR.ended,
       title: 'Your leave of absence has finished',
-      lead: `${e('met_return')} **Your leave has run its course.** Your quota counts again from today.`,
-      note: `Welcome back. If you need more time, \`/loa request\` is there.`,
+      lead: `${e('met_return')} **Your leave has finished.** Your quota counts again from today.`,
+      note: null,
     },
     EXTENDED: {
       color: COLOR.approved,
@@ -271,9 +275,8 @@ async function tell(r, kind, extra = {}) {
     SUBMITTED: {
       color: COLOR.pending,
       title: 'Your leave of absence request is with command',
-      lead: `${e('met_pending')} **Waiting on a decision.** Jade Command review these by hand — nothing is automatic.`,
-      note: `You will get a message here the moment it is decided. `
-          + `Use \`/loa manage\` to withdraw it in the meantime.`,
+      lead: `${e('met_pending')} **Waiting on Jade Command.**`,
+      note: `You will hear back here. \`/loa manage\` to withdraw it.`,
     },
   }[kind];
   if (!M) return false;
@@ -286,7 +289,7 @@ async function tell(r, kind, extra = {}) {
   if (r.reviewerName && kind !== 'SUBMITTED') {
     fields.push({ name: `${e('met_scales')} Decided by`, value: short(r.reviewerName, 200), inline: true });
   }
-  if (M.note) fields.push({ name: `${e('met_shield')} What happens now`, value: M.note, inline: false });
+  if (M.note) fields.push({ name: `${e('met_shield')} Next`, value: M.note, inline: false });
 
   return require('./bot').dmMemberNotice(r.discordId, {
     color: M.color,
@@ -312,8 +315,7 @@ async function postForReview(r, overLimit) {
     const em = card(r, {
       title: 'Leave of Absence — awaiting a decision',
       description: overLimit
-        ? `${e('met_warn')} This is longer than the usual **${L.humanDays(L.MAX_DAYS())}** limit. `
-          + `Granting it is still yours to decide — it is flagged so it is a decision rather than an oversight.`
+        ? `${e('met_warn')} Longer than the usual **${L.humanDays(L.MAX_DAYS())}** limit.`
         : null,
       color: COLOR.pending,
     });
@@ -331,6 +333,95 @@ async function postForReview(r, overLimit) {
     console.warn('[LOA] could not post the request card:', err.message);
     return null;
   }
+}
+
+/**
+ * Reply to the original request card.
+ *
+ * The card itself is edited in place so it never reads "pending" once it is
+ * not — but an edit is silent, and somebody scrolling the channel a week later
+ * has no way to see that a leave ended early or ran its course. So every later
+ * change also REPLIES to the card, which keeps one request as one thread and
+ * puts the change in the channel's timeline where it can be read.
+ *
+ * Best-effort throughout: a deleted card, a channel the bot has lost access
+ * to, or a missing message must not stop the leave changing.
+ */
+async function replyToCard(r, text, color, ping) {
+  if (!r || !r.messageId || !r.channelId) return false;
+  try {
+    const client = require('./bot').getClient();
+    if (!client) return false;
+    const ch = await client.channels.fetch(r.channelId).catch(() => null);
+    if (!ch || !ch.messages) return false;
+    const msg = await ch.messages.fetch(r.messageId).catch(() => null);
+    if (!msg || !msg.reply) return false;
+
+    const em = new EmbedBuilder()
+      .setColor(color || COLOR.ended)
+      .setAuthor({ name: 'Metropolitan Police Service' })
+      .setDescription(text)
+      .setFooter({ text: `Leave of absence · Reference ${String(r.id).slice(0, 8).toUpperCase()}` })
+      .setTimestamp(Date.now());
+
+    // Only an extension asks for a decision, so only that one pings. Everything
+    // else is a notice, and a notice that pings is a notice people mute.
+    await msg.reply(ping
+      ? { content: `<@&${L.ADMIN_ROLE()}>`, embeds: [em], allowedMentions: { roles: [L.ADMIN_ROLE()] } }
+      : { embeds: [em], allowedMentions: { parse: [] } });
+    return true;
+  } catch (err) {
+    console.warn('[LOA] could not reply to the request card:', err.message);
+    return false;
+  }
+}
+
+// What each kind of change says in the channel. Written to be read by somebody
+// who was not watching when it happened.
+function changeLine(r, kind, extra = {}) {
+  const m = who(r);
+  switch (kind) {
+    case 'ENDED':
+      return extra.byThem
+        ? `${e('met_return')} ${m} is **back early**.`
+        : `${e('met_return')} ${m}'s leave was **ended by ${extra.by || 'command'}**.`;
+    case 'EXPIRED':
+      return `${e('met_return')} ${m}'s leave has **finished**. They are back.`;
+    case 'CANCELLED':
+      return `${e('met_dot_off')} ${m} **withdrew** this request.`;
+    case 'EXTENDED':
+      return `${e('met_hourglass')} ${m}'s leave has been **extended by ${L.humanDays(extra.days)}** — `
+           + `now ending ${L.ts(r.endAt)}.`;
+    case 'EXT_DENIED':
+      return `${e('met_cross')} **${L.humanDays(extra.days)} more** refused — still ending ${L.ts(r.endAt)}.`;
+    case 'EXT_ASKED':
+      return `${e('met_hourglass')} ${m} has asked for **${L.humanDays(extra.days)} more** — `
+           + `would end ${L.ts(extra.wouldEndAt)}.`
+           + (extra.reason ? `
+${e('met_edit')} ${short(extra.reason, 400)}` : '');
+    case 'SHORTENED':
+      return `${e('met_return')} ${m} **cut their leave short by ${L.humanDays(extra.days)}** — back ${L.ts(r.endAt)}.`;
+    default:
+      return null;
+  }
+}
+
+const CHANGE_COLOR = {
+  ENDED: COLOR.ended, EXPIRED: COLOR.ended, CANCELLED: COLOR.ended,
+  EXTENDED: COLOR.approved, EXT_DENIED: COLOR.denied,
+  EXT_ASKED: COLOR.pending, SHORTENED: COLOR.approved,
+};
+
+/**
+ * Everything a change to a leave has to do: bring the card up to date, say so
+ * underneath it, and tell the member. One call so no path can do two of the
+ * three and quietly skip the other.
+ */
+async function announce(r, kind, extra = {}) {
+  await refreshCard(r).catch(() => {});
+  const line = changeLine(r, kind, extra);
+  if (line) await replyToCard(r, line, CHANGE_COLOR[kind], kind === 'EXT_ASKED').catch(() => {});
+  await tell(r, kind, extra).catch(() => {});
 }
 
 /** Bring the posted card up to date after a decision. */
@@ -379,10 +470,9 @@ async function doRequest(interaction) {
   if (!days) {
     return interaction.editReply({ embeds: [new EmbedBuilder()
       .setColor(COLOR.denied)
-      .setTitle(`${e('met_cross')} That duration did not read`)
-      .setDescription(`${why}\n\n${e('met_calendar')} **How to write it**\n`
-        + '`7d` · `10 days` · `1w` · `2 weeks`\n\n'
-        + `The usual limit is **${L.humanDays(L.MAX_DAYS())}**.`)] });
+      .setTitle(`${e('met_cross')} I could not read that`)
+      .setDescription(`${why}\n\n${e('met_calendar')} \`7d\` · \`10 days\` · \`1w\` · \`2 weeks\``
+        + `\n${e('met_hourglass')} Usual limit **${L.humanDays(L.MAX_DAYS())}**.`)] });
   }
 
   // A spinner, so a slow DM or a slow channel post does not read as a hang.
@@ -413,9 +503,9 @@ async function doRequest(interaction) {
 
   const em = card(r, {
     title: 'Your leave of absence request is with command',
-    description: `${e('met_pending')} **Filed.** Jade Command review these by hand — nothing is automatic.`
+    description: `${e('met_pending')} **Filed.** Waiting on Jade Command.`
       + (out.overLimit
-        ? `\n\n${e('met_warn')} This is longer than the usual **${L.humanDays(L.MAX_DAYS())}** limit, so it may be cut back or refused.`
+        ? `\n\n${e('met_warn')} Longer than the usual **${L.humanDays(L.MAX_DAYS())}**.`
         : ''),
     color: COLOR.pending,
   });
@@ -428,16 +518,15 @@ async function doManage(interaction) {
   if (!r) {
     return interaction.editReply({ embeds: [new EmbedBuilder()
       .setColor(COLOR.info)
-      .setTitle(`${e('met_calendar')} You have no leave to manage`)
-      .setDescription(`Nothing pending and nothing running.\n\n`
-        + `${e('met_edit')} Use \`/loa request\` to ask for some.`)] });
+      .setTitle(`${e('met_calendar')} Nothing to manage`)
+      .setDescription(`${e('met_edit')} \`/loa request\` to ask for some.`)] });
   }
   return interaction.editReply({
     embeds: [card(r, {
-      title: r.status === 'PENDING' ? 'Your request is with command' : 'Your leave of absence',
+      title: r.status === 'PENDING' ? 'Your request' : 'Your leave of absence',
       description: r.status === 'PENDING'
-        ? `${e('met_pending')} Waiting on a decision.`
-        : `${e('met_tick')} Running — **${L.daysUntil(r.endAt)}** day(s) left.`,
+        ? `${e('met_pending')} Waiting on Jade Command.`
+        : `${e('met_tick')} **${L.daysUntil(r.endAt)}** day(s) left.`,
     })],
     components: manageRow(r),
   });
@@ -450,24 +539,24 @@ async function doActive(interaction) {
     title: `${'Active leave of absences'}`,
     rows,
     color: COLOR.approved,
-    empty: 'Nobody is on leave right now.',
-    note: rows.length ? `${e('met_calendar')} Soonest to return first.` : null,
+    empty: 'Nobody is on leave.',
+    note: rows.length ? `${e('met_calendar')} Soonest back first.` : null,
   })] });
 }
 
 async function doPending(interaction) {
   await interaction.deferReply({ flags: 64 });
   if (!L.canReview(interaction.member, interaction.user.id)) {
-    return interaction.editReply({ embeds: [denied('Only Jade Command review leave requests.')] });
+    return interaction.editReply({ embeds: [denied('Jade Command only.')] });
   }
   const rows = await L.pending(25);
   return interaction.editReply({
     embeds: [listEmbed({
-      title: 'Leave of absence — waiting on a decision',
+      title: 'Leave of absence — pending',
       rows,
       color: COLOR.pending,
-      empty: 'Nothing waiting. The queue is clear.',
-      note: rows.length ? `${e('met_hourglass')} Longest wait first. Use \`/loa admin\` to act on one.` : null,
+      empty: 'Nothing waiting.',
+      note: rows.length ? `${e('met_hourglass')} Longest wait first · \`/loa admin\` to act on one.` : null,
     })],
   });
 }
@@ -475,7 +564,7 @@ async function doPending(interaction) {
 async function doAdmin(interaction) {
   await interaction.deferReply({ flags: 64 });
   if (!L.canReview(interaction.member, interaction.user.id)) {
-    return interaction.editReply({ embeds: [denied("Only Jade Command manage other people's leave.")] });
+    return interaction.editReply({ embeds: [denied('Jade Command only.')] });
   }
   const target = interaction.options.getUser('member');
   const r = await L.openFor(target.id);
@@ -485,7 +574,7 @@ async function doAdmin(interaction) {
       title: `${target.username} has no leave open`,
       rows: past,
       color: COLOR.info,
-      empty: 'Nothing pending, nothing running, and nothing on record.',
+      empty: 'Nothing on record.',
       note: `${e('met_folder')} Their last few:`,
     })] });
   }
@@ -510,7 +599,7 @@ async function doHistory(interaction) {
   const target = interaction.options.getUser('member');
   // Looking at somebody else's history is command's business, not everyone's.
   if (target && target.id !== interaction.user.id && !L.canReview(interaction.member, interaction.user.id)) {
-    return interaction.editReply({ embeds: [denied("Only Jade Command can look at somebody else's leave history.")] });
+    return interaction.editReply({ embeds: [denied('Jade Command only.')] });
   }
   const id = target ? target.id : interaction.user.id;
   const rows = await L.history(id, 15);
@@ -528,7 +617,7 @@ async function doHistory(interaction) {
 function denied(msg) {
   return new EmbedBuilder()
     .setColor(COLOR.denied)
-    .setTitle(`${e('met_denied')} Not for you`)
+    .setTitle(`${e('met_denied')} No`)
     .setDescription(msg);
 }
 
@@ -574,11 +663,11 @@ async function memberButton(interaction, action, id) {
   if (action === 'cancel') {
     const out = await L.cancel(id, interaction.user.id);
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
-    await refreshCard(out.request);
+    await announce(out.request, 'CANCELLED');
     return interaction.editReply({ embeds: [new EmbedBuilder()
       .setColor(COLOR.ended)
       .setTitle(`${e('met_tick')} Withdrawn`)
-      .setDescription('Your request has been taken back. Nothing was recorded against you.')] });
+      .setDescription('Your request has been taken back.')] });
   }
 
   if (action === 'back') {
@@ -588,12 +677,11 @@ async function memberButton(interaction, action, id) {
     }
     const out = await L.end(id, { id: interaction.user.id, name: nameOf(interaction) }, 'Returned early');
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
-    await refreshCard(out.request);
-    await tell(out.request, 'ENDED', { byThem: true });
+    await announce(out.request, 'ENDED', { byThem: true });
     return interaction.editReply({ embeds: [new EmbedBuilder()
       .setColor(COLOR.approved)
       .setTitle(`${e('met_return')} Welcome back`)
-      .setDescription('Your leave has ended. Your quota counts again from today.')] });
+      .setDescription('Your quota counts again from today.')] });
   }
 }
 
@@ -613,30 +701,41 @@ async function handleLoaModal(interaction) {
   const out = await L.change(id, interaction.user.id, kind === 'extend' ? 'EXTEND' : 'REDUCE', days, reason);
   if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
 
-  await refreshCard(out.request);
+  if (out.applied) {
+    // Shortening it may have taken it past today, in which case the leave has
+    // ended rather than merely moved.
+    await announce(out.request,
+      out.request.status === 'ENDED' ? 'ENDED' : 'SHORTENED',
+      { byThem: true, days });
+  } else {
+    // An extension has to be visible to the people who decide on it, so it
+    // replies to the card AND puts the buttons back on it.
+    await announce(out.request, 'EXT_ASKED',
+      { days, wouldEndAt: out.wouldEndAt, reason });
+  }
 
   if (out.applied) {
     // Coming back sooner needs nobody's permission.
     return interaction.editReply({ embeds: [card(out.request, {
       title: `${e('met_tick')} Your leave has been shortened`,
       description: out.request.status === 'ENDED'
-        ? `${e('met_return')} That took it past today, so your leave has ended. Welcome back.`
-        : `${e('met_return')} **${L.humanDays(days)}** off the end — you are back ${L.ts(out.request.endAt)}.`,
+        ? `${e('met_return')} Your leave has ended. Welcome back.`
+        : `${e('met_return')} **${L.humanDays(days)}** off the end — back ${L.ts(out.request.endAt)}.`,
       color: COLOR.approved,
     })] });
   }
 
   return interaction.editReply({ embeds: [card(out.request, {
     title: `${e('met_hourglass')} Extension requested`,
-    description: `${e('met_pending')} **${L.humanDays(days)}** more has gone to Jade Command. `
-      + `Your leave still ends ${L.ts(out.request.endAt)} unless they grant it.`,
+    description: `${e('met_pending')} **${L.humanDays(days)}** more — waiting on Jade Command. `
+      + `Your leave still ends ${L.ts(out.request.endAt)}.`,
     color: COLOR.pending,
   })] });
 }
 
 async function reviewButton(interaction, action, id) {
   if (!L.canReview(interaction.member, interaction.user.id)) {
-    return interaction.reply({ embeds: [denied('Only Jade Command decide on leave.')], flags: 64 });
+    return interaction.reply({ embeds: [denied('Jade Command only.')], flags: 64 });
   }
   await interaction.deferReply({ flags: 64 });
 
@@ -645,11 +744,13 @@ async function reviewButton(interaction, action, id) {
   if (action === 'approve' || action === 'deny') {
     const out = await L.decide(id, action === 'approve' ? 'approve' : 'deny', reviewer, null);
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
+    // The card itself carries the decision, so this one does not also reply —
+    // the edit and a reply saying the same thing is noise.
     await refreshCard(out.request);
     await tell(out.request, action === 'approve' ? 'APPROVED' : 'DENIED');
     return interaction.editReply({ embeds: [card(out.request, {
       title: action === 'approve' ? `${e('met_tick')} Approved` : `${e('met_cross')} Denied`,
-      description: `${who(out.request)} has been told.`,
+      description: who(out.request),
     })] });
   }
 
@@ -657,22 +758,20 @@ async function reviewButton(interaction, action, id) {
     const days = ((await L.byId(id)) || {}).changeRequest?.days;
     const out = await L.decideChange(id, action === 'extok' ? 'approve' : 'deny', reviewer);
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
-    await refreshCard(out.request);
-    await tell(out.request, out.granted ? 'EXTENDED' : 'EXT_DENIED', { days: out.days || days });
+    await announce(out.request, out.granted ? 'EXTENDED' : 'EXT_DENIED', { days: out.days || days });
     return interaction.editReply({ embeds: [card(out.request, {
       title: out.granted ? `${e('met_tick')} Extension granted` : `${e('met_cross')} Extension refused`,
-      description: `${who(out.request)} has been told.`,
+      description: who(out.request),
     })] });
   }
 
   if (action === 'force') {
     const out = await L.end(id, reviewer, 'Ended by command');
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
-    await refreshCard(out.request);
-    await tell(out.request, 'ENDED', { byThem: false });
+    await announce(out.request, 'ENDED', { byThem: false, by: reviewer.name });
     return interaction.editReply({ embeds: [card(out.request, {
       title: `${e('met_return')} Leave ended`,
-      description: `${who(out.request)} has been told.`,
+      description: who(out.request),
     })] });
   }
 }
@@ -687,7 +786,7 @@ async function sweepOnce() {
     if (!out.closed) return out;
     for (const p of out.people) {
       const r = await L.byId(p.id);
-      if (r) await tell(r, 'EXPIRED').catch(() => {});
+      if (r) await announce(r, 'EXPIRED').catch(() => {});
     }
     console.log(`[LOA] ${out.closed} leave(s) finished and closed off`);
     return out;
@@ -710,5 +809,6 @@ module.exports = {
   buildCommand, handleLoaCommand, handleLoaButton, handleLoaModal,
   startLoaWorker, sweepOnce,
   // Drawing, exported for the tests.
-  card, line, listEmbed, tell, postForReview, refreshCard, COLOR,
+  card, line, listEmbed, tell, postForReview, refreshCard,
+  replyToCard, changeLine, announce, COLOR,
 };

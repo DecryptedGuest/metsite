@@ -258,7 +258,7 @@
       + ' · <strong>' + total + '</strong> quota point' + (total === 1 ? '' : 's')
       + (META.xpEach ? ' · <strong>' + totalXp + '</strong> XP' : '') + ' will be awarded'
       + (META.xpEach && noId ? ' · <span class="ev-roll-warn">' + noId
-          + ' with no Discord ID get their points but no XP</span>' : '')
+          + ' with no Discord ID — no XP</span>' : '')
       + (parsed.dupes ? ' · <span class="ev-roll-note">' + parsed.dupes + ' duplicate' + (parsed.dupes === 1 ? '' : 's') + ' ignored</span>' : '')
       + (parsed.over ? ' · <span class="ev-roll-warn">only the first ' + META.maxAttendees + ' are counted</span>' : '')
       + '</div><div class="ev-chips">' + chips + '</div>';
@@ -362,12 +362,11 @@
     var total = parsed.roll.length * META.pointsEach;
     var totalXp = parsed.roll.length * META.xpEach;
     var okd = await (typeof uiConfirm === 'function'
-      ? uiConfirm('File this event?\n\n' + parsed.roll.length + ' attendee(s) will each be awarded '
-        + META.pointsEach + ' quota point(s) on the IA database'
-        + (META.xpEach ? ' and ' + META.xpEach + ' XP on MET' : '') + ' — '
+      ? uiConfirm('File this event?\n\n' + parsed.roll.length + ' attendee(s) will each get '
+        + META.pointsEach + ' quota point(s)'
+        + (META.xpEach ? ' and ' + META.xpEach + ' XP' : '') + ' — '
         + total + ' point(s)' + (META.xpEach ? ' and ' + totalXp + ' XP' : '')
-        + ' in total — immediately. '
-        + 'There is no approval step; withdrawing it afterwards is High Command\'s.')
+        + ' in total.')
       : Promise.resolve(confirm('Pay ' + parsed.roll.length + ' attendee(s) ' + total + ' points in total?')));
     if (!okd) return;
 
@@ -387,11 +386,10 @@
       };
       var out = await api('/api/ia-events', { method: 'POST', body: JSON.stringify(body) });
       closeModal('modal-event');
-      showToast(out.event.eventRef + ' filed — ' + out.awarded + ' attendee(s) paid '
-        + out.pointsEach + ' point(s) each'
+      showToast(out.event.eventRef + ' filed — ' + out.awarded + ' paid '
+        + out.pointsEach + ' point(s)'
         + (out.xpEach ? ', ' + (out.xpAwarded || 0) + ' given ' + out.xpEach + ' XP' : '') + '.'
-        + (out.xpSkipped ? ' ' + out.xpSkipped + ' had no Discord ID, so got no XP.' : '')
-        + (out.selfRemoved ? ' You were taken off your own roll.' : ''), 'success');
+        + (out.xpSkipped ? ' ' + out.xpSkipped + ' had no Discord ID.' : ''), 'success');
       ['ev-title', 'ev-cohost', 'ev-duration', 'ev-attendees', 'ev-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
       });

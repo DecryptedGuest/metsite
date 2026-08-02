@@ -28,7 +28,11 @@
 const prisma = require('./db');
 
 const ADMIN_ROLE = () => process.env.LOA_ADMIN_ROLE_ID || '1422406753231966290';
-const CHANNEL    = () => process.env.LOA_CHANNEL_ID || process.env.LOA_REQUEST_CHANNEL_ID || null;
+// The MET leave-of-absence channel. Request cards are posted here and pinged
+// at Jade Command; every later change to a leave is replied to the same card,
+// so one request reads as one thread rather than as scattered messages.
+const CHANNEL    = () => process.env.LOA_CHANNEL_ID || process.env.LOA_REQUEST_CHANNEL_ID
+                       || '1499804454906630217';
 const MAX_DAYS   = () => {
   const n = parseInt(process.env.LOA_MAX_DAYS, 10);
   return Number.isFinite(n) && n > 0 ? n : 14;
