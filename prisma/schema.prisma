@@ -240,6 +240,9 @@ model TicketLog {
   id                    String     @id @default(uuid())
   messageId             String     @unique   // Discord message id of the log embed
   channelId             String?
+  // A short, readable number (#0001). Tickety's own id is a random string that
+  // nobody can read in a table or say out loud; this is what the site shows.
+  ticketNo              Int?       @unique
   ticketRef             String?              // Tickety's own ticket id
   ticketName            String?
   ticketType            TicketType @default(GENERAL_SUPPORT)
@@ -250,6 +253,10 @@ model TicketLog {
   creatorRobloxUsername String?
   closerDiscordId       String?              // the "executor" — who closed it
   closerUsername        String?
+  // Exactly what the log printed for the executor. closerUsername is resolved
+  // from the id and can be null when that lookup fails; this never is, when the
+  // message named anybody at all.
+  closerRaw             String?
   closerUserId          String?              // matched site User.id → "My Tickets"
   closedAt              DateTime
 
@@ -260,6 +267,9 @@ model TicketLog {
   reviewedById          String?
   reviewedByName        String?
   reviewedAt            DateTime?
+  // Set when the queue was reset: a log nobody is being asked to decide on any
+  // more. Distinct from DENIED, which is a decision somebody made.
+  voidedAt              DateTime?
 
   raw                   Json?
   createdAt             DateTime   @default(now())
@@ -429,6 +439,9 @@ enum TicketStatus {
   PENDING
   APPROVED
   DENIED
+  // Ingested before the queue was reset. Not a decision anybody made — just no
+  // longer anybody's to make. Still visible in All Tickets.
+  VOID
 }
 
 // ─────────────────────────────────────────────────────────────────

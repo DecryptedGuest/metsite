@@ -1514,3 +1514,27 @@ tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
   .seg { width: 100%; }
   .seg-btn { flex: 1; justify-content: center; padding: 9px 8px; }
 }
+
+/* ── Minimise a panel ──────────────────────────────────────────────
+   Injected by panel-collapse.js into every panel header. Quiet until the
+   header is hovered, so it never competes with the panel's own controls. */
+.panel-header { position: relative; }
+.panel-collapse-btn {
+  margin-left: 10px;
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--border-dim, rgba(120,150,200,.18));
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .15s, background .15s, color .15s, transform .2s;
+}
+.panel-header:hover .panel-collapse-btn { opacity: 1; }
+.panel-collapse-btn:hover { background: var(--hover, rgba(255,255,255,.07)); color: var(--text); }
+.panel-collapse-btn:focus-visible { opacity: 1; outline: 2px solid var(--blue, #4a8fff); outline-offset: 1px; }
+.panel-collapsed .panel-collapse-btn i { transform: rotate(180deg); }
+.panel-collapsed .panel-header { border-bottom: none; }
+.panel-collapsed { padding-bottom: 0; }

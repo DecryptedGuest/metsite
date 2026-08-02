@@ -127,6 +127,17 @@ function parseTicketLogEmbed(embed) {
   const creatorId = labelled(text, 'Creator ID') || firstMentionId(creatorRaw || '');
 
   const executorId = labelled(text, 'Executor ID') || firstMentionId(labelled(text, 'Executor') || '');
+  // What the log actually PRINTED for the executor, mention markup stripped.
+  // The id resolves to a name most of the time, but not always — a closer who
+  // has left the server resolves to nothing, and "Closed by —" on every one of
+  // those rows is worse than the name the message already gave us.
+  const executorRaw = (labelled(text, 'Executor Username')
+    || labelled(text, 'Executor')
+    || (/(.+?)\s+closed a ticket/i.exec(text) || [])[1]
+    || '')
+    .replace(/<@!?\d+>/g, '')
+    .replace(/[*_`~]/g, '')
+    .trim() || null;
 
   return {
     ticketName,
@@ -139,6 +150,7 @@ function parseTicketLogEmbed(embed) {
     creatorUsername,
     creatorId,
     executorId,
+    executorRaw,
     ticketType: ticketTypeFromName(effectiveName),
   };
 }

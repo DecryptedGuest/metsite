@@ -62,25 +62,51 @@ async function rowFromMessage(msg) {
     }
   } catch (e) { /* best-effort — the row is still worth storing */ }
 
-  // Match the closer (Tickety's "executor") to a site account so the ticket
-  // shows up under their My Tickets.
+  // Who handled it. This column is the one people scan the queue by, and a
+  // blank in it is useless — so every source is tried, in descending order of
+  // how current the name is, and the log's own words are the floor:
+  //
+  //   1. their MET Dashboard account   (a display name they chose)
+  //   2. the live member record        (their server nickname right now)
+  //   3. a live guild fetch            (in case the record cache is cold)
+  //   4. what the log printed          (always there when it named anybody)
+  //   5. the bare Discord id           (better than an em dash)
+  //
+  // Only closerUserId being null is acceptable — that just means the closer has
+  // no site account, which is normal and only affects "My Tickets".
   let closerUserId = null, closerUsername = null;
+  const closerRaw = parsed.executorRaw || null;
+
   if (parsed.executorId) {
     try {
       const u = await prisma.user.findUnique({
         where:  { discordId: String(parsed.executorId) },
         select: { id: true, displayName: true, discordUsername: true },
       });
-      if (u) { closerUserId = u.id; closerUsername = u.displayName || u.discordUsername; }
+      if (u) { closerUserId = u.id; closerUsername = u.displayName || u.discordUsername || null; }
     } catch (e) { /* unmatched closers are fine — they just have no owner */ }
+
     if (!closerUsername) {
       try {
         const { getMemberRecord } = require('./bot');
         const rec = await getMemberRecord(parsed.executorId);
         closerUsername = (rec && (rec.displayName || rec.username)) || null;
-      } catch (e) { /* leave null */ }
+      } catch (e) { /* keep going */ }
+    }
+
+    if (!closerUsername) {
+      try {
+        const { getGuildMemberInfo } = require('./bot');
+        const gid = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
+        const info = gid && typeof getGuildMemberInfo === 'function'
+          ? await getGuildMemberInfo(parsed.executorId, gid) : null;
+        closerUsername = (info && (info.displayName || info.nickname || info.username)) || null;
+      } catch (e) { /* keep going */ }
     }
   }
+
+  // The floor. A row that names nobody is a row nobody can action.
+  if (!closerUsername) closerUsername = closerRaw || (parsed.executorId ? String(parsed.executorId) : null);
 
   const closedAt = msg.createdAt
     ? new Date(msg.createdAt)
@@ -99,6 +125,7 @@ async function rowFromMessage(msg) {
     creatorRobloxUsername: creatorRoblox,
     closerDiscordId:       parsed.executorId || null,
     closerUsername,
+    closerRaw,
     closerUserId,
     closedAt,
     raw: {
@@ -116,8 +143,42 @@ async function rowFromMessage(msg) {
 const RESOLVED_FIELDS = [
   'ticketRef', 'ticketName', 'reason', 'transcriptUrl',
   'creatorDiscordId', 'creatorUsername', 'creatorRobloxUsername',
-  'closerDiscordId', 'closerUsername', 'closerUserId',
+  'closerDiscordId', 'closerUsername', 'closerRaw', 'closerUserId',
 ];
+
+// The next readable ticket number, from a Postgres sequence — concurrent
+// ingests can't collide on it and there are no gaps to reason about.
+async function nextTicketNo() {
+  try {
+    const r = await prisma.$queryRaw`SELECT nextval('ticket_log_no_seq')::int AS n`;
+    return r && r[0] ? Number(r[0].n) : null;
+  } catch (e) {
+    // A missing sequence must not stop a log being stored — the row simply has
+    // no number and falls back to Tickety's own id in the table.
+    return null;
+  }
+}
+
+/**
+ * Void everything currently waiting, so the queue starts from now.
+ *
+ * A thousand logs nobody was ever going to work through is not a queue, it is
+ * a wall. Voiding is deliberately NOT deleting: the rows stay, they still show
+ * in All Tickets with their history, they simply stop being somebody's decision
+ * to make. And it only touches what is PENDING right now — an approved or
+ * denied log is a decision somebody made and is left exactly as it is.
+ *
+ * @returns {Promise<{ voided: number }>}
+ */
+async function voidPendingBefore(when) {
+  const cutoff = when || new Date();
+  const res = await prisma.ticketLog.updateMany({
+    where: { status: 'PENDING', closedAt: { lt: cutoff } },
+    data:  { status: 'VOID', voidedAt: new Date() },
+  });
+  console.log(`[TicketLogs] voided ${res.count} pending log(s) closed before ${cutoff.toISOString()}`);
+  return { voided: res.count };
+}
 
 // Upsert one message. Returns 'created' | 'updated' | 'unchanged' | null.
 async function ingestMessage(msg) {
@@ -137,7 +198,7 @@ async function ingestMessage(msg) {
       await prisma.ticketLog.update({ where: { messageId: data.messageId }, data: patch });
       return 'updated';
     }
-    await prisma.ticketLog.create({ data });
+    await prisma.ticketLog.create({ data: { ...data, ticketNo: await nextTicketNo() } });
     return 'created';
   } catch (err) {
     // A concurrent insert of the same message is harmless.
@@ -272,6 +333,7 @@ function startTicketLogWorker(client) {
 }
 
 module.exports = {
+  nextTicketNo, voidPendingBefore,
   ingestMessage,
   backfill,
   sweep,

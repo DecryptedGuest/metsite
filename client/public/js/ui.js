@@ -706,6 +706,9 @@ function statusBadge(status) {
     APPROVED:   '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
     DENIED:     '<span class="badge badge-denied"><span class="badge-dot"></span>Denied</span>',
     OVERTURNED: '<span class="badge badge-purple"><span class="badge-dot"></span>Appealed</span>',
+    // Ingested before the queue was reset — never anybody's decision, and
+    // deliberately not styled like one.
+    VOID:       '<span class="badge badge-muted"><span class="badge-dot"></span>Voided</span>',
   };
   return map[status] || `<span class="badge">${status}</span>`;
 }

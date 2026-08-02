@@ -44,7 +44,9 @@ function ticketTypeBadge(t) {
 function ticketMatches(t, q) {
   if (!q) return true;
   var hay = [
-    t.ticketRef, t.ticketName, t.reason, t.creatorUsername, t.creatorRobloxUsername,
+    t.ticketNo != null ? ('#' + String(t.ticketNo).padStart(4, '0')) : null,
+    t.ticketNo != null ? String(t.ticketNo) : null,
+    t.ticketRef, t.ticketName, t.reason, t.creatorUsername, t.creatorRobloxUsername, t.closerRaw,
     t.creatorDiscordId, t.closerUsername, t.closerDiscordId, TL[t.ticketType], t.ticketType,
   ].filter(Boolean).join(' ').toLowerCase();
   return hay.indexOf(q.toLowerCase()) >= 0;
@@ -88,12 +90,25 @@ async function reviewTicket(ticketId, action) {
   }
 }
 
+// The number people actually read. Tickety's own id is a random string, so it
+// is kept on the row (and searchable) but never the thing shown in the table.
+function ticketNumber(t) {
+  if (t.ticketNo != null) return '#' + String(t.ticketNo).padStart(4, '0');
+  return t.ticketRef || t.ticketName || '—';
+}
+
+// Who handled it. Every fallback the server resolved, then the raw name the log
+// printed — an em dash here means nobody can action the row.
+function ticketHandler(t) {
+  return t.closerUsername || t.closerRaw || t.closerDiscordId || '—';
+}
+
 function ticketRowHtml(t, opts) {
   opts = opts || {};
   var creator = t.creatorRobloxUsername || t.creatorUsername || t.creatorDiscordId || '—';
-  var closer  = t.closerUsername || t.closerDiscordId || '—';
+  var closer  = ticketHandler(t);
   return '<tr onclick="openTicketDetail(\'' + t.id + '\')">'
-    + '<td><span class="case-ref">' + escapeHtml(t.ticketRef || t.ticketName || '—') + '</span></td>'
+    + '<td><span class="case-ref">' + escapeHtml(ticketNumber(t)) + '</span></td>'
     + (opts.showCloser ? '<td><span style="font-size:12px;">' + escapeHtml(closer) + '</span></td>' : '')
     + '<td><span style="font-size:12px;font-weight:500;">' + escapeHtml(creator) + '</span></td>'
     + '<td>' + ticketTypeBadge(t.ticketType) + '</td>'
@@ -160,6 +175,7 @@ async function loadAllTickets() {
 // a decision, with the decision column always present — a queue whose whole
 // purpose is deciding things shouldn't make you hunt for the buttons.
 var pendingTicketQuery = '';
+var pendingTicketType = 'all';
 
 async function loadPendingTickets() {
   var tbody = document.getElementById('pending-tickets-tbody');
@@ -175,15 +191,22 @@ async function loadPendingTickets() {
 function renderPendingTicketsTable() {
   var tbody = document.getElementById('pending-tickets-tbody');
   if (!tbody) return;
-  var rows = filterTickets(allTicketsCache, 'all', pendingTicketQuery, 'PENDING');
+  // Everything still awaiting a decision, before the type filter and the
+  // search — that's the denominator "X of Y" is measured against, the same way
+  // the pending cases queue reads.
+  var waiting = filterTickets(allTicketsCache, 'all', '', 'PENDING');
+  var rows = filterTickets(allTicketsCache, pendingTicketType, pendingTicketQuery, 'PENDING');
+
   var label = document.getElementById('pending-tickets-count');
-  if (label) label.textContent = rows.length + (rows.length === 1 ? ' waiting' : ' waiting');
+  if (label) label.textContent = rows.length + ' of ' + waiting.length + ' awaiting decision';
+  // The nav badge counts the whole queue, not the filtered view — a filter is
+  // how you're looking at it, not how much there is.
   var badge = document.getElementById('pending-tickets-badge');
-  if (badge) { badge.textContent = rows.length; badge.style.display = rows.length ? '' : 'none'; }
-  if (!tbody) return;
+  if (badge) { badge.textContent = waiting.length; badge.style.display = waiting.length ? '' : 'none'; }
+
   if (!rows.length) {
-    tbody.innerHTML = emptyRow(8, pendingTicketQuery
-      ? 'No pending tickets match that search.'
+    tbody.innerHTML = emptyRow(8, (pendingTicketQuery || pendingTicketType !== 'all')
+      ? 'No pending tickets match that filter.'
       : 'Nothing waiting — every ticket log has been signed off.');
     return;
   }
@@ -221,7 +244,7 @@ async function openTicketDetail(ticketId) {
     return;
   }
 
-  if (ref) ref.textContent = t.ticketRef || t.ticketName || 'Ticket';
+  if (ref) ref.textContent = ticketNumber(t);
 
   var field = function (label, value, mono) {
     return '<div class="detail-field"><span class="detail-field-label">' + escapeHtml(label) + '</span>'
@@ -338,6 +361,16 @@ document.addEventListener('DOMContentLoaded', function () {
     pendingTicketQuery = pq.value.trim();
     clearTimeout(pqTimer);
     pqTimer = setTimeout(renderPendingTicketsTable, 200);
+  });
+
+  var ptabs = document.getElementById('pending-tickets-filter-tabs');
+  if (ptabs) ptabs.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.filter-tab');
+    if (!b) return;
+    ptabs.querySelectorAll('.filter-tab').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    pendingTicketType = b.dataset.tfilter || 'all';
+    renderPendingTicketsTable();
   });
 
   // Manual re-sync (HICOMM / Developer)

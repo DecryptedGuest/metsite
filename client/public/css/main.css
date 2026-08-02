@@ -18,7 +18,7 @@
 
   --text-primary:   #d8eaff;
   --text-secondary: rgba(160, 195, 240, 0.7);
-  --text-muted:     rgba(100, 140, 210, 0.45);
+  --text-muted:     rgba(140, 175, 230, 0.78);
   --text-tiny:      rgba(80, 115, 180, 0.38);
 
   --blue:           #4a8fff;
@@ -291,6 +291,15 @@ input, textarea, select { font-family: var(--font-body); }
 }
 .badge-denied .badge-dot { background: var(--red); box-shadow: 0 0 5px var(--red); }
 
+/* Voided: a log that was never anybody's decision. Deliberately colourless —
+   it must not read as approved, denied, or still waiting. */
+.badge-muted {
+  background: rgba(120, 140, 175, 0.14);
+  color: rgba(175, 195, 230, 0.9);
+  border: 1px solid rgba(120, 140, 175, 0.32);
+}
+.badge-muted .badge-dot { background: rgba(175, 195, 230, 0.75); box-shadow: none; }
+
 .badge-hicomm {
   background: var(--purple-dim);
   color: var(--purple);
@@ -377,7 +386,9 @@ tr.row-changes > td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
   resize: vertical;
 }
 
-.form-control::placeholder { color: rgba(70, 110, 180, 0.3); }
+/* Placeholders were 30% alpha — legible on a good monitor in a dark room and
+   nowhere else. This is the same hue, at a contrast people can actually read. */
+.form-control::placeholder { color: rgba(140, 175, 230, 0.62); }
 
 .form-control:focus {
   border-color: var(--border-bright);
@@ -616,7 +627,7 @@ html[data-theme="light"] {
 
   --text-primary:   #0d1b3e;
   --text-secondary: rgba(30, 60, 130, 0.75);
-  --text-muted:     rgba(60, 100, 180, 0.55);
+  --text-muted:     rgba(55, 90, 160, 0.82);
   --text-tiny:      rgba(80, 120, 190, 0.45);
 
   --blue-dim:       rgba(60, 110, 240, 0.12);

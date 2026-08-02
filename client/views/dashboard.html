@@ -69,14 +69,14 @@
       </button>
 
       <nav class="sidebar-nav">
-        <!-- ── Casework — what everyone uses every day ───────── -->
+        <!-- ── Cases & Tickets — what everyone uses every day ───────── -->
         <button class="nav-item active" data-page="dashboard">
           <i class="ti ti-layout-dashboard nav-icon"></i><span>Overview</span>
         </button>
         <!-- Cases and tickets are the same job — one queue of things you
              worked on — so they are one tab with a selector, not four. -->
         <button class="nav-item" data-page="casework">
-          <i class="ti ti-folders nav-icon"></i><span>Casework</span>
+          <i class="ti ti-folders nav-icon"></i><span>Cases &amp; Tickets</span>
           <span class="nav-badge pending" id="nav-badge-my" style="display:none;"></span>
         </button>
         <!-- Everything waiting on a supervisor, cases and tickets together. -->
@@ -311,7 +311,7 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Ticket</th><th>Opened by</th><th>Type</th><th>Reason</th><th>Closed</th>
+              <th>Ticket ID</th><th>Opened by</th><th>Type</th><th>Reason</th><th>Closed</th>
             </tr></thead>
             <tbody id="dash-tickets-tbody">
               <tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>
@@ -419,7 +419,7 @@
       <div class="casework-pane" id="cw-tickets-mine" style="display:none;">
 <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Closed by me</div>
+          <div class="panel-title"><span class="panel-dot blue"></span>Handled by me</div>
           <div class="panel-tools">
             <div class="search-box">
               <i class="ti ti-search"></i>
@@ -444,7 +444,7 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Ticket</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
+              <th>Ticket ID</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
             </tr></thead>
             <tbody id="tickets-tbody">
               <tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>
@@ -481,7 +481,7 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
+              <th>Ticket ID</th><th>Handled by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Status</th><th>Reviewed by</th><th>Closed</th>
             </tr></thead>
             <tbody id="all-tickets-tbody">
               <tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>
@@ -554,13 +554,20 @@
               <i class="ti ti-search"></i>
               <input type="text" id="pending-tickets-search" placeholder="Search the queue…" autocomplete="off" />
             </div>
+            <div class="filter-tabs" id="pending-tickets-filter-tabs">
+              <button class="filter-tab active" data-tfilter="all">All</button>
+              <button class="filter-tab" data-tfilter="GENERAL_SUPPORT">General</button>
+              <button class="filter-tab" data-tfilter="APPEAL">Appeals</button>
+              <button class="filter-tab" data-tfilter="OFFICER_REPORT">Reports</button>
+              <button class="filter-tab" data-tfilter="IA_COMPLAINT">Complaints</button>
+            </div>
             <span class="text-muted mono" id="pending-tickets-count" style="font-size:11px;"></span>
           </div>
         </div>
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Ticket</th><th>Closed by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Closed</th><th>Decision</th>
+              <th>Ticket ID</th><th>Handled by</th><th>Opened by</th><th>Type</th><th>Close reason</th><th>Transcript</th><th>Closed</th><th>Decision</th>
             </tr></thead>
             <tbody id="pending-tickets-tbody"><tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
@@ -1965,6 +1972,7 @@
 <script src="/js/guard.js?v=83"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=83"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
 <script src="/js/case-doc.js?v=83"></script>
 <script src="/js/dashboard.js?v=83"></script>
 <script src="/js/tickets.js?v=83"></script>
