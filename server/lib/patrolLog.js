@@ -495,13 +495,26 @@ async function awardEventPoint(log, division = 'MET') {
 //   • every ATTENDEE listed on the log gets +EVENT_ATTENDEE_POINTS (default 1) in
 //     the MET database
 // Best-effort per person; a member who can't be matched on the sheet is skipped.
+// QUEUED, not written directly.
+//
+// A log that is ticked seconds after it posts used to lose its points: the
+// award went straight at the Google sheet, and if the sheet was slow, rate
+// limited, momentarily unreachable, or the member's row had not been added
+// yet, the point was simply gone. Nobody found out, because the sign-off had
+// already succeeded.
+//
+// Every award now goes through the durable outbox instead. The row is written
+// first and retried by the background worker until the sheet takes it, so a
+// fast tick delays the point rather than losing it. The outbox is keyed per
+// (log, person), so re-ticking a log — or the reconcile sweep re-reading the
+// same reaction — can never award twice.
 async function awardEventPoints(log) {
   const q = require('./quota');
   const meta = (log && log.eventMeta) || {};
   const HOST_POINTS = Number(process.env.EVENT_HOST_POINTS) || 1;
   const ATT_POINTS  = Number(process.env.EVENT_ATTENDEE_POINTS) || 1;
 
-  const out = { host: null, hostDivision: 'FLP', attendeeDivision: 'MET', attendees: [] };
+  const out = { host: null, hostDivision: 'FLP', attendeeDivision: 'MET', attendees: [], queued: 0 };
 
   // Host → FLP database.
   const host = meta.host || null;
@@ -509,23 +522,40 @@ async function awardEventPoints(log) {
   const hostRoblox    = (host && host.roblox) || null;
   if (hostDiscordId || hostRoblox) {
     try {
-      out.host = !!(await q.addQuotaPoints({ discordId: hostDiscordId, robloxUsername: hostRoblox }, HOST_POINTS, 'event host', 'FLP'));
+      await q.enqueueQuotaAward({
+        refType: 'EVENT_HOST', refId: String(log.id),
+        discordId: hostDiscordId, robloxUsername: hostRoblox,
+        points: HOST_POINTS, label: 'event host', division: 'FLP',
+      });
+      out.host = true; out.queued++;
     } catch (e) { out.host = false; }
   }
 
-  // Attendees → MET database (one point each, de-duplicated).
+  // Attendees → MET database. One point each, and one point IS one event, which
+  // is what the weekly quota of three is counted in.
   const seen = new Set();
   for (const a of (Array.isArray(meta.attendees) ? meta.attendees : [])) {
     if (!a || (!a.id && !a.roblox)) continue;
+    // The host is not an attendee of their own event.
+    if (hostDiscordId && a.id && String(a.id) === String(hostDiscordId)) continue;
     const key = (a.id || a.roblox || '').toString().toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     let ok = false;
-    try { ok = !!(await q.addQuotaPoints({ discordId: a.id || null, robloxUsername: a.roblox || null }, ATT_POINTS, 'event attendee', 'MET')); } catch (e) { ok = false; }
+    try {
+      await q.enqueueQuotaAward({
+        refType: 'EVENT_ATTENDEE', refId: `${log.id}:${key}`,
+        discordId: a.id || null, robloxUsername: a.roblox || null,
+        points: ATT_POINTS, label: 'event attendee', division: 'MET',
+      });
+      ok = true; out.queued++;
+    } catch (e) { ok = false; }
     out.attendees.push({ id: a.id || null, roblox: a.roblox || null, ok });
   }
 
-  out.ok = out.host === true || out.attendees.some(x => x.ok);
+  // "ok" now means the awards are safely recorded, not that the sheet has taken
+  // them yet. That is the point: the sign-off no longer depends on Google.
+  out.ok = out.queued > 0;
   out.attendeesAwarded = out.attendees.filter(x => x.ok).length;
   return out;
 }

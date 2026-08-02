@@ -20,8 +20,8 @@ function flpNavigate(pageId) {
   if (btn) btn.classList.add('active');
   if (pageId === 'dashboard') loadFlpOverview();
   if (pageId === 'group') loadFlpGroup();
-  if (pageId === 'patrols') loadPatrols();
-  if (pageId === 'events') loadEvents();
+  // 'patrols' / 'events' are gone from the FLP dashboard — those logs are
+  // signed off in Discord now. The loaders stay for the overview's counters.
   if (pageId === 'analytics') loadFlpAnalytics();
   if (pageId === 'quota-flp' && typeof flpQuotaLoad === 'function') flpQuotaLoad('FLP');
   if (pageId === 'quota-met' && typeof flpQuotaLoad === 'function') flpQuotaLoad('MET');
