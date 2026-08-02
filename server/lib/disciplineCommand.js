@@ -132,9 +132,9 @@ function recordSummary(record, strike) {
   // Where they stand, as a headline. This is the one thing the issuer has to
   // take in, and it should not have to be inferred from the list below.
   if (level) {
-    lines.push(`### ${e('met_strike' + Math.min(level, 3))} On Strike ${level} of ${D.MAX_STRIKE}`);
+    lines.push(`${e('met_strike' + Math.min(level, 3))} **On Strike ${level} of ${D.MAX_STRIKE}**`);
   } else {
-    lines.push(`### ${e('met_tick')} No strikes`);
+    lines.push(`${e('met_tick')} **No strikes**`);
   }
 
   if (!record.entries.length) {
@@ -269,9 +269,11 @@ async function handleDisciplineCommand(interaction) {
       + (info ? ` · [${info.username}](https://www.roblox.com/users/${robloxId}/profile)` : ' · *no Roblox account linked*')
       + (metRole ? `\n${rankIcon} ${metRole.name}` : '\n*MET rank not found*'))
     .addFields(
-      // A heading, not bold body text: "Action" and "**Verbal Warning**" were
-      // the same weight, so the label and the answer read as one another.
-      { name: 'Action',  value: `### ${action}`, inline: false },
+      // Plain, not bold. Discord already renders a field name bold-white and
+      // its value plain-grey; bolding the value was what made "Action" and
+      // "Verbal Warning" read as two labels. Headings don't render in a field
+      // value at all — they come out as a literal "###".
+      { name: 'Action',  value: action, inline: false },
       { name: 'Reason',  value: short(reason, 1000), inline: false },
       ...(notes ? [{ name: 'Notes', value: short(notes, 1000), inline: false }] : []),
       { name: 'Case',    value: caseLink ? short(caseLink, 300) : '*None — direct action*', inline: false },

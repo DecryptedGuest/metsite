@@ -142,11 +142,15 @@ async function loadOfficer(discordId, guild) {
   const roblox = require('./roblox');
   const member = guild ? await guild.members.fetch(discordId).catch(() => null) : null;
 
-  let robloxId = null;
-  try { robloxId = await roblox.getRobloxIdFromDiscord(discordId); } catch (err) { robloxId = null; }
+  // The same resolver /discipline uses — RoVer, then their portal account,
+  // then their MET nickname. A missing Roblox link here means no rank, which
+  // means no XP placement at all.
+  const link = await require('./robloxLink').resolveRoblox(discordId)
+    .catch(() => ({ robloxId: null, username: null }));
+  const robloxId = link.robloxId;
+  const info = link.username ? { id: robloxId, username: link.username } : null;
 
-  const [info, avatar, groupRole] = await Promise.all([
-    robloxId ? roblox.getRobloxUserInfo(robloxId).catch(() => null) : null,
+  const [avatar, groupRole] = await Promise.all([
     robloxId ? roblox.getRobloxAvatarHeadshot(robloxId).catch(() => null) : null,
     robloxId ? require('./metRank').metRole(robloxId).catch(() => null) : null,
   ]);
@@ -185,10 +189,12 @@ async function loadOfficer(discordId, guild) {
 /**
  * The stats card for one officer.
  *
- * The values are set as `###` headings so they don't read as more labels. A
- * bold value next to a bold field name is two pieces of the same weight, and
- * "XP rank / **Constable**" looked like a two-column table of headings rather
- * than a label and an answer.
+ * On telling the label apart from the answer: Discord renders an embed's field
+ * NAME in bold white and its VALUE in plain grey, which is already a clear
+ * hierarchy — the original problem was that the values were **bolded** on top
+ * of that, making both halves the same weight. Markdown headings do not render
+ * inside a field value at all (they come out as literal "###"), so the fix is
+ * simply to leave the value alone and let Discord's own styling do the work.
  *
  * @param {object} client the live client, for the server's own rank emoji
  */
@@ -213,8 +219,10 @@ async function buildCard(o, client) {
         : ' · *no Roblox account linked*'))
     .addFields(
       { name: 'Rank',     value: rankLine(o, client), inline: true },
-      { name: 'XP',       value: o.ranked ? `### ${o.xp}${p.next ? ` / ${p.next.at}` : ' · max'}` : '### —', inline: true },
-      { name: 'Standing', value: o.ranked && standing.total ? `### #${standing.position}` : '### —', inline: true },
+      { name: 'XP',       value: o.ranked
+          ? `${o.xp} / ${p.next ? p.next.at : XP.maxXp()}${p.next ? '' : '  ·  max'}`
+          : '—', inline: true },
+      { name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true },
       { name: 'Next rank', value: o.ranked
           ? `${nextLine}\n${xpLog.progressBar(p)}`
           : `${e('met_warn')} Their MET rank isn't one the XP ladder covers, so they don't have an XP standing yet. `
@@ -256,9 +264,9 @@ async function buildCard(o, client) {
  */
 function rankLine(o, client) {
   const name = (o.groupRole && o.groupRole.name) || (o.ranked ? o.rank.name : null);
-  if (!name) return '### Unranked';
+  if (!name) return 'Unranked';
   const icon = require('./rankEmoji').forRank(client, name);
-  return `### ${icon ? icon + ' ' : ''}${short(name, 40)}`;
+  return `${icon ? icon + ' ' : ''}${short(name, 40)}`;
 }
 
 /** A compact table when several officers were named at once. */

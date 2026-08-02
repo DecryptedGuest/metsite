@@ -47,6 +47,13 @@ const LADDER = [
   { code: 'CINS', name: 'Chief Inspector',           at: 100, match: /chief\s*inspector|\bcins\b/i },
 ];
 
+// Ranks ABOVE the ladder. XP tops out at Chief Inspector, so anyone senior to
+// that sits at the ceiling — and recognising them BY NAME matters: the numeric
+// fallback below needs an authenticated group-roles call, and when that is
+// unavailable a Chief Superintendent was left unplaced on 0 XP. A name is
+// always to hand.
+const ABOVE_LADDER = /chief superintendent|superintendent|commander|deputy assistant commissioner|assistant commissioner|deputy commissioner|\bcommissioner\b|chief of|\b(csup|sup|comm|dac|acc?|dcc?|cc|cmsr)\b/i;
+
 // Threshold overrides, so the numbers can be tuned without a deploy:
 //   XP_THRESHOLDS="CON=2,SGT=15,INS=40,CINS=100"
 function ladder() {
@@ -361,6 +368,10 @@ async function rungForGroupRank(groupRole) {
   const matches = ladder().filter(r => r.match.test(String(name || '')));
   if (matches.length) return matches.reduce((a, b) => (b.at > a.at ? b : a));
 
+  // Senior to everything the ladder covers → the top rung, by name alone.
+  const l = ladder();
+  if (name && ABOVE_LADDER.test(String(name))) return l[l.length - 1];
+
   if (num == null) return null;
 
   let roles;
@@ -401,20 +412,28 @@ async function rungForGroupRank(groupRole) {
 async function seedFromRank(discordId, groupRole) {
   const id = String(discordId);
   const existing = await prisma.metXp.findUnique({ where: { discordId: id } });
-  if (existing) return existing;   // already known — never re-seed
+
+  // A row that has never been used carries no information: nobody has awarded
+  // XP, nothing has been promoted, nothing has been earned. Seeding once and
+  // never again meant a row created before their group rank could be read left
+  // a Chief Superintendent stuck on 0 forever, with no way back short of
+  // editing the database. An untouched row gets placed properly.
+  const untouched = existing
+    && existing.xp === 0 && !existing.promotedRank && !existing.firstEarnedAt;
+  if (existing && !untouched) return existing;
 
   const hit = await rungForGroupRank(groupRole);
-  if (!hit) return null;
+  if (!hit) return existing || null;
 
-  return prisma.metXp.create({
-    data: {
-      discordId: id,
-      xp: hit.at,
-      // Marked as already at this rank, so reaching it again announces nothing.
-      promotedRank: hit.code,
-      promotedAt: new Date(),
-    },
-  });
+  const data = {
+    xp: hit.at,
+    // Marked as already at this rank, so reaching it again announces nothing.
+    promotedRank: hit.code,
+    promotedAt: new Date(),
+  };
+  return existing
+    ? prisma.metXp.update({ where: { discordId: id }, data })
+    : prisma.metXp.create({ data: { discordId: id, ...data } });
 }
 
 /**
@@ -488,7 +507,7 @@ async function leaderboard(take = 10) {
 }
 
 module.exports = {
-  LADDER, ladder, rankFor, nextRank, progress, promotionFor, demotionFor,
+  LADDER, ABOVE_LADDER, ladder, rankFor, nextRank, progress, promotionFor, demotionFor,
   getBalance, ensure, history, standing, leaderboard,
   maxXp,
   applyXp, recordPromotion, recordDemotion, seedFromRank, rungForGroupRank,
