@@ -302,84 +302,129 @@ async function clearBacklogBefore(when, opts = {}) {
   // in the future (clock skew on the log, a bad parse) is never < cutoff and
   // would sit in the queue forever, un-clearable, with no way to see why.
   const where = opts.all ? { status: 'PENDING' } : { status: 'PENDING', closedAt: { lt: cutoff } };
+  const sqlFilter = opts.all
+    ? `status = 'PENDING'::"TicketStatus"`
+    : `status = 'PENDING'::"TicketStatus" AND "closedAt" < '${cutoff.toISOString()}'::timestamp`;
+  const SET = `status = 'APPROVED'::"TicketStatus", "voidedAt" = NOW(), `
+            + `"reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'`;
 
-  // Raw SQL, on purpose.
+  // FIVE ways to perform the same update, tried in order.
   //
-  // The read-then-updateMany version reported "cleared 0" against a queue of
-  // nine thousand: findMany returned rows and updateMany then matched none of
-  // them. Rather than keep guessing which layer lost them, this is one
-  // statement the database executes itself — a bounded UPDATE against a
-  // subquery — so what comes back is Postgres's own affected-row count and
-  // there is nothing in between to disagree with.
+  // Not belt and braces for its own sake. This clear has now reported "cleared
+  // 0" against a queue of nine thousand rows that every COUNT — Prisma's and
+  // the database's own — agrees are sitting right there, with no error from
+  // either path. A statement that matches nothing while the rows plainly match
+  // is not something I can reason my way to from here, so instead of picking
+  // one more mechanism and hoping, the clear tries every mechanism there is and
+  // RECORDS what each one did. Whichever works, works; and if none of them
+  // does, the answer comes back with the response instead of another silent
+  // zero.
   //
-  // Still bounded: LIMIT keeps each statement small enough that no pooler or
-  // proxy timeout can reach it, and the loop commits as it goes.
-  // TWO independent ways to do the same update, because one of them has been
-  // silently doing nothing in production and I could not tell which layer was
-  // at fault from here. Raw SQL first — it is one statement the database runs
-  // itself. If that throws, or runs and moves nothing while rows plainly match,
-  // fall through to the ORM. Whatever goes wrong is RECORDED and returned
-  // rather than swallowed, so the next press explains itself instead of
-  // reporting a cheerful zero.
-  //
-  // The LIMIT is inlined as a literal integer rather than bound as a parameter:
-  // it is a number this function clamps itself, never anything a caller typed,
-  // and a bind parameter in LIMIT is one more thing that can behave differently
-  // between environments.
+  // Ordered cheapest and most bounded first:
+  //   1 id-subquery   the ordinary bounded UPDATE
+  //   2 ctid          the same thing keyed on the physical row pointer, which
+  //                   sidesteps anything odd about the id column or its index
+  //   3 raw id list   ids read by the ORM, updated in raw SQL — this is the one
+  //                   that proves whether the two layers are seeing the same
+  //                   rows, because the ids come from one and the write from
+  //                   the other
+  //   4 ORM           updateMany over that same id list
+  //   5 one row       a single ORM update, purely to surface the error that a
+  //                   bulk statement swallows as "0 rows"
+  const strategies = [
+    { name: 'id-subquery', run: async (take) => prisma.$executeRawUnsafe(
+        `UPDATE ticket_logs SET ${SET}
+         WHERE id IN (SELECT id FROM ticket_logs WHERE ${sqlFilter} LIMIT ${take})`) },
+    { name: 'ctid', run: async (take) => prisma.$executeRawUnsafe(
+        `UPDATE ticket_logs SET ${SET}
+         WHERE ctid IN (SELECT ctid FROM ticket_logs WHERE ${sqlFilter} LIMIT ${take})`) },
+    { name: 'raw-id-list', run: async (take) => {
+        const ids = await prisma.ticketLog.findMany({ where, select: { id: true }, take });
+        if (!ids.length) return 0;
+        const list = ids.map(r => `'${String(r.id).replace(/'/g, "''")}'`).join(',');
+        return prisma.$executeRawUnsafe(`UPDATE ticket_logs SET ${SET} WHERE id IN (${list})`);
+      } },
+    { name: 'orm', run: async (take) => {
+        const ids = await prisma.ticketLog.findMany({ where, select: { id: true }, take });
+        if (!ids.length) return 0;
+        const res = await prisma.ticketLog.updateMany({
+          where: { id: { in: ids.map(r => r.id) } },
+          data: { status: 'APPROVED', voidedAt: new Date(), reviewedAt: new Date(), reviewedByName: 'Backlog cleared' },
+        });
+        return res.count;
+      } },
+    { name: 'one-row', run: async () => {
+        const row = await prisma.ticketLog.findFirst({ where, select: { id: true } });
+        if (!row) return 0;
+        await prisma.ticketLog.update({
+          where: { id: row.id },
+          data: { status: 'APPROVED', voidedAt: new Date(), reviewedAt: new Date(), reviewedByName: 'Backlog cleared' },
+        });
+        return 1;
+      } },
+    // Last resort, and only ever reached because the four bounded mechanisms
+    // above all moved nothing: the plainest statement Postgres can be given —
+    // no subquery, no id list, no LIMIT. If something about the bounded form
+    // is what the planner is choking on, this is the one that works. It is not
+    // first because it is unbounded, so it carries its own timeout; the whole
+    // reason the clear is batched is that one long statement is what a pooler
+    // kills, and a killed statement rolls back and looks like nothing happened.
+    { name: 'whole-table', run: async () => {
+        return prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '120s'`);
+          return tx.$executeRawUnsafe(`UPDATE ticket_logs SET ${SET} WHERE ${sqlFilter}`);
+        }, { timeout: 130000 });
+      } },
+  ];
+
   let cleared = 0;
   let via = null;
   const errors = [];
+  // What each strategy actually did, every round. A strategy that runs cleanly
+  // and moves nothing is recorded too — that silence is exactly the thing that
+  // has been impossible to see from the outside.
+  const attempts = [];
+  // Once one of them works, stay on it: no point re-running four that don't.
+  let chosen = null;
 
   while (cleared < maxRows) {
     const take = Math.max(1, Math.min(batch, maxRows - cleared) | 0);
-    let n = null;
+    let n = 0;
+    let moved = false;
 
-    try {
-      const filter = opts.all
-        ? `status = 'PENDING'::"TicketStatus"`
-        : `status = 'PENDING'::"TicketStatus" AND "closedAt" < '${cutoff.toISOString()}'::timestamp`;
-      n = await prisma.$executeRawUnsafe(
-        `UPDATE ticket_logs SET
-           status = 'APPROVED'::"TicketStatus",
-           "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
-         WHERE id IN (SELECT id FROM ticket_logs WHERE ${filter} LIMIT ${take})`);
-      if (n) via = via || 'sql';
-    } catch (err) {
-      if (!errors.length) console.error('[TicketLogs] raw clear failed:', err.message);
-      errors.push('sql: ' + err.message);
-      n = null;
+    for (const st of (chosen ? [chosen] : strategies)) {
+      let got = null, err = null;
+      try { got = await st.run(take); }
+      catch (e) { err = e.message; }
+      attempts.push({ strategy: st.name, rows: got, error: err });
+      if (err) { errors.push(`${st.name}: ${err}`); continue; }
+      if (got) { n = got; moved = true; chosen = st; via = via || st.name; break; }
+      // Ran fine, moved nothing. If there is genuinely nothing left to match,
+      // that is the end of the queue rather than a failure — check before
+      // escalating to the next mechanism.
+      const left = await prisma.ticketLog.count({ where });
+      if (!left) { moved = false; n = 0; break; }
+      errors.push(`${st.name}: matched 0 of ${left} rows that are still pending`);
     }
 
-    // The raw path did nothing. Before believing the queue is empty, ask the
-    // ORM — and if IT can see rows, do the update its way.
-    if (!n) {
-      const slice = await prisma.ticketLog.findMany({ where, select: { id: true }, take });
-      if (!slice.length) break;                 // genuinely nothing left
-      try {
-        const res = await prisma.ticketLog.updateMany({
-          where: { id: { in: slice.map(r => r.id) } },
-          data: {
-            status: 'APPROVED',
-            voidedAt: new Date(), reviewedAt: new Date(), reviewedByName: 'Backlog cleared',
-          },
-        });
-        n = res.count;
-        if (n) via = via || 'orm';
-      } catch (err) {
-        errors.push('orm: ' + err.message);
-        console.error('[TicketLogs] ORM clear failed too:', err.message);
-        break;                                  // both paths are broken — stop
-      }
-      // Both paths ran and neither moved a row the ORM can see. Spinning would
-      // not help; report it.
-      if (!n) { errors.push('both paths matched 0 rows while ' + slice.length + ' were readable'); break; }
-    }
-
+    if (!moved) break;
     cleared += n;
     if (n < take) break;   // that was the last of them
   }
 
   const remaining = await prisma.ticketLog.count({ where });
+
+  // Nothing moved and rows remain. At that point the only useful thing left to
+  // report is what the DATABASE says about itself: who we are connected as,
+  // whether that role may write to this table at all, and whether anything is
+  // sitting between the statement and the row. Row-level security, a rule, or a
+  // BEFORE-UPDATE trigger that returns NULL all produce precisely this symptom
+  // — an UPDATE that succeeds and affects nothing.
+  let probe = null;
+  if (!cleared && remaining) {
+    probe = await probeTicketTable().catch(e => ({ probeError: e.message }));
+    console.error('[TicketLogs] backlog clear moved NOTHING —', JSON.stringify({ attempts, probe }));
+  }
 
   // Draw the line, so a later sync cannot rebuild what was just cleared. Only
   // once the queue is actually empty — drawing it half way would pre-clear
@@ -395,11 +440,45 @@ async function clearBacklogBefore(when, opts = {}) {
     + (errors.length ? ` · errors: ${errors.join(' | ')}` : ''));
   return {
     cleared, remaining, done: remaining === 0, clearedBefore: cutoff,
-    // Which path did the work, and anything that went wrong on the way. This is
-    // returned rather than logged-and-forgotten because the server log is not
-    // where the person pressing the button is looking.
-    via, errors,
+    // Which path did the work, what every path did, and anything that went
+    // wrong on the way. Returned rather than logged-and-forgotten because the
+    // server log is not where the person pressing the button is looking.
+    via, errors, attempts, probe,
   };
+}
+
+/**
+ * Ask the database why an UPDATE it accepted changed nothing.
+ *
+ * Everything here is a silent-zero cause: a role without UPDATE on the table
+ * (Postgres raises an error for that, but not for the RLS variant), row-level
+ * security with a SELECT policy and no UPDATE policy, a rewrite RULE, or a
+ * BEFORE UPDATE trigger that returns NULL. It also confirms which database and
+ * schema the writes are actually going to, so "the app is pointed somewhere
+ * else" stops being a theory.
+ */
+async function probeTicketTable() {
+  const one = async (sql) => {
+    try { const r = await prisma.$queryRawUnsafe(sql); return r && r[0] ? r[0] : null; }
+    catch (e) { return { error: e.message }; }
+  };
+  const who = await one(`SELECT current_user::text AS role, session_user::text AS login,
+                                current_database()::text AS db, current_schema()::text AS schema,
+                                pg_is_in_recovery() AS replica,
+                                current_setting('transaction_read_only')::text AS read_only`);
+  const priv = await one(`SELECT has_table_privilege('ticket_logs','UPDATE') AS can_update,
+                                 has_table_privilege('ticket_logs','SELECT') AS can_select`);
+  const rls = await one(`SELECT c.relrowsecurity AS rls, c.relforcerowsecurity AS rls_forced,
+                                (SELECT COUNT(*)::int FROM pg_policies p
+                                  WHERE p.tablename = 'ticket_logs') AS policies,
+                                (SELECT COUNT(*)::int FROM pg_trigger t
+                                  WHERE t.tgrelid = c.oid AND NOT t.tgisinternal) AS triggers,
+                                (SELECT COUNT(*)::int FROM pg_rules r
+                                  WHERE r.tablename = 'ticket_logs') AS rules
+                           FROM pg_class c
+                           JOIN pg_namespace n ON n.oid = c.relnamespace
+                          WHERE c.relname = 'ticket_logs' AND n.nspname = current_schema()`);
+  return { ...(who || {}), ...(priv || {}), ...(rls || {}) };
 }
 
 /**
@@ -690,7 +769,7 @@ function startTicketLogWorker(client) {
 }
 
 module.exports = {
-  nextTicketNo, backfillTicketNumbers, clearBacklogBefore, backfillHandlers, rowFromMessageId,
+  nextTicketNo, backfillTicketNumbers, clearBacklogBefore, probeTicketTable, backfillHandlers, rowFromMessageId,
   backlogClearedAt, setBacklogClearedAt, statusForNewRow,
   // Tests only: the watermark is cached for the life of the process.
   __resetWatermark: () => { _watermark = null; },

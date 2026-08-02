@@ -216,10 +216,33 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
       tableIs = t && t[0] ? t[0] : null;
     } catch (e) { tableIs = { error: e.message }; }
 
-    const { backlogClearedAt } = require('../lib/ticketIngest');
+    const { backlogClearedAt, probeTicketTable } = require('../lib/ticketIngest');
+
+    // Everything the database will say about whether this connection can
+    // actually WRITE to ticket_logs — permissions, row-level security, rules,
+    // triggers, read-only, replica. An UPDATE that Postgres accepts and then
+    // applies to nothing is invisible from the application side; this is where
+    // it becomes visible.
+    const canWrite = await probeTicketTable().catch(e => ({ probeError: e.message }));
+
+    // The clear's own UPDATE, run against a single row inside a transaction
+    // that is then rolled back. Nothing is changed — but if the write is being
+    // blocked, this reports it in the exact form the real clear would hit,
+    // rather than leaving it to be inferred.
+    let writeTest = null;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const n = await tx.$executeRawUnsafe(
+          `UPDATE ticket_logs SET status = 'APPROVED'::"TicketStatus"
+            WHERE id IN (SELECT id FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus" LIMIT 1)`);
+        writeTest = { rowsAffected: n, rolledBack: true };
+        throw new Error('__rollback__');
+      }).catch(e => { if (e.message !== '__rollback__') throw e; });
+    } catch (e) { writeTest = { error: e.message }; }
+
     res.json({
       // Bumped whenever the clear logic changes, so a stale deploy is obvious.
-      clearBuild: 5,
+      clearBuild: 6,
       pending, clearableWithDateCutoff: beforeNow, datedInTheFuture: future,
       oldestPending: oldest, newestPending: newest,
       blankHandlers: blank, alreadyBacklogCleared: cleared,
@@ -231,6 +254,9 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
       // The two numbers that must agree.
       rawPending, rawError, tableIs,
       agrees: rawPending === pending,
+      // Can this connection write to the table at all, and does the clear's
+      // own statement match a row when it is tried for real?
+      canWrite, writeTest,
     });
   } catch (err) {
     console.error('[TicketLogs] backlog status error:', err.message);
@@ -273,7 +299,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
         prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
       ]);
       return res.json({
-        clearBuild: 5,
+        clearBuild: 6,
         dryRun: true, wouldClear: waiting, pendingTotal: total,
         // Rows the cutoff would strand — a ticket dated in the future is never
         // "before now", so without saying so it would sit there unexplained.
@@ -326,26 +352,43 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
         rawPending = rp && rp[0] ? Number(rp[0].n) : null;
       } catch (e) { rawError = e.message; }
 
+      // When nothing moved, the useful answer is what the DATABASE says about
+      // itself — not another restatement of the row count. `probe` carries it.
+      const p = out.probe || {};
+      const blocked =
+          p.can_update === false ? `the ${p.role || 'database'} role has no UPDATE permission on ticket_logs`
+        : p.read_only === 'on'   ? 'the connection is in read-only mode'
+        : p.replica === true     ? 'the app is connected to a read replica, which cannot accept writes'
+        : (p.rls === true && !p.policies) ? 'row-level security is on with no policy, so every UPDATE matches nothing'
+        : p.rls === true         ? `row-level security is on (${p.policies} policy/policies) and none of them allows this UPDATE`
+        : p.rules                ? `a rewrite rule on ticket_logs is intercepting the UPDATE`
+        : p.triggers             ? `a trigger on ticket_logs is cancelling the UPDATE`
+        : null;
+
       diagnosis = {
         cleared: out.cleared, pendingTotal, datedInTheFuture: future,
         rawPending, rawError, agrees: rawPending === pendingTotal,
-        // Which code path did the work, and anything either path complained
-        // about. This is the bit that was missing every time this went wrong.
+        // Which code path did the work, what EVERY path did, and what the
+        // database says about itself. This is the bit that was missing every
+        // time this went wrong.
         via: out.via || null, pathErrors: out.errors || [],
+        attempts: out.attempts || [], probe: out.probe || null,
         oldestPending: sample,
-        why: (out.errors && out.errors.length)
-          ? `Both update paths reported: ${out.errors.join(' | ')}`
-          : out.cleared
+        why: out.cleared
           ? `Cleared ${out.cleared}; ${pendingTotal} still pending. Press again to continue.`
-          : rawError
-            ? `The clear statement failed: ${rawError}`
-            : rawPending !== pendingTotal
-              ? `The database and the ORM disagree — SQL sees ${rawPending} pending, the ORM sees ${pendingTotal}. `
-                + 'They are not reading the same rows; check DATABASE_URL and the schema search path.'
-              : body.all === true
-                ? `${pendingTotal} rows are pending and the UPDATE matched none of them. `
-                  + 'Open /api/tickets/backlog-status — it reports what the raw SQL sees.'
-                : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
+          : blocked
+            ? `Nothing could be written: ${blocked}.`
+            : rawError
+              ? `The clear statement failed: ${rawError}`
+              : rawPending !== pendingTotal
+                ? `The database and the ORM disagree — SQL sees ${rawPending} pending, the ORM sees ${pendingTotal}. `
+                  + 'They are not reading the same rows; check DATABASE_URL and the schema search path.'
+                : (out.errors && out.errors.length)
+                  ? `Every update path was tried and none of them wrote a row: ${out.errors.join(' | ')}`
+                  : body.all === true
+                    ? `${pendingTotal} rows are pending and every UPDATE matched none of them. `
+                      + 'Open /api/tickets/backlog-status — it reports what the database says about itself.'
+                    : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
       };
       if (!out.cleared) console.warn('[TicketLogs] backlog clear moved nothing:', JSON.stringify(diagnosis));
     }
@@ -353,7 +396,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
     console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
       + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
       + `${handlers.fixed} handler(s) filled in`);
-    res.json({ clearBuild: 5, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
+    res.json({ clearBuild: 6, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
     res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });
