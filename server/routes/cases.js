@@ -93,7 +93,25 @@ async function resolveOfficerDiscordId(caseRow) {
 const { highestCaseNumber, generateCaseRef } = require('../lib/caseRef');
 
 // ── GET /api/cases/actions ───────────────────────────────────
-router.get('/actions', (req, res) => res.json(ACTION_NAMES));
+// The punishment list the case builder is built from — names AND what each one
+// does, because the browser was keeping its own copy of that and the copy went
+// stale. It had Written Warning and Suspension down as carrying no Discord role
+// long after both were configured, so the checklist showed them as "NO ROLE"
+// and gave Suspension no duration picker.
+//
+// `hasRole` rather than the id itself: the UI only ever asks whether there is
+// one. `retired` actions are excluded — nothing new is ever filed against one.
+router.get('/actions', (req, res) => res.json({
+  actions: ACTION_NAMES.map(name => ({
+    name,
+    hasRole: !!ACTION_CONFIG[name].roleId,
+    exile:   !!ACTION_CONFIG[name].exile,
+    timed:   !!ACTION_CONFIG[name].timed,
+  })),
+  // The old shape, so anything still expecting a bare list of names keeps
+  // working.
+  names: ACTION_NAMES,
+}));
 
 // ── GET /api/cases/next-ref ───────────────────────────────────────
 // The case ref the next submission will most likely get. An estimate — the

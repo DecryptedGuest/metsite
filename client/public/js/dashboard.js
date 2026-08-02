@@ -1,22 +1,52 @@
 // client/public/js/dashboard.js
 
 // ── Constants ─────────────────────────────────────────────────────
-// Note: roleIds here are advisory only — the server resolves the real role from
-// its env-driven config at approval time. Timed actions (Zero Tolerance,
-// Suspension) show a duration select and auto-expire.
+// The punishment list, loaded from the server (GET /api/cases/actions) so it is
+// the SAME list the server assigns roles from.
+//
+// This used to be a hard-coded copy, and the copy drifted: it still had Written
+// Warning and Suspension down as carrying no Discord role long after both were
+// configured, so the case builder badged them "NO ROLE" and — because the
+// duration picker is only offered for an action that has a role to take away
+// again — gave a suspension no length. It also still listed two actions the
+// server has since retired.
+//
+// What is written here is only what the checklist renders with before the fetch
+// lands, or if the fetch fails. It is kept correct, but it is not the source of
+// truth: loadActionDefs() replaces it in place with whatever the server says.
 const ACTIONS_CLIENT = [
-  { name: 'Verbal Warning',        roleId: null,                  exile: false },
-  { name: 'Written Warning',       roleId: null,                  exile: false },
-  { name: 'Zero Tolerance',        roleId: '1452275521470726235', exile: false, timed: true },
-  { name: 'Suspension',            roleId: null,                  exile: false, timed: true },
-  { name: 'Activity Strike',       roleId: '1219011548714893343', exile: false },
-  { name: 'Disciplinary Strike 1', roleId: '1191048287361433738', exile: false },
-  { name: 'Disciplinary Strike 2', roleId: '1191048287361433739', exile: false },
-  { name: 'Disciplinary Strike 3', roleId: '1513101097978564739', exile: false },
-  { name: 'Demotion',              roleId: null,                  exile: false },
-  { name: 'Termination',           roleId: null,                  exile: true  },
-  { name: 'Blacklist',             roleId: '1195557302250524764', exile: true  },
+  { name: 'Written Warning',       hasRole: true,  exile: false, timed: false },
+  { name: 'Zero Tolerance',        hasRole: true,  exile: false, timed: true  },
+  { name: 'Suspension',            hasRole: true,  exile: false, timed: true  },
+  { name: 'Activity Strike',       hasRole: true,  exile: false, timed: false },
+  { name: 'Disciplinary Strike 1', hasRole: true,  exile: false, timed: false },
+  { name: 'Disciplinary Strike 2', hasRole: true,  exile: false, timed: false },
+  { name: 'Demotion',              hasRole: false, exile: false, timed: false },
+  { name: 'Termination',           hasRole: false, exile: true,  timed: false },
+  { name: 'Blacklist',             hasRole: true,  exile: true,  timed: false },
 ];
+
+// Replace the fallback with the server's list. In place, because the array is
+// a const that other modules (ui.js's embed preview) already hold a reference
+// to. Best-effort: a failed fetch leaves the fallback, which is a stale list
+// rather than an empty checklist.
+let _actionDefsLoaded = false;
+async function loadActionDefs(force) {
+  if (_actionDefsLoaded && !force) return ACTIONS_CLIENT;
+  try {
+    const d = await api('/api/cases/actions');
+    const list = Array.isArray(d) ? null : (d && d.actions);
+    if (Array.isArray(list) && list.length) {
+      ACTIONS_CLIENT.length = 0;
+      list.forEach(a => ACTIONS_CLIENT.push({
+        name: a.name, hasRole: !!a.hasRole, exile: !!a.exile, timed: !!a.timed,
+      }));
+      _actionDefsLoaded = true;
+      renderActionChecklist();
+    }
+  } catch (e) { /* the fallback list stands */ }
+  return ACTIONS_CLIENT;
+}
 
 const DURATION_OPTIONS = [
   { label: '1 Day',     days: 1    },
@@ -62,6 +92,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupFilterTabs();
   setupOfficerLookup();
   renderActionChecklist();
+  // The real punishment list, from the same config the server assigns roles
+  // from. Not awaited: the checklist above has already drawn with the fallback,
+  // and this re-renders it the moment the answer lands.
+  loadActionDefs();
   // Developer division lands on the Dev Panel; IA lands on the dashboard.
   if (isDevContext() && currentUser && currentUser.role === 'DEVELOPER') navigateTo('admin');
   else loadDashboard();
@@ -755,7 +789,7 @@ function applyDocPunishments(punishments, preserveDurations) {
   (punishments || []).forEach(p => {
     const slug = actionSlug(p.action);
     const cb   = document.getElementById('action-check-' + slug);
-    if (!cb) return; // not a checklist action (e.g. Suspension) — surfaced in notes
+    if (!cb) return; // an action this checklist does not offer — surfaced in notes
     cb.checked = true;
     const durEl = document.getElementById('action-dur-' + slug);
     if (durEl) durEl.style.display = '';
@@ -848,7 +882,7 @@ function renderActionChecklist(precheck = null) {
     const onRecord    = approvedActions.includes(a.name);
     const isSuggested = a.name === suggestedAction;
     const isExile     = a.exile;
-    const hasRole     = !!a.roleId;
+    const hasRole     = !!a.hasRole;
     const isBlacklist = a.name === 'Blacklist';
 
     let badge = '';
@@ -2789,21 +2823,33 @@ function parseRequestedActions(text) {
     ['Disciplinary Strike 1', [/\bdisciplinary strike\s*1\b/, /\bstrike\s*1\b/, /\bds\s*1\b/, /\b1st strike\b/, /\bfirst strike\b/]],
     ['Disciplinary Strike 2', [/\bdisciplinary strike\s*2\b/, /\bstrike\s*2\b/, /\bds\s*2\b/, /\b2nd strike\b/, /\bsecond strike\b/]],
     ['Activity Strike',       [/\bactivity strike\b/]],
-    ['Verbal Warning',        [/\bverbal warning\b/, /\bverbal\b/]],
-    ['Written Warning',       [/\bwritten warning\b/, /\bwritten\b/]],
+    ['Written Warning',       [/\bwritten warning\b/, /\bwritten\b/, /\bwarning\b/]],
     ['Zero Tolerance',        [/\bzero tolerance\b/, /\bzt\b/, /\bz t\b/]],
+    // Suspension was missing entirely, so a reviewer asking for one in a change
+    // request had it silently detected as nothing.
+    ['Suspension',            [/\bsuspension\b/, /\bsuspend(ed)?\b/, /\bsusp\b/]],
     ['Demotion',              [/\bdemotion\b/, /\bdemote[d]?\b/]],
     ['Termination',           [/\btermination\b/, /\bterminate[d]?\b/, /\bfired\b/]],
     ['Blacklist',             [/\bblacklist(ed)?\b/]],
   ];
   // A duration mentioned anywhere ("5 day", "5 days", "5d") attaches to the
-  // punishments that carry one (Zero Tolerance).
+  // punishments that carry one. Which those are comes from the server's list,
+  // not a second hand-written one — Suspension is timed and was missing from
+  // the copy that used to live here, so "7 day suspension" lost its 7.
   const durM = t.match(/\b(\d{1,3})\s*(?:d|day|days)\b/);
   const dur  = durM ? parseInt(durM[1], 10) : null;
-  const TIMED = { 'Zero Tolerance': true };
+  const isTimed = (name) => {
+    const cfg = ACTIONS_CLIENT.find(a => a.name === name);
+    return !!(cfg && cfg.timed);
+  };
+  // Only offer what can actually be filed today. A retired action (Verbal
+  // Warning, Disciplinary Strike 3) is not on the server's list, so detecting
+  // one would hand the submitter a punishment the server then refuses.
+  const filable = new Set(ACTIONS_CLIENT.map(a => a.name));
   const found = [];
   for (const [name, pats] of rules) {
-    if (pats.some(p => p.test(t))) found.push({ action: name, durationDays: (dur && TIMED[name]) ? dur : null });
+    if (!filable.has(name)) continue;
+    if (pats.some(p => p.test(t))) found.push({ action: name, durationDays: (dur && isTimed(name)) ? dur : null });
   }
   return found;
 }

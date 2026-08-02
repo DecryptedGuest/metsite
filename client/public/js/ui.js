@@ -355,7 +355,7 @@ function fmtPunishmentLines(punishments) {
   if (!Array.isArray(punishments) || !punishments.length) return '• —';
   return punishments.map(p => {
     const cfg = (typeof ACTIONS_CLIENT !== 'undefined') ? ACTIONS_CLIENT.find(a => a.name === p.action) : null;
-    const hasRole = !!(cfg && cfg.roleId);
+    const hasRole = !!(cfg && cfg.hasRole);
     const dur = hasRole ? (p.durationDays ? ` (${p.durationDays}d)` : ' (Permanent)') : '';
     return '• ' + escapeHtml(p.action) + dur;
   }).join('<br>');
