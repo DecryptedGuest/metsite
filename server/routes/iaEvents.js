@@ -9,18 +9,26 @@
 // Filing is the award, so there is no review route. Withdrawing is High
 // Command's — anybody who can file can make a mistake, but unwinding twenty
 // people's points is a decision, not a correction.
+//
+// The whole area is supervisor and above. Filing an event moves real quota
+// points and real XP for up to sixty people with nobody signing it off, so it
+// is not something an investigator gets to do; requireHICOMM is this codebase's
+// "supervisor or higher" (SUPERVISOR, HICOMM, DEVELOPER).
 
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/db');
 const events  = require('../lib/iaEvents');
-const { requireHICOMMStrict } = require('../middleware/auth');
+const { requireHICOMM, requireHICOMMStrict } = require('../middleware/auth');
+
+router.use(requireHICOMM);
 
 // ── GET /api/ia-events/meta ───────────────────────────────────────
 router.get('/meta', (req, res) => {
   res.json({
     eventTypes:   events.EVENT_TYPES,
     pointsEach:   events.POINTS_EACH(),
+    xpEach:       events.XP_EACH(),
     maxAttendees: events.MAX_ATTENDEES,
   });
 });
@@ -46,6 +54,9 @@ router.post('/', async (req, res) => {
     res.status(201).json({
       event: out.event,
       awarded: out.awarded,
+      xpAwarded: out.xpAwarded,
+      xpSkipped: out.xpSkipped,
+      xpEach: out.xpEach,
       dropped: out.dropped,
       selfRemoved: out.selfRemoved,
       pointsEach: out.event.pointsEach,

@@ -3,8 +3,15 @@
 //
 // The FLP side of the house logs events in Discord and a bot reads them back.
 // IA does not — there is no channel to mirror — so this is a form on the
-// dashboard, and filing it IS the award: every attendee gets their quota points
-// the moment it is submitted, with no approval step in between.
+// dashboard, and filing it IS the award: every attendee is paid the moment it
+// is submitted, with no approval step in between.
+//
+// Attending an IA event is worth two things, and an attendee gets both:
+//   · 2 quota points on the IA database — what the weekly IA quota is counted in
+//   · 2 XP on MET — the same currency /xp moves and promotions are driven by
+// They are separate systems with separate failure modes, so they are awarded
+// separately and recorded separately. One of them being unavailable does not
+// cost somebody the other.
 //
 // Which means two things matter more here than they would behind a review:
 //
@@ -21,23 +28,23 @@
 
 const prisma = require('./db');
 
-// What an attendee is worth. One number, so changing it is one edit.
+// What an attendee is worth, on each of the two systems. One number each, so
+// changing either is one edit.
 const POINTS_EACH = () => {
   const n = parseInt(process.env.IA_EVENT_POINTS, 10);
   return Number.isFinite(n) && n > 0 ? n : 2;
+};
+const XP_EACH = () => {
+  const n = parseInt(process.env.IA_EVENT_XP, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 2;
 };
 
 // The kinds of event IA actually runs. Free text is not accepted — a roll of
 // twenty people being paid needs to say what they were paid for, and "misc"
 // tells a reviewer nothing.
 const EVENT_TYPES = [
-  'Training',
-  'Briefing',
-  'Interview Panel',
-  'Assessment',
-  'Department Meeting',
-  'Joint Operation',
-  'Inspection',
+  'Mass Patrol',
+  'Combat Training',
 ];
 
 const MAX_ATTENDEES = 60;
@@ -178,6 +185,7 @@ async function submitEvent(input, host) {
     : [];
 
   const pointsEach = POINTS_EACH();
+  const xpEach     = XP_EACH();
 
   let event = null;
   for (let attempt = 0; !event && attempt < 10; attempt++) {
@@ -192,9 +200,10 @@ async function submitEvent(input, host) {
           coHostName,
           startedAt,
           durationMins:  Number.isFinite(durationMins) ? durationMins : null,
-          attendees:     roll.map(a => ({ discordId: a.discordId, name: a.name, points: pointsEach })),
+          attendees:     roll.map(a => ({ discordId: a.discordId, name: a.name, points: pointsEach, xp: xpEach })),
           attendeeCount: roll.length,
           pointsEach,
+          xpEach,
           notes,
           proof:         proof.length ? proof : undefined,
         },
@@ -206,11 +215,20 @@ async function submitEvent(input, host) {
   }
   if (!event) return { ok: false, problems: ['Could not allocate an event reference.'] };
 
-  // Pay the roll. Keyed per attendee so a retry cannot double-award, and queued
-  // rather than written straight through so a sheet outage delays the points
-  // instead of losing them.
+  // Pay the roll, on both systems.
+  //
+  // The quota points go through the durable outbox, keyed per attendee, so a
+  // retry cannot double-award and a Google Sheets outage delays them rather
+  // than losing them. The XP is applied straight to the balance — that is a row
+  // in our own database, not a third party's spreadsheet, and there is nothing
+  // to queue behind.
   const { enqueueQuotaAward } = require('./quota');
-  let awarded = 0;
+  const { awardXpTo } = require('./logXpAward');
+  const actor = { id: host.id, name: host.displayName || host.discordUsername || 'IA event log' };
+
+  let awarded = 0, xpAwarded = 0, xpSkipped = 0;
+  const xpRecord = [];
+
   for (const a of roll) {
     try {
       await enqueueQuotaAward({
@@ -228,14 +246,48 @@ async function submitEvent(input, host) {
       // who was on the roll either way, so it can be paid by hand.
       console.error(`[IA events] could not queue ${a.key} for ${event.eventRef}:`, e.message);
     }
+
+    // XP is held against a Discord id. Somebody on the roll by name alone has
+    // no balance to move, so they get their quota points and are recorded as
+    // owed the XP rather than silently missing it.
+    if (!xpEach) continue;
+    if (!a.discordId) {
+      xpSkipped++;
+      xpRecord.push({ name: a.name, xp: 0, ok: false, why: 'no Discord id' });
+      continue;
+    }
+    const res = await awardXpTo({
+      discordId: a.discordId, name: a.name, amount: xpEach,
+      reason: `Attended ${eventType} · ${event.eventRef}`,
+      actor,
+    });
+    if (res.ok) xpAwarded++;
+    xpRecord.push({ discordId: a.discordId, name: a.name, xp: xpEach,
+                    ok: !!res.ok, after: res.after, promoted: !!res.promoted,
+                    why: res.error || undefined });
+  }
+
+  // What was actually paid, on the row. The award rows are the record for the
+  // quota side; XP has no outbox, so this is its receipt — and it is what makes
+  // a withdrawal able to take back exactly what was given.
+  if (xpRecord.length) {
+    try {
+      event = await prisma.iaEventLog.update({
+        where: { id: event.id },
+        data:  { xpAward: { at: new Date().toISOString(), each: xpEach, people: xpRecord } },
+      });
+    } catch (e) {
+      console.error(`[IA events] could not record the XP on ${event.eventRef}:`, e.message);
+    }
   }
 
   console.log(`[IA events] ${event.eventRef} filed by ${event.hostName || host.id} — `
-    + `${roll.length} attendee(s) × ${pointsEach} point(s)`
+    + `${roll.length} attendee(s) × ${pointsEach} point(s) + ${xpEach} XP`
+    + (xpSkipped ? `, ${xpSkipped} with no Discord id got no XP` : '')
     + (dropped ? `, ${dropped} duplicate/blank name(s) dropped` : '')
     + (selfRemoved ? ', host removed from their own roll' : ''));
 
-  return { ok: true, event, awarded, dropped, selfRemoved };
+  return { ok: true, event, awarded, xpAwarded, xpSkipped, xpEach, dropped, selfRemoved };
 }
 
 /**
@@ -280,6 +332,25 @@ async function voidEvent(id, by, reason) {
     }
   }
 
+  // And the XP. It was applied straight to the balance, so it is taken back the
+  // same way, off the receipt of what was actually given rather than off what
+  // was intended — an attendee whose award failed at the time is not docked for
+  // XP they never received.
+  const { awardXpTo } = require('./logXpAward');
+  const paid = (event.xpAward && Array.isArray(event.xpAward.people)) ? event.xpAward.people : [];
+  const actor = { id: by && by.id, name: (by && (by.displayName || by.discordUsername)) || 'IA event withdrawn' };
+  let xpReversed = 0;
+  for (const p of paid) {
+    if (!p || !p.ok || !p.discordId || !p.xp) continue;
+    const res = await awardXpTo({
+      discordId: p.discordId, name: p.name, amount: -Math.abs(p.xp),
+      reason: `${event.eventRef} withdrawn`,
+      actor,
+    });
+    if (res.ok) xpReversed++;
+    else console.error(`[IA events] could not take back ${p.xp} XP from ${p.discordId}:`, res.error);
+  }
+
   const updated = await prisma.iaEventLog.update({
     where: { id },
     data: {
@@ -288,8 +359,9 @@ async function voidEvent(id, by, reason) {
       voidedReason: clean(reason, 300) || null,
     },
   });
-  console.log(`[IA events] ${event.eventRef} withdrawn by ${(by && (by.displayName || by.discordUsername)) || 'unknown'} — ${reversed} award(s) reversed`);
-  return { ok: true, event: updated, reversed };
+  console.log(`[IA events] ${event.eventRef} withdrawn by ${actor.name} — `
+    + `${reversed} points award(s) reversed, ${xpReversed} XP award(s) taken back`);
+  return { ok: true, event: updated, reversed, xpReversed };
 }
 
 /** Events, newest first. `mine` limits to the ones you hosted. */
@@ -302,7 +374,7 @@ async function listEvents({ mine, hostId, take = 100 } = {}) {
 }
 
 module.exports = {
-  EVENT_TYPES, MAX_ATTENDEES, POINTS_EACH,
+  EVENT_TYPES, MAX_ATTENDEES, POINTS_EACH, XP_EACH,
   normaliseAttendees, problemsWith, nextEventRef,
   submitEvent, voidEvent, listEvents,
 };

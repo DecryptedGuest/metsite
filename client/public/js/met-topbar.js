@@ -257,7 +257,6 @@ function metInjectMobileNav(mine, currentDivision, examEligible) {
       + item('/dashboard', 'ti-home', 'My Dashboard', here === '/dashboard' || here === '/profile')
       + (divLinks ? '<div class="met-mnav-label">Divisions you can access</div>' + divLinks : '')
       + '<div class="met-mnav-label">You</div>'
-      + item('/loa', 'ti-calendar-off', 'Leave of Absence', here === '/loa')
       + (examEligible ? item('/exam', 'ti-writing', 'Final Exam', here === '/exam') : '')
       + item('/app', 'ti-device-mobile', 'Mobile App', here === '/app')
     + '</div>'
@@ -380,7 +379,6 @@ async function initMetTopbar(currentDivision) {
         // "My Dashboard" is a dedicated top-level button now (added below), so it's
         // not repeated here.
         { label: 'You', items: [
-          { href: '/loa', icon: 'ti-calendar-off', label: 'Leave of Absence' },
           // Final Exam only appears for cadets who hold the final-exam role.
           ...(examEligible ? [{ href: '/exam', icon: 'ti-writing', label: 'Final Exam' }] : []),
           { href: '/app', icon: 'ti-device-mobile', label: 'Mobile App' },

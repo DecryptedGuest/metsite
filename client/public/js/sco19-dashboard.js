@@ -14,7 +14,6 @@
     document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
     if (name === 'activity' && !loaded.activity) { loaded.activity = 1; if (window.DivQuota) DivQuota.loadActivity(DIV); }
     if (name === 'quota'    && !loaded.quota)    { loaded.quota = 1;    if (window.DivQuota) DivQuota.loadReview(DIV); }
-    if (name === 'loa'      && !loaded.loa)      { loaded.loa = 1;      if (window.LoaReview) LoaReview.load(DIV); }
   }
 
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
@@ -27,13 +26,6 @@
       const d = await api('/api/divquota/' + DIV + '/access');
       if (d && d.canReview) {
         document.querySelectorAll('.hicomm-only').forEach(el => { el.style.display = ''; });
-        // Surface a pending-LOA badge on the LOA nav item.
-        try {
-          const rows = await api('/api/loa/review?division=' + DIV);
-          const pending = (rows || []).filter(r => r.status === 'PENDING').length;
-          const badge = document.getElementById('sco19-loa-badge');
-          if (badge && pending) { badge.textContent = pending; badge.style.display = ''; }
-        } catch (e) {}
       }
     } catch (e) { /* not a lead / not configured → tabs stay hidden */ }
   }

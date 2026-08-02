@@ -89,7 +89,7 @@
         </button>
         <!-- Events are logged here rather than in Discord: filing one pays the
              roll straight away, so it belongs where the quota is read. -->
-        <button class="nav-item" data-page="events">
+        <button class="nav-item hicomm-only supervisor-only" data-page="events" style="display:none;">
           <i class="ti ti-calendar-event nav-icon"></i><span>Event Logs</span>
         </button>
         <button class="nav-item" data-page="media">
@@ -1345,7 +1345,7 @@
       <div class="page-header fade-up">
         <div>
           <h1 class="page-title">Event Logs</h1>
-          <p class="page-sub">Filing an event awards every attendee their quota points immediately</p>
+          <p class="page-sub">Supervisor and above · filing an event pays every attendee their IA quota points and their MET XP immediately</p>
         </div>
         <button class="btn btn-primary" id="btn-new-event"><i class="ti ti-calendar-plus"></i> Log an event</button>
       </div>

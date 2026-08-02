@@ -895,8 +895,10 @@ function renderActionChecklist(precheck = null) {
     const suggestedBadge = isSuggested
       ? `<span class="ac-badge ac-suggested"><i class="ti ti-star"></i> Recommended</span>` : '';
 
-    // Duration only shown when the checkbox is checked; hidden otherwise
-    const durationSelect = hasRole ? `
+    // Duration only shown when the checkbox is checked; hidden otherwise — and
+    // only offered at all for a punishment that actually carries one. Gating
+    // this on "has a role" let a Blacklist be given fourteen days.
+    const durationSelect = a.timed ? `
       <select class="ac-duration" id="action-dur-${slug}" style="${isSuggested ? '' : 'display:none'}">
         ${DURATION_OPTIONS.map(d =>
           `<option value="${d.days ?? ''}" ${d.days === null ? 'selected' : ''}>${d.label}</option>`

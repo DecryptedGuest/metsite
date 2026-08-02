@@ -282,12 +282,6 @@
     });
 
     // An LOA request was decided — soft feedback so the member notices.
-    es.addEventListener('loa_decided', function (ev) {
-      var d = parse(ev);
-      if (d.message) toast(d.message, d.status === 'APPROVED' ? 'success' : 'info');
-      window.metSound(d.status === 'APPROVED' ? 'reopened' : 'closed');
-      call('loadLoaStatus');
-    });
 
     // Browser auto-reconnects on error; nothing to do. If the server is gone the
     // stream just stays closed — page still works.

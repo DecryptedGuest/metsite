@@ -203,19 +203,29 @@ async function awardForLog(log, approver, opts = {}) {
 // otherwise the officer whose event pushed them over a threshold is left
 // holding the XP for a rank nobody gave them.
 async function announce(res, p, approver, log) {
+  return announceXp(res, p, approver,
+    `${p.reason} · ${log.type === 'EVENT' ? 'event' : 'patrol'} log signed off`);
+}
+
+// The announce-and-promote half on its own, so anything else that awards XP
+// automatically lands in the same history rather than a quieter one. The IA
+// event log uses it: an IA event pays XP too, and an officer promoted by one
+// has to be promoted the same way as an officer promoted by a patrol.
+async function announceXp(res, p, actor, reason) {
   if (!res) return;
+  const who = (actor && actor.name) || 'Automatic award';
   const xpLog = require('./xpLog');
   await xpLog.logChange({
     discordId: p.discordId,
     memberName: p.name,
-    kind: 'ADD',
-    delta: p.amount,
+    kind: (p.amount || 0) < 0 ? 'REMOVE' : 'ADD',
+    delta: Math.abs(p.amount || 0),
     before: res.before,
     after: res.after,
-    reason: `${p.reason} · ${log.type === 'EVENT' ? 'event' : 'patrol'} log signed off`,
+    reason: reason || p.reason,
     rank: res.rank,
-    issuedById: approver && approver.id,
-    issuedBy: (approver && approver.name) || 'Log sign-off',
+    issuedById: actor && actor.id,
+    issuedBy: who,
   }).catch(() => {});
 
   if (!res.promotion) return;
@@ -224,15 +234,55 @@ async function announce(res, p, approver, log) {
     const officer = await XC.loadOfficer(p.discordId, null);
     await XC.promote({
       officer, promotion: res.promotion, xp: res.after,
-      issuedById: approver && approver.id,
-      issuedBy: (approver && approver.name) || 'Log sign-off',
+      issuedById: actor && actor.id,
+      issuedBy: who,
     });
   } catch (e) {
     console.warn('[LogXP] promotion after an automatic award failed:', e.message);
   }
 }
 
+/**
+ * Give (or take) XP outside the patrol/event sign-off path, announced and
+ * promoted exactly as a typed /xp would be.
+ *
+ * Best-effort by design: the caller has usually already recorded WHY the XP is
+ * owed, and a Discord outage must not roll that back. Errors come back in the
+ * return value rather than as a throw.
+ *
+ * @param {object} o
+ * @param {string} o.discordId
+ * @param {string} [o.name]
+ * @param {number} o.amount     positive to add, negative to take back
+ * @param {string} o.reason
+ * @param {object} [o.actor]    { id, name } — who caused it
+ * @returns {Promise<{ok: boolean, before?: number, after?: number, promoted?: boolean, error?: string}>}
+ */
+async function awardXpTo(o) {
+  const amount = Math.trunc(Number(o.amount));
+  if (!o.discordId || !Number.isFinite(amount) || !amount) {
+    return { ok: false, error: 'nothing to award' };
+  }
+  try {
+    const res = await XP.applyXp({
+      discordId: String(o.discordId),
+      kind:  amount < 0 ? 'REMOVE' : 'ADD',
+      value: Math.abs(amount),
+      reason: o.reason,
+      issuedById: o.actor && o.actor.id,
+      issuedBy:  (o.actor && o.actor.name) || 'Automatic award',
+    });
+    await announceXp(res, { discordId: o.discordId, name: o.name || null, amount },
+                     o.actor, o.reason).catch(() => {});
+    return { ok: true, before: res && res.before, after: res && res.after,
+             promoted: !!(res && res.promotion) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 module.exports = {
   awardForLog, plannedAwards, canAward, patrolXpFor,
+  awardXpTo, announceXp,
   EVENT_ATTENDEE_XP, PATROL_XP_MINUTES,
 };

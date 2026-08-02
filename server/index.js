@@ -358,7 +358,6 @@ app.use('/api/exam',  requireAuth,
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
 // Leave of Absence requests — any authed MET member; forwarding + review gated
 // inside the router (MET HICOMM for MET scope, divisional leads for divisions).
-app.use('/api/loa', requireAuth, require('./routes/loa'));
 app.use('/api/divquota', requireAuth, require('./routes/divisionQuota'));
 // Developer Security Center — active-session command, break-glass lockdown,
 // global broadcast, security alerts, passkey compliance. Mounted before
@@ -1298,7 +1297,6 @@ app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 
 // Leave of Absence — any signed-in member requests; reviewers see a queue.
-app.get('/loa', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'loa.html')));
 
 // QR sign-in approval — opened by scanning a QR from a logged-out browser; the
 // (already logged-in) device approves the browser's sign-in. requireAuth so

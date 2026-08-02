@@ -355,8 +355,12 @@ function fmtPunishmentLines(punishments) {
   if (!Array.isArray(punishments) || !punishments.length) return '• —';
   return punishments.map(p => {
     const cfg = (typeof ACTIONS_CLIENT !== 'undefined') ? ACTIONS_CLIENT.find(a => a.name === p.action) : null;
-    const hasRole = !!(cfg && cfg.hasRole);
-    const dur = hasRole ? (p.durationDays ? ` (${p.durationDays}d)` : ' (Permanent)') : '';
+    // `timed`, to match the embed the server actually posts (webhook.js and
+    // officerNotice.js both gate on it). Previewing "(Permanent)" against a
+    // punishment the real message prints bare meant the reviewer approved one
+    // wording and a different one went out.
+    const timed = !!(cfg && cfg.timed);
+    const dur = timed ? (p.durationDays ? ` (${p.durationDays}d)` : ' (Permanent)') : '';
     return '• ' + escapeHtml(p.action) + dur;
   }).join('<br>');
 }

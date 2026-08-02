@@ -32,13 +32,19 @@ const ACTION_CONFIG = {
   'Zero Tolerance':        { get roleId() { return env('ROLE_ZT', '1452275521470726235'); },              exile: false, timed: true  },
   'Suspension':            { get roleId() { return env('ROLE_SUSPENDED', SUSPENSION_ROLE); },             exile: false, timed: true  },
   'Activity Strike':       { get roleId() { return env('ROLE_ACTIVITY_STRIKE', '1219011548714893343'); }, exile: false, timed: false },
-  'Disciplinary Strike 1': { get roleId() { return env('ROLE_STRIKE_1', '1191048287361433738'); },        exile: false, timed: false },
-  'Disciplinary Strike 2': { get roleId() { return env('ROLE_STRIKE_2', '1191048287361433739'); },        exile: false, timed: false },
+  // Marked timed because they ARE. A strike filed with a duration gets a real
+  // expiresAt on its CasePunishment row and the background checker takes the
+  // role back when it lapses — and the case builder has always defaulted them
+  // to 14 or 21 days off the penal-code class in the Reason field. Saying
+  // timed: false here did not make them permanent; it only made the officer's
+  // notice claim they were, and hid the length from /discipline.
+  'Disciplinary Strike 1': { get roleId() { return env('ROLE_STRIKE_1', '1191048287361433738'); },        exile: false, timed: true },
+  'Disciplinary Strike 2': { get roleId() { return env('ROLE_STRIKE_2', '1191048287361433739'); },        exile: false, timed: true },
   // RETIRED. There is no third strike — two strikes and the next step is
   // Termination, which somebody decides rather than a counter reaching 3. The
   // entry stays so historical records still resolve their role and their name;
   // `retired` keeps it out of every list you can pick from.
-  'Disciplinary Strike 3': { get roleId() { return env('ROLE_STRIKE_3', '1513101097978564739'); },        exile: false, timed: false, retired: true },
+  'Disciplinary Strike 3': { get roleId() { return env('ROLE_STRIKE_3', '1513101097978564739'); },        exile: false, timed: true,  retired: true },
   'Demotion':              { get roleId() { return null; },                                               exile: false, timed: false },
   'Termination':           { get roleId() { return null; },                                               exile: true,  timed: false },
   'Blacklist':             { get roleId() { return env('ROLE_BLACKLIST', '1195557302250524764'); },       exile: true,  timed: false },

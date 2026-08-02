@@ -225,24 +225,43 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
     // it becomes visible.
     const canWrite = await probeTicketTable().catch(e => ({ probeError: e.message }));
 
-    // The clear's own UPDATE, run against a single row inside a transaction
-    // that is then rolled back. Nothing is changed — but if the write is being
-    // blocked, this reports it in the exact form the real clear would hit,
-    // rather than leaving it to be inferred.
+    // The clear's own UPDATE — EVERY column it sets, not a reduced version of
+    // it — run against a single row inside a transaction that is then rolled
+    // back. A cut-down statement proved only that `status` was writable, which
+    // is why a first pass came back clean while the real clear kept failing:
+    // if one of the other columns is what the statement chokes on, this is
+    // where it says so.
     let writeTest = null;
     try {
       await prisma.$transaction(async (tx) => {
         const n = await tx.$executeRawUnsafe(
-          `UPDATE ticket_logs SET status = 'APPROVED'::"TicketStatus"
+          `UPDATE ticket_logs SET
+             status = 'APPROVED'::"TicketStatus",
+             "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
             WHERE id IN (SELECT id FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus" LIMIT 1)`);
-        writeTest = { rowsAffected: n, rolledBack: true };
+        writeTest = { rowsAffected: n, rolledBack: true, statement: 'the real one' };
         throw new Error('__rollback__');
       }).catch(e => { if (e.message !== '__rollback__') throw e; });
-    } catch (e) { writeTest = { error: e.message }; }
+    } catch (e) { writeTest = { error: e.message, statement: 'the real one' }; }
+
+    // Which columns the table actually has. A statement that names a column
+    // this database has never heard of fails as a whole, and every row it
+    // would have touched stays exactly where it was.
+    let columns = null;
+    try {
+      const c = await prisma.$queryRawUnsafe(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'ticket_logs' AND table_schema = current_schema()`);
+      const have = new Set((c || []).map(r => r.column_name));
+      columns = { count: have.size };
+      for (const need of ['status', 'voidedAt', 'reviewedAt', 'reviewedByName', 'ticketNo', 'closedAt']) {
+        columns[need] = have.has(need);
+      }
+    } catch (e) { columns = { error: e.message }; }
 
     res.json({
       // Bumped whenever the clear logic changes, so a stale deploy is obvious.
-      clearBuild: 6,
+      clearBuild: 7,
       pending, clearableWithDateCutoff: beforeNow, datedInTheFuture: future,
       oldestPending: oldest, newestPending: newest,
       blankHandlers: blank, alreadyBacklogCleared: cleared,
@@ -256,7 +275,7 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
       agrees: rawPending === pending,
       // Can this connection write to the table at all, and does the clear's
       // own statement match a row when it is tried for real?
-      canWrite, writeTest,
+      canWrite, writeTest, columns,
     });
   } catch (err) {
     console.error('[TicketLogs] backlog status error:', err.message);
@@ -281,25 +300,47 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
 //   { apply: true }           → clear a slice, report `remaining`
 //   { apply: true, all: true} → ignore the date cutoff (strays included)
 router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
-  const body = req.body || {};
+  const body  = req.body  || {};
+  const query = req.query || {};
+
+  // The intent is read from the QUERY STRING as well as the body, and either
+  // is enough.
+  //
+  // Every symptom of this bug has pointed at the apply arriving as a dry run:
+  // the response the browser reported carried no `diagnosis`, and the route
+  // only omits that on the dry-run branch. Whether the body is being dropped
+  // by something between the browser and here, or a stale script is sending a
+  // different one, an instruction that travels in the URL cannot be lost the
+  // same way. What the server actually received comes back in `saw`, so if it
+  // is still not arriving, that is visible instead of inferred.
+  const truthy = (v) => v === true || v === 'true' || v === '1' || v === 1;
+  const apply  = truthy(body.apply) || truthy(query.apply);
+  const all    = truthy(body.all)   || truthy(query.all);
+  const saw = {
+    bodyKeys: Object.keys(body),
+    queryKeys: Object.keys(query),
+    contentType: (req.headers && req.headers['content-type']) || null,
+    resolved: { apply, all },
+  };
+
   try {
     const cutoff = body.before ? new Date(body.before) : new Date();
     if (isNaN(cutoff.getTime())) return res.status(400).json({ error: 'That is not a date.' });
 
     // `all` also decides what we COUNT, or the dry run would promise a number
     // the apply then disagrees with.
-    const where = body.all === true
+    const where = all
       ? { status: 'PENDING' }
       : { status: 'PENDING', closedAt: { lt: cutoff } };
 
-    if (body.apply !== true) {
+    if (!apply) {
       const [waiting, total, blank] = await Promise.all([
         prisma.ticketLog.count({ where }),
         prisma.ticketLog.count({ where: { status: 'PENDING' } }),
         prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
       ]);
       return res.json({
-        clearBuild: 6,
+        clearBuild: 7, saw,
         dryRun: true, wouldClear: waiting, pendingTotal: total,
         // Rows the cutoff would strand — a ticket dated in the future is never
         // "before now", so without saying so it would sit there unexplained.
@@ -310,7 +351,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
 
     const { clearBacklogBefore } = require('../lib/ticketIngest');
     const out = await clearBacklogBefore(cutoff, {
-      all: body.all === true,
+      all,
       batch: body.batch,
       // One request's worth. Enough that a normal queue goes in a single press,
       // small enough that the statement can never be the slow thing.
@@ -396,7 +437,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
     console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
       + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
       + `${handlers.fixed} handler(s) filled in`);
-    res.json({ clearBuild: 6, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
+    res.json({ clearBuild: 7, saw, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
     res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });

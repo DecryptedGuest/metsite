@@ -404,7 +404,10 @@ document.addEventListener('DOMContentLoaded', function () {
     clear.disabled = true;
     busy('Counting…');
     try {
-      var dry = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({ all: true }) });
+      // The instruction goes in the URL as well as the body. A body that never
+      // arrives is indistinguishable from a body that said "just count them",
+      // and that is exactly what this looked like for four rounds.
+      var dry = await api('/api/tickets/clear-backlog?all=1', { method: 'POST', body: JSON.stringify({ all: true }) });
       clear.innerHTML = original;
       if (!dry.wouldClear) {
         // "Nothing to clear" is only true if nothing is pending. If the queue is
@@ -437,8 +440,17 @@ document.addEventListener('DOMContentLoaded', function () {
       var total = 0, fixed = 0, rounds = 0;
       for (;;) {
         busy('Clearing… ' + total + ' of ' + dry.wouldClear);
-        var r = await api('/api/tickets/clear-backlog',
+        var r = await api('/api/tickets/clear-backlog?apply=1&all=1',
           { method: 'POST', body: JSON.stringify({ apply: true, all: true }) });
+        // The server answering a dry run to an apply is its own failure, and
+        // saying "cleared 0" for it sent us looking at the database four times
+        // over. Name it.
+        if (r && r.dryRun) {
+          showToast('The server treated that as a count, not a clear — it received '
+            + JSON.stringify((r.saw && r.saw.resolved) || {})
+            + '. Build ' + (r.clearBuild || '?') + '.', 'error', 15000);
+          return;
+        }
         total += r.cleared || 0;
         fixed += (r.handlers && r.handlers.fixed) || 0;
         rounds++;
@@ -446,9 +458,10 @@ document.addEventListener('DOMContentLoaded', function () {
         // what the server said about why instead of a silent "cleared 0".
         if (!r.cleared && (r.pendingTotal || r.remaining)) {
           var why = (r.diagnosis && r.diagnosis.why)
-            || (r.clearBuild >= 4
-                ? 'Open /api/tickets/backlog-status to see why.'
-                : 'The server is running an older build — redeploy, then try again.');
+            || (r.clearBuild >= 7
+                ? 'The server reported no diagnosis at all, which it should never do — open /api/tickets/backlog-status.'
+                : 'The server is running an older build (' + (r.clearBuild || 'unknown')
+                  + ') — redeploy, then try again.');
           showToast('Cleared ' + total + '. ' + (r.pendingTotal || r.remaining)
             + ' still pending — ' + why, 'error', 12000);
           allTicketsCache = [];

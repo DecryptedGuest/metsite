@@ -412,6 +412,11 @@ model IaEventLog {
   attendees     Json
   attendeeCount Int      @default(0)
   pointsEach    Int      @default(2)
+  // XP is paid alongside the quota points. It has no outbox of its own — it is
+  // applied straight to the balance — so this is its receipt: who was given
+  // what, and whether it landed. A withdrawal takes back exactly this.
+  xpEach        Int      @default(0)
+  xpAward       Json?
   notes         String?
   proof         Json?                       // links / screenshots offered as evidence it happened
   // Set when an event is withdrawn. The points already awarded are reversed by

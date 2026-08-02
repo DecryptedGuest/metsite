@@ -9,7 +9,7 @@
   var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
   var $ = function (id) { return document.getElementById(id); };
 
-  var META  = { eventTypes: [], pointsEach: 2, maxAttendees: 60 };
+  var META  = { eventTypes: [], pointsEach: 2, xpEach: 2, maxAttendees: 60 };
   var cache = [];
   var scope = 'all';
   var query = '';
@@ -61,9 +61,16 @@
         + '<i class="ti ti-' + (a.discordId ? 'user-check' : 'user') + '"></i>' + esc(label) + '</span>';
     }).join('');
     var total = parsed.roll.length * META.pointsEach;
+    var totalXp = parsed.roll.length * META.xpEach;
+    // Attending pays on both systems, so the roll says both totals rather than
+    // leaving the XP to be discovered after the fact.
+    var noId = parsed.roll.filter(function (a) { return !a.discordId; }).length;
     box.innerHTML = '<div class="ev-roll-head">'
       + '<strong>' + parsed.roll.length + '</strong> attendee' + (parsed.roll.length === 1 ? '' : 's')
-      + ' · <strong>' + total + '</strong> point' + (total === 1 ? '' : 's') + ' will be awarded'
+      + ' · <strong>' + total + '</strong> quota point' + (total === 1 ? '' : 's')
+      + (META.xpEach ? ' · <strong>' + totalXp + '</strong> XP' : '') + ' will be awarded'
+      + (META.xpEach && noId ? ' · <span class="ev-roll-warn">' + noId
+          + ' with no Discord ID get their points but no XP</span>' : '')
       + (parsed.dupes ? ' · <span class="ev-roll-note">' + parsed.dupes + ' duplicate' + (parsed.dupes === 1 ? '' : 's') + ' ignored</span>' : '')
       + (parsed.over ? ' · <span class="ev-roll-warn">only the first ' + META.maxAttendees + ' are counted</span>' : '')
       + '</div><div class="ev-chips">' + chips + '</div>';
@@ -81,6 +88,7 @@
   function rowHtml(e) {
     var when = window.formatDateTime ? formatDateTime(e.startedAt) : new Date(e.startedAt).toLocaleString();
     var paid = (e.attendeeCount || 0) * (e.pointsEach || 0);
+    var paidXp = (e.attendeeCount || 0) * (e.xpEach || 0);
     return '<tr class="' + (e.voidedAt ? 'ev-void' : '') + '">'
       + '<td><span class="case-ref">' + esc(e.eventRef) + '</span></td>'
       + '<td><span style="font-size:12.5px;">' + esc(e.eventType)
@@ -91,7 +99,8 @@
       + '<td><span style="font-size:12px;">' + (e.attendeeCount || 0) + '</span></td>'
       + '<td>' + (e.voidedAt
           ? '<span class="badge badge-muted"><span class="badge-dot"></span>Withdrawn</span>'
-          : '<span class="badge badge-approved"><span class="badge-dot"></span>' + paid + ' paid</span>') + '</td>'
+          : '<span class="badge badge-approved"><span class="badge-dot"></span>' + paid + ' pts'
+            + (paidXp ? ' · ' + paidXp + ' XP' : '') + '</span>') + '</td>'
       + '<td><span class="date-cell">' + esc(when) + '</span></td>'
       + '<td>' + (window.canVoidEvents && !e.voidedAt
           ? '<button class="row-btn row-btn-deny" onclick="iaEventVoid(\'' + esc(e.id) + '\')" title="Withdraw and reverse the points">'
@@ -138,7 +147,10 @@
       }).join('');
     }
     var note = $('ev-points-note');
-    if (note) note.textContent = META.pointsEach + ' point' + (META.pointsEach === 1 ? '' : 's');
+    if (note) {
+      note.textContent = META.pointsEach + ' quota point' + (META.pointsEach === 1 ? '' : 's')
+        + (META.xpEach ? ' and ' + META.xpEach + ' XP' : '');
+    }
 
     // Default the start to now, rounded down to the minute — an event is
     // logged after it happens, so "now" is nearly always right.
@@ -157,9 +169,13 @@
     if (!parsed.roll.length) { showToast('Add at least one attendee — the roll is what gets paid.', 'error'); return; }
 
     var total = parsed.roll.length * META.pointsEach;
+    var totalXp = parsed.roll.length * META.xpEach;
     var okd = await (typeof uiConfirm === 'function'
       ? uiConfirm('File this event?\n\n' + parsed.roll.length + ' attendee(s) will each be awarded '
-        + META.pointsEach + ' quota point(s) — ' + total + ' in total — immediately. '
+        + META.pointsEach + ' quota point(s) on the IA database'
+        + (META.xpEach ? ' and ' + META.xpEach + ' XP on MET' : '') + ' — '
+        + total + ' point(s)' + (META.xpEach ? ' and ' + totalXp + ' XP' : '')
+        + ' in total — immediately. '
         + 'There is no approval step; withdrawing it afterwards is High Command\'s.')
       : Promise.resolve(confirm('Pay ' + parsed.roll.length + ' attendee(s) ' + total + ' points in total?')));
     if (!okd) return;
@@ -181,7 +197,9 @@
       var out = await api('/api/ia-events', { method: 'POST', body: JSON.stringify(body) });
       closeModal('modal-event');
       showToast(out.event.eventRef + ' filed — ' + out.awarded + ' attendee(s) paid '
-        + out.pointsEach + ' point(s) each.'
+        + out.pointsEach + ' point(s) each'
+        + (out.xpEach ? ', ' + (out.xpAwarded || 0) + ' given ' + out.xpEach + ' XP' : '') + '.'
+        + (out.xpSkipped ? ' ' + out.xpSkipped + ' had no Discord ID, so got no XP.' : '')
         + (out.selfRemoved ? ' You were taken off your own roll.' : ''), 'success');
       ['ev-title', 'ev-cohost', 'ev-duration', 'ev-attendees', 'ev-proof', 'ev-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
