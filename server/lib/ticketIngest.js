@@ -160,24 +160,83 @@ async function nextTicketNo() {
 }
 
 /**
- * Void everything currently waiting, so the queue starts from now.
+ * Clear the backlog so the queue starts from now.
  *
  * A thousand logs nobody was ever going to work through is not a queue, it is
- * a wall. Voiding is deliberately NOT deleting: the rows stay, they still show
- * in All Tickets with their history, they simply stop being somebody's decision
- * to make. And it only touches what is PENDING right now — an approved or
- * denied log is a decision somebody made and is left exactly as it is.
+ * a wall. Everything already waiting is marked APPROVED — not deleted, not
+ * denied, and deliberately not left as an eternal to-do. `voidedAt` is stamped
+ * so the row still says WHY it is approved: nobody reviewed it, the backlog was
+ * cleared.
  *
- * @returns {Promise<{ voided: number }>}
+ * No points are awarded. Approval normally pays the closer two quota points,
+ * and paying out for a thousand historical tickets in one go would be a
+ * fabricated week's work for everybody in the backlog. Future logs arrive
+ * PENDING and pay on approval exactly as before.
+ *
+ * @returns {Promise<{ cleared: number }>}
  */
-async function voidPendingBefore(when) {
+async function clearBacklogBefore(when) {
   const cutoff = when || new Date();
   const res = await prisma.ticketLog.updateMany({
     where: { status: 'PENDING', closedAt: { lt: cutoff } },
-    data:  { status: 'VOID', voidedAt: new Date() },
+    data: {
+      status: 'APPROVED',
+      // The marker that says this was a backlog clear, not a decision.
+      voidedAt: new Date(),
+      reviewedAt: new Date(),
+      reviewedByName: 'Backlog cleared',
+    },
   });
-  console.log(`[TicketLogs] voided ${res.count} pending log(s) closed before ${cutoff.toISOString()}`);
-  return { voided: res.count };
+  console.log(`[TicketLogs] cleared ${res.count} pending log(s) closed before ${cutoff.toISOString()} (approved, no points)`);
+  return { cleared: res.count };
+}
+
+/**
+ * Fill in the handler on rows that have none.
+ *
+ * The column has to name somebody. Rows ingested before the resolver was
+ * exhaustive can still be blank, and re-reading the Discord message for each of
+ * them is slow — but the executor's id is already stored, so the name can be
+ * resolved from that alone.
+ *
+ * @returns {Promise<{ fixed: number, stillBlank: number, checked: number }>}
+ */
+async function backfillHandlers(limit = 5000) {
+  const rows = await prisma.ticketLog.findMany({
+    where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
+    orderBy: { closedAt: 'desc' },
+    take: limit,
+  });
+  let fixed = 0, stillBlank = 0;
+  for (const r of rows) {
+    let name = null;
+    if (r.closerDiscordId) {
+      try {
+        const u = await prisma.user.findUnique({
+          where: { discordId: String(r.closerDiscordId) },
+          select: { displayName: true, discordUsername: true },
+        });
+        name = (u && (u.displayName || u.discordUsername)) || null;
+      } catch (e) { /* keep going */ }
+      if (!name) {
+        try {
+          const { getMemberRecord } = require('./bot');
+          const rec = await getMemberRecord(r.closerDiscordId);
+          name = (rec && (rec.displayName || rec.username)) || null;
+        } catch (e) { /* keep going */ }
+      }
+      if (!name) name = r.closerRaw || String(r.closerDiscordId);
+    } else if (r.closerRaw) {
+      name = r.closerRaw;
+    }
+    if (!name) { stillBlank++; continue; }
+    try {
+      await prisma.ticketLog.update({ where: { id: r.id }, data: { closerUsername: name } });
+      fixed++;
+    } catch (e) { stillBlank++; }
+  }
+  console.log(`[TicketLogs] handler backfill — ${fixed} filled, ${stillBlank} still unattributable of ${rows.length}`);
+  return { fixed, stillBlank, checked: rows.length };
 }
 
 // Upsert one message. Returns 'created' | 'updated' | 'unchanged' | null.
@@ -333,7 +392,7 @@ function startTicketLogWorker(client) {
 }
 
 module.exports = {
-  nextTicketNo, voidPendingBefore,
+  nextTicketNo, clearBacklogBefore, backfillHandlers,
   ingestMessage,
   backfill,
   sweep,

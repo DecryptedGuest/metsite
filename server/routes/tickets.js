@@ -173,15 +173,19 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
   }
 });
 
-// ── POST /api/tickets/void-pending — clear the queue ──────────────
+// ── POST /api/tickets/clear-backlog — clear the queue ─────────────
 // A thousand logs nobody was ever going to work through is a wall, not a
-// queue. This marks everything currently waiting as VOID: the rows stay, they
-// still show in All Tickets with their full history, they simply stop being
-// somebody's decision to make. Approved and denied logs are untouched — those
-// are decisions somebody actually made.
+// queue. Everything already waiting gets closed off as APPROVED and marked as
+// a backlog clear rather than a decision — the rows stay, they keep their full
+// history in All Tickets, and they stop being somebody's decision to make.
+// No points are awarded: nobody reviewed these, so nobody earned anything.
+// Logs closed from now on go into the queue normally and pay out on approval.
+//
+// It also fills in any blank handlers on the way through, because a cleared
+// backlog full of "—" is still unreadable.
 //
 // Dry run unless you pass apply, and it reports the count either way.
-router.post('/void-pending', requireHICOMMStrict, async (req, res) => {
+router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
   const body = req.body || {};
   try {
     const cutoff = body.before ? new Date(body.before) : new Date();
@@ -190,15 +194,34 @@ router.post('/void-pending', requireHICOMMStrict, async (req, res) => {
     const waiting = await prisma.ticketLog.count({
       where: { status: 'PENDING', closedAt: { lt: cutoff } },
     });
-    if (body.apply !== true) return res.json({ dryRun: true, wouldVoid: waiting, before: cutoff });
+    const blank = await prisma.ticketLog.count({
+      where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
+    });
+    if (body.apply !== true) {
+      return res.json({ dryRun: true, wouldClear: waiting, blankHandlers: blank, before: cutoff });
+    }
 
-    const { voidPendingBefore } = require('../lib/ticketIngest');
-    const out = await voidPendingBefore(cutoff);
-    console.log(`[TicketLogs] queue reset by ${req.user.displayName || req.user.discordUsername} — ${out.voided} voided`);
-    res.json({ dryRun: false, ...out, before: cutoff });
+    const { clearBacklogBefore, backfillHandlers } = require('../lib/ticketIngest');
+    const out = await clearBacklogBefore(cutoff);
+    const handlers = await backfillHandlers();
+    console.log(`[TicketLogs] backlog cleared by ${req.user.displayName || req.user.discordUsername} — ${out.cleared} log(s), ${handlers.fixed} handler(s) filled in`);
+    res.json({ dryRun: false, ...out, handlers, before: cutoff });
   } catch (err) {
-    console.error('[TicketLogs] void error:', err.message);
-    res.status(500).json({ error: 'Failed to void the queue.' });
+    console.error('[TicketLogs] backlog clear error:', err.message);
+    res.status(500).json({ error: 'Failed to clear the backlog.' });
+  }
+});
+
+// ── POST /api/tickets/backfill-handlers ───────────────────────────
+// Fill in the handler on any row that has none, without touching status.
+router.post('/backfill-handlers', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { backfillHandlers } = require('../lib/ticketIngest');
+    const out = await backfillHandlers();
+    res.json(out);
+  } catch (err) {
+    console.error('[TicketLogs] handler backfill error:', err.message);
+    res.status(500).json({ error: 'Failed to fill in the handlers.' });
   }
 });
 

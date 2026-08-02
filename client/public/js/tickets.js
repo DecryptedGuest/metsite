@@ -98,9 +98,16 @@ function ticketNumber(t) {
 }
 
 // Who handled it. Every fallback the server resolved, then the raw name the log
-// printed — an em dash here means nobody can action the row.
+// printed, then the id — and only if the log genuinely named nobody does it say
+// so in words. An em dash tells you nothing; "Not recorded" tells you the log
+// itself was missing an executor, which is a different problem from a lookup
+// that failed.
 function ticketHandler(t) {
-  return t.closerUsername || t.closerRaw || t.closerDiscordId || '—';
+  const name = t.closerUsername || t.closerRaw || t.closerDiscordId;
+  if (name) return String(name);
+  return t.reviewedByName && t.reviewedByName !== 'Backlog cleared'
+    ? t.reviewedByName
+    : 'Not recorded';
 }
 
 function ticketRowHtml(t, opts) {
@@ -109,7 +116,11 @@ function ticketRowHtml(t, opts) {
   var closer  = ticketHandler(t);
   return '<tr onclick="openTicketDetail(\'' + t.id + '\')">'
     + '<td><span class="case-ref">' + escapeHtml(ticketNumber(t)) + '</span></td>'
-    + (opts.showCloser ? '<td><span style="font-size:12px;">' + escapeHtml(closer) + '</span></td>' : '')
+    + (opts.showCloser
+        ? '<td><span style="font-size:12px;'
+          + (closer === 'Not recorded' ? 'color:var(--text-muted);font-style:italic;' : '')
+          + '">' + escapeHtml(closer) + '</span></td>'
+        : '')
     + '<td><span style="font-size:12px;font-weight:500;">' + escapeHtml(creator) + '</span></td>'
     + '<td>' + ticketTypeBadge(t.ticketType) + '</td>'
     + '<td><span class="case-reason-cell">' + escapeHtml(t.reason || '—') + '</span></td>'
@@ -371,6 +382,34 @@ document.addEventListener('DOMContentLoaded', function () {
     b.classList.add('active');
     pendingTicketType = b.dataset.tfilter || 'all';
     renderPendingTicketsTable();
+  });
+
+  // Clear the backlog (HICOMM / Developer). Everything waiting becomes
+  // APPROVED and nobody is paid — the count is said out loud first, because
+  // this is a thousand rows changing status in one press.
+  var clear = document.getElementById('btn-ticket-clear-backlog');
+  if (clear) clear.addEventListener('click', async function () {
+    clear.disabled = true;
+    try {
+      var dry = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({}) });
+      if (!dry.wouldClear) { showToast('Nothing waiting — the queue is already clear.', 'success'); return; }
+      var okd = await (typeof uiConfirm === 'function'
+        ? uiConfirm('Clear the ticket backlog?\n\n' + dry.wouldClear + ' log(s) waiting will be marked APPROVED '
+          + 'and stamped as a backlog clear. NO quota points are awarded for any of them. '
+          + 'Logs closed from now on still arrive pending and still pay on approval.')
+        : Promise.resolve(confirm('Approve ' + dry.wouldClear + ' waiting log(s) without paying anybody?')));
+      if (!okd) return;
+      var r = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({ apply: true }) });
+      showToast('Cleared ' + r.cleared + ' log(s).'
+        + (r.handlers && r.handlers.fixed ? ' Filled in ' + r.handlers.fixed + ' handler(s).' : ''), 'success');
+      allTicketsCache = [];
+      loadPendingTickets();
+      loadAllTickets();
+    } catch (err) {
+      showToast(err.message || 'Failed to clear the backlog.', 'error');
+    } finally {
+      clear.disabled = false;
+    }
   });
 
   // Manual re-sync (HICOMM / Developer)

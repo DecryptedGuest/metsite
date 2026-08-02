@@ -917,22 +917,29 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
       }
     }
 
-    // Exile from Roblox group for exile-flagged actions (requires Roblox ID, independent of Discord ID)
+    // Exile for exile-flagged actions (needs a Roblox ID; independent of Discord).
+    //
+    // The MET umbrella group AND every division. Somebody terminated from the
+    // MET is not still a CID detective or an SCO-19 firearms officer, and a
+    // divisional group they stay in is a live rank, live dashboard access, and
+    // a way back in. The note records exactly which groups moved, because a
+    // division that refused is something somebody has to finish by hand.
     if (existing.robloxUserId) {
       let exiledOnce = false;
       for (const a of actions) {
         if (!ACTION_CONFIG[a.action]?.exile) continue;
-        if (exiledOnce) continue; // only need to remove from group once per case
-        const exiled = await exileFromGroup(existing.robloxUserId);
-        exiledOnce   = exiled;
+        if (exiledOnce) continue; // one pass per case covers every group
+        const { exileEverywhere } = require('../lib/exile');
+        const res = await exileEverywhere(existing.robloxUserId);
+        exiledOnce = res.ok;
         await prisma.caseAction.create({
           data: {
             caseId:      existing.id,
             actionType:  'APPROVED',
             performedBy: req.user.id,
-            notes: exiled
-              ? `Roblox group exile executed for "${a.action}" (user ${existing.robloxUserId})`
-              : `Roblox group exile failed for "${a.action}" (user ${existing.robloxUserId})`,
+            notes: res.ok
+              ? `Group exile executed for "${a.action}" (user ${existing.robloxUserId}) — ${res.summary}`
+              : `Group exile FAILED for "${a.action}" (user ${existing.robloxUserId}) — ${res.summary}`,
           },
         });
       }

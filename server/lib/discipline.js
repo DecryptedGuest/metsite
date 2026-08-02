@@ -306,7 +306,20 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
     effects.push({ kind: 'group', text: hasRoblox ? 'Demote one rank in the MET group' : 'Cannot demote — no linked Roblox account' });
   }
   if (cfg.exile) {
-    effects.push({ kind: 'group', text: hasRoblox ? 'Remove from the MET Roblox group' : 'Cannot exile — no linked Roblox account' });
+    if (!hasRoblox) {
+      effects.push({ kind: 'group', text: 'Cannot exile — no linked Roblox account' });
+    } else {
+      // Say every group by name. "Remove from the MET Roblox group" understated
+      // what confirming actually does by four groups.
+      const { exileTargets } = require('./exile');
+      const names = exileTargets().map(t => t.key);
+      effects.push({ kind: 'group', text: 'Remove from the **Metropolitan Police** Roblox group' });
+      const divisions = names.filter(n => n !== 'MET');
+      if (divisions.length) {
+        effects.push({ kind: 'group',
+          text: `Remove from every division they are in — ${divisions.join(', ')}` });
+      }
+    }
   }
   if (cfg.timed) {
     effects.push({ kind: 'expiry', text: durationDays ? `Expires after ${durationDays} day${durationDays === 1 ? '' : 's'}` : 'No end date — stays until lifted' });
@@ -487,9 +500,15 @@ async function applyDiscipline(o) {
     await step('group', async () => {
       const roblox = require('./roblox');
       if (cfg.exile) {
-        const exiled = await roblox.exileFromGroup(o.targetRobloxId);
-        if (!exiled) throw new Error('the group exile was rejected');
-        return 'removed from the group';
+        // The MET umbrella AND every division. Somebody terminated from the MET
+        // is not still a CID detective, and a divisional group they stay in is a
+        // live rank and a way back in.
+        const { exileEverywhere } = require('./exile');
+        const res = await exileEverywhere(o.targetRobloxId);
+        if (!res.ok) throw new Error(res.failed.length ? res.failed[0].error : 'the group exile was rejected');
+        // A division that refused is not a failed termination, but it IS
+        // something somebody has to finish by hand — so it is in the step note.
+        return res.summary;
       }
       const res = await roblox.demoteByOneRank(o.targetRobloxId);
       if (!res.ok) throw new Error(res.reason || 'demotion failed');
