@@ -61,61 +61,138 @@ function strikeLevelOf(type) {
 }
 
 /**
- * The officer's current strike level, read from every place a strike can live.
+ * The officer's current strike level.
  *
- * Three sources, because none of them is complete on its own:
- *   punishments  — /discipline and the Discord infraction ingest write here
- *   cases        — an approved IA case with a strike among its actions
- *   roles        — what they are actually wearing in the server right now
+ * THE ROLE IS THE TRUTH. A strike they are not wearing is a strike they do not
+ * have, whatever the database still says. Roles get taken off by hand all the
+ * time — a strike served, a mistake undone, an amnesty — and none of those ever
+ * touch the record. Escalating a Strike 1 to a Strike 2 because of a row nobody
+ * has looked at in six months, while the officer plainly wears no strike role,
+ * is the command inventing a punishment out of stale data.
  *
- * The Discord roles matter most: a strike handed out by hand, before any of
- * this existed, shows up nowhere in the database but is plainly on the record.
- * Taking the highest of the three is what makes "shows if they already have a
- * strike" true rather than only-true-for-strikes-we-issued.
+ * So the rule is: if we could read their roles, the roles decide. The record
+ * still gets read, and anything it claims that the roles don't back is reported
+ * as CLEARED so the issuer can see it was considered and discounted — but it
+ * does not raise the level and does not trigger an escalation offer.
+ *
+ * Three things the roles cannot settle, where the record stands in:
+ *   · we couldn't read the roles at all (they've left the server, or the fetch
+ *     failed) — an unknown is not a clearance, so the record is used
+ *   · a strike with no role configured for it — there is no role to be missing,
+ *     so "not wearing it" proves nothing and the record is used for that level
+ *   · a strike whose configured role does not exist in the server. The action
+ *     config carries hard-coded role ids as fallbacks, and a wrong one would
+ *     otherwise mean NOBODY ever wears that strike and every record is silently
+ *     discounted — a misconfiguration quietly becoming an amnesty. Pass
+ *     `guildRoleIds` and a role the server has never heard of stops counting as
+ *     evidence of anything.
+ *
+ * `roleIds` must be null/undefined when the roles are UNKNOWN and an empty
+ * array when they are known to be empty. Those two are opposite answers and
+ * conflating them is how an officer wearing nothing keeps a phantom strike.
  *
  * @param {object} opts
  * @param {string} opts.discordId
- * @param {string[]} [opts.roleIds] the member's current Discord role ids
- * @returns {Promise<{ level: number, sources: string[] }>}
+ * @param {string[]|null} [opts.roleIds] current Discord role ids, or null if unknown
+ * @param {string[]|null} [opts.guildRoleIds] every role id the server has, if known
+ * @returns {Promise<{
+ *   level: number,          what they stand at, after the roles have their say
+ *   sources: string[],      how that level was established
+ *   rolesKnown: boolean,    were the roles readable at all
+ *   recordLevel: number,    what the record alone would have said
+ *   roleLevel: number,      what the roles alone say
+ *   cleared: string[],      strikes on record that no worn role backs
+ * }>}
  */
-async function currentStrikeLevel({ discordId, roleIds }) {
-  let level = 0;
-  const sources = [];
+async function currentStrikeLevel({ discordId, roleIds, guildRoleIds }) {
+  const rolesKnown = Array.isArray(roleIds);
+  const worn = new Set(rolesKnown ? roleIds.map(String) : []);
+  // Only meaningful when we were actually given the server's roles; an empty
+  // list means "not told", not "the server has no roles".
+  const guildRoles = Array.isArray(guildRoleIds) && guildRoleIds.length
+    ? new Set(guildRoleIds.map(String)) : null;
+  const roleExists = rid => !guildRoles || guildRoles.has(String(rid));
+  const now = new Date();
 
-  const bump = (n, why) => { if (n > level) { level = n; } if (n > 0) sources.push(why); };
+  // What the record claims, level → why.
+  const claimed = new Map();
+  const claim = (n, why) => { if (n > 0 && !claimed.has(n)) claimed.set(n, why); };
 
-  // 1. Punishment history (includes everything /discipline has ever issued).
+  // 1. Punishment history (/discipline and the Discord infraction ingest).
+  //    Only rows that are still live: an inactive or expired punishment is over,
+  //    and counting it would hold somebody to a strike they have served.
   try {
     const rows = await prisma.metPunishment.findMany({
-      where: { discordId: String(discordId), active: true },
+      where: {
+        discordId: String(discordId),
+        active: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
       select: { type: true, issuedAt: true },
     });
-    for (const r of rows) {
-      const n = strikeLevelOf(r.type);
-      if (n) bump(n, `${r.type} on record`);
-    }
+    for (const r of rows) claim(strikeLevelOf(r.type), `${r.type} on record`);
   } catch (e) { /* a missing table must not block the command */ }
 
-  // 2. Strikes issued through an approved IA case.
+  // 2. Strikes from an approved IA case — again only the ones still standing.
+  //    roleRemoved is set when an appeal is granted or the punishment expires,
+  //    so it is exactly the "this is over" flag.
   try {
     const rows = await prisma.casePunishment.findMany({
-      where: { action: { in: KNOWN_STRIKE_ACTIONS }, case: { officerDiscordId: String(discordId) } },
+      where: {
+        action: { in: KNOWN_STRIKE_ACTIONS },
+        roleRemoved: false,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        case: { officerDiscordId: String(discordId), status: 'APPROVED' },
+      },
       select: { action: true },
     });
-    for (const r of rows) bump(strikeLevelOf(r.action), `${r.action} from a case`);
+    for (const r of rows) claim(strikeLevelOf(r.action), `${r.action} from a case`);
   } catch (e) { /* ditto */ }
 
-  // 3. The roles they're wearing — catches anything done by hand, including a
-  //    Strike 3 role handed out before that strike was retired.
-  if (Array.isArray(roleIds) && roleIds.length) {
-    for (let i = 0; i < KNOWN_STRIKE_ACTIONS.length; i++) {
-      const name = KNOWN_STRIKE_ACTIONS[i];
-      const rid = ACTION_CONFIG[name] && ACTION_CONFIG[name].roleId;
-      if (rid && roleIds.includes(String(rid))) bump(i + 1, `wearing the ${name} role`);
+  const recordLevel = claimed.size ? Math.max(...claimed.keys()) : 0;
+
+  // 3. What they are actually wearing.
+  let roleLevel = 0;
+  const sources = [];
+  const cleared = [];
+  for (let i = 0; i < KNOWN_STRIKE_ACTIONS.length; i++) {
+    const n = i + 1;
+    const name = KNOWN_STRIKE_ACTIONS[i];
+    const rid = ACTION_CONFIG[name] && ACTION_CONFIG[name].roleId;
+    if (rid && worn.has(String(rid))) {
+      roleLevel = Math.max(roleLevel, n);
+      sources.push(`wearing the ${name} role`);
     }
   }
 
-  return { level, sources: [...new Set(sources)] };
+  // 4. Settle it.
+  let level = roleLevel;
+  for (const [n, why] of claimed) {
+    const name = KNOWN_STRIKE_ACTIONS[n - 1];
+    const rid = name && ACTION_CONFIG[name] && ACTION_CONFIG[name].roleId;
+    const checkable = !!rid && roleExists(rid);
+    if (rolesKnown && checkable && !worn.has(String(rid))) {
+      // On record, not worn → cleared. Reported, never counted.
+      cleared.push(why);
+      continue;
+    }
+    // The roles are unknown, or there is no role for this strike to be missing
+    // from, or the configured role isn't a role this server has. The record is
+    // the best evidence there is.
+    if (n > level) level = n;
+    sources.push(rolesKnown && !checkable
+      ? `${why} (${rid ? 'that role does not exist here' : 'no role configured'}, so it could not be checked)`
+      : why);
+  }
+
+  return {
+    level,
+    sources: [...new Set(sources)],
+    rolesKnown,
+    recordLevel,
+    roleLevel,
+    cleared: [...new Set(cleared)],
+  };
 }
 
 /**

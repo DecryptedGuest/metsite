@@ -137,6 +137,20 @@ function recordSummary(record, strike) {
     lines.push(`${e('met_tick')} **No strikes**`);
   }
 
+  // A strike on the record that they are NOT wearing has been discounted. Say
+  // so plainly: the issuer should know it was seen and why it isn't counting,
+  // rather than wondering why an obvious escalation wasn't offered.
+  const cleared = (strike && strike.cleared) || [];
+  if (cleared.length) {
+    lines.push(`${e('met_dot_off')} *Not counted — ${short(cleared.join('; '), 120)}, `
+      + `but they aren't wearing the role, so it's treated as cleared.*`);
+  }
+  // The opposite worry: we couldn't see their roles at all, so the record is
+  // standing in and might be out of date.
+  if (strike && strike.rolesKnown === false && strike.recordLevel) {
+    lines.push(`${e('met_warn')} *Couldn't read their Discord roles — this is from the record alone.*`);
+  }
+
   if (!record.entries.length) {
     // Only mention where the strike came from when the list below doesn't show
     // it — a strike worn as a Discord role appears nowhere else.
@@ -216,14 +230,22 @@ async function handleDisciplineCommand(interaction) {
   const member = interaction.guild
     ? await interaction.guild.members.fetch(target.id).catch(() => null)
     : null;
-  const targetRoleIds = member ? [...member.roles.cache.keys()] : [];
+  // null, NOT [] — an empty array says "wearing no strike roles", which clears
+  // their record; null says "couldn't read them", which doesn't. A failed fetch
+  // must not read as an amnesty.
+  const targetRoleIds = member ? [...member.roles.cache.keys()] : null;
+  // The server's own roles, so a strike role that has been deleted (or a
+  // hard-coded fallback id that was never right for this server) stops counting
+  // as proof that a recorded strike isn't real.
+  const guildRoleIds = interaction.guild && interaction.guild.roles && interaction.guild.roles.cache
+    ? [...interaction.guild.roles.cache.keys()] : null;
 
   const roblox = require('./roblox');
   // Not just RoVer — their portal account, their MET nickname and the bot's own
   // profile record are all checked, because "no Roblox account linked" on a
   // disciplinary record means no exile, no demotion and a log naming nobody.
   const [strike, record, link] = await Promise.all([
-    D.currentStrikeLevel({ discordId: target.id, roleIds: targetRoleIds }),
+    D.currentStrikeLevel({ discordId: target.id, roleIds: targetRoleIds, guildRoleIds }),
     D.loadRecord(target.id),
     require('./robloxLink').resolveRoblox(target.id).catch(() => ({ robloxId: null, username: null })),
   ]);
