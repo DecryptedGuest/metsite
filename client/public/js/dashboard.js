@@ -1353,12 +1353,23 @@ async function loadStats() {
       api('/api/tickets/stats').catch(() => null),
     ]);
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+
+    // The overview cards are the signed-in investigator's OWN figures. They
+    // used to show the whole of Internal Affairs, so "Total Cases" was the
+    // department's total sitting under somebody's personal dashboard — which
+    // reads as theirs and is not.
+    const own = mine || stats;
+    if (own) {
+      set('stat-total',      own.total);
+      set('stat-pending',    own.pending);
+      set('stat-approved',   own.approved);
+      set('stat-denied',     own.denied);
+      set('stat-overturned', own.overturned || 0);
+    }
+
+    // The BADGES stay department-wide: they are the review queue, which is
+    // everybody's, and a supervisor needs to see all of it.
     if (stats) {
-      set('stat-total',      stats.total);
-      set('stat-pending',    stats.pending);
-      set('stat-approved',   stats.approved);
-      set('stat-denied',     stats.denied);
-      set('stat-overturned', stats.overturned || 0);
       for (const id of ['nav-badge-review', 'pending-cases-badge']) {
         const badge = document.getElementById(id);
         if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
@@ -1813,7 +1824,7 @@ window.openPanelsDropdown = function (userId, ev) {
     </label>`;
   }
   const html = `<div class="met-cd-head">Panel access<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
-    <div class="met-cd-note">Defaults come from their group ranks and stay on. Tick extras to grant access.</div>
+    <div class="met-cd-note">Defaults come from their ranks and stay on. Tick extras to grant access.</div>
     <div class="met-cd-list">${rowsHtml}</div>
     <div class="met-cd-foot">
       <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>

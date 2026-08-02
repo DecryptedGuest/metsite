@@ -95,7 +95,7 @@ function ceilingFor(ranks) {
  */
 async function planPromotion(current, issuerRank) {
   if (!current || current.rank == null) {
-    return { ok: false, why: 'Their MET group rank could not be read, so there is nothing to promote from.' };
+    return { ok: false, why: 'Their MET Rank could not be read, so there is nothing to promote from.' };
   }
 
   let ranks;
@@ -233,7 +233,7 @@ async function handlePromoteCommand(interaction) {
       { name: 'To',   value: `${icon(plan.to.name)} ${short(plan.to.name, 40)}`, inline: true },
       ...(reason ? [{ name: 'Reason', value: short(reason, 500), inline: false }] : []),
       { name: 'This will', value: [
-        `${e('met_dot_on')} Set their MET group rank to **${plan.to.name}**`,
+        `${e('met_dot_on')} Set their MET Rank to **${plan.to.name}**`,
         `${e('met_dot_on')} Move their XP to the floor of that rank`,
         `${e('met_dot_on')} DM them, and post it to the XP log`,
       ].join('\n'), inline: false },
@@ -303,7 +303,7 @@ async function handlePromoteButton(interaction) {
     .addFields(
       { name: 'Rank', value: `${short(state.from.name, 40)} → **${short(state.to.name, 40)}**`, inline: false },
       { name: 'Steps', value: [
-        line(result.group.ok, `MET group rank — ${result.group.ok ? `now **${state.to.name}**` : short(result.group.reason || 'failed', 90)}`),
+        line(result.group.ok, `MET Rank — ${result.group.ok ? `now **${state.to.name}**` : short(result.group.reason || 'failed', 90)}`),
         line(result.xp.ok, `XP — ${result.xp.ok ? `set to **${result.xp.value}**` : short(result.xp.reason || 'unchanged', 90)}`),
         line(result.dm, result.dm ? 'Officer notified' : "Couldn't DM them — their DMs are closed"),
         line(result.logged, result.logged ? 'Posted to the XP log' : 'XP log not posted'),

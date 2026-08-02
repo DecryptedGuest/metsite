@@ -537,3 +537,30 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
 .dc-rolepill-dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
 .dc-rolepill-icon { width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: 0 0 auto; }
 .dc-rolepill-name { white-space: nowrap; color: var(--text-primary, #e8edf5); font-weight: 500; }
+
+/* ── Section heading ──────────────────────────────────────────────
+   Names a group of cards so the numbers under it are unambiguous — the
+   overview's stat grid is the signed-in officer's own figures, not the
+   department's, and without a heading there was nothing saying so. */
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: .55rem;
+  flex-wrap: wrap;
+  margin: 1.4rem 0 .7rem;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.section-heading i { font-size: 15px; align-self: center; }
+.section-heading small {
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}

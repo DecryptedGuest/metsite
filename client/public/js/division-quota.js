@@ -51,9 +51,11 @@
 
   function statusChip(m) {
     var q = m.quota || {};
-    if (q.exempt) return "<span class='badge badge-approved' style='background:color-mix(in srgb,var(--purple,#9b6dff) 20%,transparent);color:var(--purple,#9b6dff);'><span class='badge-dot'></span>Exempt</span>";
-    if (m.met === true)  return "<span class='badge badge-approved'><span class='badge-dot'></span>Met</span>";
-    if (m.met === false) return "<span class='badge badge-pending'><span class='badge-dot'></span>Not met</span>";
+    // "MET" on its own reads as the police service, not as a quota that was
+    // met — say which.
+    if (q.exempt) return "<span class='badge badge-approved' style='background:color-mix(in srgb,var(--purple,#9b6dff) 20%,transparent);color:var(--purple,#9b6dff);'><span class='badge-dot'></span>Quota exempt</span>";
+    if (m.met === true)  return "<span class='badge badge-approved'><span class='badge-dot'></span>Quota met</span>";
+    if (m.met === false) return "<span class='badge badge-pending'><span class='badge-dot'></span>Quota not met</span>";
     return "<span class='text-muted' style='font-size:12px;'>—</span>";
   }
 

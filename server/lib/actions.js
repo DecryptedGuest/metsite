@@ -11,14 +11,26 @@
 //   ROLE_SUSPENDED, ROLE_BLACKLIST.
 const env = (name, fallback = null) => process.env[name] || fallback;
 
+// The two roles that were left without a default and so were never assigned.
+// They live in the MET server; overriding them per-deployment still works.
+const WRITTEN_WARNING_ROLE = '1469746159961509999';
+const SUSPENSION_ROLE      = '1429561201331015781';
+
 const ACTION_CONFIG = {
   // RETIRED. The role this pointed at is the Written Warning role, so issuing
   // a "Verbal Warning" gave somebody a written one. Kept so historical records
   // still read back; `retired` keeps it off every list you can pick from.
-  'Verbal Warning':        { get roleId() { return env('ROLE_VERBAL_WARNING'); },                       exile: false, timed: false, retired: true },
-  'Written Warning':       { get roleId() { return env('ROLE_WRITTEN_WARNING'); },                        exile: false, timed: false },
+  // RETIRED, and its env var now points at the Written Warning role because
+  // that is what it always was. Reading the same id keeps historical "Verbal
+  // Warning" records resolving to the role their holder is actually wearing.
+  'Verbal Warning':        { get roleId() { return env('ROLE_VERBAL_WARNING', WRITTEN_WARNING_ROLE); },   exile: false, timed: false, retired: true },
+  // The default matters. With ROLE_WRITTEN_WARNING unset this returned null, so
+  // a written warning assigned NO role — which meant there was nothing for the
+  // rejoin persistence to re-apply, and the punishment quietly evaporated the
+  // moment somebody left the server.
+  'Written Warning':       { get roleId() { return env('ROLE_WRITTEN_WARNING', WRITTEN_WARNING_ROLE); },  exile: false, timed: false },
   'Zero Tolerance':        { get roleId() { return env('ROLE_ZT', '1452275521470726235'); },              exile: false, timed: true  },
-  'Suspension':            { get roleId() { return env('ROLE_SUSPENDED'); },                              exile: false, timed: true  },
+  'Suspension':            { get roleId() { return env('ROLE_SUSPENDED', SUSPENSION_ROLE); },             exile: false, timed: true  },
   'Activity Strike':       { get roleId() { return env('ROLE_ACTIVITY_STRIKE', '1219011548714893343'); }, exile: false, timed: false },
   'Disciplinary Strike 1': { get roleId() { return env('ROLE_STRIKE_1', '1191048287361433738'); },        exile: false, timed: false },
   'Disciplinary Strike 2': { get roleId() { return env('ROLE_STRIKE_2', '1191048287361433739'); },        exile: false, timed: false },

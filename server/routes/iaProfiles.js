@@ -22,6 +22,25 @@ function iaDivisionEntry(u) {
 function isIaMember(u) {
   return !!iaDivisionEntry(u) || ['IA', 'SUPERVISOR'].includes(u.role);
 }
+// Seniority weight for an IA rank label, lowest = most senior. Driven by the
+// canonical IA ladder in lib/ranks.js so it cannot drift from it, with the
+// site-role labels iaRankLabel() invents slotted in around it.
+const IA_LADDER = require('../lib/ranks').RANKS.IA;   // low → high
+function iaRankWeight(label) {
+  const s = String(label || '').trim().toLowerCase();
+  if (!s) return 999;
+  if (s === 'ia hicomm' || /high\s*command/.test(s)) return -1;   // above the ladder
+  // Longest name first: "Senior Investigator" contains "Investigator", and
+  // matching the short one first would put an SINV on a plain Investigator.
+  const byLength = IA_LADDER
+    .map((e, i) => ({ e, rank: IA_LADDER.length - 1 - i }))       // high → low
+    .sort((a, b) => b.e.full.length - a.e.full.length);
+  for (const { e, rank } of byLength) {
+    if (s.includes(e.full.toLowerCase()) || (e.short && s === e.short.toLowerCase())) return rank;
+  }
+  return 999;
+}
+
 // The IA rank label to show — the cached IA group rank name, else the site role.
 function iaRankLabel(u) {
   const e = iaDivisionEntry(u);
@@ -56,7 +75,15 @@ router.get('/search', async (req, res) => {
       orderBy: [{ lastLogin: 'desc' }],
       take: 60,
     });
-    const members = candidates.filter(isIaMember).slice(0, 40);
+    // Rank order, highest first — a list of colleagues reads by seniority, not
+    // by who happened to sign in most recently. Same rank keeps the recent-first
+    // ordering the query already gave us.
+    const members = candidates
+      .filter(isIaMember)
+      .map((u, i) => ({ u, i, w: iaRankWeight(iaRankLabel(u)) }))
+      .sort((a, b) => a.w - b.w || a.i - b.i)
+      .map(x => x.u)
+      .slice(0, 40);
     res.json(members.map(u => ({
       id: u.id, displayName: u.displayName, discordUsername: u.discordUsername,
       discordId: u.discordId, robloxUsername: u.robloxUsername, robloxId: u.robloxId,
@@ -109,7 +136,7 @@ router.get('/:id', async (req, res) => {
     const tickets = await prisma.ticketLog.findMany({
       where: { OR: [{ closerUserId: u.id }, { closerDiscordId: u.discordId }, { reviewedById: u.id }] },
       select: {
-        id: true, ticketRef: true, ticketName: true, ticketType: true, status: true,
+        id: true, ticketNo: true, ticketRef: true, ticketName: true, ticketType: true, status: true,
         reason: true, transcriptUrl: true, creatorRobloxUsername: true,
         closerUsername: true, reviewedByName: true, closedAt: true,
       },

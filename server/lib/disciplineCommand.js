@@ -91,7 +91,7 @@ const STEP_LABELS = {
   lookup:  'Reading their record',
   record:  'Recording the punishment',
   role:    'Applying the Discord role',
-  group:   'Updating their MET group rank',
+  group:   'Updating their MET Rank',
   log:         'Posting to the administrative log',
   record_site: 'Filing it on the MET Dashboard',
   notify:      'Notifying the officer',

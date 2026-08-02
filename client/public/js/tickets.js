@@ -295,7 +295,7 @@ async function openTicketDetail(ticketId) {
     + targetHtml
     + '</div>'
     + '<div style="margin-top:1rem;padding:9px 12px;border-radius:8px;background:var(--blue-dim);border:1px solid var(--border-dim);font-size:11.5px;color:var(--text-secondary);">'
-    +   '<i class="ti ti-info-circle"></i> Ticket logs are mirrored from Discord automatically — nobody logs one by hand. Approving one awards the investigator who closed it <strong>2 quota points</strong>.'
+    +   '<i class="ti ti-info-circle"></i> This ticket log was sent from Discord automatically.'
     + '</div>'
     + ((t.status || 'PENDING') === 'PENDING' && canReview()
         ? '<div style="margin-top:0.9rem;display:flex;gap:8px;justify-content:flex-end;">'

@@ -214,12 +214,21 @@
         <div class="attention-items" id="attention-items"></div>
       </div>
 
+      <!-- These are the signed-in investigator's OWN numbers, not the whole of
+           Internal Affairs. Saying so above them stops "Total Cases: 412" from
+           reading as a personal figure. -->
+      <div class="section-heading fade-up">
+        <i class="ti ti-user-circle"></i>
+        <span>My statistics</span>
+        <small>your own cases and tickets — not the whole of Internal Affairs</small>
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card blue fade-up stagger-1">
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-files"></i></div>
             <div class="stat-body">
-              <div class="stat-label">Total Cases</div>
+              <div class="stat-label">My Cases</div>
               <div class="stat-value" id="stat-total"><div class="skeleton" style="height:28px;width:40px;"></div></div>
             </div>
           </div>
@@ -229,7 +238,7 @@
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
             <div class="stat-body">
-              <div class="stat-label">Pending Review</div>
+              <div class="stat-label">Awaiting Review</div>
               <div class="stat-value" id="stat-pending"><div class="skeleton" style="height:28px;width:40px;"></div></div>
             </div>
           </div>
@@ -269,7 +278,7 @@
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-ticket"></i></div>
             <div class="stat-body">
-              <div class="stat-label">Tickets closed (7d)</div>
+              <div class="stat-label">My Tickets closed (7d)</div>
               <div class="stat-value" id="stat-tickets-week"><div class="skeleton" style="height:28px;width:40px;"></div></div>
             </div>
           </div>

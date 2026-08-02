@@ -263,11 +263,20 @@ input, textarea, select { font-family: var(--font-body); }
   text-transform: uppercase;
 }
 
+/* The dot inherits the badge's own colour by default.
+   It used to have no background at all, so every badge variant without its own
+   `.badge-dot` rule — badge-blue, badge-red, badge-green, badge-hicomm,
+   badge-ia and anything added later — drew a transparent 5px square and a 5px
+   gap. That is the empty space on the left of a rank chip or a ticket status.
+   currentColor means a new variant is right the moment it is written, and the
+   explicit rules below still win where a specific glow is wanted. */
 .badge-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: currentColor;
+  box-shadow: 0 0 5px currentColor;
 }
 
 .badge-pending {

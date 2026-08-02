@@ -194,22 +194,42 @@ async function clearBacklogBefore(when) {
 /**
  * Fill in the handler on rows that have none.
  *
- * The column has to name somebody. Rows ingested before the resolver was
- * exhaustive can still be blank, and re-reading the Discord message for each of
- * them is slow — but the executor's id is already stored, so the name can be
- * resolved from that alone.
+ * The column has to name somebody, and one repair pass was not enough to make
+ * that true. Rows ingested by older code can have closerDiscordId AND closerRaw
+ * both null — the executor was never captured — and no amount of resolving from
+ * stored columns can invent it. Those are the rows still reading "Not recorded"
+ * next to a Discord log that plainly says who closed the ticket.
  *
- * @returns {Promise<{ fixed: number, stillBlank: number, checked: number }>}
+ * So this has two stages, and the second is the one that makes it permanent:
+ *
+ *   1. Resolve from what is stored: site account → live member record → the
+ *      captured executor text → the bare id.
+ *   2. When that yields nothing, GO BACK TO THE SOURCE. messageId and channelId
+ *      are on every row, so the original embed can be refetched and re-parsed
+ *      with today's parser. A row whose message still exists can always be
+ *      attributed, whatever version of the code first stored it.
+ *
+ * Stage 2 costs a Discord fetch per row, so it only runs for rows stage 1 could
+ * not touch — in practice a handful, once.
+ *
+ * @param {number} [limit]
+ * @param {object} [opts]
+ * @param {boolean} [opts.refetch=true] allow stage 2
+ * @returns {Promise<{ fixed: number, refetched: number, stillBlank: number, checked: number }>}
  */
-async function backfillHandlers(limit = 5000) {
+async function backfillHandlers(limit = 5000, opts = {}) {
+  const allowRefetch = opts.refetch !== false;
   const rows = await prisma.ticketLog.findMany({
     where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
     orderBy: { closedAt: 'desc' },
     take: limit,
   });
-  let fixed = 0, stillBlank = 0;
+  let fixed = 0, refetched = 0, stillBlank = 0;
+
   for (const r of rows) {
     let name = null;
+    let patch = {};
+
     if (r.closerDiscordId) {
       try {
         const u = await prisma.user.findUnique({
@@ -229,14 +249,54 @@ async function backfillHandlers(limit = 5000) {
     } else if (r.closerRaw) {
       name = r.closerRaw;
     }
+
+    // Stage 2 — the row stores no executor at all. The message does.
+    if (!name && allowRefetch && r.messageId) {
+      try {
+        const fresh = await rowFromMessageId(r.messageId, r.channelId);
+        if (fresh) {
+          if (fresh.closerUsername) name = fresh.closerUsername;
+          // Store the ids too, so this row never needs a refetch again.
+          if (fresh.closerDiscordId) patch.closerDiscordId = fresh.closerDiscordId;
+          if (fresh.closerRaw)       patch.closerRaw       = fresh.closerRaw;
+          if (fresh.closerUserId)    patch.closerUserId    = fresh.closerUserId;
+          if (name) refetched++;
+        }
+      } catch (e) { /* the message may be gone — that is a real dead end */ }
+    }
+
     if (!name) { stillBlank++; continue; }
     try {
-      await prisma.ticketLog.update({ where: { id: r.id }, data: { closerUsername: name } });
+      await prisma.ticketLog.update({ where: { id: r.id }, data: { ...patch, closerUsername: name } });
       fixed++;
     } catch (e) { stillBlank++; }
   }
-  console.log(`[TicketLogs] handler backfill — ${fixed} filled, ${stillBlank} still unattributable of ${rows.length}`);
-  return { fixed, stillBlank, checked: rows.length };
+
+  console.log(`[TicketLogs] handler backfill — ${fixed} filled (${refetched} by re-reading Discord), `
+    + `${stillBlank} still unattributable of ${rows.length}`);
+  return { fixed, refetched, stillBlank, checked: rows.length };
+}
+
+/**
+ * Refetch one ticket-log message from Discord and re-parse it with the current
+ * parser. Returns the same shape rowFromMessage() produces, or null.
+ *
+ * This is what makes the handler repairable rather than lost: the row keeps the
+ * message id forever, and the message is the original source of truth.
+ */
+async function rowFromMessageId(messageId, channelId) {
+  const { getClient } = require('./bot');
+  const client = typeof getClient === 'function' ? getClient() : null;
+  if (!client) return null;
+  const chId = String(channelId || TICKET_LOG_CHANNEL_ID() || '');
+  if (!chId) return null;
+
+  const channel = await client.channels.fetch(chId).catch(() => null);
+  if (!channel || typeof channel.messages?.fetch !== 'function') return null;
+
+  const msg = await channel.messages.fetch(String(messageId)).catch(() => null);
+  if (!msg) return null;
+  return rowFromMessage(msg);
 }
 
 // Upsert one message. Returns 'created' | 'updated' | 'unchanged' | null.
@@ -375,8 +435,25 @@ async function sweep(client, opts) {
   _sweeping = true;
   try {
     const s = await backfill(client, opts);
-    if (s.created || s.updated || s.error) {
-      console.log(`[TicketLogs] sweep — scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}${s.error ? `, error: ${s.error}` : ''}`);
+
+    // Repair any blank handler on every sweep, not only when somebody presses a
+    // button. A column that has to name somebody cannot depend on a human
+    // noticing it is empty — the sweep runs every five minutes, so a row that
+    // arrives unattributable (a closer who had left, a cold member cache) is
+    // named within one cycle instead of sitting there as "Not recorded".
+    // Capped small so a routine sweep never turns into a long refetch job.
+    try {
+      const h = await backfillHandlers(200);
+      if (h.fixed) s.handlersFixed = h.fixed;
+      if (h.stillBlank) s.handlersBlank = h.stillBlank;
+    } catch (e) {
+      console.warn('[TicketLogs] handler repair skipped:', e.message);
+    }
+
+    if (s.created || s.updated || s.error || s.handlersFixed) {
+      console.log(`[TicketLogs] sweep — scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
+        + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
+        + (s.error ? `, error: ${s.error}` : ''));
     }
     return s;
   } finally {
@@ -392,7 +469,7 @@ function startTicketLogWorker(client) {
 }
 
 module.exports = {
-  nextTicketNo, clearBacklogBefore, backfillHandlers,
+  nextTicketNo, clearBacklogBefore, backfillHandlers, rowFromMessageId,
   ingestMessage,
   backfill,
   sweep,

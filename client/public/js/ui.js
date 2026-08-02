@@ -21,14 +21,59 @@ if (typeof window !== 'undefined') {
 // appear in rank order. Returns a weight (lower = higher rank); unknown ranks
 // sort last. Matched most-senior-first so "Detective Chief Inspector" beats the
 // bare "Inspector" entry. Used by the quota renderers.
+// [pattern, weight] rather than a bare ordered list, because seniority order
+// and match order are not the same thing. "Investigator" outranks "Junior
+// Investigator" but the word *investigator* is inside both, so the specific
+// patterns have to be TESTED first while carrying their own — later — weight.
+// A plain ordered list gets that pair wrong every time.
+//
+// Weights are spaced by 10 so a rank can be slotted in without renumbering.
 var MET_RANK_LADDER = [
-  /commissioner/i, /director/i, /commander/i, /superintendent/i,
-  /chief\s*inspector/i, /inspector/i, /sergeant/i, /constable/i,
-  /senior\s*operator/i, /operator/i, /officer/i, /cadet|recruit|trainee/i,
+  // Tested most-specific first.
+  [/deputy\s*assistant\s*commissioner/i,        15],
+  [/assistant\s*commissioner/i,                 12],
+  [/deputy\s*commissioner/i,                    11],
+  [/\bcommissioner\b/i,                         10],
+  [/chief\s*of\s*(police|staff)/i,              10],
+  [/deputy\s*director/i,                        22],
+  [/assistant\s*director/i,                     24],
+  [/\bdirector\b/i,                             20],
+  [/deputy\s*(unit\s*)?commander/i,             32],
+  [/assistant\s*commander/i,                    34],
+  [/unit\s*commander/i,                         33],
+  [/\bcommander\b/i,                            30],
+  [/chief\s*superintendent/i,                   40],
+  [/superintendent/i,                           42],
+  [/chief\s*inspector/i,                        50],
+  [/(^|[^a-z])inspector/i,                      52],
+  // IA's own ladder. Without these every IA member scored the same "unknown"
+  // weight and the tables fell back to whatever order the API returned.
+  [/supervisor/i,                               60],
+  [/senior\s*investigator/i,                    62],
+  [/junior\s*investigator/i,                    66],
+  [/probationary\s*investigator/i,              68],
+  [/investigator/i,                             64],
+  [/sergeant/i,                                 70],
+  [/(^|[^a-z])constable/i,                      80],
+  [/lead\s*instructor/i,                        61],
+  [/senior\s*instructor/i,                      63],
+  [/junior\s*instructor/i,                      67],
+  [/instructor/i,                               65],
+  [/database\s*manager/i,                       63],
+  [/senior\s*operator/i,                        84],
+  [/operator/i,                                 86],
+  // Before the bare "officer" test — "Community Support Officer" contains it.
+  [/community\s*support\s*officer|\bcso\b/i,    94],
+  [/senior\s*officer/i,                         88],
+  [/junior\s*officer/i,                         92],
+  [/(^|[^a-z])officer/i,                        90],
+  [/cadet|recruit|trainee|awaiting/i,           96],
 ];
 function metRankWeight(rank) {
   var r = String(rank == null ? '' : rank);
-  for (var i = 0; i < MET_RANK_LADDER.length; i++) if (MET_RANK_LADDER[i].test(r)) return i;
+  for (var i = 0; i < MET_RANK_LADDER.length; i++) {
+    if (MET_RANK_LADDER[i][0].test(r)) return MET_RANK_LADDER[i][1];
+  }
   return 999;
 }
 if (typeof window !== 'undefined') window.metRankWeight = metRankWeight;

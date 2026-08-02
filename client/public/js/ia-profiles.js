@@ -87,26 +87,45 @@
     </div>`;
   }
 
+  // A row you can read but not open is a dead end — every case and ticket here
+  // exists elsewhere on this dashboard with a full detail view, so clicking one
+  // opens that rather than making somebody go and find it. The link buttons in
+  // the last column stop the click so they still do their own thing.
   function caseRowHtml(c) {
-    return `<tr>
+    const open = typeof window.openCaseDetail === 'function'
+      ? ` onclick="iapOpenCase('${esc(c.id)}')" style="cursor:pointer;" title="Open this case"` : '';
+    return `<tr class="iap-clickable"${open}>
       <td><span class="case-ref">${esc(c.caseRef || '—')}</span>${c.origin === 'IA' ? ' <span class="met-chip" style="font-size:9px;">IA</span>' : ''}</td>
       <td>${esc(c.robloxUsername || c.suspectRobloxDisplayName || '—')}</td>
       <td>${esc(c.action || '—')}</td>
       <td>${statusBadge(c.status)}</td>
       <td class="date-cell">${esc(fmtDate(c.createdAt))}</td>
-      <td>${c.caseLink ? `<a href="${esc(c.caseLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open case in new tab" aria-label="Open case in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
+      <td onclick="event.stopPropagation();">${c.caseLink ? `<a href="${esc(c.caseLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open case in new tab" aria-label="Open case in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
     </tr>`;
   }
   function ticketRowHtml(t) {
-    return `<tr>
-      <td><span class="case-ref">${esc(t.ticketRef || '—')}</span></td>
+    const open = typeof window.openTicketDetail === 'function'
+      ? ` onclick="iapOpenTicket('${esc(t.id)}')" style="cursor:pointer;" title="Open this ticket log"` : '';
+    return `<tr class="iap-clickable"${open}>
+      <td><span class="case-ref">${esc(t.ticketNo ? '#' + String(t.ticketNo).padStart(4, '0') : (t.ticketRef || '—'))}</span></td>
       <td>${esc(t.ticketType || '—')}</td>
       <td>${esc(t.creatorRobloxUsername || '—')}</td>
       <td>${statusBadge(t.status)}</td>
       <td class="date-cell">${esc(fmtDate(t.closedAt))}</td>
-      <td>${t.transcriptUrl ? `<a href="${esc(t.transcriptUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ticket transcript in new tab" aria-label="Open ticket transcript in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
+      <td onclick="event.stopPropagation();">${t.transcriptUrl ? `<a href="${esc(t.transcriptUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ticket transcript in new tab" aria-label="Open ticket transcript in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
     </tr>`;
   }
+
+  // The detail modals live on the dashboard and are loaded already; these just
+  // say plainly when one isn't, rather than failing silently on a click.
+  window.iapOpenCase = function (id) {
+    if (typeof window.openCaseDetail === 'function') return window.openCaseDetail(id);
+    if (window.showToast) showToast('Case detail is unavailable on this page.', 'error');
+  };
+  window.iapOpenTicket = function (id) {
+    if (typeof window.openTicketDetail === 'function') return window.openTicketDetail(id);
+    if (window.showToast) showToast('Ticket detail is unavailable on this page.', 'error');
+  };
 
   function profileHtml(p) {
     const cases = p.cases || { total: 0, byStatus: {}, items: [] };
