@@ -21,7 +21,162 @@ document.addEventListener("DOMContentLoaded", function () {
   if (mc) mc.addEventListener("click", checkMetDatabase);
   var ma = document.getElementById("btn-metdb-apply");
   if (ma) ma.addEventListener("click", applyMetDatabase);
+
+  // MET database audit
+  var ar = document.getElementById("btn-metaudit-run");
+  if (ar) ar.addEventListener("click", runMetAudit);
+  var af2 = document.getElementById("btn-metaudit-fill");
+  if (af2) af2.addEventListener("click", function () { normaliseMetDb(false); });
+  var arst = document.getElementById("btn-metaudit-reset");
+  if (arst) arst.addEventListener("click", function () { normaliseMetDb(true); });
 });
+
+// ── MET database audit ────────────────────────────────────────────
+// Read-only. Says what is wrong with the sheet; the two buttons beside it fix
+// the half that is safe to fix from here (day cells), and everything structural
+// — wrong rank tab, missing person, someone who has left — is listed for a
+// human to act on rather than done silently.
+var metAudit = null;
+
+function auditGroup(title, items, tone, render) {
+  if (!items || !items.length) return "";
+  return '<div class="metdb-col"><div class="metdb-col-head">' + title
+    + ' <span class="metdb-count ' + (tone || "") + '">' + items.length + '</span></div>'
+    + '<ul class="metdb-list">' + items.slice(0, 60).map(render).join("")
+    + (items.length > 60 ? '<li><span class="metdb-why">…and ' + (items.length - 60) + ' more</span></li>' : "")
+    + '</ul></div>';
+}
+
+function problemsOf(report, kind) {
+  return (report.members || []).filter(function (m) {
+    return (m.problems || []).some(function (p) { return p.kind === kind; });
+  });
+}
+
+function renderMetAudit(report) {
+  var box = document.getElementById("metaudit-result");
+  if (!box) return;
+  if (!report || report.error) {
+    box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> '
+      + escapeHtml((report && report.error) || "Audit failed.") + '</div>';
+    return;
+  }
+  var s = report.summary || {};
+  var pill = function (n, label, tone) {
+    return '<span>' + label + ': <strong class="' + (n ? (tone || "") : "") + '">' + n + '</strong></span>';
+  };
+  var summary = '<div class="metdb-summary">'
+    + pill(s.members || 0, "on the sheet")
+    + pill(s.clean || 0, "with nothing wrong", "good")
+    + pill(s.wrongTab || 0, "wrong rank tab", "bad")
+    + pill(s.missingFromSheet || 0, "in the group, not on a tab", "bad")
+    + pill(s.notInGroup || 0, "left the group", "bad")
+    + pill(s.duplicates || 0, "duplicate rows", "bad")
+    + pill(s.blankDays || 0, "blank day cells", "bad")
+    + pill(s.junkDays || 0, "unreadable day cells", "bad")
+    + pill(s.missingDiscordId || 0, "no Discord ID", "bad")
+    + pill(s.markers || 0, "EX/LOA (kept)")
+    + '</div>'
+    + (report.groupError
+        ? '<div class="metdb-hint"><i class="ti ti-alert-triangle"></i> Couldn\'t read the MET Roblox group, so the rank cross-check was skipped: '
+          + escapeHtml(report.groupError) + '</div>'
+        : "");
+
+  var where = function (m) { return escapeHtml(m.tab) + " row " + m.row; };
+  var cols = '<div class="metdb-cols">'
+    + auditGroup("Wrong rank tab", problemsOf(report, "WRONG_TAB"), "bad", function (m) {
+        var p = (m.problems || []).find(function (x) { return x.kind === "WRONG_TAB"; }) || {};
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + " — " + escapeHtml(p.detail || "") + '</span></li>';
+      })
+    + auditGroup("In the group, on no tab", report.missingFromSheet || [], "bad", function (g) {
+        return '<li><span class="metdb-name">' + escapeHtml(g.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(g.rank || "") + ' — add to "' + escapeHtml(g.shouldBe) + '"</span></li>';
+      })
+    + auditGroup("On the sheet, not in the group", problemsOf(report, "NOT_IN_GROUP"), "bad", function (m) {
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + '</span></li>';
+      })
+    + auditGroup("Duplicate rows", problemsOf(report, "DUPLICATE"), "bad", function (m) {
+        var p = (m.problems || []).find(function (x) { return x.kind === "DUPLICATE"; }) || {};
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(p.detail || "") + '</span></li>';
+      })
+    + auditGroup("No Discord ID", problemsOf(report, "MISSING_DISCORD_ID"), "bad", function (m) {
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + '</span></li>';
+      })
+    + auditGroup("Rank the database doesn't track", problemsOf(report, "RANK_NOT_TRACKED"), "", function (m) {
+        var p = (m.problems || []).find(function (x) { return x.kind === "RANK_NOT_TRACKED"; }) || {};
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + " — " + escapeHtml(p.detail || "") + '</span></li>';
+      })
+    + '</div>';
+
+  var footer = (s.blankDays || s.junkDays)
+    ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> <strong>Fill blanks with 0</strong> will write '
+      + ((s.blankDays || 0) + (s.junkDays || 0)) + ' cell(s). Nothing has been written yet.</div>'
+    : '<div class="metdb-hint"><i class="ti ti-check"></i> No blank or unreadable day cells.</div>';
+
+  box.innerHTML = summary + cols + footer;
+}
+
+async function runMetAudit() {
+  var btn = document.getElementById("btn-metaudit-run");
+  var box = document.getElementById("metaudit-result");
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Auditing…"; }
+  try {
+    metAudit = await api("/api/quota/met-database/audit");
+    renderMetAudit(metAudit);
+    var t = document.getElementById("metaudit-target");
+    if (t && metAudit.target != null) t.textContent = metAudit.target;
+    var fill = document.getElementById("btn-metaudit-fill");
+    var reset = document.getElementById("btn-metaudit-reset");
+    var s = metAudit.summary || {};
+    if (fill)  fill.disabled  = !((s.blankDays || 0) + (s.junkDays || 0));
+    if (reset) reset.disabled = !(s.members || 0);
+  } catch (err) {
+    metAudit = null;
+    renderMetAudit({ error: err.message || "Audit failed." });
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-list-search'></i> Audit"; }
+  }
+}
+
+async function normaliseMetDb(reset) {
+  if (!metAudit) { showToast("Run the audit first.", "error"); return; }
+  var s = metAudit.summary || {};
+  if (reset) {
+    // Zeroing a live database is not something to do by accident, and there is
+    // no undo — so the confirmation says the number out loud.
+    var ok = await (typeof uiConfirm === "function"
+      ? uiConfirm("Reset EVERY day cell on the MET database to 0? That clears "
+          + (s.pointsToClear || 0) + " point(s) across " + (s.members || 0)
+          + " member(s). EX and LOA cells are left alone. This cannot be undone.")
+      : Promise.resolve(confirm("Reset every day cell to 0? This cannot be undone.")));
+    if (!ok) return;
+  }
+
+  var btn = document.getElementById(reset ? "btn-metaudit-reset" : "btn-metaudit-fill");
+  var label = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Writing…"; }
+  try {
+    var result = await api("/api/quota/met-database/normalise", {
+      method: "POST",
+      body: JSON.stringify({ reset: !!reset, fillBlanks: true, apply: true }),
+    });
+    showToast(reset
+      ? "MET database reset — " + result.cleared + " cell(s) cleared, " + result.filled
+        + " blank(s) filled, " + result.kept + " EX/LOA kept."
+      : "Filled " + result.filled + " blank cell(s).", "success");
+    await runMetAudit();
+  } catch (err) {
+    showToast(err.message || "Write failed.", "error");
+  } finally {
+    if (btn) { btn.innerHTML = label; }
+  }
+}
 
 // ── MET database sync ─────────────────────────────────────────────
 // "Check" is a dry run: it shows exactly who would be removed (no longer in the

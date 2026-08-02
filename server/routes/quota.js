@@ -152,4 +152,48 @@ router.post('/met-database/sync', requireHICOMMStrict, async (req, res) => {
   }
 });
 
+// ── MET database audit ────────────────────────────────────────────
+// GET  /api/quota/met-database/audit    what is wrong with the sheet
+// POST /api/quota/met-database/normalise  fix the fixable half
+//
+// The audit is read-only and safe to run at any time. Normalise only ever
+// writes zeros into the seven day columns — it never adds, deletes or moves a
+// row, and never touches a cell holding EX or LOA. Moving somebody to their
+// correct rank tab is reported, not performed: that is a structural edit to a
+// live sheet with no undo, and the operator should be the one making it.
+router.get('/met-database/audit', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { auditMet, summarise } = require('../lib/metDatabaseAudit');
+    const report = await auditMet({ checkGroup: req.query.group !== '0' });
+    if (!report.ok) return res.status(400).json(report);
+    res.json({ ...report, summaryText: summarise(report) });
+  } catch (err) {
+    console.error('[MetDB] audit error:', err.message);
+    res.status(500).json({ error: 'MET database audit failed: ' + err.message });
+  }
+});
+
+router.post('/met-database/normalise', requireHICOMMStrict, async (req, res) => {
+  const body = req.body || {};
+  try {
+    const { normaliseMet } = require('../lib/metDatabaseAudit');
+    const result = await normaliseMet({
+      fillBlanks: body.fillBlanks !== false,
+      reset:      !!body.reset,
+      // Default to a dry run. Zeroing a live database is not something to do by
+      // accident, so the caller has to say apply:true explicitly.
+      dryRun:     body.apply !== true,
+    });
+    if (!result.ok) return res.status(400).json(result);
+    if (!result.dryRun) {
+      console.log(`[MetDB] normalised by ${req.user.displayName || req.user.discordUsername}`
+        + ` — ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[MetDB] normalise error:', err.message);
+    res.status(500).json({ error: 'MET database normalise failed: ' + err.message });
+  }
+});
+
 module.exports = router;

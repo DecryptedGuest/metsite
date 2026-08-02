@@ -1441,6 +1441,32 @@
           <div id="metdb-result"></div>
         </div>
       </div>
+
+      <!-- MET database audit — is the sheet itself correct? -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>MET Database Audit</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" id="btn-metaudit-run"><i class="ti ti-list-search"></i> Audit</button>
+            <button class="btn btn-ghost btn-sm" id="btn-metaudit-fill" disabled><i class="ti ti-eraser"></i> Fill blanks with 0</button>
+            <button class="btn btn-danger btn-sm" id="btn-metaudit-reset" disabled><i class="ti ti-refresh-alert"></i> Reset all points to 0</button>
+          </div>
+        </div>
+        <div style="padding:1rem 1.2rem;">
+          <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Checks every rank tab against the MET Roblox group: who is on the wrong tab, who is in the
+            group but on no tab, who is on the sheet but has left, duplicate rows, blank day cells and
+            anything in a day column that isn't a number. <strong>Fill blanks</strong> writes 0 into
+            empty or unreadable day cells. <strong>Reset all points</strong> zeroes every day cell so
+            counting starts clean — the weekly quota is
+            <strong id="metaudit-target">3</strong> events, one database point each. Neither ever
+            touches a cell marked <code>EX</code> or <code>LOA</code>, and neither adds, deletes or
+            moves a row: rank-tab moves are listed for you to make.
+          </p>
+          <div id="metaudit-result"></div>
+        </div>
+      </div>
+
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> Investigator of the Week</div>

@@ -1068,6 +1068,6 @@ module.exports = {
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
   normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
-  quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET,
+  quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
   getQuotaExemptHolders, holdsQuotaExempt,
 };
