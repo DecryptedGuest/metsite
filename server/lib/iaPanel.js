@@ -495,8 +495,7 @@ async function caseView(kase, precomputed) {
   }
 
   const links = [];
-  if (ev.documentUrl) links.push(`[Case document](${ev.documentUrl})`);
-  if (ev.caseLink && ev.caseLink !== ev.documentUrl) links.push(`[External link](${ev.caseLink})`);
+  if (ev.caseLink) links.push(`[Case file](${ev.caseLink})`);
   links.push(`[Open on the MET Dashboard](${baseUrl()}/ia/dashboard#case-${encodeURIComponent(kase.caseRef)})`);
   embed.addFields({ name: 'Open', value: links.join(' · '), inline: false });
 
@@ -539,7 +538,7 @@ function shareConfirmView(kase, ev, channel) {
         `\`${short(kase.caseRef, 20)}\` · ${short(kase.action, 40)}\n`
         + `${e('met_user')} ${kase.robloxUsername ? short(kase.robloxUsername, 30) : (kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'unknown')}`
         + ` · filed ${when(kase.createdAt)}`
-        + (ev.hasDocument ? `\n${e('met_folder')} From the case document` : `\n${e('met_folder')} From the case itself`),
+        + `\n${e('met_folder')} ${ev.caseLink ? 'From the case file' : 'From the case itself'}`,
         inline: false },
       { name: `What will be sent (${ev.exhibits.length})`, value: short(lines.join('\n'), 1000), inline: false },
     )

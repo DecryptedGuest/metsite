@@ -202,8 +202,19 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
     }
 
     const { clearBacklogBefore, backfillHandlers } = require('../lib/ticketIngest');
+    // The clear itself is one UPDATE and always finishes. The handler repair is
+    // a per-row job that can involve a Discord fetch each, so it is capped hard
+    // here and never allowed to refetch — at nine thousand rows an uncapped
+    // repair turns this request into a several-minute hang, which is
+    // indistinguishable from the button doing nothing. The sweep picks up the
+    // rest a few at a time.
     const out = await clearBacklogBefore(cutoff);
-    const handlers = await backfillHandlers();
+    let handlers = { fixed: 0, stillBlank: 0, checked: 0 };
+    try {
+      handlers = await backfillHandlers(200, { refetch: false });
+    } catch (e) {
+      console.warn('[TicketLogs] handler repair skipped during clear:', e.message);
+    }
     console.log(`[TicketLogs] backlog cleared by ${req.user.displayName || req.user.discordUsername} — ${out.cleared} log(s), ${handlers.fixed} handler(s) filled in`);
     res.json({ dryRun: false, ...out, handlers, before: cutoff });
   } catch (err) {

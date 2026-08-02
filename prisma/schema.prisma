@@ -162,8 +162,12 @@ model Case {
   // Set when the submitter edits a case that had changes requested — records the
   // computed diff so the change history survives further edits.
   reviewRevisions             Json?
-  // Built-in case document (replaces the external Google Doc link). caseLink is
-  // still written for backwards compatibility and points at /case-doc/<id>.
+  // Exhibits captured from the linked case file when it was imported, as
+  // [{ label, url, note }]. Stored rather than re-read, because reading them
+  // means fetching somebody else's Google Doc on every panel open.
+  evidence                    Json?
+  // Retained for historical rows filed while case documents were written on the
+  // site. Nothing writes it now; the case file is the linked document again.
   documentId                  String?
   // Appeal state. An appeal is auto-granted, so this is set at the moment it is
   // filed; the case's status moves to OVERTURNED and its punishments are lifted.

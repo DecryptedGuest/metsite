@@ -45,10 +45,6 @@
         if (typeof window.openNewCaseModal === 'function') window.openNewCaseModal();
         else window.location.href = '/ia/dashboard';
       } },
-    { label: 'New case document', icon: 'ti-file-plus', action: () => {
-        if (window.CaseDoc) window.CaseDoc.openBuilder({});
-        else window.location.href = '/ia/dashboard';
-      } },
     { label: 'Sign out', icon: 'ti-logout', action: () => {
         const f = document.createElement('form'); f.method = 'POST'; f.action = '/auth/logout';
         document.body.appendChild(f); f.submit();

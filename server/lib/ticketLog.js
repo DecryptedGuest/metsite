@@ -160,20 +160,31 @@ function parseTicketLogEmbed(embed) {
 // transcript. discord.js exposes message.components as ActionRows, each holding
 // button components; link buttons carry a `.url`. Returns the first button URL
 // that mentions "transcript" (by label or url), else the first link-button URL.
+// Tickety hosts the transcripts, so a tickety.top link is the one that actually
+// opens a transcript — anything else on the message is some other button. It is
+// preferred over a merely transcript-shaped URL rather than taken on order, but
+// never invented: a message that only offers another host keeps that link,
+// because a fabricated tickety URL is a dead one.
+const TICKETY_HOST = /(^|\.)tickety\.top$/i;
+function isTicketyUrl(url) {
+  try { return TICKETY_HOST.test(new URL(String(url)).hostname); } catch (e) { return false; }
+}
+
 function transcriptUrlFromComponents(components) {
   if (!Array.isArray(components)) return null;
-  let firstUrl = null;
+  let firstUrl = null, namedTranscript = null;
   for (const row of components) {
     const children = row?.components || [];
     for (const c of children) {
       const url = c?.url || (typeof c?.toJSON === 'function' ? c.toJSON().url : null);
       if (!url) continue;
+      if (isTicketyUrl(url)) return url;                 // the real transcript
       if (!firstUrl) firstUrl = url;
       const label = (c?.label || '').toLowerCase();
-      if (label.includes('transcript') || /transcript/i.test(url)) return url;
+      if (!namedTranscript && (label.includes('transcript') || /transcript/i.test(url))) namedTranscript = url;
     }
   }
-  return firstUrl;
+  return namedTranscript || firstUrl;
 }
 
 module.exports = {
@@ -184,4 +195,5 @@ module.exports = {
   firstMentionId,
   parseTicketLogEmbed,
   transcriptUrlFromComponents,
+  isTicketyUrl,
 };

@@ -1538,3 +1538,47 @@ tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
 .panel-collapsed .panel-collapse-btn i { transform: rotate(180deg); }
 .panel-collapsed .panel-header { border-bottom: none; }
 .panel-collapsed { padding-bottom: 0; }
+
+/* ── Link chips ───────────────────────────────────────────────────
+   A raw URL in a panel is a wall of characters nobody reads. A chip names the
+   link and puts the host underneath, so it is both tidier AND clearer about
+   where it goes than the full URL ever was. Used for case files, exhibits and
+   ticket transcripts. */
+.link-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  max-width: 100%;
+  padding: .34rem .7rem;
+  border-radius: 999px;
+  background: var(--blue-dim);
+  border: 1px solid rgba(74, 143, 255, 0.28);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+}
+.link-chip:hover { background: rgba(74, 143, 255, 0.22); border-color: var(--blue); }
+.link-chip i { font-size: 14px; flex-shrink: 0; }
+.link-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-chip-host {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  padding-left: .45rem;
+  margin-left: .1rem;
+  border-left: 1px solid rgba(120, 150, 200, 0.3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+}
+/* An exhibit that was filed with no link the browser can follow. */
+.link-chip-dead {
+  background: rgba(120, 140, 175, 0.14);
+  border-color: rgba(120, 140, 175, 0.32);
+  color: rgba(175, 195, 230, 0.9);
+  cursor: default;
+}

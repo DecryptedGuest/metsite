@@ -371,7 +371,6 @@ function navigateTo(pageId) {
     security:        loadSecurity,
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
-    'case-docs':     loadCaseDocs,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
     // Activity tracking is part of this page now, so it loads with it.
     'quota-check':   () => {
@@ -550,23 +549,6 @@ function setupNewCaseButtons() {
   document.getElementById('btn-new-case-dash')?.addEventListener('click', openNewCaseModal);
   document.querySelectorAll('.btn-new-case').forEach(btn => btn.addEventListener('click', openNewCaseModal));
 
-  // Case-document entry points
-  document.getElementById('btn-build-doc')?.addEventListener('click', buildCaseDocument);
-  document.getElementById('btn-pick-doc')?.addEventListener('click', openDocPicker);
-  const newDoc = () => CaseDoc.openBuilder({ onSaved: () => { loadCaseDocs(); } });
-  document.getElementById('btn-new-doc')?.addEventListener('click', newDoc);
-  document.getElementById('btn-new-doc-dash')?.addEventListener('click', newDoc);
-
-  // Documents tab controls
-  const dq = document.getElementById('docs-search');
-  if (dq) dq.addEventListener('input', () => { docsQuery = dq.value.trim(); renderCaseDocs(); });
-  document.querySelectorAll('#docs-scope-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#docs-scope-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      docsScope = tab.dataset.dscope;
-      loadCaseDocs();
-    }));
 }
 
 // Draft persistence: a new-case draft is kept in the DOM while the modal is
@@ -594,12 +576,11 @@ function resetCaseForm() {
   if (sbtn) sbtn.innerHTML = '<i class="ti ti-send"></i> Submit Case';
   const importBox = document.getElementById('f-import-url')?.closest('.form-group');
   if (importBox) importBox.style.display = '';
-  // Writing the document here IS the normal way to file a case, so that is
-  // what a fresh case opens on. Making people pick a method first turned one
-  // job into two, and the document into something you went somewhere else to
-  // make. Import and manual are still a click away for the cases that need them.
-  if (typeof setCaseMode === 'function') setCaseMode('build');
-  showAttachedDoc(null);
+  // Importing from the case link IS the normal way to file a case — the case
+  // file is written elsewhere and pasted in, and the import reads the suspect,
+  // the punishments and the exhibits straight out of it. Entering it by hand is
+  // still a click away for the cases that need it.
+  if (typeof setCaseMode === 'function') setCaseMode('import');
   renderActionChecklist();
 }
 
@@ -626,20 +607,17 @@ function setCaseMode(mode) {
     t.classList.toggle('active', !!mode && t.dataset.casemode === mode);
   });
   const imp    = document.getElementById('case-manual-import');
-  const build  = document.getElementById('case-doc-section');
   const fields = document.getElementById('case-fields');
   const link   = document.getElementById('case-link-group');
-  if (!mode) { // pick a method first — hide the panels and all fields
+  if (!mode) { // pick a method first — hide the panel and all fields
     if (imp)    imp.style.display    = 'none';
-    if (build)  build.style.display  = 'none';
     if (fields) fields.style.display = 'none';
     return;
   }
   if (imp)    imp.style.display    = mode === 'import' ? '' : 'none';
-  if (build)  build.style.display  = mode === 'build'  ? '' : 'none';
   if (fields) fields.style.display = '';
-  // In build mode the link is produced by the document itself.
-  if (link)   link.style.display   = mode === 'build' ? 'none' : '';
+  // The case link is where the case file lives, either way.
+  if (link)   link.style.display   = '';
   // Import mode greys the manual fields until a doc import fills them; the other
   // modes leave them immediately editable.
   setCaseFieldsEnabled(mode !== 'import');
@@ -649,128 +627,6 @@ function setCaseFieldsEnabled(enabled) {
   box.style.opacity      = enabled ? '' : '0.5';
   box.style.pointerEvents = enabled ? '' : 'none';
   box.querySelectorAll('input, textarea, select, button').forEach(el => { el.disabled = !enabled; });
-}
-
-// ── Built-in case document ────────────────────────────────────────
-// The document the case links to is now written on the site. attachedDocId is
-// sent with the case so the server can point caseLink at /case-doc/<id> and
-// mark the document final.
-let attachedDocId = null;
-
-function showAttachedDoc(doc) {
-  attachedDocId = doc ? doc.id : null;
-  const box = document.getElementById('case-doc-attached');
-  const linkEl = document.getElementById('f-case-link');
-  if (!doc) {
-    if (box) box.style.display = 'none';
-    // Clear the link the document wrote, or the case would still be filed
-    // against a document that is no longer attached.
-    if (linkEl && /\/case-doc\//.test(linkEl.value || '')) linkEl.value = '';
-    return;
-  }
-  if (linkEl) linkEl.value = location.origin + '/case-doc/' + doc.id;
-  if (box) {
-    box.style.display = '';
-    box.innerHTML = `<div class="doc-attached">
-      <i class="ti ti-file-check"></i>
-      <span><strong>${escapeHtml(doc.docRef || 'Document')}</strong> — ${escapeHtml(doc.title || 'Case document')}</span>
-      <a href="/case-doc/${escapeHtml(doc.id)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><i class="ti ti-external-link"></i> Open</a>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="editAttachedDoc()"><i class="ti ti-pencil"></i> Edit</button>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="showAttachedDoc(null)"><i class="ti ti-x"></i></button>
-    </div>`;
-  }
-}
-
-function editAttachedDoc() {
-  if (!attachedDocId) return;
-  CaseDoc.openBuilder({ docId: attachedDocId, caseRef: editingCaseRef, onAttach: showAttachedDoc });
-}
-
-function buildCaseDocument() {
-  CaseDoc.openBuilder({
-    docId:        attachedDocId || null,
-    officerInput: (document.getElementById('f-officer-id') || {}).value || '',
-    // Only an existing case HAS a reference — a new one is numbered on submit,
-    // so there is nothing honest to offer until then.
-    caseRef:      editingCaseRef,
-    prefill:      { punishments: getSelectedActions() },
-    onAttach:     showAttachedDoc,
-  });
-}
-
-// Pick one of your existing documents instead of writing a new one.
-async function openDocPicker() {
-  const body = document.getElementById('doc-picker-body');
-  if (!body) return;
-  body.innerHTML = '<div class="table-loading" style="padding:2rem;"><div class="spinner"></div></div>';
-  openModal('modal-doc-picker');
-  try {
-    const docs = await api('/api/case-docs');
-    if (!docs.length) {
-      body.innerHTML = '<div style="padding:1.4rem;text-align:center;color:var(--text-muted);font-size:13px;">'
-        + 'You haven\'t written any case documents yet.</div>';
-      return;
-    }
-    body.innerHTML = '<div class="doc-picker-list">' + docs.map(d => `
-      <button type="button" class="doc-picker-item" onclick="pickDoc('${d.id}')">
-        <span class="doc-picker-ref">${escapeHtml(d.docRef)}</span>
-        <span class="doc-picker-title">${escapeHtml(d.title)}</span>
-        <span class="doc-picker-meta">${d.status === 'FINAL' ? 'Final' : 'Draft'} · ${formatDate(d.updatedAt)}</span>
-      </button>`).join('') + '</div>';
-  } catch (err) {
-    body.innerHTML = '<div style="padding:1.4rem;color:var(--red);">' + escapeHtml(err.message || 'Failed to load documents.') + '</div>';
-  }
-}
-
-async function pickDoc(id) {
-  try {
-    const doc = await api('/api/case-docs/' + id);
-    showAttachedDoc(doc);
-    closeModal('modal-doc-picker');
-    showToast('Document attached.', 'success');
-  } catch (err) { showToast(err.message || 'Could not attach that document.', 'error'); }
-}
-
-// ── Case Documents tab ────────────────────────────────────────────
-let docsCache = [], docsScope = 'mine', docsQuery = '';
-
-async function loadCaseDocs() {
-  const tbody = document.getElementById('docs-tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
-  try {
-    docsCache = (await api('/api/case-docs?scope=' + docsScope)) || [];
-    renderCaseDocs();
-  } catch { tbody.innerHTML = emptyRow(6, 'Failed to load documents.'); }
-}
-
-function renderCaseDocs() {
-  const tbody = document.getElementById('docs-tbody');
-  if (!tbody) return;
-  const q = docsQuery.toLowerCase();
-  const rows = docsCache.filter(d => !q
-    || (d.title || '').toLowerCase().includes(q)
-    || (d.docRef || '').toLowerCase().includes(q)
-    || (d.author || '').toLowerCase().includes(q));
-  if (!rows.length) {
-    tbody.innerHTML = emptyRow(6, docsCache.length
-      ? 'No documents match that search.'
-      : 'No case documents yet — press “New Document” to write one.');
-    return;
-  }
-  tbody.innerHTML = rows.map(d => `
-    <tr onclick="CaseDoc.openBuilder({docId:'${d.id}', onSaved:function(){loadCaseDocs();}})">
-      <td><span class="case-ref">${escapeHtml(d.docRef)}</span></td>
-      <td><span style="font-size:12.5px;">${escapeHtml(d.title)}</span></td>
-      <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(d.author || '—')}</span></td>
-      <td>${d.status === 'FINAL'
-            ? '<span class="badge badge-approved"><span class="badge-dot"></span>Final</span>'
-            : '<span class="badge badge-pending"><span class="badge-dot"></span>Draft</span>'}</td>
-      <td><span class="date-cell">${formatDateTime(d.updatedAt)}</span></td>
-      <td onclick="event.stopPropagation();">
-        <a class="row-btn" href="/case-doc/${escapeHtml(d.id)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Open</a>
-      </td>
-    </tr>`).join('');
 }
 
 // Show the (estimated) case ID the next submission will receive.
@@ -810,16 +666,6 @@ function openEditCase(caseId) {
 
   renderActionChecklist();
   applyDocPunishments(Array.isArray(c.actions) && c.actions.length ? c.actions : [{ action: c.action }], true);
-
-  // Show the document this case is actually attached to (and nothing if it has
-  // none) rather than whatever was staged by a previous new-case draft.
-  if (c.documentId) {
-    api('/api/case-docs/' + c.documentId)
-      .then(showAttachedDoc)
-      .catch(function () { showAttachedDoc(null); });
-  } else {
-    showAttachedDoc(null);
-  }
 
   const title = document.querySelector('#modal-submit .modal-title');
   if (title) title.innerHTML = '<i class="ti ti-edit" style="font-size:18px;"></i> Edit Case ' + escapeHtml(c.caseRef);
@@ -962,6 +808,9 @@ async function importCaseFromDoc() {
       investigatorRobloxUsername:  inv.robloxUsername || null,
       investigatorDiscordUsername: inv.discordUsername || null,
       punishmentsSummary:          d.finalDecisionClean || null,
+      // Every exhibit the case file lists, so the case panel can show them as
+      // named links instead of making somebody open the document to find them.
+      evidence:                    Array.isArray(d.evidence) ? d.evidence : [],
     };
 
     if (resEl) {
@@ -970,6 +819,7 @@ async function importCaseFromDoc() {
       resEl.innerHTML = '<i class="ti ti-check"></i> Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
         + (sus.groupRole ? ' · ' + escapeHtml(sus.groupRole) : '')
         + (d.punishments?.length ? ' · ' + d.punishments.map(p => escapeHtml(p.action)).join(', ') : '')
+        + (d.evidence?.length ? ' · ' + d.evidence.length + ' exhibit' + (d.evidence.length === 1 ? '' : 's') : '')
         + ' — review before submitting.';
     }
     // Unlock the (previously greyed) manual fields now that they're populated.
@@ -1196,9 +1046,7 @@ function submitCase() {
   if (!officerInput) { showToast('Officer Discord/Roblox ID or username is required.', 'error'); return; }
   if (!actions.length) { showToast('Select at least one punishment.', 'error'); return; }
   if (!reason)         { showToast('Reason is required.', 'error'); return; }
-  if (!caseLink && !attachedDocId) {
-    showToast('Build a case document, or paste a case link.', 'error'); return;
-  }
+  if (!caseLink) { showToast('A case link is required.', 'error'); return; }
 
   // Edit mode: save changes + re-post (no submit preview)
   if (editingCaseId) { return doEditCase({ actions, reason, notes, caseLink }); }
@@ -1216,7 +1064,7 @@ function submitCase() {
       { label: '<i class="ti ti-arrow-left"></i> Back to editing', class: 'btn btn-ghost',
         onClick: () => { closeModal('modal-embed-preview'); openModal('modal-submit'); } },
       { label: '<i class="ti ti-check"></i> Agree &amp; Submit', class: 'btn btn-primary',
-        onClick: () => doSubmitCase({ actions, reason, notes, officerInput, caseLink, documentId: attachedDocId }) },
+        onClick: () => doSubmitCase({ actions, reason, notes, officerInput, caseLink }) },
     ],
   });
 }
@@ -3155,19 +3003,12 @@ function openDetail(caseId) {
         <span class="detail-field-label">Notes</span>
         <span class="detail-field-value" style="color:var(--text-secondary);">${escapeHtml(c.notes)}</span>
       </div>
-      ${c.documentId ? `
+      ${c.caseLink ? `
       <div class="detail-field full">
-        <span class="detail-field-label">Case Document</span>
-        <span class="detail-field-value">
-          <a href="/case-doc/${escapeHtml(c.documentId)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">
-            <i class="ti ti-file-text"></i> Open the case document
-          </a>
-        </span>
-      </div>` : (c.caseLink ? `
-      <div class="detail-field full">
-        <span class="detail-field-label">Case Link</span>
-        <span class="detail-field-value"><a href="${escapeHtml(c.caseLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);word-break:break-all;">${escapeHtml(c.caseLink)}</a></span>
-      </div>` : '')}
+        <span class="detail-field-label">Case File</span>
+        <span class="detail-field-value">${linkChip(c.caseLink, 'Open the case file', 'file-text')}</span>
+      </div>` : ''}
+      ${evidenceBlock(c.evidence)}
       ${robloxSection}
       ${investigatorSection}
       <div class="detail-divider"></div>

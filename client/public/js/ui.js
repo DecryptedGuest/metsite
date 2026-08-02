@@ -1290,3 +1290,61 @@ document.addEventListener('DOMContentLoaded', () => {
   document.fonts.ready.then(function () { setTimeout(ensureIcons, 800); setTimeout(ensureIcons, 2500); })
     .catch(function () { setTimeout(ensureIcons, 800); });
 })();
+
+// ── Links people can read ─────────────────────────────────────────
+// A raw URL in a panel is a wall of characters nobody reads and everybody has
+// to squint at — "https://docs.google.com/document/d/1aBcD…/edit?usp=sharing"
+// tells you nothing that "Open the case file" does not. These render a link as
+// a named chip instead, with the host underneath so it is still obvious where
+// it goes before you click it.
+
+// Only ever render a link the browser can safely follow.
+function safeLinkHref(url) {
+  const v = String(url == null ? '' : url).trim();
+  if (!/^https?:\/\//i.test(v)) return null;
+  try { const u = new URL(v); return /^https?:$/.test(u.protocol) ? u.href : null; }
+  catch (e) { return null; }
+}
+
+function linkHost(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+}
+
+function linkChip(url, label, icon) {
+  const href = safeLinkHref(url);
+  if (!href) return '<span class="text-muted" style="font-size:12px;">Not a link that can be opened.</span>';
+  const host = linkHost(href);
+  return '<a class="link-chip" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer"'
+    + ' title="' + escapeHtml(href) + '">'
+    + '<i class="ti ti-' + (icon || 'external-link') + '"></i>'
+    + '<span class="link-chip-label">' + escapeHtml(label || 'Open') + '</span>'
+    + (host ? '<span class="link-chip-host">' + escapeHtml(host) + '</span>' : '')
+    + '</a>';
+}
+
+// The exhibits captured off the case file, as a row of named chips.
+function evidenceBlock(list) {
+  const items = Array.isArray(list) ? list.filter(e => e && (e.url || e.note)) : [];
+  if (!items.length) return '';
+  const chips = items.map((e, i) => {
+    const label = e.label || ('Exhibit ' + String.fromCharCode(65 + i));
+    if (!safeLinkHref(e.url)) {
+      return '<span class="link-chip link-chip-dead" title="No usable link">'
+        + '<i class="ti ti-paperclip-off"></i>'
+        + '<span class="link-chip-label">' + escapeHtml(label) + '</span>'
+        + (e.note ? '<span class="link-chip-host">' + escapeHtml(String(e.note).slice(0, 60)) + '</span>' : '')
+        + '</span>';
+    }
+    return linkChip(e.url, label, 'paperclip');
+  }).join('');
+  return '<div class="detail-field full">'
+    + '<span class="detail-field-label">Evidence · ' + items.length + '</span>'
+    + '<span class="detail-field-value"><div class="link-chips">' + chips + '</div></span>'
+    + '</div>';
+}
+
+if (typeof window !== 'undefined') {
+  window.safeLinkHref = safeLinkHref;
+  window.linkChip     = linkChip;
+  window.evidenceBlock = evidenceBlock;
+}

@@ -12,7 +12,6 @@ const debugRoutes   = require('./routes/debug');
 const ticketRoutes  = require('./routes/tickets');
 const securityRoutes = require('./routes/security');
 const quotaRoutes   = require('./routes/quota');
-const caseDocRoutes = require('./routes/caseDocs').router;
 const pushRoutes     = require('./routes/push');
 const notificationRoutes = require('./routes/notifications');
 const cidRoutes   = require('./routes/cid');
@@ -323,7 +322,6 @@ app.use('/api/webauthn', requireAuth, require('./routes/webauthn'));
 app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
-app.use('/api/case-docs', requireAuth, ia, caseDocRoutes);
 // IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
 app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
 // Push + notification self-service must be open to EVERY signed-in member — the
@@ -1322,10 +1320,6 @@ app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, 
 app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 
 // ── Case documents — the on-site replacement for the Google Doc ───
-// /case-doc/:id renders the finished document read-only (this is the URL that
-// goes in a case's "Case Link"); ?edit=1 opens it in the builder instead.
-app.get('/case-doc/:id',  recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'case-doc.html'), 'IA'));
-app.get('/ia/case-doc/:id', (req, res) => res.redirect('/case-doc/' + encodeURIComponent(req.params.id)));
 
 // ── New divisions — own dashboard view each, gated by their own division ──
 function mountDivisionPages(slug, division) {

@@ -125,7 +125,7 @@ function ticketRowHtml(t, opts) {
     + '<td>' + ticketTypeBadge(t.ticketType) + '</td>'
     + '<td><span class="case-reason-cell">' + escapeHtml(t.reason || '—') + '</span></td>'
     + '<td>' + (t.transcriptUrl
-        ? '<a href="' + escapeHtml(t.transcriptUrl) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="row-btn"><i class="ti ti-file-text"></i> Transcript</a>'
+        ? '<a href="' + escapeHtml(safeLinkHref(t.transcriptUrl) || '#') + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="row-btn"><i class="ti ti-file-text"></i> Transcript</a>'
         : '<span class="text-muted" style="font-size:11px;">—</span>') + '</td>'
     // The pending queue is all one status, so a Status column there would be
     // the same word on every row; the decision goes last, where the eye ends up.
@@ -289,8 +289,11 @@ async function openTicketDetail(ticketId) {
     + field('Creator ID', escapeHtml(t.creatorDiscordId || '—'), true)
     + (t.transcriptUrl
         ? '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
-          + '<span class="detail-field-value"><a href="' + escapeHtml(t.transcriptUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);word-break:break-all;">'
-          + escapeHtml(t.transcriptUrl) + '</a></span></div>'
+          + '<span class="detail-field-value">'
+          + (typeof linkChip === 'function'
+              ? linkChip(t.transcriptUrl, 'View the transcript', 'file-text')
+              : '<a href="' + escapeHtml(t.transcriptUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);">View the transcript</a>')
+          + '</span></div>'
         : '')
     + targetHtml
     + '</div>'
@@ -389,16 +392,25 @@ document.addEventListener('DOMContentLoaded', function () {
   // this is a thousand rows changing status in one press.
   var clear = document.getElementById('btn-ticket-clear-backlog');
   if (clear) clear.addEventListener('click', async function () {
+    // Say something the moment it is pressed. A disabled button and silence is
+    // indistinguishable from a button that does nothing, and at nine thousand
+    // rows the request is not instant.
+    var original = clear.innerHTML;
+    var busy = function (text) { clear.innerHTML = '<div class="spinner"></div> ' + text; };
     clear.disabled = true;
+    busy('Counting…');
     try {
       var dry = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({}) });
+      clear.innerHTML = original;
       if (!dry.wouldClear) { showToast('Nothing waiting — the queue is already clear.', 'success'); return; }
       var okd = await (typeof uiConfirm === 'function'
         ? uiConfirm('Clear the ticket backlog?\n\n' + dry.wouldClear + ' log(s) waiting will be marked APPROVED '
-          + 'and stamped as a backlog clear. NO quota points are awarded for any of them. '
-          + 'Logs closed from now on still arrive pending and still pay on approval.')
+          + 'and stamped as a backlog clear. NO quota points are awarded for any of them.\n\n'
+          + 'This also draws a line at right now: a later sync will store older logs without putting them '
+          + 'back in the queue. Logs closed from now on still arrive pending and still pay on approval.')
         : Promise.resolve(confirm('Approve ' + dry.wouldClear + ' waiting log(s) without paying anybody?')));
       if (!okd) return;
+      busy('Clearing ' + dry.wouldClear + '…');
       var r = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({ apply: true }) });
       showToast('Cleared ' + r.cleared + ' log(s).'
         + (r.handlers && r.handlers.fixed ? ' Filled in ' + r.handlers.fixed + ' handler(s).' : ''), 'success');
@@ -409,6 +421,7 @@ document.addEventListener('DOMContentLoaded', function () {
       showToast(err.message || 'Failed to clear the backlog.', 'error');
     } finally {
       clear.disabled = false;
+      clear.innerHTML = original;
     }
   });
 

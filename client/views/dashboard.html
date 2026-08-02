@@ -14,10 +14,6 @@
   <link rel="stylesheet" href="/css/dashboard.css?v=72" />
   <link rel="stylesheet" href="/css/aurora.css?v=72" />
   <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
-  <!-- The case document builder opens as an overlay on THIS page, so its
-       stylesheet has to be here. Without it the builder inherited the base
-       .modal width of 500px and every field stacked into one narrow column. -->
-  <link rel="stylesheet" href="/css/case-doc.css?v=84" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
@@ -188,9 +184,6 @@
           <p class="page-sub" id="dash-greeting">Internal Affairs</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-ghost" id="btn-new-doc-dash">
-            <i class="ti ti-file-text"></i> New Document
-          </button>
           <button class="btn btn-primary" id="btn-new-case-dash">
             <i class="ti ti-plus"></i> Submit Case
           </button>
@@ -504,11 +497,6 @@
       </div>
       </div><!-- /cw-tickets-all -->
 
-      <p class="casework-foot">
-        <i class="ti ti-file-text"></i>
-        Case documents are written as part of the case — there is no separate step.
-        <a href="#" onclick="showPage('case-docs');return false;">Browse every document</a>.
-      </p>
     </section>
 
     <!-- PENDING — everything waiting on a supervisor, in one place. -->
@@ -1338,36 +1326,6 @@
 
 
     <!-- CASE DOCUMENTS -->
-    <section class="page" id="page-case-docs">
-      <div class="page-header fade-up">
-        <div>
-          <h1 class="page-title">Case Documents</h1>
-          <p class="page-sub">Built on the site &middot; each one gets its own shareable link</p>
-        </div>
-        <button class="btn btn-primary" id="btn-new-doc"><i class="ti ti-file-plus"></i> New Document</button>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Documents</div>
-          <div class="panel-tools">
-            <div class="search-box">
-              <i class="ti ti-search"></i>
-              <input type="text" id="docs-search" placeholder="Search documents…" autocomplete="off" />
-            </div>
-            <div class="filter-tabs" id="docs-scope-tabs">
-              <button class="filter-tab active" data-dscope="mine">Mine</button>
-              <button class="filter-tab hicomm-only supervisor-only" data-dscope="all" style="display:none;">Everyone's</button>
-            </div>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Ref</th><th>Title</th><th>Author</th><th>Status</th><th>Updated</th><th></th></tr></thead>
-            <tbody id="docs-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
 
     <!-- RECORDS (Internal Affairs officer lookup) -->
     <section class="page" id="page-records">
@@ -1561,8 +1519,7 @@
       </div>
       <!-- How the case file is produced: built here, or imported from a legacy doc -->
       <div class="filter-tabs" id="case-mode-tabs" style="margin-bottom:1rem;">
-        <button class="filter-tab active" type="button" data-casemode="build"><i class="ti ti-file-text"></i> Write the document</button>
-        <button class="filter-tab" type="button" data-casemode="import"><i class="ti ti-link"></i> Import an existing doc</button>
+        <button class="filter-tab active" type="button" data-casemode="import"><i class="ti ti-link"></i> Import from the case link</button>
         <button class="filter-tab" type="button" data-casemode="manual"><i class="ti ti-pencil"></i> Enter manually</button>
       </div>
 
@@ -1598,20 +1555,6 @@
         <div id="action-warning" style="display:none;margin-top:6px;"></div>
       </div>
 
-      <!-- Built-in case document (shown in "Build the document" mode) -->
-      <div id="case-doc-section" style="display:none;background:rgba(74,143,255,0.05);border:1px solid var(--border-dim);border-radius:10px;padding:14px;margin-bottom:1rem;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#90b8ff;margin-bottom:10px;"><i class="ti ti-file-text"></i> Case Document</div>
-        <p style="margin:0 0 10px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-          Write the case file here on the site — same sections as the old Google Doc, with the suspect's
-          username, MET rank and Discord ID filled in for you. When you're done it gets its own link,
-          which is attached to this case automatically.
-        </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" type="button" id="btn-build-doc"><i class="ti ti-file-text"></i> Build case document</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="btn-pick-doc"><i class="ti ti-folder-open"></i> Use an existing document</button>
-        </div>
-        <div id="case-doc-attached" style="margin-top:10px;font-size:12px;display:none;"></div>
-      </div>
 
       <div class="form-group" id="case-reason-group">
         <label class="form-label">Reason <span>*</span></label>
@@ -1785,44 +1728,7 @@
   </div>
 </div>
 
-<!-- PICK AN EXISTING CASE DOCUMENT -->
-<div class="modal-overlay" id="modal-doc-picker">
-  <div class="modal glass-bright" style="max-width:600px;">
-    <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-folder-open" style="font-size:18px;"></i> Choose a Case Document</div>
-      <button class="modal-close" onclick="closeModal('modal-doc-picker')">&#x2715;</button>
-    </div>
-    <div class="modal-body" id="doc-picker-body"></div>
-  </div>
-</div>
 
-<!-- CASE DOCUMENT BUILDER -->
-<div class="modal-overlay cd-overlay" id="modal-case-doc">
-  <div class="modal glass-bright cd-modal">
-    <div class="modal-header cd-modal-header">
-      <div class="modal-title">
-        <i class="ti ti-file-text" style="font-size:18px;"></i>
-        <span>Case Document</span>
-        <span class="cd-docref" id="cd-docref">Unsaved draft</span>
-      </div>
-      <div class="cd-modal-actions">
-        <span class="cd-status" id="cd-status"></span>
-        <a class="btn btn-ghost btn-sm" id="cd-openlink" target="_blank" rel="noopener" style="display:none;"><i class="ti ti-external-link"></i> Open</a>
-        <button class="btn btn-ghost btn-sm" id="cd-print-btn"><i class="ti ti-printer"></i> Print</button>
-        <button class="btn btn-ghost btn-sm" id="cd-preview-btn"><i class="ti ti-eye"></i> Preview</button>
-        <button class="btn btn-ghost btn-sm" id="cd-save-btn"><i class="ti ti-device-floppy"></i> Save</button>
-        <button class="btn btn-primary btn-sm" id="cd-attach-btn"><i class="ti ti-link"></i> Use in this case</button>
-        <button class="modal-close" onclick="closeModal('modal-case-doc')">&#x2715;</button>
-      </div>
-    </div>
-    <div class="modal-body cd-modal-body">
-      <div id="cd-edit-wrap"></div>
-      <div id="cd-preview-wrap" style="display:none;"></div>
-    </div>
-  </div>
-</div>
-
-<!-- TICKET DETAIL MODAL -->
 <div class="modal-overlay" id="modal-ticket-detail">
   <div class="modal glass-bright" style="max-width:620px;">
     <div class="modal-header">
@@ -1990,7 +1896,6 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=83"></script>
 <script src="/js/panel-collapse.js?v=1"></script>
-<script src="/js/case-doc.js?v=84"></script>
 <script src="/js/dashboard.js?v=83"></script>
 <script src="/js/tickets.js?v=83"></script>
 <script src="/js/discord-format.js?v=83"></script>

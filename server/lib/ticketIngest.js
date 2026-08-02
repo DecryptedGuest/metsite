@@ -175,6 +175,53 @@ async function nextTicketNo() {
  *
  * @returns {Promise<{ cleared: number }>}
  */
+// ── The backlog watermark ─────────────────────────────────────────
+// Clearing the backlog once was not enough, and could never have been. The
+// clear only changed the rows that existed at the time; the next full sync
+// re-read the whole Discord channel, found thousands of logs it had never
+// stored, and created every one of them PENDING. The wall came straight back.
+//
+// So a clear records WHEN it happened, and every row ingested afterwards for a
+// ticket closed before that moment arrives already cleared. The queue can only
+// ever contain tickets closed since somebody last drew the line, whatever a
+// sync turns up.
+const BACKLOG_KEY = 'tickets.backlogClearedAt';
+let _watermark = null;         // cached; null = not loaded, 0 = none set
+
+async function backlogClearedAt() {
+  if (_watermark !== null) return _watermark || null;
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: BACKLOG_KEY } });
+    const t = row && Date.parse(row.value);
+    _watermark = Number.isFinite(t) ? new Date(t) : 0;
+  } catch (e) { _watermark = 0; }
+  return _watermark || null;
+}
+
+async function setBacklogClearedAt(when) {
+  const at = when || new Date();
+  await prisma.systemSetting.upsert({
+    where:  { key: BACKLOG_KEY },
+    update: { value: at.toISOString() },
+    create: { key: BACKLOG_KEY, value: at.toISOString() },
+  });
+  _watermark = at;
+  return at;
+}
+
+// What a freshly-ingested row's status should be. Anything closed before the
+// line somebody drew is history, not a decision waiting to be made.
+async function statusForNewRow(closedAt) {
+  const line = await backlogClearedAt();
+  if (!line || !closedAt || new Date(closedAt) >= line) return null;   // normal: PENDING
+  return {
+    status: 'APPROVED',
+    voidedAt: new Date(),
+    reviewedAt: new Date(),
+    reviewedByName: 'Backlog cleared',
+  };
+}
+
 async function clearBacklogBefore(when) {
   const cutoff = when || new Date();
   const res = await prisma.ticketLog.updateMany({
@@ -187,8 +234,11 @@ async function clearBacklogBefore(when) {
       reviewedByName: 'Backlog cleared',
     },
   });
+  // Draw the line, so a later sync cannot rebuild what was just cleared.
+  await setBacklogClearedAt(cutoff).catch(e =>
+    console.warn('[TicketLogs] could not record the backlog watermark:', e.message));
   console.log(`[TicketLogs] cleared ${res.count} pending log(s) closed before ${cutoff.toISOString()} (approved, no points)`);
-  return { cleared: res.count };
+  return { cleared: res.count, clearedBefore: cutoff };
 }
 
 /**
@@ -317,7 +367,13 @@ async function ingestMessage(msg) {
       await prisma.ticketLog.update({ where: { messageId: data.messageId }, data: patch });
       return 'updated';
     }
-    await prisma.ticketLog.create({ data: { ...data, ticketNo: await nextTicketNo() } });
+    // A ticket closed before the last backlog clear is history. It is stored,
+    // it is searchable, it just never joins the queue — otherwise re-syncing
+    // the channel rebuilds the exact wall somebody just cleared.
+    const cleared = await statusForNewRow(data.closedAt);
+    await prisma.ticketLog.create({
+      data: { ...data, ...(cleared || {}), ticketNo: await nextTicketNo() },
+    });
     return 'created';
   } catch (err) {
     // A concurrent insert of the same message is harmless.
@@ -443,7 +499,11 @@ async function sweep(client, opts) {
     // named within one cycle instead of sitting there as "Not recorded".
     // Capped small so a routine sweep never turns into a long refetch job.
     try {
-      const h = await backfillHandlers(200);
+      // A small slice per sweep. Refetching is allowed here because the sweep
+      // is a background job with nobody waiting on it — but only 25 rows of it,
+      // so a channel full of unattributable logs is chipped away at over
+      // several sweeps rather than stalling one.
+      const h = await backfillHandlers(25);
       if (h.fixed) s.handlersFixed = h.fixed;
       if (h.stillBlank) s.handlersBlank = h.stillBlank;
     } catch (e) {
@@ -470,6 +530,9 @@ function startTicketLogWorker(client) {
 
 module.exports = {
   nextTicketNo, clearBacklogBefore, backfillHandlers, rowFromMessageId,
+  backlogClearedAt, setBacklogClearedAt, statusForNewRow,
+  // Tests only: the watermark is cached for the life of the process.
+  __resetWatermark: () => { _watermark = null; },
   ingestMessage,
   backfill,
   sweep,

@@ -88,15 +88,6 @@ async function resolveOfficerDiscordId(caseRow) {
   return null;
 }
 
-// Absolute base URL of this deployment — used to build the on-site case-document
-// link that replaces the old external Google Doc URL.
-function publicBaseUrl(req) {
-  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, '');
-  if (process.env.CANONICAL_HOST)  return 'https://' + process.env.CANONICAL_HOST.replace(/\/+$/, '');
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0];
-  return `${proto}://${req.get('host')}`;
-}
-
 // Case-number allocation lives in lib/caseRef.js so /discipline draws from the
 // same sequence — two allocators would eventually collide on the unique index.
 const { highestCaseNumber, generateCaseRef } = require('../lib/caseRef');
@@ -206,12 +197,23 @@ router.post('/parse-doc', async (req, res) => {
       investigator.discordUsername = rec?.username || null;
     }
 
+    // Every exhibit the case file lists, captured once here rather than by
+    // re-fetching somebody else's Google Doc every time a panel opens. The doc
+    // HTML keeps the href behind "Exhibit A", which is how they are usually
+    // written, so it is read in preference to the plain text.
+    let evidence = [];
+    try {
+      const { fromText, sortExhibits } = require('../lib/caseEvidence');
+      evidence = sortExhibits(fromText(html || text || '', 'case file')).slice(0, 60);
+    } catch (e) { /* the case still imports without them */ }
+
     return res.json({
       docId,
       caseLink:          url.split('?')[0],
       suspect,
       investigator,
       punishments,
+      evidence,
       finalDecision:     doc.finalDecision || null,
       finalDecisionClean,
       allegations:       doc.allegations || null,
@@ -385,7 +387,7 @@ router.get('/records-lookup', async (req, res) => {
       status:    c.status,
       createdAt: c.createdAt,
       caseLink:  c.caseLink || null,
-      documentId: c.documentId || null,
+      evidence:  Array.isArray(c.evidence) ? c.evidence : null,
       appealedAt:     c.appealedAt || null,
       appealedByName: c.appealedByName || null,
       appealReason:   c.appealReason || null,
@@ -679,7 +681,17 @@ router.get('/all', async (req, res) => {
 router.post('/', async (req, res) => {
   const { actions: rawActions, reason, notes, officerInput } = req.body;
   let   caseLink   = req.body.caseLink;
-  const documentId = (req.body.documentId || '').toString().trim() || null;
+
+  // Exhibits the importer read off the case file. Stored so the case panel can
+  // show them without re-fetching somebody else's document every time.
+  const evidence = Array.isArray(req.body.evidence)
+    ? req.body.evidence.slice(0, 60).map(e => ({
+        label: e && e.label ? String(e.label).slice(0, 40) : null,
+        url:   e && e.url && /^https?:\/\//i.test(String(e.url)) ? String(e.url).slice(0, 800) : null,
+        note:  e && e.note ? String(e.note).slice(0, 300) : null,
+        source: 'case file',
+      })).filter(e => e.url || e.note)
+    : [];
 
   if (!Array.isArray(rawActions) || !rawActions.length) {
     return res.status(400).json({ error: 'At least one action is required.' });
@@ -691,22 +703,9 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Officer Discord or Roblox ID is required.' });
   }
 
-  // A case is backed either by a document built on the site (the normal path)
-  // or by an external link (legacy Google Docs). One of the two is required.
-  if (documentId) {
-    const doc = await prisma.caseDocument.findUnique({ where: { id: documentId } }).catch(() => null);
-    if (!doc) return res.status(400).json({ error: 'That case document no longer exists.' });
-    // You can only file a case against a document you wrote (High Command may
-    // use anyone's), and never against one already attached to another case —
-    // otherwise a case could point at a file its subject never had a hearing on.
-    const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(req.user.role);
-    if (doc.authorId !== req.user.id && !isElevated)
-      return res.status(403).json({ error: 'That case document belongs to someone else.' });
-    if (doc.caseId)
-      return res.status(409).json({ error: 'That document is already attached to another case.' });
-    caseLink = `${publicBaseUrl(req)}/case-doc/${doc.id}`;
-  } else if (!caseLink?.trim()) {
-    return res.status(400).json({ error: 'Build a case document, or paste a case link.' });
+  // Every case is backed by its case file — the linked document.
+  if (!caseLink?.trim()) {
+    return res.status(400).json({ error: 'A case link is required.' });
   }
 
   let rawId      = officerInput.trim();
@@ -785,7 +784,7 @@ router.post('/', async (req, res) => {
         reason:           reason.trim(),
         notes:            notes?.trim() || 'N/A',
         caseLink:         caseLink?.trim() || null,
-        documentId,
+        evidence:         evidence.length ? evidence : undefined,
         suspectRobloxDisplayName:    req.body.suspectRobloxDisplayName    || null,
         investigatorRobloxId:        req.body.investigatorRobloxId        || null,
         investigatorRobloxUsername:  req.body.investigatorRobloxUsername  || null,
@@ -805,14 +804,6 @@ router.post('/', async (req, res) => {
     await prisma.caseAction.create({
       data: { caseId: newCase.id, actionType: 'CREATED', performedBy: req.user.id, notes: 'Case submitted' },
     });
-
-    // Attach + finalise the built-in document now that it has a case to belong to.
-    if (documentId) {
-      await prisma.caseDocument.update({
-        where: { id: documentId },
-        data:  { caseId: newCase.id, status: 'FINAL' },
-      }).catch(() => {});
-    }
 
     // Fire-and-forget — don't delay the response
     notifyStaff({
@@ -1137,7 +1128,6 @@ router.patch('/:id', async (req, res) => {
     if (reason !== undefined)   data.reason   = String(reason).trim() || existing.reason;
     if (notes  !== undefined)   data.notes    = String(notes).trim()  || 'N/A';
     if (caseLink !== undefined) data.caseLink = String(caseLink).trim() || existing.caseLink;
-    if (req.body.documentId !== undefined) data.documentId = req.body.documentId || null;
 
     // Diff this edit against the snapshot taken when changes were requested (or
     // against the pre-edit row when none was), and append it to the case's

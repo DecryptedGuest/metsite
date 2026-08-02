@@ -20,8 +20,6 @@
 // dropping it because it was not formatted the expected way would be the one
 // failure mode that matters here.
 
-const prisma = require('./db');
-
 // A URL we are willing to hand somebody as a clickable link. Deliberately
 // http/https only: the document builder already rejects javascript: on save,
 // and this is the second line of defence for rows written by any other path.
@@ -170,103 +168,60 @@ function sortExhibits(list) {
 /**
  * Everything that counts as evidence on one case.
  *
- * @param {object} kase  a Case row (needs id, caseRef, documentId, caseLink)
+ * The exhibits are captured when the case link is imported — the importer reads
+ * the linked document once and stores what it found on the case — so this is a
+ * read of stored data, not a fetch of somebody else's Google Doc on every panel
+ * open. Cases filed before that, or by hand, still yield whatever links are in
+ * their own text, and the case link itself is always offered last.
+ *
+ * @param {object} kase  a Case row (needs id, caseRef, evidence, caseLink)
  * @returns {Promise<{
  *   exhibits: Array<{label, url, note, source, unlabelled?}>,
- *   documentUrl: string|null,
  *   caseLink: string|null,
- *   hasDocument: boolean,
  *   note: string|null,
  * }>}
  */
 async function evidenceFor(kase) {
-  const out = { exhibits: [], documentUrl: null, caseLink: null, hasDocument: false, note: null };
+  const out = { exhibits: [], caseLink: null, note: null };
   if (!kase) return out;
 
-  const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
   out.caseLink = safeUrl(kase.caseLink);
+  const seen = new Set();
 
-  let doc = null;
-  if (kase.documentId) {
-    try { doc = await prisma.caseDocument.findUnique({ where: { id: kase.documentId } }); }
-    catch (e) { doc = null; }
-  }
-  if (!doc) {
-    // A document can be attached from the other side — caseId on the document
-    // rather than documentId on the case — and older rows only ever set one.
-    try { doc = await prisma.caseDocument.findFirst({ where: { caseId: kase.id } }); }
-    catch (e) { doc = null; }
-  }
+  // 1. What the import captured off the case file. The good case.
+  const stored = Array.isArray(kase.evidence) ? kase.evidence : [];
+  stored.forEach((ev, i) => {
+    if (!ev) return;
+    const url = safeUrl(ev.url);
+    const label = String(ev.label || '').trim() || null;
+    const note = String(ev.note || '').trim() || null;
+    if (!url && !note) return;
+    if (url) { if (seen.has(url)) return; seen.add(url); }
+    out.exhibits.push({ label, url, note, source: ev.source || 'case file' });
+  });
 
-  if (doc) {
-    out.hasDocument = true;
-    out.documentUrl = `${base}/case-doc/${doc.id}`;
-    const d = (doc.data && typeof doc.data === 'object') ? doc.data : {};
-
-    // 1. The structured exhibit list — the good case.
-    if (Array.isArray(d.evidence)) {
-      d.evidence.forEach((ev, i) => {
-        if (!ev) return;
-        const url = safeUrl(ev.url);
-        const label = String(ev.label || '').trim() || `Exhibit ${String.fromCharCode(65 + i)}`;
-        const note = String(ev.note || '').trim() || null;
-        if (!url && !note) return;
-        out.exhibits.push({
-          label, url, note, source: 'exhibit list',
-          // The builder keeps the original visible when it rejected a link;
-          // pass that through rather than showing an exhibit with no link and
-          // no explanation.
-          rejected: !url && ev.url ? String(ev.url).slice(0, 200) : null,
-        });
-      });
-    }
-
-    // 2. Exhibits written into the prose of the document.
-    const seen = new Set(out.exhibits.map(x => x.url).filter(Boolean));
-    const fields = [
-      [d.summaryHtml, 'summary'],
-      [d.allegationsHtml, 'allegations'],
-      [d.finalDecisionHtml, 'final decision'],
-      [d.notesHtml, 'notes'],
-    ];
-    for (const [html, where] of fields) {
-      if (!html) continue;
-      for (const ex of fromText(html, where)) {
-        if (ex.url && seen.has(ex.url)) continue;
-        if (ex.url) seen.add(ex.url);
-        out.exhibits.push(ex);
-      }
-    }
-  }
-
-  // 3. The case's own text, for a case with no document at all.
-  const seen2 = new Set(out.exhibits.map(x => x.url).filter(Boolean));
+  // 2. The case's own text. People paste a clip straight into the reason as
+  //    often as they file it as an exhibit.
   for (const [txt, where] of [[kase.reason, 'reason'], [kase.notes, 'notes']]) {
     if (!txt) continue;
     for (const ex of fromText(txt, where)) {
-      if (ex.url && seen2.has(ex.url)) continue;
-      if (ex.url) seen2.add(ex.url);
+      if (ex.url && seen.has(ex.url)) continue;
+      if (ex.url) seen.add(ex.url);
       out.exhibits.push(ex);
     }
   }
 
-  // 4. An external case link. Not an exhibit in itself, but on a pre-builder
-  //    case it is the only place the evidence lives, so it is offered as one —
-  //    labelled honestly so nobody mistakes it for a catalogued exhibit.
-  if (out.caseLink && !seen2.has(out.caseLink) && !out.exhibits.some(x => x.url === out.caseLink)) {
+  // 3. The case file itself. Not an exhibit, but it is where the evidence lives
+  //    when nothing was captured — offered last and labelled honestly.
+  if (out.caseLink && !seen.has(out.caseLink)) {
     out.exhibits.push({
-      label: null, url: out.caseLink, source: 'case link', external: true,
-      note: 'The case document is hosted outside the dashboard — its exhibits are inside it.',
+      label: null, url: out.caseLink, source: 'case file', external: true,
+      note: 'The case file is hosted outside the dashboard — its exhibits are inside it.',
     });
   }
 
   out.exhibits = sortExhibits(out.exhibits);
-
-  if (!out.exhibits.length) {
-    out.note = out.hasDocument
-      ? 'The case document has no exhibits attached and no links in its text.'
-      : 'No case document and no links on the case — the evidence was never filed here.';
-  }
+  if (!out.exhibits.length) out.note = 'No case file and no links on the case — the evidence was never filed here.';
   return out;
 }
 
