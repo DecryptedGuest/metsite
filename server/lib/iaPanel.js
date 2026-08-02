@@ -446,8 +446,8 @@ async function activityView(subject, client) {
 }
 
 /** One case, in full, with its evidence. */
-async function caseView(kase) {
-  const ev = await require('./caseEvidence').evidenceFor(kase);
+async function caseView(kase, precomputed) {
+  const ev = precomputed || await require('./caseEvidence').evidenceFor(kase);
   const embed = new EmbedBuilder()
     .setColor(kase.status === 'APPROVED' ? COLOR.warn : COLOR.panel)
     .setTitle(`${e('met_folder')} ${short(kase.caseRef, 20)} — ${short(kase.action, 40)}`)
@@ -502,6 +502,88 @@ async function caseView(kase) {
 
   embed.setFooter({ text: 'Internal Affairs · read-only' });
   return embed;
+}
+
+// ── Sharing evidence into the channel ─────────────────────────────
+// The panel is ephemeral; the channel is not. Posting a case's exhibits into it
+// puts them in front of everybody who can read that channel, permanently, and
+// that is a disclosure decision rather than a UI convenience. So it is two
+// steps: a confirmation that names the case, names the channel, and lists what
+// is about to go out with where each exhibit came from — then the post.
+
+/** What the confirmation shows before anything is public. */
+function shareConfirmView(kase, ev, channel) {
+  const where = channel
+    ? (channel.name ? `**#${short(channel.name, 60)}**` : 'this channel')
+    : 'this channel';
+
+  const lines = ev.exhibits.slice(0, 14).map(x => {
+    const label = x.label || (x.external ? 'Case document' : 'Link');
+    const src = x.source ? ` *(${x.source})*` : '';
+    return `${e('met_link')} ${label}${src}${x.url ? `\n\`${short(x.url, 90)}\`` : ' — *no link, nothing to send*'}`;
+  });
+
+  const sendable = ev.exhibits.filter(x => x.url).length;
+
+  return new EmbedBuilder()
+    .setColor(COLOR.warn)
+    .setTitle(`${e('met_warn')} Send this evidence to ${channel && channel.name ? '#' + short(channel.name, 40) : 'the channel'}?`)
+    .setDescription(
+      `You are about to post **${sendable}** evidence link${sendable === 1 ? '' : 's'} from `
+      + `\`${short(kase.caseRef, 20)}\` into ${where}.\n\n`
+      + `${e('met_dot_on')} It will be **visible to everyone who can read that channel**, not just Internal Affairs.\n`
+      + `${e('met_dot_on')} It will say the case reference and that you shared it.\n`
+      + `${e('met_dot_on')} Nothing else from the case goes with it — no reason, no notes, no appeal detail.`)
+    .addFields(
+      { name: 'From', value:
+        `\`${short(kase.caseRef, 20)}\` · ${short(kase.action, 40)}\n`
+        + `${e('met_user')} ${kase.robloxUsername ? short(kase.robloxUsername, 30) : (kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'unknown')}`
+        + ` · filed ${when(kase.createdAt)}`
+        + (ev.hasDocument ? `\n${e('met_folder')} From the case document` : `\n${e('met_folder')} From the case itself`),
+        inline: false },
+      { name: `What will be sent (${ev.exhibits.length})`, value: short(lines.join('\n'), 1000), inline: false },
+    )
+    .setFooter({ text: 'Nothing has been sent yet' });
+}
+
+/** The public post. Deliberately spare — links, and where they came from. */
+function evidencePost(kase, ev, sharedBy) {
+  const lines = ev.exhibits.filter(x => x.url).slice(0, 20).map(x => {
+    const label = x.label || (x.external ? 'Case document' : 'Link');
+    const note = x.note && !x.external ? ` — ${short(x.note, 90)}` : '';
+    return `${e('met_link')} **${label}** — ${x.url}${note}`;
+  });
+
+  return new EmbedBuilder()
+    .setColor(COLOR.panel)
+    .setTitle(`${e('met_folder')} Evidence — ${short(kase.caseRef, 20)}`)
+    .setDescription(
+      `${short(kase.action, 60)}`
+      + (kase.robloxUsername ? ` · ${short(kase.robloxUsername, 30)}` : '')
+      + `\n\n${lines.join('\n')}`)
+    .setFooter({ text: `Shared by ${short(sharedBy, 60)} · Internal Affairs` })
+    .setTimestamp(new Date());
+}
+
+// Can the bot actually post here, and is this even a place to post?
+function channelProblem(channel, client) {
+  if (!channel) return "this doesn't look like a channel the bot can post in";
+  if (typeof channel.send !== 'function') return "this isn't a channel the bot can post in";
+  // A DM has no permission model to check, and posting evidence into somebody's
+  // DMs from a panel is not what this button is for.
+  if (!channel.guild) return 'this is a direct message — run `/ia` in the channel you want the evidence in';
+  try {
+    const me = channel.guild.members && channel.guild.members.me;
+    if (me && typeof channel.permissionsFor === 'function') {
+      const perms = channel.permissionsFor(me);
+      if (perms && typeof perms.has === 'function') {
+        const { PermissionFlagsBits } = require('discord.js');
+        if (!perms.has(PermissionFlagsBits.SendMessages)) return "the bot can't send messages in this channel";
+        if (!perms.has(PermissionFlagsBits.EmbedLinks)) return "the bot can't embed links in this channel";
+      }
+    }
+  } catch (err) { /* an unreadable permission set is not a refusal */ }
+  return null;
 }
 
 // ── The desk (no officer named) ───────────────────────────────────
@@ -575,13 +657,163 @@ function linkRow(subject) {
   return row;
 }
 
-async function componentsFor(token, subject, active) {
+/**
+ * The share button, on a case view that actually has something to share.
+ *
+ * Deliberately absent when there is nothing sendable — a button that explains
+ * why it can't do anything is worse than no button.
+ */
+function shareRow(token, sendable) {
+  if (!sendable) return null;
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`ia_send_${token}`)
+      .setLabel(`Send evidence to channel (${sendable})`)
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+/**
+ * Render a case and pin it to the panel token.
+ *
+ * The share button carries only the token, so the token has to know which case
+ * is on screen. Doing that here means opening a case from the menu and opening
+ * one by reference cannot end up remembering different things.
+ */
+async function caseFrame(token, subject, kase) {
+  const ev = await require('./caseEvidence').evidenceFor(kase);
+  const state = recall(token);
+  if (state) { state.caseId = kase.id; state.caseRef = kase.caseRef; }
+  const sendable = ev.exhibits.filter(x => x.url).length;
+  return {
+    embeds: [await caseView(kase, ev)],
+    components: await componentsFor(token, subject, 'case', { sendable }),
+  };
+}
+
+async function componentsFor(token, subject, active, opts = {}) {
   const rows = [navRow(token, active)];
   const cases = await casesFor(subject, 25);
   const sel = caseSelectRow(token, cases);
   if (sel) rows.push(sel);
+  const share = active === 'case' ? shareRow(token, opts.sendable || 0) : null;
+  if (share) rows.push(share);
   rows.push(linkRow(subject));
   return rows;
+}
+
+/**
+ * The three steps of putting a case's evidence in the channel.
+ *
+ * The panel it is driven from is ephemeral and the channel is not, so this is
+ * never one click: `send` shows what would go out and where, `sendgo` posts it,
+ * `sendno` puts the case back. The case is read fresh at each step rather than
+ * carried along, so what gets posted is what the case says now.
+ */
+async function handleShare(interaction, token, state, step) {
+  const subject = state.subject;
+  const back = async () => {
+    const kase = state.caseId ? await loadCase(state.caseId) : null;
+    if (!kase) return;
+    return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
+  };
+
+  if (step === 'sendno') return back();
+
+  const kase = state.caseId ? await loadCase(state.caseId) : null;
+  if (!kase) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_cross')} That case is no longer there`)
+        .setDescription('Open it again from the menu.')],
+    }).catch(() => {});
+  }
+
+  const ev = await require('./caseEvidence').evidenceFor(kase);
+  const sendable = ev.exhibits.filter(x => x.url).length;
+  if (!sendable) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.warn)
+        .setTitle(`${e('met_warn')} Nothing to send`)
+        .setDescription('This case has no evidence links on it.')],
+      components: await componentsFor(token, subject, 'case', { sendable: 0 }),
+    }).catch(() => {});
+  }
+
+  const channel = interaction.channel;
+  const problem = channelProblem(channel, interaction.client);
+
+  // ── Step 1: ask ──
+  if (step === 'send') {
+    if (problem) {
+      return interaction.editReply({
+        embeds: [new EmbedBuilder().setColor(COLOR.fail)
+          .setTitle(`${e('met_cross')} Can't send it here`)
+          .setDescription(`Nothing was sent — ${problem}.`)],
+        components: await componentsFor(token, subject, 'case', { sendable }),
+      }).catch(() => {});
+    }
+    return interaction.editReply({
+      embeds: [shareConfirmView(kase, ev, channel)],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`ia_sendgo_${token}`)
+          .setLabel(`Send ${sendable} link${sendable === 1 ? '' : 's'}`).setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`ia_sendno_${token}`)
+          .setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+      )],
+    }).catch(() => {});
+  }
+
+  // ── Step 2: send ──
+  if (problem) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_cross')} Not sent`)
+        .setDescription(problem)],
+      components: await componentsFor(token, subject, 'case', { sendable }),
+    }).catch(() => {});
+  }
+
+  const who = (interaction.member && interaction.member.displayName)
+    || interaction.user.globalName || interaction.user.username;
+  let posted = null;
+  try {
+    posted = await channel.send({
+      embeds: [evidencePost(kase, ev, who)],
+      // The links are the point; nothing here should ping anybody.
+      allowedMentions: { parse: [] },
+    });
+  } catch (err) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_cross')} Not sent`)
+        .setDescription(`Discord refused it: ${short(err.message, 300)}`)],
+      components: await componentsFor(token, subject, 'case', { sendable }),
+    }).catch(() => {});
+  }
+
+  console.log(`[IA panel] ${interaction.user.id} shared ${sendable} evidence link(s) `
+    + `from ${kase.caseRef} into #${(channel && channel.name) || channel.id}`);
+
+  return interaction.editReply({
+    embeds: [new EmbedBuilder().setColor(COLOR.ok)
+      .setTitle(`${e('met_tick')} Sent`)
+      .setDescription(`**${sendable}** evidence link${sendable === 1 ? '' : 's'} from \`${short(kase.caseRef, 20)}\` `
+        + `posted in ${channel.name ? `**#${short(channel.name, 60)}**` : 'this channel'}.`
+        + (posted && posted.url ? `\n\n[Jump to it](${posted.url})` : ''))],
+    components: await componentsFor(token, subject, 'case', { sendable }),
+  }).catch(() => {});
+}
+
+// One case with everything the panel needs on it.
+function loadCase(id) {
+  return prisma.case.findUnique({
+    where: { id },
+    include: {
+      user: { select: { displayName: true } },
+      casePunishments: { select: { action: true, roleRemoved: true, expiresAt: true, durationDays: true } },
+    },
+  }).catch(() => null);
 }
 
 // ── Access ────────────────────────────────────────────────────────
@@ -620,10 +852,7 @@ async function handleIaCommand(interaction) {
       discordId: kase.officerDiscordId, robloxUsername: kase.robloxUsername, robloxId: kase.robloxUserId,
     }, interaction.guild);
     const token = keep({ subject, ownerId: interaction.user.id });
-    return interaction.editReply({
-      embeds: [await caseView(kase)],
-      components: await componentsFor(token, subject, 'case'),
-    }).catch(() => {});
+    return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
   }
 
   if (!officer) {
@@ -696,20 +925,16 @@ async function handleIaComponent(interaction) {
   const subject = state.subject;
 
   try {
+    // ── Sharing evidence ──
+    if (view === 'send' || view === 'sendgo' || view === 'sendno') {
+      return handleShare(interaction, token, state, view);
+    }
+
     if (view === 'case') {
       const id = interaction.values && interaction.values[0];
-      const kase = id ? await prisma.case.findUnique({
-        where: { id },
-        include: {
-          user: { select: { displayName: true } },
-          casePunishments: { select: { action: true, roleRemoved: true, expiresAt: true, durationDays: true } },
-        },
-      }).catch(() => null) : null;
+      const kase = id ? await loadCase(id) : null;
       if (!kase) return;
-      return interaction.editReply({
-        embeds: [await caseView(kase)],
-        components: await componentsFor(token, subject, 'case'),
-      }).catch(() => {});
+      return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
     }
 
     const embed = view === 'rec' ? await recordView(subject)
@@ -733,6 +958,7 @@ async function handleIaComponent(interaction) {
 
 module.exports = {
   buildCommand, handleIaCommand, handleIaComponent,
+  shareConfirmView, evidencePost, channelProblem, caseFrame, handleShare, loadCase,
   resolveSubject, casesFor, punishmentsFor, ticketsFor, findCase,
   overviewView, recordView, ticketsView, activityView, caseView, deskView,
   componentsFor, keep, recall,
