@@ -15,7 +15,7 @@
 
 const express = require('express');
 const prisma  = require('../lib/db');
-const { requireHICOMMStrict, requireHICOMM } = require('../middleware/auth');
+const { requireHICOMMStrict, requireHICOMM, requireDeveloper } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -174,6 +174,11 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
 });
 
 // ── GET /api/tickets/backlog-status ───────────────────────────────
+//
+// DEVELOPER ONLY, like the clear it explains. It reports the connected role,
+// the database name, row-level security, triggers and the table's columns —
+// the internals of the deployment, not something the rest of High Command has
+// any reason to read.
 // The truth about the queue, in a form a person can read by opening the URL.
 //
 // Toasts are lossy and server logs are somewhere else. When the clear button
@@ -182,7 +187,7 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
 // oldest and newest still waiting, and which build is answering — because
 // "the button does nothing" has more than once turned out to be a deploy that
 // had not landed.
-router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
+router.get('/backlog-status', requireDeveloper, async (req, res) => {
   try {
     const now = new Date();
     const [pending, beforeNow, future, oldest, newest, blank, cleared] = await Promise.all([
@@ -284,6 +289,11 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
 });
 
 // ── POST /api/tickets/clear-backlog — clear the queue ─────────────
+//
+// DEVELOPER ONLY. One press approves every waiting log — nine thousand of them,
+// at the size this was built for — and there is no undo. Hiding the button
+// would not be enough on its own: an endpoint is reachable by anybody who knows
+// the path, so the gate is here as well as in the page.
 // Nine thousand logs nobody was ever going to work through is a wall, not a
 // queue. Everything waiting gets closed off as APPROVED and marked as a backlog
 // clear rather than a decision — the rows stay, they keep their full history in
@@ -299,7 +309,7 @@ router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
 //   { }                       → dry run: how many are waiting
 //   { apply: true }           → clear a slice, report `remaining`
 //   { apply: true, all: true} → ignore the date cutoff (strays included)
-router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
+router.post('/clear-backlog', requireDeveloper, async (req, res) => {
   const body  = req.body  || {};
   const query = req.query || {};
 

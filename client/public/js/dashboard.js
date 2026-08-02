@@ -185,6 +185,14 @@ async function loadCurrentUser() {
       // Withdrawing an event reverses everybody's points, so it is theirs.
       window.canVoidEvents = true;
     }
+    // Developer-only, ANYWHERE — not just inside /dev. `.dev-only` is the
+    // Developer division's own nav and pages, which are deliberately hidden on
+    // the IA dashboard; this is for the handful of controls that sit among the
+    // ordinary tools and must still never be pressable by anybody else. The
+    // clear-backlog button is one: it approves thousands of rows in one press.
+    if (currentUser.role === 'DEVELOPER') {
+      document.querySelectorAll('.developer-only').forEach(el => el.style.display = '');
+    }
     // The ticket re-sync shares the casework header with "Submit Case", so the
     // selector decides when it is on screen — this only records that the user
     // is allowed to see it at all.

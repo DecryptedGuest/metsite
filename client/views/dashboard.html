@@ -490,7 +490,7 @@
             <!-- The same control as on the Pending tab. This is where the size
                  of the queue is actually visible, so this is where somebody
                  goes looking for the way to deal with it. -->
-            <button class="btn btn-ghost btn-sm hicomm-strict-only" id="btn-ticket-clear-backlog-all"
+            <button class="btn btn-ghost btn-sm developer-only" id="btn-ticket-clear-backlog-all"
                     style="display:none;" title="Approve everything currently waiting, without paying anybody">
               <i class="ti ti-checks"></i> Clear backlog
             </button>
@@ -575,7 +575,7 @@
               <button class="filter-tab" data-tfilter="IA_COMPLAINT">Complaints</button>
             </div>
             <span class="text-muted mono" id="pending-tickets-count" style="font-size:11px;"></span>
-            <button class="btn btn-ghost btn-sm hicomm-strict-only" id="btn-ticket-clear-backlog"
+            <button class="btn btn-ghost btn-sm developer-only" id="btn-ticket-clear-backlog"
                     style="display:none;" title="Approve everything currently waiting, without paying anybody">
               <i class="ti ti-checks"></i> Clear backlog
             </button>
@@ -1340,7 +1340,7 @@
     <!-- CASE DOCUMENTS -->
 
     <!-- RECORDS (Internal Affairs officer lookup) -->
-    <!-- EVENT LOGS — filed here, and filing one pays the roll. -->
+    <!-- EVENT LOGS — filed here, and filing one pays every attendee. -->
     <section class="page" id="page-events">
       <div class="page-header fade-up">
         <div>
@@ -1775,8 +1775,8 @@
     <div class="modal-body">
       <div class="ev-warn" id="ev-warn">
         <i class="ti ti-alert-circle"></i>
-        <span>Every name on the roll gets <strong id="ev-points-note">2 points</strong>, straight away.
-              Check the roll before you submit.</span>
+        <span>Every attendee gets <strong id="ev-points-note">2 points</strong>, straight away.
+              Check the log before you submit.</span>
       </div>
 
       <div class="form-row">
@@ -1785,8 +1785,8 @@
           <select class="form-control" id="ev-type"></select>
         </div>
         <div class="form-group">
-          <label class="form-label">Title <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
-          <input type="text" class="form-control" id="ev-title" placeholder="e.g. Interview technique refresher" autocomplete="off" />
+          <label class="form-label">Co-host <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+          <input type="text" class="form-control" id="ev-cohost" placeholder="Name" autocomplete="off" />
         </div>
       </div>
 
@@ -1796,12 +1796,15 @@
           <input type="datetime-local" class="form-control" id="ev-started" />
         </div>
         <div class="form-group">
-          <label class="form-label">Duration <span style="color:var(--text-muted);font-weight:400;">(minutes)</span></label>
-          <input type="number" class="form-control" id="ev-duration" min="0" max="1440" placeholder="e.g. 45" />
+          <label class="form-label">Ended <span>*</span></label>
+          <input type="datetime-local" class="form-control" id="ev-ended" />
         </div>
         <div class="form-group">
-          <label class="form-label">Co-host <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
-          <input type="text" class="form-control" id="ev-cohost" placeholder="Name" autocomplete="off" />
+          <label class="form-label">Duration</label>
+          <!-- Worked out from the two above; there is nothing to type here, and
+               a duration typed separately is a duration that disagrees. -->
+          <input type="text" class="form-control" id="ev-duration" readonly tabindex="-1"
+                 style="opacity:.75;cursor:default;" placeholder="—" />
         </div>
       </div>
 
@@ -1835,7 +1838,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-event')">Cancel</button>
-      <button class="btn btn-primary" id="btn-submit-event"><i class="ti ti-check"></i> File and pay the roll</button>
+      <button class="btn btn-primary" id="btn-submit-event"><i class="ti ti-check"></i> Submit</button>
     </div>
   </div>
 </div>

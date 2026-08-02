@@ -1,10 +1,10 @@
 /* client/public/js/ia-events.js — Internal Affairs event logs.
 
-   Filing an event pays every name on the roll immediately. There is no review
-   step, so the form's job is to make the roll obvious BEFORE it is submitted:
-   the pasted text is parsed live into a list of chips showing exactly who will
-   be paid, what was ignored as a duplicate, and what it comes to in points.
-   Nobody should discover who they paid by reading the quota sheet afterwards. */
+   Filing an event pays every attendee immediately. There is no review step, so
+   the form's job is to make the log obvious BEFORE it is submitted: what is
+   typed is parsed live into a list of chips showing exactly who will be paid,
+   what was ignored as a duplicate, and what it comes to. Nobody should discover
+   who they paid by reading the quota sheet afterwards. */
 (function () {
   var esc = window.escapeHtml || function (s) { return String(s == null ? '' : s); };
   var $ = function (id) { return document.getElementById(id); };
@@ -234,12 +234,37 @@
     });
   }
 
+  // ── Duration ────────────────────────────────────────────────────
+  // Never typed. A duration entered separately from the times is a duration
+  // that eventually disagrees with them, and the one somebody reads back is
+  // whichever the code happened to trust.
+  function durationMins() {
+    var a = $('ev-started'), b = $('ev-ended');
+    if (!a || !b || !a.value || !b.value) return null;
+    var ms = new Date(b.value).getTime() - new Date(a.value).getTime();
+    if (!isFinite(ms)) return null;
+    return Math.round(ms / 60000);
+  }
+
+  function updateDuration() {
+    var box = $('ev-duration');
+    if (!box) return;
+    var mins = durationMins();
+    if (mins == null) { box.value = ''; box.style.color = ''; return; }
+    if (mins < 0)     { box.value = 'Ends before it starts'; box.style.color = 'var(--red)'; return; }
+    if (mins > 1440)  { box.value = 'Longer than a day'; box.style.color = 'var(--red)'; return; }
+    box.style.color = '';
+    var h = Math.floor(mins / 60), m = mins % 60;
+    box.value = mins === 0 ? 'Under a minute'
+      : (h ? h + 'h' + (m ? ' ' + m + 'm' : '') : m + 'm');
+  }
+
   function renderRoll() {
     var box = $('ev-roll');
     if (!box) return;
     var parsed = parseRoll($('ev-attendees') ? $('ev-attendees').value : '');
     if (!parsed.roll.length) {
-      box.innerHTML = '<span class="ev-roll-empty">Nobody on the roll yet — nobody gets paid.</span>';
+      box.innerHTML = '<span class="ev-roll-empty">No attendees yet — nobody gets paid.</span>';
       return;
     }
     var chips = parsed.roll.map(function (a) {
@@ -256,9 +281,9 @@
     box.innerHTML = '<div class="ev-roll-head">'
       + '<strong>' + parsed.roll.length + '</strong> attendee' + (parsed.roll.length === 1 ? '' : 's')
       + ' · <strong>' + total + '</strong> quota point' + (total === 1 ? '' : 's')
-      + (META.xpEach ? ' · <strong>' + totalXp + '</strong> XP' : '') + ' will be awarded'
+      + (META.xpEach ? ' · <strong>' + totalXp + '</strong> MET XP' : '') + ' will be awarded'
       + (META.xpEach && noId ? ' · <span class="ev-roll-warn">' + noId
-          + ' with no Discord ID — no XP</span>' : '')
+          + ' with no Discord ID — no MET XP</span>' : '')
       + (parsed.dupes ? ' · <span class="ev-roll-note">' + parsed.dupes + ' duplicate' + (parsed.dupes === 1 ? '' : 's') + ' ignored</span>' : '')
       + (parsed.over ? ' · <span class="ev-roll-warn">only the first ' + META.maxAttendees + ' are counted</span>' : '')
       + '</div><div class="ev-chips">' + chips + '</div>';
@@ -288,7 +313,7 @@
       + '<td>' + (e.voidedAt
           ? '<span class="badge badge-muted"><span class="badge-dot"></span>Withdrawn</span>'
           : '<span class="badge badge-approved"><span class="badge-dot"></span>' + paid + ' pts'
-            + (paidXp ? ' · ' + paidXp + ' XP' : '') + '</span>') + '</td>'
+            + (paidXp ? ' · ' + paidXp + ' MET XP' : '') + '</span>') + '</td>'
       + '<td><span class="date-cell">' + esc(when) + '</span></td>'
       + '<td>' + (window.canVoidEvents && !e.voidedAt
           ? '<button class="row-btn row-btn-deny" onclick="iaEventVoid(\'' + esc(e.id) + '\')" title="Withdraw and reverse the points">'
@@ -337,16 +362,23 @@
     var note = $('ev-points-note');
     if (note) {
       note.textContent = META.pointsEach + ' quota point' + (META.pointsEach === 1 ? '' : 's')
-        + (META.xpEach ? ' and ' + META.xpEach + ' XP' : '');
+        + (META.xpEach ? ' and ' + META.xpEach + ' MET XP' : '');
     }
 
-    // Default the start to now, rounded down to the minute — an event is
-    // logged after it happens, so "now" is nearly always right.
-    var started = $('ev-started');
-    if (started && !started.value) {
-      var d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
-      started.value = d.toISOString().slice(0, 16);
-    }
+    // An event is logged after it happens, so the useful default is "it ended
+    // just now and ran for about an hour". Both are editable; the duration
+    // follows them.
+    var local = function (ms) {
+      return new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    };
+    var started = $('ev-started'), ended = $('ev-ended');
+    if (ended && !ended.value)   ended.value   = local(Date.now());
+    if (started && !started.value) started.value = local(Date.now() - 3600000);
+    updateDuration();
+    ['ev-started', 'ev-ended'].forEach(function (id) {
+      var el = $(id);
+      if (el && !el.dataset.wired) { el.dataset.wired = '1'; el.addEventListener('input', updateDuration); }
+    });
     wireProof();
     drawShots();
     hideSuggest();
@@ -357,15 +389,19 @@
   async function submit() {
     var btn = $('btn-submit-event');
     var parsed = parseRoll($('ev-attendees').value);
-    if (!parsed.roll.length) { showToast('Add at least one attendee — the roll is what gets paid.', 'error'); return; }
+    if (!parsed.roll.length) { showToast('Add at least one attendee.', 'error'); return; }
+    var mins = durationMins();
+    if (mins == null)  { showToast('Say when the event started and ended.', 'error'); return; }
+    if (mins < 0)      { showToast('The end time is before the start time.', 'error'); return; }
+    if (mins > 1440)   { showToast('An event cannot run longer than a day.', 'error'); return; }
 
     var total = parsed.roll.length * META.pointsEach;
     var totalXp = parsed.roll.length * META.xpEach;
     var okd = await (typeof uiConfirm === 'function'
-      ? uiConfirm('File this event?\n\n' + parsed.roll.length + ' attendee(s) will each get '
+      ? uiConfirm('Submit this event log?\n\n' + parsed.roll.length + ' attendee(s) will each get '
         + META.pointsEach + ' quota point(s)'
-        + (META.xpEach ? ' and ' + META.xpEach + ' XP' : '') + ' — '
-        + total + ' point(s)' + (META.xpEach ? ' and ' + totalXp + ' XP' : '')
+        + (META.xpEach ? ' and ' + META.xpEach + ' MET XP' : '') + ' — '
+        + total + ' point(s)' + (META.xpEach ? ' and ' + totalXp + ' MET XP' : '')
         + ' in total.')
       : Promise.resolve(confirm('Pay ' + parsed.roll.length + ' attendee(s) ' + total + ' points in total?')));
     if (!okd) return;
@@ -376,10 +412,9 @@
     try {
       var body = {
         eventType:    $('ev-type').value,
-        title:        $('ev-title').value.trim(),
         coHostName:   $('ev-cohost').value.trim(),
         startedAt:    $('ev-started').value ? new Date($('ev-started').value).toISOString() : null,
-        durationMins: $('ev-duration').value === '' ? null : parseInt($('ev-duration').value, 10),
+        durationMins: durationMins(),
         notes:        $('ev-notes').value.trim(),
         attendees:    parsed.roll.map(function (a) { return { discordId: a.discordId, name: a.name }; }),
         proof:        shots.slice(),
@@ -388,9 +423,9 @@
       closeModal('modal-event');
       showToast(out.event.eventRef + ' filed — ' + out.awarded + ' paid '
         + out.pointsEach + ' point(s)'
-        + (out.xpEach ? ', ' + (out.xpAwarded || 0) + ' given ' + out.xpEach + ' XP' : '') + '.'
+        + (out.xpEach ? ', ' + (out.xpAwarded || 0) + ' given ' + out.xpEach + ' MET XP' : '') + '.'
         + (out.xpSkipped ? ' ' + out.xpSkipped + ' had no Discord ID.' : ''), 'success');
-      ['ev-title', 'ev-cohost', 'ev-duration', 'ev-attendees', 'ev-notes'].forEach(function (id) {
+      ['ev-cohost', 'ev-attendees', 'ev-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
       });
       shots.length = 0;
