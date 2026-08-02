@@ -390,7 +390,11 @@ document.addEventListener('DOMContentLoaded', function () {
   // Clear the backlog (HICOMM / Developer). Everything waiting becomes
   // APPROVED and nobody is paid — the count is said out loud first, because
   // this is a thousand rows changing status in one press.
-  var clear = document.getElementById('btn-ticket-clear-backlog');
+  // Two buttons, one job: the Pending tab and the All Tickets header, because
+  // the size of the queue is visible from both and somebody looking at nine
+  // thousand rows should not have to find the other tab first.
+  ['btn-ticket-clear-backlog', 'btn-ticket-clear-backlog-all'].forEach(function (btnId) {
+  var clear = document.getElementById(btnId);
   if (clear) clear.addEventListener('click', async function () {
     // Say something the moment it is pressed. A disabled button and silence is
     // indistinguishable from a button that does nothing, and at nine thousand
@@ -400,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function () {
     clear.disabled = true;
     busy('Counting…');
     try {
-      var dry = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({}) });
+      var dry = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({ all: true }) });
       clear.innerHTML = original;
       if (!dry.wouldClear) { showToast('Nothing waiting — the queue is already clear.', 'success'); return; }
       var okd = await (typeof uiConfirm === 'function'
@@ -410,19 +414,44 @@ document.addEventListener('DOMContentLoaded', function () {
           + 'back in the queue. Logs closed from now on still arrive pending and still pay on approval.')
         : Promise.resolve(confirm('Approve ' + dry.wouldClear + ' waiting log(s) without paying anybody?')));
       if (!okd) return;
-      busy('Clearing ' + dry.wouldClear + '…');
-      var r = await api('/api/tickets/clear-backlog', { method: 'POST', body: JSON.stringify({ apply: true }) });
-      showToast('Cleared ' + r.cleared + ' log(s).'
-        + (r.handlers && r.handlers.fixed ? ' Filled in ' + r.handlers.fixed + ' handler(s).' : ''), 'success');
+
+      // The server clears a bounded slice per request — a single statement over
+      // ten thousand rows is long enough for a pooler or a proxy to kill, and
+      // when it did the write rolled back and the button looked dead. So we go
+      // round until the queue is empty, showing the count coming down. A run
+      // that dies half way has still genuinely cleared half of it; pressing
+      // again picks up from there.
+      var total = 0, fixed = 0, rounds = 0;
+      for (;;) {
+        busy('Clearing… ' + total + ' of ' + dry.wouldClear);
+        var r = await api('/api/tickets/clear-backlog',
+          { method: 'POST', body: JSON.stringify({ apply: true, all: true }) });
+        total += r.cleared || 0;
+        fixed += (r.handlers && r.handlers.fixed) || 0;
+        rounds++;
+        if (r.done || !r.cleared) break;
+        // A guard, not a limit: 40 rounds is 120,000 rows. Anything past that
+        // is a loop that is not converging, and spinning forever would be worse
+        // than saying so.
+        if (rounds >= 40) {
+          showToast('Cleared ' + total + ' so far, ' + r.remaining + ' still waiting — press again to continue.', 'warning');
+          break;
+        }
+      }
+      if (rounds < 40) {
+        showToast('Cleared ' + total + ' log(s).' + (fixed ? ' Filled in ' + fixed + ' handler(s).' : ''), 'success');
+      }
       allTicketsCache = [];
       loadPendingTickets();
       loadAllTickets();
+      if (typeof loadStats === 'function') loadStats();
     } catch (err) {
       showToast(err.message || 'Failed to clear the backlog.', 'error');
     } finally {
       clear.disabled = false;
       clear.innerHTML = original;
     }
+  });
   });
 
   // Manual re-sync (HICOMM / Developer)

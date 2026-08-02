@@ -64,13 +64,17 @@ function rankTabName(tab) { return tabForRank(tab); }
  * @returns {Promise<object>} the full report
  */
 async function auditMet(opts = {}) {
-  const cfg = quota.quotaConfig('MET');
+  // Which database. IA audits its own sheet from the IA dashboard; FLP High
+  // Command audits the MET one from theirs. Same checks, different sheet.
+  const division = (opts.division || 'MET').toString().toUpperCase();
+  const cfg = quota.quotaConfig(division);
   const sheets = quota.getSheetsClient(cfg);
-  if (!sheets) return { ok: false, error: 'Google Sheets is not configured for MET (set GOOGLE_SERVICE_ACCOUNT_JSON / MET_GOOGLE_SERVICE_ACCOUNT_JSON).' };
-  if (!cfg.sheetId) return { ok: false, error: 'No MET sheet configured (set MET_SHEET_ID).' };
+  if (!sheets) return { ok: false, error: `Google Sheets is not configured for ${division}.` };
+  if (!cfg.sheetId) return { ok: false, error: `No ${division} sheet configured.` };
 
   const report = {
     ok: true,
+    division,
     sheetId: cfg.sheetId,
     target: quota.MET_TARGET(),
     tabs: [],

@@ -174,52 +174,73 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
 });
 
 // ── POST /api/tickets/clear-backlog — clear the queue ─────────────
-// A thousand logs nobody was ever going to work through is a wall, not a
-// queue. Everything already waiting gets closed off as APPROVED and marked as
-// a backlog clear rather than a decision — the rows stay, they keep their full
-// history in All Tickets, and they stop being somebody's decision to make.
-// No points are awarded: nobody reviewed these, so nobody earned anything.
-// Logs closed from now on go into the queue normally and pay out on approval.
+// Nine thousand logs nobody was ever going to work through is a wall, not a
+// queue. Everything waiting gets closed off as APPROVED and marked as a backlog
+// clear rather than a decision — the rows stay, they keep their full history in
+// All Tickets, they simply stop being somebody's decision to make. No points
+// are awarded: nobody reviewed these, so nobody earned anything.
 //
-// It also fills in any blank handlers on the way through, because a cleared
-// backlog full of "—" is still unreadable.
+// This request is deliberately BOUNDED. It clears a slice and reports how many
+// are left, and the caller comes back for the next one. The previous version
+// tried the whole queue in one statement and one request, which at this size is
+// long enough for a pooler or a proxy to kill it — the write rolled back and
+// the button appeared to do nothing at all.
 //
-// Dry run unless you pass apply, and it reports the count either way.
+//   { }                       → dry run: how many are waiting
+//   { apply: true }           → clear a slice, report `remaining`
+//   { apply: true, all: true} → ignore the date cutoff (strays included)
 router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
   const body = req.body || {};
   try {
     const cutoff = body.before ? new Date(body.before) : new Date();
     if (isNaN(cutoff.getTime())) return res.status(400).json({ error: 'That is not a date.' });
 
-    const waiting = await prisma.ticketLog.count({
-      where: { status: 'PENDING', closedAt: { lt: cutoff } },
-    });
-    const blank = await prisma.ticketLog.count({
-      where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
-    });
+    // `all` also decides what we COUNT, or the dry run would promise a number
+    // the apply then disagrees with.
+    const where = body.all === true
+      ? { status: 'PENDING' }
+      : { status: 'PENDING', closedAt: { lt: cutoff } };
+
     if (body.apply !== true) {
-      return res.json({ dryRun: true, wouldClear: waiting, blankHandlers: blank, before: cutoff });
+      const [waiting, total, blank] = await Promise.all([
+        prisma.ticketLog.count({ where }),
+        prisma.ticketLog.count({ where: { status: 'PENDING' } }),
+        prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
+      ]);
+      return res.json({
+        dryRun: true, wouldClear: waiting, pendingTotal: total,
+        // Rows the cutoff would strand — a ticket dated in the future is never
+        // "before now", so without saying so it would sit there unexplained.
+        strandedByDate: Math.max(0, total - waiting),
+        blankHandlers: blank, before: cutoff,
+      });
     }
 
     const { clearBacklogBefore, backfillHandlers } = require('../lib/ticketIngest');
-    // The clear itself is one UPDATE and always finishes. The handler repair is
-    // a per-row job that can involve a Discord fetch each, so it is capped hard
-    // here and never allowed to refetch — at nine thousand rows an uncapped
-    // repair turns this request into a several-minute hang, which is
-    // indistinguishable from the button doing nothing. The sweep picks up the
-    // rest a few at a time.
-    const out = await clearBacklogBefore(cutoff);
+    const out = await clearBacklogBefore(cutoff, {
+      all: body.all === true,
+      batch: body.batch,
+      // One request's worth. Enough that a normal queue goes in a single press,
+      // small enough that the statement can never be the slow thing.
+      maxRows: body.maxRows || 3000,
+    });
+
+    // The handler repair is per-row and can involve a Discord fetch each, so it
+    // is capped hard and never allowed to refetch here — the sweep picks up the
+    // rest a few at a time in the background.
     let handlers = { fixed: 0, stillBlank: 0, checked: 0 };
     try {
-      handlers = await backfillHandlers(200, { refetch: false });
+      handlers = await backfillHandlers(150, { refetch: false });
     } catch (e) {
       console.warn('[TicketLogs] handler repair skipped during clear:', e.message);
     }
-    console.log(`[TicketLogs] backlog cleared by ${req.user.displayName || req.user.discordUsername} — ${out.cleared} log(s), ${handlers.fixed} handler(s) filled in`);
+
+    console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
+      + `${out.cleared} cleared, ${out.remaining} left, ${handlers.fixed} handler(s) filled in`);
     res.json({ dryRun: false, ...out, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
-    res.status(500).json({ error: 'Failed to clear the backlog.' });
+    res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });
   }
 });
 

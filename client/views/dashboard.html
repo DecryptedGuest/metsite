@@ -487,6 +487,13 @@
               <button class="filter-tab" data-atstatus="DENIED">Denied</button>
             </div>
             <span class="text-muted mono" id="all-tickets-count-label" style="font-size:11px;"></span>
+            <!-- The same control as on the Pending tab. This is where the size
+                 of the queue is actually visible, so this is where somebody
+                 goes looking for the way to deal with it. -->
+            <button class="btn btn-ghost btn-sm hicomm-strict-only" id="btn-ticket-clear-backlog-all"
+                    style="display:none;" title="Approve everything currently waiting, without paying anybody">
+              <i class="ti ti-checks"></i> Clear backlog
+            </button>
           </div>
         </div>
         <div class="table-wrap">

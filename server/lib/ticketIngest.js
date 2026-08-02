@@ -222,23 +222,73 @@ async function statusForNewRow(closedAt) {
   };
 }
 
-async function clearBacklogBefore(when) {
-  const cutoff = when || new Date();
-  const res = await prisma.ticketLog.updateMany({
-    where: { status: 'PENDING', closedAt: { lt: cutoff } },
-    data: {
-      status: 'APPROVED',
-      // The marker that says this was a backlog clear, not a decision.
-      voidedAt: new Date(),
-      reviewedAt: new Date(),
-      reviewedByName: 'Backlog cleared',
-    },
-  });
-  // Draw the line, so a later sync cannot rebuild what was just cleared.
-  await setBacklogClearedAt(cutoff).catch(e =>
-    console.warn('[TicketLogs] could not record the backlog watermark:', e.message));
-  console.log(`[TicketLogs] cleared ${res.count} pending log(s) closed before ${cutoff.toISOString()} (approved, no points)`);
-  return { cleared: res.count, clearedBefore: cutoff };
+/**
+ * Clear the pending queue, in bounded batches.
+ *
+ * This used to be one updateMany over the whole queue. At a hundred rows that
+ * is fine; at nine thousand it is a single statement rewriting nine thousand
+ * rows and their indexes, and the first thing in the stack with a timeout —
+ * a connection pooler, a proxy, the browser — kills it. The write rolls back,
+ * the request dies, and from the outside the button did nothing. Which is
+ * exactly what it looked like.
+ *
+ * So it works in slices. Each statement touches at most `batch` rows and
+ * commits on its own, `maxRows` bounds how much one call attempts, and the
+ * count still waiting comes back so the caller can go again. Nothing is
+ * all-or-nothing any more: a run that dies half way leaves half the queue
+ * genuinely cleared, and pressing again picks up where it stopped.
+ *
+ * @param {Date}   [when]            only clear tickets closed before this
+ * @param {object} [opts]
+ * @param {number} [opts.batch=500]  rows per statement
+ * @param {number} [opts.maxRows]    stop after this many in one call
+ * @param {boolean}[opts.all=false]  ignore `when` — clear everything pending
+ * @returns {Promise<{cleared:number, remaining:number, done:boolean, clearedBefore:Date}>}
+ */
+async function clearBacklogBefore(when, opts = {}) {
+  const cutoff  = when || new Date();
+  const batch   = Math.min(Math.max(parseInt(opts.batch, 10) || 500, 50), 2000);
+  const maxRows = Math.max(parseInt(opts.maxRows, 10) || 5000, batch);
+
+  // `all` exists because a cutoff can strand rows: a ticket whose closedAt is
+  // in the future (clock skew on the log, a bad parse) is never < cutoff and
+  // would sit in the queue forever, un-clearable, with no way to see why.
+  const where = opts.all ? { status: 'PENDING' } : { status: 'PENDING', closedAt: { lt: cutoff } };
+
+  let cleared = 0;
+  while (cleared < maxRows) {
+    const slice = await prisma.ticketLog.findMany({
+      where, select: { id: true }, take: Math.min(batch, maxRows - cleared),
+    });
+    if (!slice.length) break;
+    const res = await prisma.ticketLog.updateMany({
+      where: { id: { in: slice.map(r => r.id) } },
+      data: {
+        status: 'APPROVED',
+        // The marker that says this was a backlog clear, not a decision.
+        voidedAt: new Date(),
+        reviewedAt: new Date(),
+        reviewedByName: 'Backlog cleared',
+      },
+    });
+    cleared += res.count;
+    if (res.count < slice.length) break;   // something else is moving them
+  }
+
+  const remaining = await prisma.ticketLog.count({ where });
+
+  // Draw the line, so a later sync cannot rebuild what was just cleared. Only
+  // once the queue is actually empty — drawing it half way would pre-clear
+  // rows that a resumed run still has to account for.
+  if (!remaining) {
+    await setBacklogClearedAt(cutoff).catch(e =>
+      console.warn('[TicketLogs] could not record the backlog watermark:', e.message));
+  }
+
+  console.log(`[TicketLogs] cleared ${cleared} pending log(s)`
+    + (opts.all ? '' : ` closed before ${cutoff.toISOString()}`)
+    + ` (approved, no points) — ${remaining} still waiting`);
+  return { cleared, remaining, done: remaining === 0, clearedBefore: cutoff };
 }
 
 /**
