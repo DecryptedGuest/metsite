@@ -14,22 +14,61 @@ function auditSecret() { return process.env.AUDIT_HMAC_SECRET || process.env.JWT
 // Deterministic JSON: sort object keys recursively so the byte stream is the
 // same at write time and at verify time (jsonb reorders keys, which otherwise
 // makes a legitimate multi-key metadata row read as "tampered").
+//
+// It must also match what Postgres ACTUALLY STORES, not what the caller passed:
+//
+//   · a key whose value is `undefined` is dropped by JSON.stringify and never
+//     reaches jsonb, so hashing it as present made the row unverifiable the
+//     moment it was written. This is not hypothetical — an AI scan that
+//     returned no score passed `{ overall: undefined }`, and every one of those
+//     rows read as tampered forever after.
+//   · `undefined` inside an ARRAY becomes null, because an array has no key to
+//     drop and JSON has no undefined.
+//   · a function or a symbol behaves the same way in both positions.
+//
+// Anything this gets wrong shows up as a tamper alert on a row nobody touched,
+// which is worse than useless: it teaches people to ignore the alert.
+function isDropped(v) {
+  return v === undefined || typeof v === 'function' || typeof v === 'symbol';
+}
+
 function stableStringify(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(isDropped(v) ? null : v);
+  if (Array.isArray(v)) return '[' + v.map(x => (isDropped(x) ? 'null' : stableStringify(x))).join(',') + ']';
+  return '{' + Object.keys(v).sort()
+    .filter(k => !isDropped(v[k]))
+    .map(k => JSON.stringify(k) + ':' + stableStringify(v[k]))
+    .join(',') + '}';
+}
+
+// The pre-fix stringifier, kept only so a row written under it can be
+// recognised as legitimately-written-but-wrongly-hashed and repaired. Never
+// used to write anything.
+function legacyStringify(v) {
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
-  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
-  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+  if (Array.isArray(v)) return '[' + v.map(legacyStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + legacyStringify(v[k])).join(',') + '}';
 }
 
 // A per-row tamper-evidence HMAC over the immutable fields. Editing any field in
 // the DB without the secret invalidates the hash, which the verify pass detects.
-function rowHash(r) {
-  const canonical = [
+function canonicalFor(r, stringify) {
+  return [
     r.id, r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
     r.category, r.action, r.actorId || '', r.actorName || '', r.actorRole || '',
     r.targetType || '', r.targetId || '', r.targetName || '', r.division || '',
-    r.summary || '', r.ip || '', stableStringify(r.metadata == null ? null : r.metadata),
+    r.summary || '', r.ip || '', stringify(r.metadata == null ? null : r.metadata),
   ].join('␟');
-  return crypto.createHmac('sha256', auditSecret()).update(canonical).digest('hex');
+}
+
+function rowHash(r) {
+  return crypto.createHmac('sha256', auditSecret()).update(canonicalFor(r, stableStringify)).digest('hex');
+}
+
+// What this row's hash WOULD have been under the pre-fix stringifier. A match
+// here means the row is genuine and only its hash is stale.
+function legacyRowHash(r) {
+  return crypto.createHmac('sha256', auditSecret()).update(canonicalFor(r, legacyStringify)).digest('hex');
 }
 
 function clientIp(req) {
@@ -56,15 +95,69 @@ async function write(data) {
 }
 
 // Verify the whole trail: recompute each row's HMAC and report mismatches.
+//
+// A row is reported three ways, not two. "Tampered" has to mean somebody
+// changed the data — if it also means "written by a version of this file with a
+// hashing bug", the alert is noise and gets ignored, which is the one outcome a
+// tamper trail cannot survive. Rows that verify under the OLD stringifier are
+// genuine and are reported separately as `stale`, with a repair available.
 async function verify(limit = 5000) {
   const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: limit });
-  let ok = 0; const tampered = [];
+  let ok = 0;
+  const tampered = [], stale = [];
   for (const r of rows) {
-    if (!r.hash) continue; // legacy rows written before hashing — not counted
-    if (rowHash(r) === r.hash) ok++;
-    else tampered.push({ id: r.id, action: r.action, createdAt: r.createdAt, summary: r.summary });
+    if (!r.hash) continue; // written before hashing existed — not counted
+    if (rowHash(r) === r.hash) { ok++; continue; }
+    const brief = { id: r.id, action: r.action, createdAt: r.createdAt, summary: r.summary };
+    if (legacyRowHash(r) === r.hash) stale.push(brief);
+    else tampered.push(brief);
   }
-  return { checked: rows.length, ok, tampered, unhashed: rows.filter(r => !r.hash).length };
+  return {
+    checked: rows.length, ok, tampered, stale,
+    unhashed: rows.filter(r => !r.hash).length,
+  };
+}
+
+/**
+ * Re-baseline the trail: accept the CURRENT contents of every row written
+ * before `before` and re-hash them.
+ *
+ * Be clear about what this does and does not prove, because the honest answer
+ * is uncomfortable. Rows written with a dropped key were hashed over a field
+ * the database never stored — and at verify time that field is gone, so there
+ * is no way to recompute what the original hash covered. The information
+ * needed to tell "written before the fix" from "edited by hand" is not
+ * recoverable. Anyone who says otherwise is guessing.
+ *
+ * So this does not repair anything and does not vindicate anything. It draws a
+ * line: everything before `before` is taken as the baseline, and the trail's
+ * integrity guarantee runs from there. Tampering AFTER that line is still
+ * detected exactly as before, which is the guarantee that actually matters
+ * going forward.
+ *
+ * It is deliberately not automatic, and the UI says all of the above before
+ * offering the button.
+ *
+ * @returns {Promise<{ rebaselined: number, checked: number, before: Date }>}
+ */
+async function rebaseline(before) {
+  const cutoff = before ? new Date(before) : new Date();
+  const rows = await prisma.auditLog.findMany({
+    where: { createdAt: { lt: cutoff } },
+    orderBy: { createdAt: 'desc' },
+    take: 50000,
+  });
+  let rebaselined = 0;
+  for (const r of rows) {
+    if (!r.hash) continue;
+    if (rowHash(r) === r.hash) continue;
+    try {
+      await prisma.auditLog.update({ where: { id: r.id }, data: { hash: rowHash(r) } });
+      rebaselined++;
+    } catch (e) { /* one bad row must not stop the sweep */ }
+  }
+  console.log(`[Audit] re-baselined ${rebaselined} row(s) written before ${cutoff.toISOString()}`);
+  return { rebaselined, checked: rows.length, before: cutoff };
 }
 
 // Security-trail style: record({ req, action, category, targetType, targetId, summary, metadata, ip? })
@@ -131,4 +224,5 @@ function denied(req, action, summary) {
   } catch (e) { /* logging must never break the request */ }
 }
 
-module.exports = { record, log, serialize, write, clientIp, verify, rowHash, denied };
+module.exports = {
+  rebaseline, legacyRowHash, record, log, serialize, write, clientIp, verify, rowHash, denied };

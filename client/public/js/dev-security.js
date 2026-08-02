@@ -207,6 +207,16 @@
       el.innerHTML = `<div style="font-size:15px;font-weight:700;color:${clean ? 'var(--green)' : 'var(--red)'};margin-bottom:8px;">
         <i class="ti ${clean ? 'ti-shield-check' : 'ti-shield-x'}"></i> ${clean ? 'Intact — no tampering detected' : `${r.tampered.length} row(s) FAILED verification`}</div>
         <div style="font-size:12px;color:var(--text-muted);">${r.ok} of ${r.checked} rows verified${r.unhashed ? ` · ${r.unhashed} legacy (unhashed)` : ''}.</div>
+        ${!clean ? `<div style="font-size:12px;color:var(--amber);margin-top:6px;line-height:1.6;">
+          <i class="ti ti-info-circle"></i> A hashing bug (fixed) covered a field the database never stored, so
+          every row written with one — an AI scan that returned no score, for instance — could never verify. Those
+          rows were not edited, but there is no way left to tell them apart from ones that were: the field the
+          original hash covered is gone.
+          <br>Re-baselining accepts the current contents of older rows and starts the guarantee from now.
+          It does not prove anything about them.
+          <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="rebaselineAudit(this)">
+            <i class="ti ti-flag"></i> Re-baseline older rows</button>
+        </div>` : ''}
         ${clean ? '' : `<div style="margin-top:8px;font-size:12px;color:var(--red);">${r.tampered.slice(0, 8).map(t => esc(t.action + ' — ' + (t.summary || t.id))).join('<br>')}</div>`}`;
     } catch (e) { el.innerHTML = `<span style="color:var(--red);">${esc(e.message)}</span>`; }
   };
@@ -252,3 +262,27 @@
 
   secLoadOverview();
 })();
+
+
+// Draw a line under the old rows. This does not vindicate them — it accepts
+// them — so the confirmation says exactly that before anything is written.
+async function rebaselineAudit(btn) {
+  const okd = await (typeof uiConfirm === 'function'
+    ? uiConfirm('Re-baseline the audit trail?\n\nThis accepts the CURRENT contents of every older row as correct '
+      + 'and re-hashes them. It does not prove they were never edited — that information is gone. '
+      + 'Tampering from this point on is still detected.')
+    : Promise.resolve(confirm('Accept the current contents of older rows as the baseline?')));
+  if (!okd) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Re-baselining…'; }
+  try {
+    const r = await api('/api/dev/security/audit/rebaseline', {
+      method: 'POST', body: JSON.stringify({ acknowledge: true }),
+    });
+    showToast(`Re-baselined ${r.rebaselined} row(s). The trail is verifiable from now on.`, 'success');
+    if (typeof verifyAudit === 'function') verifyAudit();
+  } catch (err) {
+    showToast(err.message || 'Re-baseline failed.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-flag"></i> Re-baseline older rows'; }
+  }
+}

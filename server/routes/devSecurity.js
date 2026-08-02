@@ -194,6 +194,24 @@ router.get('/presence', async (req, res) => {
 });
 
 // ── Audit integrity ───────────────────────────────────────────────────
+// POST /api/dev/security/audit/rebaseline — accept the current contents of
+// every row written before `before` (default: now) as the baseline.
+//
+// This does NOT prove those rows were never edited — see audit.rebaseline. It
+// draws a line so the trail is verifiable from here on. Requires an explicit
+// acknowledgement so it cannot be clicked past.
+router.post('/audit/rebaseline', async (req, res) => {
+  const body = req.body || {};
+  if (body.acknowledge !== true) {
+    return res.status(400).json({
+      error: 'This does not prove the older rows are untampered — it accepts them as the baseline. '
+           + 'Send acknowledge:true to confirm.',
+    });
+  }
+  try { res.json(await audit.rebaseline(body.before || undefined)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/dev/security/audit/verify — recompute every row's HMAC.
 router.get('/audit/verify', async (req, res) => {
   try { res.json(await audit.verify()); }
