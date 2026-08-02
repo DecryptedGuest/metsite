@@ -730,6 +730,8 @@ model PatrolLog {
   messageId            String    @unique // Discord message id (react + idempotency)
   channelId            String
   pointAwarded         Boolean   @default(false) // EVENT logs: whether the MET point was written
+  xpAwarded            Boolean   @default(false) // whether the XP award ran (separate conditions from the point)
+  xpAward              Json? // what was awarded and to whom — the audit trail, and the idempotency record
   submitterDiscordId   String
   submitterUsername    String? // discord username
   submitterDisplayName String? // server nickname, e.g. "DEV | realangeloo"

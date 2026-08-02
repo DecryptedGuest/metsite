@@ -83,11 +83,17 @@ async function tallyReactions(message, submitterDiscordId) {
       if (!u || u.bot) continue;
       if (submitterDiscordId && String(u.id) === String(submitterDiscordId)) continue;
       let name = u.globalName || u.username || String(u.id);
+      // roleIds stays null unless we genuinely read them — the XP award treats
+      // "couldn't read their roles" as no permission, not as permission.
+      let roleIds = null;
       try {
         const member = message.guild ? await message.guild.members.fetch(u.id).catch(() => null) : null;
-        if (member) name = member.displayName || name;
+        if (member) {
+          name = member.displayName || name;
+          if (member.roles && member.roles.cache) roleIds = [...member.roles.cache.keys()];
+        }
       } catch (e) { /* the raw username is fine */ }
-      out[verdict === 'DENIED' ? 'deny' : 'approve'].push({ id: String(u.id), name });
+      out[verdict === 'DENIED' ? 'deny' : 'approve'].push({ id: String(u.id), name, roleIds });
     }
   }
   return out;
@@ -103,6 +109,10 @@ function statusFrom(tally) {
 // Write a verdict onto a log, and award the event point on approval — the same
 // award the site's own approve button performs, so it doesn't matter which way
 // a log was signed off.
+//
+// `by` carries the approver's roleIds when we could read them. That is what
+// decides whether the XP award runs: anybody may tick a log, but only an FLP
+// officer's tick moves XP, and never on their own log or their own event.
 async function applyVerdict(log, status, by) {
   if (log.status === status) return null;
 
@@ -129,7 +139,26 @@ async function applyVerdict(log, status, by) {
     }
   }
 
-  return prisma.patrolLog.update({ where: { id: log.id }, data });
+  const updated = await prisma.patrolLog.update({ where: { id: log.id }, data });
+
+  // XP last, and on the UPDATED row, so awardForLog sees the approval that has
+  // actually been written. It stamps xpAwarded itself, which is what makes a
+  // second tick (or the reconcile sweep re-reading the same reaction) a no-op
+  // rather than a second payout.
+  if (status === 'APPROVED' && !updated.xpAwarded) {
+    try {
+      const out = await require('./logXpAward').awardForLog(updated, by || null);
+      if (out.ok) {
+        console.log(`[LogXP] ${log.type} ${log.id} — ${out.total} XP across ${out.awarded.filter(a => a.ok).length} officer(s)`);
+      } else if (out.skipped && out.skipped !== 'nothing to award') {
+        console.log(`[LogXP] ${log.type} ${log.id} — no XP awarded (${out.skipped})`);
+      }
+    } catch (e) {
+      console.warn('[LogXP] award failed:', e.message);
+    }
+  }
+
+  return updated;
 }
 
 // ── Live path ─────────────────────────────────────────────────────
@@ -157,11 +186,15 @@ async function applyReaction(reaction, user, added) {
     if (added) {
       const v = verdictFor(reaction.emoji);
       let name = user.globalName || user.username || String(user.id);
+      let roleIds = null;
       try {
         const member = message.guild ? await message.guild.members.fetch(user.id).catch(() => null) : null;
-        if (member) name = member.displayName || name;
+        if (member) {
+          name = member.displayName || name;
+          if (member.roles && member.roles.cache) roleIds = [...member.roles.cache.keys()];
+        }
       } catch (e) { /* the raw username is fine */ }
-      return await applyVerdict(log, v, { id: String(user.id), name });
+      return await applyVerdict(log, v, { id: String(user.id), name, roleIds });
     }
 
     const tally = await tallyReactions(message, log.submitterDiscordId);

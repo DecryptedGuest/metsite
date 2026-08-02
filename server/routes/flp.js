@@ -132,7 +132,7 @@ router.post('/patrols/:id/:action', async (req, res) => {
       pointResult = await patrolLib.awardEventPoints(p).catch(() => ({ ok: false }));
     }
 
-    await prisma.patrolLog.update({
+    const updated = await prisma.patrolLog.update({
       where: { id: p.id },
       data: {
         status,
@@ -142,11 +142,34 @@ router.post('/patrols/:id/:action', async (req, res) => {
         reviewedAt: new Date(),
       },
     });
+
+    // XP for the people the log names — attendees on an event, the officer on a
+    // patrol. Gated on the reviewer holding the FLP officer role in the MET
+    // server, read LIVE rather than from the login snapshot: a role granted
+    // since they last signed in still counts, and one taken away no longer does.
+    let xpResult = null;
+    if (status === 'APPROVED' && !updated.xpAwarded) {
+      try {
+        let roleIds = Array.isArray(req.user.metRoleIds) ? req.user.metRoleIds : null;
+        try {
+          const gid = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
+          const live = gid ? await bot.getGuildMemberRoles(req.user.discordId, gid) : null;
+          if (live && Array.isArray(live.roleIds)) roleIds = live.roleIds;
+        } catch (e) { /* fall back to the cached roles */ }
+        xpResult = await require('../lib/logXpAward').awardForLog(updated, {
+          id: req.user.discordId,
+          name: req.user.displayName || req.user.discordUsername,
+          roleIds,
+        });
+      } catch (e) {
+        console.warn('[LogXP] site approval award failed:', e.message);
+      }
+    }
     // The bot's own outcome mark, so it uses the MET emoji. A bot can react with
     // a guild emoji from any guild it is in, and patrolReactions accepts both
     // met_tick/met_cross and the stock ✅/❌ when reading a verdict back.
     const reacted = await bot.reactToMessage(p.channelId, p.messageId, reactionFor(action === 'approve' ? 'met_tick' : 'met_cross')).catch(() => false);
-    res.json({ success: true, status, reacted, point: pointResult });
+    res.json({ success: true, status, reacted, point: pointResult, xp: xpResult });
   } catch (err) {
     console.error('[FLP] log review failed:', err.message);
     res.status(500).json({ error: 'Failed to review log' });

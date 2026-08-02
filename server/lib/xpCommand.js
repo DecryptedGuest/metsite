@@ -53,7 +53,76 @@ function buildCommand() {
       .setName('reason')
       .setDescription('Why — goes on the XP log')
       .setMaxLength(500))
+    // A boolean rather than a `/xp leaderboard` subcommand, because Discord
+    // makes a command either take subcommands or take options — never both —
+    // and a bare `/xp` showing your own card is the thing everyone actually
+    // uses. Typing "lead" in the option picker gets you here in one keystroke.
+    .addBooleanOption(o => o
+      .setName('leaderboard')
+      .setDescription('Show the top 10 instead of a card'))
     .toJSON();
+}
+
+// ── The leaderboard ───────────────────────────────────────────────
+/**
+ * The top of the table, badged with each officer's own rank insignia.
+ *
+ * Their MET rank is the interesting one, but reading it means a Roblox lookup
+ * per officer, and ten of those turns an instant command into a slow one. The
+ * XP ladder's own rank is derived from the number already in front of us, and
+ * an officer's XP rank and their MET rank agree by construction — that's what
+ * the promotion half of this system is for.
+ *
+ * @param {number} viewerPos  the caller's position, 0 if they have no XP
+ */
+function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, total } = {}) {
+  const lines = rows.map((r, i) => {
+    const icon = require('./rankEmoji').forRank(client, r.rank.name, e('met_rank'));
+    // Top of the board gets the star; everyone else gets their number in a
+    // fixed-width block so the names line up in a column.
+    const mark = i === 0 ? e('met_star') : `\`${String(r.position).padStart(2, ' ')}\``;
+    const me   = viewerId && String(r.discordId) === String(viewerId) ? '  ←  you' : '';
+    return `${mark} ${icon} <@${r.discordId}> — **${r.xp}** XP${me}`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(COLOR.card)
+    .setTitle(`${e('met_xp')} MET XP — top ${rows.length}`)
+    .setDescription(lines.length ? short(lines.join('\n'), 4000) : '*Nobody has any XP yet.*')
+    .setFooter({ text: total ? `${total} officers on the ladder` : 'MET XP' });
+
+  // Only when they're actually outside it — repeating "#3" to somebody already
+  // looking at themselves at #3 is noise.
+  const inTop = rows.some(r => viewerId && String(r.discordId) === String(viewerId));
+  if (viewerId && !inTop) {
+    embed.addFields({
+      name: 'You',
+      value: viewerPos
+        ? `\`${viewerPos}\` <@${viewerId}> — **${viewerXp}** XP`
+        : `<@${viewerId}> — *no XP yet. Attend an event and you're on the board.*`,
+      inline: false,
+    });
+  }
+  return embed;
+}
+
+async function showLeaderboard(interaction) {
+  const [rows, standing, self] = await Promise.all([
+    XP.leaderboard(10).catch(() => []),
+    XP.standing(interaction.user.id).catch(() => ({ position: 0, total: 0 })),
+    XP.getBalance(interaction.user.id).catch(() => null),
+  ]);
+  return interaction.editReply({
+    embeds: [buildLeaderboard(rows, interaction.client, {
+      viewerId: interaction.user.id,
+      // standing() ranks everyone including officers on 0, so an officer with
+      // no XP at all would otherwise be reported at some flattering position
+      // shared with every other blank row.
+      viewerPos: self && self.xp > 0 ? standing.position : 0,
+      viewerXp: self ? self.xp : 0,
+      total: standing.total,
+    })],
+  }).catch(() => {});
 }
 
 // ── Rendering ─────────────────────────────────────────────────────
@@ -349,10 +418,17 @@ async function handleXpCommand(interaction) {
   const action     = interaction.options.getString('action');
   const value      = interaction.options.getInteger('value');
   const reason     = interaction.options.getString('reason');
+  const board      = interaction.options.getBoolean
+    ? interaction.options.getBoolean('leaderboard')
+    : null;
   const changing   = !!action;
 
   // Viewing is public; changing is ephemeral (the XP log is the public record).
   await interaction.deferReply(changing ? { flags: 64 } : {});
+
+  // The leaderboard answers a different question from everything below it, so
+  // it takes the whole command rather than being squeezed in beside a card.
+  if (board && !changing) return showLeaderboard(interaction);
 
   const guild = interaction.guild || null;
   const issuerRoles = interaction.member && interaction.member.roles && interaction.member.roles.cache
@@ -672,5 +748,6 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
 
 module.exports = {
   buildCommand, handleXpCommand,
-  resolveTargets, loadOfficer, buildCard, buildTable, canManageXp,
+  resolveTargets, loadOfficer, buildCard, buildTable, buildLeaderboard, showLeaderboard,
+  canManageXp, xpRoleIds, promote, demote,
 };
