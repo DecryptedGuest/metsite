@@ -8,8 +8,19 @@ const prisma = require('../lib/db');
 
 const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
 
+// Developers are exempt. The dev panel is a single-operator tool on an account
+// that is already the highest trust level in the system, and a passkey prompt
+// on every action there buys nothing — there is no second developer for it to
+// protect the first from. DEV_REQUIRE_PASSKEY=1 puts it back for a deployment
+// that wants it.
+function devExempt(req) {
+  if (process.env.DEV_REQUIRE_PASSKEY === '1') return false;
+  return !!(req.user && req.user.role === 'DEVELOPER');
+}
+
 function requireStepUp(req, res, next) {
   (async () => {
+    if (devExempt(req)) return next();
     try {
       const count = await prisma.passkey.count({ where: { userId: req.user.id } });
       if (count === 0) return next(); // no passkeys → not enrolled → pass through
@@ -36,6 +47,7 @@ function requireStepUp(req, res, next) {
 // with no passkey pass through (never locked out of a control they never set up).
 function requireStepUpEnforced(req, res, next) {
   (async () => {
+    if (devExempt(req)) return next();
     try {
       const elevated = req.user && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(req.user.role);
       const enforce  = require('../lib/siteConfig').isOn('requirePasskeyElevated');

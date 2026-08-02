@@ -282,13 +282,44 @@ function rgbTriplet(hex) {
 // static trusted markup — but the accent is still validated by rgbTriplet and
 // the slug is a fixed identifier, so a malformed table entry degrades to the
 // dashboard default instead of breaking the page.
+// Everything Discord (and every other unfurler) reads when somebody pastes a
+// link. Without these, an /ia/dashboard link shows whatever the page's own
+// <title> says — "MET · Dashboard" — with the MET mark, for every division.
+// A link to Internal Affairs should look like Internal Affairs.
+//
+// The image has to be absolute: Discord fetches it from its own servers and a
+// root-relative path means nothing to them.
+function brandMeta(division) {
+  const b = brandFor(division);
+  const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  const img = /^https?:\/\//i.test(b.logo) ? b.logo : (base ? base + b.logo : b.logo);
+  const title = division ? `${b.name} Dashboard` : 'MET Dashboard';
+  const desc = b.fullName + (b.tagline ? ` · ${b.tagline}` : '');
+  const esc = v => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return [
+    `<meta property="og:site_name" content="Metropolitan Police Service" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:title" content="${esc(title)}" />`,
+    `<meta property="og:description" content="${esc(desc)}" />`,
+    ...(img ? [`<meta property="og:image" content="${esc(img)}" />`] : []),
+    // "summary" puts the mark beside the text as an icon rather than stretching
+    // it across the top — a square logo is not a banner.
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="twitter:title" content="${esc(title)}" />`,
+    `<meta name="twitter:description" content="${esc(desc)}" />`,
+    ...(img ? [`<meta name="twitter:image" content="${esc(img)}" />`] : []),
+    `<meta name="theme-color" content="${/^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent}" />`,
+  ].join('\n');
+}
+
 function brandHead(division) {
   const b = brandFor(division);
   const accent = /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent;
   return [
     `<link rel="icon" type="image/png" href="${b.logo}" />`,
     `<link rel="apple-touch-icon" href="${b.logo}" />`,
-    `<meta name="theme-color" content="${accent}" />`,
+    brandMeta(division),
     `<link rel="stylesheet" href="/css/division-theme.css" />`,
     `<style>:root{--div-accent:${accent};--div-accent-rgb:${rgbTriplet(accent)};`
       + `--div-logo:url("${b.logo}");}</style>`,
@@ -346,7 +377,7 @@ function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || 
 module.exports = {
   ALL, GROUP_DIVISIONS, META, DIVISION_COLORS_EXTRA,
   meta, allMeta, divisionColor, panelGroups, groupIdForKey,
-  brandFor, brandHead, brandLogo, MET_BRAND,
+  brandFor, brandHead, brandMeta, brandLogo, MET_BRAND,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
   explicitGroupId, isLeadRank, holderUsername, metGroupId,

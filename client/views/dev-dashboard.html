@@ -660,7 +660,8 @@
         <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
           <i class="ti ti-apps"></i> Division group
           <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
-            <option value="">Default (ROBLOX_GROUP_ID)</option>
+            <!-- Filled by loadDivisions(). No "Default" entry: it meant the MET
+                 umbrella group, which is in the list under its own name. -->
           </select>
         </label>
         <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
@@ -744,7 +745,14 @@
             Search by Discord username, nickname, or paste a Discord user ID directly (works even if the
             member already left the server — useful for unbanning).
           </p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+              <i class="ti ti-server"></i> Server
+              <select id="dm-guild" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;"
+                      onchange="changeDmGuild(this.value)">
+                <option value="">Loading…</option>
+              </select>
+            </label>
             <input type="text" class="form-control" id="dm-search" placeholder="Username or Discord ID…" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')searchDiscordMembers()" />
             <button class="btn btn-primary" onclick="searchDiscordMembers()"><i class="ti ti-search"></i> Search</button>
           </div>

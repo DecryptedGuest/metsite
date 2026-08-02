@@ -601,12 +601,33 @@ async function logModeration(req, { action, targetDiscordId, targetUsername, rea
 
 function isValidDiscordId(id) { return /^\d{15,25}$/.test(String(id || '').trim()); }
 
+// Which server a moderation action applies to. Every helper already accepts a
+// guildId and falls back to the MET server; this just lets the panel say which.
+// Validated against the servers the bot is actually in, so a typo'd id is a
+// clear error rather than an action that silently lands nowhere.
+function guildFromRequest(req) {
+  const raw = (req.query && req.query.guildId) || (req.body && req.body.guildId) || null;
+  return isValidDiscordId(raw) ? String(raw).trim() : undefined;
+}
+
+// GET /api/admin/discord/guilds — the servers the bot can moderate in.
+router.get('/discord/guilds', async (req, res) => {
+  try {
+    const { listBotGuilds } = require('../lib/bot');
+    const guilds = await listBotGuilds();
+    const primary = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+    res.json(guilds.map(g => ({ ...g, primary: primary && String(g.id) === String(primary) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to list servers' });
+  }
+});
+
 // GET /api/admin/discord/members?search=... — search the guild's member list.
 router.get('/discord/members', async (req, res) => {
   try {
     const q = String(req.query.search || '').trim();
     if (!q) return res.json([]);
-    const members = await searchGuildMembers(q, 25);
+    const members = await searchGuildMembers(q, 25, guildFromRequest(req));
     res.json(members);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to search members' });
@@ -616,7 +637,7 @@ router.get('/discord/members', async (req, res) => {
 // GET /api/admin/discord/bans?search=... — list/search currently-banned users.
 router.get('/discord/bans', async (req, res) => {
   try {
-    const bans = await listGuildBans(req.query.search || '');
+    const bans = await listGuildBans(req.query.search || '', guildFromRequest(req));
     res.json(bans);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to list bans' });
@@ -639,7 +660,7 @@ router.post('/discord/ban', async (req, res) => {
   const { discordId, reason, deleteMessageSeconds, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await banMember(discordId, { reason, deleteMessageSeconds });
+    await banMember(discordId, { reason, deleteMessageSeconds, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'BAN', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -652,7 +673,7 @@ router.post('/discord/unban', async (req, res) => {
   const { discordId, reason, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await unbanMember(discordId, { reason });
+    await unbanMember(discordId, { reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'UNBAN', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -665,7 +686,7 @@ router.post('/discord/kick', async (req, res) => {
   const { discordId, reason, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await kickMember(discordId, { reason });
+    await kickMember(discordId, { reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'KICK', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -679,7 +700,7 @@ router.post('/discord/timeout', async (req, res) => {
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   if (!(Number(durationMinutes) > 0)) return res.status(400).json({ error: 'durationMinutes must be greater than 0.' });
   try {
-    await timeoutMember(discordId, { durationMinutes, reason });
+    await timeoutMember(discordId, { durationMinutes, reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'TIMEOUT', targetDiscordId: discordId, targetUsername: username, reason, durationMinutes: Number(durationMinutes) });
     res.json({ success: true });
   } catch (err) {
@@ -693,7 +714,7 @@ router.delete('/discord/timeout/:discordId', async (req, res) => {
   const { reason, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await timeoutMember(discordId, { durationMinutes: 0, reason });
+    await timeoutMember(discordId, { durationMinutes: 0, reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'UNTIMEOUT', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {

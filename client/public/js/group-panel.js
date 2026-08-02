@@ -45,8 +45,14 @@
     if (!sel) return;
     try {
       const divs = await api('/api/admin/group/divisions');
-      sel.innerHTML = `<option value="">Default group</option>` +
-        divs.map(d => `<option value="${esc(d.key)}">${esc(d.name)}${d.fullName && d.fullName !== d.name ? ' — ' + esc(d.fullName) : ''}</option>`).join('');
+      // No "Default group" entry. It resolved to the MET umbrella group, which
+      // is already in this list by name — two options doing the same thing, one
+      // of them labelled after an environment variable.
+      sel.innerHTML = divs
+        .map(d => `<option value="${esc(d.key)}">${esc(d.name)}${d.fullName && d.fullName !== d.name ? ' — ' + esc(d.fullName) : ''}</option>`)
+        .join('');
+      // Land on MET when nothing is chosen — the group "Default" used to mean.
+      if (!currentDivision) currentDivision = divs.some(d => d.key === 'MET') ? 'MET' : (divs[0] ? divs[0].key : '');
       sel.value = currentDivision;
     } catch (e) { /* switcher optional */ }
   }

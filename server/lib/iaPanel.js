@@ -56,8 +56,8 @@ function buildCommand() {
       .setDescription('Who')
       .setMaxLength(120))
     .addStringOption(o => o
-      .setName('case')
-      .setDescription('Case')
+      .setName('case_number')
+      .setDescription('Case number, e.g. 618')
       .setMaxLength(40))
     .toJSON();
 }
@@ -592,10 +592,11 @@ async function deskView() {
   // what is worth surfacing is how many landed this week, because each one is a
   // case that has just been overturned.
   const weekAgo = new Date(Date.now() - 7 * 86400000);
-  const [pendingCases, pendingTickets, pendingLogs, recentAppeals] = await Promise.all([
+  // Patrol and event logs are signed off in Discord, not here — counting them
+  // on an Internal Affairs desk was advertising a queue nobody on it works.
+  const [pendingCases, pendingTickets, recentAppeals] = await Promise.all([
     prisma.case.count({ where: { status: 'PENDING' } }).catch(() => 0),
     prisma.ticketLog.count({ where: { status: 'PENDING' } }).catch(() => 0),
-    prisma.patrolLog.count({ where: { status: 'PENDING' } }).catch(() => 0),
     prisma.caseAppeal.count({ where: { createdAt: { gte: weekAgo } } }).catch(() => 0),
   ]);
 
@@ -603,14 +604,13 @@ async function deskView() {
     .setColor(COLOR.panel)
     .setTitle(`${e('met_shield')} Internal Affairs`)
     .setDescription('Name an officer to pull their record — `/ia officer:@someone` — or a case '
-      + 'reference to open it directly with `/ia case:#618`.\n\n'
+      + 'number to open it directly with `/ia case_number:618`.\n\n'
       + 'Officers can be found by @mention, Discord id, or Roblox username, and a Roblox username '
       + 'works even for somebody who has left the server.')
     .addFields(
       { name: 'Waiting on review', value:
         `${e('met_pending')} **${pendingCases}** case${pendingCases === 1 ? '' : 's'}\n`
         + `${e('met_ticket')} **${pendingTickets}** ticket log${pendingTickets === 1 ? '' : 's'}\n`
-        + `${e('met_folder')} **${pendingLogs}** patrol/event log${pendingLogs === 1 ? '' : 's'}\n`
         + `${e('met_scales')} **${recentAppeals}** appeal${recentAppeals === 1 ? '' : 's'} granted this week`, inline: true },
       { name: 'On the MET Dashboard', value:
         `[Pending queue](${baseUrl()}/ia/dashboard)\n[Casework](${baseUrl()}/ia/dashboard)\n[Quota & database](${baseUrl()}/ia/dashboard)`,
@@ -838,7 +838,9 @@ async function handleIaCommand(interaction) {
   if (!access.ok) return interaction.editReply({ embeds: [denied(access)] }).catch(() => {});
 
   const officer = interaction.options.getString('officer');
-  const caseRef = interaction.options.getString('case');
+  // `case` is a reserved word in a lot of people's heads — it read as "pick a
+  // case" rather than "type its number". The option name says which.
+  const caseRef = interaction.options.getString('case_number');
 
   // A case reference wins — somebody who typed one wants that case.
   if (caseRef) {

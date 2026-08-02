@@ -2,6 +2,39 @@
 // Ban / unban / kick / timeout MET server members, searchable by username or
 // Discord ID, with a live banned-users list and an audit trail.
 
+// ── Which server ───────────────────────────────────────────────────
+// The bot is in more than one, and every action was silently going to whichever
+// one the server-side default named. The picker makes that a choice.
+var dmGuildId = '';
+
+function dmGuildParam(prefix) {
+  return dmGuildId ? (prefix || '&') + 'guildId=' + encodeURIComponent(dmGuildId) : '';
+}
+
+async function loadDiscordGuilds() {
+  const sel = document.getElementById('dm-guild');
+  if (!sel) return;
+  try {
+    const guilds = await api('/api/admin/discord/guilds');
+    if (!guilds || !guilds.length) { sel.innerHTML = '<option value="">No servers</option>'; return; }
+    const primary = guilds.find(g => g.primary) || guilds[0];
+    dmGuildId = dmGuildId || primary.id;
+    sel.innerHTML = guilds.map(g =>
+      '<option value="' + escapeHtmlDM(g.id) + '"' + (g.id === dmGuildId ? ' selected' : '') + '>'
+      + escapeHtmlDM(g.name) + (g.primary ? ' (MET)' : '') + '</option>').join('');
+  } catch (err) {
+    sel.innerHTML = '<option value="">Couldn\'t load servers</option>';
+  }
+}
+
+window.changeDmGuild = function (id) {
+  dmGuildId = id || '';
+  // Everything on screen is about the old server — reload it all.
+  const box = document.getElementById('dm-results');
+  if (box) box.innerHTML = '';
+  loadDiscordBans();
+};
+
 function escapeHtmlDM(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -13,7 +46,7 @@ async function searchDiscordMembers() {
   if (!q) { box.innerHTML = ''; return; }
   box.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
   try {
-    const members = await api('/api/admin/discord/members?search=' + encodeURIComponent(q));
+    const members = await api('/api/admin/discord/members?search=' + encodeURIComponent(q) + dmGuildParam('&'));
     if (!members.length) {
       box.innerHTML = window.metEmpty
         ? window.metEmpty({ icon: 'ti-users', title: 'No matching member', sub: 'They may have left the server — paste their Discord ID above to Ban/Unban directly, then use the Banned Users list to unban.' })
@@ -50,7 +83,7 @@ async function loadDiscordBans() {
   const tbody = document.getElementById('dm-bans-tbody');
   const q = document.getElementById('dm-ban-search').value.trim();
   try {
-    const bans = await api('/api/admin/discord/bans?search=' + encodeURIComponent(q));
+    const bans = await api('/api/admin/discord/bans?search=' + encodeURIComponent(q) + dmGuildParam('&'));
     tbody.innerHTML = bans.length
       ? bans.map(b => `<tr>
           <td>@${escapeHtmlDM(b.username)}<div class="text-muted mono" style="font-size:10px;">${escapeHtmlDM(b.id)}</div></td>
@@ -113,7 +146,7 @@ async function confirmDmAction() {
   if (!dmPending) return;
   const { action, discordId, username } = dmPending;
   const reason = document.getElementById('dm-reason').value.trim();
-  const body = { discordId, username, reason };
+  const body = { discordId, username, reason, guildId: dmGuildId || undefined };
 
   const endpoints = {
     BAN:     ['/api/admin/discord/ban', 'POST'],
@@ -139,7 +172,7 @@ async function confirmDmAction() {
 
 async function doDmUntimeout(discordId, username) {
   try {
-    await api(`/api/admin/discord/timeout/${discordId}`, { method: 'DELETE', body: JSON.stringify({ username }) });
+    await api(`/api/admin/discord/timeout/${discordId}`, { method: 'DELETE', body: JSON.stringify({ username, guildId: dmGuildId || undefined }) });
     showToast(`Timeout removed for @${username}.`, 'success');
     searchDiscordMembers();
     loadDiscordModLog();
@@ -151,5 +184,10 @@ async function doDmUntimeout(discordId, username) {
 // Load the panel's static lists the first time its nav tab is opened.
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.querySelector('.nav-item[data-page="discord-mod"]');
-  if (btn) btn.addEventListener('click', () => { loadDiscordBans(); loadDiscordModLog(); }, { once: true });
+  // The server list first — everything else is scoped to whichever is picked.
+  if (btn) btn.addEventListener('click', async () => {
+    await loadDiscordGuilds();
+    loadDiscordBans();
+    loadDiscordModLog();
+  }, { once: true });
 });

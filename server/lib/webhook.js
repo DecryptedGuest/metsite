@@ -174,11 +174,17 @@ async function editApprovalWebhook(messageId, data) {
  * results: [{ username, rank, total, target, status:'pass'|'fail', reason }]
  * Sends to QUOTA_RESULTS_WEBHOOK_URL, falling back to DISCORD_WEBHOOK_URL.
  */
+// Where the Internal Affairs weekly quota review is posted, and which role it
+// pings. Both overridable, both with the real values as defaults so nothing has
+// to be configured for it to work.
+const IA_QUOTA_CHANNEL_ID  = () => process.env.IA_QUOTA_CHANNEL_ID  || '1520745276930003035';
+const IA_QUOTA_GUILD_ID    = () => process.env.IA_QUOTA_GUILD_ID    || '1424498408009240649';
+const IA_QUOTA_PING_ROLE_ID = () => process.env.IA_QUOTA_PING_ROLE_ID || '1424504802741588019';
+
 async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, webhookUrl, mentionRoleId, divisionLabel }) {
   // A scoped (division) call passes `webhookUrl` + `divisionLabel`; the IA path
   // passes neither, so its URL/ping/labels stay exactly as before.
   const url = webhookUrl || process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-  if (!url) { console.warn('No webhook URL for quota check — skipping.'); return false; }
 
   const passed = results.filter(r => r.status === 'pass').length;
   const failed = results.filter(r => r.status === 'fail').length;
@@ -214,13 +220,39 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
   // otherwise no ping.
   const content = divisionLabel
     ? (mentionRoleId ? `<@&${mentionRoleId}>` : '')
-    : '<@&1424504802741588019>';
+    : `<@&${IA_QUOTA_PING_ROLE_ID()}>`;
 
+  const payload = { content, embeds: [embed] };
+
+  // The IA review goes to a named channel by ID rather than a webhook. A
+  // webhook is a URL somebody has to create and paste, and it silently stops
+  // working the moment that webhook is deleted; the bot is already in the
+  // server and can just post. The webhook path stays for the divisions that
+  // use one, and as a fallback if the bot is offline.
+  if (!divisionLabel) {
+    const chan = IA_QUOTA_CHANNEL_ID();
+    if (chan) {
+      try {
+        const id = await require('./bot').postChannelMessage(chan, {
+          ...payload,
+          // The role ping is the point of this post — let that one through and
+          // nothing else.
+          allowedMentions: { roles: [IA_QUOTA_PING_ROLE_ID()].filter(Boolean), parse: [] },
+        });
+        if (id) return true;
+        console.warn('[Quota] could not post the IA review to the channel — falling back to the webhook.');
+      } catch (err) {
+        console.warn('[Quota] IA review channel post failed:', err.message);
+      }
+    }
+  }
+
+  if (!url) { console.warn('No webhook URL for quota check — skipping.'); return false; }
   try {
     const res = await fetch(url, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, embeds: [embed] }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) { console.error(`Quota webhook failed [${res.status}]:`, await res.text()); return false; }
     return true;
@@ -392,4 +424,5 @@ async function editTryoutLog(log, { event = 'submitted' } = {}) {
 }
 
 module.exports = {
-  signatureFor, sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog };
+  signatureFor, sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog,
+  IA_QUOTA_CHANNEL_ID, IA_QUOTA_GUILD_ID, IA_QUOTA_PING_ROLE_ID };
