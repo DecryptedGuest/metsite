@@ -255,24 +255,40 @@ async function clearBacklogBefore(when, opts = {}) {
   // would sit in the queue forever, un-clearable, with no way to see why.
   const where = opts.all ? { status: 'PENDING' } : { status: 'PENDING', closedAt: { lt: cutoff } };
 
+  // Raw SQL, on purpose.
+  //
+  // The read-then-updateMany version reported "cleared 0" against a queue of
+  // nine thousand: findMany returned rows and updateMany then matched none of
+  // them. Rather than keep guessing which layer lost them, this is one
+  // statement the database executes itself — a bounded UPDATE against a
+  // subquery — so what comes back is Postgres's own affected-row count and
+  // there is nothing in between to disagree with.
+  //
+  // Still bounded: LIMIT keeps each statement small enough that no pooler or
+  // proxy timeout can reach it, and the loop commits as it goes.
   let cleared = 0;
   while (cleared < maxRows) {
-    const slice = await prisma.ticketLog.findMany({
-      where, select: { id: true }, take: Math.min(batch, maxRows - cleared),
-    });
-    if (!slice.length) break;
-    const res = await prisma.ticketLog.updateMany({
-      where: { id: { in: slice.map(r => r.id) } },
-      data: {
-        status: 'APPROVED',
-        // The marker that says this was a backlog clear, not a decision.
-        voidedAt: new Date(),
-        reviewedAt: new Date(),
-        reviewedByName: 'Backlog cleared',
-      },
-    });
-    cleared += res.count;
-    if (res.count < slice.length) break;   // something else is moving them
+    const take = Math.min(batch, maxRows - cleared);
+    const n = opts.all
+      ? await prisma.$executeRaw`
+          UPDATE ticket_logs SET
+            status = 'APPROVED'::"TicketStatus",
+            "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
+          WHERE id IN (
+            SELECT id FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus" LIMIT ${take}
+          )`
+      : await prisma.$executeRaw`
+          UPDATE ticket_logs SET
+            status = 'APPROVED'::"TicketStatus",
+            "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
+          WHERE id IN (
+            SELECT id FROM ticket_logs
+            WHERE status = 'PENDING'::"TicketStatus" AND "closedAt" < ${cutoff}
+            LIMIT ${take}
+          )`;
+    if (!n) break;
+    cleared += n;
+    if (n < take) break;   // that was the last of them
   }
 
   const remaining = await prisma.ticketLog.count({ where });

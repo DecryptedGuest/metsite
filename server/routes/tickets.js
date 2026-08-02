@@ -173,6 +173,45 @@ router.post('/sync', requireHICOMMStrict, async (req, res) => {
   }
 });
 
+// ── GET /api/tickets/backlog-status ───────────────────────────────
+// The truth about the queue, in a form a person can read by opening the URL.
+//
+// Toasts are lossy and server logs are somewhere else. When the clear button
+// says something that does not match what is on screen, this is what settles
+// it: how many are actually pending, how many the date cutoff can reach, the
+// oldest and newest still waiting, and which build is answering — because
+// "the button does nothing" has more than once turned out to be a deploy that
+// had not landed.
+router.get('/backlog-status', requireHICOMMStrict, async (req, res) => {
+  try {
+    const now = new Date();
+    const [pending, beforeNow, future, oldest, newest, blank, cleared] = await Promise.all([
+      prisma.ticketLog.count({ where: { status: 'PENDING' } }),
+      prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { lt: now } } }),
+      prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { gte: now } } }),
+      prisma.ticketLog.findFirst({ where: { status: 'PENDING' }, orderBy: { closedAt: 'asc' },
+        select: { id: true, ticketNo: true, closedAt: true, closerUsername: true } }),
+      prisma.ticketLog.findFirst({ where: { status: 'PENDING' }, orderBy: { closedAt: 'desc' },
+        select: { id: true, ticketNo: true, closedAt: true, closerUsername: true } }),
+      prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
+      prisma.ticketLog.count({ where: { reviewedByName: 'Backlog cleared' } }),
+    ]);
+    const { backlogClearedAt } = require('../lib/ticketIngest');
+    res.json({
+      // Bumped whenever the clear logic changes, so a stale deploy is obvious.
+      clearBuild: 3,
+      pending, clearableWithDateCutoff: beforeNow, datedInTheFuture: future,
+      oldestPending: oldest, newestPending: newest,
+      blankHandlers: blank, alreadyBacklogCleared: cleared,
+      watermark: await backlogClearedAt().catch(() => null),
+      serverTime: now,
+    });
+  } catch (err) {
+    console.error('[TicketLogs] backlog status error:', err.message);
+    res.status(500).json({ error: 'Failed to read the queue: ' + err.message });
+  }
+});
+
 // ── POST /api/tickets/clear-backlog — clear the queue ─────────────
 // Nine thousand logs nobody was ever going to work through is a wall, not a
 // queue. Everything waiting gets closed off as APPROVED and marked as a backlog
@@ -208,6 +247,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
         prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
       ]);
       return res.json({
+        clearBuild: 3,
         dryRun: true, wouldClear: waiting, pendingTotal: total,
         // Rows the cutoff would strand — a ticket dated in the future is never
         // "before now", so without saying so it would sit there unexplained.
@@ -263,7 +303,7 @@ router.post('/clear-backlog', requireHICOMMStrict, async (req, res) => {
     console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
       + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
       + `${handlers.fixed} handler(s) filled in`);
-    res.json({ dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
+    res.json({ clearBuild: 3, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
     console.error('[TicketLogs] backlog clear error:', err.message);
     res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });
