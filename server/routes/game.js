@@ -104,7 +104,7 @@ async function touchHostPresence(t, body = {}) {
 // GET /api/game/health — public config visibility (booleans only, no secrets),
 // so you can confirm from a browser what's set up server-side. Optionally pass
 // ?robloxId=<id> WITH the secret (header/x-game-secret or ?secret=) to check
-// whether that Roblox account resolves to a signed-in portal user.
+// whether that Roblox account resolves to a signed-in dashboard user.
 router.get('/health', async (req, res) => {
   let botReady = null;
   try { botReady = require('../lib/bot').isReady(); } catch (e) { /* bot module absent */ }

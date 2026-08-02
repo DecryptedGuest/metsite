@@ -1,5 +1,5 @@
 // server/lib/analytics.js
-// Portal intelligence: tryout performance, recruitment funnel, host leaderboards,
+// Dashboard intelligence: tryout performance, recruitment funnel, host leaderboards,
 // activity trends and tryout-log integrity flags. Every function takes an
 // optional `division` (null = across the whole MET) so the same component powers
 // the MET HICOMM oversight dashboard and each division's own analytics tab.
@@ -106,7 +106,7 @@ async function recruitmentFunnel(division, days = 30) {
 }
 
 // ── Activity trends ───────────────────────────────────────────────────
-// Patrol logs and event logs per day. Portal-wide: patrol/event logs aren't
+// Patrol logs and event logs per day. Dashboard-wide: patrol/event logs aren't
 // division-scoped in the schema, so a `division` filter wouldn't be meaningful.
 // (Ticket volume used to sit alongside these; tickets are Discord-side now and
 // are counted from the ingested ticket logs, not from an on-site table.)
@@ -185,7 +185,7 @@ async function integrityFlags(division, days = 45) {
     hostAgg.set(l.hostId, h);
   }
 
-  // Portal/division baseline.
+  // Dashboard/division baseline.
   let bAtt = 0, bPass = 0;
   for (const h of hostAgg.values()) { bAtt += h.attendees; bPass += h.passed; }
   const baseline = bAtt ? bPass / bAtt : 0;

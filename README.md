@@ -1,6 +1,6 @@
-# 🛡 MET Police Service Portal
+# 🛡 MET Police Service Dashboard
 
-A secure, Discord-authenticated portal for the MET Police roleplay community, covering
+A secure, Discord-authenticated dashboard for the MET Police roleplay community, covering
 five divisions from one codebase and one login:
 
 | Division | Abbr. | Scope |
@@ -11,7 +11,7 @@ five divisions from one codebase and one login:
 | Frontline Policing                | **FLP**   | Shift start/end, incidents attended, arrests made |
 | Hendon Police College             | **HPC**   | Cadet roster, course tracking, pass/fail, graduation sign-off |
 
-IA is the original, fully-featured system this portal grew from, re-homed under `/ia`.
+IA is the original, fully-featured system this dashboard grew from, re-homed under `/ia`.
 The other four divisions are lighter-weight tools scoped to what each division needs.
 
 ---
@@ -180,7 +180,7 @@ metsite/
 │   ├── views/
 │   │   ├── index.html            # Hub — the 5 division cards + your rank in each
 │   │   ├── profile.html          # Officer profile — roles/perms/punishments/ranks
-│   │   ├── portal-denied.html    # Generic "no access" page (used by all new divisions)
+│   │   ├── access-denied.html    # Generic "no access" page (used by all new divisions)
 │   │   ├── login.html            # IA's own login page (/ia/login)
 │   │   ├── dashboard.html        # IA's dashboard (/ia/dashboard) — unchanged, + shared topbar
 │   │   ├── denied.html           # IA's own denied page (/ia/denied)
@@ -192,7 +192,7 @@ metsite/
 │       ├── css/
 │       │   ├── main.css          # Global styles (shared design tokens)
 │       │   ├── dashboard.css     # Dashboard component styles (shared)
-│       │   └── met-portal.css    # Hub + shared topbar styles (new)
+│       │   └── met-dashboard.css    # Hub + shared topbar styles (new)
 │       └── js/
 │           ├── ui.js             # Toast, modal, API helpers (shared, unchanged)
 │           ├── dashboard.js      # IA dashboard logic (unchanged)
@@ -212,7 +212,7 @@ metsite/
 
 ## How access works
 
-Login is one shared Discord OAuth2 flow for the whole portal (`/auth/discord`). After
+Login is one shared Discord OAuth2 flow for the whole dashboard (`/auth/discord`). After
 signing in, a user lands on the hub (`/`), which shows all 5 divisions with the user's
 **rank in each** — cards for divisions they belong to link to that division's dashboard;
 the rest are shown locked.
@@ -241,7 +241,7 @@ belong to redirects to that division's `/denied` page.
 ### Per-division look and feel
 
 Every page under `/ia`, `/cid`, `/sco19`, `/flp` and `/hpc` is themed for that division,
-so it is obvious at a glance whose side of the portal you're on:
+so it is obvious at a glance whose side of the dashboard you're on:
 
 | Division | Accent    | Crest                        |
 |----------|-----------|------------------------------|
@@ -263,7 +263,7 @@ already used a token follows along. **The status colours (`--green` approved, `-
 pending, `--red` denied) are deliberately left alone** — they carry meaning and must read
 the same in every division. `client/public/js/division-brand.js` does the parts CSS can't:
 the crest watermark, the logo swaps, and any `[data-brand]` placeholder a shared view
-declares (the portal `/denied` page uses this to say which division turned you away).
+declares (the dashboard `/denied` page uses this to say which division turned you away).
 
 To restyle a division, edit its `accent` in the `META` table in `server/lib/divisions.js`
 and drop a new `client/public/img/divisions/<slug>.png`. Nothing else needs to change.
@@ -298,7 +298,7 @@ npm install
 ### 2. Create Discord Application
 
 1. Go to https://discord.com/developers/applications
-2. Click **New Application** → name it "MET Police Portal"
+2. Click **New Application** → name it "MET Police Dashboard"
 3. Go to **OAuth2** → copy **Client ID** and **Client Secret**
 4. Under **Redirects**, add:
    - `http://localhost:3000/auth/discord/callback` (local)
@@ -454,7 +454,7 @@ bot populates them.
 | `discordUsername`, `metNickname` | display fields |
 | `robloxId`, `robloxUsername` | linked Roblox identity (optional) |
 | `roles` (JSON) | MET-server Discord roles → chips: `[{ id, name, color, position, icon }]` (`color` = Discord's decimal int or `#hex`) |
-| `perms` (JSON) | multi-division / gang / portal perms → chips: `[{ key, label, category, color }]` |
+| `perms` (JSON) | multi-division / gang / dashboard perms → chips: `[{ key, label, category, color }]` |
 
 **`met_punishments`** — one row per punishment, inserted by the bot:
 

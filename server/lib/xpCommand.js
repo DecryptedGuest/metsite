@@ -32,14 +32,14 @@ const MAX_TARGETS = 20;
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('xp')
-    .setDescription('See your XP and rank, or change somebody else\'s')
+    .setDescription('XP')
     .addStringOption(o => o
       .setName('officers')
-      .setDescription('Who — @mention one or several. Leave blank for yourself.')
+      .setDescription('Who')
       .setMaxLength(900))
     .addStringOption(o => o
       .setName('action')
-      .setDescription('Change their XP (leave blank to just look)')
+      .setDescription('Action')
       .addChoices(
         { name: 'add',    value: 'ADD' },
         { name: 'remove', value: 'REMOVE' },
@@ -47,11 +47,11 @@ function buildCommand() {
       ))
     .addIntegerOption(o => o
       .setName('value')
-      .setDescription('How much XP to add, remove, or set them to')
+      .setDescription('Value')
       .setMinValue(0).setMaxValue(1000000))
     .addStringOption(o => o
       .setName('reason')
-      .setDescription('Why — goes on the XP log')
+      .setDescription('Why')
       .setMaxLength(500))
     // A boolean rather than a `/xp leaderboard` subcommand, because Discord
     // makes a command either take subcommands or take options — never both —
@@ -59,7 +59,7 @@ function buildCommand() {
     // uses. Typing "lead" in the option picker gets you here in one keystroke.
     .addBooleanOption(o => o
       .setName('leaderboard')
-      .setDescription('Show the top 10 instead of a card'))
+      .setDescription('Leaderboard'))
     .toJSON();
 }
 
@@ -171,10 +171,13 @@ async function resolveTargets(raw, guild) {
     if (out.length >= MAX_TARGETS) break;
     let found = null;
 
-    // A Discord username / nickname in this server.
+    // A Discord username / nickname in this server. Timed, like everything else
+    // that leaves this process — a stalled member search is otherwise a command
+    // that never answers.
     if (guild) {
       try {
-        const hits = await guild.members.fetch({ query: name, limit: 5 });
+        const hits = await withTimeout(guild.members.fetch({ query: name, limit: 5 }), LOOKUP_MS(), null);
+        if (!hits) throw new Error('member search timed out');
         const q = name.toLowerCase();
         const m = hits.find(x => x.user.username.toLowerCase() === q)
                || hits.find(x => (x.displayName || '').toLowerCase() === q)
@@ -189,8 +192,8 @@ async function resolveTargets(raw, guild) {
     if (!found) {
       try {
         const roblox = require('./roblox');
-        const rid = await roblox.getRobloxIdFromUsername(name);
-        const did = rid ? await roblox.getDiscordFromRoblox(rid) : null;
+        const rid = await withTimeout(roblox.getRobloxIdFromUsername(name), LOOKUP_MS(), null);
+        const did = rid ? await withTimeout(roblox.getDiscordFromRoblox(rid), LOOKUP_MS(), null) : null;
         if (did) found = { id: did, via: 'roblox' };
       } catch (err) { /* nothing more to try */ }
     }
@@ -203,41 +206,78 @@ async function resolveTargets(raw, guild) {
 }
 
 /**
+ * Resolve, or give up by a deadline.
+ *
+ * Every lookup below talks to somebody else's server — Discord, RoVer, Roblox —
+ * and node-fetch has no default timeout, so a stalled socket is a promise that
+ * never settles. That is exactly what left `/xp` sitting on "Reading the
+ * record…" forever: not an error anywhere, just a call that never came back,
+ * and an interaction whose last edit stays on screen for good.
+ *
+ * A card missing an avatar is a card. A card that never arrives is a bug.
+ */
+function withTimeout(promise, ms, fallback) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise(resolve => { timer = setTimeout(() => resolve(fallback), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+// Per-call budget. Generous enough that a healthy lookup always wins the race,
+// short enough that a dead one doesn't hold up the whole command.
+const LOOKUP_MS = () => {
+  const n = parseInt(process.env.XP_LOOKUP_TIMEOUT_MS || '6000', 10);
+  return Number.isFinite(n) && n > 0 ? n : 6000;
+};
+
+/**
  * Everything the card needs about one officer: their Roblox identity, their
  * live MET group rank, and their XP row (seeded from that rank the first time
  * we see them, so a serving Inspector doesn't show as a Student Officer).
+ *
+ * Nothing here is allowed to hang. Each external call has its own deadline and
+ * its own fallback, so a card always renders — with whatever we managed to
+ * find out in the time available.
  */
 async function loadOfficer(discordId, guild) {
   const roblox = require('./roblox');
-  const member = guild ? await guild.members.fetch(discordId).catch(() => null) : null;
+  const t = LOOKUP_MS();
 
-  // The same resolver /discipline uses — RoVer, then their portal account,
-  // then their MET nickname. A missing Roblox link here means no rank, which
-  // means no XP placement at all.
-  const link = await require('./robloxLink').resolveRoblox(discordId)
-    .catch(() => ({ robloxId: null, username: null }));
+  const member = guild
+    ? await withTimeout(guild.members.fetch(discordId), t, null)
+    : null;
+
+  // The same resolver /discipline uses — RoVer, then their MET Dashboard
+  // account, then their MET nickname. A missing Roblox link here means no rank,
+  // which means no XP placement at all.
+  const link = await withTimeout(
+    require('./robloxLink').resolveRoblox(discordId), t, { robloxId: null, username: null });
   const robloxId = link.robloxId;
   const info = link.username ? { id: robloxId, username: link.username } : null;
 
   const [avatar, groupRole] = await Promise.all([
-    robloxId ? roblox.getRobloxAvatarHeadshot(robloxId).catch(() => null) : null,
-    robloxId ? require('./metRank').metRole(robloxId).catch(() => null) : null,
+    robloxId ? withTimeout(roblox.getRobloxAvatarHeadshot(robloxId), t, null) : null,
+    robloxId ? withTimeout(require('./metRank').metRole(robloxId), t, null) : null,
   ]);
 
   // Establish their baseline before anything reads it. This creates NO row for
   // somebody whose group rank can't be placed on the ladder — being unplaceable
   // is different from being at the bottom of it.
-  await XP.seedFromRank(discordId, groupRole).catch(() => {});
+  //
+  // Timed too: placing a rank can need an authenticated group-roles call, and
+  // that is one more thing that can stall.
+  await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
 
-  let row = await XP.getBalance(discordId);
+  let row = await withTimeout(XP.getBalance(discordId), LOOKUP_MS(), null);
   // Only attach Roblox details to a row that already exists. Calling ensure()
   // unconditionally would create the very row seedFromRank just declined to,
   // and hand an unranked member a Community Support Officer badge.
   if (row && (robloxId || (info && info.username))) {
-    row = await XP.ensure(discordId, {
+    row = await withTimeout(XP.ensure(discordId, {
       robloxId: robloxId ? String(robloxId) : null,
       robloxUsername: info ? info.username : null,
-    }).catch(() => row);
+    }), LOOKUP_MS(), row) || row;
   }
 
   const xp = row ? row.xp : 0;
@@ -675,7 +715,7 @@ async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
         + (group.ok
           ? `**Roblox group:** updated to **${group.to}**\n`
           : `**Roblox group:** not updated yet (${group.reason}) — speak to High Command if it doesn't change shortly.\n`)
-        + `\nKeep it up. Your full record is on the portal.`,
+        + `\nKeep it up. Your full record is on the dashboard.`,
       appealUrl: `${(process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '')}/profile`,
       appealLabel: 'View my record',
     });

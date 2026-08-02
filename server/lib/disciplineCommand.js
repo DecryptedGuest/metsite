@@ -41,21 +41,21 @@ const COLOR = {
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('discipline')
-    .setDescription('Issue a disciplinary action to a MET officer')
+    .setDescription('Discipline an officer')
     .addUserOption(o => o
-      .setName('officer').setDescription('The officer being disciplined').setRequired(true))
+      .setName('officer').setDescription('Who').setRequired(true))
     .addStringOption(o => o
-      .setName('action').setDescription('What to issue — "Strike" picks the right number for you').setRequired(true)
+      .setName('action').setDescription('Action').setRequired(true)
       .addChoices(...D.COMMAND_ACTIONS.map(a => ({ name: a, value: a }))))
     .addStringOption(o => o
-      .setName('reason').setDescription('Why — this is shown to the officer and on the log').setRequired(true)
+      .setName('reason').setDescription('Why').setRequired(true)
       .setMaxLength(900))
     .addStringOption(o => o
-      .setName('notes').setDescription('Anything else for the log (optional)').setMaxLength(900))
+      .setName('notes').setDescription('Notes').setMaxLength(900))
     .addStringOption(o => o
-      .setName('case').setDescription('Case link or reference, if there is one (optional)').setMaxLength(300))
+      .setName('case').setDescription('Case link').setMaxLength(300))
     .addIntegerOption(o => o
-      .setName('days').setDescription('Length in days — only used by Zero Tolerance and Suspension')
+      .setName('days').setDescription('Days')
       .setMinValue(1).setMaxValue(3650))
     .toJSON();
 }
@@ -93,7 +93,7 @@ const STEP_LABELS = {
   role:    'Applying the Discord role',
   group:   'Updating their MET group rank',
   log:         'Posting to the administrative log',
-  record_site: 'Filing it on the portal',
+  record_site: 'Filing it on the MET Dashboard',
   notify:      'Notifying the officer',
 };
 
@@ -241,7 +241,7 @@ async function handleDisciplineCommand(interaction) {
     ? [...interaction.guild.roles.cache.keys()] : null;
 
   const roblox = require('./roblox');
-  // Not just RoVer — their portal account, their MET nickname and the bot's own
+  // Not just RoVer — their dashboard account, their MET nickname and the bot's own
   // profile record are all checked, because "no Roblox account linked" on a
   // disciplinary record means no exile, no demotion and a log naming nobody.
   const [strike, record, link] = await Promise.all([
@@ -457,7 +457,7 @@ async function handleDisciplineButton(interaction) {
       + (job.escalatedFrom ? `\n${e('met_warn')} Escalated from **${job.escalatedFrom}**.` : '')
       + `\n\n${renderSteps(keys, states, details, frame)}`)
     .setFooter({ text: result.caseRef
-      ? `Filed on the portal as ${result.caseRef} — appealable there`
+      ? `Filed on the MET Dashboard as ${result.caseRef} — appealable there`
       : (result.punishmentId ? `Record ${result.punishmentId.slice(0, 8)}` : 'Not recorded') });
 
   if (failed.includes('notify') && !realFailure) {

@@ -12,7 +12,7 @@
 //   * add the Discord role
 //   * demote / exile in the Roblox group when the action calls for it
 //   * post the SAME administrative-log embed the case system posts
-//   * file it on the portal as an auto-approved case, so it shows in the record
+//   * file it on the dashboard as an auto-approved case, so it shows in the record
 //     and can be appealed like anything else
 //   * tell the officer, with a link to their record
 //
@@ -278,7 +278,7 @@ async function loadRecord(discordId, limit = 6) {
   out.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 
   // A /discipline action exists in both tables by design — the bot reads one,
-  // the portal reads the other — and they share a case ref. Show it once.
+  // the dashboard reads the other — and they share a case ref. Show it once.
   const seen = new Set();
   const merged = out.filter(en => {
     if (!en.ref) return true;
@@ -312,14 +312,14 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
     effects.push({ kind: 'expiry', text: durationDays ? `Expires after ${durationDays} day${durationDays === 1 ? '' : 's'}` : 'No end date — stays until lifted' });
   }
   effects.push({ kind: 'log',  text: 'Post to the administrative log' });
-  effects.push({ kind: 'site', text: 'File it on the portal as an approved record they can appeal' });
+  effects.push({ kind: 'site', text: 'File it on the MET Dashboard as an approved record they can appeal' });
   effects.push({ kind: 'dm', text: 'DM the officer with the reason and a link to their record' });
   return effects;
 }
 
 // ── The website record ────────────────────────────────────────────
 /**
- * File the action as a case on the portal, so it shows up in the record, in
+ * File the action as a case on the dashboard, so it shows up in the record, in
  * search, and — the point of it — can be APPEALED like anything else.
  *
  * It is auto-approved. There is nothing to review: the action has already been
@@ -332,13 +332,13 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
  * everywhere it is shown.
  *
  * Never throws — the punishment has already landed by the time this runs, and
- * a portal write failing must not make a successful action report as failed.
+ * a dashboard write failing must not make a successful action report as failed.
  */
 async function fileCase(o) {
   const cfg = ACTION_CONFIG[o.action] || {};
 
   // The case's owner is whoever ran the command. Plenty of people who can
-  // discipline have never opened the portal, so a shell account is created for
+  // discipline have never opened the dashboard, so a shell account is created for
   // them rather than refusing to file the record — same pattern the bulk
   // importer uses.
   const owner = await prisma.user.upsert({
@@ -462,7 +462,7 @@ async function applyDiscipline(o) {
         reason:     o.reason || null,
         issuedById: o.issuerDiscordId ? String(o.issuerDiscordId) : null,
         issuedBy:   o.issuerName || null,
-        // Filled in with the portal case ref once the case is filed, which is
+        // Filled in with the dashboard case ref once the case is filed, which is
         // also what links the two rows so the record shows the action once.
         caseRef:    null,
         active:     true,
@@ -497,7 +497,7 @@ async function applyDiscipline(o) {
     });
   }
 
-  // 4. The portal record, BEFORE the log. The log's footer carries the
+  // 4. The dashboard record, BEFORE the log. The log's footer carries the
   //    infraction id, and that id is the case number — so the case has to
   //    exist first. Its logMessageId is filled in straight after, which is
   //    what lets an appeal edit the original notice in place.
@@ -508,7 +508,7 @@ async function applyDiscipline(o) {
     result.caseRef = filed.caseRef;
     // Stamp the punishment with the case it was filed as. The same action now
     // exists as a MetPunishment (what the bot reads) and a CasePunishment (what
-    // the portal reads), and without this link the record shows it twice.
+    // the dashboard reads), and without this link the record shows it twice.
     if (result.punishmentId) {
       await prisma.metPunishment.update({
         where: { id: result.punishmentId },

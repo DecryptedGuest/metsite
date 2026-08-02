@@ -243,7 +243,7 @@ html:not([data-theme="light"]) .btn-ghost:hover { border-color: rgba(110,160,255
    blue everywhere else, so IA and shared pages are untouched.
    ══════════════════════════════════════════════════════════════════════ */
 
-/* The whole division portal picks up its colour: brand name, logo glow, and the
+/* The whole division dashboard picks up its colour: brand name, logo glow, and the
    topbar division badge become a coloured pill. */
 body[class*="div-"] .brand-name { color: var(--dc, #7aacff); }
 body[class*="div-"] .brand-logo { box-shadow: 0 0 16px color-mix(in srgb, var(--dc,#3050dc) 34%, transparent);
@@ -266,7 +266,7 @@ body[class*="div-"] .brand-logo { box-shadow: 0 0 16px color-mix(in srgb, var(--
   content: ""; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
   background: var(--dc,#4a8fff); box-shadow: 0 0 7px var(--dc,#4a8fff);
 }
-/* Division-tinted panel headers so each portal reads with its own colour. */
+/* Division-tinted panel headers so each dashboard reads with its own colour. */
 body[class*="div-"] .panel-title { color: color-mix(in srgb, var(--dc,#7aacff) 78%, #d8eaff); }
 
 /* .div-chip: a filled, tinted chip (used for division/type tags in tables etc.) */

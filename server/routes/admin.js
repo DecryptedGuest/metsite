@@ -590,7 +590,7 @@ async function logModeration(req, { action, targetDiscordId, targetUsername, rea
       },
     });
   } catch (e) { console.error('[Moderation] audit log write failed:', e.message); }
-  // Mirror into the unified portal audit trail (best-effort).
+  // Mirror into the unified dashboard audit trail (best-effort).
   try {
     require('../lib/audit').record({
       req, action: `MOD_${action}`, category: 'moderation', targetType: 'discord_user', targetId: targetDiscordId,

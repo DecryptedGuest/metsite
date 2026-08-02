@@ -302,7 +302,7 @@ const tryoutWriteLimiter = rateLimit({
 });
 
 // ── Routes ───────────────────────────────────────────────────
-// Shared across the whole portal.
+// Shared across the whole dashboard.
 app.use('/auth',        authRoutes);
 // "Try another way" passwordless sign-in (Discord DM code, QR approval,
 // passkey). Logged-out; POSTs are CSRF-protected (the login page holds a token).
@@ -704,7 +704,7 @@ async function computeMyDivisions(user) {
     const { userHpcTier } = require('./middleware/division');
     mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
   }
-  // MET HICOMM — the portal-wide oversight tier (Deputy Commissioner+ in the MET
+  // MET HICOMM — the dashboard-wide oversight tier (Deputy Commissioner+ in the MET
   // group, or DEVELOPER). The 'MET' cache entry is an access marker, not a real
   // division dashboard, so pull it out and use its rank for the HICOMM card. The
   // member's other division cards are already ranked by their MET rank (from
@@ -851,7 +851,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     });
   } catch (e) { casePunishments = []; }
   // A /discipline action exists as BOTH a MetPunishment (what the bot reads)
-  // and a case (what the portal reads); they share a case ref. Show it once,
+  // and a case (what the dashboard reads); they share a case ref. Show it once,
   // preferring the case, which carries the detail and the appeal state.
   const caseRefs = new Set(casePunishments.map(p => p.caseRef).filter(Boolean));
   const punishments = casePunishments
@@ -1254,13 +1254,13 @@ function sendPage(res, file, division) {
   } catch (e) { res.sendFile(file); }
 }
 
-// ── Hub — MET Police Service portal landing page ──────────────────
+// ── Hub — MET Police Service dashboard landing page ──────────────────
 // Public: shows a "Sign in" CTA when logged out, and the 5 division cards
 // (per-user access resolved client-side via /api/me + /api/me/divisions)
 // once authenticated. requireAuth's `res.redirect('/login')` lands here too.
 app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'index.html')));
 app.get('/login',                (req, res) => res.redirect('/' + req.url.replace(/^\/login/, '')));
-app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
 
 // Public one-click opt-out / opt-in for the IA ticket DMs. Reached from the
 // signed link in the Discord DM (no login needed); the HMAC in `sig` binds the
@@ -1330,23 +1330,23 @@ app.get('/ia/case-doc/:id', (req, res) => res.redirect('/case-doc/' + encodeURIC
 // ── New divisions — own dashboard view each, gated by their own division ──
 function mountDivisionPages(slug, division) {
   app.get(`/${slug}`,           recordVisit, (req, res) => res.redirect('/'));
-  app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html'), division));
+  app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html'), division));
   app.get(`/${slug}/dashboard`, recordVisit, requireAuth, requireDivision(division),
     (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`), division));
 }
 // CID pages: dashboard is gated by CID tryout access (the CID Discord roles),
 // not the generic CID-division cache.
 app.get('/cid',           recordVisit, (req, res) => res.redirect('/'));
-app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
 app.get('/cid/dashboard', recordVisit, requireAuth, requireCidTryout,
   (req, res) => sendPage(res, path.join(views, 'cid-dashboard.html')));
 mountDivisionPages('sco19', 'SCO19');
 mountDivisionPages('flp',   'FLP');
 mountDivisionPages('hpc',   'HPC');
 
-// ── MET HICOMM — portal-wide oversight dashboard (Deputy Commissioner+). ──
+// ── MET HICOMM — dashboard-wide oversight dashboard (Deputy Commissioner+). ──
 app.get('/hicomm',           recordVisit, (req, res) => res.redirect('/hicomm/dashboard'));
-app.get('/hicomm/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/hicomm/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
 app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
   (req, res) => sendPage(res, path.join(views, 'hicomm-dashboard.html')));
 
@@ -1378,7 +1378,7 @@ app.get('/mobile/:token', recordVisit, async (req, res) => {
 // their own division. Developers only. Reuses the IA dashboard view, which
 // switches to "developer mode" (dev tools only) when served from /dev. ──
 app.get('/dev',        recordVisit, (req, res) => res.redirect('/dev/dashboard'));
-app.get('/dev/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/dev/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
 app.get('/dev/dashboard', recordVisit, requireAuth, (req, res) => {
   if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
   return sendPage(res, path.join(views, 'dev-dashboard.html'));
@@ -1398,7 +1398,7 @@ app.use((req, res) => {
   if (req.path.startsWith('/api/') || /\.[a-z0-9]{2,5}$/i.test(req.path)) {
     return res.type('text').send('Not found');
   }
-  sendPage(res, path.join(views, 'portal-404.html'));
+  sendPage(res, path.join(views, 'not-found.html'));
 });
 app.use((err, req, res, next) => {
   console.error('[Server] Unhandled error:', err.stack || err.message);

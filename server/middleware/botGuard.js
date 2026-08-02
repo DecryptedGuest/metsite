@@ -31,7 +31,7 @@ const BLOCK_HTML =
   'background:#0b0f1a;color:#e6e9ef;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;padding:24px}' +
   '.c{max-width:460px}.i{font-size:46px;margin-bottom:14px}h1{font-size:20px;margin:0 0 10px}p{color:#9aa3b2;line-height:1.6;font-size:14px}</style></head>' +
   '<body><div class="c"><div class="i"><img src="/img/emoji/met_bot.png" alt="" width="48" height="48"><img src="/img/emoji/met_denied.png" alt="" width="48" height="48"></div><h1>This site isn’t available to automated agents</h1>' +
-  '<p>Access by AI crawlers, scrapers and automated agents is not permitted. The Metropolitan Police portal is for its members, in a normal browser, after signing in.</p></div></body></html>';
+  '<p>Access by AI crawlers, scrapers and automated agents is not permitted. The Metropolitan Police Dashboard is for its members, in a normal browser, after signing in.</p></div></body></html>';
 
 function botGuard(req, res, next) {
   try {

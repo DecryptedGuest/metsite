@@ -1,6 +1,6 @@
-# MET Portal — Reference & Spec
+# MET Dashboard — Reference & Spec
 
-Single source of truth for the MET-specific rules and data the portal is built
+Single source of truth for the MET-specific rules and data the dashboard is built
 against. Captured from what MET provided (the build environment can't reach the
 Google/Trello links, so this is transcribed from messages — correct anything
 that's wrong).
@@ -26,7 +26,7 @@ them**. (Their own disciplinary *record* on their profile is separate and they
 
 | Entity | Group ID | Notes |
 |--------|----------|-------|
-| MET (umbrella) | `17275620` | Drives MET-wide rank/quota tier; icon = portal brand |
+| MET (umbrella) | `17275620` | Drives MET-wide rank/quota tier; icon = dashboard brand |
 | CID | `12697126` | |
 | SCO-19 | `14063116` | |
 | IA | `407296071` | Internal Affairs (pre-existing) |
@@ -139,9 +139,9 @@ case removed and the case link demoted to an optional field.
 
 - Runs in `DISCIPLINE_GUILD_ID` (defaults to `DISCORD_GUILD_ID`).
 - **Who can run it**: Internal Affairs (the IA site role), or Deputy
-  Commissioner and above in the MET group. Checked in this order: the portal
+  Commissioner and above in the MET group. Checked in this order: the dashboard
   account's IA role → a configured Discord role (`METHICOMM_ROLE_ID`,
-  `IA_COMMAND_ROLE_IDS`) → live MET group rank via RoVer. Nobody needs a portal
+  `IA_COMMAND_ROLE_IDS`) → live MET group rank via RoVer. Nobody needs a dashboard
   account to use it.
 - **Strikes escalate.** Picking "Strike (auto-escalate)" reads what the officer
   already has — from the punishment table, from approved cases, and from the

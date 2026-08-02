@@ -3,7 +3,7 @@
 // single output path (transmit → mirror to #radio + speak via DispatchVoice),
 // the #radio message listener (free text → intent parser → service), and the
 // action methods the web dispatch console calls. Everything is env-gated and
-// best-effort so the portal never breaks if CAD isn't configured.
+// best-effort so the dashboard never breaks if CAD isn't configured.
 const prisma = require('../db');
 const siteConfig = require('../siteConfig');
 const services = require('./services');

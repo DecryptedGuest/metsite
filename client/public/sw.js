@@ -1,5 +1,5 @@
-// sw.js — MET Portal service worker: push notifications + PWA install/offline.
-var CACHE = 'met-portal-v3';
+// sw.js — MET Dashboard service worker: push notifications + PWA install/offline.
+var CACHE = 'met-dashboard-v3';
 var SHELL = ['/img/divisions/met.png', '/css/main.css', '/css/dashboard.css', '/js/ui.js'];
 
 self.addEventListener('install', function (e) {
@@ -45,7 +45,7 @@ self.addEventListener('fetch', function (e) {
 self.addEventListener('push', function (e) {
   var data = {};
   try { data = e.data.json(); } catch (_) {}
-  var title   = data.title || 'MET Portal';
+  var title   = data.title || 'MET Dashboard';
   var options = {
     body:  data.body  || 'New activity requires your attention.',
     icon:  data.icon  || '/img/divisions/met.png',

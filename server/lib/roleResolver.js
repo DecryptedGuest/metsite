@@ -295,7 +295,7 @@ function divisionTier(divisions, division) {
   return entry ? entry.tier : null;
 }
 
-// A user's EFFECTIVE site role. MET High Command is high command portal-wide, so
+// A user's EFFECTIVE site role. MET High Command is high command dashboard-wide, so
 // their effective role is at least HICOMM — this makes the IA-side tools (audit,
 // quota, support-desk HICOMM actions), which are gated on the site role, treat a
 // MET HICOMM the same as a divisional IA HICOMM. DEVELOPER always stays DEVELOPER.

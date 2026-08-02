@@ -41,7 +41,7 @@ const TICKET_LOG_CHANNEL_ID = process.env.TICKET_LOG_CHANNEL_ID || '145587742458
 // Developer Portal, requesting it makes login fail outright. We want it (to read
 // forum starter messages + Tickety transcript logs), but must never take the
 // whole bot offline over it — so startBot() logs in WITH it and transparently
-// retries WITHOUT it if the portal rejects it (role assignment etc. keep working).
+// retries WITHOUT it if the dashboard rejects it (role assignment etc. keep working).
 // Patrol-log + event-log channels — the bot reads new logs here (needs Message
 // Content) and reacts ✅/❌ once the site approves/denies them.
 const PATROL_CHANNEL_ID    = process.env.PATROL_CHANNEL_ID || null;
@@ -152,6 +152,8 @@ function metGuildIds(specific) {
 }
 const DISCIPLINE_GUILD_IDS = () => metGuildIds('DISCIPLINE_GUILD_ID');
 const XP_GUILD_IDS         = () => metGuildIds('XP_GUILD_ID');
+const IA_GUILD_IDS         = () => metGuildIds('IA_PANEL_GUILD_ID');
+const PROMOTE_GUILD_IDS    = () => metGuildIds('PROMOTE_GUILD_ID');
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -183,9 +185,9 @@ function buildCommandPlan() {
   if (importGuildId) {
     add(importGuildId, new SlashCommandBuilder()
       .setName('import-cases')
-      .setDescription('Bulk-import cases from a forum channel into the website')
-      .addChannelOption(o => o.setName('channel').setDescription('The forum channel to import from').setRequired(true))
-      .addBooleanOption(o => o.setName('dry').setDescription('Preview only — write nothing'))
+      .setDescription('Import cases')
+      .addChannelOption(o => o.setName('channel').setDescription('Channel').setRequired(true))
+      .addBooleanOption(o => o.setName('dry').setDescription('Dry run'))
       // Visible to everyone in the (private) import guild; execution is gated
       // in code to the developer user ID below — so admins see it but can't run it.
       .toJSON());
@@ -211,6 +213,25 @@ function buildCommandPlan() {
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /xp:', err.message);
+  }
+
+  // /ia — the Internal Affairs panel. Visible to everyone, gated in code to the
+  // same people /discipline is, because it shows the same material.
+  try {
+    const cmd = require('./iaPanel').buildCommand();
+    add(IA_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /ia:', err.message);
+  }
+
+  // /promote — one rank up in the MET group. Gated in code, like the rest.
+  try {
+    const cmd = require('./promoteCommand').buildCommand();
+    add(PROMOTE_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /promote:', err.message);
   }
 
   return { byGuild, global };
@@ -287,6 +308,8 @@ async function listRegisteredCommands() {
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID || null,
     disciplineTargets: DISCIPLINE_GUILD_IDS(),
     xpTargets: XP_GUILD_IDS(),
+    iaTargets: IA_GUILD_IDS(),
+    promoteTargets: PROMOTE_GUILD_IDS(),
   };
   try {
     for (const g of client.guilds.cache.values()) out.botGuilds.push({ id: g.id, name: g.name });
@@ -295,7 +318,7 @@ async function listRegisteredCommands() {
     const g = await client.application.commands.fetch();
     out.global = [...g.values()].map(c => c.name);
   } catch (e) { out.global = { error: e.message }; }
-  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
+  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
     try {
       const guild = await client.guilds.fetch(guildId);
       const cmds = await guild.commands.fetch();
@@ -322,6 +345,14 @@ async function onInteraction(interaction) {
       return require('./disciplineCommand').handleDisciplineButton(interaction)
         .catch(e => console.error('[Bot] discipline button error:', e.message));
     }
+    if (cid.startsWith('ia_')) {
+      return require('./iaPanel').handleIaComponent(interaction)
+        .catch(e => console.error('[Bot] IA panel component error:', e.message));
+    }
+    if (cid.startsWith('prom_')) {
+      return require('./promoteCommand').handlePromoteButton(interaction)
+        .catch(e => console.error('[Bot] promote button error:', e.message));
+    }
     return;
   }
 
@@ -345,6 +376,28 @@ async function onInteraction(interaction) {
         // The panel is ephemeral and already deferred by this point, so the
         // issuer would otherwise be left staring at "thinking…" forever.
         const msg = { content: `${e('met_cross')} Something went wrong running that — nothing was issued. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'promote') {
+    return require('./promoteCommand').handlePromoteCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /promote failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong — nothing was changed. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'ia') {
+    return require('./iaPanel').handleIaCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /ia failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong opening that. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
@@ -1882,7 +1935,7 @@ async function handleTryoutComponent(interaction) {
 // Discord moderation — ban / unban / kick / timeout ("mute"). Used by the
 // Dev Panel's Discord Moderation tool (server/routes/admin.js). Every action
 // operates on DISCORD_GUILD_ID by default, or an explicit guildId if passed
-// (e.g. the MET server, if it differs from the portal's primary guild).
+// (e.g. the MET server, if it differs from the dashboard's primary guild).
 // ──────────────────────────────────────────────────
 
 function targetGuildId(guildId) { return guildId || process.env.DISCORD_GUILD_ID; }

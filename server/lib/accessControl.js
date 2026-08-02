@@ -59,7 +59,7 @@ async function revalidateUser(user, getMemberRecord) {
   // Also refresh the member's Discord role IDs so role-gated features stay
   // current WITHOUT a re-login — e.g. removing the final-exam role hides the
   // exam, losing the British-citizen role hides tryouts, perms flags update.
-  // MET High Command counts as HICOMM portal-wide, even with no IA group rank.
+  // MET High Command counts as HICOMM dashboard-wide, even with no IA group rank.
   const effRole = effectiveSiteRole(newRole, divisions);
   const stamp = { lastRoleCheck: new Date(), divisions, metRoleIds: memberRoles, metRankNatural };
   // Snapshot the IA group rank so the SI+ gate (case appeals) has something

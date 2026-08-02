@@ -1,6 +1,6 @@
 # CAD — Metropolitan Police Computer-Aided Dispatch
 
-A text-driven UK police dispatch system built into the MET portal, with AI
+A text-driven UK police dispatch system built into the MET dashboard, with AI
 text-to-speech read out into a Discord voice channel. Two interfaces sit on one
 pure dispatch state machine:
 

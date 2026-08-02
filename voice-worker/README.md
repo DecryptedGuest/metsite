@@ -6,7 +6,7 @@ speak the CAD's transmissions out loud with ElevenLabs TTS.
 ## Why this exists
 
 Discord voice requires an **outbound UDP** handshake. Railway (where the main
-portal runs) does not route outbound UDP, so the voice connection reaches
+dashboard runs) does not route outbound UDP, so the voice connection reaches
 `connecting`, stalls in `signalling`, and never becomes `Ready` — it joins but
 never speaks. This worker runs on **Fly.io**, which *does* allow outbound UDP, so
 the handshake completes and audio plays.

@@ -1,5 +1,5 @@
-/* client/public/css/met-portal.css
-   Shared portal chrome: the hub landing page and the slim topbar that sits
+/* client/public/css/met-dashboard.css
+   Shared dashboard chrome: the hub landing page and the slim topbar that sits
    above every division dashboard. Additive only — reuses main.css's design
    tokens (--blue, --glass, --radius-*, etc.) and never overrides IA's own
    dashboard.css rules. */
@@ -171,7 +171,7 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
    text while the icon (restored below) stays. */
 @media (max-width: 640px) {
   /* Show the sidebar/drawer hamburger on phones. This lives HERE (not only in
-     dashboard.css) because met-portal.css loads AFTER dashboard.css, and its
+     dashboard.css) because met-dashboard.css loads AFTER dashboard.css, and its
      base `.met-nav-toggle{display:none}` would otherwise win the cascade over
      dashboard.css's mobile rule at equal specificity — leaving no way to open
      the sidebar on mobile. */

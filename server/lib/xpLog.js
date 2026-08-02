@@ -109,7 +109,10 @@ async function logChange({ discordId, memberName, kind, delta, before, after, re
  * Roblox rank did NOT move, because otherwise nobody finds out until the
  * officer asks why they're still a Constable.
  */
-async function logPromotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, avatar }) {
+// `by` names whoever ran /promote. A promotion somebody typed is not an
+// automatic one, and a log that calls it automatic is a log that hides who did
+// it — so the wording and the footer both follow.
+async function logPromotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, avatar, by, reason }) {
   const fields = [
     { name: 'Rank',  value: `${badge(from.name)}${from.name} → ${badge(to.name)}**${to.name}**`, inline: true },
     { name: 'XP',    value: `**${xp}**`, inline: true },
@@ -125,12 +128,16 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
     inline: false,
   });
 
+  if (by && reason) fields.push({ name: 'Reason', value: short(reason, 500), inline: false });
+
   const embed = {
     color: COLOR.promotion,
     title: `${e('met_promote')} Promotion — ${to.name}`.trim(),
-    description: `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has reached **${to.at} XP** and made ${badge(to.name)}**${to.name}**.`,
+    description: by
+      ? `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has been promoted to ${badge(to.name)}**${to.name}** by ${short(by, 60)}.`
+      : `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has reached **${to.at} XP** and made ${badge(to.name)}**${to.name}**.`,
     fields,
-    footer: { text: 'MET XP · automatic promotion' },
+    footer: { text: by ? 'MET XP · promoted with /promote' : 'MET XP · automatic promotion' },
     timestamp: new Date().toISOString(),
   };
   if (avatar) embed.thumbnail = { url: avatar };

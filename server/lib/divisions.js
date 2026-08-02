@@ -1,5 +1,5 @@
 // server/lib/divisions.js
-// Central registry for the MET portal's divisions and their Roblox groups.
+// Central registry for the MET dashboard's divisions and their Roblox groups.
 //
 // Source of truth (per product decision): a user's membership and rank in a
 // division come ONLY from that division's Roblox GROUP rank — no Discord-role
@@ -45,7 +45,7 @@ function localIcon(slug) {
 //
 // `accent` is that same identity rendered for UI chrome: every /<slug>/… page is
 // themed with it, alongside the division's logo, wordmark and favicon, so you
-// can tell at a glance whose side of the portal you're on. It matches `color`
+// can tell at a glance whose side of the dashboard you're on. It matches `color`
 // wherever the brief colour works as an accent; SCO-19's black and HPC's white
 // are lifted to a readable sibling of the same hue, because the accent has to
 // carry nav text and borders on BOTH the dark and light themes. Accents stay
@@ -60,16 +60,16 @@ const META = {
 };
 
 // Extra divisional colours for divisions that exist in the MET server but not
-// (yet) as portal divisions — kept so a perms-group chip / future division can
+// (yet) as dashboard divisions — kept so a perms-group chip / future division can
 // reuse the same palette. MI5 = Military Intelligence 5 (sky), SAS (purple).
 const DIVISION_COLORS_EXTRA = { MI5: '#38bdf8', SAS: '#9b6ef3' };
 
 // The top-level Metropolitan Police group — the umbrella every officer belongs
 // to. Its rank drives MET-wide quota (low rank / senior officer / high rank),
-// and its icon is the portal's brand mark. Not a "division", so it's not in ALL.
+// and its icon is the dashboard's brand mark. Not a "division", so it's not in ALL.
 function metGroupId() { return process.env.GROUP_MET || '17275620'; }
 
-// Division order the portal shows everywhere.
+// Division order the dashboard shows everywhere.
 const ALL = ['CID', 'SCO19', 'IA', 'FLP', 'HPC'];
 
 // New divisions resolved purely from their Roblox group. IA is resolved from
@@ -176,7 +176,7 @@ async function getDivisionConfig() {
   const icons = needIds.length ? await fetchGroupIcons(needIds) : {};
   for (const d of ALL) if (!data[d].icon && data[d].groupId) data[d].icon = icons[data[d].groupId] || null;
 
-  // The MET umbrella group's icon (portal brand mark). Kept off ALL so it's
+  // The MET umbrella group's icon (dashboard brand mark). Kept off ALL so it's
   // never rendered as a division card.
   data.MET = { groupId: metId, icon: metLocal || icons[metId] || null };
 
@@ -202,7 +202,7 @@ async function resolveGroupDivisions(robloxId) {
     try { role = await getUserGroupRole(robloxId, groupId); } catch (e) { role = null; }
     if (role && Number(role.rank) > 0) {
       // HPC only counts as a division site-wide for Junior Instructor and above —
-      // cadets / lower HPC group ranks don't get the HPC division on the portal.
+      // cadets / lower HPC group ranks don't get the HPC division on the dashboard.
       if (division === 'HPC' && !hpcRankAtLeast(role.name, role.rank, 'instructor')) continue;
       out.push({
         division,
@@ -248,10 +248,10 @@ function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
 // wrong division while a script runs.
 const MET_BRAND = {
   name: 'MET', slug: 'met', fullName: 'Metropolitan Police Service',
-  short: 'Metropolitan Police Service', tagline: 'Officer Portal', accent: '#4a8fff',
+  short: 'Metropolitan Police Service', tagline: 'Officer Dashboard', accent: '#4a8fff',
 };
 
-// The committed logo for a slug, or the portal mark when there isn't one. Never
+// The committed logo for a slug, or the dashboard mark when there isn't one. Never
 // the live Roblox icon: this has to resolve synchronously on the page path, and
 // Roblox's thumbnail API is too flaky to sit in front of first paint.
 function brandLogo(slug) { return localIcon(slug) || '/img/logo.png'; }
@@ -266,7 +266,7 @@ function brandFor(division) {
 }
 
 // #rrggbb → "r, g, b" for rgba() mixes in the injected theme. Falls back to the
-// portal blue rather than emitting a broken custom property.
+// dashboard blue rather than emitting a broken custom property.
 function rgbTriplet(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
   if (!m) return '74, 143, 255';
@@ -281,7 +281,7 @@ function rgbTriplet(hex) {
 // Values come from the META table above, never from the request, so this is
 // static trusted markup — but the accent is still validated by rgbTriplet and
 // the slug is a fixed identifier, so a malformed table entry degrades to the
-// portal default instead of breaking the page.
+// dashboard default instead of breaking the page.
 function brandHead(division) {
   const b = brandFor(division);
   const accent = /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent;

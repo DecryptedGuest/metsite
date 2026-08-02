@@ -1,6 +1,6 @@
 // server/lib/metRank.js
 // MET HICOMM access gate. The MET HICOMM "division" is the oversight tier for
-// the whole portal — gated to Deputy Commissioner and above in the MET umbrella
+// the whole dashboard — gated to Deputy Commissioner and above in the MET umbrella
 // group (or DEVELOPER).
 //
 // The threshold rank NUMBER is discovered from the group's roles via the

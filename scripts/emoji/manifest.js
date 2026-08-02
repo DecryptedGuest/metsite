@@ -107,7 +107,7 @@ const EMOJI = [
        + `<circle cx="52" cy="66" r="5" fill="${C.slate}"/>`
        + `<path d="M78 56 h22 V40 l26 24 -26 24 V72 H78 Z" fill="${C.red}"/>` },
 
-  // ── Portal objects ──────────────────────────────────────────────
+  // ── Dashboard objects ──────────────────────────────────────────────
   { name: 'met_shield',  fallback: '🛡',  desc: 'MET / protected',
     svg: `<path d="M64 8 L114 30 v34 c0 32 -22 50 -50 58 -28 -8 -50 -26 -50 -58 V30 Z" fill="${C.blue}"/>`
        + tickPath('#0b1f47', 12) },

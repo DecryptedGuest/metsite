@@ -2,7 +2,7 @@
 // behind requireAuth). Users register passkeys and use them as a step-up
 // ("2FA") for sensitive actions. Verification is done by @simplewebauthn/server;
 // the RP id + origin are derived from the incoming request so it works on any
-// domain the portal is served from (localhost, Railway, a custom domain).
+// domain the dashboard is served from (localhost, Railway, a custom domain).
 const express = require('express');
 const prisma  = require('../lib/db');
 const audit   = require('../lib/audit');
@@ -14,7 +14,7 @@ const {
 
 const router = express.Router();
 
-const RP_NAME = 'MET Police Portal';
+const RP_NAME = 'MET Police Dashboard';
 const STEP_UP_WINDOW_MS = 10 * 60 * 1000; // a step-up is "fresh" for 10 minutes
 
 // Derive the Relying Party id (a bare domain) + expected origin from the

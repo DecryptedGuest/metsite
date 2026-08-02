@@ -5,13 +5,13 @@
 // in the MET group.
 //
 // The site already knows both of those things about anyone who has logged in,
-// so the first thing we try is their portal account. But plenty of MET High
-// Command have never touched the portal, and refusing a Deputy Commissioner
+// so the first thing we try is their dashboard account. But plenty of MET High
+// Command have never touched the dashboard, and refusing a Deputy Commissioner
 // because they haven't logged into a website would be an absurd way for this to
 // fail. So there are three routes in, checked in order of how cheap and how
 // certain they are:
 //
-//   1. their portal account's IA role                (no network calls)
+//   1. their dashboard account's IA role                (no network calls)
 //   2. a configured Discord role in the MET server   (no network calls)
 //   3. their live MET group rank via RoVer + Roblox  (two API calls, cached)
 //
@@ -68,7 +68,7 @@ async function evaluate(discordId, roleIds) {
     if (has(rid)) return { ok: true, via: 'ia-role', label: 'Internal Affairs', name: null, why: null, isDeveloper: false, isMetHicomm: false };
   }
 
-  // 1. Their portal account.
+  // 1. Their dashboard account.
   let user = null;
   try {
     user = await prisma.user.findUnique({
@@ -84,7 +84,7 @@ async function evaluate(discordId, roleIds) {
   const name = user ? (user.displayName || user.discordUsername || null) : null;
 
   if (user && user.isBlacklisted) {
-    return { ok: false, via: null, label: '', name, why: 'Your portal account is blacklisted.', isDeveloper: false, isMetHicomm: false };
+    return { ok: false, via: null, label: '', name, why: 'Your MET Dashboard account is blacklisted.', isDeveloper: false, isMetHicomm: false };
   }
 
   // 3. Live MET group rank. userIsMetHicomm already handles the site-only rank
@@ -101,7 +101,7 @@ async function evaluate(discordId, roleIds) {
   const { userIsMetHicomm, metRole } = require('./metRank');
   let robloxId = user ? user.robloxId : null;
   if (!robloxId) {
-    // No portal account (or no link on it) — ask RoVer.
+    // No dashboard account (or no link on it) — ask RoVer.
     try {
       const { getRobloxIdFromDiscord } = require('./roblox');
       robloxId = await getRobloxIdFromDiscord(discordId);
@@ -148,7 +148,7 @@ async function evaluate(discordId, roleIds) {
     why: robloxId
       ? 'This command is for Internal Affairs and Deputy Commissioner and above.'
       : 'This command is for Internal Affairs and Deputy Commissioner and above. '
-        + 'We could not find a Roblox account linked to your Discord — verify with RoVer, or log into the portal once, and try again.',
+        + 'We could not find a Roblox account linked to your Discord — verify with RoVer, or log into the MET Dashboard once, and try again.',
   };
 }
 

@@ -24,7 +24,7 @@
       document.documentElement.setAttribute('data-division', brand.slug);
     }
 
-    // Division logo everywhere a portal mark appears.
+    // Division logo everywhere a dashboard mark appears.
     if (brand.logo) {
       var marks = document.querySelectorAll('.met-topbar-logo, .brand-logo img, [data-brand="logo"]');
       for (var i = 0; i < marks.length; i++) {
@@ -50,7 +50,7 @@
       canvas.appendChild(mark);
     }
 
-    // Shared views (the portal "no access" page, for instance) carry no
+    // Shared views (the dashboard "no access" page, for instance) carry no
     // division in their title — give them one when they're served under a
     // division's path.
     if (isDivision && document.title && document.title.indexOf(brand.name) === -1) {

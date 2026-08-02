@@ -23,7 +23,7 @@ function userDivisions(user) {
   return [];
 }
 
-// MET High Command — portal-wide oversight tier (Deputy Commissioner+ in the MET
+// MET High Command — dashboard-wide oversight tier (Deputy Commissioner+ in the MET
 // group). Sync check off cached data: the METHICOMM Discord role captured at
 // login, or the 'MET' entry stamped into the divisions cache from the MET group
 // rank (see roleResolver). MET HICOMM gets LEAD access to EVERY division (not the
@@ -109,7 +109,7 @@ function userNeedsFinalExam(user) {
 
 // Authoritative check: does the user CURRENTLY hold the final-exam role in the
 // MET server? Uses the login snapshot as a fast path, then a live bot lookup —
-// so it's correct even when the role lives in a guild other than the portal's
+// so it's correct even when the role lives in a guild other than the dashboard's
 // primary DISCORD_GUILD_ID, or when the snapshot is stale (role added/removed
 // after login). MET_GUILD_ID overrides which server the role is read from.
 async function userHasFinalExamRole(user) {
@@ -232,7 +232,7 @@ function requireCidLead(req, res, next) {
   }).catch(() => res.status(403).json({ error: 'CID Director\'s Office access required.' }));
 }
 
-// ── MET HICOMM — portal-wide oversight tier (Deputy Commissioner+ in the MET
+// ── MET HICOMM — dashboard-wide oversight tier (Deputy Commissioner+ in the MET
 // umbrella group, or DEVELOPER). Resolved from the MET group rank (cached), so
 // it's async like the CID gate. ──
 function requireMetHicomm(req, res, next) {

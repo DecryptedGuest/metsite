@@ -4,7 +4,7 @@
 //
 // WHY THIS EXISTS
 //   Discord voice needs an OUTBOUND UDP handshake. Railway (where the main
-//   portal runs) does not route outbound UDP, so the voice connection reaches
+//   dashboard runs) does not route outbound UDP, so the voice connection reaches
 //   "connecting" and then stalls in "signalling" forever — it never becomes
 //   Ready and nothing is spoken. This worker is a tiny separate process you run
 //   on a UDP-capable host (Fly.io) whose only job is to sit in a voice channel

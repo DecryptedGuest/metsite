@@ -7,7 +7,7 @@
 // that names nobody. So when RoVer has nothing, keep looking:
 //
 //   1. RoVer                        the link of record
-//   2. their portal account         set at login, and it persists after a
+//   2. their dashboard account         set at login, and it persists after a
 //                                   RoVer outage or an unverify
 //   3. their MET server nickname    "PC | realangeloo" — the convention the
 //                                   whole server already runs on
@@ -46,16 +46,16 @@ async function resolveRoblox(discordId) {
     if (rid) { const hit = await finish(rid, 'rover'); if (hit) return hit; }
   } catch (err) { /* keep going */ }
 
-  // 2. Their portal account.
+  // 2. Their dashboard account.
   try {
     const user = await prisma.user.findUnique({
       where: { discordId: id },
       select: { robloxId: true, robloxUsername: true },
     });
-    if (user && user.robloxId) { const hit = await finish(user.robloxId, 'portal'); if (hit) return hit; }
+    if (user && user.robloxId) { const hit = await finish(user.robloxId, 'dashboard'); if (hit) return hit; }
     if (user && user.robloxUsername) {
       const rid = await roblox.getRobloxIdFromUsername(user.robloxUsername).catch(() => null);
-      if (rid) { const hit = await finish(rid, 'portal-username'); if (hit) return hit; }
+      if (rid) { const hit = await finish(rid, 'dashboard-username'); if (hit) return hit; }
     }
   } catch (err) { /* keep going */ }
 

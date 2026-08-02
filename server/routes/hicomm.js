@@ -279,7 +279,7 @@ async function buildMetProfile({ discordId, robloxId, robloxUsername }) {
 }
 
 // Attach a division/group icon to each MET-related group. A group that maps to
-// a portal division (or the MET umbrella) uses that division's resolved icon —
+// a dashboard division (or the MET umbrella) uses that division's resolved icon —
 // the committed local logo where one exists, otherwise the live Roblox group
 // icon. Any remaining group falls back to its own Roblox group icon fetched
 // directly. All best-effort: on Roblox failure the icon is simply omitted.
@@ -308,7 +308,7 @@ async function withGroupIcons(groups) {
   });
 }
 
-// Officer 360 shows only groups RELATED TO MET (the umbrella group + the portal
+// Officer 360 shows only groups RELATED TO MET (the umbrella group + the dashboard
 // divisions), not every Roblox group the person happens to be in. Kept by
 // configured group id (authoritative) or a MET-specific name match.
 const MET_GROUP_NAME = /metropolitan|met police|\bsco[\s-]?19\b|specialist firearms|firearms command|criminal invest|\bcid\b|frontline|hendon|police college|\bhpc\b|internal affairs|\bmi5\b|military intelligence|\bsas\b|special air service/i;

@@ -64,7 +64,7 @@ function forRank(client, rankName, fallback = '') {
  * The same insignia as an image URL, for the website.
  *
  * The site can't render `<:CON:123>` — that's Discord message syntax — but the
- * artwork behind it is a plain PNG on Discord's CDN, so the portal can show the
+ * artwork behind it is a plain PNG on Discord's CDN, so the dashboard can show the
  * exact same badge the server does rather than a different mark for the same
  * rank.
  *
