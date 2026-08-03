@@ -42,6 +42,66 @@ function describeDevice(ua = '') {
   return `${browser} on ${os}`;
 }
 
+
+// The DEVICE, rather than the browser.
+//
+// describeDevice above answers "what software is this" — "Chrome on Windows" —
+// which is what a session list wants. An IA marker wants a different question
+// answered: what is this person actually sitting at. "PC" and "Apple iPhone" are
+// the words they would use, and the difference matters, because how somebody
+// plays changes what they can reasonably be asked to do.
+//
+// Android carries the model in the user agent, so the brand is read from it where
+// it is recognisable and the answer falls back to "Android phone" where it is
+// not. A wrong brand is worse than no brand.
+const ANDROID_BRANDS = [
+  [/\bSM-|\bGT-|\bSAMSUNG\b/i,        'Samsung Galaxy'],
+  [/\bPixel\b/i,                       'Google Pixel'],
+  [/\bONEPLUS\b|\bKB2\d|\bLE2\d/i,   'OnePlus'],
+  [/\bRedmi\b|\bPOCO\b|\bMi \d|\bXiaomi\b/i, 'Xiaomi'],
+  [/\bMoto|\bmoto |\bXT\d{4}/i,       'Motorola'],
+  [/\bHUAWEI\b|\bhonor\b/i,           'Huawei'],
+  [/\bOPPO\b|\bCPH\d/i,               'OPPO'],
+  [/\bvivo\b/i,                        'vivo'],
+  [/\bNokia\b/i,                       'Nokia'],
+];
+
+function simpleDevice(ua = '') {
+  const s = String(ua);
+  if (!s.trim()) return null;
+
+  // Consoles first: a console user agent also mentions an OS, and the console is
+  // the more specific truth.
+  if (/Xbox/i.test(s))                        return 'Xbox';
+  if (/PlayStation 5/i.test(s))               return 'PlayStation 5';
+  if (/PlayStation 4/i.test(s))               return 'PlayStation 4';
+  if (/PlayStation/i.test(s))                 return 'PlayStation';
+  if (/Nintendo Switch/i.test(s))             return 'Nintendo Switch';
+
+  if (/\biPad\b/i.test(s))                   return 'Apple iPad';
+  if (/\biPod\b/i.test(s))                   return 'Apple iPod';
+  if (/\biPhone\b/i.test(s))                 return 'Apple iPhone';
+  // An iPad on recent iOS reports itself as a Mac, and the touch points are what
+  // give it away. Getting this wrong calls a tablet a laptop.
+  if (/Macintosh/i.test(s) && /Mobile/i.test(s)) return 'Apple iPad';
+  if (/Macintosh|Mac OS X/i.test(s))          return 'Mac';
+
+  if (/CrOS/i.test(s))                        return 'Chromebook';
+
+  if (/Android/i.test(s)) {
+    const tablet = !/Mobile/i.test(s);
+    for (const [re, brand] of ANDROID_BRANDS) {
+      if (re.test(s)) return brand + (tablet ? ' tablet' : '');
+    }
+    return tablet ? 'Android tablet' : 'Android phone';
+  }
+
+  if (/Windows Phone/i.test(s))               return 'Windows phone';
+  if (/Windows NT|Windows/i.test(s))          return 'PC';
+  if (/Linux/i.test(s))                       return 'Linux PC';
+  return null;
+}
+
 // Build the OAuth callback URL so the user stays on the domain they came from
 // (e.g. https://metia.uk/...). PUBLIC_BASE_URL forces a fixed base if set.
 function buildRedirectUri(req) {
@@ -633,5 +693,6 @@ router.buildRedirectUri = buildRedirectUri;
 router.establishSession = establishSession;
 router.createSession = createSession;
 router.describeDevice = describeDevice;
+router.simpleDevice = simpleDevice;
 
 module.exports = router;

@@ -421,8 +421,11 @@
           if (!el.checked) return;
           answers[id] = el.value;
           dirty = true;
-          // The under-15 stop is checked the moment it is chosen, not at submit.
-          if (id === 'age_band' && el.value === 'Under 15') return checkStop();
+          // The age stop is checked the moment an age is chosen, not at submit.
+          // checkStop() asks the SERVER, so the band that stops an application is
+          // named in exactly one place — hard-coding it here meant changing the
+          // minimum age silently stopped stopping anybody.
+          if (id === 'age_band') return checkStop();
           render();
         });
         return;

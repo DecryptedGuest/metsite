@@ -36,6 +36,7 @@ async function captureFor(req) {
     },
     roblox: { id: u.robloxId || null, username: u.robloxUsername || null, avatar: null, source: 'account' },
     device: null,
+    deviceDetail: null,
   };
 
   // The linked Roblox account, or a resolution from the Discord id when the
@@ -59,11 +60,15 @@ async function captureFor(req) {
     } catch (e) { /* cosmetic */ }
   }
 
+  // The device, in the words somebody would use: "PC", "Apple iPhone". The
+  // browser description is kept alongside it for the marker, because "Safari on
+  // iOS" occasionally explains something the device name does not — but it is not
+  // what the answer says, because nobody calls their phone "Safari on iOS".
   try {
-    const describeDevice = require('./auth').describeDevice;
-    if (typeof describeDevice === 'function') {
-      out.device = describeDevice(req.headers['user-agent'] || '');
-    }
+    const auth = require('./auth');
+    const ua = req.headers['user-agent'] || '';
+    if (typeof auth.simpleDevice === 'function') out.device = auth.simpleDevice(ua);
+    if (typeof auth.describeDevice === 'function') out.deviceDetail = auth.describeDevice(ua);
   } catch (e) { /* cosmetic */ }
 
   return out;

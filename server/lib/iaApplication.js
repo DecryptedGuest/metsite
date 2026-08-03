@@ -84,7 +84,9 @@ const GUIDELINES = [
   'Have activity within MET.',
   'Understand MET policy and regulations.',
   'No strikes or punishments in the past week.',
-  'You must be 15 or over to be in Internal Affairs.',
+  // Changed with the minimum. Leaving this at 15 while the age question stopped
+  // at 13 meant the guidelines told an eligible 13-year-old not to apply.
+  'You must be 13 or over to be in Internal Affairs.',
   'Maturity and professionalism are a must.',
 ];
 
@@ -141,15 +143,22 @@ const SECTIONS = [
         help: 'Detected. Context for the marker; it is not marked.' },
 
       // ── Declared, because nothing can honestly detect it ─────────
-      { id: 'age_band', type: 'choice', required: true, points: 0,
+      { id: 'age_band', type: 'choice', required: true, points: P,
         // The original form offered ">14" and "15+", which are the same answer
-        // written twice — anybody over 14 is 15 or over. Three bands instead:
-        // it asks one question rather than two pretending to be one, "Under 15"
-        // becomes a stop instead of an answer nobody could give honestly, and a
-        // marker reading "15 to 17" learns something.
-        options: ['18 or over', '15 to 17', 'Under 15'],
+        // written twice — anybody over 14 is 15 or over. Bands instead, so a
+        // marker reading "13 to 14" learns something, and the one below the
+        // minimum is a stop rather than an answer somebody has to give and then
+        // wait to be refused for.
+        //
+        // MARKED, and the key is every band at or above the minimum. Under 13
+        // scores nothing — though in practice it never reaches marking, because
+        // it stops the application before it is sent.
+        options: ['18 or over', '15 to 17', '13 to 14', 'Under 13'],
+        correct: ['18 or over', '15 to 17', '13 to 14'],
+        guidance: 'The minimum is 13. Anything at or above it is a mark; Under 13 is not, and '
+                + 'an application that says so is stopped before it is ever sent.',
         prompt: 'How old are you?',
-        help: 'Internal Affairs has a minimum age of 15. Answer honestly; it is checked at interview.' },
+        help: 'Internal Affairs has a minimum age of 13. Answer honestly; it is checked at interview.' },
       { id: 'platform', type: 'choice', required: true, points: 0,
         options: ['PC', 'Mobile', 'Console'],
         prompt: 'What do you play Roblox on?',
@@ -222,22 +231,33 @@ const SECTIONS = [
       // `correct` is not in PUBLIC_QUESTION_FIELDS, so adding one cannot leak it
       // to the applicant.
       { id: 'mc_director', type: 'choice', required: true, points: P,
-        options: ['Nobody', 'FNTDrippy', 'iicast', 'NobleSoop', 'AkzX', 'White_Bullet8', 'Rudy', 'FNTClout', 'Rodzina'],
+        options: ['Nobody', 'FNTDrippy', 'j4yytoswag', 'NobleSoop', 'AkzX', '4bel_air', 'Rudy', 'FNTClout', 'Rodzina'],
         prompt: 'Who is currently the Director of Internal Affairs?' },
       { id: 'mc_blacklist', type: 'choice', required: true, points: P,
         options: ['Yes', 'No', "Only if the person they're blacklisting is an SAS member"],
+        // An ordinary agent cannot. Only IA high ranks can, which is the point of
+        // the question: the distractors invite somebody to think the power comes
+        // with the division rather than with the rank.
+        correct: 'No',
+        guidance: 'Only IA high ranks may blacklist. An ordinary agent cannot, so "No" is the answer.',
         prompt: 'Are Internal Affairs agents allowed to blacklist personnel from MET?' },
       { id: 'mc_code_zfb101', type: 'choice', required: true, points: P,
         options: ['Gang Affiliation', 'Discrimination', 'Inappropriate Behaviour', 'Falsifying an Official Exam / AI Usage'],
+        correct: 'Gang Affiliation',
         prompt: 'Penal code ZF-B101 means:' },
       { id: 'mc_code_plm303', type: 'choice', required: true, points: P,
         options: ['General Misconduct', 'Improper Use of Channels', 'Violation of Uniform Regulations', 'Asking for Promotions'],
+        correct: 'Improper Use of Channels',
         prompt: 'Penal code PL-M303 means:' },
       { id: 'mc_code_mcs215', type: 'choice', required: true, points: P,
         options: ['Random Frisking/Cuffing', 'Arbitrary Arrest', 'Cufftapping', 'Failing to follow IA orders'],
+        correct: 'Failing to follow IA orders',
         prompt: 'Penal code MC-S215 means:' },
       { id: 'mc_immune', type: 'choice', required: true, points: P,
         options: ['True', 'False', "Only if the person they're abusing is a low rank"],
+        correct: 'False',
+        guidance: 'Nobody is immune. An agent who breaks a Disciplinary Action is disciplined '
+                + 'for it like anybody else, and the rank of the person they did it to changes nothing.',
         prompt: 'Internal Affairs agents may violate any Disciplinary Action, because they are immune.' },
     ],
   },
@@ -363,7 +383,12 @@ function autoMark(answers) {
   for (const q of flatQuestions()) {
     if (q.type !== 'choice' || !q.points || q.correct == null) continue;
     if (!(q.id in a)) continue;
-    const correct = String(a[q.id]) === String(q.correct);
+    // A key may be a set rather than one option. The age question is the reason:
+    // three of its four bands are at or above the minimum, and writing that as
+    // three separate questions, or as a bare `correct` that only accepts one of
+    // them, would mark two honest answers wrong.
+    const key = Array.isArray(q.correct) ? q.correct : [q.correct];
+    const correct = key.some(k => String(a[q.id]) === String(k));
     scores[q.id] = correct ? q.points : 0;
     marked++;
     if (correct) right++;
@@ -577,13 +602,13 @@ function validate(answers, opts = {}) {
  */
 function stopFor(answers) {
   const a = answers && typeof answers === 'object' ? answers : {};
-  if (String(a.age_band || '') === 'Under 15') {
+  if (String(a.age_band || '') === 'Under 13') {
     return {
       code: 'under_age',
       title: 'You are not old enough to apply yet',
-      body: 'Internal Affairs has a minimum age of 15, and that is not something a marker '
+      body: 'Internal Affairs has a minimum age of 13, and that is not something a marker '
           + 'can waive. Nothing you have written has been sent to anybody, and there is no '
-          + 'mark against your name — come back when you turn 15 and apply then. '
+          + 'mark against your name, so come back when you turn 13 and apply then. '
           + 'In the meantime you can still patrol, attend events and work up the ranks.',
       discardDraft: true,
     };
