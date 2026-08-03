@@ -181,6 +181,34 @@ const EMOJI = [
     svg: disc(C.green)
        + `<path d="M64 30 L98 68 H78 V98 H50 V68 H30 Z" fill="#08210f"/>` },
 
+  // ── Weekly quota check ──────────────────────────────────────────
+  // The review posts every Sunday night and is read at a glance by twenty
+  // people, so it gets marks of its own rather than a plain tick and cross:
+  // "met the quota" is a different fact from "approved".
+  { name: 'met_quota_met',  fallback: '\u{1F3AF}', desc: 'quota met',
+    svg: disc(C.green)
+       + `<circle cx="64" cy="64" r="36" fill="none" stroke="#08210f" stroke-width="9"/>`
+       + `<circle cx="64" cy="64" r="14" fill="#08210f"/>` },
+  { name: 'met_quota_miss', fallback: '\u{1F4C9}', desc: 'quota not met',
+    svg: disc(C.amber)
+       + `<path d="M28 44 L58 74 L74 58 L100 84" fill="none" stroke="${C.ink}"`
+       + ` stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>`
+       + `<path d="M100 60 V84 H76" fill="none" stroke="${C.ink}" stroke-width="11"`
+       + ` stroke-linecap="round" stroke-linejoin="round"/>` },
+  { name: 'met_exempt',     fallback: '\u{1F6E1}', desc: 'exempt from quota',
+    svg: tile(C.purple) + glyph('EX', C.paper, 44, 15) },
+  { name: 'met_trophy',     fallback: '\u{1F3C6}', desc: 'investigator of the week',
+    svg: `<path d="M40 16 h48 v26 a24 24 0 0 1 -48 0 Z" fill="${C.gold}"/>`
+       + `<path d="M40 22 H24 a16 16 0 0 0 16 22 Z M88 22 h16 a16 16 0 0 1 -16 22 Z" fill="${C.gold}"/>`
+       + `<rect x="56" y="66" width="16" height="24" fill="${C.gold}"/>`
+       + `<rect x="38" y="90" width="52" height="16" rx="6" fill="#8a6a12"/>`
+       + `<rect x="30" y="106" width="68" height="14" rx="7" fill="${C.ink}"/>` },
+  { name: 'met_chart',      fallback: '\u{1F4CA}', desc: 'weekly figures',
+    svg: tile(C.blue)
+       + `<g fill="${C.paper}"><rect x="28" y="70" width="16" height="30" rx="4"/>`
+       + `<rect x="56" y="52" width="16" height="48" rx="4"/>`
+       + `<rect x="84" y="34" width="16" height="66" rx="4"/></g>` },
+
   // ── Leave of absence ────────────────────────────────────────────
   // /loa needs marks of its own: a date range, time left to run, and coming
   // back. met_leave is a door and reads as "gone", which is the wrong idea —

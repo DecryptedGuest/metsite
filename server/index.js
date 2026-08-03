@@ -152,6 +152,9 @@ if (RUN_WORKERS) {
   // Close off leave whose end date has passed, and tell the member they are
   // back. Without it /loa active fills with people who returned weeks ago.
   require('./lib/loaCommand').startLoaWorker();
+  // The weekly IA quota review, posted at 23:59 on Sunday rather than by
+  // somebody remembering to.
+  require('./lib/quotaWeekly').startWeeklyQuotaWorker();
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');

@@ -181,7 +181,7 @@ const IA_QUOTA_CHANNEL_ID  = () => process.env.IA_QUOTA_CHANNEL_ID  || '15207452
 const IA_QUOTA_GUILD_ID    = () => process.env.IA_QUOTA_GUILD_ID    || '1424498408009240649';
 const IA_QUOTA_PING_ROLE_ID = () => process.env.IA_QUOTA_PING_ROLE_ID || '1424504802741588019';
 
-async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, webhookUrl, mentionRoleId, divisionLabel }) {
+async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, webhookUrl, mentionRoleId, divisionLabel, automatic, iotwTied, iotwPoints }) {
   // A scoped (division) call passes `webhookUrl` + `divisionLabel`; the IA path
   // passes neither, so its URL/ping/labels stay exactly as before.
   const url = webhookUrl || process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
@@ -190,29 +190,70 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
   const failed = results.filter(r => r.status === 'fail').length;
   const iotwLc = (iotwUsername || '').toString().trim().toLowerCase();
 
+  const exempt = results.filter(r => r.status === 'exempt').length;
+
+  // A mark per outcome rather than a tick and a cross for everything. "Met the
+  // quota" is a different fact from "approved", and twenty of these are read at
+  // a glance — the shape has to carry the meaning on its own.
   const line = (r) => {
-    const icon   = r.status === 'pass' ? e('met_tick') : e('met_cross');
+    const icon   = r.status === 'exempt' ? e('met_exempt')
+                 : r.status === 'pass'   ? e('met_quota_met')
+                 : e('met_quota_miss');
     const pts    = r.exempt
       ? 'Exempt'
-      : `${r.total != null ? r.total : '?'}${r.target != null ? '/' + r.target : ''} pts`;
+      : `**${r.total != null ? r.total : '?'}**${r.target != null ? '/' + r.target : ''} pts`;
     const reason = (r.status === 'fail' && r.reason) ? ` — ${String(r.reason).slice(0, 120)}` : '';
-    const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ` — ${e('met_star')} IOTW` : '';
+    const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ` ${e('met_trophy')}` : '';
     return `${icon} **${r.username}**${r.rank ? ` · ${r.rank}` : ''} — ${pts}${reason}${iotw}`;
   };
 
-  let desc = results.map(line).join('\n');
-  if (desc.length > 3900) desc = desc.slice(0, 3850) + '\n… (list truncated)';
+  // Highest first: a review is read to find who is short, and sorting by points
+  // puts them together at the bottom instead of scattered through the list.
+  const ordered = results.slice().sort((a, b) => {
+    const rank = { fail: 0, pass: 1, exempt: 2 };
+    return (rank[a.status] - rank[b.status]) || (Number(b.total) || 0) - (Number(a.total) || 0);
+  }).reverse();
+
+  let desc = ordered.map(line).join('\n');
+  if (desc.length > 3800) desc = desc.slice(0, 3750) + '\n… (list truncated)';
+
+  const fields = [
+    { name: `${e('met_quota_met')} Met`,     value: String(passed), inline: true },
+    { name: `${e('met_quota_miss')} Missed`, value: String(failed), inline: true },
+    { name: `${e('met_exempt')} Exempt`,     value: String(exempt), inline: true },
+  ];
+
+  if (iotwUsername) {
+    fields.push({
+      name: `${e('met_trophy')} Investigator of the Week`,
+      value: `**${iotwUsername}**${iotwPoints ? ` — ${iotwPoints} points` : ''}`,
+      inline: false,
+    });
+  } else if (iotwTied && iotwTied.length > 1) {
+    // Nobody, and why. A silent absence reads as an oversight.
+    fields.push({
+      name: `${e('met_trophy')} Investigator of the Week`,
+      value: `Tied on **${iotwPoints}** points — ${iotwTied.slice(0, 8).join(', ')}. `
+           + `High Command to pick one.`,
+      inline: false,
+    });
+  }
+
+  fields.push({
+    name: `${e('met_chart')} Reviewed by`,
+    value: automatic
+      ? 'Automatic weekly check'
+      : (reviewerId ? `<@${reviewerId}>` : (reviewerName || 'Unknown')),
+    inline: false,
+  });
 
   const embed = {
-    color: 0x4a8fff,
-    title: `${divisionLabel ? divisionLabel + ' ' : ''}Weekly Quota Review${weekLabel ? ` — ${weekLabel}` : ''}`,
+    color: failed ? 0xf5b730 : 0x2ed896,
+    title: `${e('met_chart')} ${divisionLabel ? divisionLabel + ' ' : ''}Weekly Quota Review`
+         + `${weekLabel ? ` — ${weekLabel}` : ''}`,
     description: desc || '*No members.*',
-    fields: [
-      { name: 'Reviewed by', value: reviewerId ? `<@${reviewerId}>` : (reviewerName || 'Unknown'), inline: true },
-      { name: 'Passed',      value: String(passed), inline: true },
-      { name: 'Failed',      value: String(failed), inline: true },
-    ],
-    footer:    { text: `${divisionLabel || 'Internal Affairs'} · Quota Check` },
+    fields,
+    footer:    { text: `${divisionLabel || 'Internal Affairs'} · ${results.length} member(s)` },
     timestamp: new Date().toISOString(),
   };
 
