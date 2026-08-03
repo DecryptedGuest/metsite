@@ -2887,12 +2887,17 @@ function parseRequestedActions(text) {
     ['Termination',           [/\btermination\b/, /\bterminate[d]?\b/, /\bfired\b/]],
     ['Blacklist',             [/\bblacklist(ed)?\b/]],
   ];
-  // A duration mentioned anywhere ("5 day", "5 days", "5d") attaches to the
-  // punishments that carry one. Which those are comes from the server's list,
-  // not a second hand-written one — Suspension is timed and was missing from
-  // the copy that used to live here, so "7 day suspension" lost its 7.
-  const durM = t.match(/\b(\d{1,3})\s*(?:d|day|days)\b/);
-  const dur  = durM ? parseInt(durM[1], 10) : null;
+  // A duration ("5 day", "5 days", "5d") belongs to the punishment it was
+  // written next to. "5 day ZT and strike 1" is one five-day ZT and one strike,
+  // not two five-day punishments — applying a single duration to everything
+  // timed handed out lengths nobody asked for.
+  //
+  // Which punishments carry a length comes from the server's list, not a second
+  // hand-written one — Suspension is timed and was missing from the copy that
+  // used to live here, so "7 day suspension" lost its 7.
+  const DUR_RE = /\b(\d{1,3})\s*(?:d|day|days)\b/g;
+  const durations = [];
+  for (let m; (m = DUR_RE.exec(t)); ) durations.push({ days: parseInt(m[1], 10), at: m.index, end: m.index + m[0].length });
   const isTimed = (name) => {
     const cfg = ACTIONS_CLIENT.find(a => a.name === name);
     return !!(cfg && cfg.timed);
@@ -2904,9 +2909,25 @@ function parseRequestedActions(text) {
   const found = [];
   for (const [name, pats] of rules) {
     if (!filable.has(name)) continue;
-    if (pats.some(p => p.test(t))) found.push({ action: name, durationDays: (dur && isTimed(name)) ? dur : null });
+    let at = -1;
+    for (const p of pats) { const m = t.match(p); if (m && m.index !== undefined) { at = m.index; break; } }
+    if (at < 0) continue;
+    found.push({ action: name, durationDays: null, _at: at });
   }
-  return found;
+  // Each length goes to the nearest timed punishment named after it, and each
+  // is spent once. A length written after everything ("suspend them, 7 days")
+  // still finds the suspension, because nothing nearer claimed it.
+  const timedFound = found.filter(f => isTimed(f.action));
+  for (const d of durations) {
+    let best = null, bestGap = Infinity;
+    for (const f of timedFound) {
+      if (f.durationDays != null) continue;
+      const gap = f._at >= d.end ? f._at - d.end : (d.at - f._at) + 1000;  // after it wins over before it
+      if (gap < bestGap) { bestGap = gap; best = f; }
+    }
+    if (best) best.durationDays = d.days;
+  }
+  return found.map(({ action, durationDays }) => ({ action, durationDays }));
 }
 
 // Normalise a stored reviewChanges action (old = plain string, new = object).

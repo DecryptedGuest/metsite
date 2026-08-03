@@ -105,9 +105,16 @@ function parseTicketLogEmbed(embed) {
   if (!text) return null;
 
   const footer = (embed?.footer?.text || '').toLowerCase();
+  const title  = String(embed?.title || '');
+  // A closed-ticket log, in any of the shapes the bot has posted it. The wording
+  // of the sentence has changed between versions ("closed a ticket", "has closed
+  // this ticket"), and some layouts carry only a Ticket ID rather than a name, so
+  // matching on one phrase alone dropped whole batches of logs on the floor.
   const looksLikeTickety =
-    /closed a ticket/i.test(text) ||
+    /clos(?:ed|ing)\s+(?:a|this|the)\s+ticket/i.test(text) ||
     /ticket\s*name\s*:/i.test(text) ||
+    /ticket\s*id\s*:/i.test(text) ||
+    (/ticket/i.test(title) && /clos/i.test(title)) ||
     footer.includes('tickety');
   if (!looksLikeTickety) return null;
 
@@ -126,18 +133,70 @@ function parseTicketLogEmbed(embed) {
   const creatorUsername = labelled(text, 'Creator Username'); // Discord username (e.g. @noir.n)
   const creatorId = labelled(text, 'Creator ID') || firstMentionId(creatorRaw || '');
 
-  const executorId = labelled(text, 'Executor ID') || firstMentionId(labelled(text, 'Executor') || '');
-  // What the log actually PRINTED for the executor, mention markup stripped.
-  // The id resolves to a name most of the time, but not always — a closer who
-  // has left the server resolves to nothing, and "Closed by —" on every one of
-  // those rows is worse than the name the message already gave us.
-  const executorRaw = (labelled(text, 'Executor Username')
-    || labelled(text, 'Executor')
-    || (/(.+?)\s+closed a ticket/i.exec(text) || [])[1]
-    || '')
-    .replace(/<@!?\d+>/g, '')
+  // ── Who closed it ───────────────────────────────────────────────
+  // Every place the executor can appear, because a log that names nobody is a
+  // row nobody can action — and "Not recorded" on every row is exactly what
+  // happens when this misses.
+  //
+  // The sentence at the top of the embed is the one that is ALWAYS there:
+  // "<@id> closed a ticket." Older versions of this only read the labelled
+  // "Executor ID:" / "Executor:" fields, so an embed carrying just the sentence
+  // yielded no id AND no name — the mention was stripped out of the raw text as
+  // markup, leaving an empty string. Both halves now read the sentence.
+  const closedBySentence = /<@!?(\d{15,21})>\s*(?:\([^)]*\)\s*)?(?:has\s+)?clos(?:ed|ing)\b/i.exec(text);
+
+  const executorId =
+       labelled(text, 'Executor ID')
+    || labelled(text, 'Closer ID')
+    || labelled(text, 'Staff ID')
+    || firstMentionId(labelled(text, 'Executor')  || '')
+    || firstMentionId(labelled(text, 'Closed By') || '')
+    || firstMentionId(labelled(text, 'Closed')    || '')
+    || firstMentionId(labelled(text, 'Handled By')|| '')
+    || firstMentionId(labelled(text, 'Staff')     || '')
+    || firstMentionId(labelled(text, 'Moderator') || '')
+    || (closedBySentence ? closedBySentence[1] : null)
+    // Last resort: the executor block by name, in case the label carries the
+    // mention on the following line rather than after the colon.
+    || firstMentionId((/Executor[^\n]*\n([^\n]+)/i.exec(text) || [])[1] || '')
+    || null;
+
+  // What the log actually PRINTED for them, mention markup stripped. The id
+  // resolves to a name most of the time, but not always — a closer who has left
+  // the server resolves to nothing, and "Not recorded" is worse than the name
+  // the message already gave us.
+  //
+  // A candidate that is EMPTY once the markup comes off is no candidate at all,
+  // so each one is tested after cleaning rather than before. That is the other
+  // half of the same bug: "<@id> closed a ticket" cleaned down to "" and was
+  // still accepted as the answer.
+  const clean = (v) => String(v == null ? '' : v)
+    .replace(/<@[!&]?\d+>/g, '')
     .replace(/[*_`~]/g, '')
-    .trim() || null;
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const rawCandidates = [
+    labelled(text, 'Executor Username'),
+    labelled(text, 'Closer Username'),
+    labelled(text, 'Staff Username'),
+    labelled(text, 'Executor'),
+    labelled(text, 'Closed By'),
+    labelled(text, 'Handled By'),
+    labelled(text, 'Staff'),
+    labelled(text, 'Moderator'),
+    // "<@id> has closed this ticket" — the optional "has" is part of the
+    // sentence, not part of their name. Without it the capture ended up as the
+    // literal word "has".
+    (/(.+?)\s+(?:has\s+|have\s+)?clos(?:ed|ing)\s+(?:a|this|the)\s+ticket/i.exec(text) || [])[1],
+  ];
+  let executorRaw = null;
+  for (const c of rawCandidates) {
+    const v = clean(c);
+    // A bare id is not a name — the ingest already falls back to the id itself,
+    // and storing it here would hide a real name found later.
+    if (v && !/^\d{15,21}$/.test(v)) { executorRaw = v; break; }
+  }
 
   return {
     ticketName,

@@ -281,6 +281,18 @@ router.get('/backlog-status', requireDeveloper, async (req, res) => {
       // Can this connection write to the table at all, and does the clear's
       // own statement match a row when it is tried for real?
       canWrite, writeTest, columns,
+      // The same real ticket stored more than once. POST /api/tickets/repair
+      // folds each group down to one row.
+      duplicateGroups: await (async () => {
+        try {
+          const r = await prisma.$queryRawUnsafe(
+            `SELECT COUNT(*)::int AS n FROM (
+               SELECT "ticketRef" FROM ticket_logs
+                WHERE "ticketRef" IS NOT NULL AND "ticketRef" <> ''
+                GROUP BY "ticketRef" HAVING COUNT(*) > 1) x`);
+          return r && r[0] ? Number(r[0].n) : null;
+        } catch (e) { return null; }
+      })(),
     });
   } catch (err) {
     console.error('[TicketLogs] backlog status error:', err.message);
@@ -484,6 +496,39 @@ router.post('/backfill-handlers', requireHICOMMStrict, async (req, res) => {
   } catch (err) {
     console.error('[TicketLogs] handler backfill error:', err.message);
     res.status(500).json({ error: 'Failed to fill in the handlers.' });
+  }
+});
+
+// ── POST /api/tickets/repair ──────────────────────────────────────
+// The two things wrong with the rows already stored, in one press.
+//
+//   1. duplicates — one closed ticket logged more than once became more than one
+//      row, because the only thing making a row unique was the MESSAGE id
+//   2. blank handlers — the parser only read the labelled "Executor" fields, so
+//      an embed whose executor is just "<@id> closed a ticket" yielded neither
+//      an id nor a name. Re-reading the message with today's parser fixes it.
+//
+// The merge runs first: repairing handlers on rows that are about to be deleted
+// is wasted work, and a duplicate that knows the handler hands it to the row
+// that survives.
+//
+// `?dry=1` reports what it would do and changes nothing.
+router.post('/repair', requireHICOMMStrict, async (req, res) => {
+  const dryRun = req.query.dry === '1' || (req.body && req.body.dry === true);
+  try {
+    const TI = require('../lib/ticketIngest');
+    const duplicates = await TI.mergeDuplicates({ dryRun, limit: (req.body || {}).limit });
+    const handlers = dryRun
+      ? { skipped: 'dry run' }
+      : await TI.backfillHandlers((req.body || {}).handlerLimit || 5000, { refetch: true });
+    const blankAfter = await prisma.ticketLog.count({
+      where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
+    });
+    res.json({ ok: true, dryRun, duplicates, handlers, blankHandlers: blankAfter,
+               total: await prisma.ticketLog.count() });
+  } catch (err) {
+    console.error('[TicketLogs] repair error:', err.message);
+    res.status(500).json({ error: 'Repair failed: ' + err.message });
   }
 });
 

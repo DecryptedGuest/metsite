@@ -482,6 +482,124 @@ async function probeTicketTable() {
 }
 
 /**
+ * Merge duplicate rows that are the same real ticket.
+ *
+ * One closed ticket produced more than one row because the only thing making a
+ * row unique was the MESSAGE id, and a ticket can be logged more than once.
+ * This groups what is already stored by the thing that actually identifies a
+ * ticket — Tickety's own id, and the transcript link where there is no id — and
+ * folds each group down to one row.
+ *
+ * Which row survives is not arbitrary. The keeper is the one carrying the most
+ * information, because the whole point of the merge is not to lose any:
+ *
+ *   1. a row somebody has already decided beats a pending one — a decision is
+ *      the one thing here that cannot be reconstructed
+ *   2. then a row that names its handler
+ *   3. then a row with a transcript
+ *   4. then the lowest ticket number, so the number people have already seen in
+ *      the queue is the number that stays
+ *
+ * Anything the keeper is missing is copied off the rows being removed before
+ * they go, so a duplicate that knew the handler hands it over rather than taking
+ * it with it.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.dryRun]  report what it would do, change nothing
+ * @param {number}  [opts.limit]   groups per call
+ * @returns {Promise<{groups, merged, removed, kept, dryRun, examples}>}
+ */
+async function mergeDuplicates(opts = {}) {
+  const dryRun = !!opts.dryRun;
+  const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 500, 1), 5000);
+
+  // Group by ticketRef, then by transcript for the rows that have no ref. Two
+  // passes rather than one COALESCE so a row with neither is never grouped with
+  // another row that also has neither.
+  const groups = [];
+  for (const key of ['ticketRef', 'transcriptUrl']) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT "${key}" AS k, COUNT(*)::int AS n
+         FROM ticket_logs
+        WHERE "${key}" IS NOT NULL AND "${key}" <> ''
+          ${key === 'transcriptUrl' ? `AND ("ticketRef" IS NULL OR "ticketRef" = '')` : ''}
+        GROUP BY "${key}"
+        HAVING COUNT(*) > 1
+        ORDER BY COUNT(*) DESC
+        LIMIT ${limit}`);
+    for (const r of (rows || [])) groups.push({ by: key, key: r.k, count: Number(r.n) });
+  }
+
+  let merged = 0, removed = 0;
+  const examples = [];
+
+  for (const g of groups) {
+    const where = g.by === 'ticketRef'
+      ? { ticketRef: g.key }
+      : { transcriptUrl: g.key, OR: [{ ticketRef: null }, { ticketRef: '' }] };
+    const rows = await prisma.ticketLog.findMany({ where, orderBy: { createdAt: 'asc' } });
+    if (rows.length < 2) continue;
+
+    const score = (r) => (
+      (r.status !== 'PENDING' && r.reviewedByName !== 'Backlog cleared' ? 8 : 0)
+      + (r.closerUsername ? 4 : 0)
+      + (r.transcriptUrl ? 2 : 0)
+      + (r.closerDiscordId ? 1 : 0)
+    );
+    const keeper = rows.slice().sort((a, b) =>
+      score(b) - score(a)
+      || (a.ticketNo == null ? Infinity : a.ticketNo) - (b.ticketNo == null ? Infinity : b.ticketNo)
+      || new Date(a.createdAt) - new Date(b.createdAt))[0];
+    const losers = rows.filter(r => r.id !== keeper.id);
+
+    // Everything the keeper is short of, taken off the ones going away.
+    const patch = {};
+    for (const f of RESOLVED_FIELDS) {
+      if (keeper[f] != null) continue;
+      const donor = losers.find(r => r[f] != null);
+      if (donor) patch[f] = donor[f];
+    }
+    // The lowest number in the group, so the reference people have seen sticks.
+    const lowest = rows.map(r => r.ticketNo).filter(n => n != null).sort((a, b) => a - b)[0];
+    if (lowest != null && keeper.ticketNo !== lowest) patch.ticketNo = lowest;
+
+    if (examples.length < 10) {
+      examples.push({
+        by: g.by, key: g.key, of: rows.length,
+        keeping: keeper.ticketNo != null ? '#' + keeper.ticketNo : keeper.id.slice(0, 8),
+        gains: Object.keys(patch),
+      });
+    }
+
+    if (!dryRun) {
+      // The losers go first, so freeing the number cannot collide with taking it.
+      await prisma.quotaAward.deleteMany({
+        where: { refType: 'ticket', refId: { in: losers.map(r => r.id) } },
+      }).catch(() => {});
+      await prisma.ticketLog.deleteMany({ where: { id: { in: losers.map(r => r.id) } } });
+      if (Object.keys(patch).length) {
+        await prisma.ticketLog.update({ where: { id: keeper.id }, data: patch }).catch(async (e) => {
+          // A number clash can only be the unique index on ticketNo; keep the
+          // row's own number rather than losing the merge over cosmetics.
+          if (e && e.code === 'P2002') {
+            delete patch.ticketNo;
+            if (Object.keys(patch).length) {
+              await prisma.ticketLog.update({ where: { id: keeper.id }, data: patch }).catch(() => {});
+            }
+          }
+        });
+      }
+    }
+    merged++;
+    removed += losers.length;
+  }
+
+  console.log(`[TicketLogs] duplicate merge${dryRun ? ' (dry run)' : ''} — `
+    + `${groups.length} group(s), ${merged} merged, ${removed} row(s) removed`);
+  return { groups: groups.length, merged, removed, kept: merged, dryRun, examples };
+}
+
+/**
  * Fill in the handler on rows that have none.
  *
  * The column has to name somebody, and one repair pass was not enough to make
@@ -589,13 +707,62 @@ async function rowFromMessageId(messageId, channelId) {
   return rowFromMessage(msg);
 }
 
+/**
+ * The row this message is ABOUT, if we already have one.
+ *
+ * Keyed on the message first, then on Tickety's own ticket id, then on the
+ * transcript link. One closed ticket can produce more than one message in the
+ * channel — a summary and a transcript post, an edit that arrives as a fresh
+ * message, a bot restart re-posting — and `messageId` being unique made each of
+ * those a separate row. That is how the queue ended up with the same ticket in
+ * it twice.
+ *
+ * `ticketRef` is Tickety's id for the ticket. It identifies the ticket rather
+ * than the message, which is exactly the distinction that was missing.
+ */
+async function findExistingRow(data) {
+  let row = await prisma.ticketLog.findUnique({ where: { messageId: data.messageId } });
+  if (row) return { row, by: 'messageId' };
+
+  if (data.ticketRef) {
+    row = await prisma.ticketLog.findFirst({
+      where: { ticketRef: data.ticketRef },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (row) return { row, by: 'ticketRef' };
+  }
+
+  // No ticket id on the log — fall back to the transcript, which is per-ticket.
+  if (data.transcriptUrl) {
+    row = await prisma.ticketLog.findFirst({
+      where: { transcriptUrl: data.transcriptUrl },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (row) return { row, by: 'transcriptUrl' };
+  }
+  return { row: null, by: null };
+}
+
 // Upsert one message. Returns 'created' | 'updated' | 'unchanged' | null.
 async function ingestMessage(msg) {
   const data = await rowFromMessage(msg);
   if (!data) return null;
   try {
-    const existing = await prisma.ticketLog.findUnique({ where: { messageId: data.messageId } });
+    const { row: existing, by } = await findExistingRow(data);
     if (existing) {
+      // Matched on the TICKET rather than on this message: the ticket is already
+      // stored under a different message, so this is a second log for it. Fold
+      // what it knows into the row that exists instead of making another one.
+      if (by !== 'messageId') {
+        const patch = {};
+        for (const f of RESOLVED_FIELDS) {
+          if (data[f] != null && existing[f] == null) patch[f] = data[f];
+        }
+        if (!Object.keys(patch).length) return 'unchanged';
+        await prisma.ticketLog.update({ where: { id: existing.id }, data: patch });
+        return 'updated';
+      }
+
       // Only write what we actually learned. A null from this pass means "we
       // couldn't resolve it", not "it is empty" — so keep what's already stored.
       const patch = {};
@@ -761,15 +928,60 @@ async function sweep(client, opts) {
   }
 }
 
+// The one-off repair of what is already stored.
+//
+// Both bugs it fixes are historic — one closed ticket logged twice became two
+// rows, and an embed whose executor was only "<@id> closed a ticket" stored no
+// handler at all. Neither can be fixed by the parser alone: the rows are already
+// there. So it runs once, on the deploy that carries the fix, and stamps itself
+// so it never runs again.
+//
+// Stamped by VERSION, not by a boolean: if a later fix needs another pass, the
+// version goes up and it runs once more.
+const REPAIR_KEY = 'ticketLogRepairVersion';
+const REPAIR_VERSION = '2';
+
+async function repairOnce(client) {
+  let done = null;
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: REPAIR_KEY } });
+    done = row ? String(row.value) : null;
+  } catch (e) { return { skipped: 'could not read the stamp' }; }
+  if (done === REPAIR_VERSION) return { skipped: 'already done' };
+
+  console.log('[TicketLogs] repairing stored rows — merging duplicates, then filling in handlers');
+  const duplicates = await mergeDuplicates({ limit: 5000 }).catch(e => ({ error: e.message }));
+  // The refetch is what actually fixes a handler: the stored columns never had
+  // the executor, so it has to be re-read off the original message with the
+  // parser as it is now.
+  const handlers = await backfillHandlers(8000, { refetch: true }).catch(e => ({ error: e.message }));
+
+  try {
+    await prisma.systemSetting.upsert({
+      where:  { key: REPAIR_KEY },
+      update: { value: REPAIR_VERSION },
+      create: { key: REPAIR_KEY, value: REPAIR_VERSION },
+    });
+  } catch (e) { console.warn('[TicketLogs] could not stamp the repair:', e.message); }
+
+  console.log(`[TicketLogs] repair done — ${duplicates.removed || 0} duplicate row(s) removed, `
+    + `${handlers.fixed || 0} handler(s) filled in, ${handlers.stillBlank || 0} still blank`);
+  return { duplicates, handlers };
+}
+
 function startTicketLogWorker(client) {
   // First sweep once the gateway has had time to connect, then every 5 minutes
   // as a safety net behind the live messageCreate handler.
   setTimeout(() => { sweep(client).catch(() => {}); }, 25 * 1000);
   setInterval(() => { sweep(client).catch(() => {}); }, 5 * 60 * 1000);
+  // After the first sweep, so a handler refetch is not competing with it for the
+  // same Discord rate limit.
+  setTimeout(() => { repairOnce(client).catch(e => console.warn('[TicketLogs] repair failed:', e.message)); }, 3 * 60 * 1000);
 }
 
 module.exports = {
   nextTicketNo, backfillTicketNumbers, clearBacklogBefore, probeTicketTable, backfillHandlers, rowFromMessageId,
+  mergeDuplicates, findExistingRow, repairOnce, REPAIR_KEY, REPAIR_VERSION,
   backlogClearedAt, setBacklogClearedAt, statusForNewRow,
   // Tests only: the watermark is cached for the life of the process.
   __resetWatermark: () => { _watermark = null; },
