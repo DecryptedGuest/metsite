@@ -183,6 +183,30 @@ const claimKey = (week) => `quota.weeklyCheck:${week}`;
 // post that keeps failing must go quiet rather than keep trying to shout.
 const MAX_ATTEMPTS = 3;
 
+// How late a slot may be posted. "Late is better than never" is true for a server
+// that restarted at 23:58 and came back at 00:10. It is NOT true forty hours later,
+// and it is emphatically not true on a database that has no record of the slot
+// because the database is NEW — which is the case that pinged Internal Affairs on a
+// Monday afternoon. With no claim row, the worker concluded the week had never been
+// posted and dutifully posted it.
+//
+// So a slot older than this is closed out, marked as skipped, and logged. A missing
+// week can be posted by hand from the dashboard in seconds; an unexpected ping to
+// seventy people cannot be taken back.
+// Twelve hours. Chosen so the case the catch-up genuinely exists for still works —
+// the server was down across Sunday midnight and comes back on Monday morning, and
+// posting the review at 07:00 is wanted — while Monday afternoon and everything
+// after it is not. Sixteen hours late was the actual complaint.
+const MAX_LATE_MINUTES = () => num(process.env.QUOTA_WEEKLY_MAX_LATE_MIN, 720, 1, 10080);
+
+// Minutes since the scheduled slot that `at` belongs to.
+function minutesSinceSlot(at = new Date(), tz = quota.quotaConfig('IA').timezone) {
+  const t = localParts(at, tz);
+  const nowMinutes  = t.weekday * 1440 + t.hour * 60 + t.minute;
+  const slotMinutes = DAY() * 1440 + HOUR() * 60 + MINUTE();
+  return ((nowMinutes - slotMinutes) + 10080) % 10080;
+}
+
 /** The week the legacy single-key stamp says was last posted, or a read failure. */
 async function postedWeek() {
   try {
@@ -275,6 +299,25 @@ async function noteSendFailed(week) {
     });
   } catch (e) {
     console.warn('[Quota] could not record the send failure; this week will stay quiet:', e.message);
+  }
+}
+
+/**
+ * Mark a slot as deliberately not posted, so it is never revisited. Used when a
+ * slot is too old to post — including the fresh-database case, where nothing was
+ * ever recorded because the record itself is new.
+ */
+async function closeOutWeek(week, why) {
+  const key = claimKey(week);
+  const value = JSON.stringify({ attempts: MAX_ATTEMPTS, postedAt: new Date().toISOString(), skipped: why });
+  try {
+    await prisma.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
+    console.warn(`[Quota] weekly check for ${week} was NOT posted — ${why}. `
+      + 'Post it by hand from the dashboard if it is still wanted.');
+    return true;
+  } catch (e) {
+    console.warn('[Quota] could not close out ' + week + ':', e.message);
+    return false;
   }
 }
 
@@ -418,24 +461,54 @@ async function tickOnce(now, opts = {}) {
   const t = localParts(now, cfg.timezone);
   const week = reviewWeekKey(now, cfg.timezone);
 
-  // Due once the slot has passed, not only exactly on it — a minute missed to a
-  // restart or a slow tick is not a week skipped. `week` is the week the last
-  // slot belongs to, so reaching here means that slot has been and gone and
-  // has not been posted for.
-  //
-  // The one case to hold back on: before the FIRST slot has ever passed in a
-  // fresh deployment, `week` names last week, which nobody has any figures for.
-  // A sheet that has since been reset would make that post a page of zeroes.
-  if (opts && opts.strict) {
-    const dueMinutes = DAY() * 1440 + HOUR() * 60 + MINUTE();
-    const nowMinutes = t.weekday * 1440 + t.hour * 60 + t.minute;
-    if (nowMinutes < dueMinutes) return { ran: false, why: 'not due yet' };
+  // How late this would be. Applied on EVERY automatic path — the previous version
+  // put this behind an opts.strict flag that nothing in production ever passed, so
+  // the guard existed and never ran.
+  const late = minutesSinceSlot(now, cfg.timezone);
+  if (late > MAX_LATE_MINUTES()) {
+    // Too old to announce. Close the slot out so it is not reconsidered every ten
+    // minutes for the rest of the week.
+    await closeOutWeek(week, `the slot was ${Math.round(late / 60)}h old by the time it was considered`);
+    return { ran: false, why: 'too late to post', lateMinutes: late };
   }
 
   const out = await runWeeklyCheck({ at: now });
   if (out.posted) lastPostAt = Date.now();
   if (!out.ok) console.warn('[Quota] weekly check did not post:', out.error);
   return { ran: true, ...out };
+}
+
+const INSTALL_KEY = 'quota.weeklyCheckInstalledAt';
+
+/**
+ * Close out the slot that is already in the past the FIRST time this runs against a
+ * given database, so a new deployment never opens by announcing a week it was not
+ * present for.
+ *
+ * This is the case that actually pinged Internal Affairs: a fresh database has no
+ * claim rows, so every past slot looks unposted, and the catch-up logic did exactly
+ * what it was told. A record of when the worker first saw this database is what
+ * distinguishes "we missed it" from "it happened before we existed".
+ */
+async function markInstalled() {
+  const cfg = quota.quotaConfig('IA');
+  try {
+    const existing = await prisma.systemSetting.findUnique({ where: { key: INSTALL_KEY } });
+    if (existing) return { firstRun: false };
+
+    await prisma.systemSetting.create({ data: { key: INSTALL_KEY, value: new Date().toISOString() } });
+    const week = reviewWeekKey(new Date(), cfg.timezone);
+    const held = await prisma.systemSetting.findUnique({ where: { key: claimKey(week) } }).catch(() => null);
+    if (!held) {
+      await closeOutWeek(week, 'this database had no record of it — the check was installed after the slot passed');
+    }
+    return { firstRun: true, closedOut: week };
+  } catch (e) {
+    // If this cannot be established, the safe assumption is that we are new and
+    // should not announce anything. Saying nothing is always recoverable.
+    console.warn('[Quota] could not establish whether this is a new installation, so the weekly check will stay quiet:', e.message);
+    return { firstRun: true, unknown: true };
+  }
 }
 
 function startWeeklyQuotaWorker() {
@@ -446,14 +519,22 @@ function startWeeklyQuotaWorker() {
   // of anything that goes wrong — at one minute, this managed 60 pings an hour.
   timer = setInterval(() => { tick().catch(e => console.warn('[Quota] weekly tick failed:', e.message)); }, 10 * 60 * 1000);
   if (timer.unref) timer.unref();
-  // Not immediately: the sheet read is not free and boot is busy enough.
-  setTimeout(() => { tick().catch(() => {}); }, 90 * 1000);
+  // Not immediately: the sheet read is not free and boot is busy enough. And the
+  // install marker is settled BEFORE the first tick, so a new database closes out
+  // the slot behind it rather than announcing it.
+  setTimeout(() => {
+    markInstalled()
+      .then(r => { if (r.firstRun) console.log('[Quota] first run against this database — the slot already past will not be posted.'); })
+      .then(() => tick())
+      .catch(() => {});
+  }, 90 * 1000);
   console.log(`[Quota] weekly check armed — ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][DAY()]} `
     + `${String(HOUR()).padStart(2, '0')}:${String(MINUTE()).padStart(2, '0')} ${quota.quotaConfig('IA').timezone}`);
 }
 
 module.exports = {
   STAMP_KEY, AUTO, DAY, HOUR, MINUTE, claimKey, claimWeek, confirmPosted, noteSendFailed, MAX_ATTEMPTS,
+  MAX_LATE_MINUTES, minutesSinceSlot, closeOutWeek, markInstalled, INSTALL_KEY,
   // Tests drive many weeks in a row in a few milliseconds, which the in-process
   // guards are specifically there to prevent in production.
   __resetGuards: () => { ticking = false; lastPostAt = 0; },
