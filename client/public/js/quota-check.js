@@ -49,7 +49,210 @@ document.addEventListener("DOMContentLoaded", function () {
   if (af2) af2.addEventListener("click", function () { normaliseMetDb(false); });
   var arst = document.getElementById("btn-metaudit-reset");
   if (arst) arst.addEventListener("click", function () { normaliseMetDb(true); });
+
+  // Adding the people the sheet is missing
+  var mf = document.getElementById("btn-miss-find");
+  if (mf) mf.addEventListener("click", findMissingMembers);
+  var mad = document.getElementById("btn-miss-add");
+  if (mad) mad.addEventListener("click", addMissingMembers);
+  // One handler on the container rather than one per row, so a redraw does not
+  // have to rewire anything.
+  var mr = document.getElementById("miss-result");
+  if (mr) mr.addEventListener("change", onMissChange);
+  if (mr) mr.addEventListener("click", onMissClick);
 });
+
+
+// ── Adding the people the sheet is missing ─────────────────────────
+// The sync only offers new joiners at the entry rank, so anybody who slipped
+// through at a higher rank is invisible there. This lists everyone with no row,
+// and adds exactly the ones that get ticked.
+var missing = [];        // [{ username, rank, robloxId, discordId, probationary }]
+var missPicked = {};     // username → true
+var missWtbt = {};       // username → true, probationers only
+var missHasWtbtCol = true;
+
+function missRow(m) {
+  var picked = !!missPicked[m.username];
+  var wtbt = !!missWtbt[m.username];
+  // The mark is only offered where it means something. A disabled tickbox with
+  // a reason beats a live one that the server then refuses.
+  var wtbtCell = m.probationary
+    ? '<label class="miss-wtbt' + (missHasWtbtCol ? '' : ' off') + '">'
+      + '<input type="checkbox" data-wtbt="' + escapeHtml(m.username) + '"' + (wtbt ? ' checked' : '')
+      + (missHasWtbtCol ? '' : ' disabled') + ' /> '
+      + '<span>' + (missHasWtbtCol ? 'Waiting to be trained' : 'No WTBT column on the sheet') + '</span></label>'
+    : '<span class="miss-na" title="Only a Probationary Investigator can be waiting for training">—</span>';
+
+  return '<tr class="' + (picked ? 'miss-on' : '') + '">'
+    + '<td><input type="checkbox" data-pick="' + escapeHtml(m.username) + '"' + (picked ? ' checked' : '') + ' /></td>'
+    + '<td><span class="mono" style="font-size:12.5px;">' + escapeHtml(m.username) + '</span></td>'
+    + '<td><span style="font-size:12px;">' + escapeHtml(m.rank || '—') + '</span></td>'
+    + '<td><span class="mono" style="font-size:11px;color:'
+      + (m.discordId ? 'var(--text-secondary)' : 'var(--amber)') + ';">'
+      + escapeHtml(m.discordId || 'not linked') + '</span></td>'
+    + '<td>' + wtbtCell + '</td>'
+    + '</tr>';
+}
+
+function renderMissing(out) {
+  var box = document.getElementById("miss-result");
+  if (!box) return;
+  if (!out || out.error) {
+    box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> '
+      + escapeHtml((out && out.error) || "Could not work out who is missing.") + '</div>';
+    return;
+  }
+  if (!missing.length) {
+    box.innerHTML = '<div class="metdb-applied"><i class="ti ti-check"></i> Everybody in the '
+      + escapeHtml(out.group || metDbName()) + ' group has a row. '
+      + escapeHtml(String(out.groupSize || 0)) + ' in the group, '
+      + escapeHtml(String(out.sheetRows || 0)) + ' on the sheet.</div>';
+    return;
+  }
+  var probs = missing.filter(function (m) { return m.probationary; }).length;
+  box.innerHTML = '<div class="miss-head">'
+    + '<strong>' + missing.length + '</strong> in the group with no row'
+    + (probs ? ' · <strong>' + probs + '</strong> probationary' : '')
+    + ' · ' + (out.groupSize || 0) + ' in the group, ' + (out.sheetRows || 0) + ' on the sheet'
+    + '<span class="spacer"></span>'
+    + '<button type="button" class="btn btn-ghost btn-sm" data-miss-all="1">'
+    + (missing.every(function (m) { return missPicked[m.username]; }) ? 'Select none' : 'Select all') + '</button>'
+    + '</div>'
+    + (missHasWtbtCol ? '' : '<div class="metdb-error" style="margin-bottom:.6rem;">'
+        + '<i class="ti ti-alert-triangle"></i> The sheet has no <code>WTBT</code> column, so the mark cannot '
+        + 'be written. Add a column headed <code>WTBT</code> and check again.</div>')
+    + '<div class="table-wrap"><table class="data-table"><thead><tr>'
+    + '<th style="width:34px;"></th><th>Roblox</th><th>Group rank</th><th>Discord ID</th><th>Training</th>'
+    + '</tr></thead><tbody>' + missing.map(missRow).join("") + '</tbody></table></div>';
+  refreshMissButton();
+}
+
+function refreshMissButton() {
+  var n = Object.keys(missPicked).filter(function (k) { return missPicked[k]; }).length;
+  var btn = document.getElementById("btn-miss-add");
+  if (!btn) return;
+  btn.disabled = !n;
+  btn.title = n ? "" : "Pick at least one person first";
+  btn.innerHTML = '<i class="ti ti-user-plus"></i> Add ' + (n ? n + " selected" : "selected");
+}
+
+function onMissChange(ev) {
+  var t = ev.target;
+  if (!t || t.type !== "checkbox") return;
+  if (t.dataset.pick) {
+    missPicked[t.dataset.pick] = t.checked;
+    // Unticking somebody drops their mark too: leaving it set would send a WTBT
+    // for a person who is no longer in the batch the next time they are ticked.
+    if (!t.checked) delete missWtbt[t.dataset.pick];
+    var tr = t.closest("tr");
+    if (tr) tr.classList.toggle("miss-on", t.checked);
+    refreshMissButton();
+    return;
+  }
+  if (t.dataset.wtbt) {
+    missWtbt[t.dataset.wtbt] = t.checked;
+    // Marking somebody as waiting to be trained is only meaningful if they are
+    // actually being added, so it ticks them as well.
+    if (t.checked && !missPicked[t.dataset.wtbt]) {
+      missPicked[t.dataset.wtbt] = true;
+      var box = document.querySelector('[data-pick="' + t.dataset.wtbt.replace(/"/g, '\\"') + '"]');
+      if (box) box.checked = true;
+      var row = t.closest("tr");
+      if (row) row.classList.add("miss-on");
+      refreshMissButton();
+    }
+  }
+}
+
+function onMissClick(ev) {
+  var all = ev.target.closest("[data-miss-all]");
+  if (!all) return;
+  var everyone = missing.every(function (m) { return missPicked[m.username]; });
+  missing.forEach(function (m) {
+    missPicked[m.username] = !everyone;
+    if (everyone) delete missWtbt[m.username];
+  });
+  renderMissing({ groupSize: missLast.groupSize, sheetRows: missLast.sheetRows, group: missLast.group });
+}
+
+var missLast = {};
+
+async function findMissingMembers() {
+  var btn = document.getElementById("btn-miss-find");
+  var box = document.getElementById("miss-result");
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Reading the group…"; }
+  try {
+    var out = await api(metDbUrl("/missing"));
+    missing = out.missing || [];
+    missLast = out;
+    missHasWtbtCol = out.hasWtbtColumn !== false;
+    // A fresh list means a fresh selection. Keeping ticks across a reload would
+    // let somebody add a person who has since been given a row.
+    missPicked = {};
+    missWtbt = {};
+    renderMissing(out);
+  } catch (err) {
+    missing = [];
+    renderMissing({ error: err.message });
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-user-search"></i> Find who is missing'; }
+  }
+}
+
+async function addMissingMembers() {
+  var picks = missing.filter(function (m) { return missPicked[m.username]; });
+  if (!picks.length) return;
+  var marked = picks.filter(function (m) { return missWtbt[m.username]; });
+
+  var yes = await (typeof uiConfirm === "function"
+    ? uiConfirm("Each one gets a new line on the " + metDbName() + " database with their rank, their "
+        + "Discord ID where it is known, and every day at 0.\n\n"
+        + picks.map(function (m) {
+            return m.username + " — " + (m.rank || "no rank")
+              + (missWtbt[m.username] ? " · waiting to be trained" : "");
+          }).join("\n")
+        + "\n\nNothing is removed, and anybody who already has a row is skipped.",
+        { title: "Add " + picks.length + (picks.length === 1 ? " person?" : " people?"),
+          confirmText: "Add " + (picks.length === 1 ? "them" : "all " + picks.length),
+          cancelText: "Not yet", icon: "ti-user-plus" })
+    : Promise.resolve(true));
+  if (!yes) return;
+
+  var btn = document.getElementById("btn-miss-add");
+  var was = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Writing…"; }
+  try {
+    var out = await api(metDbUrl("/add-members"), {
+      method: "POST",
+      body: JSON.stringify({
+        members: picks.map(function (m) {
+          return { username: m.username, discordId: m.discordId || "", wtbt: !!missWtbt[m.username] };
+        }),
+      }),
+    });
+    // A refusal that arrives with a 200 rather than a 400 must not be read as a
+    // success — "undefined members added" is worse than the actual reason.
+    if (out.error) {
+      showToast(out.error, "error");
+      return;
+    }
+    var bits = [out.added + (out.added === 1 ? " member added" : " members added")];
+    if (marked.length && out.added) bits.push(marked.length + " waiting to be trained");
+    if ((out.alreadyThere || []).length) bits.push((out.alreadyThere || []).length + " already had a row");
+    if ((out.skipped || []).length) bits.push((out.skipped || []).length + " no longer in the group");
+    showToast(bits.join(" · ") + ".", out.added ? "success" : "warning");
+    if ((out.errors || []).length) showToast(out.errors.join("; "), "warning");
+    // Re-read rather than patching the list: the sheet has changed, and the next
+    // decision should be made against what is actually on it now.
+    await findMissingMembers();
+  } catch (err) {
+    showToast(err.message || "Could not add them.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; refreshMissButton(); }
+  }
+}
 
 // ── MET database audit ────────────────────────────────────────────
 // Read-only. Says what is wrong with the sheet; the two buttons beside it fix

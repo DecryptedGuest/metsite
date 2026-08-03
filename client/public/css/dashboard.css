@@ -1441,6 +1441,19 @@ tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
 .metdb-applied { background: var(--green-dim); border: 1px solid rgba(46,216,150,.35); color: var(--green); }
 .metdb-error   { background: var(--red-dim);   border: 1px solid rgba(240,79,94,.35);  color: var(--red); }
 
+/* ── Add Missing Members ──────────────────────────────────────────────
+   A list of people in the group with no row on the sheet, to tick and add.
+   A picked row is tinted, because the thing being confirmed is "these ones",
+   and a column of identical tickboxes is easy to miscount. */
+.miss-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+             font-size: 12px; color: var(--text-secondary); margin-bottom: .7rem; }
+.miss-head .spacer { flex: 1 1 auto; }
+.miss-on > td { background: rgba(60, 110, 255, 0.07); }
+.miss-wtbt { display: inline-flex; align-items: center; gap: .4rem; font-size: 11.5px;
+             color: var(--text-secondary); cursor: pointer; }
+.miss-wtbt.off { color: var(--text-muted); cursor: not-allowed; }
+.miss-na { color: var(--text-muted); font-size: 12px; }
+
 /* ── Stat card: purple variant (appeals) ────────────────────────── */
 .stat-card.purple .stat-icon { color: var(--purple); background: var(--purple-dim); }
 .stat-bar.purple { background: linear-gradient(90deg, var(--purple), transparent); }

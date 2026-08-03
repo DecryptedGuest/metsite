@@ -199,6 +199,44 @@ router.get('/met-database/audit', canTouchDatabase, async (req, res) => {
   }
 });
 
+// ── Adding people the sheet is missing ────────────────────────────
+// GET  /api/quota/met-database/missing   everyone in the group with no row
+// POST /api/quota/met-database/add-members   add the ones that were picked
+//
+// The sync decides for itself and only ever offers the entry rank, which means a
+// Junior Investigator who never got a row stays invisible until their quota
+// reads zero for a month. These two are the manual half: a list to look at, and
+// a write that does exactly what it was told.
+router.get('/met-database/missing', canTouchDatabase, async (req, res) => {
+  try {
+    const { missingMembers } = require('../lib/metDatabase');
+    const out = await missingMembers(dbDivision(req));
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[MetDB] missing-members read failed:', err.message);
+    res.status(500).json({ error: 'Could not work out who is missing: ' + err.message });
+  }
+});
+
+router.post('/met-database/add-members', canTouchDatabase, async (req, res) => {
+  const body = req.body || {};
+  if (!Array.isArray(body.members) || !body.members.length) {
+    return res.status(400).json({ error: 'Pick at least one person to add.' });
+  }
+  try {
+    const { addMembers } = require('../lib/metDatabase');
+    const out = await addMembers(body.members, dbDivision(req), {
+      id: req.user.id, name: req.user.displayName || req.user.discordUsername || req.user.id,
+    });
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[MetDB] add-members failed:', err.message);
+    res.status(500).json({ error: 'Could not add them: ' + err.message });
+  }
+});
+
 router.post('/met-database/normalise', canTouchDatabase, async (req, res) => {
   const body = req.body || {};
   try {

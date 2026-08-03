@@ -1602,6 +1602,32 @@
         </div>
       </div>
 
+      <!-- Adding the people the sheet is missing.
+           Separate from the sync on purpose: the sync decides for itself and
+           only ever offers the entry rank, so a Junior Investigator who never
+           got a row stays invisible until their quota reads zero for a month.
+           This is a list to look at and pick from. -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>Add Missing Members</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" id="btn-miss-find"><i class="ti ti-user-search"></i> Find who is missing</button>
+            <button class="btn btn-primary btn-sm" id="btn-miss-add" disabled
+                    title="Pick at least one person first"><i class="ti ti-user-plus"></i> Add selected</button>
+          </div>
+        </div>
+        <div style="padding:1rem 1.2rem;">
+          <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Everyone in the <strong>IA Roblox group</strong> with no row on the sheet, at every rank rather
+            than only new joiners. Tick the ones to add and each gets a new line with their rank, their
+            Discord ID where it can be resolved, and every day at 0. Nothing is removed and nobody already
+            on the sheet is written again. <strong>Waiting to be trained</strong> can only be ticked for a
+            <strong>Probationary Investigator</strong>, because that is the only rank it means anything for.
+          </p>
+          <div id="miss-result"></div>
+        </div>
+      </div>
+
       <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-dot" style="background:#f5c518;box-shadow:0 0 7px #f5c518;"></span><i class="ti ti-star"></i> Investigator of the Week</div>

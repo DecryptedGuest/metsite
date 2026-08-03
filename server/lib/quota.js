@@ -231,9 +231,14 @@ function getSheetsClient(cfgOrPrefix) {
 
 // Locate USERNAME / DISCORD ID / day columns from the header rows
 function findColumns(rows) {
-  const out = { username: null, discordId: null, rank: null, days: {} };
+  const out = { username: null, discordId: null, rank: null, wtbt: null, days: {} };
   const USER_HEADERS    = ['username', 'roblox username', 'roblox user', 'roblox', 'user', 'name'];
   const DISCORD_HEADERS = ['discord id', 'discordid', 'discord'];
+  // "Waiting to be trained" — a Probationary Investigator who has been added to
+  // the group but has not had their training session yet. Only the exact labels
+  // the sheets actually use: something loose like "trained" would happily claim
+  // an unrelated column and start writing into it.
+  const WTBT_HEADERS    = ['wtbt', 'wtbt?', 'waiting to be trained', 'waiting to be trained?'];
   // Accept the common variants divisions label their rank column with, so the
   // real rank shows instead of falling back to the tab name.
   const RANK_HEADERS    = ['rank', 'role', 'rank/role', 'rank / role', 'position',
@@ -246,6 +251,7 @@ function findColumns(rows) {
       if      (out.username  == null && USER_HEADERS.includes(v))    out.username  = c;
       else if (out.discordId == null && DISCORD_HEADERS.includes(v)) out.discordId = c;
       else if (out.rank      == null && RANK_HEADERS.includes(v))    out.rank      = c;
+      else if (out.wtbt      == null && WTBT_HEADERS.includes(v))    out.wtbt      = c;
       else { const di = dayIndexFromHeader(v); if (di >= 0 && out.days[di] == null) out.days[di] = c; }
     }
   }

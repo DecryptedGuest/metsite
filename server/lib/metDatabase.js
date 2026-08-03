@@ -484,6 +484,270 @@ async function syncMetDatabase(opts = {}) {
   return { ok: result.ok, dry: false, startedAt, ...plan, ...result };
 }
 
+
+// ── Who is in the group but not on the sheet ──────────────────────
+//
+// The sync's own `add` list only ever offers people at the ENTRY rank
+// (MET_DB_JOIN_RANKS, "Constable" by default), because that is what an automatic
+// roster sync should touch on its own. It means a Junior Investigator who never
+// got a row never appears anywhere, and nobody notices until their quota reads
+// as zero for a month.
+//
+// This lists EVERY member missing from the sheet, at any rank, for somebody to
+// look at and pick from. It writes nothing.
+//
+// @returns {Promise<{ missing: Array, groupSize: number, sheetRows: number, … }>}
+async function missingMembers(division) {
+  const scope = scopeFor(division || 'IA');
+  const rosterRead = await readRoster(scope);
+  if (!rosterRead) {
+    return { error: 'The quota sheet is not readable (set GOOGLE_SERVICE_ACCOUNT_JSON).', missing: [] };
+  }
+  const { sheet, roster } = rosterRead;
+  const { all } = await readGroupMembers(scope);
+
+  // Somebody who RENAMED is on the sheet under their old name, so matching by
+  // name alone would offer to add them a second time. Their Discord id on the
+  // sheet resolves to a Roblox id through the accounts already linked here,
+  // which is the same trick planSync uses to avoid deleting renamed members.
+  const onSheetNames = new Set(roster.map(r => quota.normName(r.username)));
+  const sheetDiscordIds = roster.map(r => (r.discordId || '').replace(/\D/g, '')).filter(Boolean);
+  const linked = sheetDiscordIds.length
+    ? await prisma.user.findMany({
+        where:  { discordId: { in: sheetDiscordIds } },
+        select: { discordId: true, robloxId: true },
+      }).catch(() => [])
+    : [];
+  const onSheetRobloxIds = new Set(linked.filter(u => u.robloxId).map(u => String(u.robloxId)));
+
+  const missing = [];
+  for (const m of all) {
+    if (onSheetNames.has(quota.normName(m.username))) continue;
+    if (onSheetRobloxIds.has(String(m.userId))) continue;
+    missing.push({
+      username: m.username,
+      robloxId: String(m.userId),
+      rank:     m.roleName || '',
+      roleRank: m.roleRank != null ? Number(m.roleRank) : null,
+      // Whether the "waiting to be trained" mark applies to them at all. Only a
+      // Probationary Investigator can be waiting for their training session; a
+      // Senior Investigator marked WTBT is a mistake, so the flag is offered
+      // only where it means something.
+      probationary: isProbationary(m.roleName),
+    });
+  }
+  // Highest rank first: a missing Deputy Director is a more urgent gap than a
+  // missing probationer, and sorting by name buries it.
+  missing.sort((a, b) => (b.roleRank || 0) - (a.roleRank || 0)
+    || a.username.localeCompare(b.username));
+
+  // Their Discord ids, so a row is not written with the column blank — a member
+  // added without one can only ever be matched by name afterwards, which breaks
+  // the moment they rename.
+  await attachDiscordIds(missing);
+
+  return {
+    missing,
+    groupSize: all.length,
+    sheetRows: roster.length,
+    division:  scope.division,
+    group:     scope.name || scope.division,
+    sheetName: sheet.sheetName,
+    // Whether the sheet even HAS a column to write the mark into. Without one the
+    // UI must not offer a toggle whose value goes nowhere.
+    hasWtbtColumn: sheet.cols.wtbt != null,
+  };
+}
+
+// The most this will add in one press. A selection is deliberate, so this is a
+// runaway guard rather than a policy — 100 rows is far more than any real intake.
+const MAX_PICK = 100;
+
+/** Is this group rank a Probationary Investigator? */
+function isProbationary(roleName) {
+  return /probation/i.test(String(roleName || ''));
+}
+
+// What goes in a WTBT cell. TRUE/FALSE rather than a tick, because the sheet's
+// own column is read by people and by formulas, and "TRUE" is what a checkbox
+// column contains.
+function wtbtCell(on) { return on ? 'TRUE' : 'FALSE'; }
+
+/**
+ * Add exactly the people who were picked.
+ *
+ * Deliberately NOT part of the sync. The sync is a comparison that decides for
+ * itself; this is a list somebody chose from, so it adds precisely what it was
+ * given, refuses anything it was not asked about, and never removes anything.
+ *
+ * @param {Array<{username, rank?, discordId?, robloxId?, wtbt?}>} picks
+ * @param {string} division
+ * @param {{id, name}} [actor]
+ */
+async function addMembers(picks, division, actor) {
+  const list = Array.isArray(picks) ? picks : [];
+  if (!list.length) return { ok: false, error: 'Nobody was selected.' };
+  if (list.length > MAX_PICK) {
+    return { ok: false, error: `That is ${list.length} people at once. ${MAX_PICK} is the most this will write in one go — do it in batches so a mistake is small.` };
+  }
+
+  const scope = scopeFor(division || 'IA');
+  // Re-read the group so the ranks written are the ranks people actually hold,
+  // not whatever the browser was showing when the list was loaded.
+  const { all } = await readGroupMembers(scope);
+  const byName = new Map(all.map(m => [quota.normName(m.username), m]));
+
+  const resolved = [], unknown = [], wrongRank = [];
+  for (const p of list) {
+    const name = String((p && p.username) || '').trim();
+    if (!name) continue;
+    const member = byName.get(quota.normName(name));
+    if (!member) { unknown.push(name); continue; }
+    const wtbt = p.wtbt === true || p.wtbt === 'true';
+    // The mark means "has not had their training session yet", which only a
+    // probationer can be. Refused rather than quietly dropped: it was an
+    // explicit choice, and silently ignoring it teaches the wrong thing about
+    // what the toggle does.
+    if (wtbt && !isProbationary(member.roleName)) {
+      wrongRank.push(`${member.username} (${member.roleName || 'unknown rank'})`);
+      continue;
+    }
+    resolved.push({
+      username:  member.username,
+      robloxId:  String(member.userId),
+      rank:      member.roleName || '',
+      discordId: String((p && p.discordId) || '').replace(/\D/g, ''),
+      wtbt,
+    });
+  }
+
+  if (wrongRank.length) {
+    return {
+      ok: false,
+      error: 'Waiting to be trained only applies to Probationary Investigators, and it was ticked for '
+           + wrongRank.join(', ') + '. Untick it for them and try again.',
+    };
+  }
+  if (!resolved.length) {
+    return { ok: false, error: unknown.length
+      ? `None of them are in the ${scope.name || scope.division} group any more: ${unknown.join(', ')}.`
+      : 'Nobody was selected.' };
+  }
+
+  // Fill in any Discord id the caller did not send. Best-effort, the same as the
+  // sync — an unresolvable member is still added, just without the id.
+  await attachDiscordIds(resolved);
+
+  const out = await appendRows(resolved, scope);
+  if (unknown.length) out.skipped = unknown;
+
+  // The wtbt count is only mentioned when something was actually written.
+  // "added 0 member(s), 1 waiting to be trained" is a line about a selection,
+  // not about what happened, and it reads as though a row went in.
+  const marked = out.added ? resolved.filter(r => r.wtbt).length : 0;
+  const summary = `${scope.name || scope.division} database — added ${out.added} member(s) by hand`
+    + (marked ? `, ${marked} waiting to be trained` : '');
+  console.log(`[MetDB] ${summary}${out.errors && out.errors.length ? ` (errors: ${out.errors.join('; ')})` : ''}`);
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: 'MET_DB_ADD_MEMBERS', category: 'ia',
+        actorId:   actor ? actor.id   : null,
+        actorName: actor ? actor.name : 'system',
+        targetType: 'quota-sheet', targetId: out.sheetName || null,
+        summary,
+        metadata: {
+          added: resolved.map(r => ({ username: r.username, rank: r.rank, wtbt: r.wtbt })),
+          alreadyOnSheet: out.alreadyThere || [],
+          notInGroup: unknown,
+          via: out.via, ok: out.ok, errors: out.errors,
+        },
+      },
+    });
+  } catch (e) { /* auditing must never break the write */ }
+
+  return { ok: out.ok, ...out, division: scope.division };
+}
+
+/**
+ * Append the rows. Same two paths as applySync: the sheet's own Apps Script
+ * webhook when there is one, otherwise the service account.
+ *
+ * Nothing is ever removed here, and nobody already on the sheet is written
+ * again — the sheet is re-read immediately before writing, so somebody added by
+ * a sync in the meantime is reported as already there rather than duplicated.
+ */
+async function appendRows(rows, scope) {
+  const errors = [];
+
+  if (process.env.QUOTA_WEBHOOK_URL) {
+    const via = await quota.callQuotaWebhook({
+      action: 'roster',
+      remove: [],
+      add: rows.map(r => ({
+        username: r.username, rank: r.rank || '',
+        discordId: r.discordId || '', wtbt: wtbtCell(r.wtbt),
+      })),
+    }).catch(err => ({ ok: false, error: err.message }));
+    if (via && via.ok) {
+      return { ok: true, via: 'webhook', added: via.added != null ? via.added : rows.length,
+               alreadyThere: [], errors };
+    }
+    return { ok: false, via: 'webhook', added: 0, alreadyThere: [],
+             errors: errors.concat(`The quota webhook did not add them: ${(via && via.error) || 'unknown error'}.`) };
+  }
+
+  const sheetRead = scope && scope.division !== 'IA'
+    ? await quota.readSheetFor(scope.cfg)
+    : await quota.readSheet();
+  if (!sheetRead) {
+    return { ok: false, added: 0, alreadyThere: [],
+             errors: errors.concat('No write path configured (no webhook, no service account).') };
+  }
+  const { sheets, spreadsheetId, sheetName, rows: existing, cols } = sheetRead;
+
+  // Fresh check for duplicates. The list in the browser could be minutes old.
+  const already = new Set();
+  for (let i = 0; i < existing.length; i++) {
+    if (!isMemberRow(cols, existing[i])) continue;
+    already.add(quota.normName(existing[i][cols.username]));
+  }
+
+  const writes = [];
+  const alreadyThere = [];
+  let appendAt = existing.length, added = 0;
+  for (const r of rows) {
+    if (already.has(quota.normName(r.username))) { alreadyThere.push(r.username); continue; }
+    const target = appendAt++;
+    const cell = (col, value) => {
+      if (col == null) return;
+      writes.push({ range: `${sheetName}!${quota.colLetter(col)}${target + 1}`, values: [[value]] });
+    };
+    cell(cols.username, r.username);
+    cell(cols.rank, r.rank || '');
+    cell(cols.discordId, r.discordId || '');
+    // Only written when the sheet has the column AND the mark was asked for. A
+    // FALSE stamped into every new row would overwrite whatever convention the
+    // sheet already uses for people who are trained.
+    if (r.wtbt) cell(cols.wtbt, wtbtCell(true));
+    for (const d of Object.values(cols.days)) cell(d, 0);
+    // Two people picked in the same batch must not land on the same row.
+    already.add(quota.normName(r.username));
+    added++;
+  }
+
+  if (writes.length) {
+    try {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
+      });
+    } catch (err) {
+      return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName, errors: errors.concat(err.message) };
+    }
+  }
+  return { ok: true, via: 'sheets', added, alreadyThere, sheetName, errors };
+}
+
 // ── Optional daily worker ─────────────────────────────────────────
 function startMetDatabaseWorker() {
   if (process.env.MET_DB_AUTO_SYNC !== 'true') return;
@@ -493,4 +757,8 @@ function startMetDatabaseWorker() {
   setInterval(run, 24 * 60 * 60 * 1000);   // then daily
 }
 
-module.exports = { planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor, startMetDatabaseWorker };
+module.exports = {
+  planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor,
+  startMetDatabaseWorker,
+  missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
+};
