@@ -79,7 +79,7 @@ const GUIDELINES = [
   'Answer every question with full grammar. Not using proper grammar can fail the application.',
   'No troll applications. They result in punishment.',
   'Respect the MINIMUM word count on every question.',
-  'Give as much detail as you can — it is the single biggest thing in your favour.',
+  'Give as much detail as you can. It is the single biggest thing in your favour.',
   'Do not cut sentences short. A cut-off sentence does not count as a sentence.',
   'Have activity within MET.',
   'Understand MET policy and regulations.',
@@ -105,7 +105,8 @@ const SECTIONS = [
     id: 'about_you',
     page: 1,
     title: 'About you',
-    heading: 'Internal Affairs Application',
+    // No `heading` on purpose: the page's own hero already says "Internal Affairs
+    // Application", and repeating it here put the same words twice on one screen.
     blurb: 'Thanks for your interest in Internal Affairs. We are very selective — there are only '
          + 'so many places. If you are serious about this, put the effort in and read the guidelines '
          + 'below before you start.\n\n'
@@ -286,7 +287,11 @@ const SECTIONS = [
         // skippable would be the one place the application contradicts itself.
         expectTemplate: 'I {username} agree that I have not used any Artificial Intelligence on this '
                       + 'application. If I have, I may be blacklisted from MET.',
-        prompt: 'And this one.' },
+        // Every prompt has to stand on its own, because it is quoted back in the
+        // "not finished yet" list. "And this one." read as a complete non-sequitur
+        // there — a refusal that names the question it is about only helps if the
+        // name means something.
+        prompt: 'Now type the Artificial Intelligence declaration out, the same way.' },
     ],
   },
 ];

@@ -341,6 +341,11 @@ app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
 // IA event logs — filed on the site; filing one awards every attendee.
 app.use('/api/ia-events', requireAuth, ia, require('./routes/iaEvents'));
+// The IA application. requireAuth ONLY, and deliberately not behind `ia` — an
+// applicant is by definition not in Internal Affairs yet, so gating this on IA
+// membership would let nobody apply. Nothing in this router returns anybody
+// else's answers; the marking half is its own router behind a HICOMM gate.
+app.use('/api/ia-application', requireAuth, require('./routes/iaApplication'));
 // IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
 app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
 // Push + notification self-service must be open to EVERY signed-in member — the
@@ -1335,6 +1340,11 @@ app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join
 app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html'), 'IA'));
 app.get('/ia/login',     recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html'), 'IA'));
 app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'denied.html'), 'IA'));
+// The application itself is open to any signed-in member — that is the whole
+// point of it. IA branding, because it is an IA form, but NO requireDivision:
+// gating it on being in IA would mean only people who are already in can apply.
+app.get('/ia/application', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'ia-application.html'), 'IA'));
+app.get('/ia-application',  recordVisit, requireAuth, (req, res) => res.redirect('/ia/application'));
 app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
