@@ -91,6 +91,7 @@ model User {
   sco19Deployments   Sco19Deployment[]
   flpShiftLogs       FlpShiftLog[]
   hpcTrainingRecords HpcTrainingRecord[]
+  robloxUploads      RobloxUpload[]
 
   @@map("users")
 }
@@ -339,6 +340,34 @@ model SystemSetting {
   updatedAt DateTime @updatedAt
 
   @@map("system_settings")
+}
+
+// Every audio pushed to Roblox from the dev panel, and what came back. Kept so
+// the asset ids can be copied out again later — the upload is the only place
+// Roblox ever tells you the id, and losing it means re-uploading.
+model RobloxUpload {
+  id          String  @id @default(uuid())
+  displayName String
+  fileName    String
+  mimeType    String
+  size        Int
+  assetId     String? // the id you actually want; null until Roblox says so
+  operationId String? // Open Cloud is asynchronous — this is the handle to poll
+  status      String  @default("PENDING") // PENDING | UPLOADING | DONE | FAILED
+  error       String?
+  via         String? // 'apikey' | 'cookie' — which credential did it
+  creatorType String? // 'user' | 'group'
+  creatorId   String?
+
+  uploadedById String?
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([createdAt])
+  @@index([status])
+  @@map("roblox_uploads")
 }
 
 // Permanently-hosted images/videos uploaded by IA members. Stored in the DB so

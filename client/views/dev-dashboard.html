@@ -165,6 +165,9 @@
         <button class="nav-item dev-only" data-page="imports" style="display:none;">
           <i class="ti ti-database-import nav-icon"></i><span>Imports</span><span class="nav-tag">DEV</span>
         </button>
+        <button class="nav-item dev-only" data-page="roblox-audio" style="display:none;">
+          <i class="ti ti-music-plus nav-icon"></i><span>Roblox Audio</span><span class="nav-tag">DEV</span>
+        </button>
         
         <button class="nav-item dev-only" data-page="cad" style="display:none;">
           <i class="ti ti-radio nav-icon"></i><span>CAD Dispatch</span><span class="nav-tag">DEV</span>
@@ -1124,6 +1127,142 @@
           </p>
           <button class="btn btn-primary" id="imp-ia-btn" onclick="runIaSync()"><i class="ti ti-refresh"></i> Sync IA cases &amp; tickets</button>
           <div id="imp-ia-result" style="margin-top:0.9rem;font-size:13px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ROBLOX AUDIO UPLOADER -->
+    <section class="page" id="page-roblox-audio">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Roblox Audio</h1><p class="page-sub">Developer &middot; Upload audio to Roblox and collect the asset IDs</p></div>
+      </div>
+
+      <!-- Credential -->
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Roblox Credential</div>
+          <div id="ra-cred-state" style="font-size:12px;color:var(--text-secondary);"></div>
+        </div>
+        <div class="profile-section">
+
+          <div id="ra-cred-summary" style="display:none;margin-bottom:1rem;"></div>
+
+          <div class="seg" id="ra-kind" style="margin-bottom:1rem;">
+            <button class="seg-btn active" data-kind="apikey" onclick="raSetKind('apikey')">Open Cloud API key</button>
+            <button class="seg-btn" data-kind="cookie" onclick="raSetKind('cookie')">Account cookie</button>
+          </div>
+
+          <!-- API key: the one to use -->
+          <div id="ra-help-apikey" style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            <p style="margin:0 0 0.6rem;">
+              Create one at <strong>create.roblox.com &rarr; Settings &rarr; Credentials &rarr; API Keys</strong>.
+              Add the <code>asset:write</code> permission (and pick the account or group that will own the audio).
+              An API key cannot log in, cannot read your account and can be deleted on its own.
+            </p>
+          </div>
+
+          <!-- Cookie: works, but it is the account -->
+          <div id="ra-help-cookie" style="display:none;font-size:13px;line-height:1.7;margin:0 0 1rem;">
+            <div style="border-left:3px solid var(--danger, #ef4444);background:rgba(239,68,68,0.07);border-radius:6px;padding:11px 14px;margin-bottom:0.8rem;">
+              <strong style="color:var(--danger, #ef4444);"><i class="ti ti-alert-triangle"></i> This is your whole account.</strong>
+              <p style="margin:0.4rem 0 0;color:var(--text-secondary);">
+                A <code>.ROBLOSECURITY</code> cookie authenticates past two-factor. Anyone who gets it holds your
+                account until you invalidate it. It is stored encrypted here and never shown again, but the safer
+                option is an API key. To invalidate it at any point, log out of Roblox everywhere or change your password.
+              </p>
+            </div>
+            <p style="margin:0;color:var(--text-secondary);">
+              In a browser logged into the account: <strong>F12 &rarr; Application &rarr; Cookies &rarr; roblox.com &rarr;
+              <code>.ROBLOSECURITY</code></strong>, and copy the value <strong>whole</strong> &mdash; including the
+              <code>_|WARNING:-DO-NOT-SHARE-THIS...|_</code> at the front. That part is not a note, it is part of the
+              cookie, and trimming it stops it working.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" id="ra-value-label">API key</label>
+            <textarea class="form-input" id="ra-value" rows="3" spellcheck="false"
+                      autocomplete="off" style="font-family:var(--font-mono, monospace);font-size:12px;resize:vertical;"
+                      placeholder="Paste it here"></textarea>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.9rem;">
+            <div class="form-group">
+              <label class="form-label">Audio owned by</label>
+              <select class="form-input" id="ra-creator-type" onchange="raCreatorChanged()">
+                <option value="user">My account</option>
+                <option value="group">A group</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" id="ra-creator-id-label">Roblox user ID</label>
+              <input class="form-input" id="ra-creator-id" inputmode="numeric" placeholder="e.g. 1234567">
+              <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;" id="ra-creator-hint">
+                Open Cloud will not guess whose account it is &mdash; the numeric ID from your profile URL.
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-top:0.4rem;">
+            <button class="btn btn-primary" id="ra-save-btn" onclick="raSaveCredential()"><i class="ti ti-lock"></i> Save credential</button>
+            <button class="btn btn-secondary" id="ra-verify-btn" onclick="raVerifyCredential()"><i class="ti ti-plug-connected"></i> Test it</button>
+            <button class="btn btn-danger" id="ra-clear-btn" onclick="raClearCredential()" style="display:none;"><i class="ti ti-trash"></i> Remove</button>
+          </div>
+          <div id="ra-cred-result" style="margin-top:0.9rem;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div class="panel glass fade-up stagger-2" style="margin-bottom:1.2rem;">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Upload Audio</div></div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            <code>.mp3</code> or <code>.ogg</code>, up to 20&nbsp;MB and 7 minutes each, 50 per batch. Roblox moderates
+            every upload &mdash; an asset ID comes back straight away but the audio may not be usable until it passes,
+            and anything you do not hold the rights to will be taken down. Only upload what you are allowed to.
+          </p>
+
+          <div id="ra-drop" onclick="document.getElementById('ra-files').click()"
+               style="border:2px dashed var(--border);border-radius:10px;padding:1.8rem 1rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;">
+            <i class="ti ti-cloud-upload" style="font-size:30px;color:var(--text-secondary);"></i>
+            <div style="font-size:13.5px;margin-top:0.5rem;">Drop audio here, or click to choose</div>
+            <div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px;">Names are taken from the file names, and can be edited below</div>
+          </div>
+          <input type="file" id="ra-files" accept=".mp3,.ogg,audio/mpeg,audio/ogg" multiple style="display:none;" onchange="raFilesPicked(this.files)">
+
+          <div id="ra-queue" style="margin-top:1rem;"></div>
+
+          <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-top:1rem;" id="ra-upload-actions" >
+            <button class="btn btn-primary" id="ra-upload-btn" onclick="raUpload()" disabled><i class="ti ti-upload"></i> Upload to Roblox</button>
+            <button class="btn btn-secondary" id="ra-queue-clear" onclick="raClearQueue()" style="display:none;"><i class="ti ti-x"></i> Clear selection</button>
+          </div>
+          <div id="ra-upload-result" style="margin-top:0.9rem;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- Asset IDs -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Asset IDs</div>
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-sm btn-secondary" onclick="raCopyAll('ids')"><i class="ti ti-copy"></i> Copy IDs</button>
+            <button class="btn btn-sm btn-secondary" onclick="raCopyAll('lua')"><i class="ti ti-brand-lua"></i> Copy as Lua</button>
+            <button class="btn btn-sm btn-secondary" onclick="raCopyAll('csv')"><i class="ti ti-table"></i> CSV</button>
+            <button class="btn btn-sm btn-secondary" onclick="raLoadUploads()"><i class="ti ti-refresh"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="raClearUploads()"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>
+        <div class="profile-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr>
+                <th>Name</th><th>File</th><th>Asset ID</th><th>Status</th><th>Uploaded</th><th></th>
+              </tr></thead>
+              <tbody id="ra-uploads-tbody">
+                <tr><td colspan="6" class="table-loading">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -2133,6 +2272,7 @@
 <script src="/js/quota-check.js?v=73"></script>
 <script src="/js/ai-review.js?v=73"></script>
 <script src="/js/media.js?v=73"></script>
+<script src="/js/roblox-audio.js?v=1"></script>
 <script src="/js/passkeys.js"></script>
 <script src="/js/discord-moderation.js"></script>
 <script src="/js/push-client.js?v=73"></script>

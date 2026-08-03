@@ -369,6 +369,9 @@ app.use('/api/divquota', requireAuth, require('./routes/divisionQuota'));
 // global broadcast, security alerts, passkey compliance. Mounted before
 // /api/dev so its paths win. DEVELOPER only.
 app.use('/api/dev/security', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devSecurity'));
+// Roblox asset uploads — mounted ahead of /api/dev so its paths win. Handles the
+// stored upload credential, so DEVELOPER only, gated again inside the router.
+app.use('/api/dev/roblox', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devRoblox'));
 // Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
 // inside the router.
 app.use('/api/dev', requireAuth, require('./routes/dev'));
