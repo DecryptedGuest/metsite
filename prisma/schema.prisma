@@ -71,8 +71,8 @@ model User {
   // login and by the access revalidator. `role` collapses every investigator
   // tier into "IA", so this is what lets the site tell a Senior Investigator
   // apart from a Probationary one — the gate for SI+ actions (case appeals).
-  iaRankName      String?
-  iaRank          Int?
+  iaRankName String?
+  iaRank     Int?
 
   hpcExamSubmissions HpcExamSubmission[]
   tryouts            Tryout[]
@@ -80,18 +80,20 @@ model User {
   sessions           Session[]
   passkeys           Passkey[]
 
-  cases              Case[]
-  caseActions        CaseAction[]
-  caseAppeals        CaseAppeal[]
-  caseDocuments      CaseDocument[]
-  iaEventsHosted     IaEventLog[]     @relation("IaEventHost")
-  pushSubscriptions  PushSubscription[]
-  media              Media[]
-  cidCases           CidCase[]
-  sco19Deployments   Sco19Deployment[]
-  flpShiftLogs       FlpShiftLog[]
-  hpcTrainingRecords HpcTrainingRecord[]
-  robloxUploads      RobloxUpload[]
+  cases                Case[]
+  caseActions          CaseAction[]
+  caseAppeals          CaseAppeal[]
+  caseDocuments        CaseDocument[]
+  iaEventsHosted       IaEventLog[]        @relation("IaEventHost")
+  iaApplications       IaApplication[]     @relation("IaApplicant")
+  iaApplicationsMarked IaApplication[]     @relation("IaApplicationMarker")
+  pushSubscriptions    PushSubscription[]
+  media                Media[]
+  cidCases             CidCase[]
+  sco19Deployments     Sco19Deployment[]
+  flpShiftLogs         FlpShiftLog[]
+  hpcTrainingRecords   HpcTrainingRecord[]
+  robloxUploads        RobloxUpload[]
 
   @@map("users")
 }
@@ -196,17 +198,17 @@ model Case {
 // overturned what, and why. Only Senior Investigator+ may file one at all, and
 // only High Command may appeal a Termination or Blacklist.
 model CaseAppeal {
-  id            String   @id @default(uuid())
-  caseId        String
-  appealedById  String
+  id             String   @id @default(uuid())
+  caseId         String
+  appealedById   String
   appealedByName String
   appealedByRank String?
-  reason        String
+  reason         String
   // The punishments that were lifted, snapshotted at appeal time.
-  liftedActions Json?
+  liftedActions  Json?
   // True when the case carried a Termination/Blacklist (High-Command-only appeal).
-  hicommOnly    Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  hicommOnly     Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
   case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
   user User @relation(fields: [appealedById], references: [id])
@@ -222,12 +224,12 @@ model CaseAppeal {
 // document can be re-opened in the editor AND rendered read-only at /case-doc/:id.
 model CaseDocument {
   id        String   @id @default(uuid())
-  docRef    String   @unique          // "DOC-0001"
+  docRef    String   @unique // "DOC-0001"
   authorId  String
-  caseId    String?                   // set once the document is attached to a case
+  caseId    String? // set once the document is attached to a case
   title     String
   status    String   @default("DRAFT") // DRAFT | FINAL
-  data      Json                       // structured fields (see client/js/case-doc.js)
+  data      Json // structured fields (see client/js/case-doc.js)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -244,41 +246,41 @@ model CaseDocument {
 // the site, and an approved log awards the closer 2 quota points.
 model TicketLog {
   id                    String     @id @default(uuid())
-  messageId             String     @unique   // Discord message id of the log embed
+  messageId             String     @unique // Discord message id of the log embed
   channelId             String?
   // A short, readable number (#0001). Tickety's own id is a random string that
   // nobody can read in a table or say out loud; this is what the site shows.
   ticketNo              Int?       @unique
-  ticketRef             String?              // Tickety's own ticket id
+  ticketRef             String? // Tickety's own ticket id
   ticketName            String?
   ticketType            TicketType @default(GENERAL_SUPPORT)
-  reason                String?              // the close reason
+  reason                String? // the close reason
   transcriptUrl         String?
   creatorDiscordId      String?
   creatorUsername       String?
   creatorRobloxUsername String?
-  closerDiscordId       String?              // the "executor" — who closed it
+  closerDiscordId       String? // the "executor" — who closed it
   closerUsername        String?
   // Exactly what the log printed for the executor. closerUsername is resolved
   // from the id and can be null when that lookup fails; this never is, when the
   // message named anybody at all.
   closerRaw             String?
-  closerUserId          String?              // matched site User.id → "My Tickets"
+  closerUserId          String? // matched site User.id → "My Tickets"
   closedAt              DateTime
 
   // Supervisor sign-off. Nobody logs a ticket by hand any more — the row is
   // ingested from Discord — but a supervisor still approves or denies it on the
   // site. Approval awards NO quota points.
-  status                TicketStatus @default(PENDING)
-  reviewedById          String?
-  reviewedByName        String?
-  reviewedAt            DateTime?
+  status         TicketStatus @default(PENDING)
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
   // Set when the queue was reset: a log nobody is being asked to decide on any
   // more. Distinct from DENIED, which is a decision somebody made.
-  voidedAt              DateTime?
+  voidedAt       DateTime?
 
-  raw                   Json?
-  createdAt             DateTime   @default(now())
+  raw       Json?
+  createdAt DateTime @default(now())
 
   @@index([closedAt])
   @@index([closerDiscordId])
@@ -376,21 +378,21 @@ model RobloxUpload {
 // Permanently-hosted images/videos uploaded by IA members. Stored in the DB so
 // they survive deploys (Railway's filesystem is ephemeral). Served via /media/:id.
 model Media {
-  id              String   @id @default(uuid())
-  title           String?
-  filename        String
-  mimeType        String
-  size            Int
-  data            Bytes
-  kind            String // 'image' | 'video'
-  visibility      String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
-  uploaderId      String? // null for guest (anonymous) support-ticket uploads
-  views           Int      @default(0)
-  width           Int? // pixel dimensions (for video/image OG embeds)
-  height          Int?
-  poster          Bytes? // JPEG poster frame for videos (used as the embed thumbnail)
-  posterMime      String? // e.g. 'image/jpeg'; presence signals a poster exists
-  createdAt       DateTime @default(now())
+  id         String   @id @default(uuid())
+  title      String?
+  filename   String
+  mimeType   String
+  size       Int
+  data       Bytes
+  kind       String // 'image' | 'video'
+  visibility String   @default("IA") // PUBLIC | IA | STAFF | DEVELOPER
+  uploaderId String? // null for guest (anonymous) support-ticket uploads
+  views      Int      @default(0)
+  width      Int? // pixel dimensions (for video/image OG embeds)
+  height     Int?
+  poster     Bytes? // JPEG poster frame for videos (used as the embed thumbnail)
+  posterMime String? // e.g. 'image/jpeg'; presence signals a poster exists
+  createdAt  DateTime @default(now())
 
   uploader User? @relation(fields: [uploaderId], references: [id])
 
@@ -429,42 +431,42 @@ model QuotaAward {
 // is no approval step, so the record has to carry enough to audit it after the
 // fact: who hosted, who attended, when, and what proof was offered.
 model IaEventLog {
-  id            String   @id @default(uuid())
+  id             String    @id @default(uuid())
   // Sequential, human-readable: "EVT-0042".
-  eventRef      String   @unique
-  eventType     String                      // Training | Briefing | Interview panel | …
-  title         String?
-  hostId        String                      // the site account that filed it
-  hostDiscordId String?
-  hostName      String?
-  coHostName    String?
-  startedAt     DateTime
-  durationMins  Int?
+  eventRef       String    @unique
+  eventType      String // Training | Briefing | Interview panel | …
+  title          String?
+  hostId         String // the site account that filed it
+  hostDiscordId  String?
+  hostName       String?
+  coHostName     String?
+  startedAt      DateTime
+  durationMins   Int?
   // [{ discordId, username, name, awarded }] — the roll, and what each was paid.
-  attendees     Json
-  attendeeCount Int      @default(0)
-  pointsEach    Int      @default(2)
+  attendees      Json
+  attendeeCount  Int       @default(0)
+  pointsEach     Int       @default(2)
   // XP is paid alongside the quota points. It has no outbox of its own — it is
   // applied straight to the balance — so this is its receipt: who was given
   // what, and whether it landed. A withdrawal takes back exactly this.
-  xpEach        Int      @default(0)
-  xpAward       Json?
-  notes         String?
-  proof         Json?                       // screenshots offered as evidence it happened
+  xpEach         Int       @default(0)
+  xpAward        Json?
+  notes          String?
+  proof          Json? // screenshots offered as evidence it happened
   // Nobody is paid until a supervisor signs it off. Filing one used to BE the
   // award, which meant the person who ran the event decided what it was worth.
-  status        String   @default("PENDING")   // PENDING | APPROVED | DENIED
-  reviewedById  String?
+  status         String    @default("PENDING") // PENDING | APPROVED | DENIED
+  reviewedById   String?
   reviewedByName String?
-  reviewedAt    DateTime?
-  reviewNote    String?
+  reviewedAt     DateTime?
+  reviewNote     String?
   // Set when an approved event is withdrawn. The points already awarded are
   // reversed by their own award rows, so this is the record of the decision,
   // not the undo.
-  voidedAt      DateTime?
-  voidedById    String?
-  voidedReason  String?
-  createdAt     DateTime @default(now())
+  voidedAt       DateTime?
+  voidedById     String?
+  voidedReason   String?
+  createdAt      DateTime  @default(now())
 
   host User @relation("IaEventHost", fields: [hostId], references: [id])
 
@@ -992,34 +994,34 @@ model GameLog {
 // `userId` is nullable: somebody who has never signed in to the dashboard can
 // still ask for leave, and `discordId` is what actually identifies a requester.
 model LoaRequest {
-  id           String    @id @default(uuid())
-  userId       String? // requester's site account, when they have one
-  userName     String? // snapshot for listing
+  id              String    @id @default(uuid())
+  userId          String? // requester's site account, when they have one
+  userName        String? // snapshot for listing
   // Who they are in Discord. This is the identity the command works from —
   // every subcommand resolves a person by it.
   discordId       String?
   discordUsername String?
-  scope        String    @default("DIVISION") // MET | DIVISION
-  division     String? // set when scope=DIVISION
-  reason       String?
-  startAt      DateTime
-  endAt        DateTime
-  status       String    @default("PENDING") // PENDING | APPROVED | DENIED | CANCELLED | ENDED | EXPIRED
-  forwardedTo  String? // human label of the reviewing tier (e.g. "Jade Command")
-  reviewerId   String?
-  reviewerName String?
-  reviewNote   String?
-  reviewedAt   DateTime?
+  scope           String    @default("DIVISION") // MET | DIVISION
+  division        String? // set when scope=DIVISION
+  reason          String?
+  startAt         DateTime
+  endAt           DateTime
+  status          String    @default("PENDING") // PENDING | APPROVED | DENIED | CANCELLED | ENDED | EXPIRED
+  forwardedTo     String? // human label of the reviewing tier (e.g. "Jade Command")
+  reviewerId      String?
+  reviewerName    String?
+  reviewNote      String?
+  reviewedAt      DateTime?
 
   // The request card posted for review, so a decision can edit it in place
   // instead of leaving a stale "pending" message in the channel.
-  messageId    String?
-  channelId    String?
+  messageId String?
+  channelId String?
 
   // Ended before its end date — by the member coming back early, or by command.
-  endedAt      DateTime?
-  endedById    String?
-  endedByName  String?
+  endedAt     DateTime?
+  endedById   String?
+  endedByName String?
 
   // A change the member has asked for on an approved leave:
   // { kind: 'EXTEND' | 'REDUCE', endAt, reason, at }. Held here rather than as
@@ -1028,10 +1030,10 @@ model LoaRequest {
 
   // Set when the end date passed and the leave was closed off automatically,
   // so a sweep cannot close the same one twice.
-  expiredAt    DateTime?
+  expiredAt DateTime?
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([discordId])
@@ -1272,8 +1274,8 @@ model CadPersonRecord {
 // `promotedRank` is the last rank we actually promoted them TO, which is what
 // stops the same promotion firing twice.
 model MetXp {
-  discordId      String   @id
-  xp             Int      @default(0)
+  discordId      String    @id
+  xp             Int       @default(0)
   robloxId       String?
   robloxUsername String?
   // The rank this system last promoted them to. Null until the first
@@ -1282,8 +1284,8 @@ model MetXp {
   promotedRank   String?
   promotedAt     DateTime?
   firstEarnedAt  DateTime?
-  updatedAt      DateTime @updatedAt
-  createdAt      DateTime @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
 
   @@index([xp])
   @@map("met_xp")
@@ -1310,4 +1312,79 @@ model XpEvent {
   @@index([discordId])
   @@index([createdAt])
   @@map("xp_events")
+}
+
+// ── The Internal Affairs application ──────────────────────────────
+//
+// Six sections, filled in over more than one sitting, marked by a Deputy
+// Director or above. The paper itself lives in server/lib/iaApplication.js — this
+// is only what somebody wrote and what was decided about it.
+//
+// A DRAFT and a SUBMISSION are the same row, distinguished by `status`. Two
+// tables would mean copying every answer across at submit time, which is a
+// transaction that can half-fail and leave somebody's work in neither place.
+model IaApplication {
+  id     String @id @default(uuid())
+  // Sequential and readable: "IA-0042". What a marker quotes in a decision.
+  appRef String @unique
+
+  applicantId     String
+  // Snapshotted at submit rather than joined at read time. A marker reading an
+  // application from three weeks ago needs the name it was filed under, not the
+  // name the account has now.
+  discordId       String
+  discordUsername String?
+  robloxId        String?
+  robloxUsername  String?
+
+  // { [questionId]: answer } — the same ids the paper defines.
+  answers  Json  @default("{}")
+  // Captured rather than asked: timezone, device, browser, and whether the
+  // timezone was edited away from what the browser reported.
+  captured Json?
+  // What the site already knew about them at submit time, so a marker never has
+  // to go and look: MET rank, division or the absence of one, account age,
+  // existing case and discipline history. A snapshot, because it is evidence
+  // about the moment they applied.
+  context  Json?
+
+  // DRAFT | SUBMITTED | ACCEPTED | REJECTED | WITHDRAWN
+  //
+  // ACCEPTED/REJECTED rather than PASSED/FAILED: this is a selection, not an
+  // exam with a right answer. Somebody can write a good application and still not
+  // be taken, because there are only so many places.
+  status      String    @default("DRAFT")
+  submittedAt DateTime?
+
+  // How they filled it in. Collected for the marker to READ, never turned into a
+  // score — see the integrity notes in the review route. Paste events, per-answer
+  // timing, how many sittings it took.
+  telemetry Json?
+  // Computed from the telemetry at submit: [{ severity, code, label, detail }].
+  // Evidence, presented as evidence. There is no percentage here, because there
+  // is no honest way to produce one.
+  flags     Json?
+
+  // ── The decision ────────────────────────────────────────────────
+  // Per-question marks, { [questionId]: points }, filled in by the marker. The
+  // multiple-choice ones are pre-filled where an answer key exists.
+  scores       Json?
+  score        Int?
+  maxScore     Int?
+  percentage   Int?
+  markerNote   String?
+  markedById   String?
+  markedByName String?
+  markedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applicant User  @relation("IaApplicant", fields: [applicantId], references: [id])
+  marker    User? @relation("IaApplicationMarker", fields: [markedById], references: [id])
+
+  @@index([status])
+  @@index([applicantId])
+  @@index([submittedAt])
+  @@map("ia_applications")
 }

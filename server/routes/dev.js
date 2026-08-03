@@ -46,6 +46,112 @@ router.post('/patrol-backfill', async (req, res) => {
   res.json({ ok: true, started: true, message: 'Backfill started — logs will import in the background. Refresh the review queue to watch them appear.' });
 });
 
+// GET /api/dev/db-targets — WHICH databases is this app actually talking to?
+//
+// This exists because "can't reach the database server" is the same message for
+// three completely different problems, and telling them apart by guessing costs
+// hours:
+//
+//   1. IA_DATABASE_URL points at the SAME database as DATABASE_URL. Then the IA
+//      sync reads the app's own tables, finds whatever is already there, and can
+//      recover nothing — by definition, because there is nothing else in it. This
+//      is the one that looks like a connection problem and isn't.
+//   2. It points at Railway's PUBLIC TCP proxy (*.proxy.rlwy.net) from inside
+//      Railway. A container generally cannot reach its own project's public proxy;
+//      the internal hostname (*.railway.internal) is the one that works from in
+//      there, and the public one is for connecting from your laptop.
+//   3. The database really is gone — service deleted, stopped, or the volume
+//      replaced — and the host no longer resolves.
+//
+// So it reports the host, port and database NAME of each target, whether the two
+// are the same target, and a live probe of each. Never the password: the URL is
+// parsed and only its safe parts are returned, so this endpoint cannot leak a
+// credential even to the developer looking at it.
+router.get('/db-targets', async (req, res) => {
+  const describe = (raw, label) => {
+    if (!raw) return { label, set: false };
+    let u = null;
+    try { u = new URL(raw); } catch (e) { return { label, set: true, parseError: 'not a valid URL' }; }
+    return {
+      label, set: true,
+      host: u.hostname,
+      port: u.port || '5432',
+      database: (u.pathname || '').replace(/^\//, '') || null,
+      user: u.username || null,
+      // The shape of the host tells you which network you are on.
+      kind: /\.proxy\.rlwy\.net$/i.test(u.hostname) ? 'railway public TCP proxy'
+          : /\.railway\.internal$/i.test(u.hostname) ? 'railway private network'
+          : /^(localhost|127\.|::1)/.test(u.hostname) ? 'local'
+          : 'other',
+    };
+  };
+
+  const main = describe(process.env.DATABASE_URL, 'DATABASE_URL');
+  const ia   = describe(process.env.IA_DATABASE_URL, 'IA_DATABASE_URL');
+
+  // The question that actually matters for a recovery: are these two the same
+  // place? If they are, the IA sync has nowhere to pull FROM.
+  const sameTarget = !!(main.set && ia.set && !main.parseError && !ia.parseError
+    && main.host === ia.host && String(main.port) === String(ia.port) && main.database === ia.database);
+
+  // Probe each one for real, with a short timeout — an unreachable host otherwise
+  // holds this request open for the driver's full connect timeout.
+  const probe = async (client, name) => {
+    if (!client) return { ok: false, why: name + ' is not configured' };
+    const t0 = Date.now();
+    try {
+      const r = await Promise.race([
+        client.$queryRawUnsafe('SELECT current_database() AS db, current_user AS "user"'),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timed out after 8s')), 8000)),
+      ]);
+      return { ok: true, ms: Date.now() - t0, db: r && r[0] ? r[0].db : null, user: r && r[0] ? r[0].user : null };
+    } catch (e) {
+      return { ok: false, ms: Date.now() - t0, why: e.message };
+    }
+  };
+
+  // How many cases and tickets each one is actually holding. This is the number
+  // the recovery turns on, and it is the one nobody can see from Railway's UI.
+  const counts = async (client) => {
+    if (!client) return null;
+    const one = async (sql) => {
+      try {
+        const r = await Promise.race([
+          client.$queryRawUnsafe(sql),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), 8000)),
+        ]);
+        return r && r[0] ? Number(r[0].n) : null;
+      } catch (e) { return { error: e.message.slice(0, 200) }; }
+    };
+    return {
+      cases:   await one('SELECT COUNT(*)::int AS n FROM cases'),
+      tickets: await one('SELECT COUNT(*)::int AS n FROM ticket_logs'),
+    };
+  };
+
+  const iaClient = require('../lib/dbIa').getIaClient();
+  const [mainProbe, iaProbe] = await Promise.all([probe(prisma, 'DATABASE_URL'), probe(iaClient, 'IA_DATABASE_URL')]);
+  const [mainCounts, iaCounts] = await Promise.all([
+    mainProbe.ok ? counts(prisma) : null,
+    iaProbe.ok ? counts(iaClient) : null,
+  ]);
+
+  // Say what to DO, not just what is broken.
+  const verdict = !ia.set
+    ? 'IA_DATABASE_URL is not set, so the IA sync does nothing. It needs the connection string of the OLD database that still holds the cases — not this one.'
+    : sameTarget
+      ? 'IA_DATABASE_URL points at THE SAME DATABASE as the app itself, so the sync has nowhere to pull from and cannot recover anything. It has to point at a DIFFERENT database that still holds the cases. If there is no such database, use the Discord forum import instead.'
+      : !iaProbe.ok && ia.kind === 'railway public TCP proxy'
+        ? 'The IA database is unreachable, and it is addressed by Railway\'s PUBLIC TCP proxy. A container usually cannot reach its own project\'s public proxy — use the private hostname (*.railway.internal) if that database is in this project, or check the service is still running.'
+        : !iaProbe.ok
+          ? 'The IA database is unreachable. Either the service is stopped or deleted, or the host is wrong.'
+          : (iaCounts && Number(iaCounts.cases) > 0)
+            ? `Reachable, and it is holding ${iaCounts.cases} case(s). Press "Sync IA cases & tickets" and they come across.`
+            : 'Reachable, but there are no cases in it, so there is nothing for the sync to bring over.';
+
+  res.json({ main, ia, sameTarget, mainProbe, iaProbe, mainCounts, iaCounts, verdict });
+});
+
 // POST /api/dev/ia-sync — pull cases + tickets from the live IA database
 // (IA_DATABASE_URL) into the MET database. Idempotent; safe to run repeatedly.
 router.post('/ia-sync', async (req, res) => {
