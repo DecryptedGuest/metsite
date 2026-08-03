@@ -164,6 +164,26 @@ function investigatorOfTheWeek(results) {
 }
 
 // ── Has it already gone out? ──────────────────────────────────────
+// ── Claiming the week ─────────────────────────────────────────────
+// This posts to a channel and pings a role, so the ONLY safe direction to fail is
+// silent. The first version of this failed the other way and did real damage: the
+// stamp read swallowed database errors and returned null, which reads as "not
+// posted yet", and the stamp write swallowed its errors and was never checked. A
+// database hiccup therefore meant a ping to the whole of Internal Affairs every
+// sixty seconds until somebody noticed.
+//
+// So the week is CLAIMED BEFORE anything is sent, with a create against a
+// per-week key. A create either succeeds — and it can only succeed once, ever,
+// across every instance — or it tells us somebody already holds it. Nothing is
+// posted unless the claim is definitely ours, and a database that will not answer
+// means nothing is posted at all.
+const claimKey = (week) => `quota.weeklyCheck:${week}`;
+
+// A claim that was taken but never confirmed is retried, but only a few times: a
+// post that keeps failing must go quiet rather than keep trying to shout.
+const MAX_ATTEMPTS = 3;
+
+/** The week the legacy single-key stamp says was last posted, or a read failure. */
 async function postedWeek() {
   try {
     const row = await prisma.systemSetting.findUnique({ where: { key: STAMP_KEY } });
@@ -171,18 +191,115 @@ async function postedWeek() {
   } catch (e) { return null; }
 }
 
-async function markPosted(week) {
+/**
+ * Take the week, or explain why not.
+ *
+ *   { ok: true }                  it is ours, go ahead
+ *   { ok: false, done: true }     already posted, or out of attempts
+ *   { ok: false, error }          we could not tell — DO NOT POST
+ */
+async function claimWeek(week) {
+  const key = claimKey(week);
+
+  // The legacy stamp still marks weeks posted before this change, so honour it
+  // rather than reposting them on the first deploy.
+  try {
+    const legacy = await prisma.systemSetting.findUnique({ where: { key: STAMP_KEY } });
+    if (legacy && String(legacy.value) === week) return { ok: false, done: true, why: 'already posted' };
+  } catch (e) {
+    return { ok: false, error: 'the database would not answer: ' + e.message };
+  }
+
+  try {
+    await prisma.systemSetting.create({ data: { key, value: JSON.stringify({ attempts: 1 }) } });
+    return { ok: true, attempt: 1 };
+  } catch (e) {
+    // P2002 is the unique-key collision, which is the answer we want rather than
+    // a fault: somebody already claimed this week.
+    const taken = e && (e.code === 'P2002' || /unique|duplicate/i.test(e.message || ''));
+    if (!taken) return { ok: false, error: 'the database would not answer: ' + e.message };
+  }
+
+  // Somebody holds it. Either it is finished, or an earlier attempt died partway.
+  let held;
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    held = row ? JSON.parse(row.value || '{}') : {};
+  } catch (e) {
+    return { ok: false, error: 'the claim exists but could not be read: ' + e.message };
+  }
+
+  if (held.postedAt) return { ok: false, done: true, why: 'already posted' };
+  if ((held.attempts || 0) >= MAX_ATTEMPTS) {
+    return { ok: false, done: true, why: `gave up after ${MAX_ATTEMPTS} attempts` };
+  }
+
+  // The rule that matters, and the one whose absence caused the incident: an
+  // attempt is only repeated when the previous one EXPLICITLY recorded that
+  // nothing was sent. Anything else — a claim taken by an instance that then died,
+  // a post that landed but whose confirmation write failed, another instance
+  // holding the claim right now — is unknown, and unknown must never mean "post it
+  // again". A week silently missing is recoverable by hand; forty pings are not.
+  if (held.lastFailed !== true) {
+    return { ok: false, done: true, why: 'an attempt is unaccounted for, so nothing is sent' };
+  }
+
+  // Take another attempt, and record it BEFORE trying — a crash between here and
+  // the post must count against the budget, not be forgotten. lastFailed is
+  // cleared, so this attempt is unknown until it says otherwise.
+  try {
+    await prisma.systemSetting.update({
+      where: { key },
+      data:  { value: JSON.stringify({ ...held, attempts: (held.attempts || 0) + 1, lastFailed: false }) },
+    });
+    return { ok: true, attempt: (held.attempts || 0) + 1 };
+  } catch (e) {
+    return { ok: false, error: 'could not record the attempt: ' + e.message };
+  }
+}
+
+/**
+ * Record that the send definitely did not happen, which is what permits one more
+ * attempt. If even this write fails, the claim stays unaccounted for and the week
+ * goes quiet — which is the safe direction.
+ */
+async function noteSendFailed(week) {
+  const key = claimKey(week);
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    const held = row ? JSON.parse(row.value || '{}') : {};
+    if (held.postedAt) return;
+    await prisma.systemSetting.update({
+      where: { key },
+      data:  { value: JSON.stringify({ ...held, lastFailed: true }) },
+    });
+  } catch (e) {
+    console.warn('[Quota] could not record the send failure; this week will stay quiet:', e.message);
+  }
+}
+
+/** Confirm the post landed, so no later tick can repeat it. */
+async function confirmPosted(week) {
+  const key = claimKey(week);
+  const value = JSON.stringify({ attempts: MAX_ATTEMPTS, postedAt: new Date().toISOString() });
+  try {
+    await prisma.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
+  } catch (e) {
+    console.error('[Quota] POSTED but could not confirm it — the claim still holds, so it will not repeat:', e.message);
+  }
+  // Keep the legacy key current too, so anything still reading it agrees.
   try {
     await prisma.systemSetting.upsert({
       where:  { key: STAMP_KEY },
       update: { value: String(week) },
       create: { key: STAMP_KEY, value: String(week) },
     });
-    return true;
-  } catch (e) {
-    console.warn('[Quota] could not stamp the weekly check:', e.message);
-    return false;
-  }
+  } catch (e) { /* the per-week claim is what actually guards this */ }
+}
+
+async function markPosted(week) {
+  await confirmPosted(week);
+  return true;
 }
 
 /**
@@ -198,14 +315,30 @@ async function runWeeklyCheck(opts = {}) {
   const cfg = quota.quotaConfig('IA');
   const week = reviewWeekKey(at, cfg.timezone);
 
+  // Claimed BEFORE the sheet is read and long before anything is sent. A claim we
+  // cannot definitely take means we post nothing at all.
   if (!opts.force && !opts.dryRun) {
-    const done = await postedWeek();
-    if (done === week) return { ok: true, skipped: 'already posted for ' + week, week };
+    const claim = await claimWeek(week);
+    if (!claim.ok) {
+      if (claim.done) return { ok: true, skipped: claim.why || 'already posted', week };
+      // Deliberately silent. Not knowing whether this week was already posted is
+      // not a reason to post it again.
+      console.warn('[Quota] weekly check held back — ' + claim.error);
+      return { ok: false, error: 'Could not confirm whether this week was already posted, so nothing was sent. ' + claim.error, week, heldBack: true };
+    }
   }
 
   const members = await quota.getAllMembersPoints();
-  if (members == null) return { ok: false, error: 'The quota sheet is not readable.', week };
-  if (!members.length) return { ok: false, error: 'The quota sheet has no members on it.', week };
+  // A sheet that cannot be read is a definite non-send, exactly like an
+  // unavailable channel — so it earns a retry rather than burning the week.
+  if (members == null) {
+    if (!opts.force && !opts.dryRun) await noteSendFailed(week);
+    return { ok: false, error: 'The quota sheet is not readable.', week };
+  }
+  if (!members.length) {
+    if (!opts.force && !opts.dryRun) await noteSendFailed(week);
+    return { ok: false, error: 'The quota sheet has no members on it.', week };
+  }
 
   const results = resultsFrom(members);
   const iotw = investigatorOfTheWeek(results);
@@ -240,7 +373,13 @@ async function runWeeklyCheck(opts = {}) {
     iotwPoints:   iotw.top,
   });
 
-  if (!sent) return { ok: false, error: 'The quota results channel and webhook are both unavailable.', week, results, iotw };
+  if (!sent) {
+    // Definitely not sent, which is the ONLY outcome that earns a retry. Recorded
+    // explicitly, because claimWeek refuses to repeat anything it cannot account
+    // for.
+    await noteSendFailed(week);
+    return { ok: false, error: 'The quota results channel and webhook are both unavailable.', week, results, iotw };
+  }
 
   await markPosted(week);
   console.log(`[Quota] weekly check posted for ${week} — ${results.length} member(s), `
@@ -256,15 +395,28 @@ async function runWeeklyCheck(opts = {}) {
 // slot and a server that was down at 23:59 still posts when it comes back. The
 // week stamp is what stops it posting twice.
 let timer = null;
+// One tick at a time, and never two posts close together whatever the database
+// says. Both are belt and braces behind the claim, and both are cheap.
+let ticking = false;
+let lastPostAt = 0;
+const MIN_GAP_MS = 30 * 60 * 1000;
 
 async function tick(now = new Date(), opts = {}) {
   if (!AUTO()) return { ran: false, why: 'disabled' };
+  if (ticking) return { ran: false, why: 'already running' };
+  if (Date.now() - lastPostAt < MIN_GAP_MS) return { ran: false, why: 'posted very recently' };
+  ticking = true;
+  try {
+    return await tickOnce(now, opts);
+  } finally {
+    ticking = false;
+  }
+}
+
+async function tickOnce(now, opts = {}) {
   const cfg = quota.quotaConfig('IA');
   const t = localParts(now, cfg.timezone);
   const week = reviewWeekKey(now, cfg.timezone);
-
-  const done = await postedWeek();
-  if (done === week) return { ran: false, why: 'already posted' };
 
   // Due once the slot has passed, not only exactly on it — a minute missed to a
   // restart or a slow tick is not a week skipped. `week` is the week the last
@@ -281,6 +433,7 @@ async function tick(now = new Date(), opts = {}) {
   }
 
   const out = await runWeeklyCheck({ at: now });
+  if (out.posted) lastPostAt = Date.now();
   if (!out.ok) console.warn('[Quota] weekly check did not post:', out.error);
   return { ran: true, ...out };
 }
@@ -288,7 +441,10 @@ async function tick(now = new Date(), opts = {}) {
 function startWeeklyQuotaWorker() {
   if (timer) return;
   if (!AUTO()) { console.log('[Quota] the weekly check is off (QUOTA_WEEKLY_AUTO=off).'); return; }
-  timer = setInterval(() => { tick().catch(e => console.warn('[Quota] weekly tick failed:', e.message)); }, 60 * 1000);
+  // Every ten minutes, not every minute. For a job that runs once a week the extra
+  // precision buys nothing, and the interval is the multiplier on the blast radius
+  // of anything that goes wrong — at one minute, this managed 60 pings an hour.
+  timer = setInterval(() => { tick().catch(e => console.warn('[Quota] weekly tick failed:', e.message)); }, 10 * 60 * 1000);
   if (timer.unref) timer.unref();
   // Not immediately: the sheet read is not free and boot is busy enough.
   setTimeout(() => { tick().catch(() => {}); }, 90 * 1000);
@@ -297,7 +453,11 @@ function startWeeklyQuotaWorker() {
 }
 
 module.exports = {
-  STAMP_KEY, AUTO, DAY, HOUR, MINUTE,
+  STAMP_KEY, AUTO, DAY, HOUR, MINUTE, claimKey, claimWeek, confirmPosted, noteSendFailed, MAX_ATTEMPTS,
+  // Tests drive many weeks in a row in a few milliseconds, which the in-process
+  // guards are specifically there to prevent in production.
+  __resetGuards: () => { ticking = false; lastPostAt = 0; },
+  CLAIM_PREFIX: 'quota.weeklyCheck:',
   localParts, weekKey, reviewWeekKey, weekLabel,
   resultsFrom, investigatorOfTheWeek,
   postedWeek, markPosted,
