@@ -165,10 +165,21 @@ if (RUN_WORKERS) {
 // Up to 10 images × 5 MB inflate to ~67 MB once base64-encoded.
 // Capture the raw JSON body so game callbacks can be HMAC-verified
 // (server/routes/game.js) without re-serialising (which wouldn't match).
-app.use(express.json({
+// A route that wants a SMALLER limit than this cannot get one by declaring its
+// own parser: this one runs first, sets req._body, and the route's parser
+// short-circuits on it — so a route-scoped `express.json({ limit })` further down
+// is silently inert. Any path that needs its own limit has to be skipped here.
+// Measured: without this skip, /api/dev/roblox/audio buffered 252 MB before its
+// own 90 MB cap was consulted, and never was.
+const OWN_BODY_PARSER = ['/api/dev/roblox/audio'];
+const globalJson = express.json({
   limit: process.env.BODY_LIMIT || '256mb',
   verify: (req, _res, buf) => { req.rawBody = buf; },
-}));
+});
+app.use((req, res, next) => {
+  if (OWN_BODY_PARSER.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
+  return globalJson(req, res, next);
+});
 app.use(express.urlencoded({ extended: true, limit: process.env.BODY_LIMIT || '256mb' }));
 app.use(cookieParser());
 

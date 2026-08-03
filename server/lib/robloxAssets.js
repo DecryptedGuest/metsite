@@ -678,12 +678,17 @@ async function uploadBatch(files, { uploadedById } = {}) {
   // `at` is the file's position in what the caller sent. Two files can share a
   // name, so the caller cannot match results back by name — the position is what
   // identifies them.
+  //
+  // Only the size is decided here, from the base64 length, so nothing is decoded
+  // before it is about to be sent. Decoding the whole batch up front held every
+  // file's bytes in memory for the entire upload — measured at roughly five times
+  // the audio's own size, for as long as the slowest file took.
   list.forEach((f, at) => {
-    const buffer = toBuffer(f.data);
-    if (!buffer) { rejected.push({ at, fileName: f.fileName || 'unknown', error: 'Could not read the file.' }); return; }
-    const bad = checkAudio({ fileName: f.fileName, mimeType: f.mimeType, size: buffer.length });
+    const size = base64Bytes(f.data);
+    if (!size) { rejected.push({ at, fileName: f.fileName || 'unknown', error: 'Could not read the file.' }); return; }
+    const bad = checkAudio({ fileName: f.fileName, mimeType: f.mimeType, size });
     if (bad) { rejected.push({ at, fileName: f.fileName || 'unknown', error: bad }); return; }
-    queue.push({ ...f, buffer, at });
+    queue.push({ at, ref: f });
   });
 
   // Written by position, not pushed. Two uploads run at once, so completion order
@@ -694,18 +699,24 @@ async function uploadBatch(files, { uploadedById } = {}) {
   const worker = async () => {
     while (cursor < queue.length) {
       const slot = cursor++;
-      const f = queue[slot];
+      const { at, ref: f } = queue[slot];
       // A worker that throws takes every file still queued behind it with it, so
       // it is not allowed to. uploadAudio already writes Roblox refusals to the
       // row; this is for the unforeseen — a database blip, a bad buffer.
       try {
+        const buffer = toBuffer(f.data);
+        if (!buffer) throw new Error('Could not read the file.');
+        // The base64 is not needed once the bytes exist, and it is the larger of
+        // the two. Dropping the reference lets it be collected while the upload
+        // is still in flight, rather than at the end of the batch.
+        f.data = null;
         const row = await uploadAudio({
-          buffer: f.buffer, displayName: f.displayName, fileName: f.fileName,
+          buffer, displayName: f.displayName, fileName: f.fileName,
           mimeType: f.mimeType, uploadedById,
         });
-        done[slot] = { ...row, at: f.at };
+        done[slot] = { ...row, at };
       } catch (e) {
-        rejected.push({ at: f.at, fileName: f.fileName || 'unknown', error: scrub(e.message || String(e), cred.value) });
+        rejected.push({ at, fileName: f.fileName || 'unknown', error: scrub(e.message || String(e), cred.value) });
       }
     }
   };
@@ -719,6 +730,19 @@ async function uploadBatch(files, { uploadedById } = {}) {
     rejected: rejected.sort((a, b) => a.at - b.at),
     rows,
   };
+}
+
+// How many bytes a base64 payload will decode to, WITHOUT decoding it. Lets the
+// size be checked (and an oversized file refused) before spending the memory.
+function base64Bytes(data) {
+  if (!data) return 0;
+  if (Buffer.isBuffer(data)) return data.length;
+  const s = String(data);
+  const b64 = s.startsWith('data:') ? s.slice(s.indexOf(',') + 1) : s;
+  const clean = b64.replace(/[^A-Za-z0-9+/=_-]/g, '');
+  if (!clean) return 0;
+  const pad = clean.endsWith('==') ? 2 : (clean.endsWith('=') ? 1 : 0);
+  return Math.max(0, Math.floor(clean.length * 3 / 4) - pad);
 }
 
 // Accepts a base64 string, a data: URL, or an already-decoded buffer.
@@ -817,7 +841,7 @@ async function clearUploads() {
 module.exports = {
   SETTING_KEY, MAX_AUDIO_BYTES, MAX_BATCH, AUDIO_TYPES, MIME_TO_EXT,
   credentialStatus, setCredential, clearCredential, verifyCredential, audioQuota, currentQuota,
-  checkAudio, cleanName, scrub, toBuffer, audioExt, audioContentType,
+  checkAudio, cleanName, scrub, toBuffer, base64Bytes, audioExt, audioContentType,
   assetFromOperation, forgetCsrf,
   uploadAudio, uploadBatch, refreshPending, listUploads, clearUploads,
 };
