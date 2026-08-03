@@ -1205,6 +1205,17 @@ async function onPatrolMessage(message) {
 
     if (message.author && message.author.bot) return;
 
+    // The suggestions channel: react to a real suggestion so the room can vote
+    // on it, delete free chat, and warn ONCE for a whole burst rather than once
+    // per message. It abstains on anything it isn't sure about — see the module.
+    try {
+      const sug = require('./suggestions');
+      if (ch === String(sug.CHANNEL_ID())) {
+        await sug.onSuggestionMessage(message);
+        return;
+      }
+    } catch (e) { console.warn('[Suggestions] handler error:', e.message); }
+
     // Promotions/demotions → RankHistory; infractions/strikes → punishment log.
     if (PROMOTIONS_CHANNEL_ID && ch === String(PROMOTIONS_CHANNEL_ID)) {
       await require('./discordIngest').ingestPromotion(message);
