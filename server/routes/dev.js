@@ -274,6 +274,48 @@ router.get('/db-targets', async (req, res) => {
   });
 });
 
+// POST /api/dev/case-log-import — rebuild cases from Discord.
+//
+// The last resort that turns out not to be a resort at all: every case approved on
+// the site posted an Administrative Log embed built FROM that case, and Discord
+// keeps those forever, for free. When the database goes, the record does not.
+//
+// Body: { channelId, dry, maxPages }
+//   dry:true  parses and reports what it found, writes nothing. Always do this
+//             first — it costs one pass and it tells you whether the channel is the
+//             right one before anything is created.
+router.post('/case-log-import', async (req, res) => {
+  const body = req.body || {};
+  const channelId = String(body.channelId || process.env.CASE_LOG_CHANNEL_ID || '').trim();
+  const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
+  if (!channelId) {
+    return res.status(400).json({
+      error: 'Give the channel id the Administrative Logs were posted to '
+           + '(the channel your DISCORD_WEBHOOK_URL points at), as { "channelId": "..." }.',
+    });
+  }
+  try {
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet — try again shortly.' });
+
+    const out = await require('../lib/caseLogImport')
+      .importFromChannel(client, channelId, { dryRun: dry, maxPages: body.maxPages });
+
+    if (!out.ok) return res.status(502).json(out);
+
+    if (!dry) {
+      audit.log(req.user, { category: 'SECURITY', action: 'CASE_LOG_IMPORT',
+        summary: `Rebuilt cases from Discord channel ${channelId}: `
+               + `${out.created} created, ${out.updated} filled in, from ${out.parsed} logs` });
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] case log import failed:', err.message);
+    res.status(500).json({ error: 'The import failed: ' + err.message });
+  }
+});
+
 // GET /api/dev/ia-export — download everything in the IA database as one file.
 //
 // This exists for one situation, and it is not a hypothetical: the old database is
