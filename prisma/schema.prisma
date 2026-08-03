@@ -418,9 +418,17 @@ model IaEventLog {
   xpEach        Int      @default(0)
   xpAward       Json?
   notes         String?
-  proof         Json?                       // links / screenshots offered as evidence it happened
-  // Set when an event is withdrawn. The points already awarded are reversed by
-  // their own award rows, so this is the record of the decision, not the undo.
+  proof         Json?                       // screenshots offered as evidence it happened
+  // Nobody is paid until a supervisor signs it off. Filing one used to BE the
+  // award, which meant the person who ran the event decided what it was worth.
+  status        String   @default("PENDING")   // PENDING | APPROVED | DENIED
+  reviewedById  String?
+  reviewedByName String?
+  reviewedAt    DateTime?
+  reviewNote    String?
+  // Set when an approved event is withdrawn. The points already awarded are
+  // reversed by their own award rows, so this is the record of the decision,
+  // not the undo.
   voidedAt      DateTime?
   voidedById    String?
   voidedReason  String?
@@ -430,6 +438,7 @@ model IaEventLog {
 
   @@index([startedAt])
   @@index([hostId])
+  @@index([status])
   @@map("ia_event_logs")
 }
 

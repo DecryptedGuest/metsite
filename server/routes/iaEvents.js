@@ -1,27 +1,38 @@
 // server/routes/iaEvents.js
 // Internal Affairs event logs, filed on the site.
 //
-//   GET    /api/ia-events            list (scope=mine for your own)
-//   GET    /api/ia-events/meta       event types + what an attendee is worth
-//   POST   /api/ia-events            file one — this AWARDS the roll
-//   POST   /api/ia-events/:id/void   withdraw one and reverse its awards
+//   GET    /api/ia-events              list (scope=mine, status=PENDING…)
+//   GET    /api/ia-events/meta         event types, what a place is worth, access
+//   GET    /api/ia-events/people       the attendee picker's search
+//   POST   /api/ia-events              file one — this pays NOBODY
+//   POST   /api/ia-events/:id/review   approve or deny — approving pays
+//   POST   /api/ia-events/:id/void     withdraw an approved one and reverse it
 //
-// Filing is the award, so there is no review route. Withdrawing is High
-// Command's — anybody who can file can make a mistake, but unwinding twenty
-// people's points is a decision, not a correction.
+// Three levels, deliberately:
 //
-// The whole area is supervisor and above. Filing an event moves real quota
-// points and real XP for up to sixty people with nobody signing it off, so it
-// is not something an investigator gets to do; requireHICOMM is this codebase's
-// "supervisor or higher" (SUPERVISOR, HICOMM, DEVELOPER).
+//   read     any Internal Affairs member. Events sit alongside cases and
+//            tickets, and there is nothing sensitive about who attended one.
+//   file     Senior Investigator and above.
+//   review   supervisor and above, and never your own. Approving pays every
+//            name on the log, so it is not the filer's decision to make.
 
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/db');
 const events  = require('../lib/iaEvents');
 const { requireHICOMM, requireHICOMMStrict } = require('../middleware/auth');
+const { isSeniorInvestigatorPlus } = require('../lib/iaRank');
 
-router.use(requireHICOMM);
+// Senior Investigator and above. The site role collapses every investigator
+// tier into "IA", so this reads the snapshotted IA group rank — the same test
+// case appeals use.
+function requireSeniorInvestigator(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (isSeniorInvestigatorPlus(req.user)) return next();
+  return res.status(403).json({ error: 'Event logs can only be filed by Senior Investigator and above.' });
+}
+
+const canReview = (u) => !!u && ['SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(u.role);
 
 // ── GET /api/ia-events/meta ───────────────────────────────────────
 router.get('/meta', (req, res) => {
@@ -32,20 +43,31 @@ router.get('/meta', (req, res) => {
     maxAttendees: events.MAX_ATTENDEES,
     maxProof:     events.MAX_PROOF,
     maxProofMb:   Math.round(events.MAX_PROOF_BYTES / (1024 * 1024)),
+    // What this viewer may do, so the page does not have to infer it from a
+    // role name it only half understands.
+    canFile:      isSeniorInvestigatorPlus(req.user),
+    canReview:    canReview(req.user),
+    canVoid:      ['HICOMM', 'DEVELOPER'].includes(req.user.role),
   });
 });
 
+// ── GET /api/ia-events/pending-count ──────────────────────────────
+router.get('/pending-count', requireHICOMM, async (req, res) => {
+  try { res.json({ pending: await events.pendingCount() }); }
+  catch (err) { res.status(500).json({ error: 'Failed to count the queue.' }); }
+});
+
 // ── GET /api/ia-events/people?q= ──────────────────────────────────
-// Who could be on a roll, for the attendee picker.
+// Who could be on a log, for the attendee picker.
 //
-// The roll used to be typed by hand, which meant a misspelling paid nobody and
+// The list used to be typed by hand, which meant a misspelling paid nobody and
 // a pasted nickname paid somebody only as reliably as it was spelled. Picking a
-// person from a list attaches their Discord id, which is what both the quota
-// award and the XP award are keyed on.
+// person attaches their Discord id, which is what both the quota award and the
+// XP award are keyed on.
 //
 // Everyone who has signed in, not just IA — a Mass Patrol is attended by
 // whoever turned up.
-router.get('/people', async (req, res) => {
+router.get('/people', requireSeniorInvestigator, async (req, res) => {
   const q = (req.query.q || '').toString().trim().replace(/^[@<]+|[>]+$/g, '');
   if (q.length < 2) return res.json([]);
   try {
@@ -92,10 +114,16 @@ router.get('/people', async (req, res) => {
 });
 
 // ── GET /api/ia-events ────────────────────────────────────────────
+// Any IA member: this is the list that sits alongside cases and tickets.
 router.get('/', async (req, res) => {
   try {
     const mine = req.query.scope === 'mine';
-    const rows = await events.listEvents({ mine, hostId: req.user.id, take: req.query.take });
+    const status = req.query.status ? String(req.query.status).toUpperCase() : null;
+    // The queue itself is a reviewer's view.
+    if (status === 'PENDING' && !canReview(req.user)) {
+      return res.status(403).json({ error: 'Supervisor access required' });
+    }
+    const rows = await events.listEvents({ mine, hostId: req.user.id, status, take: req.query.take });
     res.json(rows);
   } catch (err) {
     console.error('[IA events] list error:', err.message);
@@ -104,20 +132,17 @@ router.get('/', async (req, res) => {
 });
 
 // ── POST /api/ia-events ───────────────────────────────────────────
-// Filing an event pays every attendee immediately.
-router.post('/', async (req, res) => {
+// Files it. Pays nobody — a supervisor signs it off.
+router.post('/', requireSeniorInvestigator, async (req, res) => {
   try {
     const out = await events.submitEvent(req.body || {}, req.user);
     if (!out.ok) return res.status(400).json({ error: out.problems.join(' '), problems: out.problems });
     res.status(201).json({
       event: out.event,
-      awarded: out.awarded,
-      xpAwarded: out.xpAwarded,
-      xpSkipped: out.xpSkipped,
-      xpEach: out.xpEach,
       dropped: out.dropped,
       selfRemoved: out.selfRemoved,
-      pointsEach: out.event.pointsEach,
+      pointsEach: out.pointsEach,
+      xpEach: out.xpEach,
     });
   } catch (err) {
     console.error('[IA events] submit error:', err.message);
@@ -125,7 +150,24 @@ router.post('/', async (req, res) => {
   }
 });
 
+// ── POST /api/ia-events/:id/review ────────────────────────────────
+// Supervisor and above. Approving pays every name on the log, the host
+// included; denying pays nobody and costs nothing.
+router.post('/:id/review', requireHICOMM, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const out = await events.reviewEvent(req.params.id, body.action, req.user, body.note);
+    if (!out.ok) return res.status(409).json({ error: out.why });
+    res.json(out);
+  } catch (err) {
+    console.error('[IA events] review error:', err.message);
+    res.status(500).json({ error: 'Failed to record the decision.' });
+  }
+});
+
 // ── POST /api/ia-events/:id/void ──────────────────────────────────
+// High Command's. Anybody who can approve can make a mistake, but unwinding
+// twenty people's points is a decision, not a correction.
 router.post('/:id/void', requireHICOMMStrict, async (req, res) => {
   try {
     const out = await events.voidEvent(req.params.id, req.user, (req.body || {}).reason);

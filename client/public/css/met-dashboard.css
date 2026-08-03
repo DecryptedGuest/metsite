@@ -609,6 +609,26 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
 
 tr.ev-void > td { opacity: .55; }
 
+/* The archive says it is one. Somebody who CAN approve things needs telling
+   that this particular page is not where they do it — and given the one click
+   to where they do. */
+.readonly-note {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .55rem .85rem;
+  margin: 0 0 1rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-left: 3px solid var(--blue, #4a8fff);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.readonly-note > i { color: var(--blue, #4a8fff); font-size: 15px; flex-shrink: 0; }
+.readonly-note > span { flex: 1; }
+.readonly-note .btn { flex-shrink: 0; }
+
 /* The attendee picker — a Discord-style mention list under the roll box.
    Typing a name, a mention or an id searches; picking somebody attaches their
    Discord ID, which is what both the quota award and the XP award are keyed

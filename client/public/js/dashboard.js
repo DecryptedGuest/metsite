@@ -121,6 +121,23 @@ async function refreshNavBadges() {
     if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);
     // "My Cases" badges what's on the submitter's plate: cases sent back to them.
     if (caseMineStats) setBadge('nav-badge-my', caseMineStats.changesRequested || 0);
+
+    // Events waiting on a supervisor. The Pending nav badge counts them
+    // alongside cases, because "Pending" is one queue as far as anybody
+    // glancing at the sidebar is concerned.
+    if (window.canReviewCasework) {
+      const ev = await api('/api/ia-events/pending-count').catch(() => null);
+      if (ev) {
+        setBadge('pending-events-badge', ev.pending || 0);
+        setBadge('readonly-pending-badge', ev.pending || 0);
+        const nav = document.getElementById('nav-badge-review');
+        if (nav && caseStats) {
+          const total = (caseStats.pending || 0) + (ev.pending || 0);
+          nav.textContent = total;
+          nav.style.display = total > 0 ? '' : 'none';
+        }
+      }
+    }
   } catch (e) { /* non-blocking */ }
 }
 
@@ -179,6 +196,8 @@ async function loadCurrentUser() {
       document.querySelectorAll('.hicomm-only, .supervisor-only').forEach(el => el.style.display = '');
       // Supervisor and above sign ticket logs off (tickets.js reads this).
       window.canReviewTickets = true;
+      // …and event logs, which is why the archive says it is not the place.
+      window.canReviewCasework = true;
     }
     if (['HICOMM', 'DEVELOPER'].includes(currentUser.role)) {
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
@@ -267,6 +286,7 @@ function applyDevContext() {
 // not a different place.
 let caseworkKind  = 'cases';
 let caseworkScope = 'all';
+window.caseworkScope = 'all';
 let pendingKind   = 'cases';
 
 const CASEWORK_COPY = {
@@ -274,6 +294,8 @@ const CASEWORK_COPY = {
   'cases:mine':   ['My Cases',    'Cases you submitted'],
   'tickets:all':  ['All Tickets', 'Every closed ticket logged in Discord'],
   'tickets:mine': ['My Tickets',  'Tickets you closed'],
+  'events:all':   ['Event Logs',  'Every event Internal Affairs has run'],
+  'events:mine':  ['Event Logs',  'Events you hosted'],
 };
 
 function applyCaseworkSelector() {
@@ -282,8 +304,15 @@ function applyCaseworkSelector() {
   document.querySelectorAll('#casework-scope .seg-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.scope === caseworkScope));
 
-  const want = `cw-${caseworkKind}-${caseworkScope}`;
-  ['cw-cases-all', 'cw-cases-mine', 'cw-tickets-all', 'cw-tickets-mine'].forEach(id => {
+  const PANES = {
+    'cases:all':    'cw-cases-all',   'cases:mine':   'cw-cases-mine',
+    'tickets:all':  'cw-tickets-all', 'tickets:mine': 'cw-tickets-mine',
+    // An event is hosted rather than filed against somebody, so one pane
+    // serves both scopes — its own All/Mine filter does the narrowing.
+    'events:all':   'cw-events',      'events:mine':  'cw-events',
+  };
+  const want = PANES[`${caseworkKind}:${caseworkScope}`];
+  Object.values(PANES).forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = id === want ? '' : 'none';
   });
@@ -292,37 +321,52 @@ function applyCaseworkSelector() {
   const t = document.getElementById('casework-title'); if (t) t.textContent = title;
   const p = document.getElementById('casework-sub');   if (p) p.textContent = sub;
 
-  // "Submit Case" belongs to cases; the Discord re-sync belongs to tickets.
+  // "Submit Case" belongs to cases; the Discord re-sync to tickets; "Log an
+  // event" to events, and only for somebody allowed to file one.
   const newBtn = document.querySelector('#page-casework .btn-new-case');
   if (newBtn) newBtn.style.display = caseworkKind === 'cases' ? '' : 'none';
   const sync = document.getElementById('btn-ticket-sync');
   if (sync && sync.dataset.allowed === '1') sync.style.display = caseworkKind === 'tickets' ? '' : 'none';
+  const newEv = document.getElementById('btn-new-event');
+  if (newEv) newEv.style.display = (caseworkKind === 'events' && window.canFileEvents) ? '' : 'none';
+
+  // The archive is read-only, and that is not obvious to somebody who can
+  // decide things elsewhere.
+  const note = document.getElementById('casework-readonly');
+  if (note && window.canReviewCasework) note.style.display = '';
 }
 
 function setCaseworkKind(kind)  { caseworkKind = kind;  applyCaseworkSelector(); loadCasework(); }
-function setCaseworkScope(scope){ caseworkScope = scope; applyCaseworkSelector(); loadCasework(); }
+function setCaseworkScope(scope){
+  caseworkScope = scope;
+  // The events list is in its own file and follows this selector too.
+  window.caseworkScope = scope;
+  applyCaseworkSelector();
+  loadCasework();
+}
 
 // Only the pane on screen is loaded. Switching panes loads the other.
 function loadCasework() {
-  if (caseworkKind === 'cases') return caseworkScope === 'all' ? loadAllCases() : loadMyCases();
+  if (caseworkKind === 'events') return (typeof loadIaEvents === 'function') ? loadIaEvents() : null;
+  if (caseworkKind === 'cases')  return caseworkScope === 'all' ? loadAllCases() : loadMyCases();
   return caseworkScope === 'all' ? loadAllTickets() : loadTickets();
 }
 
 function applyPendingSelector() {
   document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.pkind === pendingKind));
-  const cases = document.getElementById('pend-cases');
-  const tick  = document.getElementById('pend-tickets');
-  if (cases) cases.style.display = pendingKind === 'cases'   ? '' : 'none';
-  if (tick)  tick.style.display  = pendingKind === 'tickets' ? '' : 'none';
+  [['pend-cases', 'cases'], ['pend-tickets', 'tickets'], ['pend-events', 'events']].forEach(([id, kind]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = pendingKind === kind ? '' : 'none';
+  });
 }
 
 function setPendingKind(kind) { pendingKind = kind; applyPendingSelector(); loadPending(); }
 
 function loadPending() {
-  return pendingKind === 'cases'
-    ? loadReview()
-    : (typeof loadPendingTickets === 'function' ? loadPendingTickets() : null);
+  if (pendingKind === 'cases')  return loadReview();
+  if (pendingKind === 'events') return (typeof loadPendingIaEvents === 'function') ? loadPendingIaEvents() : null;
+  return typeof loadPendingTickets === 'function' ? loadPendingTickets() : null;
 }
 
 function setupCaseworkSelector() {
@@ -332,6 +376,8 @@ function setupCaseworkSelector() {
     b.addEventListener('click', () => setCaseworkScope(b.dataset.scope)));
   document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
     b.addEventListener('click', () => setPendingKind(b.dataset.pkind)));
+  const go = document.getElementById('btn-go-pending');
+  if (go) go.addEventListener('click', () => navigateTo('pending'));
   applyCaseworkSelector();
   applyPendingSelector();
 }
@@ -417,7 +463,6 @@ function navigateTo(pageId) {
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
-    events:          () => { if (typeof loadIaEvents === 'function') loadIaEvents(); },
     // Activity tracking is part of this page now — the same table, not a
     // second copy of it.
     'quota-check':   () => { if (typeof loadQuotaCheck === 'function') loadQuotaCheck(); },

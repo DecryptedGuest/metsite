@@ -87,11 +87,6 @@
         <button class="nav-item" data-page="records">
           <i class="ti ti-id-badge-2 nav-icon"></i><span>Records</span>
         </button>
-        <!-- Events are logged here rather than in Discord: filing one pays the
-             roll straight away, so it belongs where the quota is read. -->
-        <button class="nav-item hicomm-only supervisor-only" data-page="events" style="display:none;">
-          <i class="ti ti-calendar-event nav-icon"></i><span>Event Logs</span>
-        </button>
         <button class="nav-item" data-page="media">
           <i class="ti ti-photo-video nav-icon"></i><span>Media</span>
         </button>
@@ -347,17 +342,23 @@
             <i class="ti ti-refresh"></i> Re-sync from Discord
           </button>
           <button class="btn btn-primary btn-new-case"><i class="ti ti-plus"></i> Submit Case</button>
+          <button class="btn btn-primary" id="btn-new-event" style="display:none;">
+            <i class="ti ti-calendar-plus"></i> Log an event
+          </button>
         </div>
       </div>
 
       <div class="casework-switch fade-up">
-        <div class="seg" id="casework-kind" role="tablist" aria-label="Cases or tickets">
+        <div class="seg" id="casework-kind" role="tablist" aria-label="Cases, tickets or events">
           <button class="seg-btn active" type="button" data-kind="cases" role="tab">
             <i class="ti ti-folder"></i> Cases
           </button>
           <button class="seg-btn" type="button" data-kind="tickets" role="tab">
             <i class="ti ti-ticket"></i> Tickets
             <span class="nav-badge pending" id="casework-ticket-badge" style="display:none;"></span>
+          </button>
+          <button class="seg-btn" type="button" data-kind="events" role="tab">
+            <i class="ti ti-calendar-event"></i> Events
           </button>
         </div>
         <div class="seg seg-scope" id="casework-scope" role="tablist" aria-label="Whose">
@@ -368,6 +369,18 @@
             <i class="ti ti-user"></i> Mine
           </button>
         </div>
+      </div>
+
+      <!-- This page is the ARCHIVE. Nothing is decided here, which is not
+           obvious to somebody who can decide things — so say it, and give them
+           the one click to where they can. -->
+      <div class="readonly-note supervisor-only hicomm-only" id="casework-readonly" style="display:none;">
+        <i class="ti ti-eye"></i>
+        <span>This is the record — nothing is approved or denied here.</span>
+        <button class="btn btn-ghost btn-sm" type="button" id="btn-go-pending">
+          <i class="ti ti-clipboard-check"></i> Go to Pending
+          <span class="nav-badge pending" id="readonly-pending-badge" style="display:none;"></span>
+        </button>
       </div>
 
       <div class="casework-pane" id="cw-cases-mine" style="display:none;">
@@ -509,12 +522,39 @@
       </div>
       </div><!-- /cw-tickets-all -->
 
+      <div class="casework-pane" id="cw-events" style="display:none;">
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Event Logs</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="ev-search" placeholder="Search events…" autocomplete="off" />
+            </div>
+            <div class="filter-tabs" id="ev-scope-tabs">
+              <button class="filter-tab active" data-evscope="all">All</button>
+              <button class="filter-tab" data-evscope="mine">Mine</button>
+            </div>
+            <span class="text-muted mono" id="ev-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ref</th><th>Type</th><th>Host</th><th>Attendees</th><th>Status</th><th>When</th><th></th>
+            </tr></thead>
+            <tbody id="ev-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      </div><!-- /cw-events -->
+
     </section>
 
     <!-- PENDING — everything waiting on a supervisor, in one place. -->
     <section class="page" id="page-pending">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Pending</h1><p class="page-sub">Cases and tickets waiting on a decision</p></div>
+        <div><h1 class="page-title">Pending</h1><p class="page-sub">Cases, tickets and events waiting on a decision</p></div>
         <div class="panel-dot amber pulse-anim" style="width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);align-self:center;"></div>
       </div>
 
@@ -527,6 +567,10 @@
           <button class="seg-btn" type="button" data-pkind="tickets" role="tab">
             <i class="ti ti-ticket"></i> Pending Tickets
             <span class="nav-badge pending" id="pending-tickets-badge" style="display:none;"></span>
+          </button>
+          <button class="seg-btn" type="button" data-pkind="events" role="tab">
+            <i class="ti ti-calendar-event"></i> Pending Events
+            <span class="nav-badge pending" id="pending-events-badge" style="display:none;"></span>
           </button>
         </div>
       </div>
@@ -591,6 +635,29 @@
         </div>
       </div>
       </div><!-- /pend-tickets -->
+
+      <div class="casework-pane" id="pend-events" style="display:none;">
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Pending Events</div>
+          <div class="panel-tools">
+            <div class="search-box">
+              <i class="ti ti-search"></i>
+              <input type="text" id="pending-events-search" placeholder="Search the queue…" autocomplete="off" />
+            </div>
+            <span class="text-muted mono" id="pending-events-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Ref</th><th>Type</th><th>Host</th><th>Attendees</th><th>Worth</th><th>Filed</th><th>Decision</th>
+            </tr></thead>
+            <tbody id="pending-events-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      </div><!-- /pend-events -->
     </section>
 
     <!-- AUDIT LOG (HICOMM) -->
@@ -1340,41 +1407,6 @@
     <!-- CASE DOCUMENTS -->
 
     <!-- RECORDS (Internal Affairs officer lookup) -->
-    <!-- EVENT LOGS — filed here, and filing one pays every attendee. -->
-    <section class="page" id="page-events">
-      <div class="page-header fade-up">
-        <div>
-          <h1 class="page-title">Event Logs</h1>
-          <p class="page-sub">Supervisor and above · every attendee is paid on submit</p>
-        </div>
-        <button class="btn btn-primary" id="btn-new-event"><i class="ti ti-calendar-plus"></i> Log an event</button>
-      </div>
-
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot blue"></span>Events</div>
-          <div class="panel-tools">
-            <div class="search-box">
-              <i class="ti ti-search"></i>
-              <input type="text" id="ev-search" placeholder="Search events…" autocomplete="off" />
-            </div>
-            <div class="filter-tabs" id="ev-scope-tabs">
-              <button class="filter-tab active" data-evscope="all">All</button>
-              <button class="filter-tab" data-evscope="mine">Mine</button>
-            </div>
-            <span class="text-muted mono" id="ev-count" style="font-size:11px;"></span>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr>
-              <th>Ref</th><th>Type</th><th>Host</th><th>Attendees</th><th>Points paid</th><th>When</th><th></th>
-            </tr></thead>
-            <tbody id="ev-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
 
     <section class="page" id="page-records">
       <div class="page-header fade-up">
@@ -1775,8 +1807,8 @@
     <div class="modal-body">
       <div class="ev-warn" id="ev-warn">
         <i class="ti ti-alert-circle"></i>
-        <span>Every attendee gets <strong id="ev-points-note">2 points</strong>, straight away.
-              Check the log before you submit.</span>
+        <span>This goes to a supervisor. Once approved, every attendee <em>and you</em> get
+              <strong id="ev-points-note">2 points</strong>. Check the log before you submit.</span>
       </div>
 
       <div class="form-row">

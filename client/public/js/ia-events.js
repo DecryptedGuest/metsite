@@ -273,15 +273,16 @@
         + ' title="' + esc(a.discordId ? 'Discord ' + a.discordId : 'Matched by name — an ID is more reliable') + '">'
         + '<i class="ti ti-' + (a.discordId ? 'user-check' : 'user') + '"></i>' + esc(label) + '</span>';
     }).join('');
-    var total = parsed.roll.length * META.pointsEach;
-    var totalXp = parsed.roll.length * META.xpEach;
-    // Attending pays on both systems, so the roll says both totals rather than
-    // leaving the XP to be discovered after the fact.
+    // The host is paid too, so the totals count them — otherwise the number on
+    // screen is one person short of what a supervisor actually approves.
+    var paidHeads = parsed.roll.length + 1;
+    var total = paidHeads * META.pointsEach;
+    var totalXp = paidHeads * META.xpEach;
     var noId = parsed.roll.filter(function (a) { return !a.discordId; }).length;
     box.innerHTML = '<div class="ev-roll-head">'
       + '<strong>' + parsed.roll.length + '</strong> attendee' + (parsed.roll.length === 1 ? '' : 's')
-      + ' · <strong>' + total + '</strong> quota point' + (total === 1 ? '' : 's')
-      + (META.xpEach ? ' · <strong>' + totalXp + '</strong> MET XP' : '') + ' will be awarded'
+      + ' + you · <strong>' + total + '</strong> quota point' + (total === 1 ? '' : 's')
+      + (META.xpEach ? ' · <strong>' + totalXp + '</strong> MET XP' : '') + ' once approved'
       + (META.xpEach && noId ? ' · <span class="ev-roll-warn">' + noId
           + ' with no Discord ID — no MET XP</span>' : '')
       + (parsed.dupes ? ' · <span class="ev-roll-note">' + parsed.dupes + ' duplicate' + (parsed.dupes === 1 ? '' : 's') + ' ignored</span>' : '')
@@ -298,10 +299,21 @@
       .filter(Boolean).join(' ').toLowerCase().indexOf(q.toLowerCase()) >= 0;
   }
 
+  // What state a log is in, said the same way everywhere it appears.
+  function statusBadge(e, paid, paidXp) {
+    if (e.voidedAt) return '<span class="badge badge-muted"><span class="badge-dot"></span>Withdrawn</span>';
+    if (e.status === 'DENIED')  return '<span class="badge badge-denied"><span class="badge-dot"></span>Denied</span>';
+    if (e.status === 'PENDING') return '<span class="badge badge-pending"><span class="badge-dot"></span>Awaiting review</span>';
+    return '<span class="badge badge-approved"><span class="badge-dot"></span>' + paid + ' pts'
+         + (paidXp ? ' · ' + paidXp + ' MET XP' : '') + '</span>';
+  }
+
   function rowHtml(e) {
     var when = window.formatDateTime ? formatDateTime(e.startedAt) : new Date(e.startedAt).toLocaleString();
-    var paid = (e.attendeeCount || 0) * (e.pointsEach || 0);
-    var paidXp = (e.attendeeCount || 0) * (e.xpEach || 0);
+    // Everybody paid is the attendees PLUS the host.
+    var heads = (e.attendeeCount || 0) + 1;
+    var paid = heads * (e.pointsEach || 0);
+    var paidXp = heads * (e.xpEach || 0);
     return '<tr class="' + (e.voidedAt ? 'ev-void' : '') + '">'
       + '<td><span class="case-ref">' + esc(e.eventRef) + '</span></td>'
       + '<td><span style="font-size:12.5px;">' + esc(e.eventType)
@@ -310,12 +322,9 @@
       + '<td><span style="font-size:12px;">' + esc(e.hostName || '—')
         + (e.coHostName ? ' <span class="text-muted">+ ' + esc(e.coHostName) + '</span>' : '') + '</span></td>'
       + '<td><span style="font-size:12px;">' + (e.attendeeCount || 0) + '</span></td>'
-      + '<td>' + (e.voidedAt
-          ? '<span class="badge badge-muted"><span class="badge-dot"></span>Withdrawn</span>'
-          : '<span class="badge badge-approved"><span class="badge-dot"></span>' + paid + ' pts'
-            + (paidXp ? ' · ' + paidXp + ' MET XP' : '') + '</span>') + '</td>'
+      + '<td>' + statusBadge(e, paid, paidXp) + '</td>'
       + '<td><span class="date-cell">' + esc(when) + '</span></td>'
-      + '<td>' + (window.canVoidEvents && !e.voidedAt
+      + '<td>' + (window.canVoidEvents && !e.voidedAt && e.status === 'APPROVED'
           ? '<button class="row-btn row-btn-deny" onclick="iaEventVoid(\'' + esc(e.id) + '\')" title="Withdraw and reverse the points">'
             + '<i class="ti ti-arrow-back-up"></i></button>'
           : '') + '</td>'
@@ -343,7 +352,8 @@
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
     try {
-      cache = (await api('/api/ia-events' + (scope === 'mine' ? '?scope=mine' : ''))) || [];
+      var mine = scope === 'mine' || window.caseworkScope === 'mine';
+      cache = (await api('/api/ia-events' + (mine ? '?scope=mine' : ''))) || [];
       render();
     } catch (err) {
       tbody.innerHTML = '<tr><td colspan="7" class="table-empty-text" style="padding:14px;">'
@@ -398,11 +408,10 @@
     var total = parsed.roll.length * META.pointsEach;
     var totalXp = parsed.roll.length * META.xpEach;
     var okd = await (typeof uiConfirm === 'function'
-      ? uiConfirm('Submit this event log?\n\n' + parsed.roll.length + ' attendee(s) will each get '
+      ? uiConfirm('Submit this event log?\n\nIt goes to a supervisor. Once approved, '
+        + parsed.roll.length + ' attendee(s) and you will each get '
         + META.pointsEach + ' quota point(s)'
-        + (META.xpEach ? ' and ' + META.xpEach + ' MET XP' : '') + ' — '
-        + total + ' point(s)' + (META.xpEach ? ' and ' + totalXp + ' MET XP' : '')
-        + ' in total.')
+        + (META.xpEach ? ' and ' + META.xpEach + ' MET XP' : '') + '.')
       : Promise.resolve(confirm('Pay ' + parsed.roll.length + ' attendee(s) ' + total + ' points in total?')));
     if (!okd) return;
 
@@ -421,10 +430,7 @@
       };
       var out = await api('/api/ia-events', { method: 'POST', body: JSON.stringify(body) });
       closeModal('modal-event');
-      showToast(out.event.eventRef + ' filed — ' + out.awarded + ' paid '
-        + out.pointsEach + ' point(s)'
-        + (out.xpEach ? ', ' + (out.xpAwarded || 0) + ' given ' + out.xpEach + ' MET XP' : '') + '.'
-        + (out.xpSkipped ? ' ' + out.xpSkipped + ' had no Discord ID.' : ''), 'success');
+      showToast(out.event.eventRef + ' filed — waiting on a supervisor.', 'success');
       ['ev-cohost', 'ev-attendees', 'ev-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
       });
@@ -442,6 +448,109 @@
       btn.innerHTML = original;
     }
   }
+
+  // ── The review queue (supervisor and above) ─────────────────────
+  // Its own cache, because the archive and the queue are two different lists
+  // and sharing one would mean a decision on the queue silently reshuffling
+  // whatever the archive was showing.
+  var queue = [];
+  var queueQuery = '';
+
+  function queueRow(e) {
+    var when = window.formatDateTime ? formatDateTime(e.createdAt) : new Date(e.createdAt).toLocaleString();
+    var heads = (e.attendeeCount || 0) + 1;
+    var names = (Array.isArray(e.attendees) ? e.attendees : [])
+      .map(function (a) { return a && (a.name || a.discordId); }).filter(Boolean);
+    return '<tr>'
+      + '<td><span class="case-ref">' + esc(e.eventRef) + '</span></td>'
+      + '<td><span style="font-size:12.5px;">' + esc(e.eventType) + '</span></td>'
+      + '<td><span style="font-size:12px;">' + esc(e.hostName || '—')
+        + (e.coHostName ? ' <span class="text-muted">+ ' + esc(e.coHostName) + '</span>' : '') + '</span></td>'
+      + '<td><span style="font-size:12px;" title="' + esc(names.join(', ')) + '">'
+        + (e.attendeeCount || 0) + '</span></td>'
+      + '<td><span style="font-size:12px;">' + (heads * (e.pointsEach || 0)) + ' pts'
+        + (e.xpEach ? ' · ' + (heads * e.xpEach) + ' MET XP' : '')
+        + '<br><span class="text-muted" style="font-size:10.5px;">' + heads + ' paid, host included</span></span></td>'
+      + '<td><span class="date-cell">' + esc(when) + '</span></td>'
+      + '<td>'
+        + '<button class="row-btn row-btn-approve" onclick="iaEventReview(\'' + esc(e.id) + '\',\'approve\')" title="Approve and pay"><i class="ti ti-check"></i></button> '
+        + '<button class="row-btn row-btn-deny" onclick="iaEventReview(\'' + esc(e.id) + '\',\'deny\')" title="Deny — nobody is paid"><i class="ti ti-x"></i></button>'
+        + '</td>'
+      + '</tr>';
+  }
+
+  function renderQueue() {
+    var tbody = $('pending-events-tbody');
+    if (!tbody) return;
+    var rows = queue.filter(function (e) { return matches(e, queueQuery); });
+    var count = $('pending-events-count');
+    if (count) count.textContent = rows.length + (rows.length === 1 ? ' waiting' : ' waiting');
+    var badge = $('pending-events-badge');
+    if (badge) { badge.textContent = queue.length; badge.style.display = queue.length ? '' : 'none'; }
+    if (!rows.length) {
+      var EMPTY = window.metEmpty
+        ? window.metEmpty({ icon: 'ti-calendar-check', title: 'Nothing waiting', sub: 'Every event log has been decided.' })
+        : '<span class="table-empty-text">Nothing waiting.</span>';
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">' + EMPTY + '</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(queueRow).join('');
+  }
+
+  var metaLoaded = false;
+  async function ensureMeta() {
+    if (metaLoaded) return META;
+    try { META = Object.assign(META, await api('/api/ia-events/meta')); metaLoaded = true; }
+    catch (e) { /* defaults stand */ }
+    window.canFileEvents  = !!META.canFile;
+    window.canVoidEvents  = !!META.canVoid;
+    return META;
+  }
+
+  window.loadPendingIaEvents = async function () {
+    var tbody = $('pending-events-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
+    try {
+      await ensureMeta();
+      queue = (await api('/api/ia-events?status=PENDING')) || [];
+      renderQueue();
+    } catch (err) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty"><span class="table-empty-text">'
+        + esc(err.message || 'Failed to load the queue.') + '</span></td></tr>';
+    }
+  };
+
+  window.iaEventReview = async function (id, action) {
+    var e = queue.find(function (x) { return x.id === id; }) || {};
+    var heads = (e.attendeeCount || 0) + 1;
+    var okGo = await (typeof uiConfirm === 'function'
+      ? uiConfirm(action === 'approve'
+          ? 'Approve ' + (e.eventRef || 'this event') + '?\n\n' + heads + ' people — the host included — will each get '
+            + META.pointsEach + ' quota point(s)' + (META.xpEach ? ' and ' + META.xpEach + ' MET XP' : '') + '.'
+          : 'Deny ' + (e.eventRef || 'this event') + '?\n\nNobody is paid.')
+      : Promise.resolve(true));
+    if (!okGo) return;
+    var note = null;
+    if (action === 'deny' && typeof uiPrompt === 'function') {
+      note = await uiPrompt('Why is it being denied? (optional)');
+      if (note === false) return;
+    }
+    try {
+      var out = await api('/api/ia-events/' + encodeURIComponent(id) + '/review',
+        { method: 'POST', body: JSON.stringify({ action: action, note: note || null }) });
+      showToast(action === 'approve'
+        ? (out.event.eventRef + ' approved — ' + (out.paid || 0) + ' paid ' + out.pointsEach + ' point(s)'
+           + (out.xpEach ? ' and ' + out.xpEach + ' MET XP' : '') + '.')
+        : (out.event.eventRef + ' denied.'), 'success');
+      queue = queue.filter(function (x) { return x.id !== id; });
+      renderQueue();
+      if (typeof refreshNavBadges === 'function') refreshNavBadges();
+    } catch (err) {
+      showToast(err.message || 'Could not record that decision.', 'error');
+      window.loadPendingIaEvents();
+    }
+  };
 
   window.iaEventVoid = async function (id) {
     var why = await (typeof uiPrompt === 'function'
@@ -489,12 +598,14 @@
     });
   }
 
-  // Called by the dashboard router when the Event Logs tab is opened.
+  // Called by the casework selector when the Events segment is opened, and by
+  // the pending selector for the queue.
   window.loadIaEvents = async function () {
     if (!window._ievWired) { wire(); window._ievWired = true; }
-    if (!META.eventTypes.length) {
-      try { META = Object.assign(META, await api('/api/ia-events/meta')); } catch (e) { /* defaults */ }
-    }
+    await ensureMeta();
+    // Whether "Log an event" is offered is the server's answer, not a guess
+    // from the site role — an investigator tier is not visible in it.
+    if (typeof applyCaseworkSelector === 'function') applyCaseworkSelector();
     load();
   };
 })();

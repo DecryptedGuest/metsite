@@ -3,28 +3,32 @@
 //
 // The FLP side of the house logs events in Discord and a bot reads them back.
 // IA does not — there is no channel to mirror — so this is a form on the
-// dashboard, and filing it IS the award: every attendee is paid the moment it
-// is submitted, with no approval step in between.
+// dashboard.
 //
-// Attending an IA event is worth two things, and an attendee gets both:
+// Filing one is NOT the award. A Senior Investigator and above may file; a
+// supervisor and above signs it off, and only then is anybody paid. Filing used
+// to pay immediately, which meant the person who ran the event decided what it
+// was worth and how many people attended it.
+//
+// Being on a signed-off event is worth two things, and everybody named gets
+// both — the host included, because hosting is work:
 //   · 2 quota points on the IA database — what the weekly IA quota is counted in
 //   · 2 XP on MET — the same currency /xp moves and promotions are driven by
 // They are separate systems with separate failure modes, so they are awarded
 // separately and recorded separately. One of them being unavailable does not
 // cost somebody the other.
 //
-// Which means two things matter more here than they would behind a review:
+// Two things hold throughout:
 //
-//   Nobody is paid twice. Awards go through the same durable QuotaAward outbox
-//   the rest of the site uses, keyed on `${eventId}:${attendee}` — so a retry, a
-//   double-click, or the same person listed twice on the roll all resolve to one
-//   award. The queue survives a restart; a Google Sheets outage delays the
-//   points, it does not lose them.
+//   Nobody is paid twice. Quota awards go through the same durable QuotaAward
+//   outbox the rest of the site uses, keyed on `${eventId}:${person}` — so a
+//   retry, a double-click, the same person listed twice, or a host who also put
+//   themselves on the attendee list all resolve to one award. XP has no outbox,
+//   so the row carries a receipt and the approval refuses to run twice.
 //
-//   Nobody is paid for nothing. The host cannot pay themselves by attending
-//   their own event, an empty roll is refused, and every attendee is recorded
-//   with what they were actually paid — so an event that turns out to be
-//   fabricated can be read back and reversed by name.
+//   Nobody is paid for nothing. An empty log is refused, and everybody paid is
+//   recorded with what they got — so an event that turns out to be fabricated
+//   can be read back and reversed by name.
 
 const prisma = require('./db');
 
@@ -191,7 +195,6 @@ function normaliseProof(raw) {
  */
 async function submitEvent(input, host) {
   const eventType    = clean(input.eventType, 60);
-  const title        = clean(input.title, 160) || null;
   const coHostName   = clean(input.coHostName, 80) || null;
   const notes        = clean(input.notes, 2000) || null;
   const startedAt    = input.startedAt ? new Date(input.startedAt) : null;
@@ -200,14 +203,18 @@ async function submitEvent(input, host) {
 
   const { attendees, dropped } = normaliseAttendees(input.attendees);
 
-  // The host does not pay themselves for turning up to their own event.
+  // The host is paid for hosting, so they do not ALSO need to be on the
+  // attendee list — being there twice is one payment either way, but leaving
+  // them on it makes the headcount read wrong.
   const hostKey = host.discordId ? 'd:' + host.discordId : null;
   const roll = attendees.filter(a => !hostKey || a.key !== hostKey);
   const selfRemoved = attendees.length - roll.length;
 
   const problems = problemsWith({ eventType, startedAt, attendees: roll, durationMins });
   if (selfRemoved && !roll.length) {
-    problems.push('You were the only name on the roll — a host is not paid for hosting.');
+    // They are paid for hosting either way, so this is not about the money —
+    // an event with nobody at it is not an event.
+    problems.push('You were the only name on the log — an event needs somebody to attend it.');
   }
   if (problems.length) return { ok: false, problems };
 
@@ -222,7 +229,8 @@ async function submitEvent(input, host) {
       event = await prisma.iaEventLog.create({
         data: {
           eventRef:      await nextEventRef(attempt),
-          eventType, title,
+          eventType,
+          title:         clean(input.title, 160) || null,
           hostId:        host.id,
           hostDiscordId: host.discordId || null,
           hostName:      host.displayName || host.discordUsername || null,
@@ -233,6 +241,7 @@ async function submitEvent(input, host) {
           attendeeCount: roll.length,
           pointsEach,
           xpEach,
+          status:        'PENDING',
           notes,
           proof:         proof.length ? proof : undefined,
         },
@@ -244,79 +253,164 @@ async function submitEvent(input, host) {
   }
   if (!event) return { ok: false, problems: ['Could not allocate an event reference.'] };
 
-  // Pay the roll, on both systems.
-  //
-  // The quota points go through the durable outbox, keyed per attendee, so a
-  // retry cannot double-award and a Google Sheets outage delays them rather
-  // than losing them. The XP is applied straight to the balance — that is a row
-  // in our own database, not a third party's spreadsheet, and there is nothing
-  // to queue behind.
+  console.log(`[IA events] ${event.eventRef} filed by ${event.hostName || host.id} — `
+    + `${roll.length} attendee(s), awaiting review`
+    + (dropped ? `, ${dropped} duplicate/blank name(s) dropped` : '')
+    + (selfRemoved ? ', host taken off their own attendee list' : ''));
+
+  return { ok: true, event, dropped, selfRemoved, pointsEach, xpEach };
+}
+
+/**
+ * Everybody an approved event pays: the host, then the attendees.
+ *
+ * The host first, so if the same person somehow appears twice the payment is
+ * attributed to hosting — which is the more specific fact about them.
+ *
+ * @returns {Array<{ key, discordId, name, host: boolean }>}
+ */
+function payeesOf(event) {
+  const out = [];
+  const seen = new Set();
+  const push = (discordId, name, isHost) => {
+    const key = discordId ? 'd:' + discordId : 'n:' + String(name || '').toLowerCase();
+    if (key === 'n:' || seen.has(key)) return;
+    seen.add(key);
+    out.push({ key, discordId: discordId || null, name: name || null, host: !!isHost });
+  };
+  push(event.hostDiscordId, event.hostName, true);
+  for (const a of (Array.isArray(event.attendees) ? event.attendees : [])) {
+    if (a) push(a.discordId, a.name, false);
+  }
+  return out;
+}
+
+/**
+ * Sign an event off — or refuse it.
+ *
+ * Approving is what pays. Denying records the decision and pays nobody, so a
+ * fabricated or mistaken log costs nothing to refuse.
+ *
+ * @param {string} id
+ * @param {'approve'|'deny'} action
+ * @param {object} reviewer   the signed-in supervisor
+ * @param {string} [note]
+ */
+async function reviewEvent(id, action, reviewer, note) {
+  const act = String(action || '').toLowerCase();
+  if (!['approve', 'deny'].includes(act)) return { ok: false, why: 'That is not a decision.' };
+
+  const event = await prisma.iaEventLog.findUnique({ where: { id } });
+  if (!event) return { ok: false, why: 'That event no longer exists.' };
+  if (event.status !== 'PENDING') {
+    return { ok: false, why: `That event has already been ${String(event.status).toLowerCase()}.` };
+  }
+  // The host does not sign off their own event.
+  if (reviewer && event.hostId && String(event.hostId) === String(reviewer.id)) {
+    return { ok: false, why: 'You cannot review your own event.' };
+  }
+
+  // Claim it first. Two supervisors pressing at once must not both pay the
+  // roll — the second is told it was already decided.
+  const claim = await prisma.iaEventLog.updateMany({
+    where: { id, status: 'PENDING' },
+    data: {
+      status:         act === 'approve' ? 'APPROVED' : 'DENIED',
+      reviewedById:   reviewer ? reviewer.id : null,
+      reviewedByName: reviewer ? (reviewer.displayName || reviewer.discordUsername || null) : null,
+      reviewedAt:     new Date(),
+      reviewNote:     note ? clean(note, 500) : null,
+    },
+  });
+  if (!claim.count) return { ok: false, why: 'Somebody decided that one first.' };
+
+  if (act === 'deny') {
+    console.log(`[IA events] ${event.eventRef} denied by ${(reviewer && reviewer.displayName) || 'a supervisor'} — nobody paid`);
+    return { ok: true, event: await prisma.iaEventLog.findUnique({ where: { id } }), awarded: 0, xpAwarded: 0 };
+  }
+
+  return payEvent(event, reviewer);
+}
+
+/**
+ * Pay a signed-off event, on both systems.
+ *
+ * The quota points go through the durable outbox, keyed per person, so a retry
+ * cannot double-award and a Google Sheets outage delays them rather than losing
+ * them. The XP is applied straight to the balance — that is a row in our own
+ * database, not a third party's spreadsheet, and there is nothing to queue
+ * behind — so the row keeps a receipt of what actually landed.
+ */
+async function payEvent(event, reviewer) {
   const { enqueueQuotaAward } = require('./quota');
   const { awardXpTo } = require('./logXpAward');
-  const actor = { id: host.id, name: host.displayName || host.discordUsername || 'IA event log' };
+
+  const pointsEach = event.pointsEach || POINTS_EACH();
+  const xpEach     = event.xpEach != null ? event.xpEach : XP_EACH();
+  const payees     = payeesOf(event);
+  const actor = {
+    id: reviewer ? reviewer.id : null,
+    name: (reviewer && (reviewer.displayName || reviewer.discordUsername)) || 'IA event log',
+  };
 
   let awarded = 0, xpAwarded = 0, xpSkipped = 0;
   const xpRecord = [];
 
-  for (const a of roll) {
+  for (const p of payees) {
+    const why = p.host ? 'hosted' : 'attended';
     try {
       await enqueueQuotaAward({
         refType:        'ia_event',
-        refId:          `${event.id}:${a.key}`,
-        discordId:      a.discordId,
-        robloxUsername: a.discordId ? null : a.name,
+        refId:          `${event.id}:${p.key}`,
+        discordId:      p.discordId,
+        robloxUsername: p.discordId ? null : p.name,
         points:         pointsEach,
-        label:          `${event.eventRef} ${eventType}`,
+        label:          `${event.eventRef} ${event.eventType}`,
         division:       'IA',
       });
       awarded++;
     } catch (e) {
-      // One attendee failing to queue must not lose the rest — the row records
-      // who was on the roll either way, so it can be paid by hand.
-      console.error(`[IA events] could not queue ${a.key} for ${event.eventRef}:`, e.message);
+      // One person failing to queue must not lose the rest — the row records
+      // who was on the log either way, so it can be paid by hand.
+      console.error(`[IA events] could not queue ${p.key} for ${event.eventRef}:`, e.message);
     }
 
-    // XP is held against a Discord id. Somebody on the roll by name alone has
-    // no balance to move, so they get their quota points and are recorded as
-    // owed the XP rather than silently missing it.
+    // XP is held against a Discord id. Somebody named without one has no
+    // balance to move, so they get their quota points and are recorded as owed
+    // the XP rather than silently missing it.
     if (!xpEach) continue;
-    if (!a.discordId) {
+    if (!p.discordId) {
       xpSkipped++;
-      xpRecord.push({ name: a.name, xp: 0, ok: false, why: 'no Discord id' });
+      xpRecord.push({ name: p.name, xp: 0, ok: false, host: p.host, why: 'no Discord id' });
       continue;
     }
     const res = await awardXpTo({
-      discordId: a.discordId, name: a.name, amount: xpEach,
-      reason: `Attended ${eventType} · ${event.eventRef}`,
+      discordId: p.discordId, name: p.name, amount: xpEach,
+      reason: `${p.host ? 'Hosted' : 'Attended'} ${event.eventType} · ${event.eventRef}`,
       actor,
     });
     if (res.ok) xpAwarded++;
-    xpRecord.push({ discordId: a.discordId, name: a.name, xp: xpEach,
+    xpRecord.push({ discordId: p.discordId, name: p.name, xp: xpEach, host: p.host,
                     ok: !!res.ok, after: res.after, promoted: !!res.promoted,
                     why: res.error || undefined });
   }
 
-  // What was actually paid, on the row. The award rows are the record for the
-  // quota side; XP has no outbox, so this is its receipt — and it is what makes
-  // a withdrawal able to take back exactly what was given.
-  if (xpRecord.length) {
-    try {
-      event = await prisma.iaEventLog.update({
-        where: { id: event.id },
-        data:  { xpAward: { at: new Date().toISOString(), each: xpEach, people: xpRecord } },
-      });
-    } catch (e) {
-      console.error(`[IA events] could not record the XP on ${event.eventRef}:`, e.message);
-    }
+  let updated = event;
+  try {
+    updated = await prisma.iaEventLog.update({
+      where: { id: event.id },
+      data:  { xpAward: { at: new Date().toISOString(), each: xpEach, people: xpRecord } },
+    });
+  } catch (e) {
+    console.error(`[IA events] could not record the XP on ${event.eventRef}:`, e.message);
+    updated = await prisma.iaEventLog.findUnique({ where: { id: event.id } });
   }
 
-  console.log(`[IA events] ${event.eventRef} filed by ${event.hostName || host.id} — `
-    + `${roll.length} attendee(s) × ${pointsEach} point(s) + ${xpEach} XP`
-    + (xpSkipped ? `, ${xpSkipped} with no Discord id got no XP` : '')
-    + (dropped ? `, ${dropped} duplicate/blank name(s) dropped` : '')
-    + (selfRemoved ? ', host removed from their own roll' : ''));
+  console.log(`[IA events] ${event.eventRef} approved by ${actor.name} — `
+    + `${payees.length} paid ${pointsEach} point(s) + ${xpEach} XP (host included)`
+    + (xpSkipped ? `, ${xpSkipped} with no Discord id got no XP` : ''));
 
-  return { ok: true, event, awarded, xpAwarded, xpSkipped, xpEach, dropped, selfRemoved };
+  return { ok: true, event: updated, awarded, xpAwarded, xpSkipped, pointsEach, xpEach, paid: payees.length };
 }
 
 /**
@@ -328,11 +422,18 @@ async function voidEvent(id, by, reason) {
   const event = await prisma.iaEventLog.findUnique({ where: { id } });
   if (!event) return { ok: false, why: 'That event no longer exists.' };
   if (event.voidedAt) return { ok: false, why: 'That event has already been withdrawn.' };
+  // Nothing was paid for a pending or denied event, so there is nothing to
+  // reverse — refusing it is what a supervisor does instead.
+  if (event.status !== 'APPROVED') {
+    return { ok: false, why: 'Only an approved event can be withdrawn. Deny it instead.' };
+  }
 
-  const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+  // Everybody who was PAID, which is the host as well as the attendees — the
+  // same list the approval paid, so nothing is left holding points from an
+  // event that has been withdrawn.
   let reversed = 0;
-  for (const a of attendees) {
-    const key = a.discordId ? 'd:' + a.discordId : 'n:' + String(a.name || '').toLowerCase();
+  for (const a of payeesOf(event)) {
+    const key = a.key;
     try {
       // A points award that has not been written yet can simply be cancelled.
       // One already applied is reversed by a negative award, so the sheet ends
@@ -393,18 +494,33 @@ async function voidEvent(id, by, reason) {
   return { ok: true, event: updated, reversed, xpReversed };
 }
 
-/** Events, newest first. `mine` limits to the ones you hosted. */
-async function listEvents({ mine, hostId, take = 100 } = {}) {
+/**
+ * Events, newest first.
+ *   mine    limits to the ones you hosted
+ *   status  'PENDING' | 'APPROVED' | 'DENIED' — the review queue asks for one
+ *
+ * The queue is oldest-first: a supervisor works through what has been waiting
+ * longest, not what was filed most recently.
+ */
+async function listEvents({ mine, hostId, status, take = 100 } = {}) {
+  const where = {};
+  if (mine && hostId) where.hostId = hostId;
+  if (status) where.status = String(status).toUpperCase();
   return prisma.iaEventLog.findMany({
-    where:   mine && hostId ? { hostId } : {},
-    orderBy: { startedAt: 'desc' },
+    where,
+    orderBy: status === 'PENDING' ? { createdAt: 'asc' } : { startedAt: 'desc' },
     take:    Math.min(Math.max(parseInt(take, 10) || 100, 1), 300),
   });
+}
+
+/** How many are waiting on a decision — for the nav badge. */
+async function pendingCount() {
+  return prisma.iaEventLog.count({ where: { status: 'PENDING' } });
 }
 
 module.exports = {
   EVENT_TYPES, MAX_ATTENDEES, POINTS_EACH, XP_EACH,
   MAX_PROOF, MAX_PROOF_BYTES, normaliseProof,
   normaliseAttendees, problemsWith, nextEventRef,
-  submitEvent, voidEvent, listEvents,
+  submitEvent, reviewEvent, payEvent, payeesOf, voidEvent, listEvents, pendingCount,
 };
