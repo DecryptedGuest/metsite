@@ -356,14 +356,20 @@ async function raUpload() {
                    displayName: q.name, data: await raReadAsBase64(q.file) });
     }
     if (btn) btn.innerHTML = `<i class="ti ti-loader-2"></i> Uploading ${files.length}…`;
-    if (out) out.innerHTML = `<span style="color:var(--text-secondary);">Roblox takes these two at a time and moderates each one — this can take a minute.</span>`;
+    if (out) out.innerHTML = '<span style="color:var(--text-secondary);">Two at a time, and it slows itself down if Roblox starts '
+      + 'throttling — a big batch can take a few minutes. Leave this open.</span>';
 
     const r = await api('/api/dev/roblox/audio', { method: 'POST', body: JSON.stringify({ files }) });
 
     const bits = [];
     if (r.uploaded) bits.push(`${r.uploaded} uploaded`);
     if (r.pending)  bits.push(`${r.pending} still processing`);
-    if (r.failed)   bits.push(`${r.failed} failed`);
+    // Rate-limited is not the same as failed. It means "ask again", and counting
+    // it as a failure tells the user to go looking for a problem that isn't there.
+    const limited = r.rateLimited || 0;
+    const brokenCount = Math.max(0, (r.failed || 0) - limited);
+    if (limited)      bits.push(`${limited} rate-limited`);
+    if (brokenCount)  bits.push(`${brokenCount} failed`);
     if (r.rejected && r.rejected.length) bits.push(`${r.rejected.length} not sent`);
 
     const detail = [
@@ -371,10 +377,20 @@ async function raUpload() {
       ...(r.rejected || []).map(x => `${x.fileName}: ${x.error}`),
     ];
     if (out) {
+      const list = detail.length
+        ? `<ul style="margin:0.5rem 0 0 1.1rem;padding:0;color:var(--text-secondary);font-size:12.5px;">${
+            detail.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : '';
+      // Roblox lets a burst through and then throttles, so the tail of a big
+      // batch getting rate-limited is normal and expected — the files are still
+      // queued, and pressing Upload again is the whole fix.
+      const retryLine = limited
+        ? `<div style="margin-top:0.5rem;">${limited === 1 ? 'That one is' : 'Those are'} still queued above — `
+          + `Roblox throttles after a run of uploads. Wait a minute, then press Upload again.</div>`
+        : '';
       out.innerHTML = (r.failed || (r.rejected || []).length)
-        ? raWarn(bits.join(' · ')) + (detail.length
-            ? `<ul style="margin:0.5rem 0 0 1.1rem;padding:0;color:var(--text-secondary);font-size:12.5px;">${
-                detail.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : '')
+        ? (limited && !brokenCount && !(r.rejected || []).length
+            ? raOk(bits.join(' · ')) + retryLine + list
+            : raWarn(bits.join(' · ')) + retryLine + list)
         : raOk(bits.join(' · ') + ' — the IDs are in the table below.');
     }
 
@@ -390,7 +406,19 @@ async function raUpload() {
     raRenderQueue();
     await raLoadUploads();
   } catch (e) {
+    // A long batch can outlive the connection — a proxy timing out does not stop
+    // the server, so the uploads may well have happened. The ledger is the record,
+    // so it is reloaded before anything is called a failure.
     if (out) out.innerHTML = raErr(e.message);
+    try {
+      const before = raUploads.length;
+      await raLoadUploads();
+      if (raUploads.length > before && out) {
+        out.innerHTML = raWarn('The connection dropped before Roblox finished answering, but '
+          + `${raUploads.length - before} upload${raUploads.length - before === 1 ? '' : 's'} did land — `
+          + 'they are in the table below. Anything missing is still queued above.');
+      }
+    } catch (_) { /* the original error already says what happened */ }
   } finally {
     if (btn) { btn.disabled = false; raRenderQueue(); }
   }

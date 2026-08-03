@@ -396,8 +396,33 @@ function retryAfterMs(res, attempt = 1) {
   if (Number.isFinite(after) && after > 0) return Math.min(after * 1000, 60000);
   const reset = Number(res.headers.get('x-ratelimit-reset'));
   if (Number.isFinite(reset) && reset > 0) return Math.min(reset * 1000, 60000);
-  return Math.min(1000 * Math.pow(2, Math.max(0, attempt - 1)), 60000);
+  return Math.min(2000 * Math.pow(2, Math.max(0, attempt - 1)), 60000);
 }
+
+// How many times a rate-limited upload is retried, and how long that adds up to,
+// so the give-up message can say what was actually waited out.
+const RATE_RETRIES = 4;
+function totalBackoffMs(n) {
+  let t = 0;
+  for (let i = 1; i <= n; i++) t += Math.min(2000 * Math.pow(2, i - 1), 60000);
+  return t;
+}
+
+// ── Batch pacing ──────────────────────────────────────────────────
+// Roblox lets a burst of audio through and then throttles. Ten files went and the
+// eleventh and twelfth were refused — so once ONE file is rate-limited, every
+// file behind it in the batch waits, instead of each one arriving at the same
+// wall and burning its own retries against it. Eases back off on success, so a
+// batch that recovers speeds up again and a small batch never pays anything.
+let _paceMs = 0;
+function noteThrottled() { _paceMs = Math.min(Math.max(_paceMs * 2, 2500), 20000); }
+function easeThrottle() {
+  if (!_paceMs) return;
+  _paceMs = Math.floor(_paceMs * 0.6);
+  if (_paceMs < 400) _paceMs = 0;
+}
+function resetThrottle() { _paceMs = 0; }
+const paceMs = () => _paceMs;
 
 /**
  * Open Cloud: multipart POST, then poll the operation it returns. The upload
@@ -551,18 +576,36 @@ async function uploadViaCookie({ buffer, displayName, fileName, creatorType, cre
   // second read of the same response.
   let text = await res.text();
 
-  if (res.status === 429) {
-    // 429 is used for two unrelated things here. A rate limit is worth waiting
-    // out; the monthly audio allowance is not — sleeping and retrying burns the
-    // wait and fails again, having said nothing useful.
+  // 429 is used for two unrelated things here, and they need opposite handling.
+  //
+  // The monthly allowance is not retryable — sleeping and re-sending burns the
+  // wait and fails again, having said nothing useful. Roblox names it in the
+  // message ("...exceeded user's quota").
+  //
+  // A GATEWAY RATE LIMIT is retryable, and it arrives with an EMPTY message:
+  // {"errors":[{"code":0,"message":""}]}. This is what a real batch hits — ten
+  // files went through and the eleventh and twelfth came back like that. One
+  // retry after a second was nowhere near enough, so it is a proper backoff now,
+  // and the whole batch slows down behind it rather than each file discovering
+  // the same limit on its own.
+  let attempt = 0;
+  while (res.status === 429 && attempt < RATE_RETRIES) {
     if (/quota/i.test(text)) {
       throw new Error('Roblox says the audio upload allowance for this account is used up. '
         + 'Nothing more will upload until it resets. ID-verifying the account raises the allowance.');
     }
-    await sleep(retryAfterMs(res));
+    attempt++;
+    noteThrottled();
+    await sleep(retryAfterMs(res, attempt));
     res = await send(_csrf);
     text = await res.text();
   }
+  if (res.status === 429) {
+    throw new Error(`Roblox rate-limited this one and was still refusing after ${RATE_RETRIES} attempts `
+      + `over ${Math.round(totalBackoffMs(RATE_RETRIES) / 1000)}s. It is still in the list below — `
+      + 'press Upload again in a minute or two and it will go.');
+  }
+  if (res.ok) easeThrottle();
   if (!res.ok) {
     const msg = (() => { try { const j = JSON.parse(text); return j.message || (j.errors && j.errors[0] && j.errors[0].message) || text; } catch { return text; } })();
     if (res.status === 401) throw new Error('Roblox rejected the cookie — it has expired. Paste a fresh one.');
@@ -673,6 +716,10 @@ async function uploadBatch(files, { uploadedById } = {}) {
   const setup = credentialProblem(cred);
   if (setup) throw new Error(setup);
 
+  // Each batch starts at full speed. Pacing is something a batch LEARNS from
+  // being throttled, not a tax every batch pays up front.
+  resetThrottle();
+
   const rejected = [];
   const queue = [];
   // `at` is the file's position in what the caller sent. Two files can share a
@@ -704,6 +751,9 @@ async function uploadBatch(files, { uploadedById } = {}) {
       // it is not allowed to. uploadAudio already writes Roblox refusals to the
       // row; this is for the unforeseen — a database blip, a bad buffer.
       try {
+        // Whatever the batch has learned about being throttled applies here,
+        // before the request rather than after the refusal.
+        if (paceMs()) await sleep(paceMs());
         const buffer = toBuffer(f.data);
         if (!buffer) throw new Error('Could not read the file.');
         // The base64 is not needed once the bytes exist, and it is the larger of
@@ -723,10 +773,14 @@ async function uploadBatch(files, { uploadedById } = {}) {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
 
   const rows = done.filter(Boolean);
+  // A file Roblox rate-limited is not a broken file — it is one that needs asking
+  // again. Saying so is the difference between "retry" and "give up".
+  const rateLimited = rows.filter(r => r.status === 'FAILED' && /rate-limited/i.test(r.error || '')).length;
   return {
     uploaded: rows.filter(r => r.status === 'DONE').length,
     failed: rows.filter(r => r.status === 'FAILED').length,
     pending: rows.filter(r => r.status === 'PENDING').length,
+    rateLimited,
     rejected: rejected.sort((a, b) => a.at - b.at),
     rows,
   };
@@ -842,6 +896,6 @@ module.exports = {
   SETTING_KEY, MAX_AUDIO_BYTES, MAX_BATCH, AUDIO_TYPES, MIME_TO_EXT,
   credentialStatus, setCredential, clearCredential, verifyCredential, audioQuota, currentQuota,
   checkAudio, cleanName, scrub, toBuffer, base64Bytes, audioExt, audioContentType,
-  assetFromOperation, forgetCsrf,
+  assetFromOperation, forgetCsrf, RATE_RETRIES, noteThrottled, easeThrottle, resetThrottle, paceMs,
   uploadAudio, uploadBatch, refreshPending, listUploads, clearUploads,
 };
