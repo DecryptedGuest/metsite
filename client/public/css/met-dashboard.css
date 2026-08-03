@@ -614,9 +614,11 @@ tr.ev-void > td { opacity: .55; }
    to where they do. */
 .readonly-note {
   display: flex;
-  align-items: center;
-  gap: .6rem;
-  padding: .55rem .85rem;
+  /* Two short lines of explanation now, so the icon and the button sit at the
+     top of the text rather than floating in the middle of it. */
+  align-items: flex-start;
+  gap: .7rem;
+  padding: .7rem .9rem;
   margin: 0 0 1rem;
   border-radius: var(--radius-md);
   background: var(--bg-input);
@@ -625,9 +627,24 @@ tr.ev-void > td { opacity: .55; }
   color: var(--text-secondary);
   font-size: 12px;
 }
-.readonly-note > i { color: var(--blue, #4a8fff); font-size: 15px; flex-shrink: 0; }
+.readonly-note > i { color: var(--blue, #4a8fff); font-size: 15px; flex-shrink: 0; margin-top: 1px; }
 .readonly-note > span { flex: 1; }
 .readonly-note .btn { flex-shrink: 0; }
+.readonly-note-text { line-height: 1.65; max-width: 78ch; }
+.readonly-note-text strong { color: var(--text-primary); font-weight: 600; }
+
+/* The stand-in for a decision button outside the Pending tab. Deliberately not
+   green: it does not approve anything, it takes you to where approving happens. */
+.row-btn-review-elsewhere {
+  color: var(--blue, #4a8fff);
+  border-color: rgba(74, 143, 255, .32);
+  background: rgba(74, 143, 255, .1);
+  white-space: nowrap;
+}
+.row-btn-review-elsewhere:hover {
+  background: rgba(74, 143, 255, .2);
+  border-color: rgba(74, 143, 255, .5);
+}
 
 /* The attendee picker — a Discord-style mention list under the roll box.
    Typing a name, a mention or an id searches; picking somebody attaches their

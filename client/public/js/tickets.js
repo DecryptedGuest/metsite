@@ -75,18 +75,40 @@ function filterTickets(list, type, q, status) {
     .sort(byNewestFirst);
 }
 
-// The supervisor sign-off cell: buttons while it's pending (and you may act),
-// otherwise who decided it.
-function ticketReviewCell(t) {
+// The supervisor sign-off cell.
+//
+// The buttons exist on the Pending tab and nowhere else. The archive is the
+// record: a tick and a cross sitting in it is how a log gets signed off by
+// somebody who opened the page to look a ticket up, and how the same log gets
+// decided twice from two tables. Outside Pending, an elevated viewer is offered
+// the way to Pending instead.
+function ticketReviewCell(t, inQueue) {
   var st = t.status || 'PENDING';
-  if (st === 'PENDING' && canReview()) {
+  var here = inQueue === true
+    || (typeof window.onPendingPage === 'function' && window.onPendingPage());
+  if (st === 'PENDING' && canReview() && here) {
     return '<div class="row-actions" onclick="event.stopPropagation()">'
       + '<button class="row-btn row-btn-approve" title="Approve" onclick="reviewTicket(\'' + t.id + '\', \'approve\')"><i class="ti ti-check"></i></button>'
       + '<button class="row-btn row-btn-deny" title="Deny" onclick="reviewTicket(\'' + t.id + '\', \'deny\')"><i class="ti ti-x"></i></button>'
       + '</div>';
   }
+  if (st === 'PENDING' && canReview()) {
+    return '<div onclick="event.stopPropagation()">'
+      + '<button class="row-btn row-btn-review-elsewhere btn-sm" onclick="goPendingTickets()"'
+      + ' title="Decisions are made on the Pending tab. This takes you there.">'
+      + '<i class="ti ti-clipboard-check"></i> Review in Pending</button></div>';
+  }
   if (st === 'PENDING') return '<span class="text-muted" style="font-size:11px;">Awaiting review</span>';
   return '<span style="font-size:11px;">' + escapeHtml(t.reviewedByName || '—') + '</span>';
+}
+
+// Straight to the ticket queue, with the ticket half of Pending already selected.
+async function goPendingTickets() {
+  try {
+    if (typeof setPendingKind === 'function') setPendingKind('tickets');
+    if (typeof navigateTo === 'function') await navigateTo('pending');
+    if (typeof setPendingKind === 'function') setPendingKind('tickets');
+  } catch (e) { /* the navigation is the whole action; nothing to recover */ }
 }
 
 // Approve or deny a ticket log. Approving awards the closer 2 quota points.
@@ -173,9 +195,9 @@ function ticketRowHtml(t, opts) {
     // the same word on every row; the decision goes last, where the eye ends up.
     + (opts.review
         ? '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>'
-          + '<td>' + ticketReviewCell(t) + '</td>'
+          + '<td>' + ticketReviewCell(t, true) + '</td>'
         : '<td>' + statusBadge(t.status || 'PENDING') + '</td>'
-          + '<td>' + ticketReviewCell(t) + '</td>'
+          + '<td>' + ticketReviewCell(t, false) + '</td>'
           + '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>')
     + '</tr>';
 }
@@ -346,11 +368,19 @@ async function openTicketDetail(ticketId) {
     + '<div style="margin-top:1rem;padding:9px 12px;border-radius:8px;background:var(--blue-dim);border:1px solid var(--border-dim);font-size:11.5px;color:var(--text-secondary);">'
     +   '<i class="ti ti-info-circle"></i> This ticket log was sent from Discord automatically.'
     + '</div>'
+    // Same rule as the table: the decision lives on the Pending tab. A log
+    // opened out of the archive shows the way there, not the two buttons.
     + ((t.status || 'PENDING') === 'PENDING' && canReview()
-        ? '<div style="margin-top:0.9rem;display:flex;gap:8px;justify-content:flex-end;">'
-          + '<button class="btn btn-danger" onclick="reviewTicket(\'' + t.id + '\', \'deny\')"><i class="ti ti-x"></i> Deny</button>'
-          + '<button class="btn btn-primary" onclick="reviewTicket(\'' + t.id + '\', \'approve\')"><i class="ti ti-check"></i> Approve</button>'
-          + '</div>'
+        ? (typeof window.onPendingPage === 'function' && window.onPendingPage()
+            ? '<div style="margin-top:0.9rem;display:flex;gap:8px;justify-content:flex-end;">'
+              + '<button class="btn btn-danger" onclick="reviewTicket(\'' + t.id + '\', \'deny\')"><i class="ti ti-x"></i> Deny</button>'
+              + '<button class="btn btn-primary" onclick="reviewTicket(\'' + t.id + '\', \'approve\')"><i class="ti ti-check"></i> Approve</button>'
+              + '</div>'
+            : '<div style="margin-top:0.9rem;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">'
+              + '<span style="font-size:12px;color:var(--text-secondary);">This is the record, so nothing is decided here.</span>'
+              + '<button class="btn btn-ghost" onclick="closeModal(\'modal-ticket-detail\'); goPendingTickets();">'
+              + '<i class="ti ti-clipboard-check"></i> Review in Pending</button>'
+              + '</div>')
         : '');
 }
 

@@ -376,7 +376,14 @@
            the one click to where they can. -->
       <div class="readonly-note supervisor-only hicomm-only" id="casework-readonly" style="display:none;">
         <i class="ti ti-eye"></i>
-        <span>This is the record — nothing is approved or denied here.</span>
+        <span class="readonly-note-text">
+          <strong>This tab is the record, not the queue.</strong>
+          Every case, ticket and event ever filed is here to search and read, and
+          nothing can be approved or denied from it. Anything still waiting on a
+          decision is on the <strong>Pending</strong> tab, and that is the only
+          place the Approve and Deny buttons appear, so one decision is made once,
+          in one place.
+        </span>
         <button class="btn btn-ghost btn-sm" type="button" id="btn-go-pending">
           <i class="ti ti-clipboard-check"></i> Go to Pending
           <span class="nav-badge pending" id="readonly-pending-badge" style="display:none;"></span>

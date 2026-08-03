@@ -1548,7 +1548,7 @@ function renderAllCasesTable() {
       <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
       <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
       ${isElevated ? `<td onclick="event.stopPropagation();">${c.status === 'PENDING'
-          ? `<button class="row-btn row-btn-approve btn-sm" onclick="goReviewCase('${c.id}')"><i class="ti ti-clipboard-check"></i> Review</button>`
+          ? reviewElsewhereChip(`goReviewCase('${c.id}')`)
           : ''}</td>` : ''}
     </tr>`).join('');
 }
@@ -2813,7 +2813,33 @@ async function refreshCaseViews() {
 }
 window.refreshCaseViews = refreshCaseViews;
 
+// ── Where a decision may be made ──────────────────────────────────
+//
+// One place: the Pending tab. Everywhere else — the dashboard, All Cases, My
+// Cases, the ticket archive — is the RECORD, and an Approve button sitting in the
+// middle of a record is how a case gets signed off by somebody who only opened
+// the page to look something up. It is also how the same case gets decided twice
+// from two different tables.
+//
+// So the controls do not exist outside Pending. What appears instead is the way
+// to get to Pending, which is more use than a greyed-out button.
+function onPendingPage() {
+  const p = document.getElementById('page-pending');
+  return !!p && p.classList.contains('active');
+}
+window.onPendingPage = onPendingPage;
+
+// The stand-in for a decision button, outside Pending.
+function reviewElsewhereChip(onclick) {
+  return `<button class="row-btn row-btn-review-elsewhere btn-sm" onclick="${onclick}"
+            title="Decisions are made on the Pending tab. This takes you there and opens it.">
+            <i class="ti ti-clipboard-check"></i> Review in Pending
+          </button>`;
+}
+
 function rowActions(c) {
+  // Not on Pending: offer the route there, not the decision.
+  if (!onPendingPage()) return reviewElsewhereChip(`goReviewCase('${c.id}')`);
   if (supervisorBlockedFromCase(c)) {
     return '<span style="font-size:11px;color:var(--amber);white-space:nowrap;"><i class="ti ti-lock"></i> HICOMM only</span>';
   }
@@ -3214,6 +3240,19 @@ function openDetail(caseId) {
     note.style.cssText = 'font-size:12px;color:var(--amber);align-self:center;margin-left:auto;';
     note.innerHTML = '<i class="ti ti-lock"></i> Only HICOMM can approve or deny Blacklist / Termination cases.';
     footer.appendChild(note);
+  } else if (isElevated && c.status === 'PENDING' && !onPendingPage()) {
+    // Opened from the record rather than from the queue. The decision belongs on
+    // the Pending tab, so this offers the way there instead of the three buttons.
+    const go = document.createElement('button');
+    go.className = 'btn btn-ghost';
+    go.innerHTML = '<i class="ti ti-clipboard-check"></i> Review in Pending';
+    go.title = 'Approve, deny and request-changes all live on the Pending tab.';
+    go.onclick = async () => { closeModal('modal-detail'); await goReviewCase(c.id); };
+    const why = document.createElement('span');
+    why.style.cssText = 'font-size:12px;color:var(--text-secondary);align-self:center;margin-right:auto;';
+    why.textContent = 'This is the record, so nothing is decided here.';
+    footer.appendChild(why);
+    footer.appendChild(go);
   } else if (isElevated && c.status === 'PENDING') {
     // Request Changes — bounce the case back to the submitter with a note
     const reqBtn = document.createElement('button');

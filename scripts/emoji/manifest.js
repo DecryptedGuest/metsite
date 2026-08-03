@@ -93,11 +93,21 @@ const EMOJI = [
        + `<rect x="26" y="34" width="76" height="30" rx="9" fill="${C.gold}"/>`
        + `<rect x="57" y="62" width="14" height="42" rx="7" fill="#c8901f"/></g>` },
   { name: 'met_scales',  fallback: '⚖',  desc: 'internal affairs / justice',
-    svg: `<rect x="58" y="20" width="12" height="88" rx="6" fill="${C.gold}"/>`
-       + `<rect x="16" y="30" width="96" height="11" rx="5" fill="${C.gold}"/>`
-       + `<path d="M6 46 h56 l-28 40 Z" fill="${C.gold}"/>`
-       + `<path d="M66 46 h56 l-28 40 Z" fill="${C.gold}"/>`
-       + `<rect x="36" y="106" width="56" height="13" rx="6" fill="${C.gold}"/>` },
+    // Redrawn. The old one was a thin gold armature: correct as a diagram of a
+    // balance, and at 22px an indistinct sliver, which is the worst outcome for
+    // the mark that stands for Internal Affairs itself.
+    //
+    // Everything is heavier and there is less of it. The pans are wide solid
+    // wedges — the widest thing in the shape, so they set the silhouette — and
+    // they hang BELOW the beam with a gap, which is what makes it read as a
+    // balance rather than as a lump.
+    svg: `<rect x="57" y="16" width="14" height="86" rx="7" fill="${C.gold}"/>`
+       + `<rect x="12" y="30" width="104" height="14" rx="7" fill="${C.gold}"/>`
+       + `<g fill="${C.gold}">`
+       + `<path d="M4 56 h56 L32 96 Z"/><path d="M68 56 h56 L96 96 Z"/></g>`
+       // The hangers, so the pans are visibly suspended from the ends of the beam.
+       + `<g stroke="${C.gold}" stroke-width="6"><path d="M32 44 V56"/><path d="M96 44 V56"/></g>`
+       + `<rect x="30" y="102" width="68" height="16" rx="8" fill="${C.gold}"/>` },
   { name: 'met_kick',    fallback: '👢', desc: 'kicked from the group',
     svg: `<path d="M38 16 h30 v46 q0 8 8 12 l24 12 q10 5 10 16 v10 H38 Z" fill="#7a4a22"/>`
        + `<rect x="32" y="106" width="82" height="14" rx="7" fill="${C.ink}"/>` },
@@ -112,7 +122,12 @@ const EMOJI = [
     svg: `<path d="M64 8 L114 30 v34 c0 32 -22 50 -50 58 -28 -8 -50 -26 -50 -58 V30 Z" fill="${C.blue}"/>`
        + tickPath('#0b1f47', 12) },
   { name: 'met_folder',  fallback: '📁', desc: 'case / folder',
-    svg: `<path d="M12 34 h34 l12 14 h58 a8 8 0 0 1 8 8 v50 a8 8 0 0 1 -8 8 H12 a8 8 0 0 1 -8 -8 V42 a8 8 0 0 1 8 -8 Z" fill="${C.amber}"/>` },
+    // One flat colour meant the tab had no edge to show, so at 22px this was an
+    // amber rectangle and nothing more. Two tones and a visible front flap give
+    // it an internal line, which is the only thing that makes a folder a folder
+    // when it is 22 pixels wide.
+    svg: `<path d="M8 30 h40 l12 14 h60 a8 8 0 0 1 8 8 v56 a8 8 0 0 1 -8 8 H8 a8 8 0 0 1 -8 -8 V38 a8 8 0 0 1 8 -8 Z" fill="#c8901f"/>`
+       + `<path d="M4 58 h120 a6 6 0 0 1 6 6 v44 a8 8 0 0 1 -8 8 H6 a8 8 0 0 1 -8 -8 V64 a6 6 0 0 1 6 -6 Z" fill="${C.amber}"/>` },
   { name: 'met_ticket',  fallback: '🎫', desc: 'ticket log',
     svg: tile(C.cyan)
        + `<path d="M30 46 h68 v14 a10 10 0 0 0 0 20 v14 H30 V80 a10 10 0 0 0 0 -20 Z" fill="${C.ink}"/>` },
@@ -233,6 +248,72 @@ const EMOJI = [
        + `<path d="M78 40 H56 a22 22 0 1 0 0 44 h6" fill="none" stroke="#08210f"`
        + ` stroke-width="12" stroke-linecap="round"/>`
        + `<path d="M68 26 L86 40 L68 54 Z" fill="#08210f"/>` },
+
+  // ── Patrol and event logs ───────────────────────────────────────
+  // A patrol log and an event log are the two things IA files most often, and
+  // both are read in Discord as an embed. Generic marks made them look like every
+  // other embed the bot sends, so each field on those logs gets a mark that says
+  // what that field IS — the shift times, the roll, the proof — rather than a
+  // decoration.
+  //
+  // met_patrol is the Sillitoe tartan: the blue-and-white check on a British
+  // police cap band. It is the one mark in this set that needs no explaining to
+  // anybody who has seen a police car, and a two-row checkerboard is still
+  // legible at 22px when a car silhouette is not.
+  { name: 'met_patrol', fallback: '\u{1F693}', desc: 'patrol log',
+    // Clipped rather than outlined. An outline thick enough to define the tile at
+    // 96px eats a third of the check at 22px, and the check IS the mark.
+    svg: `<defs><clipPath id="pb"><rect x="8" y="32" width="112" height="64" rx="12"/></clipPath></defs>`
+       + `<g clip-path="url(#pb)">`
+       + `<rect x="8" y="32" width="112" height="64" fill="${C.paper}"/>`
+       + `<g fill="${C.blue}">`
+       + `<rect x="8"  y="32" width="28" height="32"/><rect x="64" y="32" width="28" height="32"/>`
+       + `<rect x="36" y="64" width="28" height="32"/><rect x="92" y="64" width="28" height="32"/>`
+       + `</g></g>` },
+  // An event is a thing on a date that people turn up to. A pennant on a staff
+  // reads as "an occasion" at any size, and it is distinct in silhouette from
+  // every other mark here — nothing else in the set is a tall vertical.
+  { name: 'met_event', fallback: '\u{1F3C1}', desc: 'event log',
+    svg: `<rect x="24" y="12" width="12" height="104" rx="6" fill="${C.slate}"/>`
+       + `<path d="M36 20 h72 l-18 24 18 24 H36 Z" fill="${C.purple}"/>`
+       + `<circle cx="30" cy="14" r="9" fill="${C.gold}"/>` },
+  // A shift is a span of time, and it is drawn as a span rather than as a clock
+  // ON PURPOSE. A clock face was the obvious choice and it was wrong: met_pending
+  // is already an amber clock, and at 22px two discs with hands on them are the
+  // same mark in two colours — they would sit in the same embed, one as the
+  // status and one as the shift, and read as a mistake.
+  //
+  // A wide, short silhouette is unlike anything else in this set, so it survives
+  // being small. Two end-stops with a bar between them, the first half filled:
+  // from, to, and time spent.
+  { name: 'met_clock', fallback: '\u{1F551}', desc: 'shift span (from → to)',
+    svg: `<g fill="${C.blue}"><rect x="10" y="36" width="14" height="56" rx="7"/>`
+       + `<rect x="104" y="36" width="14" height="56" rx="7"/></g>`
+       + `<rect x="24" y="54" width="80" height="20" rx="10" fill="#2a3a55"/>`
+       + `<rect x="24" y="54" width="48" height="20" rx="10" fill="${C.cyan}"/>` },
+  // The roll. Two heads and shoulders, the front one overlapping, which is what
+  // makes it read as "more than one person" rather than as a blob.
+  { name: 'met_users', fallback: '\u{1F465}', desc: 'attendees / the roll',
+    svg: `<g fill="${C.slate}"><circle cx="88" cy="48" r="19"/>`
+       + `<path d="M56 106 a34 30 0 0 1 68 0 Z"/></g>`
+       + `<g fill="${C.cyan}"><circle cx="48" cy="46" r="23" stroke="${C.ink}" stroke-width="6"/>`
+       + `<path d="M8 108 a40 34 0 0 1 80 0 Z" stroke="${C.ink}" stroke-width="6"/></g>` },
+  // Proof. A lens big enough to be the whole point of the shape — a camera drawn
+  // to scale is a grey rectangle at 22px.
+  { name: 'met_camera', fallback: '\u{1F4F8}', desc: 'proof / screenshots',
+    svg: `<rect x="8" y="34" width="112" height="80" rx="16" fill="${C.slate}"/>`
+       + `<path d="M44 34 l10 -14 h20 l10 14 Z" fill="${C.slate}"/>`
+       + `<circle cx="64" cy="74" r="28" fill="${C.ink}"/>`
+       + `<circle cx="64" cy="74" r="16" fill="${C.cyan}"/>`
+       + `<circle cx="102" cy="50" r="6" fill="${C.amber}"/>` },
+  // Notes. A page with ruled lines — deliberately NOT met_edit's pencil, which
+  // means "change this", nor met_folder, which means "a case".
+  { name: 'met_note', fallback: '\u{1F4DD}', desc: 'notes on a log',
+    svg: `<rect x="22" y="10" width="84" height="108" rx="10" fill="${C.paper}"/>`
+       + `<g fill="${C.blue}"><rect x="36" y="34" width="56" height="9" rx="4"/>`
+       + `<rect x="36" y="56" width="56" height="9" rx="4"/>`
+       + `<rect x="36" y="78" width="36" height="9" rx="4"/></g>`
+       + `<rect x="22" y="10" width="12" height="108" fill="${C.blue}"/>` },
 
   // ── Loading animation ───────────────────────────────────────────
   // Four frames of one spinner. The bot doesn't use animated emoji — it edits
