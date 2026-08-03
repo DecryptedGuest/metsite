@@ -1129,6 +1129,55 @@
           <div id="imp-ia-result" style="margin-top:0.9rem;font-size:13px;"></div>
         </div>
       </div>
+
+      <!-- ── Rebuild the case archive from Discord ─────────────────────
+           The channel is the durable copy: every approved case posted an
+           Administrative Log built FROM that case, and Discord keeps those
+           forever. This reads them back, so moving the database is a re-import
+           rather than a loss. -->
+      <div class="panel glass fade-up stagger-3">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Rebuild Cases from Discord</div>
+          <div class="panel-tools">
+            <button class="btn btn-ghost btn-sm" id="clr-audit-btn" onclick="clrAudit()">
+              <i class="ti ti-list-check"></i> Check the archive
+            </button>
+          </div>
+        </div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Every case approved on the site posted an <strong>Administrative Log</strong> to Discord, built from
+            that case: the officer, each punishment and its duration, the reason, the notes, the reference and
+            the date. Discord keeps those forever, so the channel is the durable copy and the database is only
+            the convenient one. This walks the channel to its <strong>first message</strong> and rebuilds.
+          </p>
+          <p style="font-size:12.5px;color:var(--text-muted);line-height:1.7;margin:0 0 1rem;">
+            Safe to run again after a database move: identity is the log message, so a second pass updates its
+            own work instead of duplicating it, and a case somebody filed on the site is never overwritten by a
+            reconstruction. Cases that were never approved posted no log, so they cannot come back.
+          </p>
+
+          <div class="form-group" style="max-width:420px;">
+            <label class="form-label" for="clr-channel">Channel the logs were posted to</label>
+            <input type="text" class="form-control" id="clr-channel" placeholder="e.g. 1234567890123456789"
+                   autocomplete="off" inputmode="numeric" />
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.6;">
+              The channel your <code>DISCORD_WEBHOOK_URL</code> posts to. Remembered on this device.
+            </div>
+          </div>
+
+          <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem;">
+            <button class="btn btn-primary" id="clr-dry-btn" onclick="clrImport(true)">
+              <i class="ti ti-eye"></i> Dry run, changes nothing
+            </button>
+            <button class="btn btn-success" id="clr-go-btn" onclick="clrImport(false)" disabled
+                    title="Do the dry run first">
+              <i class="ti ti-database-import"></i> Import for real
+            </button>
+          </div>
+          <div id="clr-result" style="margin-top:1rem;font-size:13px;"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ROBLOX AUDIO UPLOADER -->

@@ -548,6 +548,197 @@ async function runIaSync() {
   } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Sync IA cases &amp; tickets'; } }
 }
 
+// ── Rebuilding the case archive from Discord ───────────────────────
+//
+// Two buttons, and the order between them is the whole design: the real import
+// stays DISABLED until a dry run has been done. Reading a channel of unknown shape
+// and writing a thousand cases from it, first try, with no idea what it parsed, is
+// how somebody ends up with an archive full of nonsense and no way to tell which
+// rows to trust.
+const CLR_CHANNEL_KEY = 'met_caselog_channel';
+
+function clrChannel() {
+  const el = document.getElementById('clr-channel');
+  return el ? String(el.value || '').replace(/\D/g, '') : '';
+}
+
+// Remember it: this is a nineteen-digit number nobody wants to find twice.
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('clr-channel');
+  if (!el) return;
+  try { el.value = localStorage.getItem(CLR_CHANNEL_KEY) || ''; } catch (e) {}
+  el.addEventListener('input', () => {
+    try { localStorage.setItem(CLR_CHANNEL_KEY, clrChannel()); } catch (e) {}
+    // Changing the channel invalidates the dry run that unlocked the import.
+    const go = document.getElementById('clr-go-btn');
+    if (go) { go.disabled = true; go.title = 'Do the dry run first'; }
+  });
+});
+
+function clrRow(k, v, tone) {
+  const colour = tone === 'good' ? 'var(--green)' : tone === 'warn' ? 'var(--amber)'
+    : tone === 'bad' ? 'var(--red)' : 'var(--text-primary)';
+  return `<div style="display:flex;gap:.6rem;padding:3px 0;font-size:12.5px;">
+    <span style="color:var(--text-muted);min-width:190px;">${escapeHtml(k)}</span>
+    <span style="color:${colour};font-weight:500;">${escapeHtml(String(v))}</span></div>`;
+}
+
+async function clrImport(dry) {
+  const channelId = clrChannel();
+  const out = document.getElementById('clr-result');
+  if (!channelId) {
+    if (out) out.innerHTML = `<span style="color:var(--amber);"><i class="ti ti-alert-triangle"></i> Put the channel id in first.</span>`;
+    return;
+  }
+  if (!dry) {
+    const yes = await uiConfirm(
+      'This writes cases into the database from what it read in Discord.\n\n'
+      + 'Cases you filed on the site are never overwritten, and running it again later is a refresh '
+      + 'rather than a duplicate — but read the dry run above before you do this.',
+      { title: 'Import the cases for real?', confirmText: 'Import them', cancelText: 'Not yet', icon: 'ti-database-import' });
+    if (!yes) return;
+  }
+
+  const btn = document.getElementById(dry ? 'clr-dry-btn' : 'clr-go-btn');
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Reading the channel…'; }
+  if (out) {
+    out.innerHTML = `<span style="color:var(--text-secondary);"><i class="ti ti-loader-2"></i> `
+      + `Walking the channel back to its first message. On a long history this takes a few minutes.</span>`;
+  }
+
+  try {
+    const r = await api('/api/dev/case-log-import', {
+      method: 'POST', body: JSON.stringify({ channelId, dry }),
+    });
+    if (out) out.innerHTML = clrReport(r, dry);
+    // Only a dry run that actually found something unlocks the real import.
+    const go = document.getElementById('clr-go-btn');
+    if (dry && go) {
+      go.disabled = !(r.ok && r.parsed > 0);
+      go.title = go.disabled ? 'The dry run found no cases in that channel' : '';
+    }
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+function clrReport(r, dry) {
+  if (r.error) return `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`;
+  // The server says whether it wrote, and it is the one that knows. Trusting the
+  // flag we sent instead would let the heading say "Imported" over a dry run.
+  if (typeof r.dryRun === 'boolean') dry = r.dryRun;
+
+  let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`;
+  h += `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
+     + (dry ? 'Dry run, nothing was written' : 'Imported') + `</div>`;
+
+  h += clrRow('Messages read', r.scanned);
+  // Whether it genuinely reached the beginning is the difference between "all the
+  // cases" and "the recent ones".
+  h += clrRow('Reached the start of the channel', r.reachedStart ? 'yes' : 'NO — it stopped early',
+              r.reachedStart ? 'good' : 'warn');
+  h += clrRow('Cases found', r.parsed, r.parsed ? 'good' : 'warn');
+  h += clrRow('Distinct cases', r.uniqueCases);
+  if (r.highestRef) h += clrRow('Highest reference', '#' + r.highestRef);
+  if (r.oldest) h += clrRow('Oldest', new Date(r.oldest).toLocaleDateString());
+  if (r.newest) h += clrRow('Newest', new Date(r.newest).toLocaleDateString());
+
+  if (!dry) {
+    h += clrRow('Created', r.created, r.created ? 'good' : null);
+    h += clrRow('Updated', r.updated);
+    h += clrRow('Already correct', r.unchanged);
+    if (r.movedAside) {
+      h += clrRow('Site cases moved to free a reference', r.movedAside, 'warn');
+      h += `<div style="font-size:11.5px;color:var(--text-muted);margin:.2rem 0 .5rem;line-height:1.7;">`
+        + (r.moves || []).map(m => `${escapeHtml(m.from)} → ${escapeHtml(m.to)}`).join(', ')
+        + `. The Discord reference is the one people quote, so the case filed on the site moved instead. `
+        + `It kept all of its own data.</div>`;
+    }
+    if (r.counter) h += clrRow('Case counter now at', r.counter.counter);
+  }
+
+  // The census. This is the part that answers "did it get everything".
+  const formats = Object.entries(r.formats || {});
+  if (formats.length) {
+    h += `<div style="margin-top:.7rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">Formats read</div>`;
+    h += formats.sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => clrRow(k, n)).join('');
+  }
+  if (r.truncatedCases) {
+    h += clrRow('Shortened by Discord when posted', r.truncatedCases, 'warn');
+  }
+
+  // And the part that answers "what did it MISS" — which is the only way to find a
+  // format nobody has taught it yet.
+  if ((r.unrecognised || []).length) {
+    h += `<div style="margin-top:.8rem;padding:.7rem .85rem;border-radius:8px;background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);">`
+      + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
+      + `${r.unrecognised.length} message${r.unrecognised.length === 1 ? '' : 's'} look like a case but could not be read</div>`
+      + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:.5rem;">`
+      + `These are old formats nothing here understands yet. Send them over and they can be added.</div>`
+      + r.unrecognised.slice(0, 8).map(u =>
+          `<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:3px 0;border-top:1px solid var(--border-dim);">`
+          + `${escapeHtml(new Date(u.at).toLocaleDateString())} · ${escapeHtml(u.text.slice(0, 180))}</div>`).join('')
+      + `</div>`;
+  } else if (r.scanned) {
+    h += `<div style="margin-top:.7rem;font-size:12px;color:var(--green);">`
+      + `<i class="ti ti-check"></i> Nothing case-like was left unread.</div>`;
+  }
+
+  if ((r.samples || []).length) {
+    h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">A few of them</div>`
+      + r.samples.slice(0, 6).map(s =>
+          `<div style="font-size:11.5px;color:var(--text-secondary);padding:3px 0;border-top:1px solid var(--border-dim);">`
+          + `<span style="font-family:var(--font-mono);color:var(--blue);">${escapeHtml(s.caseRef)}</span> · `
+          + `${escapeHtml(s.action)} · ${escapeHtml(s.reason)}</div>`).join('');
+  }
+
+  if ((r.errors || []).length) {
+    h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">`
+      + r.errors.slice(0, 6).map(e => escapeHtml(e)).join('<br>') + `</div>`;
+  }
+  return h + `</div>`;
+}
+
+// Read-only. Run it before and after an import — it is how the archive is checked
+// rather than assumed.
+async function clrAudit() {
+  const out = document.getElementById('clr-result');
+  const btn = document.getElementById('clr-audit-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Checking…'; }
+  try {
+    const a = await api('/api/dev/case-audit');
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">The archive as it stands</div>`;
+    h += clrRow('Cases', a.total);
+    h += clrRow('Where they came from', Object.entries(a.byOrigin || {}).map(([k, n]) => `${k} ${n}`).join(' · '));
+    if (a.oldest) h += clrRow('Oldest', new Date(a.oldest).toLocaleDateString());
+    if (a.newest) h += clrRow('Newest', new Date(a.newest).toLocaleDateString());
+    h += clrRow('Highest reference', '#' + a.highestRef);
+    h += clrRow('Counter', a.counter, a.counterBelowHighest ? 'bad' : 'good');
+    if (a.counterBelowHighest) {
+      h += `<div style="font-size:11.5px;color:var(--red);line-height:1.7;">The counter is BELOW the highest reference in use, so the next case filed would collide. Run an import, which raises it.</div>`;
+    }
+    h += clrRow('Duplicate references', a.duplicates.length, a.duplicates.length ? 'bad' : 'good');
+    h += clrRow('Without a reference', a.unnumbered.length, a.unnumbered.length ? 'bad' : 'good');
+    h += clrRow('Without a Discord log', a.withoutLogMessage);
+    h += clrRow('Numbered out of sequence', a.outOfOrderCount, a.outOfOrderCount ? 'warn' : 'good');
+    if (a.outOfOrderCount) {
+      h += `<div style="font-size:11.5px;color:var(--text-muted);line-height:1.7;margin-top:.3rem;">`
+        + `A reference lower than one that came before it. Normal where cases were filed out of order — `
+        + `the reference is what people quote, so nothing is renumbered automatically.</div>`;
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-list-check"></i> Check the archive'; }
+  }
+}
+
 // ── Open a case/ticket from a clicked notification ─────────────────
 // Navigates to the right page, waits for its list to load, then opens the
 // item — or tells the user it's no longer pending if it has been reviewed.

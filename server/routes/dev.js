@@ -316,6 +316,20 @@ router.post('/case-log-import', async (req, res) => {
   }
 });
 
+// GET /api/dev/case-audit — is the case archive coherent?
+//
+// Read-only, and meant to be run either side of an import. Duplicate references, rows
+// with no reference, a counter sitting below the highest reference in use (which
+// means the next case filed collides), and references whose numbering disagrees with
+// the order things actually happened.
+router.get('/case-audit', async (req, res) => {
+  try { res.json(await require('../lib/caseLogImport').auditRefs()); }
+  catch (err) {
+    console.error('[Dev] case audit failed:', err.message);
+    res.status(500).json({ error: 'Could not check the archive: ' + err.message });
+  }
+});
+
 // GET /api/dev/ia-export — download everything in the IA database as one file.
 //
 // This exists for one situation, and it is not a hypothetical: the old database is
