@@ -222,17 +222,21 @@ router.get('/met-database/missing', canTouchDatabase, async (req, res) => {
 router.post('/met-database/add-members', canTouchDatabase, async (req, res) => {
   const body = req.body || {};
   if (!Array.isArray(body.members) || !body.members.length) {
-    return res.status(400).json({ error: 'Pick at least one person to add.' });
+    return res.status(400).json({ stage: 'select', error: 'Pick at least one person to add.' });
   }
   try {
     const { addMembers } = require('../lib/metDatabase');
     const out = await addMembers(body.members, dbDivision(req), {
       id: req.user.id, name: req.user.displayName || req.user.discordUsername || req.user.id,
     });
-    // A bad selection is the caller's fault; a sheet that refuses the write is
-    // not. Answering 400 for both told somebody their selection was wrong when
-    // the actual problem was upstream.
-    if (!out.ok) return res.status(out.stage === 'write' ? 502 : 400).json(out);
+    // Both kinds of refusal answer 400, and `stage` says which it was.
+    //
+    // A write failure is not the caller's fault, so 502 was the honest status —
+    // but a 5xx is exactly the response class a platform edge proxy may replace
+    // with its own error page, and when it does, the explanation this route
+    // worked so hard to produce never reaches the browser. Being readable beats
+    // being pedantically correct about the number.
+    if (!out.ok) return res.status(400).json(out);
     res.json(out);
   } catch (err) {
     console.error('[MetDB] add-members failed:', err.message);

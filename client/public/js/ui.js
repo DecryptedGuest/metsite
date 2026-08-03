@@ -479,8 +479,28 @@ async function api(path, options = {}) {
   }
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `HTTP ${res.status}`);
+    // A failure has to arrive READABLE. `HTTP 502` on its own is unactionable —
+    // it does not say whether the app refused, the proxy replaced the response,
+    // or nothing answered at all. When the body is not the JSON we send, the
+    // body itself is the evidence, so a snippet of it goes into the message
+    // rather than being thrown away.
+    const text = await res.text().catch(() => '');
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) { /* not ours */ }
+    if (data && data.error) throw new Error(data.error);
+
+    // Strip tags so a proxy's HTML error page reads as a sentence instead of
+    // markup, and cap it — this ends up in a toast.
+    const plain = String(text || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const hint = res.status >= 502 && res.status <= 504
+      ? ' The server did not answer — it may still be restarting, or the request took too long.'
+      : '';
+    throw new Error(`HTTP ${res.status}${plain ? ': ' + plain.slice(0, 300) : ''}${hint}`);
   }
 
   // 204 No Content

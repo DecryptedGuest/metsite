@@ -662,6 +662,11 @@ async function addMembers(picks, division, actor) {
   const summary = `${scope.name || scope.division} database — added ${out.added} member(s) by hand`
     + (marked ? `, ${marked} waiting to be trained` : '');
   console.log(`[MetDB] ${summary}${out.errors && out.errors.length ? ` (errors: ${out.errors.join('; ')})` : ''}`);
+  // Logged separately and loudly on failure, so the reason is in the deploy log
+  // even when the browser is showing something unhelpful.
+  if (!out.ok) {
+    console.error(`[MetDB] add-members FAILED via ${out.via || 'unknown path'}: ${out.error}`);
+  }
   try {
     await prisma.auditLog.create({
       data: {
