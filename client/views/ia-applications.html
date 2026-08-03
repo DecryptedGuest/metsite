@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · IA Applications</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    body { overflow-y: auto; overflow-x: hidden; }
+    .iar-wrap { max-width: 1080px; margin: 0 auto; padding: 1.4rem 1.2rem 6rem; position: relative; z-index: 1; }
+
+    .iar-head { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .iar-title { font-family: var(--font-display); font-size: 21px; font-weight: 700;
+                 letter-spacing: .04em; text-transform: uppercase; color: var(--text-primary); }
+    .iar-sub { font-size: 12px; color: var(--text-muted); letter-spacing: .06em; }
+    .iar-head .spacer { flex: 1; }
+
+    .iar-tabs { display: flex; gap: 6px; margin-bottom: 1rem; flex-wrap: wrap; }
+    .iar-tab { font-size: 12.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+               border: 1px solid var(--border-dim); background: transparent; color: var(--text-secondary); }
+    .iar-tab.on { border-color: var(--violet, #9d7dff); background: rgba(157,125,255,.12); color: var(--text-primary); }
+    .iar-tab .n { font-family: var(--font-mono); font-size: 11px; opacity: .75; margin-left: 5px; }
+
+    /* ── The queue ─────────────────────────────────────────────────── */
+    .iar-row { display: flex; gap: 1rem; align-items: center; padding: .85rem 1rem;
+               border-bottom: 1px solid var(--border-dim); cursor: pointer; flex-wrap: wrap; }
+    .iar-row:hover { background: var(--bg-input); }
+    .iar-row:last-child { border-bottom: none; }
+    .iar-ref { font-family: var(--font-mono); font-size: 12px; color: rgba(157,125,255,.85); min-width: 66px; }
+    .iar-who { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 2px; }
+    .iar-who .a { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .iar-who .b { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+    .iar-when { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); }
+
+    /* First pick belongs to the divisionless, so the queue has to show it. */
+    .iar-pick { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px;
+                border-radius: 4px; font-weight: 600; }
+    .iar-pick.first { background: rgba(46,216,150,.14); color: var(--green); border: 1px solid rgba(46,216,150,.32); }
+    .iar-pick.later { background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border-dim); }
+
+    .iar-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+    .iar-chip { font-size: 10.5px; padding: 2px 7px; border-radius: 4px; font-weight: 600; letter-spacing: .04em; }
+    .iar-chip.ev  { background: rgba(240,79,94,.14); color: #ff9aa4; border: 1px solid rgba(240,79,94,.34); }
+    .iar-chip.sug { background: rgba(245,183,48,.12); color: #ffd98a; border: 1px solid rgba(245,183,48,.3); }
+
+    /* ── One application ───────────────────────────────────────────── */
+    .iar-back { margin-bottom: .9rem; }
+    .iar-idbar { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+                 padding: .9rem 1.1rem; margin-bottom: 1rem; }
+    .iar-idbar .k { font-size: 10.5px; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; }
+    .iar-idbar .v { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+    .iar-idbar .cell { display: flex; flex-direction: column; gap: 2px; }
+
+    .iar-panel { padding: 1.1rem 1.2rem; margin-bottom: 1rem; }
+    .iar-phead { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: .06em;
+                 text-transform: uppercase; color: var(--text-muted); margin-bottom: .8rem;
+                 display: flex; align-items: center; gap: .5rem; }
+
+    /* ── Integrity findings ────────────────────────────────────────── */
+    .iar-find { border-radius: var(--radius-md); padding: .75rem .9rem; margin-bottom: .6rem;
+                border: 1px solid var(--border-dim); background: var(--bg-input); }
+    .iar-find.evidence   { border-color: rgba(240,79,94,.35);  background: rgba(240,79,94,.07); }
+    .iar-find.suggestive { border-color: rgba(245,183,48,.32); background: rgba(245,183,48,.06); }
+    .iar-find .lbl { font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.5; }
+    .iar-find .sev { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; font-weight: 700;
+                     margin-right: .5rem; }
+    .iar-find.evidence   .sev { color: var(--red); }
+    .iar-find.suggestive .sev { color: var(--amber); }
+    .iar-find.note       .sev { color: var(--text-muted); }
+    .iar-find .det { font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; margin-top: .3rem; }
+    .iar-find .items { margin: .45rem 0 0; padding-left: 17px; }
+    .iar-find .items li { font-size: 11.5px; color: var(--text-muted); line-height: 1.7; font-family: var(--font-mono); }
+
+    .iar-nofind { font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; }
+
+    /* ── Answers and marking ───────────────────────────────────────── */
+    .iar-sect { margin-bottom: 1.4rem; }
+    .iar-sname { font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--violet, #9d7dff);
+                 font-weight: 700; margin-bottom: .6rem; }
+    .iar-a { padding: .9rem 0; border-top: 1px solid var(--border-dim); }
+    .iar-a:first-of-type { border-top: none; padding-top: 0; }
+    .iar-q { font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.55; margin-bottom: .35rem; }
+    .iar-ans { font-size: 13px; color: var(--text-secondary); line-height: 1.75; white-space: pre-wrap;
+               background: var(--bg-input); border: 1px solid var(--border-dim); border-radius: 8px;
+               padding: .7rem .85rem; }
+    .iar-ans.empty { color: var(--text-muted); font-style: italic; }
+    .iar-meta { display: flex; gap: .9rem; align-items: center; flex-wrap: wrap;
+                font-size: 11px; color: var(--text-muted); margin-top: .35rem; font-family: var(--font-mono); }
+    .iar-meta .warn { color: var(--amber); }
+    .iar-meta .bad  { color: var(--red); }
+
+    .iar-mark { display: flex; gap: .6rem; align-items: center; margin-top: .5rem; flex-wrap: wrap; }
+    .iar-mark label { font-size: 11.5px; color: var(--text-muted); letter-spacing: .04em; }
+    .iar-mark input { width: 64px; text-align: center; font-family: var(--font-mono); }
+    .iar-mark .of { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); }
+    .iar-mark .quick { display: flex; gap: 4px; }
+    .iar-mark .quick button { font-size: 11px; padding: 3px 9px; border-radius: 5px;
+                              border: 1px solid var(--border-dim); background: transparent;
+                              color: var(--text-secondary); cursor: pointer; }
+    .iar-mark .quick button:hover { border-color: var(--violet, #9d7dff); color: var(--text-primary); }
+    .iar-guide { font-size: 11.5px; color: var(--text-muted); line-height: 1.65; margin-top: .3rem;
+                 border-left: 2px solid rgba(157,125,255,.4); padding-left: .6rem; }
+
+    /* A multiple-choice answer with no key: the marker is told WHY it is not
+       pre-marked, rather than seeing a blank box and guessing. */
+    .iar-nokey { font-size: 11.5px; color: var(--amber); line-height: 1.6; margin-top: .3rem; }
+
+    .iar-total { position: sticky; bottom: 0; z-index: 5; margin-top: 1rem;
+                 padding: .9rem 1.1rem; border-radius: var(--radius-md);
+                 background: var(--bg-panel); border: 1px solid var(--border-bright);
+                 box-shadow: 0 -6px 26px rgba(0,0,0,.42);
+                 display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    .iar-total .n { font-family: var(--font-mono); font-size: 19px; font-weight: 700; color: var(--text-primary); }
+    .iar-total .pc { font-size: 12px; color: var(--text-muted); }
+    .iar-total .spacer { flex: 1; }
+    .iar-total.pass .n { color: var(--green); }
+    .iar-total.fail .n { color: var(--amber); }
+
+    .iar-state { text-align: center; padding: 3rem 1.5rem; }
+    .iar-state .big { font-size: 40px; margin-bottom: .8rem; }
+    .iar-state h2 { font-family: var(--font-display); font-size: 17px; letter-spacing: .04em;
+                    text-transform: uppercase; margin: 0 0 .5rem; color: var(--text-primary); }
+    .iar-state p { font-size: 13px; color: var(--text-secondary); line-height: 1.75; max-width: 48ch; margin: 0 auto; }
+
+    @media (max-width: 620px) {
+      .iar-wrap { padding: 1rem .8rem 6rem; }
+      .iar-row { gap: .5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="aurora"><div class="aurora-blob a1"></div><div class="aurora-blob a2"></div></div>
+
+  <div class="iar-wrap">
+    <div class="iar-head">
+      <div>
+        <div class="iar-title">Internal Affairs Applications</div>
+        <div class="iar-sub" id="iar-sub">Deputy Director and above</div>
+      </div>
+      <span class="spacer"></span>
+      <a class="btn btn-ghost btn-sm" href="/ia/dashboard"><i class="ti ti-arrow-left"></i> Dashboard</a>
+    </div>
+
+    <div id="iar-body"><div class="iar-state"><div class="spinner"></div></div></div>
+  </div>
+
+  <div id="toast-container"></div>
+  <script src="/js/ui.js?v=1"></script>
+  <script src="/js/ia-applications.js?v=1"></script>
+</body>
+</html>

@@ -84,6 +84,14 @@
           <i class="ti ti-clipboard-check nav-icon"></i><span>Pending</span>
           <span class="nav-badge pending" id="nav-badge-review" style="display:none;"></span>
         </button>
+        <!-- Applications live on their own page rather than in a tab here: reading
+             six sections properly needs the width, and the API behind it is
+             Deputy-Director-and-above, which is a narrower gate than this nav has.
+             hicomm-strict-only is the class dashboard.js unhides for HICOMM only. -->
+        <a class="nav-item hicomm-strict-only" href="/ia/applications" style="display:none;text-decoration:none;">
+          <i class="ti ti-user-search nav-icon"></i><span>Applications</span>
+          <span class="nav-badge pending" id="nav-badge-ia-apps" style="display:none;"></span>
+        </a>
         <button class="nav-item" data-page="records">
           <i class="ti ti-id-badge-2 nav-icon"></i><span>Records</span>
         </button>

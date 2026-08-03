@@ -346,6 +346,9 @@ app.use('/api/ia-events', requireAuth, ia, require('./routes/iaEvents'));
 // membership would let nobody apply. Nothing in this router returns anybody
 // else's answers; the marking half is its own router behind a HICOMM gate.
 app.use('/api/ia-application', requireAuth, require('./routes/iaApplication'));
+// Marking IA applications — Deputy Director and above. The gate is on the whole
+// router inside the file, not here, so it cannot be lost by editing this line.
+app.use('/api/ia-application-review', requireAuth, require('./routes/iaApplicationReview'));
 // IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
 app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
 // Push + notification self-service must be open to EVERY signed-in member — the
@@ -1345,6 +1348,10 @@ app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(view
 // gating it on being in IA would mean only people who are already in can apply.
 app.get('/ia/application', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'ia-application.html'), 'IA'));
 app.get('/ia-application',  recordVisit, requireAuth, (req, res) => res.redirect('/ia/application'));
+// The marking view. requireDivision('IA') gets them onto the page; the API behind
+// it is Deputy-Director-and-above, so a plain investigator sees an empty shell
+// rather than anybody's answers.
+app.get('/ia/applications', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'ia-applications.html'), 'IA'));
 app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
