@@ -586,9 +586,10 @@ function wtbtCell(on) { return on ? 'TRUE' : 'FALSE'; }
  */
 async function addMembers(picks, division, actor) {
   const list = Array.isArray(picks) ? picks : [];
-  if (!list.length) return { ok: false, error: 'Nobody was selected.' };
+  if (!list.length) return { ok: false, stage: 'select', error: 'Nobody was selected.' };
   if (list.length > MAX_PICK) {
-    return { ok: false, error: `That is ${list.length} people at once. ${MAX_PICK} is the most this will write in one go — do it in batches so a mistake is small.` };
+    return { ok: false, stage: 'select',
+             error: `That is ${list.length} people at once. ${MAX_PICK} is the most this will write in one go — do it in batches so a mistake is small.` };
   }
 
   const scope = scopeFor(division || 'IA');
@@ -623,13 +624,13 @@ async function addMembers(picks, division, actor) {
 
   if (wrongRank.length) {
     return {
-      ok: false,
+      ok: false, stage: 'select',
       error: 'Waiting to be trained only applies to Probationary Investigators, and it was ticked for '
            + wrongRank.join(', ') + '. Untick it for them and try again.',
     };
   }
   if (!resolved.length) {
-    return { ok: false, error: unknown.length
+    return { ok: false, stage: 'select', error: unknown.length
       ? `None of them are in the ${scope.name || scope.division} group any more: ${unknown.join(', ')}.`
       : 'Nobody was selected.' };
   }
@@ -640,6 +641,19 @@ async function addMembers(picks, division, actor) {
 
   const out = await appendRows(resolved, scope);
   if (unknown.length) out.skipped = unknown;
+
+  // A failed WRITE has to arrive with a reason. appendRows reports in `errors`,
+  // and nothing was copying that into `error` — so the response was a refusal
+  // with no explanation in it, and the browser showed "HTTP 400" instead of what
+  // actually went wrong. It is also not the caller's fault, so it is tagged as a
+  // write failure rather than a bad selection.
+  if (!out.ok) {
+    out.stage = 'write';
+    if (!out.error) {
+      out.error = (out.errors || []).filter(Boolean).join(' ')
+        || 'The database would not accept the write, and gave no reason.';
+    }
+  }
 
   // The wtbt count is only mentioned when something was actually written.
   // "added 0 member(s), 1 waiting to be trained" is a line about a selection,
@@ -680,6 +694,15 @@ async function addMembers(picks, division, actor) {
 async function appendRows(rows, scope) {
   const errors = [];
 
+  // The sheet's own Apps Script first, when there is one — it owns the sheet.
+  //
+  // Unlike applySync, a webhook failure here FALLS BACK to the service account
+  // instead of stopping. applySync must not: it removes rows, so a half-applied
+  // webhook write followed by a retry could remove twice as much. This operation
+  // only ever appends, and it re-reads the sheet immediately before writing and
+  // skips anybody already on it — so a webhook that added three of five leaves
+  // the fallback adding the remaining two and reporting the three as already
+  // there. Retrying is safe here in a way it is not there.
   if (process.env.QUOTA_WEBHOOK_URL) {
     const via = await quota.callQuotaWebhook({
       action: 'roster',
@@ -693,16 +716,19 @@ async function appendRows(rows, scope) {
       return { ok: true, via: 'webhook', added: via.added != null ? via.added : rows.length,
                alreadyThere: [], errors };
     }
-    return { ok: false, via: 'webhook', added: 0, alreadyThere: [],
-             errors: errors.concat(`The quota webhook did not add them: ${(via && via.error) || 'unknown error'}.`) };
+    errors.push(`The quota webhook would not add them (${(via && via.error) || 'no reason given'}), `
+      + 'so this was written with the service account instead.');
   }
 
   const sheetRead = scope && scope.division !== 'IA'
     ? await quota.readSheetFor(scope.cfg)
     : await quota.readSheet();
   if (!sheetRead) {
-    return { ok: false, added: 0, alreadyThere: [],
-             errors: errors.concat('No write path configured (no webhook, no service account).') };
+    return { ok: false, via: process.env.QUOTA_WEBHOOK_URL ? 'webhook' : 'none',
+             added: 0, alreadyThere: [],
+             errors: errors.concat(process.env.QUOTA_WEBHOOK_URL
+               ? 'There is no service account configured to fall back to, so nothing was written.'
+               : 'No write path configured: there is no quota webhook and no service account.') };
   }
   const { sheets, spreadsheetId, sheetName, rows: existing, cols } = sheetRead;
 
@@ -745,7 +771,8 @@ async function appendRows(rows, scope) {
       return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName, errors: errors.concat(err.message) };
     }
   }
-  return { ok: true, via: 'sheets', added, alreadyThere, sheetName, errors };
+  return { ok: true, via: errors.length ? 'sheets (after the webhook failed)' : 'sheets',
+           added, alreadyThere, sheetName, errors };
 }
 
 // ── Optional daily worker ─────────────────────────────────────────

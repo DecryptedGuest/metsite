@@ -229,7 +229,10 @@ router.post('/met-database/add-members', canTouchDatabase, async (req, res) => {
     const out = await addMembers(body.members, dbDivision(req), {
       id: req.user.id, name: req.user.displayName || req.user.discordUsername || req.user.id,
     });
-    if (!out.ok) return res.status(400).json(out);
+    // A bad selection is the caller's fault; a sheet that refuses the write is
+    // not. Answering 400 for both told somebody their selection was wrong when
+    // the actual problem was upstream.
+    if (!out.ok) return res.status(out.stage === 'write' ? 502 : 400).json(out);
     res.json(out);
   } catch (err) {
     console.error('[MetDB] add-members failed:', err.message);
