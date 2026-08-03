@@ -274,6 +274,104 @@ router.get('/db-targets', async (req, res) => {
   });
 });
 
+// GET /api/dev/ia-export — download everything in the IA database as one file.
+//
+// This exists for one situation, and it is not a hypothetical: the old database is
+// alive but its hosting is about to be reclaimed, and the person who needs the data
+// out of it has no Postgres tools installed and is on Windows. Telling them to go
+// and install pg_dump — matching the server's major version, from the right
+// installer, deselecting the server component — is several ways to fail at a task
+// with a deadline on it.
+//
+// So the app does it. It is already the thing that can reach both databases, and it
+// already has the credentials. Streamed as newline-delimited JSON rather than built
+// in memory, because a big archive should not have to fit in the heap twice, and
+// because a download that has started is a download that survives the source going
+// away mid-transfer.
+//
+// This is NOT a substitute for the sync. It is the copy you keep in case the sync
+// turns out to have needed a second attempt after the source is gone.
+router.get('/ia-export', async (req, res) => {
+  const ia = require('../lib/dbIa').getIaClient();
+  if (!ia) return res.status(400).json({ error: 'IA_DATABASE_URL is not set, so there is nothing to export.' });
+
+  // Named for the day, so two downloads never overwrite each other in a
+  // downloads folder.
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="ia-database-${stamp}.ndjson"`);
+  // No length is known up front, and the whole point is to start writing
+  // immediately rather than buffer.
+  res.setHeader('Cache-Control', 'no-store');
+
+  const write = (obj) => res.write(JSON.stringify(obj) + '\n');
+  const counts = {};
+
+  // Everything worth having, biggest first — so if the source dies part-way, what
+  // arrived is the part that matters most.
+  // Every ORDER BY ends in `ctid`, and that is not decoration.
+  //
+  // Paging with LIMIT/OFFSET is only correct over a TOTAL order. Order by
+  // "createdAt" alone and every row sharing a timestamp — which is what a bulk
+  // import produces, thousands of them — is in an arbitrary position that Postgres
+  // may resolve differently for each page. Rows then get skipped and duplicated,
+  // and the row count can still come out right, so it looks like it worked. On an
+  // export whose whole purpose is that nothing is lost, that is the worst failure
+  // available.
+  //
+  // ctid is Postgres's physical row identifier: always present, always unique
+  // within a table, no schema knowledge required. Appending it makes the order
+  // total, so the paging is exact. (It moves if a row is UPDATEd mid-export, which
+  // is a non-issue for the idle archive this is for, and still far better than an
+  // arbitrary order.)
+  const TABLES = [
+    ['cases', 'SELECT * FROM cases ORDER BY "createdAt" ASC, ctid'],
+    ['case_actions', 'SELECT * FROM case_actions ORDER BY ctid'],
+    ['case_punishments', 'SELECT * FROM case_punishments ORDER BY ctid'],
+    ['ticket_logs', 'SELECT * FROM ticket_logs ORDER BY "closedAt" ASC, ctid'],
+    ['users', 'SELECT * FROM users ORDER BY ctid'],
+  ];
+
+  write({ _meta: { exportedAt: new Date().toISOString(), by: req.user.discordUsername || req.user.id,
+                   note: 'One JSON object per line. The first line is this header; the rest are '
+                       + '{ table, row } records.' } });
+
+  for (const [table, sql] of TABLES) {
+    try {
+      // Paged, so one enormous result set never has to exist all at once on either
+      // side of the connection.
+      let offset = 0, n = 0;
+      for (;;) {
+        const page = await ia.$queryRawUnsafe(`${sql} LIMIT 500 OFFSET ${offset}`);
+        if (!page || !page.length) break;
+        for (const row of page) {
+          // BigInt and Date are not JSON, and a serialiser that throws half way
+          // through a download is worse than one that stringifies.
+          write({ table, row: JSON.parse(JSON.stringify(row, (k, v) =>
+            typeof v === 'bigint' ? String(v) : v)) });
+          n++;
+        }
+        if (page.length < 500) break;
+        offset += 500;
+        if (offset > 500000) break;   // a runaway guard, not a real limit
+      }
+      counts[table] = n;
+      write({ _done: table, rows: n });
+    } catch (e) {
+      // A table that does not exist in the old schema is normal, not fatal — the
+      // export should bring back everything it CAN.
+      counts[table] = 'error: ' + e.message.slice(0, 140);
+      write({ _error: table, why: e.message.slice(0, 300) });
+    }
+  }
+
+  write({ _summary: counts });
+  audit.log(req.user, { category: 'SECURITY', action: 'IA_EXPORT',
+    summary: 'Downloaded the IA database: ' + JSON.stringify(counts) });
+  console.log('[Dev] IA export finished:', JSON.stringify(counts));
+  res.end();
+});
+
 // POST /api/dev/ia-sync — pull cases + tickets from the live IA database
 // (IA_DATABASE_URL) into the MET database. Idempotent; safe to run repeatedly.
 router.post('/ia-sync', async (req, res) => {
