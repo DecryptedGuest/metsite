@@ -569,7 +569,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   });
 
-  // Manual re-sync (HICOMM / Developer)
+  // Manual re-sync (DEVELOPER only)
   var sync = document.getElementById('btn-ticket-sync');
   if (sync) sync.addEventListener('click', async function () {
     sync.disabled = true;

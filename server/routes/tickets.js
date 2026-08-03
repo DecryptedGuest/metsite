@@ -10,7 +10,7 @@
 //   GET  /api/tickets/all        → every closed ticket ("All Tickets")
 //   GET  /api/tickets/stats      → counts for the dashboard + nav
 //   GET  /api/tickets/:id        → one ticket log
-//   POST /api/tickets/sync       → force a re-scan of the log channel (HICOMM+)
+//   POST /api/tickets/sync       → force a re-scan of the log channel (DEVELOPER)
 //   POST /api/tickets/:id/review → approve / deny a ticket log (Supervisor+)
 
 const express = require('express');
@@ -159,7 +159,10 @@ router.get('/stats', async (req, res) => {
 
 // ── POST /api/tickets/sync — force a re-scan (HICOMM / Developer) ─
 // Strict: matches the button, which is hicomm-strict-only in the UI.
-router.post('/sync', requireHICOMMStrict, async (req, res) => {
+// DEVELOPER only, not HICOMM. Hiding the button would not have been a gate —
+// the endpoint is a fetch away — and a full re-scan of the log channel is a
+// developer tool rather than a supervisor's.
+router.post('/sync', requireDeveloper, async (req, res) => {
   try {
     const { getClient } = require('../lib/bot');
     const client = getClient();

@@ -145,6 +145,131 @@
     .iar-gate-note { flex: 1 1 260px; font-size: 12.5px; }
     .iar-gate.open .iar-gate-note { display: none; }
     @media (max-width: 620px) { .iar-gate { gap: .6rem; } }
+
+    /* ── The applicant's profile ───────────────────────────────────────
+       The one part of this page that is about a PERSON rather than about a
+       paper, so it leans on pictures and on space, and every number that
+       carries a rule sits next to whether the rule is met. */
+    .iar-prof-loading .spinner { display: inline-block; vertical-align: -2px; margin-right: .4rem; }
+
+    .iar-idents { display: grid; grid-template-columns: 1.15fr 1fr; gap: 1rem; }
+    .iar-ident { display: flex; gap: .9rem; padding: .9rem; border-radius: var(--radius-md);
+                 border: 1px solid var(--border-dim); background: rgba(255,255,255,.015); }
+    .iar-ident.rbx { border-left: 3px solid var(--green); }
+    .iar-ident.dsc { border-left: 3px solid #5865f2; }
+    .iar-ident-pics { position: relative; flex: 0 0 auto; width: 104px; height: 104px; }
+    .iar-av { display: block; border-radius: var(--radius-md); background: rgba(255,255,255,.04);
+              object-fit: cover; border: 1px solid var(--border-dim); }
+    .iar-av.big { width: 104px; height: 104px; }
+    .iar-av.small { width: 40px; height: 40px; border-radius: 50%; position: absolute;
+                    right: -8px; bottom: -8px; border: 2px solid var(--bg-panel, #0b1220); }
+    .iar-av.none { display: flex; align-items: center; justify-content: center;
+                   color: var(--text-muted); font-size: 26px; }
+    .iar-av.small.none { font-size: 15px; }
+    .iar-ident-body { min-width: 0; flex: 1 1 auto; }
+    .iar-ident-top { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+                     color: var(--text-muted); display: flex; align-items: center; gap: .35rem; }
+    .iar-ident-name { font-family: var(--font-mono); font-size: 16px; color: var(--text-primary);
+                      font-weight: 600; margin: 2px 0 0; word-break: break-all; }
+    .iar-ident-sub { font-size: 11.5px; color: var(--text-muted); margin-bottom: .5rem; }
+    .iar-ident-rows { display: flex; flex-direction: column; gap: 1px; margin-top: .45rem; }
+    .iar-ident-link { display: inline-flex; align-items: center; gap: .3rem; margin-top: .6rem;
+                      font-size: 11.5px; color: var(--blue); text-decoration: none; }
+    .iar-ident-link:hover { text-decoration: underline; }
+
+    .iar-kv { display: flex; gap: .6rem; align-items: baseline; font-size: 12px; padding: 2px 0; }
+    .iar-kv .k { color: var(--text-muted); min-width: 118px; flex: 0 0 auto; }
+    .iar-kv .v { color: var(--text-primary); min-width: 0; word-break: break-word; }
+    .iar-kv .v.ok  { color: var(--green); }
+    .iar-kv .v.bad { color: var(--amber); }
+    .iar-dim { color: var(--text-muted); font-weight: 400; }
+
+    /* A rule and its verdict, inline, because "142 days" means nothing on its own. */
+    .iar-rule { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; margin-left: .3rem;
+                border: 1px solid transparent; white-space: nowrap; }
+    .iar-rule.ok  { color: var(--green); background: var(--green-dim); border-color: rgba(46,216,150,.3); }
+    .iar-rule.bad { color: var(--red);   background: var(--red-dim);   border-color: rgba(240,79,94,.32); }
+    .iar-rule.unk { color: var(--text-muted); background: rgba(255,255,255,.04); border-color: var(--border-dim); }
+
+    /* The checks, as a row somebody scans before reading a word of prose. */
+    .iar-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+                  gap: .5rem; margin-top: 1rem; }
+    .iar-check { display: grid; grid-template-columns: 18px 1fr; gap: .1rem .5rem;
+                 padding: .55rem .7rem; border-radius: var(--radius-md);
+                 border: 1px solid var(--border-dim); background: rgba(255,255,255,.015); }
+    .iar-check i { grid-row: span 2; align-self: center; font-size: 16px; }
+    .iar-check .l { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+    .iar-check .d { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+    .iar-check.ok   { border-color: rgba(46,216,150,.28); background: var(--green-dim); }
+    .iar-check.ok i { color: var(--green); }
+    .iar-check.bad  { border-color: rgba(240,79,94,.32); background: var(--red-dim); }
+    .iar-check.bad i { color: var(--red); }
+    .iar-check.unk i { color: var(--text-muted); }
+    .iar-check.note { border-color: rgba(60,110,255,.28); background: var(--blue-dim); }
+    .iar-check.note i { color: var(--blue); }
+
+    .iar-grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .1rem 1.2rem; }
+
+    /* Changed since they applied. */
+    .iar-drifts { display: flex; flex-direction: column; gap: .35rem; }
+    .iar-drift { display: flex; align-items: center; gap: .5rem; font-size: 12px; flex-wrap: wrap; }
+    .iar-drift .w { color: var(--text-muted); min-width: 118px; }
+    .iar-drift .t { color: var(--text-muted); text-decoration: line-through; }
+    .iar-drift .n { color: var(--amber); font-weight: 600; }
+    .iar-drift i { color: var(--text-muted); font-size: 13px; }
+
+    .iar-punish { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .7rem; }
+    .iar-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-dim); }
+    .iar-pill.bad { color: var(--red); background: var(--red-dim); border-color: rgba(240,79,94,.32); }
+
+    /* Recent cases. Deliberately a list, not a table: it is five rows, and a
+       table's headers would take more room than the rows do. */
+    .iar-cases { margin-top: .8rem; border-top: 1px solid var(--border-dim);
+                 max-height: 260px; overflow-y: auto; }
+    .iar-case { display: grid; grid-template-columns: 68px 130px 74px 128px 1fr;
+                gap: .6rem; align-items: baseline; padding: .45rem 0;
+                border-bottom: 1px solid var(--border-dim); font-size: 11.5px; }
+    .iar-case .r { color: var(--blue); }
+    .iar-case .a { color: var(--text-primary); font-weight: 500; }
+    .iar-case .s { color: var(--text-muted); text-transform: capitalize; }
+    .iar-case .w { color: var(--text-muted); }
+    .iar-case .y { color: var(--text-secondary); line-height: 1.5; }
+
+    .iar-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: .5rem;
+                  max-height: 340px; overflow-y: auto; }
+    .iar-group { display: grid; grid-template-columns: 32px 1fr; gap: 0 .55rem; align-items: center;
+                 padding: .45rem .55rem; border-radius: var(--radius-md); text-decoration: none;
+                 border: 1px solid var(--border-dim); background: rgba(255,255,255,.015); }
+    .iar-group:hover { border-color: var(--blue); }
+    .iar-group img, .iar-group .ico { width: 32px; height: 32px; border-radius: 6px; grid-row: span 2;
+                                      background: rgba(255,255,255,.04); object-fit: cover; }
+    .iar-group .ico { display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+    .iar-group .n { font-size: 12px; color: var(--text-primary); overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+    .iar-group .r { font-size: 10.5px; color: var(--text-muted); }
+    .iar-group.met  { border-color: rgba(46,216,150,.35); background: var(--green-dim); }
+    .iar-group.ia   { border-color: rgba(157,125,255,.35); background: rgba(157,125,255,.08); }
+    .iar-group.gang { border-color: rgba(240,79,94,.4); background: var(--red-dim); }
+    .iar-group.gang .r { color: var(--red); }
+
+    .iar-hist { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
+    .iar-histrow { display: grid; grid-template-columns: 80px 90px 56px 1fr 140px; gap: .6rem;
+                   align-items: baseline; padding: .45rem 0; font-size: 11.5px;
+                   border-bottom: 1px solid var(--border-dim); }
+    .iar-histrow .r { color: var(--blue); }
+    .iar-histrow .s { text-transform: capitalize; }
+    .iar-histrow .s.accepted { color: var(--green); }
+    .iar-histrow .s.rejected { color: var(--red); }
+    .iar-histrow .s.submitted { color: var(--amber); }
+    .iar-histrow .p, .iar-histrow .b, .iar-histrow .w { color: var(--text-muted); }
+
+    @media (max-width: 900px) {
+      .iar-idents { grid-template-columns: 1fr; }
+      .iar-case { grid-template-columns: 1fr 1fr; }
+      .iar-case .y { grid-column: span 2; }
+      .iar-histrow { grid-template-columns: 1fr 1fr; }
+    }
+
     @media (max-width: 620px) {
       .iar-wrap { padding: 1rem .8rem 6rem; }
       .iar-row { gap: .5rem; }

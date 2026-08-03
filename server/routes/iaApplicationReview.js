@@ -186,6 +186,25 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// ── GET /:id/profile ──────────────────────────────────────────────
+// Everything about the applicant, assembled live.
+//
+// Its OWN endpoint rather than part of /:id on purpose: this makes external calls
+// to Roblox, and the paper should be on screen and readable while that happens
+// rather than after it. A slow group lookup must never be the reason somebody
+// cannot start marking.
+router.get('/:id/profile', async (req, res) => {
+  try {
+    const row = await prisma.iaApplication.findUnique({ where: { id: req.params.id } });
+    if (!row) return res.status(404).json({ error: 'No such application.' });
+    const profile = await require('../lib/iaApplicantProfile').build(row);
+    res.json(profile);
+  } catch (err) {
+    console.error('[IA app review] profile error:', err.message);
+    res.status(500).json({ error: 'Could not build their profile: ' + err.message });
+  }
+});
+
 // ── POST /:id/ai-scan ─────────────────────────────────────────────
 // Marker-triggered, never automatic. These are third-party detectors with real
 // false-positive rates; running them on every submission and storing a number

@@ -209,6 +209,12 @@ async function getRobloxUserInfo(robloxUserId) {
       id:          String(data.id),
       username:    data.name,
       displayName: data.displayName,
+      // The same call already returns these; not passing them on meant every
+      // caller who wanted an account age had to make a second identical request.
+      // MET's tryout rule is a 100-day-old account, so somebody always wants it.
+      createdAt:   data.created || null,
+      description: data.description || null,
+      banned:      !!data.isBanned,
     };
   } catch (err) {
     console.error('Roblox user info error:', err.message);

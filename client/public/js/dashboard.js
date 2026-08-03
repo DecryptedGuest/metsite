@@ -219,10 +219,20 @@ async function loadCurrentUser() {
       document.querySelectorAll('.developer-only').forEach(el => el.style.display = '');
     }
     // The ticket re-sync shares the casework header with "Submit Case", so the
-    // selector decides when it is on screen — this only records that the user
-    // is allowed to see it at all.
+    // selector decides when it is on screen; this decides whether they may see it
+    // at all. DEVELOPER only.
+    //
+    // `allowed` was being stamped on for EVERY signed-in user, and the selector
+    // then sets display directly — which overrides the CSS class that was
+    // supposed to be hiding it. So the class gated nothing and a supervisor could
+    // see the button. The gate belongs on the flag, not on a class that something
+    // else overwrites.
     const syncBtn = document.getElementById('btn-ticket-sync');
-    if (syncBtn) { syncBtn.dataset.allowed = '1'; syncBtn.style.display = 'none'; }
+    if (syncBtn) {
+      if (currentUser.role === 'DEVELOPER') syncBtn.dataset.allowed = '1';
+      else delete syncBtn.dataset.allowed;
+      syncBtn.style.display = 'none';
+    }
 
     // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
     // not mixed into the Internal Affairs section. The dev nav is therefore only

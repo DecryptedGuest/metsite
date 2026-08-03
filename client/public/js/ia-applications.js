@@ -123,6 +123,262 @@
   }
 
   // ── One application ─────────────────────────────────────────────
+
+  // ── The applicant's profile ─────────────────────────────────────
+  // Fetched once per application and cached on `open`, so flipping between
+  // answers and going back and forth does not re-hit Roblox every render.
+  var VERDICT = {
+    pass:    { icon: 'ti-check',           cls: 'ok'   },
+    fail:    { icon: 'ti-alert-triangle',  cls: 'bad'  },
+    unknown: { icon: 'ti-help-circle',     cls: 'unk'  },
+    note:    { icon: 'ti-info-circle',     cls: 'note' },
+  };
+
+  function days(n) {
+    if (n == null) return '—';
+    if (n < 1) return 'today';
+    if (n < 60) return n + ' day' + (n === 1 ? '' : 's');
+    if (n < 730) return Math.round(n / 30.44) + ' months';
+    return (Math.round((n / 365.25) * 10) / 10) + ' years';
+  }
+
+  function avatar(url, alt, cls) {
+    if (!url) {
+      return '<span class="iar-av ' + (cls || '') + ' none"><i class="ti ti-user"></i></span>';
+    }
+    return '<img class="iar-av ' + (cls || '') + '" src="' + esc(url) + '" alt="' + esc(alt || '') + '"'
+      + ' onerror="this.className=\'iar-av ' + (cls || '') + ' none\';this.removeAttribute(\'src\');" />';
+  }
+
+  function kv(k, v, tone) {
+    return '<div class="iar-kv"><span class="k">' + esc(k) + '</span>'
+      + '<span class="v' + (tone ? ' ' + tone : '') + '">' + (v == null || v === '' ? '—' : v) + '</span></div>';
+  }
+
+  function profileHtml(p) {
+    if (!p) return '';
+    var h = '';
+
+    // ── The two accounts, side by side ─────────────────────────────
+    h += '<div class="panel glass iar-panel iar-prof">'
+      + '<div class="iar-phead"><i class="ti ti-user-scan"></i> Who applied</div>'
+      + '<div class="iar-idents">';
+
+    // Roblox. The full body is here because a marker genuinely looks at it.
+    var rb = p.roblox || {};
+    h += '<div class="iar-ident rbx">'
+      + '<div class="iar-ident-pics">'
+      +   avatar(rb.body, rb.username, 'big')
+      +   avatar(rb.headshot, rb.username, 'small')
+      + '</div>'
+      + '<div class="iar-ident-body">'
+      +   '<div class="iar-ident-top"><i class="ti ti-brand-roblox"></i> Roblox</div>'
+      +   '<div class="iar-ident-name">' + esc(rb.username || 'not linked') + '</div>'
+      +   (rb.displayName && rb.displayName !== rb.username
+            ? '<div class="iar-ident-sub">shows as ' + esc(rb.displayName) + '</div>' : '')
+      +   '<div class="iar-ident-rows">'
+      +     kv('ID', rb.id ? '<span class="mono">' + esc(rb.id) + '</span>' : null)
+      +     kv('Account made', rb.createdAt ? esc(fmt(rb.createdAt)) : null)
+      +     kv('Account age', rb.accountAgeDays == null ? null
+              : rb.accountAgeDays + ' days'
+                + (rb.accountAgeDays >= 60 ? ' <span class="iar-dim">(' + days(rb.accountAgeDays) + ')</span>' : '')
+                + ' <span class="iar-rule ' + (rb.meetsAgeRule === false ? 'bad' : rb.meetsAgeRule ? 'ok' : 'unk') + '">'
+                + (rb.meetsAgeRule === false ? 'under the ' + rb.minAccountDays + '-day rule'
+                   : rb.meetsAgeRule ? 'meets the ' + rb.minAccountDays + '-day rule' : 'unchecked')
+                + '</span>')
+      +     kv('MET group', rb.metGroup ? esc(rb.metGroup.rank) : (rb.groupsRead ? 'not a member' : null),
+                rb.groupsRead && !rb.metGroup ? 'bad' : '')
+      +     (rb.iaGroup ? kv('IA group', esc(rb.iaGroup.rank)) : '')
+      +     kv('Groups', rb.groupsRead ? String((rb.groups || []).length) : null)
+      +   '</div>'
+      +   (rb.profileUrl
+            ? '<a class="iar-ident-link" href="' + esc(rb.profileUrl) + '" target="_blank" rel="noopener">'
+              + '<i class="ti ti-external-link"></i> Open on Roblox</a>' : '')
+      + '</div></div>';
+
+    // Discord. No API call: the creation date comes out of the id itself.
+    var dc = p.discord || {};
+    h += '<div class="iar-ident dsc">'
+      + '<div class="iar-ident-pics">' + avatar(dc.avatar, dc.username, 'big') + '</div>'
+      + '<div class="iar-ident-body">'
+      +   '<div class="iar-ident-top"><i class="ti ti-brand-discord"></i> Discord</div>'
+      +   '<div class="iar-ident-name">' + esc(dc.username || '—') + '</div>'
+      +   (dc.displayName && dc.displayName !== dc.username
+            ? '<div class="iar-ident-sub">shows as ' + esc(dc.displayName) + '</div>' : '')
+      +   '<div class="iar-ident-rows">'
+      +     kv('ID', dc.id ? '<span class="mono">' + esc(dc.id) + '</span>' : null)
+      +     kv('Account made', dc.createdAt ? esc(fmt(dc.createdAt)) : null)
+      +     kv('Account age', days(dc.accountAgeDays))
+      +     kv('Signed in here', p.site && p.site.everSignedIn
+              ? esc(fmt(p.site.lastLogin)) + ' <span class="iar-dim">(' + days(p.site.lastLoginDaysAgo) + ' ago)</span>'
+              : 'never')
+      +     kv('Site account', p.site && p.site.accountCreated ? esc(fmt(p.site.accountCreated)) : null)
+      +   '</div>'
+      + '</div></div>';
+
+    h += '</div>';   // /iar-idents
+
+    // ── The checks the rules make ──────────────────────────────────
+    if ((p.checks || []).length) {
+      h += '<div class="iar-checks">' + p.checks.map(function (c) {
+        var v = VERDICT[c.verdict] || VERDICT.unknown;
+        return '<div class="iar-check ' + v.cls + '" title="' + esc(c.detail || '') + '">'
+          + '<i class="ti ' + v.icon + '"></i>'
+          + '<span class="l">' + esc(c.label) + '</span>'
+          + '<span class="d">' + esc(c.detail || '') + '</span></div>';
+      }).join('') + '</div>';
+    }
+    if ((rb.notes || []).length) {
+      h += '<div class="iar-nofind" style="margin-top:.7rem;color:var(--amber);">'
+        + rb.notes.map(esc).join(' ') + '</div>';
+    }
+    h += '</div>';   // /panel
+
+    // ── What they said, next to what we can see ────────────────────
+    var d = p.declared || {};
+    h += '<div class="panel glass iar-panel">'
+      + '<div class="iar-phead"><i class="ti ti-list-details"></i> What they told us</div>'
+      + '<div class="iar-grid4">'
+      +   kv('Age', d.age ? esc(d.age) : null)
+      +   kv('Plays on', d.platform ? esc(d.platform) : null)
+      +   kv('Timezone', d.timezone ? esc(d.timezone) : null)
+      +   kv('Applied from', d.device ? esc(d.device) : null)
+      + '</div>'
+      + '<div class="iar-nofind" style="margin-top:.5rem;">The device was detected, not typed. '
+      + 'What they play on is what they said, and the two are allowed to differ.</div>'
+      + '</div>';
+
+    // ── Where the snapshot and the present disagree ────────────────
+    if ((p.drift || []).length) {
+      h += '<div class="panel glass iar-panel" style="border-left:3px solid var(--amber);">'
+        + '<div class="iar-phead"><i class="ti ti-arrows-exchange"></i> Changed since they applied</div>'
+        + '<div class="iar-drifts">' + p.drift.map(function (x) {
+            return '<div class="iar-drift"><span class="w">' + esc(x.what) + '</span>'
+              + '<span class="t">' + esc(x.then) + '</span>'
+              + '<i class="ti ti-arrow-right"></i>'
+              + '<span class="n">' + esc(x.now) + '</span></div>';
+          }).join('') + '</div></div>';
+    }
+
+    // ── MET standing ───────────────────────────────────────────────
+    var m = p.met || {};
+    h += '<div class="panel glass iar-panel">'
+      + '<div class="iar-phead"><i class="ti ti-shield-check"></i> Where they stand in MET</div>'
+      + '<div class="iar-grid4">'
+      +   kv('MET rank', m.rank ? esc(m.rank) + (m.rankSource ? ' <span class="iar-dim">' + esc(m.rankSource) + '</span>' : '') : null)
+      +   kv('XP', m.xp == null ? null
+            : '<strong>' + m.xp + '</strong>'
+              + (m.xpRank ? ' <span class="iar-dim">' + esc(m.xpRank) + '</span>' : '')
+              + (m.xpPosition ? ' <span class="iar-dim">#' + m.xpPosition + ' of ' + m.xpOf + '</span>' : ''))
+      +   kv('Site role', m.siteRole ? esc(m.siteRole) : null)
+      +   kv('Divisions', m.divisionless === true
+            ? '<span class="iar-rule ok">none — first pick</span>'
+            : (m.divisions || []).map(function (x) {
+                return esc(x.division) + (x.rank ? ' <span class="iar-dim">' + esc(x.rank) + '</span>' : '');
+              }).join(' · ') || null)
+      + '</div></div>';
+
+    // ── Their record ───────────────────────────────────────────────
+    var rec = p.record || {};
+    var lastWeek = Number(rec.casesInLastWeek) || 0;
+    h += '<div class="panel glass iar-panel"'
+      + (lastWeek || rec.isBlacklisted || (rec.activePunishments || []).length
+          ? ' style="border-left:3px solid var(--amber);"' : '') + '>'
+      + '<div class="iar-phead"><i class="ti ti-gavel"></i> Their record</div>'
+      + '<div class="iar-grid4">'
+      +   kv('Cases against them', rec.casesAgainstThem == null ? null : String(rec.casesAgainstThem))
+      +   kv('In the last week', rec.casesInLastWeek == null ? null : String(lastWeek), lastWeek ? 'bad' : 'ok')
+      +   kv('Punishments running', String((rec.activePunishments || []).length),
+            (rec.activePunishments || []).length ? 'bad' : 'ok')
+      +   kv('Tickets they closed', rec.ticketsHandled == null ? null : String(rec.ticketsHandled))
+      + '</div>';
+    if (rec.isBlacklisted) {
+      h += '<div class="iar-nofind" style="color:var(--red);margin-top:.6rem;"><strong>This account is blacklisted.</strong> '
+        + esc(rec.blacklistReason || '') + '</div>';
+    }
+    if ((rec.activePunishments || []).length) {
+      h += '<div class="iar-punish">' + rec.activePunishments.map(function (x) {
+        return '<span class="iar-pill bad">' + esc(x.action) + ' · ' + x.daysLeft + 'd left'
+          + ' <span class="iar-dim">' + esc(x.caseRef) + '</span></span>';
+      }).join('') + '</div>';
+    }
+    if ((rec.recentCases || []).length) {
+      h += '<div class="iar-cases">' + rec.recentCases.map(function (c) {
+        return '<div class="iar-case">'
+          + '<span class="r mono">' + esc(c.caseRef || '—') + '</span>'
+          + '<span class="a">' + esc(c.action || '—') + '</span>'
+          + '<span class="s">' + esc(String(c.status || '').toLowerCase()) + '</span>'
+          + '<span class="w">' + esc(fmt(c.createdAt)) + '</span>'
+          + '<span class="y">' + esc(c.reason || '') + '</span>'
+          + '</div>';
+      }).join('') + '</div>';
+    } else if (rec.casesAgainstThem === 0) {
+      h += '<div class="iar-nofind" style="margin-top:.5rem;">Nothing on record.</div>';
+    }
+    if ((rec.notes || []).length) {
+      h += '<div class="iar-nofind" style="margin-top:.5rem;color:var(--amber);">' + rec.notes.map(esc).join(' ') + '</div>';
+    }
+    h += '</div>';
+
+    // ── Every group they are in ────────────────────────────────────
+    if (rb.groupsRead && (rb.groups || []).length) {
+      var gangIds = {};
+      (rb.gangGroups || []).forEach(function (g) { gangIds[g.id] = 1; });
+      h += '<div class="panel glass iar-panel">'
+        + '<div class="iar-phead"><i class="ti ti-users-group"></i> Roblox groups · ' + rb.groups.length + '</div>'
+        + '<div class="iar-nofind" style="margin:0 0 .7rem;">Read it for anything that should rule them out. '
+        + 'MET requires no gang membership without gang permissions.</div>'
+        + '<div class="iar-groups">' + rb.groups.map(function (g) {
+            var flag = gangIds[g.id] ? ' gang' : (rb.metGroup && g.id === rb.metGroup.id ? ' met'
+                     : (rb.iaGroup && g.id === rb.iaGroup.id ? ' ia' : ''));
+            return '<a class="iar-group' + flag + '" href="' + esc(g.url) + '" target="_blank" rel="noopener">'
+              + (g.icon ? '<img src="' + esc(g.icon) + '" alt="" onerror="this.style.visibility=\'hidden\'" />'
+                        : '<span class="ico"><i class="ti ti-users"></i></span>')
+              + '<span class="n">' + esc(g.name) + '</span>'
+              + '<span class="r">' + esc(g.rank) + '</span>'
+              + '</a>';
+          }).join('') + '</div></div>';
+    }
+
+    // ── Applied before? ────────────────────────────────────────────
+    if ((p.history || []).length) {
+      h += '<div class="panel glass iar-panel">'
+        + '<div class="iar-phead"><i class="ti ti-history"></i> They have applied before · ' + p.history.length + '</div>'
+        + '<div class="iar-hist">' + p.history.map(function (x) {
+            var st = String(x.status || '').toLowerCase();
+            return '<div class="iar-histrow">'
+              + '<span class="r mono">' + esc(x.appRef) + '</span>'
+              + '<span class="s ' + esc(st) + '">' + esc(st) + '</span>'
+              + '<span class="p">' + (x.percentage != null ? x.percentage + '%' : '—') + '</span>'
+              + '<span class="b">' + esc(x.markedByName || '') + '</span>'
+              + '<span class="w">' + esc(fmt(x.markedAt || x.submittedAt)) + '</span>'
+              + '</div>';
+          }).join('') + '</div></div>';
+    }
+
+    return h;
+  }
+
+  async function loadProfile(id) {
+    var box = document.getElementById('iar-profile');
+    if (!box) return;
+    try {
+      // Cached on the open application, so going back to an answer and returning
+      // does not spend another round of Roblox calls.
+      if (!open.profile) open.profile = await api('/api/ia-application-review/' + encodeURIComponent(id) + '/profile');
+      if (!document.getElementById('iar-profile')) return;   // they navigated away
+      document.getElementById('iar-profile').innerHTML = profileHtml(open.profile);
+    } catch (err) {
+      var b = document.getElementById('iar-profile');
+      if (b) {
+        b.innerHTML = '<div class="panel glass iar-panel" style="border-left:3px solid var(--amber);">'
+          + '<div class="iar-phead"><i class="ti ti-user-scan"></i> Who applied</div>'
+          + '<div class="iar-nofind">Their profile could not be built: ' + esc(err.message || 'unknown error')
+          + '. The application itself is unaffected — the summary above still stands.</div></div>';
+      }
+    }
+  }
+
   function renderOne() {
     var a = open.application, paper = open.paper, found = open.integrity;
     var decided = a.status !== 'SUBMITTED';
@@ -148,22 +404,15 @@
       + cell('Age', (a.answers || {}).age_band)
       + '</div>';
 
-    // The record check the application itself asks for. A marker should not have
-    // to go and look this up in another tab.
-    if (ctx.casesInLastWeek != null || ctx.casesAgainstThem != null) {
-      var recent = Number(ctx.casesInLastWeek) || 0;
-      h += '<div class="panel glass iar-panel" '
-        + (recent ? 'style="border-left:3px solid var(--amber);"' : '') + '>'
-        + '<div class="iar-phead"><i class="ti ti-gavel"></i> Their record</div>'
-        + '<div class="iar-nofind">'
-        + (recent
-            ? '<strong style="color:var(--amber);">' + recent + ' case' + (recent === 1 ? '' : 's')
-              + ' against them in the last week.</strong> The application asks for none in that period.'
-            : 'No cases against them in the last week.')
-        + ' ' + (ctx.casesAgainstThem || 0) + ' on record in total.'
-        + (ctx.isBlacklisted ? ' <strong style="color:var(--red);">This account is blacklisted.</strong>' : '')
-        + '</div></div>';
-    }
+    // The full profile lands here. Fetched separately because it calls Roblox,
+    // and the paper should be readable while that happens rather than after it.
+    // The snapshot line below is what a marker sees in the meantime, so the
+    // section is never empty — it just gets better.
+    h += '<div id="iar-profile">'
+      + '<div class="panel glass iar-panel iar-prof-loading">'
+      + '<div class="iar-phead"><i class="ti ti-user-scan"></i> Who applied</div>'
+      + '<div class="iar-nofind"><span class="spinner"></span> Reading their accounts, groups and record…</div>'
+      + '</div></div>';
 
     // ── How it was written ───────────────────────────────────────
     h += '<div class="panel glass iar-panel">'
@@ -258,6 +507,7 @@
 
     host().innerHTML = h;
     wireOne(decided);
+    loadProfile(a.id);
   }
 
   function summariseScan(scan) {
