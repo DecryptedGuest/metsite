@@ -54,7 +54,15 @@ const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || null;
 // intent parser reads them (needs Message Content), so enabling it turns the
 // message-content intent on.
 const CAD_RADIO_CHANNEL_ID = process.env.CAD_RADIO_CHANNEL_ID || null;
-const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || PROMOTIONS_CHANNEL_ID || INFRACTIONS_CHANNEL_ID || CAD_RADIO_CHANNEL_ID);
+// The IA suggestions channel — the classifier there reads what people wrote in
+// order to tell a suggestion from chat, so it needs Message Content too. It has a
+// default channel id rather than being off until configured, so it belongs in this
+// chain on its own account: leaving it out would mean the intent was only ever
+// requested as a side effect of some OTHER channel being set.
+const SUGGESTIONS_CHANNEL_ID = () => {
+  try { return require('./suggestions').CHANNEL_ID(); } catch (e) { return null; }
+};
+const WANT_MESSAGE_CONTENT = !!(IMPORT_GUILD_ID || TICKET_LOG_CHANNEL_ID || PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID || PROMOTIONS_CHANNEL_ID || INFRACTIONS_CHANNEL_ID || CAD_RADIO_CHANNEL_ID || SUGGESTIONS_CHANNEL_ID());
 // A patrol/event log is signed off by somebody ticking or crossing the message
 // in Discord, so those channels also need the reaction gateway events.
 const WANT_REACTIONS = !!(PATROL_CHANNEL_ID || EVENTLOGS_CHANNEL_ID);

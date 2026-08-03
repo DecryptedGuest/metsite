@@ -218,6 +218,19 @@ function classify(input) {
   const words = w ? w.split(' ').filter(Boolean) : [];
   const signals = [];
 
+  // ── Messages whose content is not text at all ─────────────────
+  //
+  // These come FIRST, and they abstain rather than falling through to the
+  // no-words rule below, which deletes.
+  //
+  // A poll IS a suggestion mechanism — "should we do X or Y" — and a forwarded
+  // message can be somebody carrying a suggestion in from another channel.
+  // Neither has any `content` at all: the text lives in the poll question or in
+  // the forwarded snapshot. Without this they read as "nothing was said" and get
+  // deleted, which is the single worst thing this module can do.
+  if (input && input.isPoll) return { verdict: 'abstain', score: 0, signals: ['a poll — the question is not in the content'] };
+  if (input && input.isForward) return { verdict: 'abstain', score: 0, signals: ['a forwarded message'] };
+
   // An empty message that carried a picture is somebody illustrating something.
   // Never chat, never confidently a suggestion either.
   if (!text && hasAttachment) return { verdict: 'abstain', score: 0, signals: ['attachment only'] };
@@ -473,8 +486,17 @@ async function onSuggestionMessage(message) {
 
   const decision = classify({
     content: message.content || '',
-    hasAttachment: !!(message.attachments && message.attachments.size) || !!(message.embeds && message.embeds.length),
+    // A sticker counts as content somebody chose to send. It is not words, so it
+    // is not a suggestion — but it is not "nothing was said" either, and the
+    // no-words rule deletes.
+    hasAttachment: !!(message.attachments && message.attachments.size)
+                || !!(message.embeds && message.embeds.length)
+                || !!(message.stickers && message.stickers.size),
     isReply: !!(message.reference && message.reference.messageId),
+    isPoll:  !!message.poll,
+    // A forward arrives as a message snapshot with empty content of its own.
+    isForward: !!(message.messageSnapshots && message.messageSnapshots.size)
+            || (!!message.reference && message.reference.type === 1),
   });
 
   if (decision.verdict === 'abstain') {
@@ -505,7 +527,21 @@ async function onSuggestionMessage(message) {
 
   let deleted = false;
   try { await message.delete(); deleted = true; deletes.push(Date.now()); }
-  catch (e) { console.warn('[Suggestions] could not delete the message:', e.message); }
+  catch (err) {
+    // Name the causes that actually happen, so the log says what to DO. A bare
+    // error message here reads as a mystery, and the most likely cause is a
+    // missing permission that takes ten seconds to grant.
+    const why =
+        err && err.code === 50013 ? 'the bot needs the "Manage Messages" permission in that channel'
+      : err && err.code === 10008 ? 'the message was already gone (somebody deleted it first)'
+      : err && err.code === 50021 ? 'it is a system message, which cannot be deleted'
+      : (err && err.message) || 'unknown';
+    console.warn('[Suggestions] could not delete the message —', why);
+    // A permission failure means EVERY delete will fail, and the warning would
+    // otherwise still be posted for each one — the bot telling people off for
+    // messages it then leaves up. Say nothing rather than that.
+    if (err && err.code === 50013) return { ...decision, reacted: false, deleted: false, blocked: why };
+  }
 
   let warning = null;
   if (deleted && message.channel && typeof message.channel.send === 'function') {
