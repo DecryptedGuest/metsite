@@ -504,13 +504,10 @@ router.post('/:id/review', requireHICOMM, async (req, res) => {
     const ticket = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
     if (!ticket) return res.status(404).json({ error: 'Ticket log not found.' });
 
-    // A supervisor can't sign off a ticket they closed themselves.
-    const own = ticket.closerUserId === req.user.id ||
-      (req.user.discordId && ticket.closerDiscordId &&
-       String(ticket.closerDiscordId) === String(req.user.discordId));
-    if (own && req.user.role !== 'DEVELOPER') {
-      return res.status(403).json({ error: 'You cannot review a ticket you closed.' });
-    }
+    // A supervisor may sign off a ticket they closed themselves. Command asked
+    // for this: the people who review are the people who close, and a small
+    // team waiting for somebody else to press the button is a queue that does
+    // not move. The decision is recorded against their name either way.
 
     const updated = await prisma.ticketLog.update({
       where: { id: ticket.id },

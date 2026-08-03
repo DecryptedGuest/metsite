@@ -850,9 +850,14 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
     if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Case is not pending' });
     if (req.user.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(existing))
       return res.status(403).json({ error: 'Only HICOMM can approve a case involving a Blacklist or Termination.' });
-    // Separation of duties: you can't review (and self-award quota for) your own case.
-    if (existing.userId === req.user.id && req.user.role !== 'DEVELOPER')
-      return res.status(403).json({ error: 'You cannot review your own case; another reviewer must approve it.' });
+    // A reviewer may sign off their own case. Command asked for this: the people
+    // who review are the people who file, and a small team waiting for somebody
+    // else to press the button is a queue that does not move.
+    //
+    // What has NOT changed is the punishment gate above — a supervisor still
+    // cannot approve a Termination or a Blacklist, their own or anybody's. And
+    // approving your own case awards you its quota points, so the decision is
+    // recorded against your name in caseActions like any other.
 
     // Atomically claim the PENDING→APPROVED transition so two concurrent
     // approvals can't both run the side effects (double demotion / dupe rows).
@@ -1027,8 +1032,6 @@ router.patch('/:id/deny', requireHICOMM, async (req, res) => {
     if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Case is not pending' });
     if (req.user.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(existing))
       return res.status(403).json({ error: 'Only HICOMM can deny a case involving a Blacklist or Termination.' });
-    if (existing.userId === req.user.id && req.user.role !== 'DEVELOPER')
-      return res.status(403).json({ error: 'You cannot review your own case; another reviewer must deny it.' });
 
     const claim = await prisma.case.updateMany({ where: { id: req.params.id, status: 'PENDING' }, data: { status: 'DENIED' } });
     if (claim.count === 0) return res.status(409).json({ error: 'Case is not pending' });
