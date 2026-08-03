@@ -316,6 +316,11 @@ function raReadAsBase64(file) {
 }
 
 const RA_MAX_BATCH = 50;
+// Base64 is about 4/3 the size of the bytes, and it all has to become one JSON
+// string. Past a point that string cannot be built at all — the browser throws
+// "Invalid string length" — so the total is checked BEFORE spending time reading
+// fifty files only to lose the batch at the last step.
+const RA_MAX_TOTAL_MB = 60;
 
 async function raUpload() {
   const all = raQueue.filter(q => !raQueueProblem(q.file));
@@ -324,6 +329,12 @@ async function raUpload() {
   if (all.length > RA_MAX_BATCH) {
     if (out0) out0.innerHTML = raErr(`${all.length} at once is too many — ${RA_MAX_BATCH} per batch. `
       + 'Remove some and upload the rest afterwards.');
+    return;
+  }
+  const totalMb = all.reduce((n, q) => n + q.file.size, 0) / 1024 / 1024;
+  if (totalMb > RA_MAX_TOTAL_MB) {
+    if (out0) out0.innerHTML = raErr(`${totalMb.toFixed(0)} MB in one go is too much — `
+      + `keep a batch under ${RA_MAX_TOTAL_MB} MB in total. Upload it in two halves.`);
     return;
   }
   const send = all;

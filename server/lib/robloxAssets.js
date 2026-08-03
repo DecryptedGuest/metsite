@@ -120,6 +120,23 @@ async function setCredential({ kind, value, creatorType, creatorId, setBy }) {
 
   const raw = String(value || '').trim();
   if (!raw) throw new Error('Paste the credential first.');
+
+  // A credential goes into an HTTP header, and a header may not contain control
+  // characters. Two reasons this is checked rather than left to fail later:
+  // such a credential could never authenticate anything, and Node's fetch throws
+  // an error containing the WHOLE header value when it rejects one — so a single
+  // stray NUL would turn every error path into a way to read the credential back
+  // out. Refusing it here means that path cannot be reached at all.
+  if (/[\x00-\x1f\x7f]/.test(raw)) {
+    throw new Error('That value contains a control character — a line break, a tab or similar. '
+      + 'A credential cannot contain one, so copy it again as a single unbroken string.');
+  }
+  // Same reasoning: everything Roblox issues is printable ASCII, and anything
+  // else cannot go in a header either.
+  if (/[^\x20-\x7e]/.test(raw)) {
+    throw new Error('That value contains characters a Roblox credential never uses — check what was copied.');
+  }
+
   if (kind === 'cookie' && raw.length < 100) {
     throw new Error('That does not look like a .ROBLOSECURITY cookie — it is several hundred characters and starts with _|WARNING.');
   }
@@ -128,6 +145,11 @@ async function setCredential({ kind, value, creatorType, creatorId, setBy }) {
   const ct = creatorType === 'group' ? 'group' : 'user';
   if (ct === 'group' && !/^\d+$/.test(String(creatorId || ''))) {
     throw new Error('Uploading to a group needs the group id.');
+  }
+  // A non-numeric user id stores cleanly and then fails at Roblox on every single
+  // upload, which reads as "the credential is broken".
+  if (ct === 'user' && creatorId && !/^\d+$/.test(String(creatorId))) {
+    throw new Error('A Roblox user id is a number — it is the digits in your profile URL.');
   }
 
   const rec = {
@@ -184,6 +206,18 @@ async function useCredential() {
  */
 async function verifyCredential() {
   const cred = await useCredential();
+  // Belt and braces around the whole thing. Node's fetch puts a rejected header
+  // value into the message verbatim, and callers return these errors to a
+  // browser — so nothing may escape this function carrying the credential, even
+  // from a failure nobody anticipated.
+  try {
+    return await verifyInner(cred);
+  } catch (e) {
+    return { ok: false, error: scrub(e && e.message || String(e), cred.value) };
+  }
+}
+
+async function verifyInner(cred) {
 
   if (cred.kind === 'cookie') {
     const res = await fetch('https://users.roblox.com/v1/users/authenticated', {
