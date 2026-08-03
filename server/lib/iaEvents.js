@@ -258,6 +258,11 @@ async function submitEvent(input, host) {
     + (dropped ? `, ${dropped} duplicate/blank name(s) dropped` : '')
     + (selfRemoved ? ', host taken off their own attendee list' : ''));
 
+  // Mirrored into the event log channel as PENDING. The same message is edited
+  // when a supervisor decides, so the channel carries one message per event
+  // whose current state is the truth.
+  event = await require('./logMirror').attach('EVENT', event);
+
   return { ok: true, event, dropped, selfRemoved, pointsEach, xpEach };
 }
 
@@ -326,10 +331,16 @@ async function reviewEvent(id, action, reviewer, note) {
 
   if (act === 'deny') {
     console.log(`[IA events] ${event.eventRef} denied by ${(reviewer && reviewer.displayName) || 'a supervisor'} — nobody paid`);
-    return { ok: true, event: await prisma.iaEventLog.findUnique({ where: { id } }), awarded: 0, xpAwarded: 0 };
+    const denied = await prisma.iaEventLog.findUnique({ where: { id } });
+    // The Discord mirror is edited in place, so the pending embed in the channel
+    // becomes the denial rather than sitting there contradicting the site.
+    return { ok: true, event: await require('./logMirror').attach('EVENT', denied),
+             awarded: 0, xpAwarded: 0 };
   }
 
-  return payEvent(event, reviewer);
+  // The claimed row, not the one read before the claim — payEvent stamps the XP
+  // receipt onto it and mirrors it, and both need the recorded decision.
+  return payEvent(await prisma.iaEventLog.findUnique({ where: { id } }), reviewer);
 }
 
 /**
@@ -409,6 +420,8 @@ async function payEvent(event, reviewer) {
   console.log(`[IA events] ${event.eventRef} approved by ${actor.name} — `
     + `${payees.length} paid ${pointsEach} point(s) + ${xpEach} XP (host included)`
     + (xpSkipped ? `, ${xpSkipped} with no Discord id got no XP` : ''));
+
+  updated = await require('./logMirror').attach('EVENT', updated);
 
   return { ok: true, event: updated, awarded, xpAwarded, xpSkipped, pointsEach, xpEach, paid: payees.length };
 }
@@ -491,7 +504,8 @@ async function voidEvent(id, by, reason) {
   });
   console.log(`[IA events] ${event.eventRef} withdrawn by ${actor.name} — `
     + `${reversed} points award(s) reversed, ${xpReversed} XP award(s) taken back`);
-  return { ok: true, event: updated, reversed, xpReversed };
+  return { ok: true, event: await require('./logMirror').attach('EVENT', updated),
+           reversed, xpReversed };
 }
 
 /**

@@ -339,8 +339,10 @@ app.use('/api/webauthn', requireAuth, require('./routes/webauthn'));
 app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
-// IA event logs — filed on the site; filing one awards every attendee.
+// IA event logs — filed on the site; a supervisor's approval awards every attendee.
 app.use('/api/ia-events', requireAuth, ia, require('./routes/iaEvents'));
+// IA patrol logs — the same shape, for one officer's own shift.
+app.use('/api/ia-patrols', requireAuth, ia, require('./routes/iaPatrols'));
 // The IA application. requireAuth ONLY, and deliberately not behind `ia` — an
 // applicant is by definition not in Internal Affairs yet, so gating this on IA
 // membership would let nobody apply. Nothing in this router returns anybody

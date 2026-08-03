@@ -85,6 +85,7 @@ model User {
   caseAppeals          CaseAppeal[]
   caseDocuments        CaseDocument[]
   iaEventsHosted       IaEventLog[]        @relation("IaEventHost")
+  iaPatrols            IaPatrolLog[]       @relation("IaPatrolOfficer")
   iaApplications       IaApplication[]     @relation("IaApplicant")
   iaApplicationsMarked IaApplication[]     @relation("IaApplicationMarker")
   pushSubscriptions    PushSubscription[]
@@ -466,6 +467,12 @@ model IaEventLog {
   voidedAt       DateTime?
   voidedById     String?
   voidedReason   String?
+  // The Discord mirror of this log: posted as PENDING when it is filed, and the
+  // SAME message edited when it is decided. Kept so the edit has something to
+  // target — without the id there is no way to update the post, and the channel
+  // ends up with a pending embed that never changes.
+  mirrorChannelId String?
+  mirrorMessageId String?
   createdAt      DateTime  @default(now())
 
   host User @relation("IaEventHost", fields: [hostId], references: [id])
@@ -474,6 +481,61 @@ model IaEventLog {
   @@index([hostId])
   @@index([status])
   @@map("ia_event_logs")
+}
+
+// A patrol filed on the website by the officer who went out on it.
+//
+// Deliberately NOT the same table as PatrolLog. That one is a reading of a
+// message somebody posted in Discord, keyed on its message id and signed off by
+// a reaction. This one is filed on the site, decided on the site by somebody
+// whose rank the site can check, and mirrored INTO Discord afterwards. Folding
+// them together would mean one row whose messageId sometimes means "where this
+// came from" and sometimes "where we put it".
+model IaPatrolLog {
+  // Sequential and human-readable: "PTL-0042".
+  id               String    @id @default(uuid())
+  patrolRef        String    @unique
+  officerId        String // the site account that filed it
+  officerDiscordId String?
+  officerName      String?
+  startedAt        DateTime
+  endedAt          DateTime
+  // Computed from the two, midnight-crossing included, so nobody can file a
+  // ten-minute patrol as six hours by typing the number themselves.
+  totalMinutes     Int
+  area             String? // where they patrolled
+  // Who else was out with them: recorded so a reviewer can see it, and paid
+  // NOTHING. Two officers on a joint patrol each file their own log; paying
+  // partners as well would pay both of them twice for the same shift.
+  partners         Json?
+  partnerCount     Int       @default(0)
+  notes            String?
+  proof            Json? // screenshots offered as evidence it happened
+  pointsEach       Int       @default(2)
+  // A patrol's XP is earned by the clock, not by the log: one per completed
+  // block of PATROL_XP_MINUTES, the same rule the Discord patrol logs use. This
+  // is what that came to for these minutes, frozen at filing so a later change
+  // to the rule does not silently rewrite what a pending log is worth.
+  xpEach           Int       @default(0)
+  xpAward          Json?
+  status           String    @default("PENDING") // PENDING | APPROVED | DENIED
+  reviewedById     String?
+  reviewedByName   String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  voidedAt         DateTime?
+  voidedById       String?
+  voidedReason     String?
+  mirrorChannelId  String?
+  mirrorMessageId  String?
+  createdAt        DateTime  @default(now())
+
+  officer User @relation("IaPatrolOfficer", fields: [officerId], references: [id])
+
+  @@index([startedAt])
+  @@index([officerId])
+  @@index([status])
+  @@map("ia_patrol_logs")
 }
 
 model PushSubscription {
