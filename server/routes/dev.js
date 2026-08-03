@@ -91,8 +91,23 @@ router.get('/db-targets', async (req, res) => {
 
   // The question that actually matters for a recovery: are these two the same
   // place? If they are, the IA sync has nowhere to pull FROM.
-  const sameTarget = !!(main.set && ia.set && !main.parseError && !ia.parseError
+  //
+  // Comparing hostnames is NOT enough, and this is the trap. Every Railway
+  // Postgres service has TWO addresses for the same database — a private
+  // `*.railway.internal` one and a public `*.proxy.rlwy.net` one. Pointing
+  // DATABASE_URL at the private address and IA_DATABASE_URL at the public address
+  // of the same service gives two different hostnames and one database, so a
+  // hostname comparison says "different" about a setup that cannot recover
+  // anything. `sameCluster` below settles it properly by asking both databases
+  // for their own identity; this stays as the cheap, always-available hint.
+  const sameHost = !!(main.set && ia.set && !main.parseError && !ia.parseError
     && main.host === ia.host && String(main.port) === String(ia.port) && main.database === ia.database);
+  // One address private and the other public is the exact shape of the trap, so
+  // say so even when we cannot prove it.
+  const couldBeSameService = !!(main.set && ia.set && !main.parseError && !ia.parseError
+    && main.database === ia.database
+    && ((main.kind === 'railway private network' && ia.kind === 'railway public TCP proxy')
+     || (main.kind === 'railway public TCP proxy' && ia.kind === 'railway private network')));
 
   // Probe each one for real, with a short timeout — an unreachable host otherwise
   // holds this request open for the driver's full connect timeout.
@@ -129,12 +144,32 @@ router.get('/db-targets', async (req, res) => {
     };
   };
 
+  // Which physical Postgres cluster this is. `system_identifier` is stamped once,
+  // when the cluster is first created, so it identifies the DATABASE rather than
+  // the route taken to reach it — which is the only way to tell a private and a
+  // public address for one service apart from two genuinely separate services.
+  const identity = async (client) => {
+    if (!client) return null;
+    try {
+      const r = await Promise.race([
+        client.$queryRawUnsafe('SELECT system_identifier::text AS id FROM pg_control_system()'),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), 8000)),
+      ]);
+      return r && r[0] ? String(r[0].id) : null;
+    } catch (e) { return null; }
+  };
+
   const iaClient = require('../lib/dbIa').getIaClient();
   const [mainProbe, iaProbe] = await Promise.all([probe(prisma, 'DATABASE_URL'), probe(iaClient, 'IA_DATABASE_URL')]);
-  const [mainCounts, iaCounts] = await Promise.all([
+  const [mainCounts, iaCounts, mainId, iaId] = await Promise.all([
     mainProbe.ok ? counts(prisma) : null,
     iaProbe.ok ? counts(iaClient) : null,
+    mainProbe.ok ? identity(prisma) : null,
+    iaProbe.ok ? identity(iaClient) : null,
   ]);
+  // null when either side is unreachable — unknown, not "different".
+  const sameCluster = (mainId && iaId) ? (mainId === iaId) : null;
+  const sameTarget = sameCluster === true ? true : sameHost;
 
   // Say what to DO, not just what is broken.
   const verdict = !ia.set
@@ -142,14 +177,24 @@ router.get('/db-targets', async (req, res) => {
     : sameTarget
       ? 'IA_DATABASE_URL points at THE SAME DATABASE as the app itself, so the sync has nowhere to pull from and cannot recover anything. It has to point at a DIFFERENT database that still holds the cases. If there is no such database, use the Discord forum import instead.'
       : !iaProbe.ok && ia.kind === 'railway public TCP proxy'
-        ? 'The IA database is unreachable, and it is addressed by Railway\'s PUBLIC TCP proxy. A container usually cannot reach its own project\'s public proxy — use the private hostname (*.railway.internal) if that database is in this project, or check the service is still running.'
+        ? 'The IA database is unreachable, and it is addressed by Railway\'s PUBLIC TCP proxy, which a container usually cannot use to reach its own project. '
+          + (couldBeSameService
+            ? 'WARNING: this may well be the SAME database the app already uses, reached by its public address instead of its private one — every Railway Postgres has both. Open the Postgres service in Railway and look at DATABASE_PUBLIC_URL: if it is this host and port, then this is the same empty database and the sync can never recover anything. Use the Discord forum import instead. '
+            : '')
+          + 'Test it from your OWN machine, where the public proxy does work: if it connects and has cases in it, the data is alive and recoverable — point IA_DATABASE_URL at that service\'s *.railway.internal address, or dump the cases table across. If it does not connect from there either, the service is gone.'
         : !iaProbe.ok
           ? 'The IA database is unreachable. Either the service is stopped or deleted, or the host is wrong.'
           : (iaCounts && Number(iaCounts.cases) > 0)
             ? `Reachable, and it is holding ${iaCounts.cases} case(s). Press "Sync IA cases & tickets" and they come across.`
             : 'Reachable, but there are no cases in it, so there is nothing for the sync to bring over.';
 
-  res.json({ main, ia, sameTarget, mainProbe, iaProbe, mainCounts, iaCounts, verdict });
+  res.json({
+    main, ia,
+    // sameHost is the cheap check; sameCluster is the real one and is null when
+    // either side could not be asked. sameTarget prefers the real one.
+    sameTarget, sameHost, sameCluster, couldBeSameService,
+    mainProbe, iaProbe, mainCounts, iaCounts, verdict,
+  });
 });
 
 // POST /api/dev/ia-sync — pull cases + tickets from the live IA database
