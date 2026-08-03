@@ -29,25 +29,51 @@
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
-    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow-x: hidden; overflow-y: auto; padding: 24px 0; box-sizing: border-box; }
-    .signin-wrap { position: relative; z-index: 1; width: 100%; max-width: 400px; padding: 1.2rem; display: flex; flex-direction: column; align-items: center; gap: 1.6rem; }
-    .signin-crest { display: flex; flex-direction: column; align-items: center; gap: 0.9rem; animation: fadeUp 0.6s ease both; }
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow-x: hidden; overflow-y: auto; padding: 40px 0; box-sizing: border-box; }
+    /* 400px forced "Metropolitan Police Service" to wrap mid-phrase and broke the
+       strap-line across two lines. 460 fits both on one line at this type size. */
+    .signin-wrap { position: relative; z-index: 1; width: 100%; max-width: 460px; padding: 1.2rem;
+      display: flex; flex-direction: column; align-items: center;
+      /* One rhythm for the whole column. Each group below sets its own tighter
+         internal spacing; nothing uses a negative margin to claw space back, which
+         is what made the old spacing read as arbitrary. */
+      gap: 2rem; }
+    .signin-crest { display: flex; flex-direction: column; align-items: center; gap: 0.85rem; animation: fadeUp 0.6s ease both; }
     .signin-crest img { width: 88px; height: 88px; border-radius: 16px; box-shadow: 0 0 40px rgba(20,60,200,0.28); }
-    .signin-title { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-align: center;
+    /* Scales to fit rather than wrapping mid-phrase. "Metropolitan Police Service"
+       at a fixed 26px broke into "METROPOLITAN POLICE / SERVICE" at every width,
+       with loose display leading making the two halves look unrelated. */
+    .signin-title { font-family: var(--font-display); font-size: clamp(17px, 4.6vw, 23px); line-height: 1.2;
+      font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; text-align: center; text-wrap: balance;
       background: linear-gradient(120deg, var(--text-primary) 0%, #8db4ff 52%, var(--purple, #9d7dff) 100%);
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
-    .signin-trust { display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin-top:12px; font-size:11px; color:var(--text-muted); }
+    .signin-trust { display:flex; flex-wrap:wrap; gap:8px 18px; justify-content:center; margin-top:1.3rem; font-size:11px; color:var(--text-muted); }
     .signin-trust i { margin-right:4px; }
-    .signin-sub { font-size: 12px; color: var(--text-muted); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; margin-top: -0.4rem; }
-    .signin-card { width: 100%; padding: 1.6rem 1.6rem 1.4rem; animation: fadeUp 0.6s ease 0.1s both; }
-    .signin-card .hint { text-align: center; font-size: 11px; color: var(--text-tiny); margin-top: 0.9rem; }
+    .signin-sub { font-size: 12px; color: var(--text-muted); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; }
+    /* The crest's own text block: title and subtitle belong together, so they get a
+       small gap of their own rather than inheriting the column's. */
+    .signin-crest-text { display: flex; flex-direction: column; align-items: center; gap: 0.45rem; }
+    /* The motto, its rule, and the rotating line are one group too. */
+    .signin-strap-group { display: flex; flex-direction: column; align-items: center; gap: 0.85rem; width: 100%; }
+    /* Sized to sit on one line at this column width. When it does have to wrap, the
+       dividers are dropped and the segments stack — a pipe inherited from
+       `.seg + .seg::before` otherwise dangles at the start of the second line, which
+       reads as a mistake. */
+    .signin-strap-group .met-strap { font-size: clamp(13px, 3.6vw, 17px); flex-wrap: nowrap; justify-content: center; }
+    @media (max-width: 430px) {
+      .signin-strap-group .met-strap { flex-direction: column; row-gap: 0.35rem; }
+      .signin-strap-group .met-strap .seg { padding: 0; }
+      .signin-strap-group .met-strap .seg + .seg::before { display: none; }
+    }
+    .signin-card { width: 100%; padding: 1.9rem 1.8rem 1.6rem; animation: fadeUp 0.6s ease 0.1s both; }
+    .signin-card .hint { text-align: center; font-size: 11px; color: var(--text-tiny); margin-top: 1.2rem; line-height: 1.6; }
     .btn-discord-full { width: 100%; justify-content: center; padding: 0.85rem 1.4rem; font-size: 14px; border-radius: var(--radius-md); }
-    .signin-btns { display: flex; flex-direction: column; gap: 10px; }
+    .signin-btns { display: flex; flex-direction: column; gap: 12px; }
     .btn-roblox { background:rgba(255,255,255,0.06); color:var(--text-primary); border:1px solid var(--border-mid); }
     .btn-roblox:hover { background:rgba(255,255,255,0.11); color:#fff; border-color:var(--border-bright); }
-    .signin-or { display:flex; align-items:center; gap:10px; margin:2px 0; color:var(--text-tiny); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
+    .signin-or { display:flex; align-items:center; gap:12px; margin:4px 0; color:var(--text-tiny); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
     .signin-or::before, .signin-or::after { content:""; flex:1; height:1px; background:rgba(255,255,255,0.08); }
-    .try-another-btn { display:block; width:100%; margin-top:1rem; background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+    .try-another-btn { display:block; width:100%; margin-top:1.4rem; background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
     .try-another-btn:hover { color:var(--text-secondary); }
     .alt-card { margin-top:1rem; animation: fadeUp 0.35s ease both; }
     .alt-title { font-size:14px; font-weight:700; margin:0 0 0.2rem; display:flex; align-items:center; gap:8px; }
@@ -72,22 +98,23 @@
 
 <div class="signin-wrap">
   <img src="/img/metbanner.png" alt="Metropolitan Police" onerror="this.style.display='none'"
-       style="width:100%;max-width:520px;border-radius:14px;border:1px solid rgba(60,110,255,.25);box-shadow:0 10px 34px rgba(0,0,0,.45);margin-bottom:4px;display:block;" />
+       style="width:100%;border-radius:14px;border:1px solid rgba(60,110,255,.25);box-shadow:0 10px 34px rgba(0,0,0,.45);display:block;" />
   <div class="signin-crest">
     <img id="signin-logo" src="/img/logo.png" alt="MET Police" />
-    <div>
+    <div class="signin-crest-text">
       <div class="signin-title">Metropolitan Police Service</div>
       <div class="signin-sub">Officer Dashboard</div>
     </div>
   </div>
 
-  <!-- MET strap-line + rotating tagline -->
-  <div style="display:flex;flex-direction:column;align-items:center;gap:0;margin-top:-.5rem;">
+  <!-- The motto, its rule, and the rotating line: one group with its own spacing,
+       set apart from the crest above rather than pulled up into it. -->
+  <div class="signin-strap-group">
     <div class="met-strap met-strap-hero" data-animate>
       <span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span>
     </div>
     <div class="met-strap-underline"></div>
-    <div class="signin-sub met-rotator" id="signin-tagline" style="margin-top:.7rem;">Working together for a safer London</div>
+    <div class="signin-sub met-rotator" id="signin-tagline">Working together for a safer London</div>
   </div>
 
   <div id="error-banner" class="error-banner" style="display:none;width:100%;">
@@ -161,9 +188,11 @@
 <script src="/js/login-alt.js?v=2"></script>
 <script>
   setSiteChrome('');
+  // Deliberately does NOT include "More trust · Less crime · High standards" — that
+  // is the strap-line printed directly above this element, so rotating it here made
+  // the page say the same thing twice, one line apart.
   if (window.metRotateTagline) metRotateTagline('signin-tagline', [
     'Working together for a safer London',
-    'More trust · Less crime · High standards',
     'Community crime-fighting',
     'Protecting London, together',
   ], 4200);
