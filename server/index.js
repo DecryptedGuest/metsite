@@ -1403,6 +1403,33 @@ app.get('/dev/security', recordVisit, requireAuth, (req, res) => {
   return sendPage(res, path.join(views, 'dev-security.html'));
 });
 
+// ── Health ──────────────────────────────────────────────────
+// Answers 200 whenever the PROCESS is healthy, and reports the database
+// separately. Deliberately not 503 when the database is down: this is what the
+// platform restarts the container on, and restarting the app does not fix
+// Postgres — it just takes the site down too, which is what turned a database
+// outage into a total outage once already.
+app.get(['/healthz', '/api/healthz'], async (req, res) => {
+  let db = 'down', dbError = null;
+  try {
+    await require('./lib/db').$queryRawUnsafe('SELECT 1');
+    db = 'up';
+  } catch (e) {
+    // Prisma's message starts with a blank line, so the first line is empty and
+    // taking it reports nothing at all.
+    dbError = String(e && e.message || e).split('\n').map(l => l.trim())
+      .find(Boolean) || 'unreachable';
+    dbError = dbError.slice(0, 200);
+  }
+  res.status(200).json({
+    ok: true,
+    db,
+    dbError,
+    uptimeSeconds: Math.round(process.uptime()),
+    startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+  });
+});
+
 // ── 404 / Error ─────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404);
@@ -1431,7 +1458,12 @@ process.on('uncaughtException', (err) => {
 // Only bind a port when run as a real long-lived process (Railway, local,
 // `node server/index.js`). On serverless (Vercel), this module is imported by
 // api/index.js and the platform provides the HTTP layer — no listener needed.
-if (require.main === module) {
+//
+// MET_LISTEN=1 is the explicit form, for when something else owns the entry point
+// but this is still a long-lived server: scripts/start.js requires this module
+// rather than spawning it, so that signals and exit codes stay with one process,
+// and `require.main` is therefore the starter and not this file.
+if (require.main === module || process.env.MET_LISTEN === '1') {
   const httpServer = app.listen(PORT, () => {
     console.log(`\n[MET] Dashboard running on http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);

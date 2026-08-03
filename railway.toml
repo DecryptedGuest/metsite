@@ -8,6 +8,14 @@ builder = "RAILPACK"
 buildCommand = "npm install && npx prisma generate"
 
 [deploy]
-startCommand = "npx prisma db push --accept-data-loss && node server/index.js"
+# NOT "prisma db push && node server/index.js". That `&&` meant an unreachable
+# database stopped the server from starting at all, so a database outage became a
+# total outage — no site, no health check, and no way to reach the env-var kill
+# switches for the background workers, which is precisely when you want them.
+# scripts/start.js attempts the sync, bounds how long it will wait, and starts the
+# server either way.
+startCommand = "node scripts/start.js"
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+# Was 3, which a database outage exhausted in under a minute and then stayed down
+# even after the database came back.
+restartPolicyMaxRetries = 10
