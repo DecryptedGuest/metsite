@@ -144,6 +144,68 @@ router.get('/db-targets', async (req, res) => {
     };
   };
 
+  // ── Is that host even there? ─────────────────────────────────────
+  //
+  // Prisma says "can't reach database server" for every failure between here and
+  // a query, which lumps together three things that mean completely different
+  // things for a recovery:
+  //
+  //   * the name does not resolve            → the service is GONE
+  //   * it resolves and the port is OPEN     → something IS listening, so the
+  //                                            database is alive and the failure
+  //                                            is above the network layer
+  //   * it resolves and the port REFUSES     → nothing listening there any more
+  //   * it resolves and the port TIMES OUT    → blocked, not absent. This is what
+  //                                            Railway's own public proxy looks
+  //                                            like from inside Railway, and it
+  //                                            means the data may well be fine
+  //
+  // Done at the TCP layer with no credential, so it works regardless of the
+  // password and cannot leak one. This is the test somebody would otherwise need
+  // psql installed to run.
+  const tcpProbe = (host, port) => new Promise((resolve) => {
+    if (!host) return resolve(null);
+    const dns = require('dns'), net = require('net');
+    dns.lookup(host, (dnsErr, address) => {
+      if (dnsErr) {
+        return resolve({
+          resolves: false, dnsError: dnsErr.code || dnsErr.message,
+          meaning: dnsErr.code === 'ENOTFOUND'
+            ? 'That hostname does not exist. The service has been deleted.'
+            : 'The hostname could not be looked up.',
+        });
+      }
+      const started = Date.now();
+      const sock = new net.Socket();
+      let settled = false;
+      const done = (out) => {
+        if (settled) return; settled = true;
+        try { sock.destroy(); } catch (e) { /* already gone */ }
+        resolve({ resolves: true, address, ms: Date.now() - started, ...out });
+      };
+      sock.setTimeout(6000);
+      sock.once('connect', () => done({
+        open: true,
+        meaning: 'The port is OPEN, so a database is listening there. It is alive — '
+               + 'whatever is failing is not reachability.',
+      }));
+      sock.once('timeout', () => done({
+        open: false, why: 'timed out',
+        meaning: 'The name resolves but the port never answers. That is BLOCKED, not absent — '
+               + "which is what Railway's public proxy looks like from inside Railway. The "
+               + 'database is probably fine and reachable from your own machine.',
+      }));
+      sock.once('error', (e) => done({
+        open: false, why: e.code || e.message,
+        meaning: e.code === 'ECONNREFUSED'
+          ? 'The name resolves but nothing is listening on that port — the service is stopped, '
+          + 'deleted, or the port has changed.'
+          : 'The connection failed before the database was reached.',
+      }));
+      sock.connect(Number(port) || 5432, host);
+    });
+  });
+
   // Which physical Postgres cluster this is. `system_identifier` is stamped once,
   // when the cluster is first created, so it identifies the DATABASE rather than
   // the route taken to reach it — which is the only way to tell a private and a
@@ -160,6 +222,7 @@ router.get('/db-targets', async (req, res) => {
   };
 
   const iaClient = require('../lib/dbIa').getIaClient();
+  const iaTcp = await tcpProbe(ia.host, ia.port);
   const [mainProbe, iaProbe] = await Promise.all([probe(prisma, 'DATABASE_URL'), probe(iaClient, 'IA_DATABASE_URL')]);
   const [mainCounts, iaCounts, mainId, iaId] = await Promise.all([
     mainProbe.ok ? counts(prisma) : null,
@@ -176,15 +239,26 @@ router.get('/db-targets', async (req, res) => {
     ? 'IA_DATABASE_URL is not set, so the IA sync does nothing. It needs the connection string of the OLD database that still holds the cases — not this one.'
     : sameTarget
       ? 'IA_DATABASE_URL points at THE SAME DATABASE as the app itself, so the sync has nowhere to pull from and cannot recover anything. It has to point at a DIFFERENT database that still holds the cases. If there is no such database, use the Discord forum import instead.'
-      : !iaProbe.ok && ia.kind === 'railway public TCP proxy'
-        ? 'The IA database is unreachable, and it is addressed by Railway\'s PUBLIC TCP proxy, which a container usually cannot use to reach its own project. '
-          + (couldBeSameService
-            ? 'WARNING: this may well be the SAME database the app already uses, reached by its public address instead of its private one — every Railway Postgres has both. Open the Postgres service in Railway and look at DATABASE_PUBLIC_URL: if it is this host and port, then this is the same empty database and the sync can never recover anything. Use the Discord forum import instead. '
-            : '')
-          + 'Test it from your OWN machine, where the public proxy does work: if it connects and has cases in it, the data is alive and recoverable — point IA_DATABASE_URL at that service\'s *.railway.internal address, or dump the cases table across. If it does not connect from there either, the service is gone.'
-        : !iaProbe.ok
-          ? 'The IA database is unreachable. Either the service is stopped or deleted, or the host is wrong.'
-          : (iaCounts && Number(iaCounts.cases) > 0)
+      // The TCP probe is what makes this specific, so it leads. "Gone" and
+      // "blocked" are the same Prisma error and completely different outcomes.
+      : !iaProbe.ok && iaTcp && iaTcp.resolves === false
+        ? `${iaTcp.meaning} There is nothing to recover from it — use the Discord forum import instead.`
+        : !iaProbe.ok && iaTcp && iaTcp.open === true
+          ? 'A database IS listening on that host and port, so it is alive and the problem is not reachability — '
+            + 'check the password and the database name in IA_DATABASE_URL. '
+            + (couldBeSameService ? 'Note it may still be the same database the app already uses, by its other address. ' : '')
+            + 'Press Sync again once the credentials are right.'
+          : !iaProbe.ok && iaTcp && iaTcp.why === 'timed out'
+            ? `${iaTcp.meaning} `
+              + (couldBeSameService
+                ? 'It may also be the SAME database the app already uses, reached by its public address instead of its private one — every Railway Postgres has both. Check DATABASE_PUBLIC_URL on the Postgres service: if it is this host and port, this is the same empty database and the sync can never recover anything. '
+                : '')
+              + 'If that database is in this Railway project, put its private *.railway.internal address in IA_DATABASE_URL instead and press Sync again.'
+            : !iaProbe.ok && iaTcp && iaTcp.why === 'ECONNREFUSED'
+              ? `${iaTcp.meaning} Use the Discord forum import instead.`
+              : !iaProbe.ok
+                ? 'The IA database is unreachable. Either the service is stopped or deleted, or the host is wrong.'
+                : (iaCounts && Number(iaCounts.cases) > 0)
             ? `Reachable, and it is holding ${iaCounts.cases} case(s). Press "Sync IA cases & tickets" and they come across.`
             : 'Reachable, but there are no cases in it, so there is nothing for the sync to bring over.';
 
@@ -193,6 +267,9 @@ router.get('/db-targets', async (req, res) => {
     // sameHost is the cheap check; sameCluster is the real one and is null when
     // either side could not be asked. sameTarget prefers the real one.
     sameTarget, sameHost, sameCluster, couldBeSameService,
+    // The TCP probe is the one that tells "gone" from "blocked", which Prisma's
+    // error message cannot.
+    iaTcp,
     mainProbe, iaProbe, mainCounts, iaCounts, verdict,
   });
 });
