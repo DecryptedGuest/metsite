@@ -52,11 +52,27 @@ function ticketMatches(t, q) {
   return hay.indexOf(q.toLowerCase()) >= 0;
 }
 
+// Newest first, always. The server already orders by closedAt desc, but these
+// caches get merged and re-rendered after a review, and a table whose order
+// depends on which requests happened to land in which sequence is a table
+// nobody can trust. Sorting here says the order out loud instead.
+function byNewestFirst(a, b) {
+  var ta = a && a.closedAt ? Date.parse(a.closedAt) : 0;
+  var tb = b && b.closedAt ? Date.parse(b.closedAt) : 0;
+  if (!isFinite(ta)) ta = 0;
+  if (!isFinite(tb)) tb = 0;
+  if (tb !== ta) return tb - ta;
+  // Same instant (two tickets closed in the same second): fall back to the
+  // ticket number, so the order is at least stable between renders.
+  return (b.ticketNo || 0) - (a.ticketNo || 0);
+}
+
 function filterTickets(list, type, q, status) {
   return (list || [])
     .filter(function (t) { return type === 'all' || t.ticketType === type; })
     .filter(function (t) { return !status || status === 'all' || (t.status || 'PENDING') === status; })
-    .filter(function (t) { return ticketMatches(t, q); });
+    .filter(function (t) { return ticketMatches(t, q); })
+    .sort(byNewestFirst);
 }
 
 // The supervisor sign-off cell: buttons while it's pending (and you may act),
@@ -90,11 +106,37 @@ async function reviewTicket(ticketId, action) {
   }
 }
 
-// The number people actually read. Tickety's own id is a random string, so it
-// is kept on the row (and searchable) but never the thing shown in the table.
+// ── The two ids a ticket has ──────────────────────────────────────
+//
+// Tickety stamps every ticket with its OWN id, and that is the id that appears
+// in Discord, in the transcript and in Tickety's own dashboard — so that is the
+// id this column leads with. Anyone cross-referencing a ticket is holding the
+// Tickety id, not ours.
+//
+// The site's own sequential number stays alongside it: it is short enough to say
+// out loud, and it is the only id a log has at all when Tickety's embed didn't
+// print one. It reads low-to-high oldest-to-newest, so on a newest-first table
+// the biggest number is at the top.
+function ticketSeq(t) {
+  return t.ticketNo != null ? '#' + String(t.ticketNo).padStart(4, '0') : null;
+}
+
+// The single id to use where there is only room for one (modal headings, toasts).
 function ticketNumber(t) {
-  if (t.ticketNo != null) return '#' + String(t.ticketNo).padStart(4, '0');
-  return t.ticketRef || t.ticketName || '—';
+  return t.ticketRef || ticketSeq(t) || t.ticketName || '—';
+}
+
+// The table cell: Tickety's id, with ours underneath it when we have both.
+function ticketIdCell(t) {
+  var ref = t.ticketRef || null;
+  var seq = ticketSeq(t);
+  if (ref && seq) {
+    return '<span class="ticket-id-stack">'
+      + '<span class="case-ref" title="Tickety ticket ID">' + escapeHtml(ref) + '</span>'
+      + '<span class="ticket-seq" title="Ticket number on this site">' + escapeHtml(seq) + '</span>'
+      + '</span>';
+  }
+  return '<span class="case-ref">' + escapeHtml(ticketNumber(t)) + '</span>';
 }
 
 // Who handled it. Every fallback the server resolved, then the raw name the log
@@ -115,7 +157,7 @@ function ticketRowHtml(t, opts) {
   var creator = t.creatorRobloxUsername || t.creatorUsername || t.creatorDiscordId || '—';
   var closer  = ticketHandler(t);
   return '<tr onclick="openTicketDetail(\'' + t.id + '\')">'
-    + '<td><span class="case-ref">' + escapeHtml(ticketNumber(t)) + '</span></td>'
+    + '<td>' + ticketIdCell(t) + '</td>'
     + (opts.showCloser
         ? '<td><span style="font-size:12px;'
           + (closer === 'Not recorded' ? 'color:var(--text-muted);font-style:italic;' : '')
@@ -277,8 +319,12 @@ async function openTicketDetail(ticketId) {
 
   body.innerHTML = '<div class="detail-grid">'
     + field('Ticket', escapeHtml(t.ticketName || t.ticketRef || '—'), true)
+    // Both ids, spelled out. The Tickety id is the one that matches Discord and
+    // the transcript; ours is the one that is short enough to quote.
+    + field('Tickety ID', escapeHtml(t.ticketRef || '—'), true)
+    + field('Ticket number', escapeHtml(ticketSeq(t) || '—'), true)
     + field('Type', ticketTypeBadge(t.ticketType))
-    + field('Closed by', escapeHtml(t.closerUsername || t.closerDiscordId || '—'))
+    + field('Closed by', escapeHtml(ticketHandler(t)))
     + field('Closed at', formatDateTime(t.closedAt))
     + field('Status', statusBadge(t.status || 'PENDING'))
     + field('Reviewed by', escapeHtml(t.reviewedByName || '—')

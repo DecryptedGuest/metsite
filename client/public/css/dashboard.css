@@ -463,6 +463,22 @@
   font-weight: 500;
 }
 
+/* A ticket carries two ids: Tickety's own (what Discord and the transcript
+   show) and this site's sequential number. Stacked rather than side by side —
+   the column is narrow, and the second one is a footnote to the first. */
+.ticket-id-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+.ticket-seq {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
 .case-action-cell {
   font-weight: 500;
   color: var(--text-primary);

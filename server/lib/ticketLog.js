@@ -68,12 +68,34 @@ function ticketTypeFromName(name) {
 function flattenEmbed(embed) {
   if (!embed) return '';
   const parts = [];
+  // The author line. Some Tickety layouts put "Closed by <name>" up here rather
+  // than in the body, and leaving it out meant those logs named nobody at all —
+  // which is exactly what "Not recorded" on a row looks like from the outside.
+  if (embed.author?.name) parts.push(embed.author.name);
   if (embed.title) parts.push(embed.title);
   if (embed.description) parts.push(embed.description);
   const fields = embed.fields || [];
   for (const f of fields) {
-    if (f?.name)  parts.push(f.name);
-    if (f?.value) parts.push(f.value);
+    const name  = f?.name  ? String(f.name).trim()  : '';
+    const value = f?.value ? String(f.value).trim() : '';
+    if (name)  parts.push(name);
+    if (value) parts.push(value);
+    // Tickety has two field layouts, and only one of them was readable.
+    //
+    // The common one puts a whole section in one field — "Executor Information"
+    // as the name, "Executor: <@id>\nExecutor Username: @zep22" as the value —
+    // and every label there carries its own colon.
+    //
+    // The other puts ONE label per field: "Ticket ID" as the field name and the
+    // id as its value. Flattened, that is two separate lines with no colon
+    // between them, so the "Label: value" form every reader below looks for never
+    // appeared anywhere in the text — and a log in that layout yielded no ticket
+    // name, no reason, no creator and NO EXECUTOR. That is a whole layout's worth
+    // of rows reading "Not recorded". Joining the pair restores it.
+    //
+    // Single-line values only: a multi-line value is a section block, which
+    // already labels its own contents.
+    if (name && value && !value.includes('\n')) parts.push(name + ': ' + value);
   }
   if (embed.footer?.text) parts.push(embed.footer.text);
   return parts.join('\n');
@@ -91,6 +113,11 @@ function labelled(text, label) {
   return m ? m[1].replace(/\*+/g, '').trim() : null;
 }
 
+// Words a "closed by" phrase can produce that are not somebody's name. An
+// auto-closed ticket says "Closed by inactivity", and that is the log telling us
+// there was no executor, not telling us who it was.
+const NOT_A_PERSON = /^(?:unknown|none|nobody|n\/?a|null|nil|system|bot|inactivity|inactive|timeout|timed\s*out|auto(?:matic(?:ally)?)?(?:\s*clos(?:e|ed|ure))?|the\s+system|staff)$/i;
+
 // The first Discord user mention (<@id> / <@!id>) in a string, or null.
 function firstMentionId(s) {
   const m = String(s || '').match(/<@!?(\d{15,21})>/);
@@ -100,9 +127,14 @@ function firstMentionId(s) {
 // ── Parse a single ticket-log embed ───────────────────────────────
 // Returns a plain object of the fields we care about, or null if the embed
 // doesn't look like a Tickety closed-ticket log.
-function parseTicketLogEmbed(embed) {
-  const text = flattenEmbed(embed);
-  if (!text) return null;
+// `extraText` is anything outside the embed that belongs to the same log — in
+// practice the message's own content. Some Tickety configurations post the
+// sentence naming the closer as plain message text and keep only the ticket
+// details in the embed, so a parser that reads the embed alone finds no executor
+// on a message that plainly names one.
+function parseTicketLogEmbed(embed, extraText) {
+  const embedText = flattenEmbed(embed);
+  if (!embedText) return null;
 
   const footer = (embed?.footer?.text || '').toLowerCase();
   const title  = String(embed?.title || '');
@@ -110,13 +142,23 @@ function parseTicketLogEmbed(embed) {
   // of the sentence has changed between versions ("closed a ticket", "has closed
   // this ticket"), and some layouts carry only a Ticket ID rather than a name, so
   // matching on one phrase alone dropped whole batches of logs on the floor.
+  //
+  // Decided on the EMBED alone, deliberately. Text from outside it widens where
+  // the executor is looked for, below — it must not widen what counts as a ticket
+  // log, or an ordinary message that happens to mention closing a ticket next to
+  // some unrelated embed would be ingested as one.
   const looksLikeTickety =
-    /clos(?:ed|ing)\s+(?:a|this|the)\s+ticket/i.test(text) ||
-    /ticket\s*name\s*:/i.test(text) ||
-    /ticket\s*id\s*:/i.test(text) ||
+    /clos(?:ed|ing)\s+(?:a|this|the)\s+ticket/i.test(embedText) ||
+    /ticket\s*name\s*:/i.test(embedText) ||
+    /ticket\s*id\s*:/i.test(embedText) ||
     (/ticket/i.test(title) && /clos/i.test(title)) ||
     footer.includes('tickety');
   if (!looksLikeTickety) return null;
+
+  // Everything belonging to this log, embed and message content alike. Field
+  // extraction reads this; the classifier above did not.
+  const outside = String(extraText == null ? '' : extraText).trim();
+  const text = outside ? embedText + '\n' + outside : embedText;
 
   const ticketName = labelled(text, 'Ticket Name');
   const ticketId   = labelled(text, 'Ticket ID');
@@ -145,6 +187,10 @@ function parseTicketLogEmbed(embed) {
   // markup, leaving an empty string. Both halves now read the sentence.
   const closedBySentence = /<@!?(\d{15,21})>\s*(?:\([^)]*\)\s*)?(?:has\s+)?clos(?:ed|ing)\b/i.exec(text);
 
+  // "Closed by zep22", with no colon — how the embed's author line says it. The
+  // labelled reader needs a colon, so this shape was invisible to it.
+  const closedByPhrase = /clos(?:ed|ing)\s+by\s*:?\s*([^\n]+)/i.exec(text);
+
   const executorId =
        labelled(text, 'Executor ID')
     || labelled(text, 'Closer ID')
@@ -155,6 +201,7 @@ function parseTicketLogEmbed(embed) {
     || firstMentionId(labelled(text, 'Handled By')|| '')
     || firstMentionId(labelled(text, 'Staff')     || '')
     || firstMentionId(labelled(text, 'Moderator') || '')
+    || firstMentionId(closedByPhrase ? closedByPhrase[1] : '')
     || (closedBySentence ? closedBySentence[1] : null)
     // Last resort: the executor block by name, in case the label carries the
     // mention on the following line rather than after the colon.
@@ -185,6 +232,8 @@ function parseTicketLogEmbed(embed) {
     labelled(text, 'Handled By'),
     labelled(text, 'Staff'),
     labelled(text, 'Moderator'),
+    // "Closed by zep22" — no colon, so nothing above sees it.
+    closedByPhrase ? closedByPhrase[1] : null,
     // "<@id> has closed this ticket" — the optional "has" is part of the
     // sentence, not part of their name. Without it the capture ended up as the
     // literal word "has".
@@ -195,7 +244,13 @@ function parseTicketLogEmbed(embed) {
     const v = clean(c);
     // A bare id is not a name — the ingest already falls back to the id itself,
     // and storing it here would hide a real name found later.
-    if (v && !/^\d{15,21}$/.test(v)) { executorRaw = v; break; }
+    if (!v || /^\d{15,21}$/.test(v)) continue;
+    // Nor is "inactivity". A ticket closed automatically has no executor, and
+    // naming one after the reason it closed is worse than admitting the log
+    // recorded nobody — it puts a word in the Handled by column that somebody
+    // will read as a person.
+    if (NOT_A_PERSON.test(v)) continue;
+    executorRaw = v; break;
   }
 
   return {
@@ -211,6 +266,10 @@ function parseTicketLogEmbed(embed) {
     executorId,
     executorRaw,
     ticketType: ticketTypeFromName(effectiveName),
+    // Everything the log said, kept so a row that named nobody can be looked at
+    // later without another round trip to Discord. "Not recorded" is only worth
+    // fixing if you can see what shape the log that caused it was.
+    sourceText: text,
   };
 }
 

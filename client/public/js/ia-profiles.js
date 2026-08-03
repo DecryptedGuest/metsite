@@ -107,7 +107,7 @@
     const open = typeof window.openTicketDetail === 'function'
       ? ` onclick="iapOpenTicket('${esc(t.id)}')" style="cursor:pointer;" title="Open this ticket log"` : '';
     return `<tr class="iap-clickable"${open}>
-      <td><span class="case-ref">${esc(t.ticketNo ? '#' + String(t.ticketNo).padStart(4, '0') : (t.ticketRef || '—'))}</span></td>
+      <td><span class="case-ref">${esc(t.ticketRef || (t.ticketNo ? '#' + String(t.ticketNo).padStart(4, '0') : '—'))}</span></td>
       <td>${esc(t.ticketType || '—')}</td>
       <td>${esc(t.creatorRobloxUsername || '—')}</td>
       <td>${statusBadge(t.status)}</td>

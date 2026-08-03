@@ -104,7 +104,9 @@ router.get('/', async (req, res) => {
   try {
     const tickets = await prisma.ticketLog.findMany({
       where:   buildWhere(req, mineClause(req.user)),
-      orderBy: { closedAt: 'desc' },
+      // Newest first. `createdAt` breaks the tie when two tickets close in the
+      // same second, so the order doesn't quietly shuffle between requests.
+      orderBy: [{ closedAt: 'desc' }, { createdAt: 'desc' }],
       take:    take(req),
     });
     res.json(tickets);
@@ -119,7 +121,7 @@ router.get('/all', async (req, res) => {
   try {
     const tickets = await prisma.ticketLog.findMany({
       where:   buildWhere(req, null),
-      orderBy: { closedAt: 'desc' },
+      orderBy: [{ closedAt: 'desc' }, { createdAt: 'desc' }],
       take:    take(req, 1000),
     });
     res.json(tickets);
@@ -467,32 +469,61 @@ router.post('/clear-backlog', requireDeveloper, async (req, res) => {
 });
 
 // ── POST /api/tickets/backfill-numbers ────────────────────────────
-// Give a number to every log that has none.
+// Renumber every log in the order the tickets were closed.
 //
-// A deployment done with `prisma db push` gets the schema's columns but never
-// runs a migration's hand-written SQL — so ticketNo exists and the sequence
-// that fills it does not, and every row lands unnumbered. nextTicketNo() now
-// creates the sequence when it finds it missing; this numbers the rows that
-// were already stored without one, oldest first.
+// Two separate things went wrong with these numbers. A deployment done with
+// `prisma db push` gets the schema's columns but never runs a migration's
+// hand-written SQL, so ticketNo existed and the sequence that fills it did not,
+// and rows landed unnumbered. And the numbers that WERE handed out came out
+// backwards: they are assigned as rows are stored, and the channel is read
+// newest-message-first, so the newest ticket became #0001 and the oldest got the
+// highest number.
+//
+// Numbering the gaps cannot fix an ordering, so this reassigns the lot, oldest
+// closed ticket first. `?only=missing` keeps the old narrower behaviour.
 router.post('/backfill-numbers', requireHICOMMStrict, async (req, res) => {
   try {
-    const { backfillTicketNumbers } = require('../lib/ticketIngest');
-    const out = await backfillTicketNumbers();
+    const { backfillTicketNumbers, renumberTickets } = require('../lib/ticketIngest');
+    const onlyMissing = req.query.only === 'missing' || (req.body && req.body.only === 'missing');
+    const out = onlyMissing ? await backfillTicketNumbers() : await renumberTickets();
     const left = await prisma.ticketLog.count({ where: { ticketNo: null } });
-    res.json({ ...out, stillUnnumbered: left });
+    res.json({ ...out, onlyMissing, stillUnnumbered: left });
   } catch (err) {
-    console.error('[TicketLogs] number backfill error:', err.message);
+    console.error('[TicketLogs] renumber error:', err.message);
     res.status(500).json({ error: 'Failed to number the logs: ' + err.message });
   }
 });
 
 // ── POST /api/tickets/backfill-handlers ───────────────────────────
 // Fill in the handler on any row that has none, without touching status.
+//
+// `force` re-reads Discord even for rows a previous pass already wrote off as
+// naming nobody — which is what you want after the parser has changed, and only
+// then, since it costs a request per row.
 router.post('/backfill-handlers', requireHICOMMStrict, async (req, res) => {
   try {
     const { backfillHandlers } = require('../lib/ticketIngest');
-    const out = await backfillHandlers();
-    res.json(out);
+    const force = req.query.force === '1' || !!(req.body && req.body.force);
+    const out = await backfillHandlers((req.body && req.body.limit) || 5000, { refetch: true, force });
+    const blank = await prisma.ticketLog.count({
+      where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
+    });
+    // What the still-blank rows actually SAID. Every source has been tried on
+    // these, so the log itself named nobody — and the shape it used is the only
+    // thing that can tell us whether that is fixable or genuinely a log with no
+    // executor in it. Trimmed hard: this is a hint, not a dump.
+    const samples = await prisma.ticketLog.findMany({
+      where: { AND: [{ OR: [{ closerUsername: null }, { closerUsername: '' }] }] },
+      orderBy: { closedAt: 'desc' }, take: 5,
+      select: { id: true, messageId: true, ticketRef: true, closedAt: true, raw: true },
+    }).catch(() => []);
+    res.json({
+      ...out, force, blankHandlers: blank,
+      unattributedSamples: samples.map(s => ({
+        id: s.id, messageId: s.messageId, ticketRef: s.ticketRef, closedAt: s.closedAt,
+        said: s.raw && s.raw.noExecutor ? String(s.raw.noExecutor.text || '').slice(0, 400) : null,
+      })),
+    });
   } catch (err) {
     console.error('[TicketLogs] handler backfill error:', err.message);
     res.status(500).json({ error: 'Failed to fill in the handlers.' });
@@ -520,7 +551,7 @@ router.post('/repair', requireHICOMMStrict, async (req, res) => {
     const duplicates = await TI.mergeDuplicates({ dryRun, limit: (req.body || {}).limit });
     const handlers = dryRun
       ? { skipped: 'dry run' }
-      : await TI.backfillHandlers((req.body || {}).handlerLimit || 5000, { refetch: true });
+      : await TI.backfillHandlers((req.body || {}).handlerLimit || 5000, { refetch: true, force: true });
     const blankAfter = await prisma.ticketLog.count({
       where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
     });

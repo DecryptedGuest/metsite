@@ -35,7 +35,11 @@ async function rowFromMessage(msg) {
 
   let parsed = null;
   for (const embed of (msg.embeds || [])) {
-    const p = parseTicketLogEmbed(embed);
+    // The message's own content counts as part of the log. Some Tickety
+    // configurations put the sentence naming the closer there and leave only the
+    // ticket details in the embed, and reading the embed alone found no executor
+    // on a message that named one in plain sight.
+    const p = parseTicketLogEmbed(embed, msg.content || '');
     if (p) { parsed = p; break; }
   }
   if (!parsed) return null;
@@ -76,6 +80,15 @@ async function rowFromMessage(msg) {
   // no site account, which is normal and only affects "My Tickets".
   let closerUserId = null, closerUsername = null;
   const closerRaw = parsed.executorRaw || null;
+
+  // The log named nobody. One more place to look before giving up: if the log was
+  // posted in response to somebody running a command or pressing a button, the
+  // gateway tells us who that was, and that person is who closed the ticket.
+  if (!parsed.executorId) {
+    const via = msg.interactionMetadata || msg.interaction || null;
+    const uid = via && (via.user?.id ?? via.userId ?? via.authorizingUserId ?? null);
+    if (uid && /^\d{15,21}$/.test(String(uid))) parsed.executorId = String(uid);
+  }
 
   if (parsed.executorId) {
     try {
@@ -133,6 +146,16 @@ async function rowFromMessage(msg) {
       oldName:    parsed.oldName || null,
       newName:    parsed.newName || null,
       creatorRaw: parsed.creatorRaw || null,
+      // Only when nobody could be identified. Every source has been tried by
+      // this point, so a blank here is the log's own fault — and the only way to
+      // fix a parser for a shape you cannot see is to keep the shape. Bounded,
+      // because this is a diagnostic, not an archive.
+      ...(closerUsername ? {} : {
+        noExecutor: {
+          at:   new Date().toISOString(),
+          text: String(parsed.sourceText || '').slice(0, 1500),
+        },
+      }),
     },
   };
 }
@@ -205,6 +228,58 @@ async function backfillTicketNumbers(limit = 20000) {
   }
   console.log(`[TicketLogs] numbered ${numbered} log(s) that had none`);
   return { numbered };
+}
+
+/**
+ * Renumber EVERY log in the order the tickets were actually closed.
+ *
+ * The numbers came out backwards, and there was never a way for them not to.
+ * Numbers are handed out by a sequence as rows are stored, and the sweep reads
+ * the Discord channel the way Discord serves it — newest message first — so the
+ * newest ticket in the channel was the first row created and got #0001, and the
+ * oldest ticket got the highest number. On a newest-first table that reads as a
+ * countdown, which is the opposite of what a ticket number is for.
+ *
+ * Nothing incremental fixes that: the order the rows were CREATED in is wrong,
+ * so the numbers have to be reassigned from the one ordering that means
+ * something — closedAt, ascending. Oldest ticket is #0001, and the newest
+ * ticket therefore carries the highest number, at the top of the table.
+ *
+ * Done in two statements because ticketNo is UNIQUE: assigning 1..N while some
+ * row still holds a number in that range would collide, so every existing
+ * number is parked a billion higher first, leaving 1..N free. The sequence is
+ * then set past the new maximum so live ingests carry on above it.
+ */
+async function renumberTickets() {
+  const total = await prisma.ticketLog.count();
+  if (!total) return { renumbered: 0, total: 0 };
+
+  // Park the current numbers out of the way. The `< 1000000000` guard makes this
+  // safe to run twice — a second pass finds nothing left to park.
+  await prisma.$executeRawUnsafe(
+    `UPDATE ticket_logs SET "ticketNo" = "ticketNo" + 1000000000
+      WHERE "ticketNo" IS NOT NULL AND "ticketNo" < 1000000000`);
+
+  // Oldest closed ticket first. createdAt then id break ties, so two tickets
+  // closed in the same second always come out in the same order.
+  const renumbered = await prisma.$executeRawUnsafe(
+    `UPDATE ticket_logs t SET "ticketNo" = s.rn
+       FROM (SELECT id, row_number() OVER (ORDER BY "closedAt" ASC, "createdAt" ASC, id ASC) AS rn
+               FROM ticket_logs) s
+      WHERE t.id = s.id`);
+
+  // And leave the sequence above the new top, or the next live ingest hands out
+  // a number that is already taken.
+  try {
+    await prisma.$executeRawUnsafe(`CREATE SEQUENCE IF NOT EXISTS ticket_log_no_seq`);
+    await prisma.$queryRawUnsafe(
+      `SELECT setval('ticket_log_no_seq', GREATEST((SELECT COALESCE(MAX("ticketNo"), 0) FROM ticket_logs), 1), true)`);
+  } catch (e) {
+    console.warn('[TicketLogs] renumbered, but could not move the sequence:', e.message);
+  }
+
+  console.log(`[TicketLogs] renumbered ${renumbered} log(s) oldest-first — #0001 is now the oldest ticket`);
+  return { renumbered: Number(renumbered) || 0, total };
 }
 
 /**
@@ -625,14 +700,41 @@ async function mergeDuplicates(opts = {}) {
  * @param {boolean} [opts.refetch=true] allow stage 2
  * @returns {Promise<{ fixed: number, refetched: number, stillBlank: number, checked: number }>}
  */
+// Rows whose handler column is empty — the ones that render as "Not recorded".
+const BLANK_HANDLER = { OR: [{ closerUsername: null }, { closerUsername: '' }] };
+
+// Where the rotating pass got to. The sweep only takes a small slice each time,
+// and it used to take the SAME slice each time: the newest blank rows, ordered by
+// closedAt desc, take 25. When those 25 are genuinely unattributable — a log that
+// named nobody, a message since deleted — the sweep re-checked exactly those 25
+// every five minutes forever and never looked at row 26. Every fixable row below
+// them stayed "Not recorded" indefinitely, which is the bug.
+let _handlerCursor = 0;
+
 async function backfillHandlers(limit = 5000, opts = {}) {
   const allowRefetch = opts.refetch !== false;
+  const rotate       = opts.rotate === true;
+  // Re-reading Discord for a row we already re-read, and which already told us
+  // the log names nobody, is a wasted request every time. `force` is for when the
+  // parser itself has changed and the answer might genuinely differ.
+  const force        = opts.force === true;
+
+  if (rotate) {
+    const blank = await prisma.ticketLog.count({ where: BLANK_HANDLER }).catch(() => 0);
+    if (!blank || _handlerCursor >= blank) _handlerCursor = 0;
+  }
+
   const rows = await prisma.ticketLog.findMany({
-    where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
-    orderBy: { closedAt: 'desc' },
+    where: BLANK_HANDLER,
+    orderBy: [{ closedAt: 'desc' }, { id: 'asc' }],
     take: limit,
+    skip: rotate ? _handlerCursor : 0,
   });
-  let fixed = 0, refetched = 0, stillBlank = 0;
+  // Advance past what we just looked at, so the next sweep starts where this one
+  // stopped and the whole table gets covered.
+  if (rotate) _handlerCursor = rows.length < limit ? 0 : _handlerCursor + rows.length;
+
+  let fixed = 0, refetched = 0, stillBlank = 0, skippedProbed = 0;
 
   for (const r of rows) {
     let name = null;
@@ -658,8 +760,9 @@ async function backfillHandlers(limit = 5000, opts = {}) {
       name = r.closerRaw;
     }
 
-    // Stage 2 — the row stores no executor at all. The message does.
-    if (!name && allowRefetch && r.messageId) {
+    // Stage 2 — the row stores no executor at all. The message might.
+    const probed = !!(r.raw && r.raw.noExecutor);
+    if (!name && allowRefetch && r.messageId && (force || !probed)) {
       try {
         const fresh = await rowFromMessageId(r.messageId, r.channelId);
         if (fresh) {
@@ -669,11 +772,28 @@ async function backfillHandlers(limit = 5000, opts = {}) {
           if (fresh.closerRaw)       patch.closerRaw       = fresh.closerRaw;
           if (fresh.closerUserId)    patch.closerUserId    = fresh.closerUserId;
           if (name) refetched++;
+          // It named nobody. Keep what it DID say, and the fact that we looked,
+          // so this row stops costing a Discord request on every future pass and
+          // somebody can see what shape defeated the parser.
+          else if (fresh.raw && fresh.raw.noExecutor) {
+            patch.raw = { ...(r.raw || {}), noExecutor: fresh.raw.noExecutor };
+          }
         }
       } catch (e) { /* the message may be gone — that is a real dead end */ }
+    } else if (!name && probed) {
+      skippedProbed++;
     }
 
-    if (!name) { stillBlank++; continue; }
+    if (!name) {
+      stillBlank++;
+      // Record the dead end even when there is nothing to name, so the next pass
+      // knows not to try again.
+      if (patch.raw) {
+        try { await prisma.ticketLog.update({ where: { id: r.id }, data: { raw: patch.raw } }); }
+        catch (e) { /* diagnostics are not worth failing over */ }
+      }
+      continue;
+    }
     try {
       await prisma.ticketLog.update({ where: { id: r.id }, data: { ...patch, closerUsername: name } });
       fixed++;
@@ -681,8 +801,11 @@ async function backfillHandlers(limit = 5000, opts = {}) {
   }
 
   console.log(`[TicketLogs] handler backfill — ${fixed} filled (${refetched} by re-reading Discord), `
-    + `${stillBlank} still unattributable of ${rows.length}`);
-  return { fixed, refetched, stillBlank, checked: rows.length };
+    + `${stillBlank} still unattributable of ${rows.length}`
+    + (skippedProbed ? `, ${skippedProbed} already known to name nobody` : '')
+    + (rotate ? `, next pass resumes at ${_handlerCursor}` : ''));
+  return { fixed, refetched, stillBlank, skippedProbed, checked: rows.length,
+           resumeAt: rotate ? _handlerCursor : null };
 }
 
 /**
@@ -899,6 +1022,24 @@ async function sweep(client, opts) {
   try {
     const s = await backfill(client, opts);
 
+    // A sweep that stored several logs at once has just inserted rows in the
+    // order Discord serves them, which is newest first — so their numbers came
+    // out backwards relative to each other, and relative to anything older that
+    // turned up on a later page. Reassign them in closed order.
+    //
+    // Only for a bulk create. The live path stores one message at a time, and one
+    // new message is always the newest ticket, so the sequence already puts it in
+    // the right place; renumbering the whole table for that would be a large
+    // write every five minutes for no gain.
+    if (s.created > 1) {
+      try {
+        const r = await renumberTickets();
+        if (r.renumbered) s.renumbered = r.renumbered;
+      } catch (e) {
+        console.warn('[TicketLogs] could not renumber after the sweep:', e.message);
+      }
+    }
+
     // Repair any blank handler on every sweep, not only when somebody presses a
     // button. A column that has to name somebody cannot depend on a human
     // noticing it is empty — the sweep runs every five minutes, so a row that
@@ -910,7 +1051,12 @@ async function sweep(client, opts) {
       // is a background job with nobody waiting on it — but only 25 rows of it,
       // so a channel full of unattributable logs is chipped away at over
       // several sweeps rather than stalling one.
-      const h = await backfillHandlers(25);
+      //
+      // `rotate` is what makes "over several sweeps" true. Without it every sweep
+      // took the same newest 25 blank rows, so a handful of permanently
+      // unattributable logs at the top blocked every fixable row underneath them
+      // from ever being looked at.
+      const h = await backfillHandlers(25, { rotate: true });
       if (h.fixed) s.handlersFixed = h.fixed;
       if (h.stillBlank) s.handlersBlank = h.stillBlank;
     } catch (e) {
@@ -939,7 +1085,11 @@ async function sweep(client, opts) {
 // Stamped by VERSION, not by a boolean: if a later fix needs another pass, the
 // version goes up and it runs once more.
 const REPAIR_KEY = 'ticketLogRepairVersion';
-const REPAIR_VERSION = '2';
+// 3 — renumber every log in closed order (they were numbered backwards, newest
+//     first, because that is the order the channel is read in) and re-read the
+//     logs that still name nobody, now that the parser also looks at the embed
+//     author line and the message's own text.
+const REPAIR_VERSION = '3';
 
 async function repairOnce(client) {
   let done = null;
@@ -953,8 +1103,15 @@ async function repairOnce(client) {
   const duplicates = await mergeDuplicates({ limit: 5000 }).catch(e => ({ error: e.message }));
   // The refetch is what actually fixes a handler: the stored columns never had
   // the executor, so it has to be re-read off the original message with the
-  // parser as it is now.
-  const handlers = await backfillHandlers(8000, { refetch: true }).catch(e => ({ error: e.message }));
+  // parser as it is now. `force` because this repair EXISTS to carry a parser
+  // change — a row previously written off as naming nobody may well name
+  // somebody once the author line and the message text are read too.
+  const handlers = await backfillHandlers(8000, { refetch: true, force: true })
+    .catch(e => ({ error: e.message }));
+
+  // Last, because merging duplicates removes rows and the numbers have to be
+  // contiguous over what survives.
+  const numbers = await renumberTickets().catch(e => ({ error: e.message }));
 
   try {
     await prisma.systemSetting.upsert({
@@ -965,8 +1122,9 @@ async function repairOnce(client) {
   } catch (e) { console.warn('[TicketLogs] could not stamp the repair:', e.message); }
 
   console.log(`[TicketLogs] repair done — ${duplicates.removed || 0} duplicate row(s) removed, `
-    + `${handlers.fixed || 0} handler(s) filled in, ${handlers.stillBlank || 0} still blank`);
-  return { duplicates, handlers };
+    + `${handlers.fixed || 0} handler(s) filled in, ${handlers.stillBlank || 0} still blank, `
+    + `${numbers.renumbered || 0} log(s) renumbered oldest-first`);
+  return { duplicates, handlers, numbers };
 }
 
 function startTicketLogWorker(client) {
@@ -980,7 +1138,7 @@ function startTicketLogWorker(client) {
 }
 
 module.exports = {
-  nextTicketNo, backfillTicketNumbers, clearBacklogBefore, probeTicketTable, backfillHandlers, rowFromMessageId,
+  nextTicketNo, backfillTicketNumbers, renumberTickets, clearBacklogBefore, probeTicketTable, backfillHandlers, rowFromMessageId,
   mergeDuplicates, findExistingRow, repairOnce, REPAIR_KEY, REPAIR_VERSION,
   backlogClearedAt, setBacklogClearedAt, statusForNewRow,
   // Tests only: the watermark is cached for the life of the process.
