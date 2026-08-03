@@ -357,6 +357,25 @@
 
   function renderBlocked(host) {
     var pending = meta.pending;
+    // Closed is its own state, not a refusal. "You cannot apply right now" reads
+    // as though something is wrong with the person; recruitment being shut is a
+    // fact about Internal Affairs, and the useful thing to say is to come back.
+    if (meta.closed) {
+      host.innerHTML = '<div class="panel glass iaa-state">'
+        + '<div class="big">🔒</div>'
+        + '<h2>Applications are closed</h2>'
+        + '<p>Internal Affairs is not taking applications at the moment.</p>'
+        + (meta.closedNote
+            ? '<p class="iaa-closed-note">' + esc(meta.closedNote) + '</p>'
+            : '<p style="color:var(--text-muted);font-size:12.5px;">'
+              + 'They open again when the next intake starts. Keep an eye on the MET server.</p>')
+        + (meta.hasDraft
+            ? '<p style="color:var(--text-muted);font-size:12.5px;">'
+              + 'Anything you had already written is saved and will be here when they reopen.</p>'
+            : '')
+        + '</div>';
+      return;
+    }
     host.innerHTML = '<div class="panel glass iaa-state">'
       + '<div class="big">' + (pending ? '⏳' : '🚫') + '</div>'
       + '<h2>' + (pending ? 'Already with Internal Affairs' : 'You cannot apply right now') + '</h2>'

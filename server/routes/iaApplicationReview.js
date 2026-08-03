@@ -62,6 +62,48 @@ function summarise(row) {
   };
 }
 
+// ── GET /gate ─────────────────────────────────────────────────────
+// Whether applications are being taken, and what an applicant is told while
+// they are not. Behind the same Deputy-Director gate as everything else here.
+router.get('/gate', async (req, res) => {
+  try { res.json(await app.gateState()); }
+  catch (err) {
+    console.error('[IA app review] gate read failed:', err.message);
+    res.status(500).json({ error: 'Could not read whether applications are open.' });
+  }
+});
+
+// ── POST /gate ────────────────────────────────────────────────────
+// Open or close them. Closing does NOT touch anybody's work: drafts are kept and
+// applications already submitted still need marking. It stops new ones arriving,
+// which is the whole point of closing during an intake.
+router.post('/gate', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (typeof body.open !== 'boolean') {
+      return res.status(400).json({ error: 'Say whether applications should be open, as { "open": true }.' });
+    }
+    const before = await app.gateState();
+    const state = await app.setGate(body.open, body.note);
+    // Recorded under SECURITY so it persists: "why could nobody apply for a
+    // fortnight" is a question somebody eventually asks.
+    if (before.open !== state.open) {
+      audit.log(req.user, {
+        category: 'SECURITY',
+        action: state.open ? 'IA_APPLICATIONS_OPENED' : 'IA_APPLICATIONS_CLOSED',
+        summary: state.open
+          ? 'Reopened Internal Affairs applications'
+          : 'Closed Internal Affairs applications'
+            + (state.note ? ` — applicants are told: ${state.note}` : ''),
+      });
+    }
+    res.json(state);
+  } catch (err) {
+    console.error('[IA app review] gate write failed:', err.message);
+    res.status(500).json({ error: 'Could not change whether applications are open.' });
+  }
+});
+
 // ── GET /queue ────────────────────────────────────────────────────
 router.get('/queue', async (req, res) => {
   try {

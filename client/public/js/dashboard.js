@@ -126,16 +126,22 @@ async function refreshNavBadges() {
     // alongside cases, because "Pending" is one queue as far as anybody
     // glancing at the sidebar is concerned.
     if (window.canReviewCasework) {
-      const ev = await api('/api/ia-events/pending-count').catch(() => null);
-      if (ev) {
-        setBadge('pending-events-badge', ev.pending || 0);
-        setBadge('readonly-pending-badge', ev.pending || 0);
-        const nav = document.getElementById('nav-badge-review');
-        if (nav && caseStats) {
-          const total = (caseStats.pending || 0) + (ev.pending || 0);
-          nav.textContent = total;
-          nav.style.display = total > 0 ? '' : 'none';
-        }
+      const [ev, pt] = await Promise.all([
+        api('/api/ia-events/pending-count').catch(() => null),
+        api('/api/ia-patrols/pending-count').catch(() => null),
+      ]);
+      if (ev) setBadge('pending-events-badge', ev.pending || 0);
+      if (pt) setBadge('pending-patrols-badge', pt.pending || 0);
+      // The sidebar badge is one number for one queue: cases, events and patrols
+      // are all "waiting on a supervisor" as far as anybody glancing at it is
+      // concerned. Counting only two of the three understates the backlog.
+      const logs = (ev ? ev.pending || 0 : 0) + (pt ? pt.pending || 0 : 0);
+      if (ev || pt) setBadge('readonly-pending-badge', logs);
+      const nav = document.getElementById('nav-badge-review');
+      if (nav && caseStats && (ev || pt)) {
+        const total = (caseStats.pending || 0) + logs;
+        nav.textContent = total;
+        nav.style.display = total > 0 ? '' : 'none';
       }
     }
   } catch (e) { /* non-blocking */ }
@@ -296,6 +302,8 @@ const CASEWORK_COPY = {
   'tickets:mine': ['My Tickets',  'Tickets you closed'],
   'events:all':   ['Event Logs',  'Every event Internal Affairs has run'],
   'events:mine':  ['Event Logs',  'Events you hosted'],
+  'patrols:all':  ['Patrol Logs', 'Every patrol Internal Affairs has filed'],
+  'patrols:mine': ['Patrol Logs', 'Patrols you went out on'],
 };
 
 function applyCaseworkSelector() {
@@ -310,6 +318,9 @@ function applyCaseworkSelector() {
     // An event is hosted rather than filed against somebody, so one pane
     // serves both scopes — its own All/Mine filter does the narrowing.
     'events:all':   'cw-events',      'events:mine':  'cw-events',
+    // Same for a patrol: it is filed BY somebody rather than against them, so
+    // one pane serves both scopes and its own All/Mine filter narrows it.
+    'patrols:all':  'cw-patrols',     'patrols:mine': 'cw-patrols',
   };
   const want = PANES[`${caseworkKind}:${caseworkScope}`];
   Object.values(PANES).forEach(id => {
@@ -329,6 +340,8 @@ function applyCaseworkSelector() {
   if (sync && sync.dataset.allowed === '1') sync.style.display = caseworkKind === 'tickets' ? '' : 'none';
   const newEv = document.getElementById('btn-new-event');
   if (newEv) newEv.style.display = (caseworkKind === 'events' && window.canFileEvents) ? '' : 'none';
+  const newPt = document.getElementById('btn-new-patrol');
+  if (newPt) newPt.style.display = (caseworkKind === 'patrols' && window.canFilePatrols) ? '' : 'none';
 
   // The archive is read-only, and that is not obvious to somebody who can
   // decide things elsewhere.
@@ -348,6 +361,7 @@ function setCaseworkScope(scope){
 // Only the pane on screen is loaded. Switching panes loads the other.
 function loadCasework() {
   if (caseworkKind === 'events') return (typeof loadIaEvents === 'function') ? loadIaEvents() : null;
+  if (caseworkKind === 'patrols') return (typeof loadIaPatrols === 'function') ? loadIaPatrols() : null;
   if (caseworkKind === 'cases')  return caseworkScope === 'all' ? loadAllCases() : loadMyCases();
   return caseworkScope === 'all' ? loadAllTickets() : loadTickets();
 }
@@ -355,7 +369,8 @@ function loadCasework() {
 function applyPendingSelector() {
   document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.pkind === pendingKind));
-  [['pend-cases', 'cases'], ['pend-tickets', 'tickets'], ['pend-events', 'events']].forEach(([id, kind]) => {
+  [['pend-cases', 'cases'], ['pend-tickets', 'tickets'], ['pend-events', 'events'],
+   ['pend-patrols', 'patrols']].forEach(([id, kind]) => {
     const el = document.getElementById(id);
     if (el) el.style.display = pendingKind === kind ? '' : 'none';
   });
@@ -366,6 +381,7 @@ function setPendingKind(kind) { pendingKind = kind; applyPendingSelector(); load
 function loadPending() {
   if (pendingKind === 'cases')  return loadReview();
   if (pendingKind === 'events') return (typeof loadPendingIaEvents === 'function') ? loadPendingIaEvents() : null;
+  if (pendingKind === 'patrols') return (typeof loadPendingIaPatrols === 'function') ? loadPendingIaPatrols() : null;
   return typeof loadPendingTickets === 'function' ? loadPendingTickets() : null;
 }
 

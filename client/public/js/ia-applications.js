@@ -499,8 +499,85 @@
     }
   }
 
+  // ── Open or closed ──────────────────────────────────────────────
+  // The only control on this page that changes something outside it, so it says
+  // plainly what closing does and does not do. People do not close recruitment
+  // expecting to lose the applications already in the queue.
+  var gate = null;
+
+  function renderGate() {
+    var box = document.getElementById('iar-gate');
+    if (!box || !gate) return;
+    box.style.display = '';
+    box.classList.toggle('closed', !gate.open);
+    box.classList.toggle('open', !!gate.open);
+    document.getElementById('iar-gate-state').textContent =
+      gate.open ? 'Applications are open' : 'Applications are closed';
+    document.getElementById('iar-gate-sub').textContent = gate.open
+      ? 'Anybody eligible can start one.'
+      : 'Nobody new can start or send one. Drafts and the queue are untouched.';
+    var note = document.getElementById('iar-gate-note');
+    if (note && note.value !== gate.note) note.value = gate.note || '';
+    var btn = document.getElementById('iar-gate-btn');
+    btn.className = 'btn btn-sm ' + (gate.open ? 'btn-ghost' : 'btn-success');
+    btn.innerHTML = gate.open
+      ? '<i class="ti ti-lock"></i> Close applications'
+      : '<i class="ti ti-lock-open"></i> Open applications';
+  }
+
+  async function loadGate() {
+    try { gate = await api('/api/ia-application-review/gate'); renderGate(); }
+    catch (err) { /* the queue is still usable */ }
+  }
+
+  async function toggleGate() {
+    if (!gate) return;
+    var closing = gate.open;
+    var note = document.getElementById('iar-gate-note');
+    if (closing) {
+      var yes = await (typeof uiConfirm === 'function'
+        ? uiConfirm('Nobody new will be able to start or send an application.\n\n'
+            + 'Everything already here stays: drafts are kept, and the applications '
+            + 'waiting in the queue still need marking.',
+            { title: 'Close applications?', confirmText: 'Close them',
+              cancelText: 'Leave them open', icon: 'ti-lock' })
+        : Promise.resolve(confirm('Close applications?')));
+      if (!yes) return;
+    }
+    var btn = document.getElementById('iar-gate-btn');
+    var was = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div>';
+    try {
+      gate = await api('/api/ia-application-review/gate', {
+        method: 'POST',
+        body: JSON.stringify({ open: !closing, note: note ? note.value : '' }),
+      });
+      renderGate();
+      showToast(gate.open ? 'Applications are open again.' : 'Applications are closed.', 'success');
+    } catch (err) {
+      showToast(err.message || 'Could not change that.', 'error');
+    } finally {
+      btn.disabled = false;
+      if (!gate) btn.innerHTML = was;
+    }
+  }
+
   (async function init() {
-    await loadStats();
+    var gb = document.getElementById('iar-gate-btn');
+    if (gb) gb.addEventListener('click', toggleGate);
+    // Saving the note while closed takes effect without reopening and reclosing.
+    var gn = document.getElementById('iar-gate-note');
+    if (gn) gn.addEventListener('change', async function () {
+      if (!gate || gate.open) return;
+      try {
+        gate = await api('/api/ia-application-review/gate',
+          { method: 'POST', body: JSON.stringify({ open: false, note: gn.value }) });
+        renderGate();
+        showToast('Saved what applicants are told.', 'success');
+      } catch (err) { showToast(err.message || 'Could not save that.', 'error'); }
+    });
+    await Promise.all([loadStats(), loadGate()]);
     await loadQueue();
   })();
 })();

@@ -114,13 +114,26 @@ async function contextFor(user) {
 
 // ── Eligibility ───────────────────────────────────────────────────
 async function eligibility(user) {
-  if (user.isBlacklisted) {
-    return { canApply: false, why: 'Your account is blacklisted, so an application cannot be considered.' };
-  }
-  // Somebody already in Internal Affairs is not an applicant.
+  // Somebody already in Internal Affairs is not an applicant, and telling them
+  // recruitment is closed would be answering a question they did not ask.
   const divs = Array.isArray(user.divisions) ? user.divisions : [];
   if (divs.some(d => d && d.division === 'IA') || ['IA', 'SUPERVISOR', 'HICOMM'].includes(user.role)) {
     return { canApply: false, why: 'You are already in Internal Affairs.' };
+  }
+  // The gate, checked here because every write path goes through this function —
+  // /meta, /draft and /submit alike. Putting it only on the page would be a sign
+  // on a door that is not locked.
+  const gate = await app.gateState();
+  if (!gate.open) {
+    return {
+      canApply: false,
+      closed: true,
+      closedNote: gate.note || '',
+      why: 'Internal Affairs applications are closed at the moment.',
+    };
+  }
+  if (user.isBlacklisted) {
+    return { canApply: false, why: 'Your account is blacklisted, so an application cannot be considered.' };
   }
   // One live application at a time. A second one while the first is being read
   // is not more chances, it is two markers doing the same work.

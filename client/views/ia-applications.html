@@ -129,6 +129,22 @@
                     text-transform: uppercase; margin: 0 0 .5rem; color: var(--text-primary); }
     .iar-state p { font-size: 13px; color: var(--text-secondary); line-height: 1.75; max-width: 48ch; margin: 0 auto; }
 
+
+    /* The open/closed control. Deliberately at the top and deliberately loud
+       when it is closed — a shut intake that nobody remembers shutting is how a
+       recruitment round quietly loses a fortnight. */
+    .iar-gate { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap;
+                border: 1px solid var(--border-dim); border-radius: var(--radius-md);
+                padding: .8rem 1rem; margin-bottom: 1.1rem; background: rgba(46,216,150,.05); }
+    .iar-gate.closed { background: rgba(245,183,48,.07); border-color: rgba(245,183,48,.32); }
+    .iar-gate-main { min-width: 210px; }
+    .iar-gate-state { font-family: var(--font-display); font-size: 13px; letter-spacing: .06em;
+                      text-transform: uppercase; color: var(--green); }
+    .iar-gate.closed .iar-gate-state { color: var(--amber); }
+    .iar-gate-sub { font-size: 11.5px; color: var(--text-muted); line-height: 1.6; margin-top: 2px; }
+    .iar-gate-note { flex: 1 1 260px; font-size: 12.5px; }
+    .iar-gate.open .iar-gate-note { display: none; }
+    @media (max-width: 620px) { .iar-gate { gap: .6rem; } }
     @media (max-width: 620px) {
       .iar-wrap { padding: 1rem .8rem 6rem; }
       .iar-row { gap: .5rem; }
@@ -146,6 +162,19 @@
       </div>
       <span class="spacer"></span>
       <a class="btn btn-ghost btn-sm" href="/ia/dashboard"><i class="ti ti-arrow-left"></i> Dashboard</a>
+    </div>
+
+    <!-- Whether applications are being taken at all. Deputy Director and above,
+         the same gate the rest of this page is behind. Closing it keeps every
+         draft and every application already submitted; it only stops new ones. -->
+    <div class="iar-gate" id="iar-gate" style="display:none;">
+      <div class="iar-gate-main">
+        <div class="iar-gate-state" id="iar-gate-state">—</div>
+        <div class="iar-gate-sub" id="iar-gate-sub"></div>
+      </div>
+      <input type="text" class="form-control iar-gate-note" id="iar-gate-note" maxlength="300"
+             placeholder="What applicants are told while closed (optional)" autocomplete="off" />
+      <button class="btn btn-sm" id="iar-gate-btn"></button>
     </div>
 
     <div id="iar-body"><div class="iar-state"><div class="spinner"></div></div></div>

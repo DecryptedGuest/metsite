@@ -609,6 +609,65 @@ function sanitiseAnswers(answers) {
   return out;
 }
 
+
+// ── Open or closed ────────────────────────────────────────────────
+// Deputy Director and above can stop taking applications, which is a real thing
+// a recruitment round needs: an intake with forty applications waiting does not
+// want a forty-first arriving while they are being read.
+//
+// Read from the database rather than from the cached site config, and read on
+// every check. This is a gate, and a gate answering from a cache that refreshes
+// on a timer would keep letting applications in for minutes after somebody
+// closed it — which is exactly the window they closed it to stop.
+//
+// Default OPEN. A missing row means nobody has ever touched the toggle, and a
+// deploy must not silently close recruitment.
+const OPEN_KEY = 'iaApplicationsOpen';
+const NOTE_KEY = 'iaApplicationsClosedNote';
+
+async function gateState() {
+  const prisma = require('./db');
+  try {
+    const rows = await prisma.systemSetting.findMany({
+      where: { key: { in: [OPEN_KEY, NOTE_KEY] } },
+      select: { key: true, value: true, updatedAt: true },
+    });
+    const by = {};
+    rows.forEach(r => { by[r.key] = r; });
+    const raw = by[OPEN_KEY] ? String(by[OPEN_KEY].value) : null;
+    return {
+      // Anything other than an explicit "false"/"0" is open, so a malformed
+      // value fails towards taking applications rather than towards a silent
+      // closure nobody notices for a week.
+      open: !(raw === 'false' || raw === '0'),
+      note: by[NOTE_KEY] ? String(by[NOTE_KEY].value || '') : '',
+      changedAt: by[OPEN_KEY] ? by[OPEN_KEY].updatedAt : null,
+    };
+  } catch (e) {
+    // The gate cannot read its own state. Staying open is the safer failure:
+    // refusing every applicant because of a database blip is worse than taking
+    // one more application than intended.
+    console.warn('[IA app] could not read the application gate:', e.message);
+    return { open: true, note: '', changedAt: null, unknown: true };
+  }
+}
+
+/** Set the gate. `note` is what an applicant is shown while it is closed. */
+async function setGate(open, note) {
+  const prisma = require('./db');
+  const val = open ? 'true' : 'false';
+  await prisma.systemSetting.upsert({
+    where: { key: OPEN_KEY }, update: { value: val }, create: { key: OPEN_KEY, value: val },
+  });
+  if (note != null) {
+    const text = String(note).replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 300);
+    await prisma.systemSetting.upsert({
+      where: { key: NOTE_KEY }, update: { value: text }, create: { key: NOTE_KEY, value: text },
+    });
+  }
+  return gateState();
+}
+
 module.exports = {
   TYPES, MAX_CHARS, EXPECTED_PAGES, PASS_PERCENT, POINTS_PER_QUESTION, SECTIONS,
   GUIDELINES, NOTICES,
@@ -617,4 +676,5 @@ module.exports = {
   publicPaper, markerPaper,
   countWords, countSentences,
   validate, stopFor, sanitiseAnswers,
+  gateState, setGate, OPEN_KEY, NOTE_KEY,
 };
