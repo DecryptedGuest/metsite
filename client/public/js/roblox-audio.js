@@ -11,6 +11,7 @@ let raQueue = [];        // [{ file, name }]
 let raCred  = null;
 
 const RA_MAX_MB = 20;
+const RA_EXTS = ['.mp3', '.ogg', '.wav', '.flac'];
 
 // ── Credential ────────────────────────────────────────────────────
 
@@ -44,8 +45,8 @@ function raCreatorChanged() {
     if (lbl)  lbl.textContent = 'Roblox user ID';
     if (inp)  inp.placeholder = 'e.g. 1234567';
     if (hint) hint.textContent = raKind === 'apikey'
-      ? 'Required — Open Cloud will not guess whose account it is. The number in your profile URL.'
-      : 'Optional for a cookie — it already knows the account.';
+      ? 'Leave blank — testing the key fills this in from Roblox. Only needed if that cannot be read.'
+      : 'Not needed for a cookie — it already knows the account.';
   }
 }
 
@@ -83,6 +84,7 @@ async function raLoadCredential() {
   if (!raCred.configured) {
     if (state) state.innerHTML = '<span style="color:var(--text-secondary);">Not set</span>';
     if (sum) sum.style.display = 'none';
+    raRenderQuota(null);
     return;
   }
 
@@ -92,6 +94,8 @@ async function raLoadCredential() {
   const ci = document.getElementById('ra-creator-id');
   if (ci && raCred.creatorId) ci.value = raCred.creatorId;
   raCreatorChanged();
+
+  raRenderQuota(raCred.quota);
 
   if (state) state.innerHTML = `<span style="color:var(--green);"><i class="ti ti-lock"></i> Stored (encrypted)</span>`;
   if (sum) {
@@ -159,9 +163,12 @@ async function raVerifyCredential() {
   try {
     const r = await api('/api/dev/roblox/credential/verify', { method: 'POST' });
     if (out) out.innerHTML = r.ok
-      ? raOk(`Working${r.account ? ` — ${escapeHtml(r.account.name || r.account.id)}` : ''}.${r.note ? ' ' + escapeHtml(r.note) : ''}`)
+      ? raOk(`Working${r.account ? ` — ${escapeHtml(r.account.name || r.account.id)}` : ''}${
+          r.scopes && r.scopes.length ? `, allowed to ${escapeHtml(r.scopes.join(' and '))} assets` : ''}.${
+          r.note ? ' ' + escapeHtml(r.note) : ''}`)
       : raErr(r.error || 'Roblox rejected it.');
     await raLoadCredential();
+    if (r.ok && r.quota) raRenderQuota(r.quota);
   } catch (e) {
     if (out) out.innerHTML = raErr(e.message);
   } finally {
@@ -179,6 +186,32 @@ async function raClearCredential() {
     if (out) out.innerHTML = raOk('Removed.');
     await raLoadCredential();
   } catch (e) { if (out) out.innerHTML = raErr(e.message); }
+}
+
+// The monthly allowance, which is what actually stops a batch. Through the API it
+// is 10 a month unverified and 100 ID-verified, so a batch of 50 can be five
+// times everything the account has — worth knowing BEFORE pressing upload rather
+// than on the eleventh failure.
+function raRenderQuota(q) {
+  const el = document.getElementById('ra-quota');
+  if (!el) return;
+  if (!q || q.capacity == null) {
+    el.style.display = 'none';
+    return;
+  }
+  const left = q.remaining != null ? q.remaining : null;
+  const tight = left != null && left <= 10;
+  const none  = left === 0;
+  const col = none ? 'var(--red)' : (tight ? 'var(--amber)' : 'var(--green)');
+  const resets = q.resetsAt ? ` Resets ${escapeHtml(formatDateTime(q.resetsAt))}.` : '';
+  el.style.display = '';
+  el.innerHTML = `<div style="border-left:3px solid ${col};background:rgba(127,127,127,0.06);border-radius:6px;padding:9px 13px;line-height:1.6;">
+    <strong style="color:${col};">${none
+      ? 'No uploads left this month.'
+      : (left != null ? `${left} upload${left === 1 ? '' : 's'} left this month` : `Allowance: ${q.capacity} a month`)}</strong>
+    ${left != null ? `<span style="color:var(--text-muted);"> of ${q.capacity}.</span>` : ''}${resets}
+    ${tight && !none ? '<br><span style="color:var(--text-secondary);">ID-verifying the Roblox account raises this.</span>' : ''}
+  </div>`;
 }
 
 // ── Picking files ─────────────────────────────────────────────────
@@ -202,7 +235,11 @@ function raWireDrop() {
 function raFilesPicked(fileList) {
   const picked = Array.from(fileList || []);
   for (const f of picked) {
-    if (raQueue.some(q => q.file.name === f.name && q.file.size === f.size)) continue;  // same file twice
+    // The same file picked twice, as opposed to two different files that happen to
+    // share a name and a size — which does happen, and dropping one silently is
+    // worse than uploading both.
+    if (raQueue.some(q => q.file.name === f.name && q.file.size === f.size
+                       && q.file.lastModified === f.lastModified)) continue;
     raQueue.push({ file: f, name: f.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim().slice(0, 50) });
   }
   const input = document.getElementById('ra-files');
@@ -210,10 +247,17 @@ function raFilesPicked(fileList) {
   raRenderQueue();
 }
 
+const RA_MIMES = ['audio/mpeg', 'audio/mp3', 'audio/ogg', 'application/ogg',
+                  'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/flac', 'audio/x-flac'];
 function raQueueProblem(f) {
   const ext = (f.name.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
-  if (ext !== '.mp3' && ext !== '.ogg') return 'Only .mp3 and .ogg';
-  if (f.size > RA_MAX_MB * 1024 * 1024) return `${(f.size / 1024 / 1024).toFixed(1)} MB — over ${RA_MAX_MB} MB`;
+  // Extension first, the browser's type second — matching the server, which will
+  // take a file whose type identifies it even when the name has no extension.
+  if (!RA_EXTS.includes(ext) && !RA_MIMES.includes(String(f.type || '').toLowerCase())) {
+    return 'Only ' + RA_EXTS.join(', ');
+  }
+  // Roblox's wording is "less than 20 MB", so exactly 20 MB is over.
+  if (f.size >= RA_MAX_MB * 1024 * 1024) return `${(f.size / 1024 / 1024).toFixed(1)} MB — needs to be under ${RA_MAX_MB} MB`;
   if (!f.size) return 'Empty file';
   return null;
 }
@@ -243,7 +287,7 @@ function raRenderQueue() {
     </tr></thead><tbody>${raQueue.map((q, i) => {
       const bad = raQueueProblem(q.file);
       return `<tr${bad ? ' style="opacity:.55;"' : ''}>
-        <td>${bad ? '—' : `<input class="form-input" style="padding:5px 8px;font-size:12.5px;" maxlength="50"
+        <td>${bad ? '—' : `<input class="form-control" style="padding:5px 8px;font-size:12.5px;" maxlength="50"
               value="${escapeHtml(q.name)}" oninput="raQueue[${i}].name=this.value">`}</td>
         <td style="font-size:12px;">${escapeHtml(q.file.name)}</td>
         <td style="font-size:12px;white-space:nowrap;">${(q.file.size / 1024 / 1024).toFixed(2)} MB</td>
@@ -271,9 +315,18 @@ function raReadAsBase64(file) {
   });
 }
 
+const RA_MAX_BATCH = 50;
+
 async function raUpload() {
-  const send = raQueue.filter(q => !raQueueProblem(q.file));
-  if (!send.length) return;
+  const all = raQueue.filter(q => !raQueueProblem(q.file));
+  if (!all.length) return;
+  const out0 = document.getElementById('ra-upload-result');
+  if (all.length > RA_MAX_BATCH) {
+    if (out0) out0.innerHTML = raErr(`${all.length} at once is too many — ${RA_MAX_BATCH} per batch. `
+      + 'Remove some and upload the rest afterwards.');
+    return;
+  }
+  const send = all;
   if (!raCred || !raCred.configured) {
     const out = document.getElementById('ra-upload-result');
     if (out) out.innerHTML = raErr('Add a Roblox credential first.');
@@ -343,23 +396,31 @@ const RA_STATUS = {
   FAILED:    ['red',    'ti-alert-triangle', 'Failed'],
 };
 
+// Roblox finishing the upload is not Roblox approving it. An ID for something
+// still under review, or already rejected, will not play.
+const RA_MODERATION = {
+  APPROVED:  ['green',  'ti-shield-check',   'Approved'],
+  REVIEWING: ['amber',  'ti-shield-search',  'In review'],
+  REJECTED:  ['red',    'ti-shield-x',       'Rejected'],
+};
+
 async function raLoadUploads() {
   const tb = document.getElementById('ra-uploads-tbody');
   if (!tb) return;
-  tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  tb.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const r = await api('/api/dev/roblox/uploads');
     raUploads = r.uploads || [];
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${escapeHtml(e.message)}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="7" class="table-empty-text">${escapeHtml(e.message)}</td></tr>`;
     return;
   }
   if (!raUploads.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="table-empty-text">Nothing uploaded yet.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="table-empty-text">Nothing uploaded yet.</td></tr>';
     return;
   }
   tb.innerHTML = raUploads.map(u => {
-    const [col, ic, label] = RA_STATUS[u.status] || ['', 'ti-point', u.status];
+    const [col, ic, label] = RA_STATUS[u.status] || ['text-muted', 'ti-point', u.status];
     return `<tr>
       <td>${escapeHtml(u.displayName)}</td>
       <td style="font-size:12px;color:var(--text-secondary);">${escapeHtml(u.fileName)}</td>
@@ -368,6 +429,11 @@ async function raLoadUploads() {
         : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td style="white-space:nowrap;"><span style="color:var(--${col});font-size:12.5px;"><i class="ti ${ic}"></i> ${escapeHtml(label)}</span>${
         u.error ? `<div style="font-size:11px;color:var(--text-muted);max-width:280px;">${escapeHtml(u.error)}</div>` : ''}</td>
+      <td style="white-space:nowrap;">${(() => {
+        const m = RA_MODERATION[u.moderation];
+        if (!m) return u.assetId ? '<span style="color:var(--text-muted);font-size:12px;">Not reported</span>' : '<span style="color:var(--text-muted);">—</span>';
+        return `<span style="color:var(--${m[0]});font-size:12.5px;" title="${m[1] === 'ti-shield-search' ? 'Uploaded, but not usable until Roblox approves it' : ''}"><i class="ti ${m[1]}"></i> ${escapeHtml(m[2])}</span>`;
+      })()}</td>
       <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${escapeHtml(formatDateTime(u.createdAt))}</td>
       <td style="white-space:nowrap;">${u.assetId ? `
         <button class="btn btn-sm btn-secondary" title="Copy the ID" onclick="raCopy('${jsAttr(u.assetId)}')"><i class="ti ti-copy"></i></button>
@@ -417,5 +483,5 @@ function raCopyAll(shape) {
 
 // ── Result lines ──────────────────────────────────────────────────
 const raOk   = (m) => `<span style="color:var(--green);"><i class="ti ti-check"></i> ${m}</span>`;
-const raWarn = (m) => `<span style="color:var(--amber,#e8842a);"><i class="ti ti-alert-triangle"></i> ${m}</span>`;
+const raWarn = (m) => `<span style="color:var(--amber);"><i class="ti ti-alert-triangle"></i> ${m}</span>`;
 const raErr  = (m) => `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(String(m))}</span>`;

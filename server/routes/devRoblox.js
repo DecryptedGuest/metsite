@@ -31,9 +31,19 @@ let _uploading = false;
 
 // GET /api/dev/roblox/credential — status only. The secret is never returned,
 // not even masked; the account it resolves to is the useful confirmation.
+//
+// The remaining upload allowance rides along, because it is the ceiling people
+// actually hit and finding out by having a batch of forty die halfway is the
+// expensive way to learn it. Best-effort — a quota Roblox will not report is not
+// a broken credential.
 router.get('/credential', async (req, res) => {
-  try { res.json(await assets.credentialStatus()); }
-  catch (e) { res.status(500).json({ error: 'Could not read the credential status.' }); }
+  try {
+    const status = await assets.credentialStatus();
+    if (status.configured && req.query.quota !== '0') {
+      status.quota = await assets.currentQuota();
+    }
+    res.json(status);
+  } catch (e) { res.status(500).json({ error: 'Could not read the credential status.' }); }
 });
 
 // PUT /api/dev/roblox/credential — store or replace it.

@@ -947,8 +947,15 @@ function escapeHtml(str) {
 // browser HTML-decodes the attribute before the JS parser sees it, so a decoded
 // quote would still break out of the string. So backslash-escape the JS
 // specials and HTML-escape only the attribute-delimiter quote.
+//
+// The ampersand has to go FIRST, and it is not decoration: a value already
+// containing the text "&#39;" survives every other rule here untouched, and then
+// the HTML parser decodes it to a bare quote on the way to the JS parser — which
+// is the exact break-out the backslash escaping was there to prevent. Escaping
+// "&" to "&amp;" makes it decode back to the literal characters instead.
 function jsAttr(str) {
   return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
     .replace(/"/g, '&quot;')

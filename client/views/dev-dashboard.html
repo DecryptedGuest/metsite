@@ -1155,16 +1155,23 @@
           <!-- API key: the one to use -->
           <div id="ra-help-apikey" style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
             <p style="margin:0 0 0.6rem;">
-              Create one at <strong>create.roblox.com &rarr; Settings &rarr; Credentials &rarr; API Keys</strong>.
-              Add the <code>asset:write</code> permission (and pick the account or group that will own the audio).
-              An API key cannot log in, cannot read your account and can be deleted on its own.
+              Create one in the <strong>Creator Dashboard &rarr; Credentials &rarr; API Keys</strong>
+              (<code>create.roblox.com/dashboard/credentials</code>). Under Access Permissions add the
+              <strong>Assets API</strong> and tick both <strong>Read</strong> and <strong>Write</strong> &mdash;
+              Read alone looks fine here and then fails on the first upload. An API key cannot log in, cannot read
+              your account, and can be deleted on its own.
+            </p>
+            <p style="margin:0 0 0.6rem;">
+              Two things that catch people out: a key <strong>expires after 60 days unused</strong> even with no
+              expiry set, and if you tick &ldquo;Restrict IP addresses&rdquo; it must list this server&rsquo;s address
+              or every upload is refused. Testing it below reports both.
             </p>
           </div>
 
           <!-- Cookie: works, but it is the account -->
           <div id="ra-help-cookie" style="display:none;font-size:13px;line-height:1.7;margin:0 0 1rem;">
-            <div style="border-left:3px solid var(--danger, #ef4444);background:rgba(239,68,68,0.07);border-radius:6px;padding:11px 14px;margin-bottom:0.8rem;">
-              <strong style="color:var(--danger, #ef4444);"><i class="ti ti-alert-triangle"></i> This is your whole account.</strong>
+            <div style="border-left:3px solid var(--red);background:rgba(239,68,68,0.07);border-radius:6px;padding:11px 14px;margin-bottom:0.8rem;">
+              <strong style="color:var(--red);"><i class="ti ti-alert-triangle"></i> This is your whole account.</strong>
               <p style="margin:0.4rem 0 0;color:var(--text-secondary);">
                 A <code>.ROBLOSECURITY</code> cookie authenticates past two-factor. Anyone who gets it holds your
                 account until you invalidate it. It is stored encrypted here and never shown again, but the safer
@@ -1181,7 +1188,7 @@
 
           <div class="form-group">
             <label class="form-label" id="ra-value-label">API key</label>
-            <textarea class="form-input" id="ra-value" rows="3" spellcheck="false"
+            <textarea class="form-control" id="ra-value" rows="3" spellcheck="false"
                       autocomplete="off" style="font-family:var(--font-mono, monospace);font-size:12px;resize:vertical;"
                       placeholder="Paste it here"></textarea>
           </div>
@@ -1189,14 +1196,17 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.9rem;">
             <div class="form-group">
               <label class="form-label">Audio owned by</label>
-              <select class="form-input" id="ra-creator-type" onchange="raCreatorChanged()">
+              <select class="form-control" id="ra-creator-type" onchange="raCreatorChanged()">
                 <option value="user">My account</option>
                 <option value="group">A group</option>
               </select>
+              <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;">
+                Must match whoever owns the game the audio is for.
+              </div>
             </div>
             <div class="form-group">
               <label class="form-label" id="ra-creator-id-label">Roblox user ID</label>
-              <input class="form-input" id="ra-creator-id" inputmode="numeric" placeholder="e.g. 1234567">
+              <input class="form-control" id="ra-creator-id" inputmode="numeric" placeholder="e.g. 1234567">
               <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;" id="ra-creator-hint">
                 Open Cloud will not guess whose account it is &mdash; the numeric ID from your profile URL.
               </div>
@@ -1216,11 +1226,23 @@
       <div class="panel glass fade-up stagger-2" style="margin-bottom:1.2rem;">
         <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Upload Audio</div></div>
         <div class="profile-section">
-          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
-            <code>.mp3</code> or <code>.ogg</code>, up to 20&nbsp;MB and 7 minutes each, 50 per batch. Roblox moderates
-            every upload &mdash; an asset ID comes back straight away but the audio may not be usable until it passes,
-            and anything you do not hold the rights to will be taken down. Only upload what you are allowed to.
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 0.9rem;">
+            <code>.mp3</code>, <code>.ogg</code>, <code>.wav</code> or <code>.flac</code> &mdash; under 20&nbsp;MB and
+            7 minutes each, 50 per batch. Roblox also needs a single track, no more than 48&nbsp;kHz, and mono or
+            stereo up to 5.1 &mdash; none of which can be checked here, so those come back as its own error.
+            Anything you do not hold the rights to will be taken down, so only upload what you are allowed to.
           </p>
+          <div id="ra-quota" style="display:none;font-size:12.5px;margin:0 0 1rem;"></div>
+          <div style="border-left:3px solid var(--amber);background:rgba(232,132,42,0.06);border-radius:6px;padding:11px 14px;font-size:12.5px;line-height:1.7;margin:0 0 1rem;color:var(--text-secondary);">
+            <strong style="color:var(--amber);">An ID coming back is not the same as the audio working.</strong><br>
+            Roblox queues every upload for moderation, and uploaded audio is <strong>private to whoever uploaded
+            it</strong>. Ownership has to match: audio uploaded on a personal account <strong>will not play in a
+            group-owned game</strong> &mdash; it passes moderation, the ID looks fine here, and then the game throws
+            <em>not authorized to access Asset</em>. So set &ldquo;Audio owned by&rdquo; to the group that owns the
+            game before uploading. Sharing it afterwards is possible but fiddly, and audio cannot be replaced &mdash;
+            fixing a bad upload spends another slot from the monthly allowance. The Moderation column below says where
+            each one stands.
+          </div>
 
           <div id="ra-drop" onclick="document.getElementById('ra-files').click()"
                style="border:2px dashed var(--border);border-radius:10px;padding:1.8rem 1rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;">
@@ -1228,7 +1250,7 @@
             <div style="font-size:13.5px;margin-top:0.5rem;">Drop audio here, or click to choose</div>
             <div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px;">Names are taken from the file names, and can be edited below</div>
           </div>
-          <input type="file" id="ra-files" accept=".mp3,.ogg,audio/mpeg,audio/ogg" multiple style="display:none;" onchange="raFilesPicked(this.files)">
+          <input type="file" id="ra-files" accept=".mp3,.ogg,.wav,.flac,audio/mpeg,audio/ogg,audio/wav,audio/flac" multiple style="display:none;" onchange="raFilesPicked(this.files)">
 
           <div id="ra-queue" style="margin-top:1rem;"></div>
 
@@ -1256,10 +1278,10 @@
           <div class="table-wrap">
             <table class="data-table">
               <thead><tr>
-                <th>Name</th><th>File</th><th>Asset ID</th><th>Status</th><th>Uploaded</th><th></th>
+                <th>Name</th><th>File</th><th>Asset ID</th><th>Status</th><th>Moderation</th><th>Uploaded</th><th></th>
               </tr></thead>
               <tbody id="ra-uploads-tbody">
-                <tr><td colspan="6" class="table-loading">Loading…</td></tr>
+                <tr><td colspan="7" class="table-loading">Loading…</td></tr>
               </tbody>
             </table>
           </div>

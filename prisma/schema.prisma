@@ -354,6 +354,9 @@ model RobloxUpload {
   assetId     String? // the id you actually want; null until Roblox says so
   operationId String? // Open Cloud is asynchronous — this is the handle to poll
   status      String  @default("PENDING") // PENDING | UPLOADING | DONE | FAILED
+  // Roblox queues every audio for moderation, and finishing the upload is not the
+  // same as passing it: APPROVED | REVIEWING | REJECTED.
+  moderation  String?
   error       String?
   via         String? // 'apikey' | 'cookie' — which credential did it
   creatorType String? // 'user' | 'group'

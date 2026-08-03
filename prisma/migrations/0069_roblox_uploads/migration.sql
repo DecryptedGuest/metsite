@@ -28,3 +28,8 @@ DO $$ BEGIN
     ADD CONSTRAINT "roblox_uploads_uploadedById_fkey"
     FOREIGN KEY ("uploadedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Roblox finishing an upload is not the same as Roblox approving it: an asset id
+-- comes back for audio that is still under review, or already rejected, and that
+-- id will not play. APPROVED | REVIEWING | REJECTED.
+ALTER TABLE "roblox_uploads" ADD COLUMN IF NOT EXISTS "moderation" TEXT;
