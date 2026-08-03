@@ -750,24 +750,240 @@ async function appendRows(rows, scope) {
   }
 
   const alreadyThere = [];
-  const values = [];
+  const wanted = [];
   for (const r of rows) {
     if (already.has(quota.normName(r.username))) { alreadyThere.push(r.username); continue; }
-    values.push(memberRow(r, cols));
+    wanted.push(r);
     // Two people picked in the same batch must not become two rows for one person.
     already.add(quota.normName(r.username));
   }
 
-  if (values.length) {
+  let placed = [];
+  if (wanted.length) {
     try {
-      await appendToSheet(sheets, spreadsheetId, sheetName, values);
+      placed = await placeMembers(sheets, spreadsheetId, sheetName, wanted, existing, cols);
     } catch (err) {
-      return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName,
-               errors: errors.concat(err.message) };
+      // Placing needs the tab's numeric id and one structural request. If either
+      // is refused, a plain append at the end still gets the member onto the
+      // sheet — in the wrong section, which is a tidy-up rather than a loss.
+      console.warn('[MetDB] could not place the rows by rank, appending instead:', err.message);
+      try {
+        await appendToSheet(sheets, spreadsheetId, sheetName, wanted.map(r => memberRow(r, cols)));
+        errors.push('Could not put them in their rank sections (' + err.message
+          + '), so they were added at the end of the sheet instead.');
+        placed = wanted.map(r => ({ username: r.username, rank: r.rank || null, row: null, under: null }));
+      } catch (err2) {
+        return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName,
+                 errors: errors.concat(err2.message) };
+      }
     }
   }
   return { ok: true, via: errors.length ? 'sheets (after the webhook failed)' : 'sheets',
-           added: values.length, alreadyThere, sheetName, errors };
+           added: placed.length, alreadyThere, placed, sheetName, errors };
+}
+
+
+// ── Putting a new row in the right place ──────────────────────────
+//
+// Appending to the very bottom of the sheet is correct and useless: the sheet is
+// grouped into rank sections, so a new Probationary Investigator belongs under
+// the last Probationary Investigator, not below High Command's block or under
+// whatever note sits at the end.
+//
+// Three separate things have to be true for the row to look like it belongs:
+//
+//   PLACE   inserted at the end of its own rank's block.
+//   FORMAT  inherited from the row above it — insertDimension with
+//           inheritFromBefore copies the formatting and the data validation, so a
+//           checkbox column stays a checkbox and a coloured section stays coloured.
+//   FORMULA carried across with copyPaste PASTE_FORMULA, which adjusts relative
+//           references. Copying the formula TEXT would not: "=SUM(E12:K12)" pasted
+//           into row 13 still adds up row 12.
+//
+// And one thing must NOT be true: nothing that was DATA on the neighbouring row
+// may be inherited. A copied timezone or strike count is a lie about the new
+// person, which is worse than a blank. So every column that is neither ours nor a
+// formula is explicitly cleared.
+
+/** The numeric id of a tab, which every structural request needs. */
+async function sheetIdFor(sheets, spreadsheetId, sheetName) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId, fields: 'sheets(properties(sheetId,title))',
+  });
+  const found = (meta.data.sheets || [])
+    .find(sh => sh.properties && sh.properties.title === sheetName);
+  if (!found) throw new Error(`The sheet "${sheetName}" is not in that spreadsheet.`);
+  return found.properties.sheetId;
+}
+
+/**
+ * Where a member of this rank belongs: the row index straight after the last
+ * member row that holds the same rank.
+ *
+ * Ranks are compared loosely — a sheet writes "Probationary Investigator",
+ * "Probationary Inv." and "PINV" for the same rank in different places, and a
+ * strict comparison would send half of them to the bottom of the sheet.
+ *
+ * @returns {number|null} null when nobody of that rank is on the sheet yet, in
+ *          which case the caller falls back to the end. Guessing where a section
+ *          that does not exist ought to go is worse than putting the row
+ *          somewhere obvious.
+ */
+function rankBlockEnd(existing, cols, rank) {
+  if (cols.rank == null) return null;
+  const want = rankKey(rank);
+  if (!want) return null;
+  let last = null;
+  for (let i = 0; i < existing.length; i++) {
+    if (!isMemberRow(cols, existing[i])) continue;
+    if (rankKey(existing[i][cols.rank]) === want) last = i;
+  }
+  return last == null ? null : last + 1;
+}
+
+/** A rank name reduced to something two spellings of it can agree on. */
+function rankKey(name) {
+  const n = String(name || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (!n) return '';
+  // The abbreviations the sheets actually use, mapped onto the full name so a
+  // "PINV" row and a "Probationary Investigator" row count as the same block.
+  const SHORT = {
+    pinv: 'probationaryinvestigator', jinv: 'juniorinvestigator',
+    inv: 'investigator', sinv: 'seniorinvestigator',
+    dd: 'deputydirector', d: 'director', sup: 'supervisor',
+  };
+  return SHORT[n] || n;
+}
+
+/**
+ * Insert the rows where they belong, formatted and filled.
+ *
+ * @param {object[]} rows   [{ username, rank, discordId, wtbt }]
+ * @returns {Promise<Array<{ username, rank, row, after }>>} where each landed,
+ *          1-based, for the report — "added at row 21, under the other
+ *          probationers" is the sentence somebody wants back.
+ */
+async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, cols) {
+  const sheetId = await sheetIdFor(sheets, spreadsheetId, sheetName);
+  const endOfData = existing.length;
+
+  // Group by where they go, so several people of one rank become one insert.
+  const groups = new Map();   // originalIndex → { at, rows[], byRank }
+  for (const r of rows) {
+    const at = rankBlockEnd(existing, cols, r.rank);
+    const key = at == null ? endOfData : at;
+    if (!groups.has(key)) groups.set(key, { at: key, rows: [], grouped: at != null });
+    groups.get(key).rows.push(r);
+  }
+
+  // Ascending, to work out where each group ENDS UP once the groups above it have
+  // pushed everything down.
+  const ordered = [...groups.values()].sort((a, b) => a.at - b.at);
+  let shift = 0;
+  for (const g of ordered) { g.finalAt = g.at + shift; shift += g.rows.length; }
+
+  // The inserts run DESCENDING by original index: inserting low would move every
+  // index below it, and then the next insert would land in the wrong place.
+  const requests = [];
+  for (const g of [...ordered].reverse()) {
+    requests.push({
+      insertDimension: {
+        range: { sheetId, dimension: 'ROWS', startIndex: g.at, endIndex: g.at + g.rows.length },
+        // The formatting and validation of the row above. Only possible when
+        // there IS a row above.
+        inheritFromBefore: g.at > 0,
+      },
+    });
+    if (g.at > 0) {
+      // The formulas, with their references adjusted for the new row.
+      requests.push({
+        copyPaste: {
+          source: { sheetId, startRowIndex: g.at - 1, endRowIndex: g.at },
+          destination: { sheetId, startRowIndex: g.at, endRowIndex: g.at + g.rows.length },
+          pasteType: 'PASTE_FORMULA',
+          pasteOrientation: 'NORMAL',
+        },
+      });
+    }
+  }
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
+
+  // Now the values. The rows exist, so addressing cells is safe — and per-cell
+  // rather than whole-row, so a formula column the paste just filled is left
+  // alone instead of being overwritten with a blank.
+  const mine = new Set([cols.username, cols.rank, cols.discordId, cols.wtbt]
+    .concat(Object.values(cols.days || {})).filter(c => c != null).map(Number));
+  const width = existing.reduce((w, r) => Math.max(w, r.length), 0);
+
+  // Which of the neighbour's cells are formulas, so the rest can be cleared
+  // without wiping a total.
+  const formulaCols = await formulaColumnsOf(sheets, spreadsheetId, sheetName, ordered, width);
+
+  const writes = [];
+  const placed = [];
+  for (const g of ordered) {
+    g.rows.forEach((r, i) => {
+      const rowIdx = g.finalAt + i;        // 0-based
+      const cell = (col, value) => {
+        if (col == null) return;
+        writes.push({ range: `${sheetName}!${quota.colLetter(col)}${rowIdx + 1}`, values: [[value]] });
+      };
+      cell(cols.username, r.username);
+      cell(cols.rank, r.rank || '');
+      cell(cols.discordId, r.discordId || '');
+      if (r.wtbt) cell(cols.wtbt, wtbtCell(true));
+      for (const d of Object.values(cols.days || {})) cell(d, 0);
+      // Everything else: cleared unless the neighbour had a formula there.
+      // Inheriting a timezone or a strike count would be a lie about this person.
+      for (let c = 0; c < width; c++) {
+        if (mine.has(c) || (formulaCols.get(g.at) || new Set()).has(c)) continue;
+        cell(c, '');
+      }
+      placed.push({
+        username: r.username, rank: r.rank || null, row: rowIdx + 1,
+        under: g.grouped ? (r.rank || null) : null,
+      });
+    });
+  }
+
+  if (writes.length) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
+    });
+  }
+  return placed;
+}
+
+/**
+ * For each insertion point, which columns of the row above hold a formula.
+ *
+ * Read with FORMULA rendering, which is the only way to tell "=SUM(...)" from the
+ * number it evaluates to. Best-effort: if the read fails, nothing is treated as a
+ * formula, which means a total might get cleared — visible and fixable, unlike a
+ * silently inherited value.
+ */
+async function formulaColumnsOf(sheets, spreadsheetId, sheetName, groups, width) {
+  const out = new Map();
+  for (const g of groups) {
+    out.set(g.at, new Set());
+    if (g.at <= 0) continue;
+    try {
+      const resp = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        // The neighbour row, as it was BEFORE the insert — the insert pushed it
+        // nowhere, because rows were added below it.
+        range: `${sheetName}!${g.at}:${g.at}`,
+        valueRenderOption: 'FORMULA',
+      });
+      const row = (resp.data.values && resp.data.values[0]) || [];
+      for (let c = 0; c < Math.max(width, row.length); c++) {
+        if (typeof row[c] === 'string' && row[c].charAt(0) === '=') out.get(g.at).add(c);
+      }
+    } catch (e) {
+      console.warn(`[MetDB] could not tell which cells on row ${g.at} are formulas:`, e.message);
+    }
+  }
+  return out;
 }
 
 /**
@@ -835,5 +1051,5 @@ module.exports = {
   planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor,
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
-  memberRow, appendToSheet,
+  memberRow, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
 };

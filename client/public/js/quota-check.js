@@ -243,6 +243,14 @@ async function addMissingMembers() {
     if ((out.alreadyThere || []).length) bits.push((out.alreadyThere || []).length + " already had a row");
     if ((out.skipped || []).length) bits.push((out.skipped || []).length + " no longer in the group");
     showToast(bits.join(" · ") + ".", out.added ? "success" : "warning");
+    // Where each one landed. Somebody who asked for a row in the right section
+    // wants to be told it went there, not just that it went somewhere.
+    var withRow = (out.placed || []).filter(function (p) { return p.row; });
+    if (withRow.length) {
+      showToast(withRow.map(function (p) {
+        return p.username + " → row " + p.row + (p.under ? " (under the other " + p.under + "s)" : "");
+      }).join(", "), "success");
+    }
     if ((out.errors || []).length) showToast(out.errors.join("; "), "warning");
     // Re-read rather than patching the list: the sheet has changed, and the next
     // decision should be made against what is actually on it now.
