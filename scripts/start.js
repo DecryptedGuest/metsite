@@ -28,7 +28,25 @@ const REQUIRED = String(process.env.SCHEMA_SYNC_REQUIRED || '') === '1';
 
 function syncSchema() {
   return new Promise((resolve) => {
-    const child = spawn('npx', ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'], {
+    // NO --accept-data-loss. That flag was on every single deploy, and it means
+    // "drop whatever columns or tables you need to in order to match the schema,
+    // and do not ask". One divergence between prisma/schema.prisma and the live
+    // database was therefore all it would take to destroy real data — cases,
+    // tickets, records — silently, during an ordinary deploy.
+    //
+    // Without it, a destructive sync FAILS instead. That is the right outcome: this
+    // script already tolerates a failed sync and starts the site anyway, so the
+    // cost is a schema that stays behind until a person looks at it, and the
+    // benefit is that a deploy can no longer delete anything.
+    //
+    // Set SCHEMA_SYNC_DESTRUCTIVE=1 to allow it, deliberately and temporarily, when
+    // a column really does need dropping.
+    const args = ['prisma', 'db', 'push', '--skip-generate'];
+    if (String(process.env.SCHEMA_SYNC_DESTRUCTIVE || '') === '1') {
+      console.warn('[Start] SCHEMA_SYNC_DESTRUCTIVE=1 — this sync is ALLOWED TO DROP DATA.');
+      args.push('--accept-data-loss');
+    }
+    const child = spawn('npx', args, {
       cwd: path.join(__dirname, '..'),
       stdio: 'inherit',
       env: process.env,

@@ -16,7 +16,7 @@
     "test": "node --test test/cad/units.service.test.js test/cad/dispatch.service.test.js",
     "test:cad": "node --test test/cad/units.service.test.js test/cad/dispatch.service.test.js",
     "postinstall": "npx prisma generate",
-    "start:strict": "prisma db push --skip-generate --accept-data-loss && node server/index.js"
+    "start:strict": "prisma db push --skip-generate && node server/index.js"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",
