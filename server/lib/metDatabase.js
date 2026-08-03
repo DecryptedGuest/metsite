@@ -391,24 +391,7 @@ async function applySync(plan, scope) {
   }
   if (notFound.length) errors.push(`not found on the sheet (skipped): ${notFound.join(', ')}`);
 
-  // New joiners are APPENDED rather than dropped into the rows just freed:
-  // the sheet is grouped into rank sections, so reusing a High Command row for
-  // a constable would file them under the wrong heading.
-  let appendAt = rows.length;
-  for (const a of plan.add) {
-    const target = appendAt++;
-    if (cols.username  != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.username)}${target + 1}`,  values: [[a.username]] });
-    if (cols.rank      != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.rank)}${target + 1}`,      values: [[a.rank || '']] });
-    // The resolved Discord id, or blank when nobody could be matched. Timezone,
-    // WTBT and every other column are left untouched — they are not ours to
-    // guess at, and a blank is honest.
-    if (cols.discordId != null) writes.push({ range: `${sheetName}!${quota.colLetter(cols.discordId)}${target + 1}`, values: [[a.discordId || '']] });
-    for (const d of Object.values(cols.days)) {
-      writes.push({ range: `${sheetName}!${quota.colLetter(d)}${target + 1}`, values: [[0]] });
-    }
-    added++;
-  }
-
+  // The clears first, in one batch: those are cells that already exist.
   if (writes.length) {
     try {
       await sheets.spreadsheets.values.batchUpdate({
@@ -416,6 +399,28 @@ async function applySync(plan, scope) {
       });
     } catch (err) {
       return { ok: false, via: 'sheets', removed: 0, added: 0, errors: errors.concat(err.message) };
+    }
+  }
+
+  // New joiners are APPENDED rather than dropped into the rows just freed: the
+  // sheet is grouped into rank sections, so reusing a High Command row for a
+  // constable would file them under the wrong heading.
+  //
+  // And APPENDED, not written by cell address. Writing past the last row of the
+  // grid is refused outright — "Range exceeds grid limits" — so a sheet with no
+  // spare rows could never take a new member, which is the normal state of a
+  // sheet somebody has tidied up. Timezone, WTBT and every other column are left
+  // empty, because they are not ours to guess at.
+  if (plan.add.length) {
+    try {
+      await appendToSheet(sheets, spreadsheetId, sheetName,
+        plan.add.map(a => memberRow({ username: a.username, rank: a.rank, discordId: a.discordId }, cols)));
+      added += plan.add.length;
+    } catch (err) {
+      // The clears already landed, so this is a partial success and has to say so
+      // rather than reporting zero of everything.
+      return { ok: false, via: 'sheets', removed, added: 0,
+               errors: errors.concat('Removed rows were cleared, but the new members could not be added: ' + err.message) };
     }
   }
   return { ok: true, via: 'sheets', removed, added, errors };
@@ -744,40 +749,77 @@ async function appendRows(rows, scope) {
     already.add(quota.normName(existing[i][cols.username]));
   }
 
-  const writes = [];
   const alreadyThere = [];
-  let appendAt = existing.length, added = 0;
+  const values = [];
   for (const r of rows) {
     if (already.has(quota.normName(r.username))) { alreadyThere.push(r.username); continue; }
-    const target = appendAt++;
-    const cell = (col, value) => {
-      if (col == null) return;
-      writes.push({ range: `${sheetName}!${quota.colLetter(col)}${target + 1}`, values: [[value]] });
-    };
-    cell(cols.username, r.username);
-    cell(cols.rank, r.rank || '');
-    cell(cols.discordId, r.discordId || '');
-    // Only written when the sheet has the column AND the mark was asked for. A
-    // FALSE stamped into every new row would overwrite whatever convention the
-    // sheet already uses for people who are trained.
-    if (r.wtbt) cell(cols.wtbt, wtbtCell(true));
-    for (const d of Object.values(cols.days)) cell(d, 0);
-    // Two people picked in the same batch must not land on the same row.
+    values.push(memberRow(r, cols));
+    // Two people picked in the same batch must not become two rows for one person.
     already.add(quota.normName(r.username));
-    added++;
   }
 
-  if (writes.length) {
+  if (values.length) {
     try {
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
-      });
+      await appendToSheet(sheets, spreadsheetId, sheetName, values);
     } catch (err) {
-      return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName, errors: errors.concat(err.message) };
+      return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName,
+               errors: errors.concat(err.message) };
     }
   }
   return { ok: true, via: errors.length ? 'sheets (after the webhook failed)' : 'sheets',
-           added, alreadyThere, sheetName, errors };
+           added: values.length, alreadyThere, sheetName, errors };
+}
+
+/**
+ * One member as a whole row, positioned by the sheet's own column indices.
+ *
+ * A whole row rather than a set of cells, because appending is what grows the
+ * sheet and appending takes rows. Columns this does not know about are left
+ * empty, which for a brand-new row is the same as not writing them.
+ */
+function memberRow(r, cols) {
+  const idx = [cols.username, cols.rank, cols.discordId, cols.wtbt]
+    .concat(Object.values(cols.days || {}))
+    .filter(c => c != null)
+    .map(Number);
+  const width = idx.length ? Math.max.apply(null, idx) + 1 : 1;
+  const row = new Array(width).fill('');
+  const put = (col, value) => { if (col != null) row[col] = value; };
+  put(cols.username, r.username);
+  put(cols.rank, r.rank || '');
+  put(cols.discordId, r.discordId || '');
+  // Only when the mark was asked for. A FALSE stamped into every new row would
+  // overwrite whatever convention the sheet already uses for people who ARE
+  // trained; leaving it empty says nothing, which is the honest answer.
+  if (r.wtbt) put(cols.wtbt, wtbtCell(true));
+  // Zero, not blank: a blank day cell reads as "no data" when it means "no points".
+  for (const d of Object.values(cols.days || {})) put(d, 0);
+  return row;
+}
+
+/**
+ * Append rows to the end of a sheet, growing it if it needs to.
+ *
+ * This is the whole reason it is `append` and not `batchUpdate`. batchUpdate
+ * writes into cells that already exist and refuses anything past the last one:
+ * a tab whose grid ends at row 36 answers "Range (Staff!D37) exceeds grid
+ * limits" and the entire write fails. Every new member hit that the moment a
+ * sheet had no spare rows left, which is the normal state of a sheet somebody
+ * has tidied.
+ *
+ * insertDataOption INSERT_ROWS is what adds the rows rather than overwriting
+ * whatever happens to sit below the table.
+ */
+async function appendToSheet(sheets, spreadsheetId, sheetName, values) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    // The whole sheet, so Sheets finds the real end of the data rather than the
+    // end of a range we guessed at.
+    range: sheetName,
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values },
+  });
 }
 
 // ── Optional daily worker ─────────────────────────────────────────
@@ -793,4 +835,5 @@ module.exports = {
   planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor,
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
+  memberRow, appendToSheet,
 };

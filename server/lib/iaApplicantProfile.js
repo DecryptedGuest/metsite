@@ -20,10 +20,15 @@
 //   the page says "could not read" instead of showing a blank and implying zero.
 //
 //   It answers the questions the rules actually ask. MET requires a Roblox
-//   account 100+ days old and no gang membership; the queue rule is that the
-//   divisionless get first pick; the application claims no punishments in the
-//   past week. Each of those is computed and labelled, rather than left for the
-//   marker to work out from raw fields.
+//   account 100+ days old; the queue rule is that the divisionless get first
+//   pick; the application claims no punishments in the past week. Each of those
+//   is computed and labelled, rather than left for the marker to work out from
+//   raw fields.
+//
+//   Gang membership is deliberately NOT one of them. It is a tryout rule, not an
+//   application rule, so a check for it here would be a verdict on something this
+//   paper does not decide. The full group list is still shown, because a marker
+//   reading it may spot something that matters for a reason no rule anticipated.
 
 const prisma = require('./db');
 
@@ -32,13 +37,6 @@ const MIN_ACCOUNT_DAYS = () => {
   const n = parseInt(process.env.MET_MIN_ACCOUNT_DAYS, 10);
   return Number.isFinite(n) && n > 0 ? n : 100;
 };
-
-// Groups that disqualify unless somebody has gang permissions. Explicit ids
-// only: guessing from a group NAME would flag "Gangster Squad Roleplay" and miss
-// every gang that does not have the word in its title, and a false accusation on
-// a marker's screen is worse than none.
-const GANG_GROUP_IDS = () => String(process.env.GANG_GROUP_IDS || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
 
 const DAY = 86400000;
 const daysSince = (d) => {
@@ -98,7 +96,6 @@ async function robloxSide(robloxId, robloxUsername) {
     groupsRead: false,
     metGroup: null,
     iaGroup: null,
-    gangGroups: [],
     notes: [],
   };
   if (!out.id) {
@@ -149,9 +146,6 @@ async function robloxSide(robloxId, robloxUsername) {
     const iaId = String(divisions.explicitGroupId('IA') || process.env.IA_GROUP_ID || '');
     out.metGroup = out.groups.find(g => metId && g.id === metId) || null;
     out.iaGroup = out.groups.find(g => iaId && g.id === iaId) || null;
-
-    const gangs = GANG_GROUP_IDS();
-    out.gangGroups = gangs.length ? out.groups.filter(g => gangs.includes(g.id)) : [];
 
     // Icons, so the group list reads as a list of places rather than of strings.
     try {
@@ -368,18 +362,6 @@ function checksFor(live) {
       `${live.roblox.accountAgeDays} days old · ${live.roblox.minAccountDays} required`);
   }
 
-  if (!live.roblox.groupsRead) {
-    push('Gang membership', 'unknown', 'Their group list could not be read.');
-  } else if (!GANG_GROUP_IDS().length) {
-    push('Gang membership', 'unknown',
-      'No gang groups are configured, so this cannot be checked automatically — read the group list.');
-  } else {
-    push('Gang membership', live.roblox.gangGroups.length ? 'fail' : 'pass',
-      live.roblox.gangGroups.length
-        ? 'In ' + live.roblox.gangGroups.map(g => g.name).join(', ')
-        : 'Not in any configured gang group.');
-  }
-
   push('In the MET group', live.roblox.groupsRead ? (live.roblox.metGroup ? 'pass' : 'fail') : 'unknown',
     live.roblox.metGroup ? live.roblox.metGroup.rank
       : (live.roblox.groupsRead ? 'Not a member of the MET group.' : 'Could not check.'));
@@ -474,5 +456,5 @@ async function build(row) {
 module.exports = {
   build, discordCreatedAt, discordAvatarUrl, checksFor, driftBetween,
   robloxSide, discordSide, metSide, recordSide, historyFor,
-  MIN_ACCOUNT_DAYS, GANG_GROUP_IDS,
+  MIN_ACCOUNT_DAYS,
 };

@@ -322,15 +322,13 @@
 
     // ── Every group they are in ────────────────────────────────────
     if (rb.groupsRead && (rb.groups || []).length) {
-      var gangIds = {};
-      (rb.gangGroups || []).forEach(function (g) { gangIds[g.id] = 1; });
       h += '<div class="panel glass iar-panel">'
         + '<div class="iar-phead"><i class="ti ti-users-group"></i> Roblox groups · ' + rb.groups.length + '</div>'
-        + '<div class="iar-nofind" style="margin:0 0 .7rem;">Read it for anything that should rule them out. '
-        + 'MET requires no gang membership without gang permissions.</div>'
+        + '<div class="iar-nofind" style="margin:0 0 .7rem;">Every group they are in, with the rank they hold. '
+        + 'Nothing here is a verdict — it is context.</div>'
         + '<div class="iar-groups">' + rb.groups.map(function (g) {
-            var flag = gangIds[g.id] ? ' gang' : (rb.metGroup && g.id === rb.metGroup.id ? ' met'
-                     : (rb.iaGroup && g.id === rb.iaGroup.id ? ' ia' : ''));
+            var flag = (rb.metGroup && g.id === rb.metGroup.id) ? ' met'
+                     : ((rb.iaGroup && g.id === rb.iaGroup.id) ? ' ia' : '');
             return '<a class="iar-group' + flag + '" href="' + esc(g.url) + '" target="_blank" rel="noopener">'
               + (g.icon ? '<img src="' + esc(g.icon) + '" alt="" onerror="this.style.visibility=\'hidden\'" />'
                         : '<span class="ico"><i class="ti ti-users"></i></span>')
