@@ -200,17 +200,34 @@ function raRenderQuota(q) {
     return;
   }
   const left = q.remaining != null ? q.remaining : null;
-  const tight = left != null && left <= 10;
   const none  = left === 0;
+  // Proportional, not absolute. A flat "10 or fewer left" marked every state as
+  // nearly-out on an unverified account, whose whole allowance is 10 — so the
+  // warning was always on and therefore said nothing.
+  const tight = left != null && left > 0
+    && left <= Math.max(2, Math.ceil((q.capacity || 0) * 0.25));
   const col = none ? 'var(--red)' : (tight ? 'var(--amber)' : 'var(--green)');
   const resets = q.resetsAt ? ` Resets ${escapeHtml(formatDateTime(q.resetsAt))}.` : '';
+
+  // Each state gets its own sentence. Appending "of 10" to "No uploads left"
+  // read as "No uploads left this month. of 10." — and the hint about ID
+  // verification was on the nearly-out branch only, so it went missing at zero,
+  // which is exactly when it is worth reading.
+  let headline, sub = '';
+  if (none) {
+    headline = `No uploads left of the ${q.capacity} this month.`;
+    sub = 'ID-verifying the Roblox account raises the allowance.';
+  } else if (left != null) {
+    headline = `${left} upload${left === 1 ? '' : 's'} left this month, of ${q.capacity}.`;
+    if (tight) sub = 'ID-verifying the Roblox account raises the allowance.';
+  } else {
+    headline = `Allowance: ${q.capacity} a month.`;
+  }
+
   el.style.display = '';
   el.innerHTML = `<div style="border-left:3px solid ${col};background:rgba(127,127,127,0.06);border-radius:6px;padding:9px 13px;line-height:1.6;">
-    <strong style="color:${col};">${none
-      ? 'No uploads left this month.'
-      : (left != null ? `${left} upload${left === 1 ? '' : 's'} left this month` : `Allowance: ${q.capacity} a month`)}</strong>
-    ${left != null ? `<span style="color:var(--text-muted);"> of ${q.capacity}.</span>` : ''}${resets}
-    ${tight && !none ? '<br><span style="color:var(--text-secondary);">ID-verifying the Roblox account raises this.</span>' : ''}
+    <strong style="color:${col};">${escapeHtml(headline)}</strong>${resets}
+    ${sub ? `<br><span style="color:var(--text-secondary);">${escapeHtml(sub)}</span>` : ''}
   </div>`;
 }
 
