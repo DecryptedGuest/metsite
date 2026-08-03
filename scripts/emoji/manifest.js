@@ -315,6 +315,28 @@ const EMOJI = [
        + `<rect x="36" y="78" width="36" height="9" rx="4"/></g>`
        + `<rect x="22" y="10" width="12" height="108" fill="${C.blue}"/>` },
 
+  // ── Recruitment (/met) ──────────────────────────────────────────
+  // The buttons on the recruitment post. A Discord button emoji renders at the
+  // same size as a message one, so the same rule applies — and these two sit next
+  // to text, so they need a silhouette that is not a rectangle.
+  { name: 'met_dm', fallback: '\u{1F4E9}', desc: 'sent to your DMs',
+    svg: `<rect x="8" y="26" width="112" height="76" rx="12" fill="${C.paper}"/>`
+       // The flap, filled, so the envelope reads as an envelope at 22px rather
+       // than as a pale rectangle.
+       + `<path d="M8 34 L64 74 L120 34 v-2 a10 10 0 0 0 -10 -8 H18 a10 10 0 0 0 -10 8 Z" fill="${C.blue}"/>`
+       + `<path d="M8 38 L64 78 L120 38" fill="none" stroke="${C.blue}" stroke-width="9" stroke-linejoin="round"/>` },
+  // A marked paper: the exam, as distinct from met_note, which is just notes.
+  { name: 'met_exam', fallback: '\u{1F4C4}', desc: 'the final exam',
+    svg: `<rect x="20" y="8" width="88" height="112" rx="10" fill="${C.paper}"/>`
+       + `<g fill="${C.slate}"><rect x="34" y="28" width="44" height="8" rx="4"/>`
+       + `<rect x="34" y="48" width="60" height="8" rx="4"/>`
+       + `<rect x="34" y="68" width="36" height="8" rx="4"/></g>`
+       // The tick is the mark, so it is the biggest thing on the page and it
+       // overhangs the edge — which is what stops this reading as met_note.
+       + `<circle cx="90" cy="92" r="30" fill="${C.green}"/>`
+       + `<path d="M76 92 L88 104 L106 82" fill="none" stroke="#08210f" stroke-width="11"`
+       + ` stroke-linecap="round" stroke-linejoin="round"/>` },
+
   // ── Loading animation ───────────────────────────────────────────
   // Four frames of one spinner. The bot doesn't use animated emoji — it edits
   // the ephemeral embed frame by frame, which renders as a spin and degrades to

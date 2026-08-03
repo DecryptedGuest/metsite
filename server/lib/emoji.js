@@ -131,6 +131,19 @@ function reactionFor(name) {
   return def ? def.fallback : null;
 }
 
+// The form a BUTTON wants. discord.js takes an object here, not a string:
+// { id } for a custom emoji, { name } for a unicode one — and passing the
+// "name:id" reaction form to setEmoji() renders nothing at all.
+//
+// Falls back to the unicode character the same way e() does, so a button always
+// has an icon even before the application emoji have been uploaded.
+function buttonEmoji(name) {
+  const hit = resolved.get(name);
+  if (hit) return { id: hit.id, name, animated: !!hit.animated };
+  const def = byName.get(name);
+  return def && def.fallback ? { name: def.fallback } : null;
+}
+
 // Absolute URL of the emoji's PNG, for embed thumbnails and the site.
 function urlFor(name, base) {
   if (!byName.has(name)) return null;
@@ -336,7 +349,7 @@ function startEmojiSync(client) {
 }
 
 module.exports = {
-  e, reactionFor, urlFor, isSynced, status,
+  e, reactionFor, buttonEmoji, urlFor, isSynced, status,
   byGuildName, firstGuildEmoji,
   syncEmoji, syncGuildEmoji, startEmojiSync,
   findGuildStrays, purgeGuildEmoji,
