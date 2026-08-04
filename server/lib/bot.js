@@ -164,6 +164,7 @@ const IA_GUILD_IDS         = () => metGuildIds('IA_PANEL_GUILD_ID');
 const PROMOTE_GUILD_IDS    = () => metGuildIds('PROMOTE_GUILD_ID');
 const LOA_GUILD_IDS        = () => metGuildIds('LOA_GUILD_ID');
 const MET_GUILD_IDS        = () => metGuildIds('MET_INFO_GUILD_ID');
+const PENDINGJOIN_GUILD_IDS = () => metGuildIds('PENDINGJOIN_GUILD_ID');
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -264,6 +265,17 @@ function buildCommandPlan() {
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /met:', err.message);
+  }
+
+  // /pendingjoin — the MET group's join-request queue. Gated in code to MET High
+  // Command and administrators, because letting somebody into the group is a
+  // Roblox action with no undo from here.
+  try {
+    const cmd = require('./pendingJoinCommand').buildCommand();
+    add(PENDINGJOIN_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /pendingjoin:', err.message);
   }
 
   return { byGuild, global };
@@ -386,6 +398,10 @@ async function onInteraction(interaction) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
     }
+    if (cid.startsWith('pjyes:') || cid.startsWith('pjno:')) {
+      return require('./pendingJoinCommand').handlePendingJoinButton(interaction)
+        .catch(e => console.error('[Bot] /pendingjoin button error:', e.message));
+    }
     if (cid.startsWith('met_dm_')) {
       return require('./metCommand').handleMetButton(interaction)
         .catch(e => console.error('[Bot] /met button error:', e.message));
@@ -461,6 +477,19 @@ async function onInteraction(interaction) {
       .catch(async (err) => {
         console.error('[Bot] /met failed:', err.message);
         const msg = { content: `${e('met_cross')} Something went wrong posting that. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'pendingjoin') {
+    return require('./pendingJoinCommand').handlePendingJoinCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /pendingjoin failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong — the queue may be part-done, `
+          + `so run \`/pendingjoin list\` to see where it got to. (${err.message})`,
+          embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
