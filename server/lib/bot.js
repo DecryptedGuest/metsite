@@ -89,6 +89,12 @@ async function onReady() {
   // the bot was restarting would never reach the site.
   try { require('./patrolReactions').startReactionReconciler(client); }
   catch (e) { console.warn('[PatrolLog] reaction reconciler not started:', e.message); }
+  // Say once, at boot, whether the suggestions channel is actually reachable and
+  // which permissions are missing. Every failure in there looks the same from the
+  // channel — nothing happens — so the only way to tell "no Add Reactions" from
+  // "no View Channel" from "working fine, nobody posted" is to ask and print it.
+  try { await require('./suggestions').checkPermissions(client); }
+  catch (e) { console.warn('[Suggestions] permission check failed:', e.message); }
 }
 
 function buildClient(withMessageContent) {
@@ -1265,9 +1271,14 @@ async function onPatrolMessage(message) {
 
     if (message.author && message.author.bot) return;
 
-    // The suggestions channel: react to a real suggestion so the room can vote
-    // on it, delete free chat, and warn ONCE for a whole burst rather than once
-    // per message. It abstains on anything it isn't sure about — see the module.
+    // The suggestions channel: react to a suggestion so the room can vote on it,
+    // open a thread to discuss it in, delete free chat, and warn ONCE for a whole
+    // burst rather than once per message. Every message gets one of those two
+    // outcomes — nothing is left untouched. See the module.
+    //
+    // Messages inside the threads it opens are NOT handled: a thread has its own
+    // channel id, so this only ever matches the channel itself. That is the point
+    // of the threads — the discussion is somewhere the classifier never looks.
     try {
       const sug = require('./suggestions');
       if (ch === String(sug.CHANNEL_ID())) {

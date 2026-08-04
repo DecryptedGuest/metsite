@@ -1,26 +1,36 @@
 // server/lib/suggestions.js
-// Keep the Internal Affairs suggestions channel to suggestions.
+// Keep the Internal Affairs suggestions channel to suggestions and questions.
 //
-// Two jobs, on every new message in the channel:
+// Every message in the channel gets one of exactly two outcomes. There is no
+// third, silent one:
 //
-//   * a real suggestion gets met_tick and met_cross, so the room can vote on it
-//     without anybody having to add the reactions by hand;
-//   * free chat gets deleted, and ONE warning is posted covering the whole burst
-//     rather than one per message — then that warning deletes itself, so the
-//     channel is left holding suggestions and nothing else.
+//   * a suggestion or a question is KEPT — it gets reactions, so the room can
+//     vote on it or mark it seen without anybody adding them by hand, and it
+//     gets a thread hung off it, so the discussion happens there instead of
+//     burying the next suggestion under twenty replies;
+//   * anything else is DELETED, and ONE notice is posted covering the whole
+//     burst rather than one per message — then that notice deletes itself, so
+//     the channel is left holding suggestions and questions and nothing else.
 //
 // ── The bias ──────────────────────────────────────────────────────
 //
 // Deleting somebody's genuine suggestion is far worse than leaving a bit of
 // chat up. One is a person's contribution destroyed and a reason to distrust the
-// channel; the other is a line of noise that a human can remove in two seconds.
-// So this is deliberately NOT symmetrical:
+// channel; the other is a line of noise a human can remove in two seconds. So
+// the two outcomes are NOT symmetrical:
 //
-//   * deleting needs much more evidence than reacting does;
-//   * anything in between does NOTHING AT ALL — no delete, no reaction. Abstaining
-//     is a first-class outcome here, not a failure to decide;
+//   * deleting needs stronger evidence than keeping does;
 //   * a long message is never deleted, whatever it scores. Nobody writes two
-//     hundred characters of "free chat", and if they have, a human can judge it.
+//     hundred words of "free chat", and if they have, a human can judge it;
+//   * anything the score cannot place is resolved by asking one question: does
+//     this say something ABOUT the department, or is it addressed AT the people
+//     in the room? A statement about the department is content and is kept. A
+//     call to the room — "anyone wanna patrol", "who's on" — is not.
+//
+// That tie-break used to be "do nothing at all", which read as the bot being
+// broken: real suggestions sat there with no reactions on them and nobody could
+// tell whether they had been seen. Uncertainty now resolves towards keeping and
+// reacting, never towards silence.
 //
 // ── "Advanced" without an LLM ─────────────────────────────────────
 //
@@ -30,10 +40,12 @@
 // signals that each mean something on their own, and every decision carries the
 // list of signals that produced it. That list is logged with the deletion.
 //
-// SUGGESTIONS_MODE=observe  classify and log, delete nothing (trial it safely)
-// SUGGESTIONS_MODE=off      do nothing at all
-// SUGGESTIONS_CHANNEL_ID    the channel (defaults to the IA suggestions channel)
+// SUGGESTIONS_MODE=observe    classify, react and thread, but delete nothing
+// SUGGESTIONS_MODE=off        do nothing at all
+// SUGGESTIONS_CHANNEL_ID      the channel (defaults to the IA suggestions channel)
 // SUGGESTIONS_LOG_CHANNEL_ID  mirror deleted messages here, so nothing is lost
+// SUGGESTIONS_THREADS=off     keep the reactions, stop opening threads
+// SUGGESTIONS_THREAD_OPENER=off  open the thread without a first message in it
 
 const CHANNEL_ID = () => process.env.SUGGESTIONS_CHANNEL_ID || '1533870983251755109';
 const MODE = () => {
@@ -41,11 +53,22 @@ const MODE = () => {
   return ['on', 'observe', 'off'].includes(m) ? m : 'on';
 };
 const LOG_CHANNEL_ID = () => process.env.SUGGESTIONS_LOG_CHANNEL_ID || null;
+const off = (v) => ['off', '0', 'false', 'no'].includes(String(v || '').toLowerCase());
+const THREADS_ON = () => !off(process.env.SUGGESTIONS_THREADS);
+const OPENER_ON  = () => !off(process.env.SUGGESTIONS_THREAD_OPENER);
 
-// How long the single warning stays up. Long enough to read, short enough that
+// Discord only accepts these four. Anything else is rejected outright, so an
+// unrecognised value falls back to a week rather than failing every thread.
+const ARCHIVE_ALLOWED = [60, 1440, 4320, 10080];
+const THREAD_ARCHIVE = () => {
+  const n = parseInt(process.env.SUGGESTIONS_THREAD_ARCHIVE, 10);
+  return ARCHIVE_ALLOWED.includes(n) ? n : 10080;
+};
+
+// How long the single notice stays up. Long enough to read, short enough that
 // the channel is clean again by the time anybody scrolls back.
 const WARN_TTL_MS = () => num(process.env.SUGGESTIONS_WARN_TTL_MS, 15000, 3000, 120000);
-// A burst of chat keeps the SAME warning alive rather than posting another.
+// A burst of chat keeps the SAME notice alive rather than posting another.
 const WARN_MAX_LIFE_MS = () => num(process.env.SUGGESTIONS_WARN_MAX_MS, 45000, 5000, 300000);
 // A cap, because a classifier bug that deletes everything would otherwise empty
 // the channel before anybody noticed. Past this it stops deleting and says so.
@@ -82,15 +105,13 @@ const CHAT_WHOLE = new Set([
 ]);
 
 // Phrases that only make sense as conversation with a person, not as a proposal
-// to the department. Substring-matched, so they work inside a longer message.
+// to the department or a question about it. Substring-matched, so they work
+// inside a longer message.
 const CHAT_PHRASES = [
   /\bare you (?:there|on|free|around|online)\b/i,
   /\bis anyone (?:there|on|online|free|around)\b/i,
-  /\bdoes anyone (?:know|have|want)\b/i,
   /\bcan (?:someone|somebody|anyone) (?:help|dm|pm|invite|add)\b/i,
-  /\bwho (?:is|are|wants|wanna)\b/i,
   /\bwhat time\b/i,
-  /\bwhen (?:is|are) (?:the |you |u )?\w+\??$/i,
   /\bhow (?:are|r) (?:you|u|ya)\b/i,
   /\bgood (?:morning|afternoon|evening|night) (?:everyone|all|guys|lads)\b/i,
   /\b(?:dm|pm) me\b/i,
@@ -100,6 +121,23 @@ const CHAT_PHRASES = [
   /\bhappy birthday\b/i,
   /\bcongrats?(?:ulations)?\b/i,
   /\bcongratulations\b/i,
+];
+
+// Calls to the people in the room, rather than statements about the department.
+// This is the line the tie-break turns on: "anyone wanna patrol" names something
+// we have and would otherwise be kept on that alone, but it is not a suggestion
+// and it is not a question about how anything works — it is organising a game.
+//
+// Deliberately narrow. "anyone" on its own is not enough, because "anyone else
+// think the quota is too high" is a suggestion; the availability or join verb has
+// to be right there next to it.
+const ROOM_CALL = [
+  /\b(?:any ?one|any ?body|any1|some ?one|some ?body)\b[^.?!\n]{0,24}?\b(?:wanna|want to|wants to|up for|down for|free|online|joining|join|hop on|patrol(?:ling)?|host(?:ing)?|playing|vc)\b/i,
+  /\bwho'?s? (?:on|online|free|up|down|coming|joining|patrolling|hosting|about|around)\b/i,
+  /\b(?:lets|let'?s) (?:go|patrol|do this|play|hop on|get on|run)\b/i,
+  /\b(?:hop|get|jump) (?:on|in)\b/i,
+  /\bjoin (?:me|us|my|vc)\b/i,
+  /\bi'?m (?:on|online|free|hosting|patrolling)\b/i,
 ];
 
 // The vocabulary of an actual proposal.
@@ -132,6 +170,16 @@ const SUGGEST_PHRASES = [
   /\bas it stands\b/i,
 ];
 
+// Wanting more, less or different of something. Weak on its own — a suggestion
+// can be three words long and consist of nothing else ("more police cars"), and
+// three words is exactly where the length penalties would otherwise sink it.
+const CHANGE_WORDS = [
+  /\bmore\b/i, /\bless\b/i, /\bfewer\b/i, /\bextra\b/i, /\banother\b/i,
+  /\btoo (?:many|much|few|little|high|low|slow|fast|strict|harsh|easy|long|short)\b/i,
+  /\b(?:high|low|slow|fast|short|long|strict|hard|easy|big|small)er\b/i,
+  /\bnew\b/i, /\bbring back\b/i, /\bunfair\b/i, /\bbroken\b/i, /\bpointless\b/i,
+];
+
 // A reason attached to a proposal. This is the single strongest signal that
 // somebody is arguing for something rather than chatting.
 const RATIONALE = [
@@ -142,7 +190,7 @@ const RATIONALE = [
 ];
 
 // Things the department actually has. A message naming one is about the
-// department, which is what a suggestion is.
+// department, which is what a suggestion or a question here is about.
 const DOMAIN = [
   /\bquota\b/i, /\bpatrol/i, /\broster/i, /\brank(?:s|ing)?\b/i, /\bpromot/i, /\bdemot/i,
   /\bxp\b/i, /\btraining/i, /\btryout/i, /\bsop\b/i, /\bradio/i, /\bcallsign/i,
@@ -154,6 +202,8 @@ const DOMAIN = [
   /\bmet\b/i, /\bia\b/i, /\bhicomm/i, /\bcommand\b/i, /\bofficer/i, /\bmember/i,
   /\bpolicy|policies\b/i, /\bprocess\b/i, /\bsystem\b/i, /\bform\b/i, /\bbot\b/i,
   /\bcommand(?:s)?\b/i, /\bemoji\b/i, /\bpermission/i, /\baccess\b/i, /\bdeadline/i,
+  /\brules?\b/i, /\bpursuit/i, /\bcars?\b/i, /\bfleet\b/i, /\bliveryu?\b/i,
+  /\bguidelines?\b/i, /\bpaperwork\b/i, /\bsheet\b/i, /\breport(?:s|ing)?\b/i,
 ];
 
 // Openers that are only ever a greeting. "hi guys", "hey all", "morning
@@ -163,9 +213,19 @@ const GREETING_OPENERS = new Set([
   'gm', 'gn', 'morning', 'evening', 'afternoon', 'good', 'greetings', 'ello', 'oi',
 ]);
 
+// The first word of a question. A question is legitimate content in this channel
+// — somebody asking how something works, or whether something could change — so
+// it is kept and threaded rather than deleted, and it is only chat when one of
+// the decisive rules above says so.
+const QUESTION_OPENERS = new Set([
+  'what', 'whats', 'why', 'how', 'when', 'where', 'which', 'who', 'whos', 'whose',
+  'can', 'could', 'should', 'shall', 'would', 'will', 'do', 'does', 'did', 'is',
+  'are', 'was', 'were', 'has', 'have', 'may', 'might', 'must', 'am', 'any',
+]);
+
 // Headed layouts — "Suggestion: …", "What: … Why: …". Somebody who formats a
 // message like this is filing something.
-const HEADED = /^\s*(?:\*{0,2})(?:suggestion|idea|proposal|what|why|reason|problem|solution|change|current|proposed)(?:\*{0,2})\s*:/im;
+const HEADED = /^\s*(?:\*{0,2})(?:suggestion|idea|proposal|what|why|reason|problem|solution|change|current|proposed|question)(?:\*{0,2})\s*:/im;
 
 // ── Normalisation ─────────────────────────────────────────────────
 
@@ -199,14 +259,17 @@ function countMatches(list, text) {
   return n;
 }
 
+function hasLink(raw) { return /https?:\/\/\S+/i.test(String(raw || '')); }
+
 /**
  * Classify one message.
  *
- * @returns {{ verdict: 'suggestion'|'chat'|'abstain', score: number, signals: string[] }}
+ * @returns {{ verdict: 'suggestion'|'question'|'chat', score: number, signals: string[] }}
  *
- * `abstain` means leave it entirely alone: no delete, no reactions. That is the
- * correct answer for anything this cannot be confident about, and there is a
- * wide band of it on purpose.
+ * Exactly two outcomes reach the channel: 'suggestion' and 'question' are both
+ * KEPT (reactions + a thread), 'chat' is DELETED. Nothing is left untouched —
+ * a message with no reaction on it and no notice about it looks like a bot that
+ * is not running.
  */
 function classify(input) {
   const raw   = typeof input === 'string' ? input : (input && input.content) || '';
@@ -220,7 +283,7 @@ function classify(input) {
 
   // ── Messages whose content is not text at all ─────────────────
   //
-  // These come FIRST, and they abstain rather than falling through to the
+  // These come FIRST, and they are all KEPT rather than falling through to the
   // no-words rule below, which deletes.
   //
   // A poll IS a suggestion mechanism — "should we do X or Y" — and a forwarded
@@ -228,31 +291,37 @@ function classify(input) {
   // Neither has any `content` at all: the text lives in the poll question or in
   // the forwarded snapshot. Without this they read as "nothing was said" and get
   // deleted, which is the single worst thing this module can do.
-  if (input && input.isPoll) return { verdict: 'abstain', score: 0, signals: ['a poll — the question is not in the content'] };
-  if (input && input.isForward) return { verdict: 'abstain', score: 0, signals: ['a forwarded message'] };
+  if (input && input.isPoll) return { verdict: 'suggestion', score: 0, signals: ['a poll — the question is not in the content'] };
+  if (input && input.isForward) return { verdict: 'suggestion', score: 0, signals: ['a forwarded message'] };
 
-  // An empty message that carried a picture is somebody illustrating something.
-  // Never chat, never confidently a suggestion either.
-  if (!text && hasAttachment) return { verdict: 'abstain', score: 0, signals: ['attachment only'] };
-  if (!text && !hasAttachment) {
-    // Only emoji, only a link, only a mention. Nothing was said.
-    return { verdict: 'chat', score: -10, signals: ['no words at all'] };
+  // An empty message that carried a picture or a link is somebody illustrating
+  // something. Not words, so not confidently a proposal — but it is content
+  // somebody chose to bring here, and deleting a mockup is unforgivable.
+  if (!text && (hasAttachment || hasLink(raw))) {
+    return { verdict: 'suggestion', score: 0, signals: [hasAttachment ? 'a picture with no words' : 'a link with no words'] };
   }
 
-  // ── The three decisive chat cases ─────────────────────────────
+  // ── The decisive chat cases ───────────────────────────────────
   //
   // Rules rather than weights, because each of these is certain on its own and a
   // weight big enough to carry them alone would be big enough to sink a real
   // suggestion that happened to trip it.
 
   // Nothing alphanumeric survived normalisation at all: only emoji, only
-  // punctuation, only reaction marks. Nothing was proposed because nothing was
-  // said. (An attachment was already handled above.)
-  if (!words.length) return { verdict: 'chat', score: -10, signals: ['no words, only symbols'] };
+  // punctuation, only mentions. Nothing was proposed because nothing was said.
+  if (!words.length) return { verdict: 'chat', score: -10, signals: ['no words at all'] };
 
   // A greeting and who it is aimed at. "hi", "hey guys", "morning everyone".
   if (words.length <= 4 && GREETING_OPENERS.has(words[0])) {
     return { verdict: 'chat', score: -9, signals: [`opens with "${words[0]}" and says nothing else`] };
+  }
+
+  // The whole message is one chat word, or two to four of them stuck together.
+  if (w && CHAT_WHOLE.has(w)) {
+    return { verdict: 'chat', score: -8, signals: [`the whole message is "${w}"`] };
+  }
+  if (words.length > 1 && words.length <= 4 && words.every(x => CHAT_WHOLE.has(x))) {
+    return { verdict: 'chat', score: -7, signals: ['nothing but chat words'] };
   }
 
   let score = 0;
@@ -273,6 +342,11 @@ function classify(input) {
     score += Math.min(2, domainHits);
     signals.push(`names something we have ×${domainHits}`);
   }
+  const changeHits = countMatches(CHANGE_WORDS, text);
+  if (changeHits) {
+    score += 1;
+    signals.push('wants more, less or different of something');
+  }
   if (HEADED.test(raw)) { score += 3; signals.push('written under headings'); }
 
   // Length and structure. A proposal has to explain itself, so it is long, and
@@ -288,27 +362,37 @@ function classify(input) {
   // A bulleted or numbered list is somebody laying out options.
   if (/^\s*(?:[-*•]|\d+[.)])\s+\S/m.test(raw)) { score += 2; signals.push('a list'); }
 
+  // A picture or a link ATTACHED TO WORDS is evidence for the words.
+  if (hasAttachment) { score += 1; signals.push('brought a picture'); }
+  else if (hasLink(raw)) { score += 1; signals.push('brought a link'); }
+
+  // ── Is it a question? ─────────────────────────────────────────
+  //
+  // Questions are what this channel is for as much as suggestions are, so this
+  // is not a chat signal. It is only a verdict once the decisive chat rules
+  // below have had their say.
+  const asks = /\?/.test(text) || QUESTION_OPENERS.has(words[0]);
+  if (asks) signals.push('asks something');
+
   // ── Chat signals ──────────────────────────────────────────────
-  if (w && CHAT_WHOLE.has(w)) { score -= 8; signals.push(`the whole message is "${w}"`); }
-
-  // Two or three chat words stuck together — "ok lol", "yeah true fr".
-  if (words.length > 1 && words.length <= 4 && words.every(x => CHAT_WHOLE.has(x))) {
-    score -= 7; signals.push('nothing but chat words');
-  }
-
   const chatHits = countMatches(CHAT_PHRASES, text);
   if (chatHits) { score -= chatHits * 3; signals.push(`talking to a person ×${chatHits}`); }
 
-  // The third decisive case: a short question aimed at the people in the room,
-  // with no proposal wording anywhere in it. "who wants to patrol", "what time is
-  // the tryout", "does anyone know when the next event is". These name real
-  // things, which is why the domain signal keeps pulling them back over the line
-  // — but asking the room a question is not proposing anything.
+  // Organising a game rather than proposing anything: "anyone wanna patrol",
+  // "who's on", "hop on vc". Decisive, because these name real things and the
+  // domain signal would otherwise keep pulling them back over the line.
   //
-  // Guarded on `!suggestHits`, so "could we move the tryout time, since nobody
-  // knows what time it is" is untouched by this.
+  // Guarded on the proposal signals, so "could we move the tryout time, since
+  // nobody knows who's on" is untouched by it.
+  const roomHits = countMatches(ROOM_CALL, text);
+  if (roomHits && !suggestHits && !rationaleHits && words.length <= 20) {
+    return { verdict: 'chat', score: score - 5, signals: signals.concat(['asking the room to do something, not proposing anything']) };
+  }
+
+  // A short question aimed at the people in the room, with no proposal wording
+  // anywhere in it. "are you on", "what time is the tryout", "dm me".
   if (chatHits && !suggestHits && !rationaleHits && words.length <= 15) {
-    return { verdict: 'chat', score: score - 4, signals: signals.concat(['a question for the room, not a proposal']) };
+    return { verdict: 'chat', score: score - 4, signals: signals.concat(['a question for the room, not about the department']) };
   }
 
   if (words.length <= 3)      { score -= 5; signals.push('three words or fewer'); }
@@ -329,18 +413,13 @@ function classify(input) {
   if (isReply) { score -= 2; signals.push('a reply to someone'); }
 
   // ── Verdict ───────────────────────────────────────────────────
-  //
-  // The two thresholds are deliberately different distances from zero. Reacting
-  // to something that turns out to be chat costs two stray reactions. Deleting
-  // something that turns out to be a suggestion destroys a member's
-  // contribution, so it has to clear a much higher bar.
-  const SUGGEST_AT = 4;
+  const SUGGEST_AT = 3;
   const CHAT_AT    = -6;
 
   // The override that matters most: length. Nobody writes this much free chat,
   // and if the score says otherwise the score is wrong.
-  if (words.length >= 35 && score <= CHAT_AT) {
-    return { verdict: 'abstain', score, signals: signals.concat(['too long to delete on a score']) };
+  if (words.length >= 35) {
+    return { verdict: asks ? 'question' : 'suggestion', score, signals: signals.concat(['too long to delete on a score']) };
   }
   // A proposal WITH a reason attached is a suggestion, whatever else it looks
   // like. This is the pattern the channel exists for.
@@ -348,14 +427,34 @@ function classify(input) {
     return { verdict: 'suggestion', score: Math.max(score, SUGGEST_AT), signals: signals.concat(['a proposal with a reason']) };
   }
 
-  if (score >= SUGGEST_AT) return { verdict: 'suggestion', score, signals };
-  if (score <= CHAT_AT)    return { verdict: 'chat', score, signals };
-  return { verdict: 'abstain', score, signals };
+  if (score >= SUGGEST_AT) return { verdict: asks ? 'question' : 'suggestion', score, signals };
+
+  // A question about the department, rather than about who is online. It has to
+  // be asking something and it has to be about something we have.
+  if (asks && (domainHits || suggestHits || changeHits)) {
+    return { verdict: 'question', score, signals: signals.concat(['a question about the department']) };
+  }
+
+  if (score <= CHAT_AT) return { verdict: 'chat', score, signals };
+
+  // ── The tie-break ─────────────────────────────────────────────
+  //
+  // The score could not place it. Doing nothing is not one of the options —
+  // that is what made the channel look broken — so the question becomes: is
+  // there anything here ABOUT the department? A statement about the department
+  // is content, however short. "quota is too high" is four words and is a
+  // suggestion; "i went to the shop" is five and is not.
+  const substance = domainHits || suggestHits || rationaleHits || changeHits || words.length >= 12;
+  if (substance) {
+    return { verdict: asks ? 'question' : 'suggestion', score,
+             signals: signals.concat(['not clear-cut, but it is about the department — kept']) };
+  }
+  return { verdict: 'chat', score, signals: signals.concat(['nothing here about the department']) };
 }
 
-// ── The single warning ────────────────────────────────────────────
+// ── The single notice ─────────────────────────────────────────────
 //
-// One warning per burst, not one per message. Somebody who posts four lines of
+// One notice per burst, not one per message. Somebody who posts four lines of
 // chat gets one line back; the alternative is the bot out-spamming the thing it
 // is cleaning up.
 //
@@ -376,8 +475,9 @@ function warnText(names) {
   const who = names.length
     ? names.slice(0, 6).join(', ') + (names.length > 6 ? ` and ${names.length - 6} others` : '')
     : 'that';
-  return `**${who}** — this channel is for suggestions only. `
-       + 'Post your idea with a sentence on why it would help, and it stays. '
+  return `**${who}** — this channel is for suggestions and questions only. `
+       + 'Post an idea with a sentence on why it would help, or ask something about how the '
+       + 'department works, and it stays — it gets a vote and a thread to discuss it in. '
        + 'General chat belongs elsewhere. _This notice removes itself._';
 }
 
@@ -387,7 +487,7 @@ async function postOrRefreshWarning(channel, name) {
   let st = warnings.get(key);
 
   if (st && st.messageId) {
-    // A warning is already up. Add the name to it, keep it alive a little longer,
+    // A notice is already up. Add the name to it, keep it alive a little longer,
     // and DO NOT post a second one — that is the whole point.
     if (name && !st.names.includes(name)) st.names.push(name);
     st.count++;
@@ -413,7 +513,7 @@ async function postOrRefreshWarning(channel, name) {
     return { posted: true, folded: false, count: 1 };
   } catch (e) {
     warnings.delete(key);
-    console.warn('[Suggestions] could not post the warning:', e.message);
+    console.warn('[Suggestions] could not post the notice:', e.message);
     return { posted: false, folded: false, error: e.message };
   }
 }
@@ -462,7 +562,7 @@ async function mirror(client, message, decision) {
  * Handle one message in the suggestions channel.
  *
  * Returns what it decided, so the behaviour is testable without a gateway:
- *   { skipped } | { verdict, score, signals, reacted, deleted, warning }
+ *   { skipped } | { verdict, score, signals, reacted, deleted, thread, warning }
  */
 async function onSuggestionMessage(message) {
   const mode = MODE();
@@ -471,7 +571,8 @@ async function onSuggestionMessage(message) {
   if (message.author && message.author.bot) return { skipped: 'a bot posted it' };
   if (message.webhookId) return { skipped: 'a webhook posted it' };
   // System messages (joins, pins, boosts) are not anybody's suggestion and are
-  // not anybody's chat either.
+  // not anybody's chat either. Type 21 is the "started a thread" notice — OUR
+  // thread — and deleting that would take the thread with it.
   if (message.system || (message.type != null && message.type !== 0 && message.type !== 19)) {
     return { skipped: 'a system message' };
   }
@@ -499,13 +600,11 @@ async function onSuggestionMessage(message) {
             || (!!message.reference && message.reference.type === 1),
   });
 
-  if (decision.verdict === 'abstain') {
-    return { ...decision, reacted: false, deleted: false };
-  }
-
-  if (decision.verdict === 'suggestion') {
-    const reacted = await addVoteReactions(message);
-    return { ...decision, reacted, deleted: false };
+  // ── Kept: react, then open a thread to discuss it in ────────────
+  if (decision.verdict !== 'chat') {
+    const reacted = await addReactions(message, decision.verdict);
+    const thread  = THREADS_ON() ? await openThread(message, decision) : null;
+    return { ...decision, reacted, deleted: false, thread };
   }
 
   // ── Free chat ───────────────────────────────────────────────────
@@ -537,7 +636,7 @@ async function onSuggestionMessage(message) {
       : err && err.code === 50021 ? 'it is a system message, which cannot be deleted'
       : (err && err.message) || 'unknown';
     console.warn('[Suggestions] could not delete the message —', why);
-    // A permission failure means EVERY delete will fail, and the warning would
+    // A permission failure means EVERY delete will fail, and the notice would
     // otherwise still be posted for each one — the bot telling people off for
     // messages it then leaves up. Say nothing rather than that.
     if (err && err.code === 50013) return { ...decision, reacted: false, deleted: false, blocked: why };
@@ -553,32 +652,168 @@ async function onSuggestionMessage(message) {
   return { ...decision, reacted: false, deleted, warning };
 }
 
-// met_tick then met_cross, in that order — approve on the left, the way every
-// other sign-off in this system reads.
-async function addVoteReactions(message) {
+// A suggestion gets met_tick then met_cross, in that order — approve on the
+// left, the way every other sign-off in this system reads. A question gets one
+// mark instead: there is nothing to vote on, but the person who asked still
+// needs to be able to see that the bot handled it rather than ignoring it.
+const REACTIONS = {
+  suggestion: ['met_tick', 'met_cross'],
+  question:   ['met_search'],
+};
+
+async function addReactions(message, verdict) {
+  const wanted = REACTIONS[verdict] || REACTIONS.suggestion;
   let ok = 0;
+  if (!message || typeof message.react !== 'function') return false;
   try {
     const { reactionFor } = require('./emoji');
-    for (const name of ['met_tick', 'met_cross']) {
+    for (const name of wanted) {
       const id = reactionFor(name);
       if (!id) continue;
-      try { await message.react(id); ok++; }
-      catch (e) {
+      try { await message.react(id); ok++; continue; }
+      catch (err) {
+        // Missing permission is the one cause worth naming: it makes EVERY
+        // reaction fail, in every message, silently, and the symptom is a
+        // channel that looks like the bot is not running at all.
+        if (err && err.code === 50013) {
+          console.warn('[Suggestions] cannot react — the bot needs "Add Reactions" '
+            + '(and "Read Message History") in that channel.');
+          return false;
+        }
         // A custom emoji the bot cannot use falls back to the plain character,
         // so the vote still works.
-        const { EMOJI } = require('../../scripts/emoji/manifest');
-        const def = EMOJI.find(d => d.name === name);
-        if (def && def.fallback && def.fallback !== id) {
-          try { await message.react(def.fallback); ok++; } catch (e2) { /* give up on this one */ }
+        try {
+          const { EMOJI } = require('../../scripts/emoji/manifest');
+          const def = EMOJI.find(d => d.name === name);
+          if (def && def.fallback && def.fallback !== id) {
+            await message.react(def.fallback); ok++;
+          } else {
+            console.warn(`[Suggestions] could not react with ${name}:`, (err && err.message) || 'unknown');
+          }
+        } catch (e2) {
+          console.warn(`[Suggestions] could not react with ${name}:`, (e2 && e2.message) || 'unknown');
         }
       }
     }
-  } catch (e) { console.warn('[Suggestions] could not add the vote reactions:', e.message); }
+  } catch (e) { console.warn('[Suggestions] could not add the reactions:', e.message); }
   return ok > 0;
 }
 
+// ── The discussion thread ─────────────────────────────────────────
+//
+// Replies used to pile up under a suggestion in the main channel, which pushed
+// the next one out of sight and made the vote reactions meaningless — you could
+// not tell which message the twenty replies were about. A thread hangs the whole
+// conversation off the suggestion itself and leaves the channel as a list.
+
+function trimTo(s, n) {
+  const t = String(s || '').trim();
+  return t.length <= n ? t : t.slice(0, n - 1).trimEnd() + '…';
+}
+
+function threadName(message, decision) {
+  const who = message.member?.displayName
+    || message.author?.globalName || message.author?.username || 'Someone';
+  const kind = decision.verdict === 'question' ? 'question' : 'suggestion';
+  // Drop a leading "Suggestion:" heading — the thread is already labelled by
+  // being attached to a suggestion, and repeating it wastes the 100 characters
+  // Discord allows.
+  const base = normalise(message.content || '')
+    .replace(/^\s*(?:\*{0,2})(?:suggestion|idea|proposal|question)(?:\*{0,2})\s*:\s*/i, '')
+    .trim();
+  if (!base) return trimTo(`${who}'s ${kind}`, 100);
+  return trimTo(base, 90);
+}
+
+function openerText(message, decision) {
+  const kind = decision.verdict === 'question' ? 'question' : 'suggestion';
+  const who = message.member?.displayName
+    || message.author?.globalName || message.author?.username || 'the poster';
+  return kind === 'question'
+    ? `Answers to ${who}'s question go here, so the channel itself stays a list of suggestions and questions.`
+    : `Discuss ${who}'s suggestion here. Vote on the message above — this thread is for the argument, not the count.`;
+}
+
+async function openThread(message, decision) {
+  if (!message || typeof message.startThread !== 'function') return { ok: false, why: 'threads are not available here' };
+  // Already has one: a re-read of the same message, or somebody made it by hand.
+  if (message.hasThread || message.thread) return { ok: true, existing: true };
+  let thread;
+  try {
+    thread = await message.startThread({
+      name: threadName(message, decision),
+      autoArchiveDuration: THREAD_ARCHIVE(),
+      reason: 'Discussion thread for a suggestion in the suggestions channel',
+    });
+  } catch (err) {
+    // Same reasoning as the delete path: name the cause, because every one of
+    // these is a two-second fix that is invisible otherwise.
+    const why =
+        err && err.code === 50013  ? 'the bot needs "Create Public Threads" (and "Send Messages in Threads") in that channel'
+      : err && err.code === 160004 ? 'that message already has a thread'
+      : err && err.code === 50024  ? 'threads cannot be created on that kind of channel'
+      : err && err.code === 10008  ? 'the message was already gone'
+      : (err && err.message) || 'unknown';
+    console.warn('[Suggestions] could not open a discussion thread —', why);
+    return { ok: false, why };
+  }
+  if (OPENER_ON() && thread && typeof thread.send === 'function') {
+    // An empty thread reads as broken, and the first message is where the rule
+    // about voting on the parent belongs. Failing to post it does not undo the
+    // thread — an empty thread still beats no thread.
+    try { await thread.send({ content: openerText(message, decision), allowedMentions: { parse: [] } }); }
+    catch (e) { console.warn('[Suggestions] opened the thread but could not post in it:', e.message); }
+  }
+  return { ok: true, id: thread && thread.id, name: thread && thread.name };
+}
+
+// ── Startup self-check ───────────────────────────────────────────
+//
+// Every failure mode of this module looks identical from the channel: nothing
+// happens. Six different missing permissions all present as "the bot is
+// ignoring us", and the only way to tell them apart is to ask Discord once, at
+// boot, and print the answer.
+const NEEDED = [
+  ['ViewChannel',           'see the channel at all'],
+  ['ReadMessageHistory',    'read what was posted'],
+  ['AddReactions',          'add the vote reactions'],
+  ['ManageMessages',        'delete free chat'],
+  ['SendMessages',          'post the notice about a deletion'],
+  ['CreatePublicThreads',   'open a discussion thread'],
+  ['SendMessagesInThreads', 'post the first message in that thread'],
+];
+
+async function checkPermissions(client) {
+  if (MODE() === 'off') return { skipped: 'off' };
+  const id = CHANNEL_ID();
+  if (!client || !id) return { skipped: 'no client or channel' };
+  let ch;
+  try { ch = await client.channels.fetch(id); }
+  catch (e) {
+    console.warn(`[Suggestions] cannot see channel ${id} — ${e.message}. `
+      + 'The bot is either not in that server or has no access to that channel, '
+      + 'so nothing in the suggestions channel will be handled.');
+    return { ok: false, why: e.message };
+  }
+  if (!ch) return { ok: false, why: 'channel not found' };
+  let perms = null;
+  try { perms = ch.permissionsFor(client.user); } catch (e) { /* not a guild channel */ }
+  if (!perms) {
+    console.log(`[Suggestions] watching #${ch.name || id} (permissions could not be read).`);
+    return { ok: true, unknown: true };
+  }
+  const missing = NEEDED.filter(([p]) => !perms.has(p));
+  if (!missing.length) {
+    console.log(`[Suggestions] watching #${ch.name || id} — every permission it needs is granted.`);
+    return { ok: true, missing: [] };
+  }
+  console.warn(`[Suggestions] watching #${ch.name || id}, but MISSING permissions:`);
+  for (const [p, why] of missing) console.warn(`[Suggestions]   • ${p} — needed to ${why}`);
+  return { ok: false, missing: missing.map(([p]) => p) };
+}
+
 module.exports = {
-  classify, onSuggestionMessage, addVoteReactions,
+  classify, onSuggestionMessage, addReactions, openThread, checkPermissions,
   CHANNEL_ID, MODE,
   // Tests only.
   __state: () => ({ warnings, handled, deletes }),
