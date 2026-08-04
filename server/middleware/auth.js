@@ -156,36 +156,60 @@ function requireDeveloper(req, res, next) {
   return res.status(403).json({ error: 'Developer access required' });
 }
 
+/**
+ * The user behind a session cookie, or null — with every reason a cookie can stop
+ * being good already applied.
+ *
+ * There are five of them, and any code that authenticates a request has to honour
+ * all five: a signature that does not verify, an account that no longer exists, a
+ * blacklist, a forced re-auth, and a session that has been REVOKED or has expired.
+ * That last pair is what "Sign out everywhere else" and the Dev Security Center's
+ * kill switch actually do — they mark the Session row, not the cookie, because a
+ * cookie already issued cannot be taken back.
+ *
+ * Extracted so it is written once. It was inlined here and half-implemented in the
+ * hosted-media check, which verified the JWT and read the role and stopped there —
+ * so a revoked session, and a stolen laptop's cookie, kept reading IA and
+ * DEVELOPER media for the sixty days until the JWT itself expired. Two copies of an
+ * auth check is one copy and one hole.
+ *
+ * @returns {Promise<{ user, sessionId }|null>}
+ */
+async function sessionUserFromToken(token) {
+  if (!token) return null;
+  let payload;
+  try { payload = jwt.verify(token, process.env.JWT_SECRET); }
+  catch (e) { return null; }
+  let user = null;
+  try { user = await prisma.user.findUnique({ where: { id: payload.userId } }); }
+  catch (e) { return null; }
+  if (!user || user.isBlacklisted || user.mustReauth) return null;
+  // A sid-less token predates per-session revocation and cannot be checked against
+  // one, so it does not count as authenticated.
+  if (!payload.sid) return null;
+  let session = null;
+  try { session = await prisma.session.findUnique({ where: { id: payload.sid } }); }
+  catch (e) { return null; }
+  if (!session || session.revokedAt || session.expiresAt < new Date()) return null;
+  return { user, sessionId: session.id };
+}
+
 // Optional auth: set req.user if a valid session exists, else leave it null and
 // continue (never redirects/rejects). Used by public-but-personalisable areas
 // where login is optional.
 async function maybeAuth(req, res, next) {
-  const token = req.cookies?.iacms_token;
-  if (!token) { req.user = null; return next(); }
-  let payload;
-  try { payload = jwt.verify(token, process.env.JWT_SECRET); }
-  catch (e) { req.user = null; return next(); }
-  let user = null;
-  try { user = await prisma.user.findUnique({ where: { id: payload.userId } }); }
-  catch (e) { req.user = null; return next(); }
-  if (!user || user.isBlacklisted || user.mustReauth) { req.user = null; return next(); }
-  // Honour per-session revocation / force-reauth here too — a revoked or
-  // sid-less session degrades to anonymous (guest) rather than keeping staff
-  // capabilities on maybeAuth routes.
-  if (!payload.sid) { req.user = null; return next(); }
-  let session = null;
-  try { session = await prisma.session.findUnique({ where: { id: payload.sid } }); }
-  catch (e) { req.user = null; return next(); }
-  if (!session || session.revokedAt || session.expiresAt < new Date()) { req.user = null; return next(); }
-  req.sessionId = session.id;
-  req.user = user;
+  const hit = await sessionUserFromToken(req.cookies?.iacms_token);
+  if (!hit) { req.user = null; return next(); }
+  req.sessionId = hit.sessionId;
+  req.user = hit.user;
   next();
-  maybeRefreshRoles(user);
+  maybeRefreshRoles(hit.user);
 }
 
 module.exports = {
   requireAuth,
   maybeAuth,
+  sessionUserFromToken,
   requireHICOMM,
   requireHICOMMStrict,
   requireDeveloper,

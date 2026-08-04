@@ -257,7 +257,6 @@ app.get('/robots.txt', (req, res) => {
 // When sitePrivate is on, nobody but a logged-in DEVELOPER can reach the
 // site at all — not even the login page. /auth/* stays open so a developer
 // can still sign in, and /api/site-config stays open so the curtain renders.
-const jwtLib     = require('jsonwebtoken');
 const dbPrisma   = require('./lib/db');
 const siteConfig = require('./lib/siteConfig');
 const PRIVATE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Service Unavailable</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0c12;color:#e6e9ef;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}.card{text-align:center;max-width:460px;padding:48px 36px}.icon{font-size:50px;margin-bottom:18px;opacity:.85}h1{font-size:22px;margin:0 0 12px;font-weight:700}p{color:#9aa3b2;line-height:1.65;margin:0 0 14px;font-size:14px}.sub{font-size:12px;color:#5d6675;margin-top:30px}a{color:#5d6675;font-size:12px;text-decoration:none;opacity:.55}a:hover{opacity:1}</style></head><body><div class="card"><div class="icon">🗄️</div><h1>This service has been discontinued</h1><p>This system is no longer in use and is no longer maintained. Thank you to everyone who used it.</p><p class="sub">If you reached this page by mistake, you may safely close this tab.</p><a href="/auth/discord">Staff access</a></div></body></html>`;
@@ -266,14 +265,15 @@ app.use(async (req, res, next) => {
   if (!siteConfig.isOn('sitePrivate')) return next();
   const p = req.path;
   if (p.startsWith('/auth') || p === '/api/site-config') return next();
-  const token = req.cookies && req.cookies.iacms_token;
-  if (token) {
-    try {
-      const payload = jwtLib.verify(token, process.env.JWT_SECRET);
-      const u = await dbPrisma.user.findUnique({ where: { id: payload.userId }, select: { role: true } });
-      if (u && u.role === 'DEVELOPER') return next();
-    } catch (e) { /* fall through to curtain */ }
-  }
+  // Through the same door as everything else — session revocation, blacklist and
+  // mustReauth included. Verifying the JWT and reading the role was not enough: the
+  // curtain is what gets pulled during an incident, which is exactly when sessions
+  // are being revoked, and a revoked developer session walked straight through it.
+  try {
+    const hit = await require('./middleware/auth')
+      .sessionUserFromToken(req.cookies && req.cookies.iacms_token);
+    if (hit && hit.user.role === 'DEVELOPER') return next();
+  } catch (e) { /* fall through to curtain */ }
   if (p.startsWith('/api')) return res.status(503).json({ error: 'The site is currently private.' });
   return res.status(503).type('html').send(PRIVATE_PAGE);
 });
@@ -436,17 +436,25 @@ app.use('/api/app', requireAuth, require('./routes/app'));
 app.use('/api/game', require('./routes/game'));
 
 // Visibility check for hosted media. Returns { allowed, user }.
+//
+// The identity comes from sessionUserFromToken, the same function maybeAuth uses,
+// and NOT from verifying the JWT here. This used to do its own thing — verify the
+// signature, read `{ role, isBlacklisted }`, done — which skipped the two checks
+// that matter most for a link somebody may have shared or lost control of:
+//
+//   * the SESSION. "Sign out everywhere else", and a developer killing a session
+//     from the Security Center, mark the Session row — a cookie already issued
+//     cannot be recalled. So a revoked session, or a stolen laptop's cookie, kept
+//     reading IA / STAFF / DEVELOPER media for the sixty days until the JWT expired.
+//   * mustReauth, which is how somebody who has lost access is forced back through
+//     login before anything trusts their role again.
+//
+// It could not have checked either: the select did not even fetch the columns.
 async function checkMediaAccess(req, m) {
   if (m.visibility === 'PUBLIC') return { allowed: true, user: null };
-  let user = null;
-  const token = req.cookies && req.cookies.iacms_token;
-  if (token) {
-    try {
-      const payload = jwtLib.verify(token, process.env.JWT_SECRET);
-      user = await dbPrisma.user.findUnique({ where: { id: payload.userId }, select: { role: true, isBlacklisted: true } });
-      if (user && user.isBlacklisted) user = null;
-    } catch (e) { user = null; }
-  }
+  const hit = await require('./middleware/auth')
+    .sessionUserFromToken(req.cookies && req.cookies.iacms_token);
+  const user = hit ? hit.user : null;
   const role = user && user.role;
   const allowed =
     (m.visibility === 'IA'        && ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) ||
