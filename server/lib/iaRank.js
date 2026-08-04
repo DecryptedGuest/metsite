@@ -91,10 +91,36 @@ function isHicomm(user) {
 }
 
 /**
+ * Is this case ABOUT this user?
+ *
+ * The subject of a case is identified by three fields, any one of which may be the
+ * only one filled in — a case logged from a Discord mention has the id and no
+ * Roblox name; one rebuilt from an old log may have the Roblox name and nothing
+ * else. The record lookup in routes/cases.js matches on exactly this OR, which is
+ * what makes it the right test here: if a case would show up on their record, it is
+ * their case.
+ *
+ * Note this is the SUBJECT, not the author. `caseRow.userId` is whoever filed it.
+ */
+function caseIsAbout(user, caseRow) {
+  if (!user || !caseRow) return false;
+  const same = (a, b) => {
+    if (a == null || b == null) return false;
+    const x = String(a).trim().toLowerCase();
+    const y = String(b).trim().toLowerCase();
+    return !!x && x === y;
+  };
+  return same(caseRow.officerDiscordId, user.discordId)
+      || same(caseRow.robloxUserId,     user.robloxId)
+      || same(caseRow.robloxUsername,   user.robloxUsername);
+}
+
+/**
  * May `user` file an appeal against `caseRow`?
  * Returns { allowed, reason } — `reason` is a user-facing message when denied.
  *
  * Rules (from the IA spec):
+ *   - Nobody appeals a case about themselves.
  *   - Only Senior Investigator and above may appeal at all.
  *   - Only High Command may appeal a Termination or a Blacklist.
  *   - Only an APPROVED case can be appealed (there is nothing to lift on a
@@ -108,6 +134,17 @@ function canAppealCase(user, caseRow) {
     return { allowed: false, reason: 'This case has already been appealed.' };
   if (caseRow.status !== 'APPROVED')
     return { allowed: false, reason: 'Only an approved case can be appealed.' };
+
+  // FIRST, and before the rank test, because rank is exactly what made this
+  // dangerous: filing an appeal IS granting it, so a Senior Investigator with a
+  // strike could lift their own, and somebody in High Command could lift their own
+  // Termination or Blacklist. The people with the power to appeal are the same
+  // people who accumulate records worth erasing.
+  //
+  // Checked before rank so the refusal says the real reason rather than "you are
+  // not senior enough", which would be both wrong and confusing to somebody who is.
+  if (caseIsAbout(user, caseRow))
+    return { allowed: false, reason: 'You cannot appeal a case about yourself. Ask somebody else in Internal Affairs to review it.' };
 
   if (!isSeniorInvestigatorPlus(user))
     return { allowed: false, reason: 'Appeals can only be filed by Senior Investigator and above.' };
@@ -133,7 +170,7 @@ module.exports = {
   caseHasHicommOnlyPunishment,
   isSeniorInvestigatorPlus,
   isHicomm,
-  canAppealCase,
+  canAppealCase, caseIsAbout,
   iaRankOf,
   iaRankLabel,
   rankNameIsSiPlus,
