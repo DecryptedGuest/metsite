@@ -590,7 +590,7 @@ async function getMemberPoints(member, division = 'IA') {
       let rows;
       try {
         const resp = await sheets.spreadsheets.values.get({
-          spreadsheetId: cfg.sheetId, range: tab, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+          spreadsheetId: cfg.sheetId, range: sheetRef(tab), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
         });
         rows = resp.data.values || [];
       } catch (e) { continue; }
@@ -773,7 +773,7 @@ async function getAllMembersViaServiceAccount(cfg) {
       let rows;
       try {
         const resp = await sheets.spreadsheets.values.get({
-          spreadsheetId: cfg.sheetId, range: tab, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+          spreadsheetId: cfg.sheetId, range: sheetRef(tab), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
         });
         rows = resp.data.values || [];
       } catch (e) { continue; } // skip an unreadable tab rather than failing the whole read

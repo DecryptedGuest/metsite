@@ -277,7 +277,7 @@ async function awardHpcPoint(log) {
     }
 
     const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+      spreadsheetId, range: q.sheetRef(sheetName), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
     });
     const rows = resp.data.values || [];
     const cols = q.findColumns(rows);
@@ -295,7 +295,7 @@ async function awardHpcPoint(log) {
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheetName}!${q.colLetter(dayCol)}${rowIdx + 1}`,
+      range: q.sheetRef(sheetName, `${q.colLetter(dayCol)}${rowIdx + 1}`),
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[newVal]] },
     });
@@ -334,7 +334,7 @@ async function awardCidEventPoint(log) {
 
     for (const sheetName of tabs) {
       const resp = await sheets.spreadsheets.values.get({
-        spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+        spreadsheetId, range: q.sheetRef(sheetName), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
       }).catch(() => null);
       if (!resp) continue;
       const rows = resp.data.values || [];
@@ -351,7 +351,7 @@ async function awardCidEventPoint(log) {
 
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${sheetName}!${q.colLetter(dayCol)}${rowIdx + 1}`,
+        range: q.sheetRef(sheetName, `${q.colLetter(dayCol)}${rowIdx + 1}`),
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [[newVal]] },
       });
@@ -389,7 +389,7 @@ async function syncAttendanceToSheet(log) {
     ]);
     if (!rows.length) return false;
     await sheets.spreadsheets.values.append({
-      spreadsheetId, range: sheetName, valueInputOption: 'USER_ENTERED',
+      spreadsheetId, range: q.sheetRef(sheetName), valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS', requestBody: { values: rows },
     });
     console.log(`[tryoutLog] synced ${rows.length} attendees → recruits sheet`);

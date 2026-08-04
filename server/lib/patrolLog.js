@@ -458,7 +458,7 @@ async function awardEventPoint(log, division = 'MET') {
     for (const tab of tabs) {
       let rows;
       try {
-        const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range: tab, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS' });
+        const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range: q.sheetRef(tab), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS' });
         rows = resp.data.values || [];
       } catch (e) { continue; }
       const cols = q.findColumns(rows);
@@ -472,7 +472,7 @@ async function awardEventPoint(log, division = 'MET') {
       if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: `cell is "${cellRaw}" (e.g. EX) — left untouched`, tab, division };
       const newVal = (cellRaw ? parseFloat(cellRaw) : 0) + 1;
       await sheets.spreadsheets.values.update({
-        spreadsheetId, range: `${tab}!${q.colLetter(dayCol)}${rowIdx + 1}`,
+        spreadsheetId, range: q.sheetRef(tab, `${q.colLetter(dayCol)}${rowIdx + 1}`),
         valueInputOption: 'USER_ENTERED', requestBody: { values: [[newVal]] },
       });
       console.log(`[EventLog] +1 → ${division}:${tab} / ${candidates[0]} (now ${newVal})`);

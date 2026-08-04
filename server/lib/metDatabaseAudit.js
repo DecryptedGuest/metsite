@@ -104,7 +104,7 @@ async function auditMet(opts = {}) {
     let rows;
     try {
       const resp = await sheets.spreadsheets.values.get({
-        spreadsheetId: cfg.sheetId, range: tab,
+        spreadsheetId: cfg.sheetId, range: quota.sheetRef(tab),
         valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
       });
       rows = resp.data.values || [];
@@ -298,7 +298,7 @@ async function normaliseMet(opts = {}) {
     let rows;
     try {
       const resp = await sheets.spreadsheets.values.get({
-        spreadsheetId: cfg.sheetId, range: tab,
+        spreadsheetId: cfg.sheetId, range: quota.sheetRef(tab),
         valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
       });
       rows = resp.data.values || [];
@@ -331,7 +331,7 @@ async function normaliseMet(opts = {}) {
         // A cell that is already exactly 0 needs no write.
         if (isNumber && num === 0) continue;
         if (isNumber) cleared++; else filled++;
-        data.push({ range: `${tab}!${quota.colLetter(c)}${r + 1}`, values: [[0]] });
+        data.push({ range: quota.sheetRef(tab, `${quota.colLetter(c)}${r + 1}`), values: [[0]] });
       }
     }
     out.filled += filled; out.cleared += cleared; out.kept += kept;
