@@ -896,4 +896,63 @@ router.post('/loa-import', async (req, res) => {
   }
 });
 
+// ── MET group audit log ───────────────────────────────────────────
+//
+//   GET  /api/dev/group-audit         is it working, and what has it logged
+//   POST /api/dev/group-audit/sweep   read Roblox now and post anything new
+//
+// Every failure mode of this thing looks the same from the channel — nothing
+// arrives — so the GET says which of them it is: the cookie missing, the "View
+// audit log" permission missing, the channel unset, or simply nothing having
+// happened in the group yet.
+router.get('/group-audit', async (req, res) => {
+  try {
+    const GA = require('../lib/groupAuditLog');
+    const groupId = GA.GROUP_ID();
+    const prisma  = require('../lib/db');
+
+    const [total, unposted, recent] = await Promise.all([
+      prisma.groupAuditEntry.count({ where: { groupId } }),
+      prisma.groupAuditEntry.count({ where: { groupId, postedAt: null } }),
+      prisma.groupAuditEntry.findMany({
+        where: { groupId }, orderBy: { occurredAt: 'desc' }, take: 15,
+        select: { actionType: true, actorName: true, targetName: true, occurredAt: true,
+                  postedAt: true, messageId: true, matchedAuditId: true },
+      }),
+    ]);
+
+    // Ask Roblox whether we can actually read it, rather than guessing from
+    // whether anything has arrived.
+    let reachable = null, readError = null;
+    if (require('../lib/roblox').cookieForDivision('MET')) {
+      try {
+        const page = await require('../lib/roblox').getGroupAuditLog(groupId, null, { limit: 10 });
+        reachable = true;
+        if (!total && !(page.entries || []).length) readError = 'the group audit log is empty';
+      } catch (e) { reachable = false; readError = e.message; }
+    } else {
+      readError = 'ROBLOX_COOKIE is not set, so the group audit log cannot be read at all';
+    }
+
+    res.json({
+      enabled: GA.ENABLED(), groupId, channelId: GA.CHANNEL_ID(),
+      cookieConfigured: !!require('../lib/roblox').cookieForDivision('MET'),
+      reachable, readError,
+      startedAt: await GA.watermark(groupId),
+      total, unposted, recent,
+    });
+  } catch (e) {
+    res.status(400).json({ error: 'Could not read the group audit state: ' + e.message });
+  }
+});
+
+router.post('/group-audit/sweep', async (req, res) => {
+  try {
+    const out = await require('../lib/groupAuditLog').sweep(require('../lib/bot').getClient());
+    res.json(out);
+  } catch (e) {
+    res.status(400).json({ error: 'The sweep failed: ' + e.message });
+  }
+});
+
 module.exports = router;

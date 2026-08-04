@@ -165,7 +165,7 @@ async function activeNow(take = 25) {
   const rows = await prisma.loaRequest.findMany({
     where: { status: 'APPROVED', endedAt: null, startAt: { lte: now }, endAt: { gte: now } },
     orderBy: { endAt: 'asc' },
-    take: Math.min(Math.max(parseInt(take, 10) || 25, 1), 50),
+    take: Math.min(Math.max(parseInt(take, 10) || 25, 1), 200),
   });
   return rows;
 }
@@ -175,7 +175,7 @@ async function pending(take = 25) {
   return prisma.loaRequest.findMany({
     where: { status: 'PENDING' },
     orderBy: { createdAt: 'asc' },
-    take: Math.min(Math.max(parseInt(take, 10) || 25, 1), 50),
+    take: Math.min(Math.max(parseInt(take, 10) || 25, 1), 200),
   });
 }
 
@@ -184,7 +184,7 @@ async function history(discordId, take = 15) {
   return prisma.loaRequest.findMany({
     where: discordId ? { discordId: String(discordId) } : {},
     orderBy: { createdAt: 'desc' },
-    take: Math.min(Math.max(parseInt(take, 10) || 15, 1), 25),
+    take: Math.min(Math.max(parseInt(take, 10) || 15, 1), 100),
   });
 }
 

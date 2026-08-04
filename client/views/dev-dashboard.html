@@ -1221,6 +1221,39 @@
         </div>
       </div>
 
+      <!-- ── MET group audit log ───────────────────────────────────────
+           Every failure mode of this looks identical from the channel —
+           nothing arrives — so this panel names which one it is. -->
+      <div class="panel glass fade-up stagger-4" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot"></span>MET group audit log</div>
+          <div class="panel-tools">
+            <button class="btn btn-ghost btn-sm" id="gal-look-btn" onclick="galLook()">
+              <i class="ti ti-activity"></i> Check it
+            </button>
+            <button class="btn btn-ghost btn-sm" id="gal-sweep-btn" onclick="galSweep()">
+              <i class="ti ti-refresh"></i> Read Roblox now
+            </button>
+          </div>
+        </div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Mirrors the MET group's own Roblox audit log into Discord — every rank change, join
+            request, removal, shout and configuration change, whoever made it and wherever they made
+            it from. Reading Roblox rather than our own activity feed is the point: a rank change made
+            on roblox.com by hand shows up alongside one made here.
+          </p>
+          <p style="font-size:12.5px;color:var(--text-muted);line-height:1.7;margin:0 0 1rem;">
+            Where an action came from this site, the post names the person who asked for it rather
+            than the bot account. Reading the log needs the <strong>View audit log</strong> permission
+            on the bot's own group role, which is separate from the ranking permission it already has —
+            if that is missing, &ldquo;Check it&rdquo; says so. The first run records the group's
+            existing history without posting any of it.
+          </p>
+          <div id="gal-result" style="margin-top:1rem;font-size:13px;"></div>
+        </div>
+      </div>
+
       <!-- ── Clans Labs XP import ──────────────────────────────────────
            The leaderboard lives in data/clanslabs-xp.txt and names ROBLOX
            accounts; our XP is keyed on Discord ids. Most of the list therefore

@@ -3974,3 +3974,91 @@ async function loaiGo() {
   if (!yes) return;
   return loaiImport(false);
 }
+
+// ── MET group audit log ───────────────────────────────────────────
+// "Nothing is arriving in the channel" has five different causes and they all
+// look the same from the channel. This says which one it is.
+async function galLook() {
+  const out = document.getElementById('gal-result');
+  const btn = document.getElementById('gal-look-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Asking Roblox…"; }
+  try {
+    const r = await api('/api/dev/group-audit');
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + 'The group audit log</div>';
+    h += clrRow('Watching', r.enabled ? 'yes' : 'switched off (GROUP_AUDIT_LOG=off)', r.enabled ? 'good' : 'warn');
+    h += clrRow('Group', r.groupId);
+    h += clrRow('Channel', r.channelId || 'not set', r.channelId ? 'good' : 'bad');
+    h += clrRow('Roblox bot cookie', r.cookieConfigured ? 'set' : 'not set', r.cookieConfigured ? 'good' : 'bad');
+    h += clrRow('Can read the log',
+      r.reachable === true ? 'yes' : r.reachable === false ? 'NO' : 'not tried',
+      r.reachable === true ? 'good' : r.reachable === false ? 'bad' : 'warn');
+    h += clrRow('Actions recorded', r.total, r.total ? 'good' : 'warn');
+    if (r.unposted) h += clrRow('Waiting to be posted', r.unposted, 'warn');
+    h += clrRow('Posting from', r.startedAt ? galWhen(r.startedAt) : 'the first sweep has not run yet');
+    if (r.readError) {
+      h += '<div style="margin-top:.7rem;padding:.6rem .8rem;border-radius:8px;'
+        + 'background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);'
+        + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
+        + '<i class="ti ti-alert-triangle"></i> ' + escapeHtml(r.readError) + '</div>';
+    }
+    if ((r.recent || []).length) {
+      h += '<div style="margin-top:.9rem;font-size:11.5px;line-height:1.9;">'
+        + r.recent.map(function (x) {
+            return '<span style="color:var(--text-muted);">' + escapeHtml(galWhen(x.occurredAt)) + '</span> · '
+              + '<span class="mono">' + escapeHtml(x.actionType) + '</span> · '
+              + escapeHtml(x.actorName || 'unknown')
+              + (x.targetName ? ' → ' + escapeHtml(x.targetName) : '')
+              + (x.messageId ? '' : ' <span style="color:var(--amber);">(not posted)</span>')
+              + (x.matchedAuditId ? ' <span style="color:var(--green);">(from the site)</span>' : '');
+          }).join('<br>')
+        + '</div>';
+    }
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+function galWhen(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  return isNaN(d) ? String(v) : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+async function galSweep() {
+  const out = document.getElementById('gal-result');
+  const btn = document.getElementById('gal-sweep-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Reading…"; }
+  try {
+    const r = await api('/api/dev/group-audit/sweep', { method: 'POST', body: '{}' });
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + 'One sweep</div>';
+    if (r.skipped) h += clrRow('Stood down', r.skipped, 'warn');
+    if (r.ingest) {
+      h += clrRow('Read from Roblox', r.ingest.seen);
+      h += clrRow('Pages walked', r.ingest.pages);
+      h += clrRow('New to us', r.ingest.inserted, r.ingest.inserted ? 'good' : undefined);
+      if (r.ingest.error) h += clrRow('Could not read it', r.ingest.error, 'bad');
+    }
+    if (r.post) {
+      h += clrRow('Posted to Discord', r.post.posted, r.post.posted ? 'good' : undefined);
+      if (r.post.failed)  h += clrRow('Still queued', r.post.failed, 'warn');
+      if (r.post.gaveUp)  h += clrRow('Given up on (too old)', r.post.gaveUp, 'warn');
+      if (r.post.skipped) h += clrRow('Skipped', r.post.skipped, 'warn');
+      if (r.post.error)   h += clrRow('Posting failed', r.post.error, 'bad');
+    }
+    if (r.error) h += clrRow('Failed', r.error, 'bad');
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}

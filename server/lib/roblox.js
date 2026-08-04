@@ -830,6 +830,66 @@ async function listJoinRequests(pageToken = null, gid, cookie) {
 }
 
 /**
+ * One page of the group's own audit log.
+ *
+ * This is the ONLY way to see an action somebody took on the Roblox website rather
+ * than through this app. Everything we do goes through the API as the bot account,
+ * so our own actions appear here too — which makes this log the complete record and
+ * our audit trail the annotation on it, not the other way round.
+ *
+ * Needs the bot cookie AND the bot's group role to hold the "view audit log"
+ * permission, which is separate from ranking people. A 403 here means that
+ * permission, not a bad cookie, and the caller says so.
+ *
+ * Entries look like:
+ *   { actor: { user: { userId, username, displayName },
+ *              role: { id, name, rank } },
+ *     actionType: 'Change Rank',
+ *     description: { TargetId, TargetName, OldRoleSetName, NewRoleSetName, ... },
+ *     created: '2026-08-04T20:11:02.123Z' }
+ *
+ * The `description` shape differs per action type and Roblox adds new ones without
+ * notice, so it is returned verbatim for the formatter to deal with.
+ *
+ * @param {object}  opts
+ * @param {string}  [opts.cursor]     page cursor
+ * @param {number}  [opts.limit]      10 | 25 | 50 | 100 (Roblox rejects anything else)
+ * @param {string}  [opts.actionType] filter to one type; omit for everything
+ * @param {string}  [opts.sortOrder]  'Desc' (default, newest first) | 'Asc'
+ */
+async function getGroupAuditLog(gid, cookie, opts = {}) {
+  const groupId = gid || mainGroupId();
+  if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
+
+  const limit = [10, 25, 50, 100].includes(Number(opts.limit)) ? Number(opts.limit) : 100;
+  let url = `${ROBLOX_GROUPS}/groups/${groupId}/audit-log`
+    + `?limit=${limit}&sortOrder=${opts.sortOrder === 'Asc' ? 'Asc' : 'Desc'}`;
+  if (opts.cursor) url += `&cursor=${encodeURIComponent(opts.cursor)}`;
+  if (opts.actionType) url += `&actionType=${encodeURIComponent(opts.actionType)}`;
+
+  const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
+  if (res.status === 403) {
+    throw new Error('Roblox refused the group audit log (403) — the bot account\'s group '
+      + 'role needs the "View audit log" permission, which is separate from ranking members');
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Roblox API ${res.status} reading the group audit log: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const entries = (data.data || []).map(e => ({
+    actorId:       e.actor && e.actor.user ? String(e.actor.user.userId) : null,
+    actorName:     e.actor && e.actor.user ? (e.actor.user.username || null) : null,
+    actorRankName: e.actor && e.actor.role ? (e.actor.role.name || null) : null,
+    actorRank:     e.actor && e.actor.role && e.actor.role.rank != null ? Number(e.actor.role.rank) : null,
+    actionType:    e.actionType || 'Unknown',
+    description:   e.description && typeof e.description === 'object' ? e.description : {},
+    created:       e.created || null,
+  }));
+  return { entries, nextPageToken: data.nextPageCursor || null };
+}
+
+/**
  * Approve or decline a join request for a Roblox user.
  * action: 'approve' (POST) | 'decline' (DELETE)
  */
@@ -901,6 +961,7 @@ module.exports = {
   getRobloxIdFromDiscord,
   getDiscordFromRoblox,
   getRobloxIdFromUsername,
+  getGroupAuditLog,
   getRobloxIdsFromUsernames,
   getRobloxUserInfo,
   getRobloxUsersInfo,

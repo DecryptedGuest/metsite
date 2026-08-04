@@ -95,6 +95,11 @@ async function onReady() {
   // "no View Channel" from "working fine, nobody posted" is to ask and print it.
   try { await require('./suggestions').checkPermissions(client); }
   catch (e) { console.warn('[Suggestions] permission check failed:', e.message); }
+  // Mirror the Roblox group's own audit log into Discord — every rank change,
+  // join request, removal and configuration change in the MET group, whoever
+  // made it and wherever they made it from.
+  try { require('./groupAuditLog').startGroupAuditWorker(client); }
+  catch (e) { console.warn('[GroupAudit] worker not started:', e.message); }
 }
 
 function buildClient(withMessageContent) {

@@ -175,7 +175,36 @@ function line(r, i) {
        + ` ${e('met_edit')} ${short(r.reason || 'No reason given', 120)}`;
 }
 
-function listEmbed({ title, rows, empty, color, note }) {
+// ── Paging ────────────────────────────────────────────────────────
+// A list of nine people, each with a reason, is already a wall of text — and an
+// embed description is hard-capped at 4096 characters, so a busy week would
+// simply be cut off. So the lists are paged.
+//
+// Packed by LENGTH, not by a fixed count: six one-word reasons fit on a page
+// where three essays do not, and a page break should fall where the text runs
+// out rather than at an arbitrary number. About six entries a page in practice.
+const PAGE_CHARS = 1000;
+const PAGE_MAX   = 6;
+
+function pagesOf(rows) {
+  const pages = [];
+  let page = [], size = 0;
+  for (const r of rows) {
+    const len = line(r).length + 2;                 // the blank line between entries
+    if (page.length && (size + len > PAGE_CHARS || page.length >= PAGE_MAX)) {
+      pages.push(page); page = []; size = 0;
+    }
+    page.push(r); size += len;
+  }
+  if (page.length) pages.push(page);
+  return pages.length ? pages : [[]];
+}
+
+/**
+ * One page of a list.
+ * `page` is 0-based and clamped, so a stale button can't ask for page 9 of 2.
+ */
+function listEmbed({ title, rows, empty, color, note, page = 0 }) {
   const em = new EmbedBuilder()
     .setColor(color || COLOR.info)
     .setAuthor({ name: 'Metropolitan Police Service' })
@@ -185,9 +214,38 @@ function listEmbed({ title, rows, empty, color, note }) {
     em.setDescription(`${e('met_dot_off')} ${empty}`);
     return em;
   }
-  em.setDescription((note ? note + '\n\n' : '') + rows.map(line).join('\n\n'));
-  em.setFooter({ text: `${rows.length} shown` });
+  const pages = pagesOf(rows);
+  const n = Math.max(0, Math.min(pages.length - 1, parseInt(page, 10) || 0));
+  const mine = pages[n];
+  // The note belongs at the top of the list, not repeated down it.
+  em.setDescription(((note && n === 0) ? note + '\n\n' : '') + mine.map(line).join('\n\n'));
+  // Which of the whole list you are looking at — "3–4 of 9" beats "page 2".
+  const from = pages.slice(0, n).reduce((a, p) => a + p.length, 0) + 1;
+  em.setFooter({ text: pages.length > 1
+    ? `${from}–${from + mine.length - 1} of ${rows.length} · page ${n + 1}/${pages.length}`
+    : `${rows.length} shown` });
   return em;
+}
+
+// The prev/next row, or nothing at all when it all fits on one page.
+// The custom id carries the view and which page to go to, so a button pressed
+// later re-runs the query rather than paging a stale snapshot.
+function pageRow(view, rows, page, arg) {
+  const pages = pagesOf(rows);
+  if (pages.length < 2) return [];
+  const n = Math.max(0, Math.min(pages.length - 1, parseInt(page, 10) || 0));
+  const id = to => `loa_page_${view}:${to}${arg ? ':' + arg : ''}`;
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(id(n - 1)).setLabel('Back')
+      .setStyle(ButtonStyle.Secondary).setEmoji('◀').setDisabled(n === 0),
+    // Disabled, so it is a label rather than a button — but a custom id is still
+    // required, and `noop` is not a view, so pressing it could only ever do
+    // nothing.
+    new ButtonBuilder().setCustomId('loa_page_noop')
+      .setLabel(`${n + 1} / ${pages.length}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+    new ButtonBuilder().setCustomId(id(n + 1)).setLabel('Next')
+      .setStyle(ButtonStyle.Secondary).setEmoji('▶').setDisabled(n === pages.length - 1),
+  )];
 }
 
 // ── Buttons ───────────────────────────────────────────────────────
@@ -532,33 +590,73 @@ async function doManage(interaction) {
   });
 }
 
-async function doActive(interaction) {
-  await interaction.deferReply({ flags: 64 });
-  const rows = await L.activeNow(25);
-  return interaction.editReply({ embeds: [listEmbed({
-    title: `${'Active leave of absences'}`,
-    rows,
-    color: COLOR.approved,
-    empty: 'Nobody is on leave.',
-    note: rows.length ? `${e('met_calendar')} Soonest back first.` : null,
-  })] });
-}
-
-async function doPending(interaction) {
-  await interaction.deferReply({ flags: 64 });
-  if (!L.canReview(interaction.member, interaction.user.id)) {
-    return interaction.editReply({ embeds: [denied('Jade Command only.')] });
-  }
-  const rows = await L.pending(25);
-  return interaction.editReply({
-    embeds: [listEmbed({
+// ── The paged list views ──────────────────────────────────────────
+// One function per view, used by BOTH the command and the paging buttons, so
+// what page 2 shows is what page 1 would have shown had it been longer — and so
+// the permission check on `pending` cannot be reached by pressing a button
+// somebody else's reply left lying around.
+const VIEWS = {
+  active: {
+    async load()  { return L.activeNow(200); },
+    render: rows => ({
+      title: 'Active leave of absences',
+      rows,
+      color: COLOR.approved,
+      empty: 'Nobody is on leave.',
+      note: rows.length ? `${e('met_calendar')} Soonest back first.` : null,
+    }),
+  },
+  pending: {
+    review: true,
+    async load()  { return L.pending(200); },
+    render: rows => ({
       title: 'Leave of absence — pending',
       rows,
       color: COLOR.pending,
       empty: 'Nothing waiting.',
       note: rows.length ? `${e('met_hourglass')} Longest wait first · \`/loa admin\` to act on one.` : null,
-    })],
-  });
+    }),
+  },
+  history: {
+    async load(arg) { return L.history(arg, 100); },
+    // The title needs to know whose history it is, and a button press has only
+    // the id — so the id is what it says. `own` is set when it's the presser's.
+    render: (rows, arg, own) => ({
+      title: own ? 'Your leave history' : `Leave history — <@${arg}>`,
+      rows,
+      color: COLOR.info,
+      empty: 'No leave on record.',
+      note: rows.length ? `${e('met_folder')} Newest first.` : null,
+    }),
+  },
+};
+
+async function showList(interaction, view, { page = 0, arg = null } = {}) {
+  const spec = VIEWS[view];
+  if (!spec) return;
+  if (spec.review && !L.canReview(interaction.member, interaction.user.id)) {
+    return interaction.editReply({ embeds: [denied('Jade Command only.')], components: [] });
+  }
+  const rows = await spec.load(arg);
+  const own  = view === 'history' && String(arg) === String(interaction.user.id);
+  const body = {
+    embeds: [listEmbed({ ...spec.render(rows, arg, own), page })],
+    components: pageRow(view, rows, page, arg),
+    // A history title carries a mention so the name is right even for somebody
+    // who left the server; it must not ping them.
+    allowedMentions: { parse: [] },
+  };
+  return interaction.editReply(body);
+}
+
+async function doActive(interaction) {
+  await interaction.deferReply({ flags: 64 });
+  return showList(interaction, 'active');
+}
+
+async function doPending(interaction) {
+  await interaction.deferReply({ flags: 64 });
+  return showList(interaction, 'pending');
 }
 
 async function doAdmin(interaction) {
@@ -602,16 +700,7 @@ async function doHistory(interaction) {
     return interaction.editReply({ embeds: [denied('Jade Command only.')] });
   }
   const id = target ? target.id : interaction.user.id;
-  const rows = await L.history(id, 15);
-  return interaction.editReply({ embeds: [listEmbed({
-    title: target && target.id !== interaction.user.id
-      ? `${target.username} — leave history`
-      : 'Your leave history',
-    rows,
-    color: COLOR.info,
-    empty: 'No leave on record.',
-    note: rows.length ? `${e('met_folder')} Newest first.` : null,
-  })] });
+  return showList(interaction, 'history', { arg: id });
 }
 
 function denied(msg) {
@@ -627,6 +716,19 @@ async function handleLoaButton(interaction) {
   const m = /^loa_([a-z]+)_(.+)$/.exec(cid);
   if (!m) return;
   const [, action, id] = m;
+
+  // Turning a page. `id` is "<view>:<page>[:<arg>]" — the view is re-run from
+  // the database rather than paging whatever was true when the list was drawn,
+  // so somebody coming back from leave between page 1 and page 2 is simply not
+  // on page 2.
+  if (action === 'page') {
+    const [view, page, arg] = String(id).split(':');
+    if (!VIEWS[view]) return;
+    // deferUpdate, not deferReply: the list is edited in place rather than
+    // answered again underneath itself.
+    await interaction.deferUpdate();
+    return showList(interaction, view, { page, arg: arg || null });
+  }
 
   // The member's own buttons.
   if (['cancel', 'back', 'more', 'less'].includes(action)) return memberButton(interaction, action, id);
@@ -845,6 +947,9 @@ module.exports = {
   buildCommand, handleLoaCommand, handleLoaButton, handleLoaModal,
   startLoaWorker, sweepOnce,
   // Drawing, exported for the tests.
-  card, line, listEmbed, tell, postForReview, refreshCard,
+  card, line, listEmbed, pagesOf, pageRow, tell, postForReview, refreshCard,
   replyToCard, changeLine, announce, COLOR,
+  // The subcommand handlers, so the paged views can be driven from a test
+  // without going through a real interaction.
+  __test: { doActive, doPending, doHistory, showList, VIEWS },
 };

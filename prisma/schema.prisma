@@ -1495,3 +1495,51 @@ model IaApplication {
   @@index([submittedAt])
   @@map("ia_applications")
 }
+
+// ── Roblox group audit log ────────────────────────────────────────────
+// One row per entry read out of a Roblox group's own audit log. That log is the
+// only place an action taken on the ROBLOX WEBSITE shows up — everything this app
+// does goes through the API as the bot account and appears there too, so this is
+// the complete record of what happened to the group and our own AuditLog is the
+// annotation on it.
+//
+// Roblox gives entries no id, so `fingerprint` is ours: a hash of the timestamp,
+// the action type, the actor and the description. It is UNIQUE, which is what makes
+// the poller safe to run again and safe to overlap with itself — a re-read of the
+// same page inserts nothing and posts nothing.
+model GroupAuditEntry {
+  id          String   @id @default(uuid())
+  groupId     String
+  // Roblox's own action type, verbatim ("Change Rank", "Accept Join Request", …).
+  // Not an enum: Roblox adds types without notice and an unknown one must still be
+  // recorded rather than rejected.
+  actionType  String
+  actorId     String?
+  actorName   String?
+  actorRank   Int?
+  actorRankName String?
+  // Who or what the action was ABOUT, pulled out of the description where there is
+  // one, so a member's history can be queried without unpacking JSON.
+  targetId    String?
+  targetName  String?
+  // The description exactly as Roblox sent it — the formatter reads this, and
+  // keeping it whole means a type we do not understand yet is still fully logged.
+  description Json?
+  occurredAt  DateTime
+  fingerprint String   @unique
+  // The Discord message this was posted as, so an entry is never posted twice and
+  // a later correction can edit it.
+  messageId   String?
+  postedAt    DateTime?
+  // Set when this entry was matched to something WE did, so the log can say which
+  // site user asked for it rather than just naming the bot account.
+  matchedAuditId String?
+  createdAt   DateTime @default(now())
+
+  @@index([groupId, occurredAt])
+  @@index([actionType])
+  @@index([targetId])
+  @@index([actorId])
+  @@index([postedAt])
+  @@map("group_audit_entries")
+}
