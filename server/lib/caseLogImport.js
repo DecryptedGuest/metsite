@@ -890,41 +890,78 @@ async function highestRefInDb() {
   try {
     const refs = await prisma.case.findMany({ select: { caseRef: true } });
     return refs.reduce((n, c) => {
-      const v = refNumberOf(c.caseRef);
+      const v = sequenceNumberOf(c.caseRef);
       return v != null && v > n ? v : n;
-    }, 0);
+    }, Math.max(0, MIN_REF() - 1));
   } catch (e) { return 0; }
 }
 
 /** The number inside a ref, or null when it does not hold one ("#MH71"). */
 function refNumberOf(ref) {
-  const m = /^#?(\d{1,7})$/.exec(String(ref == null ? '' : ref).trim());
+  const m = /^#?(\d{1,9})$/.exec(String(ref == null ? '' : ref).trim());
   if (!m) return null;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) ? n : null;
+}
+
+// The window a ref has to be inside to count as part of OUR numbering.
+//
+// The floor is what makes every reference at least three digits: "#3" is a
+// reference somebody has to ask about, and it is what a counter that had been
+// reset produces. The ceiling is what keeps a foreign numbering scheme out —
+// "#8665476" is not case eight and a half million, it is a number from
+// somewhere else, and treating it as the top of the sequence made the next case
+// #8665477 and the one after that #8665478.
+const MIN_REF = () => { const n = parseInt(process.env.CASE_REF_MIN || '', 10); return Number.isFinite(n) && n > 0 ? n : 100; };
+const MAX_REF = () => { const n = parseInt(process.env.CASE_REF_MAX || '', 10); return Number.isFinite(n) && n > 0 ? n : 99999; };
+
+/**
+ * The number a ref contributes to the sequence, or null if it is not part of it.
+ *
+ * This is the test that matters, and it is NOT "does it contain digits". Stripping
+ * the non-digits out of a ref — which is what set the case counter — reads
+ * "#FOU98FV810" as 98810 and "#0M87MHCU8Y" as 878. Those are not case numbers;
+ * they are the digits that happened to be in a random code, and one of them
+ * pushed the counter five digits up. Every case created afterwards took its number
+ * from there.
+ */
+function sequenceNumberOf(ref) {
+  const n = refNumberOf(ref);
+  if (n == null) return null;
+  return n >= MIN_REF() && n <= MAX_REF() ? n : null;
 }
 
 /**
  * Put every case reference into one consistent numbering, in the order things
  * actually happened.
  *
- * Why this is needed: the archive holds refs up to #674 from years of logs, and
- * then a handful of #1, #2, #3 — the NEWEST cases, numbered by a counter that had
- * been reset. So the lowest numbers on the list belong to the most recent cases,
- * which makes the reference useless as a way of saying when something happened and
- * confusing to quote.
+ * Why this is needed: the archive holds refs up to #674 from years of logs, then a
+ * handful of #1, #2, #3 from a counter that had been reset, then #8665474 upwards
+ * from a counter that a random code had poisoned, and hundreds of rows whose
+ * reference is a code like #MH186KUCS3 with no number in it at all. Four numbering
+ * schemes at once, and the lowest numbers on the list belonging to the most recent
+ * cases.
  *
- * The rule: walking oldest to newest, a case whose number is BELOW one already
- * seen is out of place, and is renumbered to continue from the top. Cases that are
- * already in order are left completely alone — this is a repair, not a rewrite.
- * A ref that holds no number at all (a leftover code) is always renumbered.
+ * Two modes, because they trade different things away:
+ *
+ *   'repair' (the default) — a case whose number is already part of the sequence
+ *     and already in the right place KEEPS it. Only the ones that are not — a code,
+ *     a number below three digits, a number from a foreign scheme, or one that
+ *     goes backwards in time — are renumbered, continuing from the top. Nothing
+ *     anybody has quoted changes. The cost is that a July case renumbered to #675
+ *     then sits above an August case that kept #663, so the refs do not strictly
+ *     climb with time.
+ *
+ *   'resequence' — EVERY case is renumbered in date order from one base, so the
+ *     refs climb with time and there is exactly one scheme. The cost is that refs
+ *     people have already quoted change. It is not as destructive as it sounds:
+ *     the old ref is kept in sourceRef either way, and a record lookup answers a
+ *     quote of it.
  *
  * Two-phase, because caseRef is unique: everything moving goes to a temporary ref
  * first, then to its final one. A half-finished run therefore leaves rows with a
  * visible "#tmp-…" ref rather than a collision, and running it again finishes the
  * job.
- *
- * The old ref is kept in sourceRef, so somebody quoting it can still be answered.
  *
  * NOTE: it does not edit the Discord log messages, which still show the number
  * they were posted with. The site is what people search; rewriting history in the
@@ -932,8 +969,9 @@ function refNumberOf(ref) {
  */
 async function renumberRefs(opts = {}) {
   const dry = opts.dryRun === true;
-  const out = { ok: true, dryRun: dry, total: 0, moved: 0, unchanged: 0,
-                moves: [], errors: [], counter: null };
+  const mode = opts.mode === 'resequence' ? 'resequence' : 'repair';
+  const out = { ok: true, dryRun: dry, mode, total: 0, moved: 0, unchanged: 0,
+                moves: [], errors: [], counter: null, floor: MIN_REF() };
   try {
     const cases = await prisma.case.findMany({
       select: { id: true, caseRef: true, sourceRef: true, createdAt: true, origin: true },
@@ -942,52 +980,73 @@ async function renumberRefs(opts = {}) {
     out.total = cases.length;
     if (!cases.length) return out;
 
+    // The top of OUR sequence — never a number from a foreign scheme, or the
+    // renumbered refs continue from eight and a half million.
     let highest = cases.reduce((n, c) => {
-      const v = refNumberOf(c.caseRef);
+      const v = sequenceNumberOf(c.caseRef);
       return v != null && v > n ? v : n;
-    }, 0);
+    }, Math.max(0, MIN_REF() - 1));
 
     // Which ones are out of place, oldest first.
+    //
+    // A repair moves a ref that is not part of the numbering — a code, a number
+    // below three digits, a number from another scheme — and NOTHING else.
+    //
+    // It deliberately does NOT move a ref that is merely out of step with its date.
+    // That test used to be here and it made the operation unstable: the codes are
+    // the OLDEST cases in this archive, so renumbering them to continue from the top
+    // put #675 in front of #663, which made #663 look out of order on the next run,
+    // which moved it, which made something else look out of order. It never settled.
+    // Chronological order is what 'resequence' is for, and it is reported below
+    // either way so the choice is an informed one.
     const moving = [];
     let seen = 0;
     for (const c of cases) {
-      const n = refNumberOf(c.caseRef);
-      if (n == null) { moving.push(c); continue; }        // not a number at all
-      if (n < seen) { moving.push(c); continue; }         // older cases hold higher numbers
+      if (mode === 'resequence') { moving.push(c); continue; }
+      const n = sequenceNumberOf(c.caseRef);
+      if (n == null) { moving.push(c); continue; }        // a code, too small, or a foreign scheme
+      if (n < seen) out.outOfOrder = (out.outOfOrder || 0) + 1;
       seen = Math.max(seen, n);
     }
     out.unchanged = cases.length - moving.length;
     if (!moving.length) { out.counter = await raiseCounter(); return out; }
 
-    // Their new refs: continuing from the top, oldest of the moving set first, so
-    // the newest case ends up with the highest number.
-    const taken = new Set(cases.map(c => String(c.caseRef)));
-    let next = highest + 1;
+    // Their new refs, oldest of the moving set first, so the newest case ends up
+    // with the highest number. A repair continues from the top of what is there; a
+    // resequence starts from the floor, because nothing is being kept.
+    const taken = mode === 'resequence' ? new Set() : new Set(cases.map(c => String(c.caseRef)));
+    let next = mode === 'resequence' ? MIN_REF() : highest + 1;
     const plan = moving.map(c => {
       let to;
       for (;;) { to = '#' + next++; if (!taken.has(to)) { taken.add(to); break; } }
       return { id: c.id, from: c.caseRef, to, sourceRef: c.sourceRef };
     });
-    out.moves = plan.map(p => ({ from: p.from, to: p.to }));
-    out.moved = plan.length;
+    // A resequence that would rename a case to the ref it already has is not a
+    // rename at all, and reporting it as one buries the ones that matter.
+    for (const p of plan) p.same = String(p.from) === p.to;
+    const real = plan.filter(p => !p.same);
+    out.unchanged += plan.length - real.length;
+    out.moves = real.map(p => ({ from: p.from, to: p.to }));
+    out.moved = real.length;
     if (dry) return out;
+    if (!real.length) { out.counter = await raiseCounter(); return out; }
 
     // Phase one: out of the way. Nothing can collide with a name like this.
-    for (const p of plan) {
+    for (const p of real) {
       await prisma.case.update({
         where: { id: p.id },
         data: { caseRef: `#tmp-${p.id.slice(0, 8)}` },
       });
     }
     // Phase two: into place, recording where each came from.
-    for (const p of plan) {
+    for (const p of real) {
       await prisma.case.update({
         where: { id: p.id },
         data: { caseRef: p.to, sourceRef: p.sourceRef || p.from },
       });
     }
     out.counter = await raiseCounter();
-    console.log(`[AdminLogImport] renumbered ${plan.length} case ref(s) into sequence`);
+    console.log(`[AdminLogImport] renumbered ${real.length} case ref(s) into sequence (${mode})`);
   } catch (e) {
     out.ok = false;
     out.errors.push(e.message);
@@ -1004,9 +1063,14 @@ async function renumberRefs(opts = {}) {
 async function raiseCounter() {
   try {
     const refs = await prisma.case.findMany({ select: { caseRef: true } });
+    // sequenceNumberOf, NOT the digits in the string. This line used to be
+    // `parseInt(caseRef.replace(/\D/g, ''))`, which read the random code
+    // "#FOU98FV810" as 98810 and set the counter to it — so the next case the site
+    // created was #98811, and from there the archive grew a second numbering
+    // scheme five digits above the real one.
     const highest = refs.reduce((n, c) => {
-      const v = parseInt(String(c.caseRef || '').replace(/\D/g, ''), 10);
-      return Number.isFinite(v) && v > n ? v : n;
+      const v = sequenceNumberOf(c.caseRef);
+      return v != null && v > n ? v : n;
     }, 0);
     const current = await prisma.caseCounter.findUnique({ where: { id: 1 } }).catch(() => null);
     const want = Math.max(highest, (current && current.count) || 0);
@@ -1072,5 +1136,5 @@ module.exports = {
   parseMessage, parseAdminLogEmbed, parseActions, findRef, readOfficer,
   importFromChannel, importerUser, raiseCounter, auditRefs, ORIGIN, LABELS, CASE_ISH,
   whyNotParsed, textField, inlineFields,
-  renumberRefs, resolveOfficers, highestRefInDb, refNumberOf,
+  renumberRefs, resolveOfficers, highestRefInDb, refNumberOf, sequenceNumberOf,
 };

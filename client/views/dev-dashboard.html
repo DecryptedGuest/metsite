@@ -1142,8 +1142,13 @@
             <button class="btn btn-ghost btn-sm" id="clr-audit-btn" onclick="clrAudit()">
               <i class="ti ti-list-check"></i> Check the archive
             </button>
-            <button class="btn btn-ghost btn-sm" id="clr-renum-btn" onclick="clrRenumber(true)">
+            <button class="btn btn-ghost btn-sm" id="clr-renum-btn" onclick="clrRenumber(true)"
+                    title="Renumber only the references that are not part of the sequence. Nothing anybody has quoted changes.">
               <i class="ti ti-sort-ascending-numbers"></i> Fix the numbering
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="clrRenumber(true, 'resequence')"
+                    title="Renumber EVERY case in date order, so the references climb with time and there is one scheme. References people have quoted will change; the old one is kept on each case.">
+              <i class="ti ti-list-numbers"></i> Renumber all in date order
             </button>
           </div>
         </div>
@@ -2387,13 +2392,13 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=81"></script>
 <script src="/js/panel-collapse.js?v=1"></script>
-<script src="/js/dashboard.js?v=85"></script>
+<script src="/js/dashboard.js?v=86"></script>
 <script src="/js/cad-console.js?v=82"></script>
 <script src="/js/tickets.js?v=81"></script>
 <script src="/js/discord-format.js?v=80"></script>
 <script src="/js/security.js?v=73"></script>
 <script src="/js/records.js?v=73"></script>
-<script src="/js/quota-check.js?v=85"></script>
+<script src="/js/quota-check.js?v=86"></script>
 <script src="/js/ai-review.js?v=73"></script>
 <script src="/js/media.js?v=73"></script>
 <script src="/js/roblox-audio.js?v=1"></script>

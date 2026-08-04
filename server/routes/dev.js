@@ -711,23 +711,29 @@ router.post('/commands/register', async (req, res) => {
   }
 });
 
-// POST /api/dev/case-renumber  { dry }  — one consistent numbering, in order
+// POST /api/dev/case-renumber  { dry, mode }  — one consistent numbering
 //
-// The archive holds refs up to #674 from years of logs and then a handful of #1,
-// #2, #3 — the NEWEST cases, numbered by a counter that had been reset. This walks
-// oldest to newest and renumbers anything whose number is below one already seen,
-// continuing from the top, so the reference means something again. Cases already in
-// order are untouched, and the old ref is kept on each row.
+// The archive grew four numbering schemes at once: refs up to #674 from years of
+// logs, #1-#6 from a counter that had been reset, #8665474 upwards from a counter
+// a random code had poisoned, and hundreds of rows whose reference is a code like
+// #MH186KUCS3 with no number in it at all.
+//
+//   mode 'repair' (default) — only the refs that are not part of the sequence are
+//     renumbered, continuing from the top. Nothing anybody has quoted changes.
+//   mode 'resequence' — every case is renumbered in date order from the floor, so
+//     the refs climb with time and there is one scheme. Refs people have quoted do
+//     change; the old one is kept on the row either way.
 router.post('/case-renumber', async (req, res) => {
   const body = req.body || {};
   const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
+  const mode = String(body.mode || req.query.mode || 'repair') === 'resequence' ? 'resequence' : 'repair';
   try {
-    const out = await require('../lib/caseLogImport').renumberRefs({ dryRun: dry });
+    const out = await require('../lib/caseLogImport').renumberRefs({ dryRun: dry, mode });
     if (!out.ok) return res.status(400).json(out);
     if (!dry && out.moved) {
       audit.log(req.user, { category: 'SECURITY', action: 'CASE_RENUMBER',
         summary: `Renumbered ${out.moved} case reference(s) into chronological order `
-               + `(${out.unchanged} already in order)` });
+               + `(${mode}; ${out.unchanged} left as they were)` });
     }
     res.json(out);
   } catch (e) {

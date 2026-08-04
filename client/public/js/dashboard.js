@@ -772,18 +772,21 @@ async function clrAudit() {
  * mapping is shown and confirmed before anything moves. Cases already in order are
  * never touched.
  */
-async function clrRenumber(dry) {
+async function clrRenumber(dry, mode) {
   const out = document.getElementById('clr-result');
   const btn = document.getElementById('clr-renum-btn');
   const was = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Working…'; }
   try {
-    const r = await api('/api/dev/case-renumber', { method: 'POST', body: JSON.stringify({ dry: !!dry }) });
+    const m = mode === 'resequence' ? 'resequence' : 'repair';
+    const r = await api('/api/dev/case-renumber', { method: 'POST', body: JSON.stringify({ dry: !!dry, mode: m }) });
     let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
       + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
-      + (r.dryRun ? 'What renumbering would do' : 'Renumbered') + `</div>`;
+      + (r.dryRun ? 'What renumbering would do' : 'Renumbered')
+      + (r.mode === 'resequence' ? ' — every case, in date order' : ' — only the ones out of the sequence')
+      + `</div>`;
     h += clrRow('Cases', r.total);
-    h += clrRow('Already in order', r.unchanged, 'good');
+    h += clrRow(r.mode === 'resequence' ? 'Keeping the ref they have' : 'Already in order', r.unchanged, 'good');
     h += clrRow(r.dryRun ? 'Would be renumbered' : 'Renumbered', r.moved, r.moved ? 'warn' : 'good');
     if (r.counter && r.counter.counter) h += clrRow('Counter now at', r.counter.counter);
     if ((r.moves || []).length) {
@@ -799,12 +802,25 @@ async function clrRenumber(dry) {
       h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">`
         + r.errors.map(function (x) { return escapeHtml(x); }).join('<br>') + `</div>`;
     }
+    // A repair makes every reference valid; it does not make them climb with time,
+    // because doing that would mean renaming references people have quoted. Say so
+    // rather than leaving somebody to notice it themselves.
+    if (r.mode !== 'resequence' && r.outOfOrder) {
+      h += `<div style="margin-top:.8rem;padding:.6rem .75rem;border-radius:8px;`
+        + `background:rgba(60,110,255,.07);border:1px solid rgba(60,110,255,.25);`
+        + `font-size:11.5px;color:var(--text-secondary);line-height:1.7;">`
+        + `<i class="ti ti-info-circle"></i> <strong>` + r.outOfOrder + `</strong> reference`
+        + (r.outOfOrder === 1 ? ' is' : 's are') + ` numerically out of step with the date of the case`
+        + `. This does not fix that, on purpose: those are references people have quoted, and the only `
+        + `way to make them climb with time is to rename them. <strong>Renumber all in date order</strong> `
+        + `does that if you want it.</div>`;
+    }
     if (r.dryRun && r.moved) {
       h += `<div style="margin-top:.9rem;font-size:12px;color:var(--text-secondary);line-height:1.7;">`
         + `The old reference is kept on every case that moves, so anybody quoting it can still be `
         + `found. The Discord logs keep the number they were posted with.</div>`
         + `<button type="button" class="btn btn-success btn-sm" style="margin-top:.6rem;" `
-        + `onclick="clrRenumberGo()"><i class="ti ti-check"></i> Do it</button>`;
+        + `onclick="clrRenumberGo('` + (r.mode || 'repair') + `')"><i class="ti ti-check"></i> Do it</button>`;
     }
     if (out) out.innerHTML = h + `</div>`;
   } catch (e) {
@@ -814,15 +830,23 @@ async function clrRenumber(dry) {
   }
 }
 
-async function clrRenumberGo() {
+async function clrRenumberGo(mode) {
+  const all = mode === 'resequence';
   const yes = await uiConfirm(
     'This renames case references, and references are what people quote at each other.\n\n'
-    + 'Only cases whose number is out of order move, the old reference is kept on each one, and the '
-    + 'Discord logs are left exactly as they are.',
-    { title: 'Renumber the cases?', confirmText: 'Renumber them', cancelText: 'Not yet',
+    + (all
+        ? 'EVERY case is renumbered in date order, so the references climb with time and there is '
+          + 'one scheme instead of four. References people have already quoted WILL change — the old '
+          + 'one is kept on each case, so quoting it still finds them.'
+        : 'Only cases whose reference is not part of the sequence move — a code, a number below three '
+          + 'digits, a number from another scheme, or one that goes backwards in time. Everything '
+          + 'anybody has quoted keeps the reference it has.')
+    + '\n\nThe Discord logs are left exactly as they are either way.',
+    { title: all ? 'Renumber EVERY case?' : 'Renumber the cases?',
+      confirmText: all ? 'Renumber all of them' : 'Renumber them', cancelText: 'Not yet',
       icon: 'ti-sort-ascending-numbers' });
   if (!yes) return;
-  return clrRenumber(false);
+  return clrRenumber(false, mode);
 }
 
 // ── Clans Labs XP import ──────────────────────────────────────────
