@@ -1187,6 +1187,40 @@
         </div>
       </div>
 
+      <!-- ── Leave already in progress ─────────────────────────────────
+           Nine people are on leave right now with no record of it here, so
+           /loa active shows nothing and — the part that matters — nothing will
+           ever take the on-leave role back off them. -->
+      <div class="panel glass fade-up stagger-4" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Import leave already in progress</div>
+          <div class="panel-tools">
+            <button class="btn btn-ghost btn-sm" id="loai-look-btn" onclick="loaiLook()">
+              <i class="ti ti-list-search"></i> What's in the list
+            </button>
+            <button class="btn btn-ghost btn-sm" id="loai-dry-btn" onclick="loaiImport(true)">
+              <i class="ti ti-eye"></i> Rehearse
+            </button>
+          </div>
+        </div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            The leave in <code>data/loa-import.txt</code> was agreed off-system: the dates are set, the
+            reasons are given, and everybody on it already holds the on-leave role. None of it is in the
+            database, so <code>/loa active</code> shows nothing and <strong>nothing will take the role off
+            them when their leave finishes</strong>. This brings the records in, backdated and already
+            approved — the decision was made by a person and is not re-litigated here.
+            <br><br>
+            Each end date is treated as <strong>inclusive</strong>: "21 July - 4 August" means away
+            <em>through</em> the 4th. It never adds a role, never overwrites a record that is already
+            there, and never gives somebody a second live leave. Usernames are matched
+            <strong>exactly</strong> — anything it cannot match is listed for you rather than guessed at,
+            because a leave imported against the wrong person takes the wrong person's role off.
+          </p>
+          <div id="loai-result" style="margin-top:1rem;font-size:13px;"></div>
+        </div>
+      </div>
+
       <!-- ── Clans Labs XP import ──────────────────────────────────────
            The leaderboard lives in data/clanslabs-xp.txt and names ROBLOX
            accounts; our XP is keyed on Discord ids. Most of the list therefore
@@ -2392,13 +2426,13 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=81"></script>
 <script src="/js/panel-collapse.js?v=1"></script>
-<script src="/js/dashboard.js?v=87"></script>
+<script src="/js/dashboard.js?v=88"></script>
 <script src="/js/cad-console.js?v=82"></script>
 <script src="/js/tickets.js?v=81"></script>
 <script src="/js/discord-format.js?v=80"></script>
 <script src="/js/security.js?v=73"></script>
 <script src="/js/records.js?v=73"></script>
-<script src="/js/quota-check.js?v=87"></script>
+<script src="/js/quota-check.js?v=88"></script>
 <script src="/js/ai-review.js?v=73"></script>
 <script src="/js/media.js?v=73"></script>
 <script src="/js/roblox-audio.js?v=1"></script>

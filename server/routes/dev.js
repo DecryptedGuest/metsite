@@ -838,4 +838,62 @@ router.post('/xp-claim-sweep', async (req, res) => {
   }
 });
 
+// ── Leave already in progress ─────────────────────────────────────
+//
+//   GET  /api/dev/loa-import          read the list, resolve who is who, write nothing
+//   POST /api/dev/loa-import  { dry } import it
+//
+// Nine people are on leave right now with none of it in the database, so
+// `/loa active` shows nothing and — the part that matters — nothing will ever take
+// the on-leave role back off them. This brings the records in, backdated and
+// already approved, and the sweep does the rest.
+router.get('/loa-import', async (req, res) => {
+  try {
+    const LI = require('../lib/loaImport');
+    const read = LI.readFile();
+    if (!read.ok) return res.status(400).json({ error: read.error, file: read.file });
+    const parsed = LI.parse(read.text);
+    res.json({
+      file: read.file,
+      entries: parsed.entries.map(x => ({ ...x, reason: x.reason.slice(0, 200) })),
+      problems: parsed.problems,
+      roleConfigured: !!require('../lib/loa').LEAVE_ROLE(),
+    });
+  } catch (e) {
+    res.status(400).json({ error: 'Could not read the leave list: ' + e.message });
+  }
+});
+
+router.post('/loa-import', async (req, res) => {
+  const body = req.body || {};
+  const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
+  try {
+    // Resolving a Discord username needs the guild, so the bot has to be up. Said
+    // plainly rather than reported as "nobody could be resolved", which would look
+    // like the names were wrong.
+    let guild = null;
+    const client = require('../lib/bot').getClient();
+    const gid = process.env.DISCORD_GUILD_ID;
+    if (client && gid) guild = await client.guilds.fetch(gid).catch(() => null);
+    if (!guild) {
+      return res.status(400).json({
+        error: 'The bot is not connected to the Discord server, so the usernames in the '
+             + 'list cannot be matched to members. Nothing was imported.',
+      });
+    }
+
+    const out = await require('../lib/loaImport').importLoas({ dryRun: dry, guild });
+    if (!out.ok) return res.status(400).json(out);
+    if (!dry && out.imported.length) {
+      audit.log(req.user, { category: 'SECURITY', action: 'LOA_IMPORT',
+        summary: `Imported ${out.imported.length} existing leave record(s)`
+               + (out.unresolved.length ? `; ${out.unresolved.length} could not be matched to a member` : '') });
+    }
+    res.json({ ...out, roleConfigured: !!require('../lib/loa').LEAVE_ROLE() });
+  } catch (e) {
+    console.error('[Dev] LOA import failed:', e.message);
+    res.status(400).json({ error: 'Could not import the leave: ' + e.message });
+  }
+});
+
 module.exports = router;

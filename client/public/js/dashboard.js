@@ -3841,3 +3841,136 @@ function openDetail(caseId) {
   openModal('modal-detail');
 }
 
+
+// ── Leave already in progress ─────────────────────────────────────
+//
+// Same two-button shape as the case rebuild and the XP import, for the same
+// reason: this writes records for real people and the rehearsal reports exactly
+// what the real run will do.
+
+function loaiDate(v) {
+  try { return new Date(v).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
+  catch (e) { return String(v || ''); }
+}
+
+async function loaiLook() {
+  const out = document.getElementById('loai-result');
+  const btn = document.getElementById('loai-look-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Reading…"; }
+  try {
+    const r = await api('/api/dev/loa-import');
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + 'The list, read by nothing else yet</div>';
+    h += clrRow('People', (r.entries || []).length, (r.entries || []).length ? 'good' : 'warn');
+    h += loaiRoleWarning(r);
+    if ((r.entries || []).length) {
+      h += '<div style="margin-top:.8rem;font-size:11.5px;line-height:1.9;">'
+        + r.entries.map(function (x) {
+            return '<span class="mono">' + escapeHtml(x.username) + '</span> · '
+              + escapeHtml(x.id) + ' · ' + escapeHtml(loaiDate(x.startAt)) + ' → '
+              + escapeHtml(loaiDate(x.endAt));
+          }).join('<br>')
+        + '</div>';
+    }
+    if ((r.problems || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--amber,#f5b730);line-height:1.7;">'
+        + r.problems.map(function (x) { return escapeHtml(x); }).join('<br>') + '</div>';
+    }
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+// The role is the whole point: without it configured, the import records the leave
+// and still nothing takes the role off at the end.
+function loaiRoleWarning(r) {
+  if (r.roleConfigured) return '';
+  return '<div style="margin-top:.7rem;padding:.6rem .8rem;border-radius:8px;'
+    + 'background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);'
+    + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
+    + '<i class="ti ti-alert-triangle"></i> <strong>LOA_ROLE_ID is not set</strong>, so nothing will take '
+    + 'the on-leave role off anybody when their leave finishes — which is the main thing importing this '
+    + 'is for. Set it to the on-leave role id and the sweep will handle it. The bot also needs '
+    + '<em>Manage Roles</em>, with its own highest role above that one.</div>';
+}
+
+async function loaiImport(dry) {
+  const out = document.getElementById('loai-result');
+  const btn = document.getElementById(dry ? 'loai-dry-btn' : 'loai-go-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Working…"; }
+  try {
+    const r = await api('/api/dev/loa-import', { method: 'POST', body: JSON.stringify({ dry: !!dry }) });
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + (r.dryRun ? 'What importing would do' : 'Imported') + '</div>';
+    h += clrRow('In the list', r.read);
+    h += clrRow(r.dryRun ? 'Would be imported' : 'Imported', (r.imported || []).length, (r.imported || []).length ? 'good' : 'warn');
+    if ((r.alreadyThere || []).length) h += clrRow('Already there', r.alreadyThere.length, 'good');
+    if ((r.unresolved || []).length)   h += clrRow('No matching member', r.unresolved.length, 'warn');
+    if ((r.skipped || []).length)      h += clrRow('Skipped', r.skipped.length, 'warn');
+    h += loaiRoleWarning(r);
+
+    if ((r.imported || []).length) {
+      h += '<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">'
+        + (r.dryRun ? 'Who would come in' : 'Who came in') + '</div>'
+        + '<div style="font-family:var(--font-mono);font-size:11.5px;line-height:1.9;">'
+        + r.imported.map(function (x) {
+            return escapeHtml(x.username) + ' → <span style="color:var(--green);">'
+              + escapeHtml(loaiDate(x.endAt)) + '</span>'
+              + (x.hasAccount ? '' : ' <span style="color:var(--text-muted);">(no site account)</span>');
+          }).join('<br>')
+        + '</div>';
+    }
+    // Named individually: each of these is somebody whose leave is NOT being
+    // tracked, and the fix is a person checking the username.
+    if ((r.unresolved || []).length) {
+      h += '<div style="margin-top:.8rem;font-size:11.5px;color:var(--amber,#f5b730);line-height:1.8;">'
+        + 'No member of the server matches these exactly, so their leave was not imported. '
+        + 'Check the username and correct it in <code>data/loa-import.txt</code>:<br>'
+        + r.unresolved.map(function (x) { return '<span class="mono">' + escapeHtml(x.username) + '</span> (' + escapeHtml(x.id) + ')'; }).join(', ')
+        + '</div>';
+    }
+    if ((r.skipped || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-secondary);line-height:1.8;">'
+        + r.skipped.map(function (x) { return escapeHtml(x.username) + ' — ' + escapeHtml(x.why || 'skipped'); }).join('<br>')
+        + '</div>';
+    }
+    if ((r.problems || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--amber,#f5b730);line-height:1.7;">'
+        + r.problems.map(function (x) { return escapeHtml(x); }).join('<br>') + '</div>';
+    }
+    if ((r.errors || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">'
+        + r.errors.map(function (x) { return escapeHtml(x); }).join('<br>') + '</div>';
+    }
+    if (r.dryRun && (r.imported || []).length) {
+      h += '<div style="margin-top:.9rem;font-size:12px;color:var(--text-secondary);line-height:1.7;">'
+        + 'Nothing gains a role from this — everybody on the list already has it. The sweep takes it '
+        + 'off when each leave finishes.</div>'
+        + '<button type="button" class="btn btn-success btn-sm" id="loai-go-btn" style="margin-top:.6rem;" '
+        + 'onclick="loaiGo()"><i class="ti ti-check"></i> Import them</button>';
+    }
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+async function loaiGo() {
+  const yes = await uiConfirm(
+    'This writes a leave record for each person on the list, backdated and already approved.\n\n'
+    + 'It adds no roles — everybody on the list already has the on-leave one. What changes is that '
+    + 'the leave becomes visible to /loa active and the quota check, and the role comes off '
+    + 'automatically when each leave finishes.',
+    { title: 'Import the leave?', confirmText: 'Import it', cancelText: 'Not yet', icon: 'ti-calendar-plus' });
+  if (!yes) return;
+  return loaiImport(false);
+}

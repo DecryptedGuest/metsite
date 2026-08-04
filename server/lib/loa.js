@@ -24,10 +24,18 @@
 //   LOA_ADMIN_ROLE_ID   the Discord role that reviews (default: Jade Command)
 //   LOA_CHANNEL_ID      where request cards are posted for review
 //   LOA_MAX_DAYS        the soft ceiling, in days (default 14)
+//   LOA_ROLE_ID         the ON-LEAVE role, taken off when the leave finishes
 
 const prisma = require('./db');
 
 const ADMIN_ROLE = () => process.env.LOA_ADMIN_ROLE_ID || '1422406753231966290';
+// The role that says somebody is away. Unset until it is configured, and every
+// caller treats "no role configured" as "nothing to do" rather than as an error —
+// the leave still closes, it just closes without touching anybody's roles.
+//
+// Note that nothing here ADDS it: it is put on by hand, or was already on before
+// this system existed. That asymmetry is deliberate — see removeLeaveRole.
+const LEAVE_ROLE = () => process.env.LOA_ROLE_ID || '';
 // The MET leave-of-absence channel. Request cards are posted here and pinged
 // at Jade Command; every later change to a leave is replied to the same card,
 // so one request reads as one thread rather than as scattered messages.
@@ -441,8 +449,52 @@ async function expire() {
   };
 }
 
+/**
+ * Take the on-leave role off somebody whose leave has finished.
+ *
+ * The sweep used to close the record and announce the return, and leave the role
+ * exactly where it was — so the list said they were back and Discord said they
+ * were away, and somebody had to notice and fix it by hand. For imported leave
+ * that is the whole job: the nine people brought in from the old list already hold
+ * the role, and taking it off at the right moment is the only thing the system
+ * needs to do for them.
+ *
+ * Removal only, never addition. This code cannot know whether a role it added
+ * would be the same one a human meant, and a leave that is closed with the role
+ * still on is a visible mistake somebody will report — whereas a role wrongly
+ * ADDED to a member who is not away is an invisible one.
+ *
+ * Never throws. A leave has to close whether or not Discord cooperates; the
+ * alternative is a sweep that dies on one missing member and leaves every later
+ * leave open.
+ *
+ * @returns {Promise<{ ok, why? }>} why is a short, loggable reason
+ */
+async function removeLeaveRole(client, discordId, guildId) {
+  const roleId = LEAVE_ROLE();
+  if (!roleId) return { ok: false, why: 'no LOA_ROLE_ID is configured' };
+  if (!client || !discordId) return { ok: false, why: 'no client or no Discord id' };
+  const gid = guildId || process.env.DISCORD_GUILD_ID;
+  if (!gid) return { ok: false, why: 'no DISCORD_GUILD_ID' };
+  try {
+    const guild = await client.guilds.fetch(gid);
+    const member = await guild.members.fetch(String(discordId));
+    if (!member.roles.cache.has(roleId)) return { ok: true, why: 'they did not have it' };
+    await member.roles.remove(roleId, 'Leave of absence finished');
+    return { ok: true };
+  } catch (err) {
+    // Name the two that actually happen, because both are a configuration fix
+    // rather than a mystery.
+    const why =
+        err && err.code === 10007 ? 'they have left the server'
+      : err && err.code === 50013 ? 'the bot needs "Manage Roles", and its own highest role must sit ABOVE the leave role'
+      : (err && err.message) || 'unknown';
+    return { ok: false, why };
+  }
+}
+
 module.exports = {
-  ADMIN_ROLE, CHANNEL, MAX_DAYS, HARD_MAX_DAYS, DAY,
+  ADMIN_ROLE, CHANNEL, MAX_DAYS, HARD_MAX_DAYS, DAY, LEAVE_ROLE, removeLeaveRole,
   parseDuration, humanDays, daysUntil, ts,
   OPEN_STATUSES, CLOSED_STATUSES, STATUS_LABEL, isActive, canReview,
   openFor, activeNow, pending, history, byId,

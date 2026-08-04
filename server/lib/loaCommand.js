@@ -678,6 +678,9 @@ async function memberButton(interaction, action, id) {
     const out = await L.end(id, { id: interaction.user.id, name: nameOf(interaction) }, 'Returned early');
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
     await announce(out.request, 'ENDED', { byThem: true });
+    // Back early is still back: the role comes off here for the same reason it
+    // comes off in the sweep.
+    await endLeaveRole(out.request);
     return interaction.editReply({ embeds: [new EmbedBuilder()
       .setColor(COLOR.approved)
       .setTitle(`${e('met_return')} Welcome back`)
@@ -769,6 +772,7 @@ async function reviewButton(interaction, action, id) {
     const out = await L.end(id, reviewer, 'Ended by command');
     if (!out.ok) return interaction.editReply({ embeds: [denied(out.why)] });
     await announce(out.request, 'ENDED', { byThem: false, by: reviewer.name });
+    await endLeaveRole(out.request);
     return interaction.editReply({ embeds: [card(out.request, {
       title: `${e('met_return')} Leave ended`,
       description: who(out.request),
@@ -776,20 +780,52 @@ async function reviewButton(interaction, action, id) {
   }
 }
 
+/**
+ * Take the on-leave role off, and say so in the log if it could not be done.
+ *
+ * Shared by the sweep and by both early-end paths, because "their leave is over"
+ * has to mean the same thing however it ended. Never throws — a leave that has
+ * closed in the database must not be re-opened by a Discord failure.
+ */
+async function endLeaveRole(r) {
+  if (!r || !r.discordId) return;
+  const res = await L.removeLeaveRole(require('./bot').getClient(), r.discordId)
+    .catch(err => ({ ok: false, why: err.message }));
+  if (!res || res.ok) return;
+  console.warn(`[LOA] could not take the on-leave role off ${r.userName || r.discordId} — ${res.why}`);
+}
+
 // ── The sweep ─────────────────────────────────────────────────────
-// Closes off leave whose end date has passed, and tells the member they are
-// back. Without it `/loa active` fills with people who returned weeks ago.
+// Closes off leave whose end date has passed, TAKES THE ON-LEAVE ROLE BACK OFF,
+// and tells the member they are back. Without it `/loa active` fills with people
+// who returned weeks ago.
+//
+// The role removal is what makes the imported leave work at all: those nine people
+// already hold the role and nothing else is ever going to take it off them. It also
+// closes a gap that was there for every leave — the record said "finished" and
+// Discord still said "away", and somebody had to spot that by hand.
 let sweepTimer = null;
 async function sweepOnce() {
   try {
     const out = await L.expire();
     if (!out.closed) return out;
+    const roleRemoved = [], roleFailed = [];
     for (const p of out.people) {
       const r = await L.byId(p.id);
       if (r) await announce(r, 'EXPIRED').catch(() => {});
+      // After the announcement, not before: the member should hear that their
+      // leave is over even if their roles cannot be changed.
+      const client = require('./bot').getClient();
+      const res = await L.removeLeaveRole(client, p.discordId).catch(err => ({ ok: false, why: err.message }));
+      if (res && res.ok) roleRemoved.push(p.discordId);
+      else roleFailed.push({ discordId: p.discordId, userName: p.userName, why: res && res.why });
     }
-    console.log(`[LOA] ${out.closed} leave(s) finished and closed off`);
-    return out;
+    console.log(`[LOA] ${out.closed} leave(s) finished and closed off`
+      + `; on-leave role removed from ${roleRemoved.length}`);
+    for (const f of roleFailed) {
+      console.warn(`[LOA] could not take the on-leave role off ${f.userName || f.discordId} — ${f.why}`);
+    }
+    return { ...out, roleRemoved, roleFailed };
   } catch (err) {
     console.warn('[LOA] sweep failed:', err.message);
     return { closed: 0, people: [] };
