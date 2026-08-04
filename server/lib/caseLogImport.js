@@ -54,6 +54,23 @@ const REF_PATTERNS = [
   { name: 'bare-hash',     re: /(?:^|\s)#(\d{1,6})(?:\s|$)/ },
 ];
 
+// Infraction IDs that are CODES rather than numbers: "Infraction ID | MH71",
+// "Infraction ID | 0Q71". Newer logs use these, and because every pattern above
+// insists on digits, a whole run of real cases was unreadable — the reference was
+// right there and nothing would take it.
+//
+// Tried only after all the numeric forms, so a log that has a number still gets
+// its number. The code is kept as it was written, because it is what the log says
+// and what people quote at each other; inventing a number for it would be a
+// reference that matches nothing.
+const REF_CODE = /infraction\s*id\s*[|:#-]*\s*`?([A-Z0-9][A-Z0-9_-]{2,15})`?/i;
+
+// Words that sit in that slot and are not references. "pending" is this system's
+// OWN placeholder, written into the footer when a case is logged before it has a
+// ref — reading it as one would invent a case called #PENDING and then merge every
+// later unreferenced log into it.
+const REF_PLACEHOLDER = /^(?:pending|n\/?a|none|null|nil|tbd|tba|unknown|unassigned|xxx+|\?+|-+)$/i;
+
 function findRef(...texts) {
   for (const pat of REF_PATTERNS) {
     for (const t of texts) {
@@ -63,6 +80,13 @@ function findRef(...texts) {
         const n = parseInt(m[1], 10);
         if (Number.isFinite(n) && n > 0) return { ref: '#' + n, num: n, via: pat.name };
       }
+    }
+  }
+  for (const t of texts) {
+    if (!t) continue;
+    const m = REF_CODE.exec(String(t));
+    if (m && !REF_PLACEHOLDER.test(m[1])) {
+      return { ref: '#' + m[1].toUpperCase(), num: null, via: 'infraction-code' };
     }
   }
   return null;
@@ -95,15 +119,144 @@ function embedField(embed, kind) {
   return '';
 }
 
+// Where a value must stop even though no other field follows it: the reference
+// trailer the log puts at the end. Without this the LAST field on a line absorbs
+// it, and every one of those cases came back with a note reading
+// "N/A` Infraction ID | MH71".
+const REF_MARK = /\s*\*{0,2}(?:infraction|case)\s*(?:id|ref(?:erence)?|number|no)\.?\s*\*{0,2}\s*[|:#-]/i;
+
+// A value that is nothing but markdown — "**" left over from "**Punishment:**" —
+// is not a value. Reading it as one is how a label sitting alone above its own
+// bulleted list came back as a single punishment called "**".
+const EMPTY_ISH = /^[*_`~\s:•·-]*$/;
+
+function tidyValue(v) {
+  let s = String(v == null ? '' : v);
+  const cut = REF_MARK.exec(s);
+  if (cut && cut.index > 0) s = s.slice(0, cut.index);
+  return s.replace(/[\s]*[-–—•·|]+\s*$/, '').trim().replace(/^`+|`+$/g, '').trim();
+}
+
+// Does this line START a field? Used to know where a value that runs over several
+// lines has to stop. A bulleted punishment ("• Written Warning") has no colon, so
+// it is never mistaken for one.
+const LABEL_LINE = /^\s*[•·*\-–—]?\s*\*{0,2}[A-Za-z][A-Za-z ()/]{0,28}\*{0,2}\s*:/;
+
 function textField(text, kind) {
   const body = String(text || '');
+
+  // 1. "Label: value", both on the same line.
+  //
+  // Spaces and tabs only, never \s — \s matches a NEWLINE, so a pattern built
+  // from it will happily step over the end of the line and take the first line of
+  // the next field as this one's value. That is precisely what turned
+  //
+  //     **Punishment:**
+  //     • Written Warning
+  //     • Disciplinary Strike 1 (14d)
+  //
+  // into a single punishment called "Written Warning", losing the strike and its
+  // fourteen days off somebody's record.
+  //
+  // The \*{0,2} after the colon is the closing marker of "**Reason:**"; without it
+  // every bold label handed back a value beginning with "** ".
+  const SP = '[ \\t]*';
   for (const label of LABELS[kind]) {
-    const re = new RegExp('^\\s*[•·*\\-–—]?\\s*\\*{0,2}' + escRe(label)
-      + '\\*{0,2}\\s*[:\\-]\\s*(.+)$', 'im');
+    const re = new RegExp('^' + SP + '[•·*\\-–—]?' + SP + '\\*{0,2}' + escRe(label)
+      + '\\*{0,2}' + SP + '[:\\-]' + SP + '\\*{0,2}' + SP + '(.+)$', 'im');
     const m = re.exec(body);
-    if (m && m[1].trim()) return m[1].trim();
+    if (m && !EMPTY_ISH.test(m[1])) {
+      const v = tidyValue(m[1]);
+      if (v) return v;
+    }
   }
-  return '';
+
+  // 2. The label alone on its line, with the value on the lines below it — how a
+  //    list of punishments is written.
+  const lines = body.split(/\r?\n/);
+  for (const label of LABELS[kind]) {
+    const head = new RegExp('^\\s*[•·*\\-–—]?\\s*\\*{0,2}' + escRe(label)
+      + '\\*{0,2}\\s*[:\\-]\\s*\\*{0,2}\\s*$', 'i');
+    const at = lines.findIndex(l => head.test(l));
+    if (at < 0) continue;
+    const took = [];
+    for (let i = at + 1; i < lines.length; i++) {
+      if (!lines[i].trim()) break;             // a blank line ends the value
+      if (LABEL_LINE.test(lines[i])) break;    // so does the next field
+      took.push(lines[i]);
+    }
+    const v = tidyValue(took.join('\n'));
+    if (v) return v;
+  }
+
+  // 3. Everything on one line, several fields deep.
+  const inline = inlineFields(body);
+  return inline[kind] || '';
+}
+
+/**
+ * Read labelled fields that all sit on ONE line.
+ *
+ *   <@123> Staff Consequences & Discipline - **Staff Member:** <@123>
+ *   - **Action:** Termination - **Reason:** Patrolling as a CSO unsupervised.
+ *
+ * The line-anchored reader above cannot see any of that: only the first label on a
+ * line can ever start it. So every label is located instead, and each value is
+ * whatever sits between its own label and the next one.
+ *
+ * A label only counts when it is **bold** or at the start of a line. Without that
+ * rule the word "action" in the middle of somebody's reason would be read as the
+ * start of a new field and cut the reason in half, which is a quieter kind of
+ * wrong than not reading it at all.
+ *
+ * Cached per string: parseMessage asks for four fields from the same text, and
+ * scanning it four times for the same answer is waste.
+ */
+const inlineCache = new Map();
+const INLINE_CACHE_MAX = 200;
+
+function inlineFields(text) {
+  const body = String(text || '');
+  if (!body) return {};
+  if (inlineCache.has(body)) return inlineCache.get(body);
+
+  const hits = [];
+  for (const kind of Object.keys(LABELS)) {
+    for (const label of LABELS[kind]) {
+      // Either **Label:** anywhere, or Label: at the start of a line.
+      const re = new RegExp('(\\*\\*\\s*' + escRe(label) + '\\s*\\*\\*\\s*:'
+        + '|\\*\\*\\s*' + escRe(label) + '\\s*:\\s*\\*\\*'
+        + '|(?:^|\\n)\\s*[•·*\\-–—]?\\s*' + escRe(label) + '\\s*:)', 'gi');
+      let m;
+      while ((m = re.exec(body))) {
+        hits.push({ kind, start: m.index, from: m.index + m[0].length, len: label.length });
+        if (re.lastIndex === m.index) re.lastIndex++;   // never loop on a zero-width match
+      }
+    }
+  }
+  if (!hits.length) { remember(body, {}); return {}; }
+
+  // Where every value has to stop: the next label along, whichever kind it is.
+  const starts = [...new Set(hits.map(h => h.start))].sort((a, b) => a - b);
+  const out = {};
+  // Longest label first at a given position, so "Staff Member" wins over "Staff"
+  // and the value does not begin with "Member:".
+  hits.sort((a, b) => a.start - b.start || b.len - a.len);
+  for (const h of hits) {
+    if (out[h.kind] !== undefined) continue;          // the first one wins
+    const next = starts.find(s => s > h.start);
+    const value = tidyValue(body.slice(h.from, next == null ? undefined : next));
+    if (value) out[h.kind] = value;
+  }
+  remember(body, out);
+  return out;
+}
+
+function remember(key, value) {
+  // A bounded cache: this runs over thousands of messages in one import, and an
+  // unbounded map keyed on message text is a leak with a long channel behind it.
+  if (inlineCache.size >= INLINE_CACHE_MAX) inlineCache.clear();
+  inlineCache.set(key, value);
 }
 
 // ── Who it was about ──────────────────────────────────────────────
@@ -290,6 +443,32 @@ function parseMessage(msg) {
   const text = fromPlainText(msg);
   if (text) return { ...text, logMessageId: msg && msg.id ? String(msg.id) : null };
   return null;
+}
+
+/**
+ * Why a message that looks like a case was not read as one.
+ *
+ * The census exists so that "123 cases found" can be checked rather than
+ * believed, and a list of 25 messages with no explanation only tells you that
+ * something is wrong. This says which half is missing, which is the difference
+ * between "teach it another reference format" and "teach it another field layout".
+ *
+ * @returns {string|null} null when the message parses perfectly well
+ */
+function whyNotParsed(msg) {
+  if (parseMessage(msg)) return null;
+  const parts = [String((msg && msg.content) || '')];
+  for (const e of ((msg && msg.embeds) || [])) {
+    parts.push(String(e.title || ''), String(e.description || ''),
+      String((e.footer && e.footer.text) || ''),
+      (Array.isArray(e.fields) ? e.fields : []).map(f => `${f && f.name}: ${f && f.value}`).join('\n'));
+  }
+  const blob = parts.filter(Boolean).join('\n');
+  if (!CASE_ISH.test(blob)) return 'not about a case';
+  if (!findRef(blob)) return 'no reference';
+  const hasFields = ['punishment', 'reason', 'officer'].some(k => textField(blob, k));
+  if (!hasFields) return 'nothing said about what was done or why';
+  return 'the fields are laid out in a way this cannot read yet';
 }
 
 function parseAdminLogEmbed(embed, msg) {
@@ -635,4 +814,5 @@ async function auditRefs() {
 module.exports = {
   parseMessage, parseAdminLogEmbed, parseActions, findRef, readOfficer,
   importFromChannel, importerUser, raiseCounter, auditRefs, ORIGIN, LABELS, CASE_ISH,
+  whyNotParsed, textField, inlineFields,
 };
