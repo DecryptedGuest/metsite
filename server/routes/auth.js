@@ -409,6 +409,21 @@ router.get('/discord/callback', async (req, res) => {
         data:  { lastIp: ip, ...(rbxId ? { robloxId: rbxId, robloxUsername: rbxName } : {}) },
       });
       console.log('[Auth] Stored IP + Roblox link:', ip, '|', rbxName || 'unlinked', rbxId && user.robloxId ? '(cached)' : '(fresh)');
+
+      // XP imported for their Roblox account before anyone knew their Discord id.
+      // A login is the first moment the two are tied together, so it is the right
+      // place to settle it. Fire-and-forget: it can only raise a balance, and a
+      // login must not fail because an XP claim did.
+      if (rbxId || rbxName) {
+        require('../lib/xp').claimPending({
+          discordId: discordUser.id, robloxId: rbxId, robloxUsername: rbxName,
+        }).then(c => {
+          if (c && c.raised > 0) {
+            console.log(`[Auth] Claimed ${c.raised} imported XP for ${rbxName || rbxId} `
+              + `(${c.before} → ${c.after})`);
+          }
+        }).catch(err => console.warn('[Auth] XP claim skipped:', err.message));
+      }
     } catch (enrichErr) {
       // Old schema (columns missing) or transient error — non-fatal
       console.warn('[Auth] IP/Roblox enrich skipped:', enrichErr.message);
@@ -676,6 +691,18 @@ router.get('/roblox/callback', async (req, res) => {
         divisions, metRoleIds: memberRoles,
       },
     });
+
+    // Signing in with Roblox is the strongest link there is between the two
+    // accounts, so it is the best possible moment to hand over XP that was
+    // imported against the Roblox side. Fire-and-forget, as on the Discord path.
+    require('../lib/xp').claimPending({ discordId, robloxId, robloxUsername })
+      .then(c => {
+        if (c && c.raised > 0) {
+          console.log(`[Auth] Claimed ${c.raised} imported XP for ${robloxUsername || robloxId} `
+            + `(${c.before} → ${c.after})`);
+        }
+      })
+      .catch(err => console.warn('[Auth] XP claim skipped:', err.message));
 
     return establishSession(req, res, user);
   } catch (err) {

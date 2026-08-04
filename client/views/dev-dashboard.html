@@ -1178,6 +1178,51 @@
           <div id="clr-result" style="margin-top:1rem;font-size:13px;"></div>
         </div>
       </div>
+
+      <!-- ── Clans Labs XP import ──────────────────────────────────────
+           The leaderboard lives in data/clanslabs-xp.txt and names ROBLOX
+           accounts; our XP is keyed on Discord ids. Most of the list therefore
+           lands in a holding table and is claimed when its owner turns up. -->
+      <div class="panel glass fade-up stagger-4" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Clans Labs XP</div>
+          <div class="panel-tools">
+            <button class="btn btn-ghost btn-sm" id="cxp-look-btn" onclick="cxpLook()">
+              <i class="ti ti-list-search"></i> What's in the file
+            </button>
+            <button class="btn btn-ghost btn-sm" id="cxp-sweep-btn" onclick="cxpSweep()">
+              <i class="ti ti-refresh"></i> Retry the waiting ones
+            </button>
+          </div>
+        </div>
+        <div class="profile-section">
+          <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
+            Sets everyone's XP from the Clans Labs leaderboard in
+            <code>data/clanslabs-xp.txt</code>. Their scale runs to six figures and ours stops at
+            <strong>100</strong> (Chief Inspector), so every number is capped on the way in.
+          </p>
+          <p style="font-size:12.5px;color:var(--text-muted);line-height:1.7;margin:0 0 1rem;">
+            The list names Roblox accounts. Where we can find a Discord id for one, the balance is set
+            now; where we cannot, the XP is <strong>held against the Roblox account</strong> and lands on
+            their record the first time they log in or somebody runs <code>/xp</code> on them. A claim
+            always takes the higher of the two numbers, so re-running this can never take XP off
+            anybody. Names the leaderboard cut short are skipped rather than guessed at: Roblox will
+            happily answer a lookup for a fragment like &ldquo;<code>the</code>&rdquo; with the real
+            account of that name, which belongs to a stranger.
+          </p>
+
+          <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem;">
+            <button class="btn btn-primary" id="cxp-dry-btn" onclick="cxpImport(true)">
+              <i class="ti ti-eye"></i> Dry run, changes nothing
+            </button>
+            <button class="btn btn-success" id="cxp-go-btn" onclick="cxpImport(false)" disabled
+                    title="Do the dry run first">
+              <i class="ti ti-database-import"></i> Sync the XP for real
+            </button>
+          </div>
+          <div id="cxp-result" style="margin-top:1rem;font-size:13px;"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ROBLOX AUDIO UPLOADER -->

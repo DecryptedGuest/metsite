@@ -1376,6 +1376,45 @@ model XpEvent {
   @@map("xp_events")
 }
 
+// XP that belongs to a Roblox account we cannot yet attach to a Discord one.
+//
+// MetXp is keyed on discordId, which is right for everyone who is in the server
+// and useless for everyone who is not. Importing an outside leaderboard (Clans
+// Labs) means most of the list is people we have no Discord id for — some are in
+// the group but not the server, some verified with RoVer under a name we cannot
+// see, some will turn up next week. Throwing their XP away because we cannot key
+// it yet would mean re-importing by hand later.
+//
+// So it is held here against the Roblox account, and CLAIMED the moment a
+// Discord id turns up for it: on login, on a /xp lookup, or on a sweep. A claim
+// takes the HIGHER of the two numbers, so nothing anybody has earned here is
+// ever undone by an old import.
+model MetXpPending {
+  id             Int       @id @default(autoincrement())
+  // The lowercased username, which is the only identifier the leaderboard gives
+  // us. Roblox usernames are unique case-insensitively, so this is a real key.
+  usernameKey    String    @unique
+  robloxUsername String
+  // Filled in once the username has been resolved. Nullable because resolving
+  // needs Roblox to answer, and a name that cannot be resolved is still worth
+  // keeping: it may be a rename, and the row can be resolved again later.
+  robloxId       String?
+  xp             Int       @default(0)
+  source         String    @default("clanslabs")
+  // Set when the XP has been moved onto a MetXp row. Kept rather than deleted:
+  // it is the record of where an officer's starting balance came from.
+  claimedAt      DateTime?
+  claimedBy      String?
+  claimedXp      Int?
+  note           String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([robloxId])
+  @@index([claimedAt])
+  @@map("met_xp_pending")
+}
+
 // ── The Internal Affairs application ──────────────────────────────
 //
 // Six sections, filled in over more than one sitting, marked by a Deputy

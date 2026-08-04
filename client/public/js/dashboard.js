@@ -765,6 +765,223 @@ async function clrAudit() {
   }
 }
 
+// ── Clans Labs XP import ──────────────────────────────────────────
+//
+// Same two-button shape as the case rebuild, and for the same reason: this writes
+// a balance for a thousand accounts, and the dry run reports exactly the numbers
+// the real one will. The real button stays locked until a dry run has been read.
+
+async function cxpLook() {
+  const out = document.getElementById('cxp-result');
+  const btn = document.getElementById('cxp-look-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Reading…'; }
+  try {
+    const r = await api('/api/dev/xp-import');
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">The file, unread by anything else</div>`;
+    h += clrRow('Rows', r.rows);
+    h += clrRow('Distinct accounts', r.accounts, r.accounts ? 'good' : 'warn');
+    h += clrRow('Lines ignored', r.ignoredLines);
+    h += clrRow('Capped at', r.cap + ' XP');
+    if (r.pending) {
+      h += clrRow('Held for accounts with no Discord id', r.pending.waiting,
+                  r.pending.waiting ? 'warn' : 'good');
+      h += clrRow('Already handed over', r.pending.claimed, r.pending.claimed ? 'good' : null);
+    }
+    // A run that is still going, or the last one's result.
+    if (r.run) {
+      h += clrRow('Last run', r.run.running
+        ? (r.run.stage || 'running') + (r.run.total ? ` — ${r.run.done} of ${r.run.total}` : '')
+        : new Date(r.run.finishedAt || r.run.startedAt).toLocaleString()
+          + (r.run.dry ? ' (dry run)' : ''),
+        r.run.error ? 'bad' : r.run.running ? 'warn' : 'good');
+      if (r.run.error) h += clrRow('It failed with', r.run.error, 'bad');
+    }
+    if ((r.highest || []).length) {
+      h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">Top of the list</div>`
+        + r.highest.map(function (s) {
+            return `<div style="font-size:11.5px;color:var(--text-secondary);padding:3px 0;border-top:1px solid var(--border-dim);">`
+              + `<span style="font-family:var(--font-mono);color:var(--blue);">${escapeHtml(s.username)}</span> · `
+              + `${escapeHtml(String(s.xp))} → ${escapeHtml(String(Math.min(s.xp, r.cap)))}</div>`;
+          }).join('');
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-list-search"></i> What\'s in the file'; }
+  }
+}
+
+async function cxpImport(dry) {
+  const out = document.getElementById('cxp-result');
+  if (!dry) {
+    const yes = await uiConfirm(
+      'This sets the XP of everyone on the leaderboard who can be matched to a Discord account, '
+      + 'and holds the rest against their Roblox account.\n\n'
+      + 'It only ever raises a balance, so nothing anybody earned here is lost — but read the dry run first.',
+      { title: 'Sync the XP for real?', confirmText: 'Sync it', cancelText: 'Not yet', icon: 'ti-database-import' });
+    if (!yes) return;
+  }
+
+  const btn = document.getElementById(dry ? 'cxp-dry-btn' : 'cxp-go-btn');
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Running…'; }
+
+  try {
+    // The server starts it and answers straight away. It cannot answer with the
+    // result: a thousand usernames is minutes of paced Roblox calls, and an edge
+    // proxy would close the request long before then.
+    await api('/api/dev/xp-import', { method: 'POST', body: JSON.stringify({ dry: dry }) });
+    const r = await cxpPoll(out);
+    if (!r) return;
+    if (out) out.innerHTML = r.error
+      ? `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`
+      : cxpReport(r.out || {});
+    const go = document.getElementById('cxp-go-btn');
+    if (dry && go && r.out) {
+      go.disabled = !(r.out.ok && r.out.resolved > 0);
+      go.title = go.disabled ? 'The dry run resolved nobody' : '';
+    }
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+// Watch a run to the end, showing what it is on. A bar that moves is the
+// difference between "this is working" and "this has hung".
+async function cxpPoll(out) {
+  const started = Date.now();
+  const LIMIT = 30 * 60 * 1000;   // a run that long has gone wrong
+  while (Date.now() - started < LIMIT) {
+    let s = null;
+    try { s = await api('/api/dev/xp-import'); } catch (e) { /* a dropped poll is not a failure */ }
+    const run = s && s.run;
+    if (run) {
+      if (!run.running) return run;
+      if (out) {
+        const pct = run.total ? Math.round((run.done / run.total) * 100) : 0;
+        const mins = Math.floor((Date.now() - started) / 60000);
+        out.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+          + `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:.5rem;">`
+          + `<i class="ti ti-loader-2"></i> ${escapeHtml(run.stage || 'Working')}`
+          + (run.total ? ` — ${run.done} of ${run.total}` : '') + `</div>`
+          + `<div style="height:6px;border-radius:3px;background:var(--border-dim);overflow:hidden;">`
+          + `<div style="height:100%;width:${pct}%;background:var(--blue);transition:width .4s;"></div></div>`
+          + `<div style="font-size:11.5px;color:var(--text-muted);margin-top:.5rem;line-height:1.6;">`
+          + `Roblox is asked in paced batches and rate-limits hard, so this takes a few minutes`
+          + (mins ? ` (${mins} so far)` : '') + `. Leaving the page does not stop it.</div></div>`;
+      }
+    }
+    await new Promise(function (r) { setTimeout(r, 3000); });
+  }
+  if (out) {
+    out.innerHTML = `<span style="color:var(--amber);"><i class="ti ti-alert-triangle"></i> `
+      + `Stopped watching after half an hour. The run may still be going — press `
+      + `"What's in the file" to see where it got to.</span>`;
+  }
+  return null;
+}
+
+function cxpReport(r) {
+  if (r.error) return `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`;
+  // The server is the one that knows whether it wrote.
+  const dry = typeof r.dryRun === 'boolean' ? r.dryRun : true;
+
+  let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`;
+  h += `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
+     + (dry ? 'Dry run, nothing was written' : 'Synced') + `</div>`;
+
+  h += clrRow('Accounts on the leaderboard', r.accounts);
+  h += clrRow('Resolved on Roblox', r.resolved, r.resolved ? 'good' : 'warn');
+  // Kept apart from "not a Roblox account" on purpose: one means the row is junk,
+  // the other means we never got to ask.
+  if (r.unasked) h += clrRow('Rate-limited by Roblox, not looked at', r.unasked, 'warn');
+  h += clrRow('Not a Roblox account', r.unknown, r.unknown ? 'warn' : 'good');
+  h += clrRow('Over ' + r.cap + ', so capped', r.capped);
+  h += clrRow(dry ? 'Would be set now' : 'Set now', r.set, r.set ? 'good' : null);
+  if (!dry) {
+    h += clrRow('Of those, actually raised', r.raised);
+    h += clrRow('Already at least that high', r.unchanged);
+  }
+  h += clrRow(dry ? 'Would wait for a Discord account' : 'Waiting for a Discord account', r.pending);
+  if (r.roverLookups) h += clrRow('RoVer lookups', r.roverLookups);
+  if (r.failed) h += clrRow('Failed', r.failed, 'bad');
+
+  if (r.unasked) {
+    h += `<div style="margin-top:.8rem;padding:.7rem .85rem;border-radius:8px;background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);">`
+      + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
+      + `${r.unasked} name${r.unasked === 1 ? '' : 's'} were rate-limited, so the run is not finished</div>`
+      + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;">`
+      + `Roblox stopped answering. Those names were <strong>not</strong> looked at and nothing was `
+      + `stored or ruled out for them. Run it again in a few minutes — everything already imported is `
+      + `left exactly as it is.</div></div>`;
+  } else if (!dry && r.resolved) {
+    h += `<div style="margin-top:.7rem;font-size:12px;color:var(--green);">`
+      + `<i class="ti ti-check"></i> The whole list was looked at.</div>`;
+  }
+
+  if ((r.unknownNames || []).length) {
+    h += `<div style="margin-top:.8rem;padding:.7rem .85rem;border-radius:8px;background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);">`
+      + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
+      + `${r.unknown} name${r.unknown === 1 ? '' : 's'} could not be resolved</div>`
+      + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:.5rem;">`
+      + `Mostly usernames the leaderboard cut short. Nothing was stored for them — a shortened name `
+      + `belongs to a different account, or to nobody.</div>`
+      + `<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);line-height:1.8;">`
+      + r.unknownNames.map(function (n) { return escapeHtml(n); }).join(', ')
+      + (r.unknown > r.unknownNames.length ? ', and ' + (r.unknown - r.unknownNames.length) + ' more' : '')
+      + `</div></div>`;
+  }
+
+  if ((r.samples || []).length) {
+    h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">A few of them</div>`
+      + r.samples.map(function (s) {
+          return `<div style="font-size:11.5px;color:var(--text-secondary);padding:3px 0;border-top:1px solid var(--border-dim);">`
+            + `<span style="font-family:var(--font-mono);color:var(--blue);">${escapeHtml(s.username)}</span> · `
+            + `${escapeHtml(String(s.from))} → ${escapeHtml(String(s.xp))} XP · `
+            + (s.to === 'discord' ? 'on their record' : 'held for later') + `</div>`;
+        }).join('');
+  }
+
+  if ((r.notes || []).length) {
+    h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-muted);line-height:1.7;">`
+      + r.notes.map(function (n) { return escapeHtml(n); }).join('<br>') + `</div>`;
+  }
+  return h + `</div>`;
+}
+
+// The long tail: rows still waiting for a Discord id. Worth a press after a wave
+// of people join.
+async function cxpSweep() {
+  const out = document.getElementById('cxp-result');
+  const btn = document.getElementById('cxp-sweep-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Retrying…'; }
+  try {
+    const r = await api('/api/dev/xp-claim-sweep', { method: 'POST', body: JSON.stringify({}) });
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">Retried the waiting rows</div>`;
+    h += clrRow('Looked at', r.looked);
+    h += clrRow('Usernames resolved for the first time', r.resolvedIds);
+    h += clrRow('Handed over', r.claimed, r.claimed ? 'good' : null);
+    h += clrRow('Of those, actually raised', r.raised);
+    h += clrRow('Still waiting', r.stillWaiting);
+    if (r.failed) h += clrRow('Failed', r.failed, 'bad');
+    if (r.pending) h += clrRow('Left in the holding table', r.pending.waiting);
+    if ((r.notes || []).length) {
+      h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-muted);line-height:1.7;">`
+        + r.notes.map(function (n) { return escapeHtml(n); }).join('<br>') + `</div>`;
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Retry the waiting ones'; }
+  }
+}
+
 // ── Open a case/ticket from a clicked notification ─────────────────
 // Navigates to the right page, waits for its list to load, then opens the
 // item — or tells the user it's no longer pending if it has been reviewed.

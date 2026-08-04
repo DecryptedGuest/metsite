@@ -711,4 +711,100 @@ router.post('/commands/register', async (req, res) => {
   }
 });
 
+// ── Clans Labs XP import ──────────────────────────────────────────
+//
+//   GET  /api/dev/xp-import              the file, the holding table, and the
+//                                        state of any run — poll this
+//   POST /api/dev/xp-import  { dry }     start one (dry: true to rehearse)
+//   POST /api/dev/xp-claim-sweep         try the still-waiting rows again
+//
+// It runs in the BACKGROUND and the browser polls, because it cannot be done
+// inside one request: a thousand usernames is twelve paced Roblox calls with
+// backoff — measured at three and a half minutes against the live API — plus a
+// RoVer lookup for everyone we cannot match ourselves. Most edge proxies close an
+// idle request long before that, and the run would then finish invisibly with its
+// counts going nowhere.
+//
+// Rehearse with dry first: it does every lookup and reports exactly the same
+// numbers, writing nothing.
+let _xpRun = null;   // { running, dry, startedAt, finishedAt, stage, done, total, out, error }
+
+router.get('/xp-import', async (req, res) => {
+  try {
+    const lib = require('../lib/clanslabsXp');
+    const parsed = lib.parse(lib.readFile());
+    res.json({
+      file: lib.DATA_FILE(),
+      rows: parsed.lines, accounts: parsed.rows.length,
+      ignoredLines: parsed.skipped.length,
+      cap: require('../lib/xp').maxXp(),
+      highest: parsed.rows.slice(0, 10),
+      pending: await lib.pendingSummary(20),
+      run: _xpRun,
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/xp-import', async (req, res) => {
+  if (_xpRun && _xpRun.running) {
+    return res.status(409).json({ error: 'An XP import is already running.', run: _xpRun });
+  }
+  const body = req.body || {};
+  const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
+  const actor = req.user;
+
+  _xpRun = { running: true, dry, startedAt: new Date().toISOString(), finishedAt: null,
+             stage: 'Starting', done: 0, total: 0, out: null, error: null };
+
+  const run = async () => {
+    try {
+      const out = await require('../lib/clanslabsXp').importLeaderboard({
+        dryRun: dry,
+        rover: body.rover !== false && body.rover !== 'false',
+        limit: body.limit ? parseInt(body.limit, 10) : undefined,
+        text: typeof body.text === 'string' && body.text.trim() ? body.text : undefined,
+        onProgress: (p) => {
+          if (!_xpRun) return;
+          _xpRun.stage = p.stage;
+          if (p.done != null) _xpRun.done = p.done;
+          if (p.total != null) _xpRun.total = p.total;
+        },
+      });
+      _xpRun.out = out;
+      if (!dry) {
+        audit.log(actor, { category: 'SECURITY', action: 'XP_IMPORT',
+          summary: `Imported Clans Labs XP: ${out.set} set, ${out.pending} held for later, `
+                 + `${out.unknown} unresolvable, capped at ${out.cap}` });
+      }
+    } catch (e) {
+      console.error('[Dev] XP import failed:', e.message);
+      _xpRun.error = 'The XP import failed: ' + e.message;
+    } finally {
+      _xpRun.running = false;
+      _xpRun.finishedAt = new Date().toISOString();
+      _xpRun.stage = _xpRun.error ? 'Failed' : 'Done';
+    }
+  };
+  run();
+
+  // 202: accepted and started, not finished. Poll GET /xp-import for the counts.
+  res.status(202).json({ started: true, dry, run: _xpRun });
+});
+
+router.post('/xp-claim-sweep', async (req, res) => {
+  const body = req.body || {};
+  try {
+    const out = await require('../lib/clanslabsXp').sweepPending({
+      limit: body.limit ? parseInt(body.limit, 10) : undefined,
+      rover: body.rover !== false && body.rover !== 'false',
+      dryRun: body.dry === true || body.dry === 'true',
+    });
+    res.json({ ...out, pending: await require('../lib/clanslabsXp').pendingSummary(20) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 module.exports = router;

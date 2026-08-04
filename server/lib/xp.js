@@ -436,6 +436,136 @@ async function seedFromRank(discordId, groupRole) {
     : prisma.metXp.create({ data: { discordId: id, ...data } });
 }
 
+// ── XP waiting for a Discord account ──────────────────────────────
+//
+// See MetXpPending in the schema. An outside leaderboard names Roblox accounts;
+// our XP is keyed on Discord ids. These four functions are the bridge.
+
+/** Roblox usernames are unique case-insensitively, so this is the real key. */
+function usernameKey(name) {
+  return String(name == null ? '' : name).trim().toLowerCase();
+}
+
+/**
+ * Hold XP against a Roblox account until a Discord id turns up for it.
+ *
+ * Keeps the HIGHEST value seen for an account. The leaderboard is paginated and
+ * pages overlap, so the same person arrives more than once, and a page read
+ * mid-update can show a lower number than one read a moment earlier — taking the
+ * max means a re-import is never a demotion.
+ */
+async function holdPending({ robloxUsername, robloxId, xp, source, note }) {
+  const key = usernameKey(robloxUsername);
+  if (!key) throw new Error('a pending XP row needs a Roblox username');
+  const capped = Math.max(0, Math.min(maxXp(), Math.trunc(Number(xp) || 0)));
+  const existing = await prisma.metXpPending.findUnique({ where: { usernameKey: key } });
+  const data = {
+    robloxUsername: String(robloxUsername),
+    ...(robloxId ? { robloxId: String(robloxId) } : {}),
+    ...(source ? { source: String(source) } : {}),
+    ...(note !== undefined ? { note: note == null ? null : String(note) } : {}),
+  };
+  if (!existing) {
+    return prisma.metXpPending.create({ data: { usernameKey: key, xp: capped, ...data } });
+  }
+  return prisma.metXpPending.update({
+    where: { usernameKey: key },
+    data: { ...data, xp: Math.max(existing.xp, capped) },
+  });
+}
+
+/**
+ * What is waiting for this Roblox account, claimed or not.
+ *
+ * By id first, because a username can be changed and an id cannot.
+ */
+async function pendingFor({ robloxId, robloxUsername }) {
+  if (robloxId) {
+    const byId = await prisma.metXpPending.findFirst({ where: { robloxId: String(robloxId) } });
+    if (byId) return byId;
+  }
+  const key = usernameKey(robloxUsername);
+  if (!key) return null;
+  return prisma.metXpPending.findUnique({ where: { usernameKey: key } });
+}
+
+/**
+ * Move any XP waiting for this Roblox account onto their MetXp row.
+ *
+ * Takes the HIGHER of what is waiting and what they already have. A claim must
+ * never reduce a balance: the import is a starting point, and by the time
+ * somebody joins they may already have been given XP here for something they
+ * actually did. Lowering that to match a months-old leaderboard would be a
+ * demotion nobody ordered.
+ *
+ * Safe to call on every login and every lookup: a claimed row is never claimed
+ * again, and a claim that would not raise the balance still closes the row so it
+ * stops being asked about.
+ *
+ * @returns {Promise<null|{xp, before, after, raised, robloxUsername, source}>}
+ *          null when there was nothing waiting.
+ */
+async function claimPending({ discordId, robloxId, robloxUsername }) {
+  const id = String(discordId || '').trim();
+  if (!id) return null;
+
+  const or = [];
+  if (robloxId) or.push({ robloxId: String(robloxId) });
+  const key = usernameKey(robloxUsername);
+  if (key) or.push({ usernameKey: key });
+  if (!or.length) return null;
+
+  const row = await prisma.metXpPending.findFirst({ where: { claimedAt: null, OR: or } });
+  if (!row) return null;
+
+  const capped = Math.max(0, Math.min(maxXp(), row.xp));
+
+  return prisma.$transaction(async (tx) => {
+    // Same lock-then-read as applyXp: two logins at once must not both read the
+    // old balance and both write it back.
+    await tx.$executeRaw`
+      INSERT INTO "met_xp" ("discordId", "xp", "updatedAt")
+      VALUES (${id}, 0, NOW())
+      ON CONFLICT ("discordId") DO NOTHING`;
+    const locked = await tx.$queryRaw`
+      SELECT "xp" FROM "met_xp" WHERE "discordId" = ${id} FOR UPDATE`;
+    const before = locked && locked[0] ? Number(locked[0].xp) : 0;
+    const after = Math.max(before, capped);
+
+    // Claim the row FIRST, and only if it is still unclaimed. Two concurrent
+    // claims then have one winner, and the loser awards nothing rather than
+    // awarding the same XP twice.
+    const claimed = await tx.metXpPending.updateMany({
+      where: { id: row.id, claimedAt: null },
+      data: { claimedAt: new Date(), claimedBy: id, claimedXp: after,
+              ...(robloxId ? { robloxId: String(robloxId) } : {}) },
+    });
+    if (!claimed.count) return null;
+
+    if (after !== before) {
+      await tx.metXp.update({
+        where: { discordId: id },
+        data: {
+          xp: after,
+          ...(robloxId ? { robloxId: String(robloxId) } : {}),
+          ...(row.robloxUsername ? { robloxUsername: row.robloxUsername } : {}),
+          firstEarnedAt: undefined,
+        },
+      });
+      await tx.xpEvent.create({
+        data: {
+          discordId: id, kind: 'SET', delta: after - before, before, after,
+          reason: `Starting balance from ${row.source === 'clanslabs' ? 'Clans Labs' : row.source}`
+                + ` (${row.robloxUsername})`,
+          issuedBy: 'XP import',
+        },
+      });
+    }
+    return { xp: capped, before, after, raised: after - before,
+             robloxUsername: row.robloxUsername, source: row.source };
+  });
+}
+
 /**
  * Move somebody in the MET Roblox group to match their new XP rank.
  *
@@ -512,4 +642,5 @@ module.exports = {
   maxXp,
   applyXp, recordPromotion, recordDemotion, seedFromRank, rungForGroupRank,
   applyGroupRank, promoteInGroup, demoteInGroup,
+  usernameKey, holdPending, pendingFor, claimPending,
 };

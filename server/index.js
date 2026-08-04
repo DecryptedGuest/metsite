@@ -130,6 +130,29 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * Hand out imported XP that is still waiting for a Discord account.
+ *
+ * The Clans Labs import leaves most of its rows held against a Roblox account,
+ * because most of the leaderboard is not in the server. Logging in claims a row,
+ * and so does anybody running /xp on them — but somebody who joins, verifies with
+ * RoVer and does neither would sit there indefinitely. This is that safety net,
+ * and it does nothing at all once the holding table is empty.
+ *
+ * Small batches: each row that we cannot match from our own tables costs a RoVer
+ * lookup, and a background job has no business spending that budget in bulk.
+ */
+function startXpClaimWorker() {
+  const run = () => require('./lib/clanslabsXp').sweepPending({ limit: 60 })
+    .then(out => {
+      if (out.claimed) console.log(`[XP] Claimed ${out.claimed} imported balance(s); `
+        + `${out.stillWaiting} still waiting for a Discord account.`);
+    })
+    .catch(err => console.warn('[XP] claim sweep failed:', err.message));
+  setTimeout(run, 3 * 60 * 1000);            // a few minutes after boot
+  setInterval(run, 6 * 60 * 60 * 1000);      // then four times a day
+}
+
 // ── Start Discord bot + background workers + Roblox CSRF warm-up ──
 // These need a single, always-on process (a persistent Discord gateway
 // connection + interval timers), so they are skipped on serverless hosts
@@ -155,6 +178,9 @@ if (RUN_WORKERS) {
   // The weekly IA quota review, posted at 23:59 on Sunday rather than by
   // somebody remembering to.
   require('./lib/quotaWeekly').startWeeklyQuotaWorker();
+  // Hand imported XP to people who have since verified with RoVer. Logging in and
+  // being looked up both claim it already; this catches somebody who does neither.
+  startXpClaimWorker();
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');

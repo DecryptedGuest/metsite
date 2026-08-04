@@ -150,6 +150,9 @@ async function resolveTargets(raw, guild) {
   const out = [];
   const seen = new Set();
   const problems = [];
+  // Roblox accounts with XP waiting for them but no Discord account to put it
+  // on. Reported rather than dropped — see the end of the name loop.
+  const unlinked = [];
 
   const push = (id, how) => {
     const s = String(id);
@@ -191,20 +194,47 @@ async function resolveTargets(raw, guild) {
     }
 
     // A Roblox username — go the other way through RoVer.
+    let roblox = null;   // kept for the pending-XP fallback below
     if (!found) {
       try {
-        const roblox = require('./roblox');
-        const rid = await withTimeout(roblox.getRobloxIdFromUsername(name), LOOKUP_MS(), null);
-        const did = rid ? await withTimeout(roblox.getDiscordFromRoblox(rid), LOOKUP_MS(), null) : null;
-        if (did) found = { id: did, via: 'roblox' };
+        const R = require('./roblox');
+        const rid = await withTimeout(R.getRobloxIdFromUsername(name), LOOKUP_MS(), null);
+        if (rid) roblox = rid;
+        // getDiscordFromRoblox answers with an ARRAY of members — possibly empty,
+        // and an empty array is truthy. Treating it as an id turned "this Roblox
+        // account is in nobody's Discord" into a target called "[object Object]".
+        const members = rid
+          ? await withTimeout(R.getDiscordFromRoblox(rid.id || rid), LOOKUP_MS(), [])
+          : [];
+        const hit = (members || []).find(m => m && m.discordId);
+        if (hit) found = { id: String(hit.discordId), via: 'roblox' };
       } catch (err) { /* nothing more to try */ }
     }
 
-    if (found) push(found.id, found.via);
-    else problems.push(name);
+    if (found) { push(found.id, found.via); continue; }
+
+    // Nobody on Discord — but there may be XP waiting for that Roblox account
+    // from the leaderboard import. Saying "35 XP is waiting for them, they just
+    // aren't in the server" is a real answer; "who?" is not.
+    try {
+      const waiting = await withTimeout(
+        require('./xp').pendingFor({ robloxId: roblox ? roblox.id : null, robloxUsername: name }),
+        LOOKUP_MS(), null);
+      if (waiting) {
+        unlinked.push({
+          username: roblox ? roblox.username : name,
+          robloxId: waiting.robloxId || (roblox ? roblox.id : null),
+          xp: waiting.xp, claimed: !!waiting.claimedAt, source: waiting.source,
+        });
+        continue;
+      }
+    } catch (err) { /* fall through to "not found" */ }
+
+    problems.push(name);
   }
 
-  return { targets: out.slice(0, MAX_TARGETS), problems, overflow: out.length > MAX_TARGETS };
+  return { targets: out.slice(0, MAX_TARGETS), problems, unlinked,
+           overflow: out.length > MAX_TARGETS };
 }
 
 /**
@@ -270,6 +300,16 @@ async function loadOfficer(discordId, guild) {
   // Timed too: placing a rank can need an authenticated group-roles call, and
   // that is one more thing that can stall.
   await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+
+  // Any XP imported for their Roblox account before we knew their Discord id.
+  // Looking somebody up is exactly the moment to settle that: it takes the higher
+  // of the two numbers, so it can only ever raise them, and once claimed it never
+  // runs again for that account.
+  if (robloxId || (info && info.username)) {
+    await withTimeout(XP.claimPending({
+      discordId, robloxId, robloxUsername: info ? info.username : null,
+    }), t, null);
+  }
 
   let row = await withTimeout(XP.getBalance(discordId), LOOKUP_MS(), null);
   // Only attach Roblox details to a row that already exists. Calling ensure()
@@ -514,10 +554,12 @@ async function handleXpCommand(interaction) {
   // ── Who ──
   let targets = [];
   let problems = [];
+  let unlinked = [];
   if (rawTargets) {
     const r = await resolveTargets(rawTargets, guild);
     targets = r.targets;
     problems = r.problems;
+    unlinked = r.unlinked || [];
   } else if (!changing) {
     targets = [{ discordId: interaction.user.id, via: 'self' }];
   }
@@ -526,6 +568,12 @@ async function handleXpCommand(interaction) {
     return interaction.editReply({ embeds: [fail('Who?',
       'Name the officers whose XP you want to change — `officers:@someone`. '
       + 'Leaving it blank only works for looking at your own card.')] }).catch(() => {});
+  }
+  // Nobody on Discord, but XP is being held for the Roblox account they named.
+  // That is an answer, not a failure, so it gets its own reply rather than
+  // "couldn't find them".
+  if (!targets.length && unlinked.length) {
+    return interaction.editReply({ embeds: [waitingEmbed(unlinked, problems)] }).catch(() => {});
   }
   if (!targets.length) {
     return interaction.editReply({ embeds: [fail('Couldn\'t find them',
@@ -568,7 +616,50 @@ async function handleXpCommand(interaction) {
       inline: false,
     });
   }
+  if (unlinked.length) {
+    embed.addFields({
+      name: 'Waiting for a Discord account',
+      value: unlinked.map(u => waitingLine(u)).join('\n'),
+      inline: false,
+    });
+  }
   await interaction.editReply({ embeds: [embed] }).catch(() => {});
+}
+
+/** One Roblox account with XP held for it. */
+function waitingLine(u) {
+  return `${e('met_hourglass')} `
+    + (u.robloxId
+      ? `[${short(u.username, 30)}](https://www.roblox.com/users/${u.robloxId}/profile)`
+      : `\`${short(u.username, 30)}\``)
+    + ` — **${u.xp} XP**`
+    + (u.claimed ? ' *(already given to their account)*' : ' waiting');
+}
+
+/**
+ * A card for Roblox accounts that have XP but no Discord account.
+ *
+ * The XP is real and it is theirs; there is simply nowhere to put it until they
+ * verify. Saying that plainly beats "couldn't find them", which reads as though
+ * the number does not exist.
+ */
+function waitingEmbed(unlinked, problems) {
+  const embed = new EmbedBuilder()
+    .setColor(COLOR.card)
+    .setTitle(`${e('met_hourglass')} ${unlinked.length === 1
+      ? 'Not in the server yet' : `${unlinked.length} not in the server yet`}`)
+    .setDescription(unlinked.map(u => waitingLine(u)).join('\n')
+      + '\n\nThis XP is held against the Roblox account. It goes onto their record '
+      + 'the first time they verify with RoVer or log into the dashboard, so there '
+      + 'is nothing to do now.');
+  if (problems.length) {
+    embed.addFields({
+      name: 'Not found at all',
+      value: `${e('met_warn')} ${problems.map(p => `\`${short(p, 30)}\``).join(', ')}`,
+      inline: false,
+    });
+  }
+  return embed;
 }
 
 // ── Changing XP ───────────────────────────────────────────────────

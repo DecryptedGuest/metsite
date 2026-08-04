@@ -364,6 +364,115 @@ async function getRobloxIdFromUsername(username) {
 }
 
 /**
+ * Resolve many Roblox usernames at once.
+ *
+ * The same endpoint takes an array, so a thousand names cost eleven calls rather
+ * than a thousand. Returns a Map keyed on the LOWERCASED name that was asked
+ * for — Roblox usernames are unique case-insensitively, and the caller needs to
+ * find its own entry again.
+ *
+ * Only exact matches go in the Map. Roblox will answer a request for "the" with
+ * the real account called "the", which is a stranger rather than the person a
+ * truncated leaderboard row meant, so a caller has to be able to tell an exact
+ * hit from a miss.
+ *
+ * Two things this has to be careful about, both learned the hard way:
+ *
+ *   RATE LIMITS ARE THE NORM HERE, not the exception. Unauthenticated, this
+ *   endpoint starts answering 429 after a couple of batches. So batches are
+ *   PACED, and a 429 is retried with backoff (honouring Retry-After) rather than
+ *   dropped.
+ *
+ *   "WE COULDN'T ASK" IS NOT "THEY DON'T EXIST". A batch that never succeeded is
+ *   reported in `failed`, separately from names Roblox answered about and did not
+ *   know. Folding the two together told a caller that 820 real officers were not
+ *   Roblox accounts, which was false and would have been acted on.
+ *
+ * @param {string[]} names
+ * @param {{ chunk?: number, gapMs?: number, attempts?: number, onBatch?: function }} [opts]
+ *        onBatch({ done, total, failed }) after each batch, for a progress line —
+ *        a three-minute job with no visible progress looks like a hang.
+ * @returns {Promise<{ users: Map<string, {id, username, displayName}>, failed: string[], calls: number, retries: number }>}
+ */
+async function getRobloxIdsFromUsernames(names, opts = {}) {
+  const users = new Map();
+  const failed = [];
+  const chunk = Math.max(1, Math.min(100, opts.chunk || 100));
+  // Measured against the live endpoint with 1,120 names: at a 400ms gap and four
+  // retries topping out at 8s, 300 names were still being refused at the end. The
+  // window Roblox counts over is longer than that, so the gap is a second and the
+  // backoff goes to a minute.
+  const gapMs = opts.gapMs == null ? 1000 : Math.max(0, opts.gapMs);
+  const attempts = Math.max(1, opts.attempts || 8);
+  const backoff = (n) => Math.min(60000, 2000 * Math.pow(2, n - 1));
+  const wanted = [...new Set((names || []).map(n => String(n || '').trim()).filter(Boolean))];
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let calls = 0, retries = 0;
+
+  for (let i = 0; i < wanted.length; i += chunk) {
+    const slice = wanted.slice(i, i + chunk);
+    if (i && gapMs) await sleep(gapMs);
+
+    let done = false;
+    for (let attempt = 1; attempt <= attempts && !done; attempt++) {
+      try {
+        calls++;
+        const res = await fetch('https://users.roblox.com/v1/usernames/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usernames: slice, excludeBannedUsers: false }),
+        });
+
+        if (res.status === 429 || res.status >= 500) {
+          if (attempt === attempts) break;
+          // Retry-After when they give one, otherwise 1s, 2s, 4s, 8s.
+          const after = parseFloat(res.headers.get('retry-after') || '');
+          const wait = Number.isFinite(after) && after > 0
+            ? Math.min(60000, after * 1000)
+            : backoff(attempt);
+          retries++;
+          await sleep(wait);
+          continue;
+        }
+        if (!res.ok) break;   // a 4xx that is not a rate limit will not improve
+
+        const data = await res.json();
+        for (const u of (data.data || [])) {
+          // requestedUsername is what we asked for; name is what the account is
+          // called now. Key on both, so a row written under an old name still
+          // finds its account.
+          const rec = { id: String(u.id), username: u.name, displayName: u.displayName };
+          if (u.requestedUsername) users.set(String(u.requestedUsername).toLowerCase(), rec);
+          if (u.name) users.set(String(u.name).toLowerCase(), rec);
+        }
+        done = true;
+      } catch (err) {
+        if (attempt === attempts) {
+          console.warn('Roblox batch username lookup error:', err.message);
+          break;
+        }
+        retries++;
+        await sleep(backoff(attempt));
+      }
+    }
+
+    if (!done) {
+      // Say which names we never got an answer about, so nobody reports them as
+      // non-existent.
+      failed.push(...slice);
+      console.warn(`Roblox batch username lookup gave up on ${slice.length} name(s) after ${attempts} attempts`);
+    }
+    if (typeof opts.onBatch === 'function') {
+      try {
+        opts.onBatch({ done: Math.min(i + chunk, wanted.length), total: wanted.length,
+                       failed: failed.length });
+      } catch (err) { /* a progress line must never break the run */ }
+    }
+  }
+  return { users, failed, calls, retries };
+}
+
+/**
  * Fetch a Roblox user's headshot thumbnail URL. Public API, no auth.
  * Returns a PNG URL or null. Cached per user id (headshots change rarely) so the
  * topbar/sidebar don't re-hit Roblox on every dashboard load.
@@ -748,6 +857,7 @@ module.exports = {
   getRobloxIdFromDiscord,
   getDiscordFromRoblox,
   getRobloxIdFromUsername,
+  getRobloxIdsFromUsernames,
   getRobloxUserInfo,
   getRobloxUsersInfo,
   getGroupRolesPublic,
