@@ -1114,15 +1114,43 @@ async function readSheet() {
 
 // POST an action to the Apps Script web app. Returns the parsed body, or null
 // when no webhook is configured.
-async function callQuotaWebhook(payload) {
-  const url = process.env.QUOTA_WEBHOOK_URL;
+/**
+ * Post to a division's own Apps Script webhook.
+ *
+ * The division argument is not optional in spirit, only in signature. This used to
+ * read QUOTA_WEBHOOK_URL straight out of the environment with no notion of which
+ * database it was writing to — and that variable is the INTERNAL AFFAIRS sheet's
+ * script. Every other part of this file is division-aware: quotaConfig(division)
+ * has resolved webhookUrl and webhookSecret per division all along (line ~174), and
+ * this one function ignored them.
+ *
+ * The consequence was not subtle. routes/quota.js offers both IA and MET as
+ * database targets, so a MET sync took its plan from the MET sheet — the members to
+ * add, and the rows to REMOVE — and then posted the whole thing to the IA sheet's
+ * script. MET constables written into a sheet of investigators, and a remove list
+ * computed against the wrong roster.
+ *
+ * Omitting the division still resolves to IA, whose prefix is empty, so every
+ * existing IA caller behaves exactly as before.
+ */
+async function callQuotaWebhook(payload, division) {
+  const cfg = quotaConfig(division || 'IA');
+  const url = cfg.webhookUrl;
+  // No webhook for THIS division is a different answer from no webhook at all, and
+  // both are `null` here: the caller falls back to the service account, which takes
+  // the sheet id from the same config and so cannot go to the wrong sheet.
   if (!url) return null;
   const fetch = require('node-fetch');
   const res = await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
-    body: JSON.stringify({ secret: process.env.QUOTA_WEBHOOK_SECRET || '', ...payload }),
+    body: JSON.stringify({ secret: cfg.webhookSecret || '', ...payload }),
   });
   return await res.json().catch(() => ({ ok: false, error: 'bad response from the quota webhook' }));
+}
+
+/** Does this division have a webhook of its own to write through? */
+function hasQuotaWebhook(division) {
+  return !!quotaConfig(division || 'IA').webhookUrl;
 }
 
 module.exports = {
@@ -1133,7 +1161,7 @@ module.exports = {
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter, sheetRef,
-  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
+  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
   buildMembersFromRows,

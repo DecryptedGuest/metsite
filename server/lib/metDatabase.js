@@ -332,12 +332,17 @@ async function applySync(plan, scope) {
   //    If a webhook IS configured we commit to it: a failure there may have
   //    partially applied, so re-running the same destructive write through the
   //    service account could remove twice as much. Report and stop instead.
-  if (process.env.QUOTA_WEBHOOK_URL) {
+  //
+  //    THIS division's webhook. The test used to be `process.env.QUOTA_WEBHOOK_URL`
+  //    and the call took no division — and that variable is the INTERNAL AFFAIRS
+  //    script. So a MET sync built its plan from the MET sheet and then posted the
+  //    whole thing, removals included, to the IA sheet.
+  if (quota.hasQuotaWebhook(scope.division)) {
     const viaWebhook = await quota.callQuotaWebhook({
       action:  'roster',
       remove:  plan.remove.map(r => ({ username: r.username, discordId: r.discordId || null })),
       add:     plan.add.map(a => ({ username: a.username, rank: a.rank || '', discordId: a.discordId || '' })),
-    }).catch(err => ({ ok: false, error: err.message }));
+    }, scope.division).catch(err => ({ ok: false, error: err.message }));
 
     if (viaWebhook && viaWebhook.ok) {
       return {
@@ -956,7 +961,7 @@ async function appendRows(rows, scope) {
   // skips anybody already on it — so a webhook that added three of five leaves
   // the fallback adding the remaining two and reporting the three as already
   // there. Retrying is safe here in a way it is not there.
-  if (process.env.QUOTA_WEBHOOK_URL) {
+  if (quota.hasQuotaWebhook(scope && scope.division)) {
     const via = await quota.callQuotaWebhook({
       action: 'roster',
       remove: [],
@@ -964,7 +969,7 @@ async function appendRows(rows, scope) {
         username: r.username, rank: r.rank || '',
         discordId: r.discordId || '', wtbt: wtbtCell(r.wtbt),
       })),
-    }).catch(err => ({ ok: false, error: err.message }));
+    }, scope && scope.division).catch(err => ({ ok: false, error: err.message }));
     if (via && via.ok) {
       return { ok: true, via: 'webhook', added: via.added != null ? via.added : rows.length,
                alreadyThere: [], errors };
