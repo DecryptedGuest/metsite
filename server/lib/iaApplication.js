@@ -232,6 +232,11 @@ const SECTIONS = [
       // to the applicant.
       { id: 'mc_director', type: 'choice', required: true, points: P,
         options: ['Nobody', 'FNTDrippy', 'j4yytoswag', 'NobleSoop', 'AkzX', '4bel_air', 'Rudy', 'FNTClout', 'Rodzina'],
+        correct: '4bel_air',
+        // The one answer on the paper with a shelf life: it is a person, and
+        // people move. When the Director changes, this line changes with them —
+        // and until it does, every applicant is marked against the old one.
+        guidance: 'The Director of Internal Affairs is 4bel_air.',
         prompt: 'Who is currently the Director of Internal Affairs?' },
       { id: 'mc_blacklist', type: 'choice', required: true, points: P,
         options: ['Yes', 'No', "Only if the person they're blacklisting is an SAS member"],
