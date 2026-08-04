@@ -385,7 +385,7 @@ async function applySync(plan, scope) {
     }
     if (rowIdx < 0) { notFound.push(r.username); continue; }   // already gone — leave it
     for (let c = 0; c < width; c++) {
-      writes.push({ range: `${sheetName}!${quota.colLetter(c)}${rowIdx + 1}`, values: [['']] });
+      writes.push({ range: quota.sheetRef(sheetName, `${quota.colLetter(c)}${rowIdx + 1}`), values: [['']] });
     }
     removed++;
   }
@@ -766,7 +766,7 @@ async function tidyStrayRows(division, actor, opts = {}) {
       // accepted and does nothing must not be reported as a move.
       const check = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${sheetName}!${quota.colLetter(cols.username)}${to + 1}`,
+        range: quota.sheetRef(sheetName, `${quota.colLetter(cols.username)}${to + 1}`),
         valueRenderOption: 'FORMATTED_VALUE',
       }).catch(() => null);
       const landed = check && quota.normName((((check.data.values || [])[0] || [])[0]))
@@ -1007,6 +1007,21 @@ async function appendRows(rows, scope) {
       // Placing needs the tab's numeric id and one structural request. If either
       // is refused, a plain append at the end still gets the member onto the
       // sheet — in the wrong section, which is a tidy-up rather than a loss.
+      // Rows that ARE on the sheet must never be written a second time. The
+      // re-read at the top of this function happened BEFORE placeMembers ran, so
+      // it cannot see rows placeMembers itself inserted — which is how a partial
+      // failure produced two rows for every person, one in the block and one at
+      // the bottom. When the failure says the rows exist, stop.
+      if (err.rowsExist) {
+        const at = (err.blankRows || []).join(', ');
+        errors.push(`The rows were inserted${at ? ` at row${(err.blankRows || []).length === 1 ? '' : 's'} ${at}` : ''} `
+          + `but could not be completed (${err.message}). Nothing else was written, because `
+          + `writing again would add a second row for each of them. Check `
+          + `${at ? `row${(err.blankRows || []).length === 1 ? '' : 's'} ${at}` : 'the sheet'} `
+          + `and finish or delete ${(err.blankRows || []).length === 1 ? 'it' : 'them'} by hand.`);
+        return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName,
+                 placed: [], partial: true, errors };
+      }
       console.warn('[MetDB] could not place the rows by rank, appending instead:', err.message);
       try {
         const at = await appendToSheet(sheets, spreadsheetId, sheetName, wanted, cols, existing);
@@ -1328,6 +1343,24 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
   const mergedCols = new Map();
   for (const g of ordered) mergedCols.set(g.at, mergedColumnsAt(merges, g.at - 1, width));
 
+  // What the row above each insertion point looks like in the two columns that
+  // have to MATCH it rather than be derived: the rank's spelling in this block, and
+  // whatever the block puts in the WTBT column for somebody who is not waiting.
+  for (const g of ordered) {
+    const above = g.at > 0 ? existing[g.at - 1] : null;
+    if (!above || !isMemberRow(cols, above)) continue;
+    if (cols.rank != null) {
+      const spelling = String(above[cols.rank] == null ? '' : above[cols.rank]).trim();
+      // Only when it IS the same rank loosely. The neighbour of a group that fell
+      // through to the end of the sheet is somebody else entirely.
+      const same = g.rows.every(r => rankKey(r.rank) && rankKey(r.rank) === rankKey(spelling));
+      if (same && spelling) g.rankAs = spelling;
+    }
+    if (cols.wtbt != null && !isWtbtRow(cols, above)) {
+      g.neighbourWtbt = String(above[cols.wtbt] == null ? '' : above[cols.wtbt]).trim();
+    }
+  }
+
   // 1. The inserts, on their own. This is the part that has to happen: the row
   //    lands in its own rank's section, with the formatting and the validation of
   //    the row above it. The formula copy used to travel in this same batch, and
@@ -1396,6 +1429,38 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       }
     }
   }
+  // A merge ACROSS the neighbour row — two columns joined into one cell, the way a
+  // sheet writes a two-part heading — is not copied by anything above. insertDimension
+  // does not carry merges, and PASTE_FORMAT does not create them. So the new row has
+  // two separate cells where every row above it has one, which is visible: the
+  // gridlines do not line up.
+  //
+  // Only single-row (horizontal) merges are recreated. A merge that spans several
+  // rows already grew to include the new rows when they were inserted inside it, and
+  // asking for it again would be asking to merge a cell that is already merged.
+  const width2 = width;
+  for (const g of ordered) {
+    if (g.at <= 0) continue;
+    const above = g.at - 1;
+    for (const m of merges) {
+      const r0 = m.startRowIndex == null ? 0 : m.startRowIndex;
+      const r1 = m.endRowIndex == null ? r0 + 1 : m.endRowIndex;
+      if (r0 !== above || r1 !== above + 1) continue;        // not a one-row merge on the neighbour
+      const c0 = m.startColumnIndex == null ? 0 : m.startColumnIndex;
+      const c1 = m.endColumnIndex == null ? Math.max(width2, c0 + 1) : m.endColumnIndex;
+      if (c1 - c0 < 2) continue;
+      for (let i = 0; i < g.rows.length; i++) {
+        formats.push({
+          mergeCells: {
+            range: { sheetId, startRowIndex: g.finalAt + i, endRowIndex: g.finalAt + i + 1,
+                     startColumnIndex: c0, endColumnIndex: c1 },
+            mergeType: 'MERGE_ALL',
+          },
+        });
+      }
+    }
+  }
+
   // Its own batch, not folded in with the formulas below. A batch is all-or-
   // nothing, and the formatting is the less important of the two: sharing a batch
   // would mean a border that could not be pasted also cost the row its =SUM().
@@ -1437,13 +1502,20 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       });
     }
   }
+  // Only the columns nothing else fills. A column we write ourselves — username,
+  // rank, Discord id, WTBT, the days — is not left blank by skipping its paste, and
+  // warning about it produced actively harmful advice: the last run told somebody
+  // to drag the row above down over the RANK column, which would have overwritten
+  // the rank this code had just written correctly with the previous member's.
+  for (const c of [...skipped]) if (mine.has(c)) skipped.delete(c);
   if (skipped.size) {
     warnings.push(`Column${skipped.size === 1 ? '' : 's'} `
       + [...skipped].sort((a, b) => a - b).map(c => quota.colLetter(c)).join(', ')
       + ` ${skipped.size === 1 ? 'holds' : 'hold'} a formula inside a merged cell, `
       + `so ${skipped.size === 1 ? 'it was' : 'they were'} `
-      + 'left blank rather than pasted over the merge. Fill '
-      + `${skipped.size === 1 ? 'it' : 'them'} in by dragging the row above down.`);
+      + `left blank rather than pasted over the merge — copy just ${skipped.size === 1 ? 'that cell' : 'those cells'} `
+      + 'down from the row above (do not drag the whole row, it would overwrite the '
+      + 'rank and Discord id).');
   }
   if (copies.length) {
     try {
@@ -1465,12 +1537,23 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       const rowIdx = g.finalAt + i;        // 0-based
       const cell = (col, value) => {
         if (col == null) return;
-        writes.push({ range: `${sheetName}!${quota.colLetter(col)}${rowIdx + 1}`, values: [[value]] });
+        writes.push({ range: quota.sheetRef(sheetName, `${quota.colLetter(col)}${rowIdx + 1}`), values: [[value]] });
       };
       cell(cols.username, r.username);
-      cell(cols.rank, r.rank || '');
+      // The spelling the BLOCK uses, not the Roblox role name. The block is found
+      // by a loose match — "PINV" and "Probationary Investigator" are the same rank
+      // to rankKey — so writing the Roblox name verbatim put a row spelled one way
+      // into a block spelled another, and nothing downstream could notice because
+      // strayMembers compares loosely too.
+      cell(cols.rank, (g.rankAs != null ? g.rankAs : r.rank) || '');
       cell(cols.discordId, r.discordId || '');
+      // The mark, or the convention the neighbours use for somebody who does NOT
+      // need it. Writing nothing left the cell blank where every row above it says
+      // FALSE or "N/A" — and the webhook path, for the same operation, writes
+      // FALSE. Copying the neighbour follows whichever convention the sheet has
+      // rather than imposing one.
       if (r.wtbt) cell(cols.wtbt, wtbtCell(true));
+      else if (cols.wtbt != null && g.neighbourWtbt != null) cell(cols.wtbt, g.neighbourWtbt);
       for (const d of Object.values(cols.days || {})) cell(d, 0);
       // Everything else: cleared unless the neighbour had a formula there, or a
       // merge covers it. Inheriting a timezone or a strike count would be a lie
@@ -1492,10 +1575,22 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
     });
   }
 
+  // The rows exist by now, so a failure here is NOT recoverable by appending — that
+  // would leave the blank inserted rows in place AND add a second row for every
+  // person. The error therefore carries `rowsExist`, and the caller reports it
+  // instead of writing anything more.
   if (writes.length) {
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
-    });
+    try {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
+      });
+    } catch (err) {
+      const span = placed.map(p => p.row).filter(n => n > 0);
+      const e = new Error(`the rows were inserted but could not be filled in (${err.message})`);
+      e.rowsExist = true;
+      e.blankRows = span;
+      throw e;
+    }
   }
 
   // 4. Read it back, and only claim what is actually there.
@@ -1508,11 +1603,15 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
   const verified = await verifyPlacement(sheets, spreadsheetId, sheetName, placed, cols);
   const missing = placed.filter(p => !verified.has(p.row));
   if (missing.length === placed.length) {
-    // Nothing arrived. Throwing here is deliberate: the caller's fallback appends
-    // them to the end of the sheet, which is untidy and real, and infinitely
-    // better than a confident report of rows that do not exist.
-    throw new Error(`the sheet accepted the write but none of the ${placed.length} row(s) `
+    // Not one of them can be read back. Throwing is right — a confident report of
+    // rows that do not exist is worse than a failure — but the rows WERE inserted
+    // and the write WAS accepted, so appending on top of them would be adding a
+    // second row for every person. Say so, and let the caller stop.
+    const e = new Error(`the sheet accepted the write but none of the ${placed.length} row(s) `
       + `are there afterwards`);
+    e.rowsExist = true;
+    e.blankRows = placed.map(p => p.row).filter(n => n > 0);
+    throw e;
   }
   for (const p of missing) {
     p.row = null;
@@ -1535,14 +1634,24 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
 async function verifyPlacement(sheets, spreadsheetId, sheetName, placed, cols) {
   const ok = new Set();
   const rows = placed.map(p => p.row).filter(r => r > 0);
-  if (!rows.length || cols.username == null) return ok;
+  if (!rows.length) return ok;
+  // No username column means there is nothing to read back — NOT that the write
+  // failed. Returning an empty set here said "none of them are there" having
+  // looked at nothing, which made the caller throw and append the whole batch a
+  // second time, on top of rows that were already on the sheet. Same principle as
+  // the catch below: an unreadable sheet is not evidence of a failed write.
+  if (cols.username == null) {
+    console.warn('[MetDB] the sheet has no username column, so the new rows cannot be read back.');
+    for (const p of placed) if (p.row > 0) ok.add(p.row);
+    return ok;
+  }
   const first = Math.min(...rows);
   const last = Math.max(...rows);
   const col = quota.colLetter(cols.username);
   try {
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!${col}${first}:${col}${last}`,
+      range: quota.sheetRef(sheetName, `${col}${first}:${col}${last}`),
       valueRenderOption: 'FORMATTED_VALUE',
     });
     const values = resp.data.values || [];
@@ -1576,7 +1685,7 @@ async function formulaColumnsOf(sheets, spreadsheetId, sheetName, groups, width)
         spreadsheetId,
         // The neighbour row, as it was BEFORE the insert — the insert pushed it
         // nowhere, because rows were added below it.
-        range: `${sheetName}!${g.at}:${g.at}`,
+        range: quota.sheetRef(sheetName, `${g.at}:${g.at}`),
         valueRenderOption: 'FORMULA',
       });
       const row = (resp.data.values && resp.data.values[0]) || [];
@@ -1621,7 +1730,7 @@ function memberWrites(sheetName, rowNumber, r, cols) {
   const out = [];
   const cell = (col, value) => {
     if (col == null) return;
-    out.push({ range: `${sheetName}!${quota.colLetter(col)}${rowNumber}`, values: [[value]] });
+    out.push({ range: quota.sheetRef(sheetName, `${quota.colLetter(col)}${rowNumber}`), values: [[value]] });
   };
   cell(cols.username, r.username);
   cell(cols.rank, r.rank || '');

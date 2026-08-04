@@ -193,6 +193,30 @@ function colLetter(idx) {
   return s;
 }
 
+/**
+ * An A1 range, with the tab name quoted.
+ *
+ * A sheet name is only bare-safe if it is letters, digits and underscores and does
+ * not look like a cell reference. `Staff!D12` parses; `MET Staff!D12` does not, and
+ * neither does `2025!D12` or `Q1!D12` — the API answers "Unable to parse range"
+ * and the whole request fails. Every tab name here comes from an environment
+ * variable or from whatever the spreadsheet's first tab happens to be called
+ * ("Frontline Police Database" is in this repo's own setup docs), so a name with a
+ * space in it is normal, not exotic.
+ *
+ * Always quoted rather than quoted-when-necessary: `'Staff'!D12` is equally valid
+ * for a name that did not need it, and "when necessary" is a rule with edge cases
+ * this does not need to get right. An apostrophe inside the name is doubled, which
+ * is how Sheets escapes it.
+ *
+ * @param {string} sheetName the tab
+ * @param {string} [ref]     e.g. "D12", "D12:D20", "7:7". Omit for the whole tab.
+ */
+function sheetRef(sheetName, ref) {
+  const name = String(sheetName == null ? '' : sheetName).replace(/'/g, "''");
+  return ref ? `'${name}'!${ref}` : `'${name}'`;
+}
+
 function currentDayIndex(tz) {
   try {
     const wd = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(new Date());
@@ -410,7 +434,7 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: sheetName,
+      range: sheetRef(sheetName),
       valueRenderOption: 'FORMATTED_VALUE',
       majorDimension: 'ROWS',
     });
@@ -439,7 +463,7 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
     const base   = cellRaw ? parseFloat(cellRaw) : 0;
     const newVal = (Number.isFinite(base) ? base : 0) + points;
 
-    const a1 = `${sheetName}!${colLetter(dayCol)}${rowIdx + 1}`;
+    const a1 = sheetRef(sheetName, `${colLetter(dayCol)}${rowIdx + 1}`);
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: a1,
@@ -857,7 +881,7 @@ async function resetAllQuota(division = 'IA') {
         let rows;
         try {
           const resp = await sheets.spreadsheets.values.get({
-            spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+            spreadsheetId, range: sheetRef(sheetName), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
           });
           rows = resp.data.values || [];
         } catch (e) { continue; } // skip an unreadable tab rather than failing the whole reset
@@ -872,7 +896,7 @@ async function resetAllQuota(division = 'IA') {
           for (const c of dayCols) {
             const raw = (rows[r][c] || '').toString().trim();
             if (raw && isNaN(parseFloat(raw))) continue; // leave "EX" etc.
-            data.push({ range: `${sheetName}!${colLetter(c)}${r + 1}`, values: [[0]] });
+            data.push({ range: sheetRef(sheetName, `${colLetter(c)}${r + 1}`), values: [[0]] });
           }
         }
       }
@@ -937,7 +961,7 @@ async function setMemberMarker(username, marker, division = 'IA') {
         let rows;
         try {
           const resp = await sheets.spreadsheets.values.get({
-            spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+            spreadsheetId, range: sheetRef(sheetName), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
           });
           rows = resp.data.values || [];
         } catch (e) { continue; }
@@ -948,7 +972,7 @@ async function setMemberMarker(username, marker, division = 'IA') {
           if (((rows[r][cols.username] || '').toString().trim().toLowerCase()) === lc) { rowIdx = r; break; }
         }
         if (rowIdx < 0) continue; // not on this tab — try the next
-        const data = Object.values(cols.days).map(c => ({ range: `${sheetName}!${colLetter(c)}${rowIdx + 1}`, values: [[mark]] }));
+        const data = Object.values(cols.days).map(c => ({ range: sheetRef(sheetName, `${colLetter(c)}${rowIdx + 1}`), values: [[mark]] }));
         if (data.length) await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data } });
         return { ok: true };
       }
@@ -1069,7 +1093,7 @@ async function readSheetFor(cfg) {
   if (!sheets || !cfg || !cfg.sheetId) return null;
   const sheetName = await resolveSheetName(sheets, cfg.sheetId, cfg);
   const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId: cfg.sheetId, range: sheetName,
+    spreadsheetId: cfg.sheetId, range: sheetRef(sheetName),
     valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
   });
   const rows = resp.data.values || [];
@@ -1082,7 +1106,7 @@ async function readSheet() {
   const spreadsheetId = process.env.QUOTA_SHEET_ID || DEFAULT_SHEET_ID;
   const sheetName = await resolveSheetName(sheets, spreadsheetId);
   const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId, range: sheetName, valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
+    spreadsheetId, range: sheetRef(sheetName), valueRenderOption: 'FORMATTED_VALUE', majorDimension: 'ROWS',
   });
   const rows = resp.data.values || [];
   return { sheets, spreadsheetId, sheetName, rows, cols: findColumns(rows) };
@@ -1108,7 +1132,7 @@ module.exports = {
   setInvestigatorOfWeek,
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
-  getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter,
+  getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter, sheetRef,
   normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
