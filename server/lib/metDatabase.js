@@ -761,7 +761,11 @@ async function appendRows(rows, scope) {
   let placed = [];
   if (wanted.length) {
     try {
-      placed = await placeMembers(sheets, spreadsheetId, sheetName, wanted, existing, cols);
+      const out = await placeMembers(sheets, spreadsheetId, sheetName, wanted, existing, cols);
+      placed = out.placed;
+      // Placed, but not perfectly. Said out loud, because a formula cell left
+      // blank is a five-second fix if somebody knows and a wrong total if not.
+      for (const w of out.warnings || []) errors.push(w);
     } catch (err) {
       // Placing needs the tab's numeric id and one structural request. If either
       // is refused, a plain append at the end still gets the member onto the
@@ -805,15 +809,66 @@ async function appendRows(rows, scope) {
 // person, which is worse than a blank. So every column that is neither ours nor a
 // formula is explicitly cleared.
 
-/** The numeric id of a tab, which every structural request needs. */
-async function sheetIdFor(sheets, spreadsheetId, sheetName) {
+/**
+ * The numeric id of a tab and the ranges that are merged on it.
+ *
+ * Both come from one call because placement needs both: the id for every
+ * structural request, and the merges because a paste that lands half inside one
+ * is refused (see mergedColumnsAt).
+ */
+async function sheetMetaFor(sheets, spreadsheetId, sheetName) {
   const meta = await sheets.spreadsheets.get({
-    spreadsheetId, fields: 'sheets(properties(sheetId,title))',
+    spreadsheetId, fields: 'sheets(properties(sheetId,title),merges)',
   });
   const found = (meta.data.sheets || [])
     .find(sh => sh.properties && sh.properties.title === sheetName);
   if (!found) throw new Error(`The sheet "${sheetName}" is not in that spreadsheet.`);
-  return found.properties.sheetId;
+  return { sheetId: found.properties.sheetId, merges: found.merges || [] };
+}
+
+/** Just the id, for callers that do not care about merges. */
+async function sheetIdFor(sheets, spreadsheetId, sheetName) {
+  return (await sheetMetaFor(sheets, spreadsheetId, sheetName)).sheetId;
+}
+
+/**
+ * Which columns of one row sit inside a merged range.
+ *
+ * Sheets refuses a copyPaste whose rectangle cuts a merge in half — "You can't
+ * perform a paste that partially intersects a merge" — and it refuses the whole
+ * request, not the offending column. A sheet with one merged section header in
+ * the row above the insertion point therefore lost every formula on the row, and
+ * with it the placement, because the insert travelled in the same batch.
+ *
+ * So merged columns are copied by nobody. They are also left alone by the
+ * clearing pass: a cell merged across rows is not this person's data slot, and
+ * writing into the middle of a merge is not something to find out about here.
+ */
+function mergedColumnsAt(merges, rowIndex, width) {
+  const out = new Set();
+  for (const m of merges || []) {
+    const r0 = m.startRowIndex == null ? 0 : m.startRowIndex;
+    const r1 = m.endRowIndex == null ? Infinity : m.endRowIndex;
+    if (rowIndex < r0 || rowIndex >= r1) continue;
+    const c0 = m.startColumnIndex == null ? 0 : m.startColumnIndex;
+    // An absent end means "to the edge of the sheet"; cap it at the width we know
+    // about rather than looping to infinity.
+    const c1 = m.endColumnIndex == null ? Math.max(width, c0 + 1) : m.endColumnIndex;
+    for (let c = c0; c < c1; c++) out.add(c);
+  }
+  return out;
+}
+
+/** Sorted column indices as contiguous [start, end) runs, so N columns side by
+ *  side become one paste instead of N. */
+function columnRuns(columns) {
+  const runs = [];
+  for (const c of [...columns].sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && c === last.end) last.end = c + 1;
+    else runs.push({ start: c, end: c + 1 });
+  }
+  return runs;
 }
 
 /**
@@ -859,13 +914,16 @@ function rankKey(name) {
  * Insert the rows where they belong, formatted and filled.
  *
  * @param {object[]} rows   [{ username, rank, discordId, wtbt }]
- * @returns {Promise<Array<{ username, rank, row, after }>>} where each landed,
- *          1-based, for the report — "added at row 21, under the other
- *          probationers" is the sentence somebody wants back.
+ * @returns {Promise<{ placed: Array<{ username, rank, row, under }>, warnings: string[] }>}
+ *          where each landed, 1-based, for the report — "added at row 21, under
+ *          the other probationers" is the sentence somebody wants back — plus
+ *          anything the sheet would not let us finish, which is reported rather
+ *          than being allowed to undo the placement.
  */
 async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, cols) {
-  const sheetId = await sheetIdFor(sheets, spreadsheetId, sheetName);
+  const { sheetId, merges } = await sheetMetaFor(sheets, spreadsheetId, sheetName);
   const endOfData = existing.length;
+  const warnings = [];
 
   // Group by where they go, so several people of one rank become one insert.
   const groups = new Map();   // originalIndex → { at, rows[], byRank }
@@ -882,43 +940,88 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
   let shift = 0;
   for (const g of ordered) { g.finalAt = g.at + shift; shift += g.rows.length; }
 
-  // The inserts run DESCENDING by original index: inserting low would move every
-  // index below it, and then the next insert would land in the wrong place.
-  const requests = [];
-  for (const g of [...ordered].reverse()) {
-    requests.push({
-      insertDimension: {
-        range: { sheetId, dimension: 'ROWS', startIndex: g.at, endIndex: g.at + g.rows.length },
-        // The formatting and validation of the row above. Only possible when
-        // there IS a row above.
-        inheritFromBefore: g.at > 0,
-      },
+  const mine = new Set([cols.username, cols.rank, cols.discordId, cols.wtbt]
+    .concat(Object.values(cols.days || {})).filter(c => c != null).map(Number));
+  const width = existing.reduce((w, r) => Math.max(w, r.length), 0);
+
+  // Which of each neighbour's cells hold a formula, read BEFORE anything is
+  // inserted. Afterwards those rows have moved down by however many rows went in
+  // above them, and reading `g.at` then is reading a different member's row.
+  const formulaCols = await formulaColumnsOf(sheets, spreadsheetId, sheetName, ordered, width);
+
+  // Columns of each neighbour row that a merge covers, and so that nothing may
+  // paste into or clear.
+  const mergedCols = new Map();
+  for (const g of ordered) mergedCols.set(g.at, mergedColumnsAt(merges, g.at - 1, width));
+
+  // 1. The inserts, on their own. This is the part that has to happen: the row
+  //    lands in its own rank's section, with the formatting and the validation of
+  //    the row above it. The formula copy used to travel in this same batch, and
+  //    a sheet that refused the copy therefore lost the placement too and had
+  //    everybody appended to the bottom instead.
+  //
+  //    They run DESCENDING by original index: inserting low would move every
+  //    index below it, and the next insert would land in the wrong place.
+  const inserts = [...ordered].reverse().map(g => ({
+    insertDimension: {
+      range: { sheetId, dimension: 'ROWS', startIndex: g.at, endIndex: g.at + g.rows.length },
+      // Only possible when there IS a row above.
+      inheritFromBefore: g.at > 0,
+    },
+  }));
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: inserts } });
+
+  // 2. The formulas, separately and best-effort, one paste per contiguous run of
+  //    formula columns. Narrow ranges rather than the whole row, because a paste
+  //    that touches a merged cell is refused outright — and by now the rows are
+  //    already where they belong, so a refusal costs a few blank formula cells
+  //    instead of the placement.
+  //
+  //    These address the sheet AFTER the inserts, hence finalAt.
+  const copies = [];
+  const skipped = new Set();
+  for (const g of ordered) {
+    if (g.at <= 0) continue;                       // nothing above to copy from
+    const blocked = mergedCols.get(g.at) || new Set();
+    const from = [...(formulaCols.get(g.at) || [])].filter(c => {
+      if (!blocked.has(c)) return true;
+      skipped.add(c);
+      return false;
     });
-    if (g.at > 0) {
-      // The formulas, with their references adjusted for the new row.
-      requests.push({
+    for (const run of columnRuns(from)) {
+      copies.push({
         copyPaste: {
-          source: { sheetId, startRowIndex: g.at - 1, endRowIndex: g.at },
-          destination: { sheetId, startRowIndex: g.at, endRowIndex: g.at + g.rows.length },
+          source: { sheetId, startRowIndex: g.finalAt - 1, endRowIndex: g.finalAt,
+                    startColumnIndex: run.start, endColumnIndex: run.end },
+          destination: { sheetId, startRowIndex: g.finalAt, endRowIndex: g.finalAt + g.rows.length,
+                         startColumnIndex: run.start, endColumnIndex: run.end },
           pasteType: 'PASTE_FORMULA',
           pasteOrientation: 'NORMAL',
         },
       });
     }
   }
-  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
+  if (skipped.size) {
+    warnings.push(`Column${skipped.size === 1 ? '' : 's'} `
+      + [...skipped].sort((a, b) => a - b).map(c => quota.colLetter(c)).join(', ')
+      + ` ${skipped.size === 1 ? 'holds' : 'hold'} a formula inside a merged cell, `
+      + `so ${skipped.size === 1 ? 'it was' : 'they were'} `
+      + 'left blank rather than pasted over the merge. Fill '
+      + `${skipped.size === 1 ? 'it' : 'them'} in by dragging the row above down.`);
+  }
+  if (copies.length) {
+    try {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: copies } });
+    } catch (err) {
+      console.warn('[MetDB] could not carry the formulas onto the new rows:', err.message);
+      warnings.push('The rows are in the right sections, but their formula cells could not be '
+        + `copied down (${err.message}) — drag the row above down over them.`);
+    }
+  }
 
-  // Now the values. The rows exist, so addressing cells is safe — and per-cell
-  // rather than whole-row, so a formula column the paste just filled is left
-  // alone instead of being overwritten with a blank.
-  const mine = new Set([cols.username, cols.rank, cols.discordId, cols.wtbt]
-    .concat(Object.values(cols.days || {})).filter(c => c != null).map(Number));
-  const width = existing.reduce((w, r) => Math.max(w, r.length), 0);
-
-  // Which of the neighbour's cells are formulas, so the rest can be cleared
-  // without wiping a total.
-  const formulaCols = await formulaColumnsOf(sheets, spreadsheetId, sheetName, ordered, width);
-
+  // 3. The values. The rows exist, so addressing cells is safe — and per-cell
+  //    rather than whole-row, so a formula column the paste just filled is left
+  //    alone instead of being overwritten with a blank.
   const writes = [];
   const placed = [];
   for (const g of ordered) {
@@ -933,10 +1036,14 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       cell(cols.discordId, r.discordId || '');
       if (r.wtbt) cell(cols.wtbt, wtbtCell(true));
       for (const d of Object.values(cols.days || {})) cell(d, 0);
-      // Everything else: cleared unless the neighbour had a formula there.
-      // Inheriting a timezone or a strike count would be a lie about this person.
+      // Everything else: cleared unless the neighbour had a formula there, or a
+      // merge covers it. Inheriting a timezone or a strike count would be a lie
+      // about this person; writing into the middle of a merge is a request Sheets
+      // may refuse, and it would take every write above it down with it.
+      const keep = formulaCols.get(g.at) || new Set();
+      const merged = mergedCols.get(g.at) || new Set();
       for (let c = 0; c < width; c++) {
-        if (mine.has(c) || (formulaCols.get(g.at) || new Set()).has(c)) continue;
+        if (mine.has(c) || keep.has(c) || merged.has(c)) continue;
         cell(c, '');
       }
       placed.push({
@@ -951,7 +1058,7 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
     });
   }
-  return placed;
+  return { placed, warnings };
 }
 
 /**
@@ -1052,4 +1159,5 @@ module.exports = {
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
   memberRow, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
+  sheetMetaFor, mergedColumnsAt, columnRuns,
 };
