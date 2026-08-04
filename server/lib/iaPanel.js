@@ -1,5 +1,10 @@
 // server/lib/iaPanel.js
-// /ia — the Internal Affairs panel.
+// /check-record — the Internal Affairs panel.
+//
+// Named for what it does rather than for who owns it. "/ia" told you which
+// department the command belonged to and nothing about what typing it would get
+// you, which is the wrong way round for the one command in here that people who
+// are not in IA also see in the picker.
 //
 // Handling a ticket means answering the same handful of questions over and
 // over: who is this, what have they got on their record, what did case #618
@@ -47,13 +52,19 @@ function baseUrl() {
   return (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
 }
 
+// The command's name, in one place. It appears in the builder, in the dispatcher
+// in bot.js, and in the half-dozen messages that tell somebody to run it again —
+// and a rename that misses any one of those leaves a command that cannot be
+// reached or a message that names a command that no longer exists.
+const COMMAND = 'check-record';
+
 function buildCommand() {
   return new SlashCommandBuilder()
-    .setName('ia')
-    .setDescription('Internal Affairs')
+    .setName(COMMAND)
+    .setDescription("Look up an officer's record, or open a case by number")
     .addStringOption(o => o
       .setName('officer')
-      .setDescription('Who')
+      .setDescription('Who — a mention, a Discord id, or a Roblox username')
       .setMaxLength(120))
     .addStringOption(o => o
       .setName('case_number')
@@ -570,7 +581,7 @@ function channelProblem(channel, client) {
   if (typeof channel.send !== 'function') return "this isn't a channel the bot can post in";
   // A DM has no permission model to check, and posting evidence into somebody's
   // DMs from a panel is not what this button is for.
-  if (!channel.guild) return 'this is a direct message — run `/ia` in the channel you want the evidence in';
+  if (!channel.guild) return 'this is a direct message — run `/' + COMMAND + '` in the channel you want the evidence in';
   try {
     const me = channel.guild.members && channel.guild.members.me;
     if (me && typeof channel.permissionsFor === 'function') {
@@ -602,8 +613,8 @@ async function deskView() {
   return new EmbedBuilder()
     .setColor(COLOR.panel)
     .setTitle(`${e('met_shield')} Internal Affairs`)
-    .setDescription('Name an officer to pull their record — `/ia officer:@someone` — or a case '
-      + 'number to open it directly with `/ia case_number:618`.\n\n'
+    .setDescription('Name an officer to pull their record — `/' + COMMAND + ' officer:@someone` — or a case '
+      + 'number to open it directly with `/' + COMMAND + ' case_number:618`.\n\n'
       + 'Officers can be found by @mention, Discord id, or Roblox username, and a Roblox username '
       + 'works even for somebody who has left the server.')
     .addFields(
@@ -907,7 +918,7 @@ async function handleIaComponent(interaction) {
     return interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOR.warn)
         .setTitle(`${e('met_warn')} This panel has expired`)
-        .setDescription('Run `/ia` again — panels last about fifteen minutes.')],
+        .setDescription('Run `/' + COMMAND + '` again — panels last about fifteen minutes.')],
       flags: 64,
     }).catch(() => {});
   }
@@ -917,7 +928,7 @@ async function handleIaComponent(interaction) {
     return interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOR.fail)
         .setTitle(`${e('met_denied')} Not your panel`)
-        .setDescription('Run `/ia` to open your own.')],
+        .setDescription('Run `/' + COMMAND + '` to open your own.')],
       flags: 64,
     }).catch(() => {});
   }
@@ -958,7 +969,7 @@ async function handleIaComponent(interaction) {
 }
 
 module.exports = {
-  buildCommand, handleIaCommand, handleIaComponent,
+  COMMAND, buildCommand, handleIaCommand, handleIaComponent,
   shareConfirmView, evidencePost, channelProblem, caseFrame, handleShare, loadCase,
   resolveSubject, casesFor, punishmentsFor, ticketsFor, findCase,
   overviewView, recordView, ticketsView, activityView, caseView, deskView,

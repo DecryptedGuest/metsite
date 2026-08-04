@@ -232,14 +232,15 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /xp:', err.message);
   }
 
-  // /ia — the Internal Affairs panel. Visible to everyone, gated in code to the
-  // same people /discipline is, because it shows the same material.
+  // /check-record — the Internal Affairs panel. Visible to everyone, gated in code
+  // to the same people /discipline is, because it shows the same material. It was
+  // called /ia, which named the department rather than the thing it does.
   try {
     const cmd = require('./iaPanel').buildCommand();
     add(IA_GUILD_IDS(), cmd);
     global.push(cmd);
   } catch (err) {
-    console.error('[Bot] could not build /ia:', err.message);
+    console.error('[Bot] could not build /check-record:', err.message);
   }
 
   // /promote — one rank up in the MET group. Gated in code, like the rest.
@@ -463,10 +464,12 @@ async function onInteraction(interaction) {
       });
   }
 
-  if (interaction.commandName === 'ia') {
+  // Read from the module rather than repeated here, so a rename cannot leave the
+  // command registered under one name and dispatched under another.
+  if (interaction.commandName === require('./iaPanel').COMMAND) {
     return require('./iaPanel').handleIaCommand(interaction)
       .catch(async (err) => {
-        console.error('[Bot] /ia failed:', err.message);
+        console.error(`[Bot] /${require('./iaPanel').COMMAND} failed:`, err.message);
         const msg = { content: `${e('met_cross')} Something went wrong opening that. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
