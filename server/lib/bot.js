@@ -398,10 +398,6 @@ async function onInteraction(interaction) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
     }
-    if (cid.startsWith('pjyes:') || cid.startsWith('pjno:')) {
-      return require('./pendingJoinCommand').handlePendingJoinButton(interaction)
-        .catch(e => console.error('[Bot] /pendingjoin button error:', e.message));
-    }
     if (cid.startsWith('met_dm_')) {
       return require('./metCommand').handleMetButton(interaction)
         .catch(e => console.error('[Bot] /met button error:', e.message));

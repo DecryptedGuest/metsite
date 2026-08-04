@@ -3,32 +3,31 @@
 // from Discord.
 //
 // The queue already exists in the developer panel. This puts it where the people
-// who actually clear it are: a High Command member in the MET server, who wants
-// to let one person in or empty the queue without opening a browser.
+// who actually clear it are: Deputy Commissioner and above, in the MET server,
+// who want to let somebody in without opening a browser.
 //
 // Four things it takes seriously:
 //
-//   IT SHOWS PROGRESS. Clearing forty requests is forty Roblox calls, one after
-//   another, and Discord shows nothing for the ten seconds that takes. So the
-//   reply is a live embed: a spinner, a bar, a count, and the name it is on. An
-//   unchanging "working…" is indistinguishable from a hang.
+//   DEPUTY COMMISSIONER AND ABOVE, AND NOBODY ELSE. Not "can manage this server",
+//   not Internal Affairs. Who is in the group is a High Command decision, and the
+//   check is in code (mayDecide) rather than a Discord permission bit, because
+//   Discord's bits answer a different question.
 //
-//   ONE FAILURE IS NOT ALL OF THEM. Roblox refuses individual requests — the
-//   person cancelled, they were already accepted, the group is full. Each is
-//   caught on its own, and the run carries on and reports which ones did not go
-//   through and why.
+//   ONE PERSON PER COMMAND. There is deliberately no "all". Reading the queue is
+//   bulk; deciding it is not. Emptying it in one press is a thing that can only be
+//   regretted afterwards, and neither accepting nor denying is undoable from here.
 //
-//   IT NEVER GUESSES WHO. Accepting the wrong person is not undoable from here,
-//   so a named user has to resolve to exactly one request in the queue. "It
-//   looked like this one" is not good enough.
+//   IT SHOWS PROGRESS. A Roblox call can take a couple of seconds, and Discord
+//   shows nothing at all while it does. So the reply is a live embed with a
+//   spinner and the name it is on; an unchanging "working…" is indistinguishable
+//   from a hang.
 //
-//   DENYING EVERYTHING ASKS FIRST. Accepting the whole queue is the day's work;
-//   denying it throws away every application in one press, so that one is
-//   confirmed by a button before anything happens.
+//   IT NEVER GUESSES WHO. Accepting the wrong person is not undoable, so the name
+//   given has to resolve to exactly one request in the queue. "It looked like this
+//   one" is not good enough.
 
 const {
-  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  PermissionFlagsBits,
+  SlashCommandBuilder, EmbedBuilder,
 } = require('discord.js');
 const { e } = require('./emoji');
 
@@ -50,16 +49,14 @@ const spinner = (i) => e(SPIN[((i % SPIN.length) + SPIN.length) % SPIN.length]);
 // then start dropping the ones that matter — including the final result.
 const REDRAW_MS = 1400;
 
-// The most requests one command will resolve. A queue longer than this is a
-// bigger job than a slash command should hold a reply open for; it says so and
-// says how many are left.
+// How far down the queue a name is looked for. Nothing is ever resolved in bulk,
+// so this is only about how much of the queue one lookup reads: enough to find
+// anybody who is realistically waiting, and not so much that naming one person
+// pages through four hundred requests.
 const MAX_PER_RUN = () => {
   const n = parseInt(process.env.PENDING_JOIN_MAX_PER_RUN, 10);
-  return Number.isFinite(n) && n > 0 ? n : 60;
+  return Number.isFinite(n) && n > 0 ? n : 200;
 };
-
-const PENDING_TTL = 2 * 60 * 1000;   // a confirmation nobody presses expires
-const pending = new Map();           // token → { at, issuerId, data }
 
 function short(s, n) {
   s = String(s == null ? '' : s);
@@ -77,26 +74,20 @@ function bar(done, total, width = 18) {
 function buildCommand() {
   const who = (opt) => opt
     .setName('user')
-    .setDescription('The Roblox username or user ID whose request to decide. Leave empty and use all instead.')
-    .setRequired(false);
-  const every = (opt) => opt
-    .setName('all')
-    .setDescription('Do every request in the queue, not just one person.')
-    .setRequired(false);
+    .setDescription('The Roblox username or user ID whose request to decide')
+    .setRequired(true);
 
   return new SlashCommandBuilder()
     .setName('pendingjoin')
     .setDescription('Accept or deny people waiting to join the MET Roblox group')
     .addSubcommand(sub => sub
       .setName('accept')
-      .setDescription('Let somebody into the MET group, or let everybody waiting in')
-      .addStringOption(who)
-      .addBooleanOption(every))
+      .setDescription('Let one person into the MET group')
+      .addStringOption(who))
     .addSubcommand(sub => sub
       .setName('deny')
-      .setDescription('Refuse somebody, or refuse everybody waiting')
-      .addStringOption(who)
-      .addBooleanOption(every))
+      .setDescription('Refuse one person waiting to join')
+      .addStringOption(who))
     .addSubcommand(sub => sub
       .setName('list')
       .setDescription('Who is waiting, without deciding anything'));
@@ -105,36 +96,46 @@ function buildCommand() {
 /**
  * May this person decide who joins MET?
  *
- * Administrator, or MET High Command. Deliberately checked in code rather than
- * with a Discord permission bit: letting somebody into the group is a Roblox
- * action with no undo from here, and "can manage this server" is not the same
- * question as "may recruit".
+ * Deputy Commissioner and above, and nobody else. Not Administrator: "can manage
+ * this server" is a Discord housekeeping permission, and it is held by people who
+ * have no business recruiting. Not Internal Affairs either — canDiscipline admits
+ * them, which is right for a strike and wrong for the group roster, so only its
+ * MET-rank verdicts are accepted here. `/xp` gates itself the same way.
+ *
+ * Three ways in, because the threshold is a MET rank and a Deputy Commissioner
+ * who has never opened the dashboard still holds it:
+ *
+ *   met-hicomm-role  the High Command Discord role, no network calls
+ *   met-rank         their live MET group rank, via RoVer
+ *
+ * A lookup that fails is not permission.
  */
 async function mayDecide(interaction) {
+  const REFUSAL = 'Only Deputy Commissioner and above can decide who joins the MET group.';
   try {
-    if (interaction.memberPermissions
-        && interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-      return { ok: true, via: 'administrator' };
-    }
-  } catch (err) { /* fall through to the rank test */ }
+    const { canDiscipline } = require('./disciplineAccess');
+    const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
+      ? [...interaction.member.roles.cache.keys()]
+      : (Array.isArray(interaction.member && interaction.member.roles)
+          ? interaction.member.roles.map(String) : []);
+    const verdict = await canDiscipline(String(interaction.user.id), roleIds);
 
-  try {
-    const prisma = require('./db');
-    const user = await prisma.user.findUnique({ where: { discordId: String(interaction.user.id) } });
-    if (user) {
-      const { userIsMetHicomm } = require('./metRank');
-      // The MET roles they are wearing right now, so a role given a minute ago
-      // counts. The stored snapshot can be a day old.
-      const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
-        ? [...interaction.member.roles.cache.keys()] : null;
-      const withRoles = roleIds ? { ...user, metRoleIds: roleIds } : user;
-      if (await userIsMetHicomm(withRoles)) return { ok: true, via: 'MET High Command' };
+    // isMetHicomm is the whole test. An IA investigator comes back ok:true with
+    // isMetHicomm false, and that is a refusal here.
+    if (verdict && verdict.ok && verdict.isMetHicomm) {
+      return { ok: true, via: verdict.via, label: verdict.label || 'MET High Command' };
     }
-    return { ok: false, why: 'Only MET High Command and server administrators can decide who joins the group.' };
+    return {
+      ok: false,
+      why: verdict && verdict.ok
+        // They passed a gate, just not this one. Saying so beats implying their
+        // account is broken.
+        ? `${REFUSAL} Your ${verdict.label || 'rank'} rank does not cover the group roster.`
+        : REFUSAL,
+    };
   } catch (err) {
     console.error('[/pendingjoin] access check failed:', err.message);
-    // A failed lookup is not permission.
-    return { ok: false, why: 'Your access could not be checked just now — try again shortly.' };
+    return { ok: false, why: 'Your rank could not be checked just now — try again shortly.' };
   }
 }
 
@@ -315,21 +316,36 @@ function resultEmbed({ action, okd, failed, more, remaining, issuerName }) {
   const colour = !failed.length ? COLOUR.done : (okd.length ? COLOUR.partial : COLOUR.fail);
   const mark = !failed.length ? (accepted ? e('met_tick') : e('met_cross')) : e('met_warn');
 
+  // One person is the normal case, so the headline names them rather than counting
+  // to one: "Accepted 1 of 1" is a report about arithmetic, not about a person.
+  let title;
+  if (!total) title = `${e('met_tick')}  Nobody was waiting`;
+  else if (total === 1) {
+    const only = okd[0] || failed[0];
+    title = okd.length
+      ? `${mark}  ${accepted ? 'Accepted' : 'Denied'} ${short(only.username, 40)}`
+      : `${mark}  Could not ${accepted ? 'accept' : 'deny'} ${short(only.username, 40)}`;
+  } else title = `${mark}  ${accepted ? 'Accepted' : 'Denied'} ${okd.length} of ${total}`;
+
   const embed = new EmbedBuilder()
     .setColor(total ? colour : COLOUR.done)
-    .setTitle(total
-      ? `${mark}  ${accepted ? 'Accepted' : 'Denied'} ${okd.length} of ${total}`
-      : `${e('met_tick')}  Nobody was waiting`)
+    .setTitle(title)
     .setFooter({ text: `By ${issuerName}` })
     .setTimestamp(new Date());
 
-  if (okd.length) {
+  // With a single person the title already names them; repeating it in a field
+  // says the same thing twice.
+  if (okd.length && total > 1) {
     embed.addFields({
       name: `${accepted ? e('met_tick') : e('met_cross')}  ${accepted ? 'Let in' : 'Refused'}`,
       value: nameList(okd), inline: false,
     });
   }
-  if (failed.length) {
+  if (failed.length && total === 1) {
+    // The reason IS the message here, so it goes in the description rather than a
+    // field titled with the same thing the title already said.
+    embed.setDescription(`${failed[0].why}\n\nNothing was changed.`);
+  } else if (failed.length) {
     embed.addFields({
       name: `${e('met_warn')}  Could not be done · ${failed.length}`,
       // The reason per person, because "3 failed" tells nobody what to do next.
@@ -338,12 +354,19 @@ function resultEmbed({ action, okd, failed, more, remaining, issuerName }) {
       inline: false,
     });
   }
+  if (okd.length === 1 && total === 1) {
+    const only = okd[0];
+    embed.setDescription(`[${short(only.username, 40)}]`
+      + `(https://www.roblox.com/users/${only.userId}/profile) `
+      + (accepted ? 'is in the MET group now.' : 'was refused, and their request is gone.'));
+  }
   if (more || remaining) {
     embed.addFields({
       name: `${e('met_hourglass')}  Still waiting`,
       // "40 left" would be a lie when the queue was only read as far as it needed
       // to be. At least 40, then, and say so.
-      value: `**${remaining}${more ? '+' : ''}** left in the queue. Run it again to carry on.`,
+      value: `**${remaining}${more ? '+' : ''}** still waiting. `
+        + '`/pendingjoin list` shows who.',
       inline: false,
     });
   }
@@ -410,27 +433,10 @@ async function handlePendingJoinCommand(interaction) {
         + '\n\nNothing was accepted or denied.')] });
   }
 
-  if (sub === 'list') return showList(editor, queue, max);
+  if (sub === 'list') return showList(editor, queue);
 
   const action = sub === 'accept' ? 'approve' : 'decline';
-  const all = interaction.options.getBoolean('all') === true;
   const named = interaction.options.getString('user');
-
-  if (!all && !named) {
-    return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.ask)
-      .setTitle(`${e('met_warn')} Who?`)
-      .setDescription(`Name somebody with \`user:\`, or pass \`all: true\` to `
-        + `${sub} everybody waiting.\n\n${queue.requests.length
-          ? `**${queue.requests.length}${queue.more ? '+' : ''}** `
-            + `${queue.requests.length === 1 ? 'person is' : 'people are'} waiting.`
-          : 'Nobody is waiting at the moment.'}`)] });
-  }
-  if (all && named) {
-    return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.ask)
-      .setTitle(`${e('met_warn')} One or the other`)
-      .setDescription('You gave a name AND `all`. Drop one — doing everybody and doing one person '
-        + 'are different jobs and I will not guess which you meant.')] });
-  }
 
   if (!queue.requests.length) {
     return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.done)
@@ -438,48 +444,19 @@ async function handlePendingJoinCommand(interaction) {
       .setDescription('The join-request queue is empty.')] });
   }
 
-  // One person.
-  if (named) {
-    const found = findOne(queue.requests, named);
-    if (found.error) {
-      return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.ask)
-        .setTitle(`${e('met_warn')} Not sure who you mean`)
-        .setDescription(found.error)] });
-    }
-    const { okd, failed } = await resolveMany([found.hit], action, queue, editor);
-    return editor.flush({ embeds: [resultEmbed({
-      action, okd, failed, more: false,
-      remaining: Math.max(0, queue.requests.length - 1),
-      issuerName: issuerNameOf(interaction),
-    })], components: [] });
+  // One person, always. `user` is a required option, so an empty one only happens
+  // if Discord sends a malformed interaction — worth answering rather than
+  // resolving whoever happens to be first in the queue.
+  const found = findOne(queue.requests, named);
+  if (found.error) {
+    return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.ask)
+      .setTitle(`${e('met_warn')} Not sure who you mean`)
+      .setDescription(found.error)] });
   }
-
-  // Everybody. Accepting the whole queue is the ordinary job; DENYING it throws
-  // away every application at once, so that one is confirmed first.
-  const batch = queue.requests.slice(0, max);
-  if (action === 'decline') {
-    const token = `pj:${interaction.id}`;
-    pending.set(token, { at: Date.now(), issuerId: interaction.user.id,
-                         data: { batch, queue, action } });
-    return editor.flush({
-      embeds: [new EmbedBuilder().setColor(COLOUR.ask)
-        .setTitle(`${e('met_warn')} Deny all ${batch.length}?`)
-        .setDescription(`Every one of these people is refused, and their request is gone. `
-          + `They can ask again, but nothing here tells them why.\n\n${nameList(batch)}`)
-        .setFooter({ text: 'This does nothing until you press Deny them all.' })],
-      components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`pjyes:${token}`).setStyle(ButtonStyle.Danger)
-          .setLabel(`Deny all ${batch.length}`),
-        new ButtonBuilder().setCustomId(`pjno:${token}`).setStyle(ButtonStyle.Secondary)
-          .setLabel('Cancel'),
-      )],
-    });
-  }
-
-  const { okd, failed } = await resolveMany(batch, action, queue, editor);
+  const { okd, failed } = await resolveMany([found.hit], action, queue, editor);
   return editor.flush({ embeds: [resultEmbed({
     action, okd, failed, more: queue.more,
-    remaining: Math.max(0, queue.requests.length - batch.length),
+    remaining: Math.max(0, queue.requests.length - 1),
     issuerName: issuerNameOf(interaction),
   })], components: [] });
 }
@@ -489,7 +466,7 @@ function issuerNameOf(interaction) {
     || interaction.user.globalName || interaction.user.username;
 }
 
-async function showList(editor, queue, max) {
+async function showList(editor, queue) {
   const rows = queue.requests.slice(0, 25);
   // The queue is only read as far as a run could act on it, so the count is a
   // floor rather than a total — and a headline that says "100" when 230 are
@@ -513,71 +490,15 @@ async function showList(editor, queue, max) {
         value: `*…and ${queue.more ? 'more' : queue.requests.length - rows.length} beyond these.*`,
         inline: false });
     }
-    embed.setFooter({ text: `Accept one with /pendingjoin accept user:<name>, `
-      + `or up to ${max} at once with all: true.` });
+    embed.setFooter({ text: 'Decide one with /pendingjoin accept user:<name> '
+      + 'or /pendingjoin deny user:<name>.' });
   }
   return editor.flush({ embeds: [embed], components: [] });
 }
 
-// ── The deny-all confirmation ─────────────────────────────────────
-async function handlePendingJoinButton(interaction) {
-  // "pjyes:pj:<id>" — split on the FIRST colon only, because the token has one
-  // of its own and splitting on all of them loses half of it.
-  const cut = interaction.customId.indexOf(':');
-  const kind = interaction.customId.slice(0, cut);
-  const token = interaction.customId.slice(cut + 1);
-
-  const hit = pending.get(token);
-  if (!hit || Date.now() - hit.at > PENDING_TTL) {
-    pending.delete(token);
-    return interaction.update({
-      embeds: [new EmbedBuilder().setColor(COLOUR.fail)
-        .setTitle(`${e('met_hourglass')} That expired`)
-        .setDescription('Run the command again — nothing was denied.')],
-      components: [],
-    }).catch(() => {});
-  }
-  // Only the person who asked. Somebody else pressing a destructive button they
-  // did not open is not a decision they made.
-  if (hit.issuerId !== interaction.user.id) {
-    return interaction.reply({
-      embeds: [new EmbedBuilder().setColor(COLOUR.fail)
-        .setTitle(`${e('met_denied')} Not yours to press`)
-        .setDescription('Run `/pendingjoin deny all: true` yourself if you want to do this.')],
-      flags: 64,
-    }).catch(() => {});
-  }
-
-  if (kind === 'pjno') {
-    pending.delete(token);
-    return interaction.update({
-      embeds: [new EmbedBuilder().setColor(COLOUR.fail)
-        .setTitle(`${e('met_cross')} Cancelled`)
-        .setDescription('Nobody was denied. The queue is untouched.')],
-      components: [],
-    }).catch(() => {});
-  }
-
-  // One press only.
-  pending.delete(token);
-  const { batch, queue, action } = hit.data;
-  await interaction.update({
-    embeds: [workingEmbed({ action, total: batch.length, done: 0, failed: 0, frame: 0 })],
-    components: [],
-  }).catch(() => {});
-
-  const editor = throttledEditor(interaction);
-  const { okd, failed } = await resolveMany(batch, action, queue, editor);
-  return editor.flush({ embeds: [resultEmbed({
-    action, okd, failed, more: queue.more,
-    remaining: Math.max(0, queue.requests.length - batch.length),
-    issuerName: issuerNameOf(interaction),
-  })], components: [] });
-}
-
 module.exports = {
-  buildCommand, handlePendingJoinCommand, handlePendingJoinButton,
+  buildCommand, handlePendingJoinCommand,
   // exported for the tests
   mayDecide, readQueue, findOne, resolveMany, cleanReason, resultEmbed,
-  workingEmbed, bar, throttledEditor, MAX_PER_RUN,
+  workingEmbed, bar, throttledEditor, MAX_PER_RUN, nameList,
 };
