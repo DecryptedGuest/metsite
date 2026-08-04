@@ -1142,6 +1142,9 @@
             <button class="btn btn-ghost btn-sm" id="clr-audit-btn" onclick="clrAudit()">
               <i class="ti ti-list-check"></i> Check the archive
             </button>
+            <button class="btn btn-ghost btn-sm" id="clr-renum-btn" onclick="clrRenumber(true)">
+              <i class="ti ti-sort-ascending-numbers"></i> Fix the numbering
+            </button>
           </div>
         </div>
         <div class="profile-section">
@@ -1219,6 +1222,11 @@
                     title="Do the dry run first">
               <i class="ti ti-database-import"></i> Sync the XP for real
             </button>
+          </div>
+          <!-- Why the button beside it is locked. A disabled button that says nothing
+               is indistinguishable from one that is broken. -->
+          <div id="cxp-hint" style="margin-top:.5rem;font-size:11.5px;color:var(--amber);line-height:1.6;">
+            <i class="ti ti-info-circle"></i> Do the dry run first: it does every lookup and writes nothing.
           </div>
           <div id="cxp-result" style="margin-top:1rem;font-size:13px;"></div>
         </div>

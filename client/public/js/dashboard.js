@@ -765,6 +765,66 @@ async function clrAudit() {
   }
 }
 
+/**
+ * Put the case references back into one consistent numbering.
+ *
+ * Dry run first, always — this renames rows people quote at each other, so the
+ * mapping is shown and confirmed before anything moves. Cases already in order are
+ * never touched.
+ */
+async function clrRenumber(dry) {
+  const out = document.getElementById('clr-result');
+  const btn = document.getElementById('clr-renum-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Working…'; }
+  try {
+    const r = await api('/api/dev/case-renumber', { method: 'POST', body: JSON.stringify({ dry: !!dry }) });
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
+      + (r.dryRun ? 'What renumbering would do' : 'Renumbered') + `</div>`;
+    h += clrRow('Cases', r.total);
+    h += clrRow('Already in order', r.unchanged, 'good');
+    h += clrRow(r.dryRun ? 'Would be renumbered' : 'Renumbered', r.moved, r.moved ? 'warn' : 'good');
+    if (r.counter && r.counter.counter) h += clrRow('Counter now at', r.counter.counter);
+    if ((r.moves || []).length) {
+      h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">`
+        + `The mapping</div><div style="font-family:var(--font-mono);font-size:11.5px;line-height:1.9;">`
+        + r.moves.slice(0, 40).map(function (m) {
+            return escapeHtml(m.from) + ' → <span style="color:var(--green);">' + escapeHtml(m.to) + '</span>';
+          }).join('<br>')
+        + (r.moves.length > 40 ? '<br>…and ' + (r.moves.length - 40) + ' more' : '')
+        + `</div>`;
+    }
+    if ((r.errors || []).length) {
+      h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">`
+        + r.errors.map(function (x) { return escapeHtml(x); }).join('<br>') + `</div>`;
+    }
+    if (r.dryRun && r.moved) {
+      h += `<div style="margin-top:.9rem;font-size:12px;color:var(--text-secondary);line-height:1.7;">`
+        + `The old reference is kept on every case that moves, so anybody quoting it can still be `
+        + `found. The Discord logs keep the number they were posted with.</div>`
+        + `<button type="button" class="btn btn-success btn-sm" style="margin-top:.6rem;" `
+        + `onclick="clrRenumberGo()"><i class="ti ti-check"></i> Do it</button>`;
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+async function clrRenumberGo() {
+  const yes = await uiConfirm(
+    'This renames case references, and references are what people quote at each other.\n\n'
+    + 'Only cases whose number is out of order move, the old reference is kept on each one, and the '
+    + 'Discord logs are left exactly as they are.',
+    { title: 'Renumber the cases?', confirmText: 'Renumber them', cancelText: 'Not yet',
+      icon: 'ti-sort-ascending-numbers' });
+  if (!yes) return;
+  return clrRenumber(false);
+}
+
 // ── Clans Labs XP import ──────────────────────────────────────────
 //
 // Same two-button shape as the case rebuild, and for the same reason: this writes
@@ -806,6 +866,7 @@ async function cxpLook() {
           }).join('');
     }
     if (out) out.innerHTML = h + `</div>`;
+    cxpUnlock(r);
   } catch (e) {
     if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
   } finally {
@@ -821,7 +882,15 @@ async function cxpImport(dry) {
       + 'and holds the rest against their Roblox account.\n\n'
       + 'It only ever raises a balance, so nothing anybody earned here is lost — but read the dry run first.',
       { title: 'Sync the XP for real?', confirmText: 'Sync it', cancelText: 'Not yet', icon: 'ti-database-import' });
-    if (!yes) return;
+    // Saying so. Declining used to return in silence, which from the outside is
+    // indistinguishable from a button that does nothing.
+    if (!yes) {
+      if (out) {
+        out.innerHTML = '<span style="color:var(--text-muted);"><i class="ti ti-hand-stop"></i> '
+          + 'Cancelled — nothing was run.</span>';
+      }
+      return;
+    }
   }
 
   const btn = document.getElementById(dry ? 'cxp-dry-btn' : 'cxp-go-btn');
@@ -838,15 +907,44 @@ async function cxpImport(dry) {
     if (out) out.innerHTML = r.error
       ? `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`
       : cxpReport(r.out || {});
-    const go = document.getElementById('cxp-go-btn');
-    if (dry && go && r.out) {
-      go.disabled = !(r.out.ok && r.out.resolved > 0);
-      go.title = go.disabled ? 'The dry run resolved nobody' : '';
-    }
+    if (dry && r.out) cxpUnlock({ run: r });
   } catch (e) {
     if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+/**
+ * Unlock the real sync, from what the SERVER remembers of the last run.
+ *
+ * It used to be unlocked only by a dry run done in the current page, so reloading
+ * re-locked it — and a disabled button, clicked, does exactly nothing and says
+ * nothing. "I press sync for real and it does nothing" was that, not a failure in
+ * the import. The state now comes from the server, which remembers across reloads,
+ * and the reason is written under the buttons where somebody can read it.
+ */
+function cxpUnlock(state) {
+  const go = document.getElementById('cxp-go-btn');
+  const hint = document.getElementById('cxp-hint');
+  if (!go) return;
+  const run = state && state.run;
+  const ok = !!(run && run.out && run.out.ok && run.out.resolved > 0);
+  const running = !!(run && run.running);
+  go.disabled = !ok || running;
+  let why = '';
+  if (running) why = 'A run is going now — wait for it to finish.';
+  else if (!run) why = 'Do the dry run first: it does every lookup and writes nothing.';
+  else if (!run.out) why = run.error ? 'The last run failed. Read it, then try the dry run again.'
+                                     : 'Do the dry run first.';
+  else if (!ok) why = 'The last dry run resolved nobody, so there is nothing to write.';
+  else why = run.dry
+    ? 'The dry run above is what this will write.'
+    : 'Already synced once — running it again is a refresh and cannot lower anybody.';
+  go.title = go.disabled ? why : '';
+  if (hint) {
+    hint.innerHTML = '<i class="ti ti-info-circle"></i> ' + escapeHtml(why);
+    hint.style.color = go.disabled ? 'var(--amber)' : 'var(--text-muted)';
   }
 }
 

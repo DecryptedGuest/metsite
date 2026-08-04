@@ -142,6 +142,12 @@ model CaptureLog {
 model Case {
   id                          String     @id @default(uuid())
   caseRef                     String     @unique
+  // The reference the case arrived with, when that is not the one it ended up
+  // holding. Two things produce a rename: a log whose Infraction ID was a code
+  // ("MH71") rather than a number, and the renumbering that puts refs back into
+  // chronological order. Kept so somebody quoting the old id can still be
+  // answered, and so a renumbering is auditable rather than a silent rewrite.
+  sourceRef                   String?
   origin                      String     @default("NATIVE") // NATIVE | IA — IA sync never overwrites a NATIVE case
   userId                      String
   officerDiscordId            String?

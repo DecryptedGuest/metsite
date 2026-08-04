@@ -711,6 +711,31 @@ router.post('/commands/register', async (req, res) => {
   }
 });
 
+// POST /api/dev/case-renumber  { dry }  — one consistent numbering, in order
+//
+// The archive holds refs up to #674 from years of logs and then a handful of #1,
+// #2, #3 — the NEWEST cases, numbered by a counter that had been reset. This walks
+// oldest to newest and renumbers anything whose number is below one already seen,
+// continuing from the top, so the reference means something again. Cases already in
+// order are untouched, and the old ref is kept on each row.
+router.post('/case-renumber', async (req, res) => {
+  const body = req.body || {};
+  const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
+  try {
+    const out = await require('../lib/caseLogImport').renumberRefs({ dryRun: dry });
+    if (!out.ok) return res.status(400).json(out);
+    if (!dry && out.moved) {
+      audit.log(req.user, { category: 'SECURITY', action: 'CASE_RENUMBER',
+        summary: `Renumbered ${out.moved} case reference(s) into chronological order `
+               + `(${out.unchanged} already in order)` });
+    }
+    res.json(out);
+  } catch (e) {
+    console.error('[Dev] case renumber failed:', e.message);
+    res.status(400).json({ error: 'Could not renumber the cases: ' + e.message });
+  }
+});
+
 // ── Clans Labs XP import ──────────────────────────────────────────
 //
 //   GET  /api/dev/xp-import              the file, the holding table, and the

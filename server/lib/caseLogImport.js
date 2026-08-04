@@ -60,9 +60,13 @@ const REF_PATTERNS = [
 // right there and nothing would take it.
 //
 // Tried only after all the numeric forms, so a log that has a number still gets
-// its number. The code is kept as it was written, because it is what the log says
-// and what people quote at each other; inventing a number for it would be a
-// reference that matches nothing.
+// its number.
+//
+// Finding the code is only about RECOGNISING the message as a case. The case does
+// not keep it: references have to be one consistent numbering or they are useless
+// for saying when something happened, so the importer assigns a number continuing
+// from the most recent and keeps the code in sourceRef. Somebody quoting "MH71"
+// can still be answered; somebody reading a list of refs sees one sequence.
 const REF_CODE = /infraction\s*id\s*[|:#-]*\s*`?([A-Z0-9][A-Z0-9_-]{2,15})`?/i;
 
 // Words that sit in that slot and are not references. "pending" is this system's
@@ -608,6 +612,11 @@ async function importFromChannel(client, channelId, opts = {}) {
     out.newest = rows[rows.length - 1].createdAt;
     out.highestRef = Math.max(...rows.map(r => r.refNum || 0));
   }
+  out.codedRefs = rows.filter(r => r.refNum == null).length;
+
+  // Every identity we can find for the officer each case is about, so it turns up
+  // on their record however they are looked up.
+  out.officers = await resolveOfficers(rows, out);
 
   if (out.dryRun || !rows.length) { out.ok = true; return out; }
 
@@ -624,8 +633,39 @@ async function importFromChannel(client, channelId, opts = {}) {
   // people quote at each other — so the case filed on the SITE is the one that
   // moves. It keeps all of its data and simply takes a ref above everything
   // recovered.
+  // ── One numbering, in the order things happened ─────────────────
+  //
+  // References have to be consistent: the same three-digit numbering all the way
+  // through, continuing from the most recent. A log whose Infraction ID was a CODE
+  // ("MH71") is therefore given a number rather than keeping the code, and the
+  // code is kept in sourceRef so anybody quoting it can still be answered.
+  //
+  // Assigned oldest-first, so the newest case ends up with the highest number.
+  // Only ever to a row that does not exist yet: identity is the log message, so a
+  // re-run finds its own work and never renumbers it again.
+  const takenRefs = new Set(rows.map(r => r.caseRef));
+  let assignFrom = Math.max(out.highestRef, await highestRefInDb()) + 1;
+  const nextRef = () => {
+    for (;;) {
+      const candidate = '#' + assignFrom++;
+      if (!takenRefs.has(candidate)) { takenRefs.add(candidate); return candidate; }
+    }
+  };
+  for (const r of rows) {
+    if (r.refNum != null) continue;
+    const already = r.logMessageId
+      ? await prisma.case.findFirst({ where: { logMessageId: r.logMessageId },
+                                      select: { caseRef: true } }).catch(() => null)
+      : null;
+    if (already) { r.caseRef = already.caseRef; continue; }   // it has a number already
+    r.sourceRef = r.caseRef;
+    r.caseRef = nextRef();
+    out.numbered = (out.numbered || 0) + 1;
+    if ((out.renames = out.renames || []).length < 20) out.renames.push({ from: r.sourceRef, to: r.caseRef });
+  }
+
   const incoming = new Set(rows.map(r => r.caseRef));
-  let nextFree = out.highestRef + 1;
+  let nextFree = assignFrom;
   for (const ref of incoming) {
     const holder = await prisma.case.findUnique({
       where: { caseRef: ref },
@@ -704,6 +744,7 @@ async function importFromChannel(client, channelId, opts = {}) {
       await prisma.case.create({
         data: {
           caseRef: r.caseRef,
+          sourceRef: r.sourceRef || null,
           origin: ORIGIN,
           userId: importer.id,
           officerDiscordId: r.officerDiscordId,
@@ -735,6 +776,222 @@ async function importFromChannel(client, channelId, opts = {}) {
     created: out.created, updated: out.updated, unchanged: out.unchanged,
     movedAside: out.movedAside, reachedStart: out.reachedStart, formats: out.formats,
   }));
+  return out;
+}
+
+/**
+ * Fill in every identity we can find for the officer each log is about.
+ *
+ * A record lookup matches on officerDiscordId OR robloxUserId OR robloxUsername
+ * (see routes/cases.js), so which of the three a case happens to carry decides
+ * whether it appears on somebody's record at all. The log usually gives exactly
+ * one of them — a Discord mention — and that is enough only for a lookup that
+ * starts from Discord. Somebody searched for by Roblox username would not find
+ * their own case.
+ *
+ * So all three are filled in wherever they can be, in order of cost:
+ *
+ *   1. our own User rows, for every mentioned Discord id at once (one query);
+ *   2. Roblox's batch username endpoint, for names with no id (paced, retried);
+ *   3. RoVer, for the rest — CAPPED, because its rate limit is the one every
+ *      login depends on. Being thorough about a historical import is not worth
+ *      locking people out of the dashboard, and anything left unresolved keeps
+ *      whichever identity the log gave it.
+ *
+ * Mutates `rows` in place. Never throws.
+ */
+const MAX_ROVER_PER_IMPORT = () => {
+  const n = parseInt(process.env.CASE_IMPORT_ROVER_MAX, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 25;
+};
+
+async function resolveOfficers(rows, out) {
+  const stats = { fromSite: 0, fromRoblox: 0, fromRover: 0, unresolved: 0 };
+  if (!rows.length) return stats;
+
+  // 1. Our own accounts. Everybody who has ever signed in is here, with their
+  //    Roblox link already verified — the cheapest and most trustworthy source.
+  const ids = [...new Set(rows.map(r => r.officerDiscordId).filter(Boolean))];
+  if (ids.length) {
+    try {
+      const users = await prisma.user.findMany({
+        where: { discordId: { in: ids } },
+        select: { discordId: true, robloxId: true, robloxUsername: true, displayName: true },
+      });
+      const byId = new Map(users.map(u => [String(u.discordId), u]));
+      for (const r of rows) {
+        const u = r.officerDiscordId && byId.get(String(r.officerDiscordId));
+        if (!u) continue;
+        let gained = false;
+        if (!r.robloxUserId && u.robloxId) { r.robloxUserId = String(u.robloxId); gained = true; }
+        if (!r.robloxUsername && u.robloxUsername) { r.robloxUsername = u.robloxUsername; gained = true; }
+        if (!r.officerName) r.officerName = u.displayName || u.robloxUsername || null;
+        if (gained) stats.fromSite++;
+      }
+    } catch (e) { /* the other two routes still apply */ }
+  }
+
+  // 2. A username with no id behind it. One batched call for all of them.
+  const needId = rows.filter(r => r.robloxUsername && !r.robloxUserId);
+  if (needId.length) {
+    try {
+      const got = await require('./roblox')
+        .getRobloxIdsFromUsernames(needId.map(r => r.robloxUsername));
+      const found = got.users || got;
+      for (const r of needId) {
+        const rec = found.get(String(r.robloxUsername).toLowerCase());
+        if (!rec) continue;
+        r.robloxUserId = rec.id;
+        r.robloxUsername = rec.username;   // whatever they are called NOW
+        stats.fromRoblox++;
+      }
+    } catch (e) { /* keep the name alone */ }
+  }
+
+  // 3. RoVer, for a mention we still cannot tie to a Roblox account. Capped.
+  const budget = MAX_ROVER_PER_IMPORT();
+  let spent = 0, stop = false;
+  for (const r of rows) {
+    if (stop || spent >= budget) break;
+    if (!r.officerDiscordId || r.robloxUserId) continue;
+    spent++;
+    try {
+      const { getRobloxIdFromDiscord, getRobloxUserInfo } = require('./roblox');
+      const rid = await getRobloxIdFromDiscord(r.officerDiscordId);
+      if (!rid) continue;
+      r.robloxUserId = String(rid);
+      if (!r.robloxUsername) {
+        const info = await getRobloxUserInfo(rid).catch(() => null);
+        if (info && info.username) r.robloxUsername = info.username;
+      }
+      stats.fromRover++;
+    } catch (e) {
+      // A rate limit is not worth one more call — see the same lesson in
+      // clanslabsXp.
+      if (/rate.?limit|429|paused/i.test(e.message)) stop = true;
+    }
+  }
+  const capped = rows.some(r => r.officerDiscordId && !r.robloxUserId) && (spent >= budget || stop);
+  if (capped && out) {
+    out.notes = out.notes || [];
+    out.notes.push(`Stopped asking RoVer for Roblox links after ${spent} lookups — its rate limit is `
+      + `the one every login uses. Those cases keep the Discord id they were logged with, so they `
+      + `still appear on a record looked up by Discord.`);
+  }
+
+  for (const r of rows) {
+    if (!r.officerDiscordId && !r.robloxUserId && !r.robloxUsername) stats.unresolved++;
+  }
+  return stats;
+}
+
+/** The biggest number any case ref currently holds. 0 when there are none. */
+async function highestRefInDb() {
+  try {
+    const refs = await prisma.case.findMany({ select: { caseRef: true } });
+    return refs.reduce((n, c) => {
+      const v = refNumberOf(c.caseRef);
+      return v != null && v > n ? v : n;
+    }, 0);
+  } catch (e) { return 0; }
+}
+
+/** The number inside a ref, or null when it does not hold one ("#MH71"). */
+function refNumberOf(ref) {
+  const m = /^#?(\d{1,7})$/.exec(String(ref == null ? '' : ref).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Put every case reference into one consistent numbering, in the order things
+ * actually happened.
+ *
+ * Why this is needed: the archive holds refs up to #674 from years of logs, and
+ * then a handful of #1, #2, #3 — the NEWEST cases, numbered by a counter that had
+ * been reset. So the lowest numbers on the list belong to the most recent cases,
+ * which makes the reference useless as a way of saying when something happened and
+ * confusing to quote.
+ *
+ * The rule: walking oldest to newest, a case whose number is BELOW one already
+ * seen is out of place, and is renumbered to continue from the top. Cases that are
+ * already in order are left completely alone — this is a repair, not a rewrite.
+ * A ref that holds no number at all (a leftover code) is always renumbered.
+ *
+ * Two-phase, because caseRef is unique: everything moving goes to a temporary ref
+ * first, then to its final one. A half-finished run therefore leaves rows with a
+ * visible "#tmp-…" ref rather than a collision, and running it again finishes the
+ * job.
+ *
+ * The old ref is kept in sourceRef, so somebody quoting it can still be answered.
+ *
+ * NOTE: it does not edit the Discord log messages, which still show the number
+ * they were posted with. The site is what people search; rewriting history in the
+ * channel is a bigger and less reversible thing than this.
+ */
+async function renumberRefs(opts = {}) {
+  const dry = opts.dryRun === true;
+  const out = { ok: true, dryRun: dry, total: 0, moved: 0, unchanged: 0,
+                moves: [], errors: [], counter: null };
+  try {
+    const cases = await prisma.case.findMany({
+      select: { id: true, caseRef: true, sourceRef: true, createdAt: true, origin: true },
+      orderBy: [{ createdAt: 'asc' }, { caseRef: 'asc' }],
+    });
+    out.total = cases.length;
+    if (!cases.length) return out;
+
+    let highest = cases.reduce((n, c) => {
+      const v = refNumberOf(c.caseRef);
+      return v != null && v > n ? v : n;
+    }, 0);
+
+    // Which ones are out of place, oldest first.
+    const moving = [];
+    let seen = 0;
+    for (const c of cases) {
+      const n = refNumberOf(c.caseRef);
+      if (n == null) { moving.push(c); continue; }        // not a number at all
+      if (n < seen) { moving.push(c); continue; }         // older cases hold higher numbers
+      seen = Math.max(seen, n);
+    }
+    out.unchanged = cases.length - moving.length;
+    if (!moving.length) { out.counter = await raiseCounter(); return out; }
+
+    // Their new refs: continuing from the top, oldest of the moving set first, so
+    // the newest case ends up with the highest number.
+    const taken = new Set(cases.map(c => String(c.caseRef)));
+    let next = highest + 1;
+    const plan = moving.map(c => {
+      let to;
+      for (;;) { to = '#' + next++; if (!taken.has(to)) { taken.add(to); break; } }
+      return { id: c.id, from: c.caseRef, to, sourceRef: c.sourceRef };
+    });
+    out.moves = plan.map(p => ({ from: p.from, to: p.to }));
+    out.moved = plan.length;
+    if (dry) return out;
+
+    // Phase one: out of the way. Nothing can collide with a name like this.
+    for (const p of plan) {
+      await prisma.case.update({
+        where: { id: p.id },
+        data: { caseRef: `#tmp-${p.id.slice(0, 8)}` },
+      });
+    }
+    // Phase two: into place, recording where each came from.
+    for (const p of plan) {
+      await prisma.case.update({
+        where: { id: p.id },
+        data: { caseRef: p.to, sourceRef: p.sourceRef || p.from },
+      });
+    }
+    out.counter = await raiseCounter();
+    console.log(`[AdminLogImport] renumbered ${plan.length} case ref(s) into sequence`);
+  } catch (e) {
+    out.ok = false;
+    out.errors.push(e.message);
+  }
   return out;
 }
 
@@ -815,4 +1072,5 @@ module.exports = {
   parseMessage, parseAdminLogEmbed, parseActions, findRef, readOfficer,
   importFromChannel, importerUser, raiseCounter, auditRefs, ORIGIN, LABELS, CASE_ISH,
   whyNotParsed, textField, inlineFields,
+  renumberRefs, resolveOfficers, highestRefInDb, refNumberOf,
 };
