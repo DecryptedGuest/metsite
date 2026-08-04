@@ -245,11 +245,21 @@ async function addMissingMembers() {
     showToast(bits.join(" · ") + ".", out.added ? "success" : "warning");
     // Where each one landed. Somebody who asked for a row in the right section
     // wants to be told it went there, not just that it went somewhere.
+    //
+    // A row number only appears here once the server has READ IT BACK off the
+    // sheet. It used to be the row the write aimed at, which is how three members
+    // came to be reported at rows 29, 30 and 31 of a sheet that had not gained a
+    // single row. No number is better than a wrong one.
     var withRow = (out.placed || []).filter(function (p) { return p.row; });
     if (withRow.length) {
       showToast(withRow.map(function (p) {
         return p.username + " → row " + p.row + (p.under ? " (under the other " + p.under + "s)" : "");
       }).join(", "), "success");
+    }
+    var noRow = (out.placed || []).filter(function (p) { return !p.row; });
+    if (noRow.length && withRow.length) {
+      showToast("Could not confirm where " + noRow.map(function (p) { return p.username; }).join(", ")
+        + " ended up — check the sheet.", "warning");
     }
     if ((out.errors || []).length) showToast(out.errors.join("; "), "warning");
     // Re-read rather than patching the list: the sheet has changed, and the next

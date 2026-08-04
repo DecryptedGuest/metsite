@@ -818,12 +818,20 @@ async function appendRows(rows, scope) {
  */
 async function sheetMetaFor(sheets, spreadsheetId, sheetName) {
   const meta = await sheets.spreadsheets.get({
-    spreadsheetId, fields: 'sheets(properties(sheetId,title),merges)',
+    spreadsheetId,
+    fields: 'sheets(properties(sheetId,title,gridProperties(rowCount)),merges)',
   });
   const found = (meta.data.sheets || [])
     .find(sh => sh.properties && sh.properties.title === sheetName);
   if (!found) throw new Error(`The sheet "${sheetName}" is not in that spreadsheet.`);
-  return { sheetId: found.properties.sheetId, merges: found.merges || [] };
+  return {
+    sheetId: found.properties.sheetId,
+    merges: found.merges || [],
+    // How tall the grid is. Inserting rows must make this bigger, and checking
+    // that is the cheapest way to catch an insert that was accepted and did
+    // nothing.
+    rowCount: (found.properties.gridProperties && found.properties.gridProperties.rowCount) || null,
+  };
 }
 
 /** Just the id, for callers that do not care about merges. */
@@ -921,7 +929,7 @@ function rankKey(name) {
  *          than being allowed to undo the placement.
  */
 async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, cols) {
-  const { sheetId, merges } = await sheetMetaFor(sheets, spreadsheetId, sheetName);
+  const { sheetId, merges, rowCount } = await sheetMetaFor(sheets, spreadsheetId, sheetName);
   const endOfData = existing.length;
   const warnings = [];
 
@@ -970,6 +978,20 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
     },
   }));
   await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: inserts } });
+
+  // Did that actually do anything? A batchUpdate answers 200 with a reply for
+  // every request, and a sheet with three more rows in it is taller than it was.
+  // Checking is what turns "reported three rows that were not there" into a plain
+  // failure the caller can recover from by appending.
+  const wantRows = rows.length;
+  if (rowCount != null) {
+    const after = await sheetMetaFor(sheets, spreadsheetId, sheetName).catch(() => null);
+    if (after && after.rowCount != null && after.rowCount < rowCount + wantRows) {
+      throw new Error(`the insert was accepted but the sheet still has ${after.rowCount} rows `
+        + `(it had ${rowCount}, and should now have ${rowCount + wantRows}) — the service account `
+        + `may be able to edit cells but not the sheet's structure`);
+    }
+  }
 
   // 2. The formulas, separately and best-effort, one paste per contiguous run of
   //    formula columns. Narrow ranges rather than the whole row, because a paste
@@ -1048,6 +1070,9 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       }
       placed.push({
         username: r.username, rank: r.rank || null, row: rowIdx + 1,
+        // Kept for the message when a row turns out not to be there: "written to
+        // row 29 but not there" names the row somebody should go and look at.
+        wanted: rowIdx + 1,
         under: g.grouped ? (r.rank || null) : null,
       });
     });
@@ -1058,7 +1083,65 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: writes },
     });
   }
+
+  // 4. Read it back, and only claim what is actually there.
+  //
+  // "Added at row 29" was arithmetic, not observation: it was the row the code
+  // MEANT to write, reported as fact whether or not anything landed. A run that
+  // reported three rows against a sheet that had not gained a single one is worse
+  // than a failure, because it stops anybody looking. So the rows are read back,
+  // and a member the sheet cannot show us is not reported as placed.
+  const verified = await verifyPlacement(sheets, spreadsheetId, sheetName, placed, cols);
+  const missing = placed.filter(p => !verified.has(p.row));
+  if (missing.length === placed.length) {
+    // Nothing arrived. Throwing here is deliberate: the caller's fallback appends
+    // them to the end of the sheet, which is untidy and real, and infinitely
+    // better than a confident report of rows that do not exist.
+    throw new Error(`the sheet accepted the write but none of the ${placed.length} row(s) `
+      + `are there afterwards`);
+  }
+  for (const p of missing) {
+    p.row = null;
+    p.under = null;
+    warnings.push(`${p.username} was written to row ${p.wanted || '?'} but is not there on a re-read `
+      + `— add them by hand.`);
+  }
   return { placed, warnings };
+}
+
+/**
+ * Which of the rows we just wrote actually contain the person we wrote there.
+ *
+ * Re-reads the username column over the affected span. Never throws: if the sheet
+ * will not answer, every row is treated as verified rather than wrongly reported
+ * as missing — an unreadable sheet is not evidence that the write failed.
+ *
+ * @returns {Promise<Set<number>>} the 1-based rows that check out
+ */
+async function verifyPlacement(sheets, spreadsheetId, sheetName, placed, cols) {
+  const ok = new Set();
+  const rows = placed.map(p => p.row).filter(r => r > 0);
+  if (!rows.length || cols.username == null) return ok;
+  const first = Math.min(...rows);
+  const last = Math.max(...rows);
+  const col = quota.colLetter(cols.username);
+  try {
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!${col}${first}:${col}${last}`,
+      valueRenderOption: 'FORMATTED_VALUE',
+    });
+    const values = resp.data.values || [];
+    for (const p of placed) {
+      if (!(p.row > 0)) continue;
+      const got = (values[p.row - first] || [])[0];
+      if (quota.normName(got) === quota.normName(p.username)) ok.add(p.row);
+    }
+  } catch (err) {
+    console.warn('[MetDB] could not read the new rows back:', err.message);
+    for (const p of placed) if (p.row > 0) ok.add(p.row);
+  }
+  return ok;
 }
 
 /**
@@ -1159,5 +1242,5 @@ module.exports = {
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
   memberRow, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
-  sheetMetaFor, mergedColumnsAt, columnRuns,
+  sheetMetaFor, mergedColumnsAt, columnRuns, verifyPlacement,
 };
