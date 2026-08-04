@@ -883,7 +883,8 @@
         <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
           <i class="ti ti-apps"></i> Division group
           <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
-            <option value="">Default (ROBLOX_GROUP_ID)</option>
+            <!-- Filled by loadGroupDivisions(). No "Default" entry: it meant the
+                 MET umbrella group, which is in the list under its own name. -->
           </select>
         </label>
         <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
@@ -1557,51 +1558,6 @@
         </div>
       </div>
 
-      <!-- IA database sync — kick people who left, add new joiners -->
-      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot purple"></span>IA Database Sync</div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn btn-ghost btn-sm" id="btn-metdb-check"><i class="ti ti-search"></i> Check</button>
-            <button class="btn btn-primary btn-sm" id="btn-metdb-apply" disabled><i class="ti ti-refresh"></i> Apply changes</button>
-          </div>
-        </div>
-        <div style="padding:1rem 1.2rem;">
-          <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-            Compares the <strong>Internal Affairs database</strong> against the IA Roblox group. Anyone no
-            longer in the group is removed, and newly joined members take the rows that frees up.
-            Run <strong>Check</strong> first — it shows what will change before anything is written.
-          </p>
-          <div id="metdb-result"></div>
-        </div>
-      </div>
-
-      <!-- IA database audit — is the sheet itself correct? -->
-      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.2rem;">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot purple"></span>IA Database Audit</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm" id="btn-metaudit-run"><i class="ti ti-list-search"></i> Audit</button>
-            <button class="btn btn-ghost btn-sm" id="btn-metaudit-fill" disabled><i class="ti ti-eraser"></i> Fill blanks with 0</button>
-            <button class="btn btn-danger btn-sm" id="btn-metaudit-reset" disabled><i class="ti ti-refresh-alert"></i> Reset all points to 0</button>
-          </div>
-        </div>
-        <div style="padding:1rem 1.2rem;">
-          <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
-            Checks the <strong>Internal Affairs database</strong> against the IA Roblox
-            group: who is in the group but not on the sheet, who is on the sheet but has
-            left the group, duplicate rows, blank day cells and
-            anything in a day column that isn't a number. <strong>Fill blanks</strong> writes 0 into
-            empty or unreadable day cells. <strong>Reset all points</strong> zeroes every day cell so
-            counting starts clean — the weekly quota is
-            <strong id="metaudit-target">3</strong> events, one database point each. Neither ever
-            touches a cell marked <code>EX</code> or <code>LOA</code>, and neither adds, deletes or
-            moves a row: rank-tab moves are listed for you to make.
-          </p>
-          <div id="metaudit-result"></div>
-        </div>
-      </div>
-
       <!-- Adding the people the sheet is missing.
            Separate from the sync on purpose: the sync decides for itself and
            only ever offers the entry rank, so a Junior Investigator who never
@@ -2217,14 +2173,14 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="/js/ui.js?v=83"></script>
 <script src="/js/panel-collapse.js?v=1"></script>
-<script src="/js/dashboard.js?v=83"></script>
+<script src="/js/dashboard.js?v=85"></script>
 <script src="/js/tickets.js?v=83"></script>
 <script src="/js/ia-events.js?v=1"></script>
 <script src="/js/ia-patrols.js?v=1"></script>
 <script src="/js/discord-format.js?v=83"></script>
 <script src="/js/security.js?v=83"></script>
 <script src="/js/records.js?v=83"></script>
-<script src="/js/quota-check.js?v=83"></script>
+<script src="/js/quota-check.js?v=85"></script>
 <script src="/js/ia-profiles.js?v=83"></script>
 <script src="/js/division-quota.js?v=83"></script>
 <script src="/js/media.js?v=83"></script>

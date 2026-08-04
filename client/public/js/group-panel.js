@@ -64,7 +64,9 @@
   };
 
   window.loadGroupPanel = async function loadGroupPanel() {
-    loadDivisions();
+    // Awaited: every request below carries ?division=, and on the very first load
+    // that key only exists once the switcher has been filled in.
+    await loadDivisions();
     try {
       rolesCache = await api('/api/admin/group/roles' + gq());
       const badge = document.getElementById('group-env-badge');

@@ -2881,8 +2881,10 @@ function groupError(msg) {
   </div>`;
 }
 
-// Which division's Roblox group the panel is currently managing ('' = the
-// default ROBLOX_GROUP_ID). The dev panel can switch between every division.
+// Which division's Roblox group the panel is currently managing. The dev panel
+// can switch between every division. Empty only until loadGroupDivisions() has
+// answered — there is no "default" group to fall back to, because the default
+// WAS the MET umbrella group, which is in the switcher under its own name.
 let currentGroupDivision = '';
 
 // Build a query string carrying the selected division (+ any extra params).
@@ -2899,8 +2901,11 @@ async function loadGroupDivisions() {
   if (!sel) return;
   try {
     const divs = await api('/api/admin/group/divisions');
-    sel.innerHTML = `<option value="">Default (ROBLOX_GROUP_ID)</option>` +
-      divs.map(d => `<option value="${d.key}">${d.name}${d.fullName && d.fullName !== d.name ? ' — ' + d.fullName : ''}</option>`).join('');
+    sel.innerHTML = divs
+      .map(d => `<option value="${escapeHtml(d.key)}">${escapeHtml(d.name)}${d.fullName && d.fullName !== d.name ? ' — ' + escapeHtml(d.fullName) : ''}</option>`)
+      .join('');
+    // Land on MET when nothing is chosen — that is what "Default" resolved to.
+    if (!currentGroupDivision) currentGroupDivision = divs.some(d => d.key === 'MET') ? 'MET' : (divs[0] ? divs[0].key : '');
     sel.value = currentGroupDivision;
   } catch (e) { /* switcher optional */ }
 }
@@ -2914,7 +2919,9 @@ function changeGroupDivision(key) {
 }
 
 async function loadGroupPanel() {
-  loadGroupDivisions();
+  // Awaited: every request below carries ?division=, and on the very first load
+  // that key only exists once the switcher has been filled in.
+  await loadGroupDivisions();
   // Always reload roles fresh so rank dropdowns are populated
   try {
     groupRolesCache = await api('/api/admin/group/roles' + gq());

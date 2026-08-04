@@ -525,10 +525,19 @@ async function missingMembers(division) {
     : [];
   const onSheetRobloxIds = new Set(linked.filter(u => u.robloxId).map(u => String(u.robloxId)));
 
+  // Everyone the database is not FOR. The IA group contains the whole umbrella
+  // above Internal Affairs — the game owner, the holders, MET Overseer, MET
+  // Administration — and none of them belong on a sheet of investigators with a
+  // weekly quota. Offering to add them is noise at best and a row somebody has to
+  // delete at worst.
+  const ceiling = await rankCeiling(scope);
+
   const missing = [];
+  const above = [];
   for (const m of all) {
     if (onSheetNames.has(quota.normName(m.username))) continue;
     if (onSheetRobloxIds.has(String(m.userId))) continue;
+    if (isAboveCeiling(m, ceiling)) { above.push({ username: m.username, rank: m.roleName || '' }); continue; }
     missing.push({
       username: m.username,
       robloxId: String(m.userId),
@@ -566,7 +575,60 @@ async function missingMembers(division) {
     // Whether the sheet even HAS a column to write the mark into. Without one the
     // UI must not offer a toggle whose value goes nowhere.
     hasWtbtColumn: sheet.cols.wtbt != null,
+    // Ranks above the ceiling that were left out, and the ceiling itself. Reported
+    // rather than silently dropped: "13 in the group with no row" turning into 2
+    // needs an explanation, or it reads as the list being broken.
+    aboveCeiling: above,
+    ceiling: ceiling ? { name: ceiling.name, rank: ceiling.rank } : null,
   };
+}
+
+// The rank the database stops at. Everything above it is the umbrella that owns
+// the group rather than the division that lives in it.
+//
+// Settable, because a group can rename its ranks: MET_DB_TOP_RANK="Director".
+const TOP_RANK_NAME = () => (process.env.MET_DB_TOP_RANK || 'Director').trim();
+
+// Names that are never division members whatever their number says. A group whose
+// ranks are numbered oddly — an umbrella rank sitting below Director — would
+// otherwise slip through the numeric test, and these are unmistakable.
+const NEVER_MEMBERS = [
+  /\bholder\b/i, /game\s*owner/i, /\bowner\b/i, /overseer/i,
+  /administration/i, /\bhicom+\b/i, /high\s*com+and/i, /\bbot\b/i, /\bapi\b/i,
+];
+
+/**
+ * The numeric rank of the highest role the database covers.
+ *
+ * Read from the group's own role list, so it is right even when nobody currently
+ * holds the rank. Falls back to null — and with no ceiling the name list below is
+ * the only filter, which is the safe direction: it excludes the handful of ranks
+ * that are unmistakably not investigators and keeps everybody else.
+ */
+async function rankCeiling(scope) {
+  const groupId = (scope && scope.groupId) || GROUP_ID();
+  if (!groupId) return null;
+  try {
+    const roles = await require('./roblox').listGroupRoles(groupId);
+    const want = TOP_RANK_NAME().toLowerCase();
+    // Exact name first. "Director" must not match "Assistant Director" or "Deputy
+    // Director", both of which are BELOW it and must stay on the list.
+    const exact = roles.find(r => String(r.name || '').trim().toLowerCase() === want);
+    if (exact) return { name: exact.name, rank: Number(exact.rank) };
+    return null;
+  } catch (err) {
+    console.warn('[MetDB] could not read the group roles to find the rank ceiling:', err.message);
+    return null;
+  }
+}
+
+/** Is this member above the rank the database covers? */
+function isAboveCeiling(member, ceiling) {
+  const name = String((member && member.roleName) || '');
+  if (NEVER_MEMBERS.some(re => re.test(name))) return true;
+  if (!ceiling || !Number.isFinite(ceiling.rank)) return false;
+  const rank = Number(member && member.roleRank);
+  return Number.isFinite(rank) && rank > ceiling.rank;
 }
 
 /**
@@ -1393,7 +1455,7 @@ module.exports = {
   planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor,
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
-  strayMembers, tidyStrayRows,
+  strayMembers, tidyStrayRows, rankCeiling, isAboveCeiling, NEVER_MEMBERS,
   memberRow, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
   sheetMetaFor, mergedColumnsAt, columnRuns, verifyPlacement,
 };

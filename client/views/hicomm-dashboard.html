@@ -196,7 +196,8 @@
         <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
           <i class="ti ti-apps"></i> Division group
           <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
-            <option value="">Default group</option>
+            <!-- Filled by loadDivisions(). No "Default" entry: it meant the MET
+                 umbrella group, which is in the list under its own name. -->
           </select>
         </label>
         <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
@@ -264,7 +265,7 @@
 <script src="/js/charts.js"></script>
 <script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
-<script src="/js/group-panel.js?v=82"></script>
+<script src="/js/group-panel.js?v=85"></script>
 <script src="/js/discord-format.js?v=80"></script>
 <script src="/js/hicomm-dashboard.js"></script>
 <script>initMetTopbar('HIGH COMMAND');</script>

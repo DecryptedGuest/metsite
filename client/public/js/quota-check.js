@@ -104,7 +104,7 @@ function renderMissing(out) {
     return;
   }
   if (!missing.length) {
-    box.innerHTML = strayBlock(out)
+    box.innerHTML = strayBlock(out) + ceilingNote(out)
       + '<div class="metdb-applied"><i class="ti ti-check"></i> Everybody in the '
       + escapeHtml(out.group || metDbName()) + ' group has a row. '
       + escapeHtml(String(out.groupSize || 0)) + ' in the group, '
@@ -112,7 +112,7 @@ function renderMissing(out) {
     return;
   }
   var probs = missing.filter(function (m) { return m.probationary; }).length;
-  box.innerHTML = strayBlock(out)
+  box.innerHTML = strayBlock(out) + ceilingNote(out)
     + '<div class="miss-head">'
     + '<strong>' + missing.length + '</strong> in the group with no row'
     + (probs ? ' · <strong>' + probs + '</strong> probationary' : '')
@@ -128,6 +128,32 @@ function renderMissing(out) {
     + '<th style="width:34px;"></th><th>Roblox</th><th>Group rank</th><th>Discord ID</th><th>Training</th>'
     + '</tr></thead><tbody>' + missing.map(missRow).join("") + '</tbody></table></div>';
   refreshMissButton();
+}
+
+/**
+ * The ranks left out of the list, and why.
+ *
+ * The IA group contains the whole umbrella above the division — the game owner,
+ * the holders, MET Overseer, MET Administration — and none of them belong on a
+ * sheet of investigators with a weekly quota. They are filtered out, and SAID so:
+ * a list that silently drops eleven of thirteen people reads as broken.
+ */
+function ceilingNote(out) {
+  var above = (out && out.aboveCeiling) || [];
+  if (!above.length) return '';
+  var top = out.ceiling && out.ceiling.name ? out.ceiling.name : 'Director';
+  return '<div style="margin-bottom:.7rem;padding:.6rem .8rem;border-radius:8px;'
+    + 'background:rgba(60,110,255,.07);border:1px solid rgba(60,110,255,.25);'
+    + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
+    + '<i class="ti ti-filter"></i> <strong>' + above.length + '</strong> above '
+    + escapeHtml(top) + ' left out — the database is for '
+    + escapeHtml(top) + ' and below.<br>'
+    + '<span style="color:var(--text-muted);">'
+    + above.slice(0, 12).map(function (a) {
+        return escapeHtml(a.username) + ' (' + escapeHtml(a.rank || '?') + ')';
+      }).join(', ')
+    + (above.length > 12 ? ', and ' + (above.length - 12) + ' more' : '')
+    + '</span></div>';
 }
 
 /**
