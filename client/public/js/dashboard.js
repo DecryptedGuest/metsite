@@ -783,7 +783,9 @@ async function clrRenumber(dry, mode) {
     let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
       + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
       + (r.dryRun ? 'What renumbering would do' : 'Renumbered')
-      + (r.mode === 'resequence' ? ' — every case, in date order' : ' — only the ones out of the sequence')
+      + (r.mode === 'resequence'
+          ? ' — every case, in date order, from #' + (r.startsAt || 700)
+          : ' — only the ones out of the sequence')
       + `</div>`;
     h += clrRow('Cases', r.total);
     h += clrRow(r.mode === 'resequence' ? 'Keeping the ref they have' : 'Already in order', r.unchanged, 'good');

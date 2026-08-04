@@ -915,6 +915,17 @@ function refNumberOf(ref) {
 const MIN_REF = () => { const n = parseInt(process.env.CASE_REF_MIN || '', 10); return Number.isFinite(n) && n > 0 ? n : 100; };
 const MAX_REF = () => { const n = parseInt(process.env.CASE_REF_MAX || '', 10); return Number.isFinite(n) && n > 0 ? n : 99999; };
 
+// Where a full resequence starts counting. Deliberately NOT the validity floor:
+// that is 100 because three digits is the rule, and starting a resequence at 100
+// would hand #663 to a different case from the one the archive has called #663 for
+// years. Starting above the old top instead means a reference somebody half
+// remembers cannot silently resolve to the wrong case — the old ones are simply
+// gone, and the row that used to hold them says so in sourceRef.
+const RESEQ_START = () => {
+  const n = parseInt(process.env.CASE_REF_START || '', 10);
+  return Math.max(Number.isFinite(n) && n > 0 ? n : 700, MIN_REF());
+};
+
 /**
  * The number a ref contributes to the sequence, or null if it is not part of it.
  *
@@ -971,7 +982,8 @@ async function renumberRefs(opts = {}) {
   const dry = opts.dryRun === true;
   const mode = opts.mode === 'resequence' ? 'resequence' : 'repair';
   const out = { ok: true, dryRun: dry, mode, total: 0, moved: 0, unchanged: 0,
-                moves: [], errors: [], counter: null, floor: MIN_REF() };
+                moves: [], errors: [], counter: null, floor: MIN_REF(),
+                startsAt: mode === 'resequence' ? RESEQ_START() : null };
   try {
     const cases = await prisma.case.findMany({
       select: { id: true, caseRef: true, sourceRef: true, createdAt: true, origin: true },
@@ -1015,7 +1027,7 @@ async function renumberRefs(opts = {}) {
     // with the highest number. A repair continues from the top of what is there; a
     // resequence starts from the floor, because nothing is being kept.
     const taken = mode === 'resequence' ? new Set() : new Set(cases.map(c => String(c.caseRef)));
-    let next = mode === 'resequence' ? MIN_REF() : highest + 1;
+    let next = mode === 'resequence' ? RESEQ_START() : highest + 1;
     const plan = moving.map(c => {
       let to;
       for (;;) { to = '#' + next++; if (!taken.has(to)) { taken.add(to); break; } }
