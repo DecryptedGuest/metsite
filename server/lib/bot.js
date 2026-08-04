@@ -775,22 +775,33 @@ async function listGuildRoleMembers(guildId, roleId) {
  * @param {string} discordUserId  — the member to assign to
  * @param {string} roleId         — Discord role ID to assign
  */
-async function assignRole(discordUserId, roleId) {
+/**
+ * @param {string} [guildId] which server the role lives in. Defaults to
+ *        DISCORD_GUILD_ID, which is what every existing caller wants — but a role
+ *        that lives in the MET server has to say so, because this app treats
+ *        "the MET server" as MET_GUILD_ID falling back to DISCORD_GUILD_ID
+ *        (middleware/division.js, quota.js, ticketIngest.js, emoji.js, and the
+ *        command registration all resolve it that way). Hard-coding one of the two
+ *        here meant the HPC final-exam role — which lives in MET — was added in the
+ *        wrong guild whenever those two ids differ, failing for every single
+ *        passer and logging "granted to 0/N".
+ */
+async function assignRole(discordUserId, roleId, guildId) {
   if (!ready) {
     console.warn('Bot not ready — cannot assign role');
     return false;
   }
-  const guildId = process.env.DISCORD_GUILD_ID;
-  if (!guildId || !roleId) return false;
+  const gid = guildId || process.env.DISCORD_GUILD_ID;
+  if (!gid || !roleId) return false;
 
   try {
-    const guild  = await client.guilds.fetch(guildId);
+    const guild  = await client.guilds.fetch(gid);
     const member = await guild.members.fetch(discordUserId);
     await member.roles.add(roleId);
     console.log(`Role ${roleId} assigned to ${discordUserId}`);
     return true;
   } catch (err) {
-    console.error(`Failed to assign role ${roleId} to ${discordUserId}:`, err.message);
+    console.error(`Failed to assign role ${roleId} to ${discordUserId} in guild ${gid}:`, err.message);
     return false;
   }
 }

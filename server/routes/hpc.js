@@ -648,16 +648,40 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
     const data = { status: 'PENDING' };
     if (typeof notes === 'string') data.notes = notes.slice(0, 3000);
     if (typeof proof === 'string') data.proof = proof.slice(0, 500);
+    // Edits to the attendee list, NOT a replacement for it. The list on the draft
+    // came from the in-game panel — who was actually in the server — and this used
+    // to overwrite it with whatever the browser sent. Every PASS is handed the
+    // final-exam role on approval, and the exam is the way into the MET group, so a
+    // free-form attendee list meant one real tryout could admit any number of alts.
+    let rejectedAttendees = [];
     if (Array.isArray(attendees)) {
-      const clean = tryoutLogsLib.normaliseAttendees(attendees);
-      Object.assign(data, { attendees: clean, ...tryoutLogsLib.countsFor(clean) });
+      const merged = tryoutLogsLib.applyAttendeeEdits(log.attendees, attendees);
+      rejectedAttendees = merged.rejected;
+      Object.assign(data, { attendees: merged.attendees, ...tryoutLogsLib.countsFor(merged.attendees) });
     }
 
     const updated = await prisma.tryoutLog.update({ where: { id: log.id }, data });
+    if (rejectedAttendees.length) {
+      // Named in the audit trail as well as answered in the response: somebody
+      // submitting names that were never in their tryout is worth a record.
+      audit.record({
+        req, action: 'TRYOUT_LOG_ATTENDEE_REJECTED', category: 'hpc',
+        targetType: 'tryout-log', targetId: log.id,
+        summary: `${req.user.displayName || req.user.discordUsername} submitted tryout log ${log.id} `
+               + `with ${rejectedAttendees.length} name(s) that were not in the tryout: `
+               + rejectedAttendees.slice(0, 20).join(', '),
+        metadata: { rejected: rejectedAttendees.slice(0, 50) },
+      });
+    }
     const msgId = await sendTryoutLog(updated, { event: 'submitted' }).catch(() => null);
     if (msgId) await prisma.tryoutLog.update({ where: { id: log.id }, data: { logMessageId: msgId } }).catch(() => {});
     tryoutLogsLib.notifyTryoutApprovers(updated).catch(() => {}); // push HICOMM (fire-and-forget)
-    res.json({ success: true, status: 'PENDING', posted: !!msgId });
+    res.json({ success: true, status: 'PENDING', posted: !!msgId,
+      rejectedAttendees,
+      ...(rejectedAttendees.length ? { warning:
+        `${rejectedAttendees.length} name(s) were not in this tryout and were not added: `
+        + rejectedAttendees.slice(0, 10).join(', ')
+        + '. You can change anybody\'s result or strikes, but not add people the panel did not see.' } : {}) });
   } catch (err) {
     console.error('[HPC] submit tryout log failed:', err.message);
     res.status(500).json({ error: 'Failed to submit the tryout log' });
@@ -671,6 +695,34 @@ router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) 
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
 
+    // Nobody approves their own tryout. The gate was rank alone, so a host who
+    // happened to hold approver rank could host, submit and approve in three clicks:
+    // +1 quota point written to their OWN row on the HPC sheet, and the final-exam
+    // role — the way into the MET group — granted to everybody on a list they wrote
+    // themselves. Two of the three checks a review is supposed to be were missing.
+    if (log.hostId === req.user.id) {
+      return res.status(403).json({
+        error: 'You cannot approve your own tryout log. Ask another approver to review it.',
+      });
+    }
+
+    // Claim it with a conditional update BEFORE doing any of the awarding. The
+    // status test above is a read, and the button is not disabled while it works —
+    // so two clicks both passed it, both wrote +1 to the sheet, and both appended the
+    // whole attendee list. Only the request that finds it still PENDING proceeds.
+    const claim = await prisma.tryoutLog.updateMany({
+      where: { id: log.id, status: 'PENDING' },
+      data: {
+        status: 'APPROVED',
+        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
+        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    if (!claim.count) {
+      return res.status(409).json({ error: 'That log has already been reviewed.' });
+    }
+
     // Award the host their +1 HPC point (best-effort; never blocks approval).
     const award = await tryoutLogsLib.awardHpcPoint(log).catch(() => ({ ok: false, reason: 'error', detail: 'Unexpected error.' }));
     // Optionally sync each attendee's pass/fail to the recruits sheet.
@@ -678,12 +730,7 @@ router.post('/tryout-logs/:id/approve', requireTryoutApprover, async (req, res) 
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },
-      data: {
-        status: 'APPROVED', pointAwarded: award.ok,
-        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
-        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
-        reviewedAt: new Date(),
-      },
+      data: { pointAwarded: award.ok },
     });
     await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
     // Everyone who PASSED this MET tryout gets the final-exam role in the MET

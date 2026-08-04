@@ -80,6 +80,65 @@ function normaliseAttendees(raw) {
   });
 }
 
+/**
+ * Apply a host's edits to the attendee list WITHOUT letting them add anybody.
+ *
+ * The list on a DRAFT log was written by the in-game panel from who was actually in
+ * the server. The submit endpoint then accepted a replacement list from the browser,
+ * wholesale — so any HPC Junior Instructor could host one real tryout and submit it
+ * carrying twenty accounts that were never there, each marked PASS. Approval grants
+ * every passer the final-exam role, and the exam is the door into the MET group. One
+ * legitimate tryout was a licence to admit as many alts as you liked.
+ *
+ * A host does need to correct results and strikes on the site — that is what the
+ * screen is for. So edits to somebody already on the log are applied, and anybody
+ * NOT on it is refused and named. Refused rather than dropped: silently discarding
+ * half a submission is how somebody concludes the feature is broken and stops using
+ * it, and it hides the attempt.
+ *
+ * Matched on Roblox id where the draft has one, falling back to the username,
+ * because that is the only identity the panel is guaranteed to send.
+ *
+ * @returns {{ attendees: object[], rejected: string[] }}
+ */
+function applyAttendeeEdits(draft, incoming) {
+  const original = Array.isArray(draft) ? draft : [];
+  const edits = normaliseAttendees(incoming);
+
+  const key = (a) => (a && a.robloxId ? 'id:' + String(a.robloxId)
+                     : 'name:' + String((a && a.username) || '').trim().toLowerCase());
+  const byKey = new Map(original.map(a => [key(a), a]));
+
+  const rejected = [];
+  const out = [];
+  const seen = new Set();
+  for (const e of edits) {
+    const k = key(e);
+    const was = byKey.get(k);
+    if (!was) { rejected.push(e.username || '(unnamed)'); continue; }
+    if (seen.has(k)) continue;          // the same person twice in one submission
+    seen.add(k);
+    // The host owns the judgement: result, strikes, the note, the quiz marks. They
+    // do not own who was in the room — joinedAt/leftAt/kicked/robloxId stay as the
+    // panel recorded them.
+    out.push({
+      ...was,
+      result:  e.result,
+      strikes: e.strikes,
+      note:    e.note,
+      quiz:    e.quiz != null ? e.quiz : was.quiz,
+      ...(e.flagged != null ? { flagged: e.flagged } : {}),
+      ...(e.pts != null ? { pts: e.pts } : {}),
+    });
+  }
+  // Anybody the host left out of the submission keeps their recorded row. Omission
+  // is not removal: the panel saw them in the server, and a shorter list must not be
+  // a way to make an attendee disappear.
+  for (const [k, a] of byKey) if (!seen.has(k)) out.push(a);
+
+  return { attendees: out, rejected };
+}
+
 function normaliseEvents(raw) {
   const list = Array.isArray(raw) ? raw : [];
   const TYPES = ['JOIN', 'LEAVE', 'KICK', 'STRIKE', 'PASS', 'FAIL', 'NOTE'];
@@ -433,6 +492,7 @@ async function grantFinalExamRoleToPassers(log) {
     if (!roleId) return out;
     const bot = require('./bot');
     const roblox = require('./roblox');
+    const metGuild = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
     const passers = (Array.isArray(log.attendees) ? log.attendees : []).filter(a => a && a.result === 'PASS' && !a.kicked);
     out.total = passers.length;
     for (const a of passers) {
@@ -453,14 +513,24 @@ async function grantFinalExamRoleToPassers(log) {
         try { const m = await bot.findMemberByRobloxNick(a.username); if (m && m.id) discordId = String(m.id); } catch (e) {}
       }
       if (!discordId) continue;
-      try { const ok = await bot.assignRole(discordId, roleId); if (ok) out.granted++; } catch (e) {}
+      // The MET server explicitly — the exam role lives there, and this app resolves
+      // "the MET server" as MET_GUILD_ID before DISCORD_GUILD_ID everywhere else.
+      try { const ok = await bot.assignRole(discordId, roleId, metGuild); if (ok) out.granted++; } catch (e) {}
+    }
+    // Nobody got it. Worth a line, because the outcome is a room full of passers who
+    // cannot sit the exam and no indication why — the two causes are the bot missing
+    // Manage Roles (or sitting below the role) and the role being in another guild.
+    if (out.total && !out.granted) {
+      console.warn(`[tryoutLog] final-exam role ${roleId} granted to NOBODY out of ${out.total} `
+        + `passer(s) in guild ${metGuild} — check the bot has "Manage Roles", that its own `
+        + 'highest role is above that one, and that the role is in this guild.');
     }
   } catch (e) { console.error('[tryoutLog] grantFinalExamRoleToPassers failed:', e.message); }
   return out;
 }
 
 module.exports = {
-  normaliseAttendees, normaliseEvents, countsFor, resolveHostUser,
+  normaliseAttendees, applyAttendeeEdits, normaliseEvents, countsFor, resolveHostUser,
   createFromGamePayload, serialize, awardHpcPoint, awardCidEventPoint,
   syncAttendanceToSheet, notifyTryoutApprovers, grantFinalExamRoleToPassers,
 };
