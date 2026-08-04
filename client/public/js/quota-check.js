@@ -104,14 +104,16 @@ function renderMissing(out) {
     return;
   }
   if (!missing.length) {
-    box.innerHTML = '<div class="metdb-applied"><i class="ti ti-check"></i> Everybody in the '
+    box.innerHTML = strayBlock(out)
+      + '<div class="metdb-applied"><i class="ti ti-check"></i> Everybody in the '
       + escapeHtml(out.group || metDbName()) + ' group has a row. '
       + escapeHtml(String(out.groupSize || 0)) + ' in the group, '
       + escapeHtml(String(out.sheetRows || 0)) + ' on the sheet.</div>';
     return;
   }
   var probs = missing.filter(function (m) { return m.probationary; }).length;
-  box.innerHTML = '<div class="miss-head">'
+  box.innerHTML = strayBlock(out)
+    + '<div class="miss-head">'
     + '<strong>' + missing.length + '</strong> in the group with no row'
     + (probs ? ' · <strong>' + probs + '</strong> probationary' : '')
     + ' · ' + (out.groupSize || 0) + ' in the group, ' + (out.sheetRows || 0) + ' on the sheet'
@@ -126,6 +128,68 @@ function renderMissing(out) {
     + '<th style="width:34px;"></th><th>Roblox</th><th>Group rank</th><th>Discord ID</th><th>Training</th>'
     + '</tr></thead><tbody>' + missing.map(missRow).join("") + '</tbody></table></div>';
   refreshMissButton();
+}
+
+/**
+ * Rows that exist but are nowhere anybody looks.
+ *
+ * This is the block that explains the confusing case: somebody who is plainly not
+ * in the database stops being offered here, because a previous run appended their
+ * row past the end of the table instead of inserting it. The row is real, so
+ * "already on the sheet" was true — and useless. Now it says where the row is and
+ * offers to drag it back.
+ */
+function strayBlock(out) {
+  var stray = (out && out.stray) || [];
+  if (!stray.length) return '';
+  return '<div class="metdb-error" style="margin-bottom:.8rem;">'
+    + '<i class="ti ti-alert-triangle"></i> <strong>' + stray.length + '</strong> row'
+    + (stray.length === 1 ? '' : 's') + ' on the sheet, but not in the right section'
+    + '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
+    + 'These were <em>appended</em> to the bottom of the sheet rather than inserted, which is what '
+    + 'happens when the sheet will not accept a row being inserted. They still count as having a row, '
+    + 'so these people stop appearing in the list below even though nobody can see them on the '
+    + 'database.</div>'
+    + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+    + stray.map(function (s) {
+        return '<span class="mono">' + escapeHtml(s.username) + '</span> — row '
+          + escapeHtml(String(s.row))
+          + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
+          + ', belongs at row ' + escapeHtml(String(s.shouldBeRow));
+      }).join('<br>')
+    + '</div>'
+    + '<button type="button" class="btn btn-primary btn-sm" id="btn-miss-tidy" '
+    + 'style="margin-top:.7rem;"><i class="ti ti-arrows-sort"></i> Move '
+    + (stray.length === 1 ? 'it' : 'them') + ' into place</button>'
+    + '</div>';
+}
+
+/** Drag the stray rows back into their rank's block. Nothing is deleted. */
+async function tidyStrayRows() {
+  var btn = document.getElementById("btn-miss-tidy");
+  var was = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Moving…"; }
+  try {
+    var out = await api(metDbUrl("/tidy-rows"), { method: "POST", body: JSON.stringify({}) });
+    var moved = out.moved || [];
+    if (moved.length) {
+      showToast(moved.map(function (m) {
+        return m.username + ": row " + m.row + " → " + m.to;
+      }).join(", "), "success");
+    } else {
+      showToast("Nothing was moved.", "warning");
+    }
+    (out.skipped || []).forEach(function (s) {
+      showToast(s.username + " was left where it is — " + (s.why || "it could not be moved"), "warning");
+    });
+    if ((out.errors || []).length) showToast(out.errors.join("; "), "error");
+    // Re-read: the sheet has changed, and the list below is now wrong.
+    await findMissingMembers();
+  } catch (err) {
+    showToast(err.message || "Could not move them.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
 }
 
 function refreshMissButton() {
@@ -166,6 +230,7 @@ function onMissChange(ev) {
 }
 
 function onMissClick(ev) {
+  if (ev.target.closest("#btn-miss-tidy")) { tidyStrayRows(); return; }
   var all = ev.target.closest("[data-miss-all]");
   if (!all) return;
   var everyone = missing.every(function (m) { return missPicked[m.username]; });
@@ -173,7 +238,9 @@ function onMissClick(ev) {
     missPicked[m.username] = !everyone;
     if (everyone) delete missWtbt[m.username];
   });
-  renderMissing({ groupSize: missLast.groupSize, sheetRows: missLast.sheetRows, group: missLast.group });
+  // The whole payload, not a copy of three fields — a redraw that dropped the
+  // stray-rows warning would hide the very thing it is there to explain.
+  renderMissing(missLast);
 }
 
 var missLast = {};

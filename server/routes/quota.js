@@ -244,6 +244,29 @@ router.post('/met-database/add-members', canTouchDatabase, async (req, res) => {
   }
 });
 
+// POST /api/quota/met-database/tidy-rows   move stray rows into their rank block
+//
+// A stray row is one that was appended rather than placed — the fallback the
+// writer takes when it cannot insert. It counts as "on the sheet", so the person
+// disappears from the missing list while still being nowhere anybody looks. This
+// drags them back where they belong, and nothing is ever deleted.
+router.post('/met-database/tidy-rows', canTouchDatabase, async (req, res) => {
+  const body = req.body || {};
+  try {
+    const { tidyStrayRows } = require('../lib/metDatabase');
+    const out = await tidyStrayRows(dbDivision(req), {
+      id: req.user.id, name: req.user.displayName || req.user.discordUsername || req.user.id,
+    }, { dryRun: body.dry === true });
+    // 400 rather than 5xx for the same reason as add-members: the body is the
+    // explanation, and an edge proxy may replace a 5xx body with its own page.
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[MetDB] tidy-rows failed:', err.message);
+    res.status(400).json({ error: 'Could not tidy the rows: ' + err.message });
+  }
+});
+
 router.post('/met-database/normalise', canTouchDatabase, async (req, res) => {
   const body = req.body || {};
   try {

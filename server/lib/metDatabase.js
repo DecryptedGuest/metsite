@@ -553,6 +553,11 @@ async function missingMembers(division) {
 
   return {
     missing,
+    // Rows that exist but are not where anybody looking at the sheet would find
+    // them. Reported here because they are the reason somebody who is plainly
+    // absent from the database stops being offered: they DO have a row, just not
+    // one in their rank's section, so "already on the sheet" was true and useless.
+    stray: strayMembers(sheet.rows, sheet.cols),
     groupSize: all.length,
     sheetRows: roster.length,
     division:  scope.division,
@@ -562,6 +567,153 @@ async function missingMembers(division) {
     // UI must not offer a toggle whose value goes nowhere.
     hasWtbtColumn: sheet.cols.wtbt != null,
   };
+}
+
+/**
+ * Member rows that sit outside their rank's block.
+ *
+ * A rank's rows are contiguous on a sheet that anybody has looked at: three
+ * Probationary Investigators are three rows in a row, under the heading that says
+ * so. A fourth one further down, past a heading or a footer or a blank, is a row
+ * that was appended rather than placed — which is exactly what the append fallback
+ * does when it cannot insert.
+ *
+ * That matters more than tidiness. A stray row still counts as "on the sheet", so
+ * the person stops appearing in the missing list and stops being offered — they
+ * are invisible in both directions at once.
+ *
+ * The test is contiguity: group the member rows by rank, and split each rank into
+ * runs broken by any NON-member row. The first run is the block; anything in a
+ * later run is stray. A rank with only one run is never stray, however far down it
+ * sits, because a single block is where that rank lives.
+ *
+ * @returns {Array<{username, row, rank, blockEndsAt}>} 1-based rows
+ */
+function strayMembers(rows, cols) {
+  if (!rows || !rows.length || cols.username == null) return [];
+  const memberAt = rows.map(r => isMemberRow(cols, r));
+
+  const byRank = new Map();   // rankKey → indices, ascending
+  for (let i = 0; i < rows.length; i++) {
+    if (!memberAt[i]) continue;
+    const key = cols.rank != null ? rankKey(rows[i][cols.rank]) : '';
+    if (!byRank.has(key)) byRank.set(key, []);
+    byRank.get(key).push(i);
+  }
+
+  const out = [];
+  for (const [key, idx] of byRank) {
+    // Split into runs: two rows of the same rank belong to the same run only if
+    // every row between them is also a member row.
+    const runs = [[idx[0]]];
+    for (let k = 1; k < idx.length; k++) {
+      let joined = true;
+      for (let b = idx[k - 1] + 1; b < idx[k]; b++) if (!memberAt[b]) { joined = false; break; }
+      if (joined) runs[runs.length - 1].push(idx[k]);
+      else runs.push([idx[k]]);
+    }
+    if (runs.length < 2) continue;
+    const block = runs[0];
+    for (const run of runs.slice(1)) {
+      for (const i of run) {
+        out.push({
+          username: String(rows[i][cols.username] || '').trim(),
+          row: i + 1,
+          rank: cols.rank != null ? String(rows[i][cols.rank] || '').trim() : '',
+          rankKey: key,
+          // Where it should be: straight after the last row of the real block.
+          shouldBeRow: block[block.length - 1] + 2,
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => a.row - b.row);
+}
+
+/**
+ * Move stray rows into their rank's block.
+ *
+ * moveDimension rather than delete-and-rewrite: it is the same operation as
+ * dragging the row by its number, so the values, the formatting, the checkbox
+ * validation and the formulas all travel with it and nothing has to be copied by
+ * hand. Nothing is ever deleted here.
+ *
+ * One move per pass, re-reading the sheet in between. The alternative is index
+ * arithmetic over a sheet that is changing under you, and this is a tidy-up of at
+ * most a handful of rows — correctness is worth more than the round trips.
+ *
+ * Only ever moves a row UPWARDS, into a block above it. A downward move has
+ * different destination-index semantics and no case here needs one, so it is
+ * refused rather than guessed at.
+ */
+const MAX_TIDY = 25;
+
+async function tidyStrayRows(division, actor, opts = {}) {
+  const scope = scopeFor(division || 'IA');
+  const dry = opts.dryRun === true;
+  const moved = [], skipped = [], errors = [];
+
+  for (let pass = 0; pass < MAX_TIDY; pass++) {
+    const read = scope.division !== 'IA'
+      ? await quota.readSheetFor(scope.cfg)
+      : await quota.readSheet();
+    if (!read) return { ok: false, error: 'The quota sheet is not readable.', moved, skipped };
+    const { sheets, spreadsheetId, sheetName, rows, cols } = read;
+
+    const strays = strayMembers(rows, cols)
+      // Anything we have already tried is not tried again, or a move that silently
+      // does nothing becomes an endless loop.
+      .filter(s => !moved.some(m => m.username === s.username)
+                && !skipped.some(k => k.username === s.username));
+    if (!strays.length) break;
+
+    const s = strays[0];
+    const from = s.row - 1;                 // 0-based
+    const to = s.shouldBeRow - 1;           // 0-based, where it should start
+    if (!(to < from)) {
+      skipped.push({ ...s, why: 'its block is below it, and this only moves rows up' });
+      continue;
+    }
+    if (dry) { moved.push({ ...s, to: s.shouldBeRow }); continue; }
+
+    try {
+      const { sheetId } = await sheetMetaFor(sheets, spreadsheetId, sheetName);
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests: [{
+          moveDimension: {
+            source: { sheetId, dimension: 'ROWS', startIndex: from, endIndex: from + 1 },
+            destinationIndex: to,
+          },
+        }] },
+      });
+
+      // Did it land? Same reasoning as the placement read-back: a request that is
+      // accepted and does nothing must not be reported as a move.
+      const check = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${sheetName}!${quota.colLetter(cols.username)}${to + 1}`,
+        valueRenderOption: 'FORMATTED_VALUE',
+      }).catch(() => null);
+      const landed = check && quota.normName((((check.data.values || [])[0] || [])[0]))
+        === quota.normName(s.username);
+      if (!landed) {
+        skipped.push({ ...s, why: 'the move was accepted but the row is not there afterwards — '
+          + 'the service account may not be allowed to change the sheet\'s structure' });
+        break;   // it will not work for the next one either
+      }
+      moved.push({ ...s, to: s.shouldBeRow });
+    } catch (err) {
+      errors.push(`${s.username}: ${err.message}`);
+      break;
+    }
+  }
+
+  if (moved.length && !dry) {
+    console.log(`[MetDB] ${scope.division} database — moved ${moved.length} stray row(s) `
+      + `into place${actor && actor.name ? ` for ${actor.name}` : ''}`);
+  }
+  return { ok: !errors.length, dryRun: dry, moved, skipped, errors };
 }
 
 // The most this will add in one press. A selection is deliberate, so this is a
@@ -1241,6 +1393,7 @@ module.exports = {
   planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor,
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
+  strayMembers, tidyStrayRows,
   memberRow, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
   sheetMetaFor, mergedColumnsAt, columnRuns, verifyPlacement,
 };
