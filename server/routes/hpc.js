@@ -26,17 +26,62 @@ async function acceptPassedCadetIntoMet(s, req) {
     const cookie = rlib.cookieForDivision('MET');
     if (!gid || !cookie) return { ok: false, reason: 'MET group / cookie not configured' };
 
-    // Resolve the cadet's Roblox id (submission stores only the username).
-    let robloxId = null;
-    if (s.userId) {
-      const u = await prisma.user.findUnique({ where: { id: s.userId }, select: { robloxId: true } }).catch(() => null);
-      robloxId = u && u.robloxId ? String(u.robloxId) : null;
+    // Whose account this acts on — and it must be an identity the cadet PROVED,
+    // never one they typed.
+    //
+    // This used to fall back to `getRobloxIdFromUsername(s.robloxUsername)`, and
+    // that username is a free-text box the cadet fills in on the exam page. So a
+    // cadet could type somebody else's Roblox username, pass the exam, and have the
+    // bot approve THAT person's pending join request and rank them Community
+    // Support Officer. The only thing standing in the way was needing the victim to
+    // have a join request open, which every applicant does.
+    //
+    // The fallback was also unnecessary: a submission always carries userId and
+    // discordId (both non-null in the schema, with a real relation on userId), so
+    // there is always a verified identity to work from. Two sources, both proved:
+    //
+    //   1. the linked site account's robloxId — set at login through OAuth, and
+    //   2. RoVer's answer for the submitter's own Discord id.
+    //
+    // If neither can answer, this REFUSES and says so. A cadet accepted by hand is
+    // a minute of somebody's time; the wrong account ranked into the MET group is a
+    // security incident.
+    let robloxId = null, via = null;
+    const u = await prisma.user.findUnique({
+      where: { id: s.userId }, select: { robloxId: true, robloxUsername: true },
+    }).catch(() => null);
+    if (u && u.robloxId) { robloxId = String(u.robloxId); via = 'their linked account'; }
+    if (!robloxId && s.discordId) {
+      const fromRover = await rlib.getRobloxIdFromDiscord(String(s.discordId)).catch(() => null);
+      // RoVer answers with an id, or with an array of them for a multi-link setup.
+      const first = Array.isArray(fromRover) ? fromRover[0] : fromRover;
+      if (first) { robloxId = String(first); via = 'RoVer'; }
     }
-    if (!robloxId && s.robloxUsername) {
-      const r = await rlib.getRobloxIdFromUsername(s.robloxUsername).catch(() => null);
-      robloxId = r && r.id ? String(r.id) : null;
+    if (!robloxId) {
+      return { ok: false, reason: 'the cadet has no verified Roblox account — '
+        + 'their site account is not linked and RoVer does not know them, so accept them by hand' };
     }
-    if (!robloxId) return { ok: false, reason: 'could not resolve Roblox id' };
+
+    // The typed name disagreeing with the verified one is worth saying out loud. It
+    // is usually a typo, and it is exactly what an attempt to redirect a pass looks
+    // like — either way the person marking it should be told rather than have it
+    // silently corrected.
+    let typedMismatch = null;
+    if (s.robloxUsername) {
+      const typed = String(s.robloxUsername).trim().toLowerCase();
+      const known = String((u && u.robloxUsername) || '').trim().toLowerCase();
+      if (known && typed && typed !== known) typedMismatch = { typed: s.robloxUsername, actual: u.robloxUsername };
+      else if (!known) {
+        const check = await rlib.getRobloxUserInfo(robloxId).catch(() => null);
+        const real = String((check && check.username) || '').trim().toLowerCase();
+        if (real && typed && typed !== real) typedMismatch = { typed: s.robloxUsername, actual: check.username };
+      }
+      if (typedMismatch) {
+        console.warn(`[HPC] cadet ${s.discordUsername || s.discordId} typed Roblox username `
+          + `"${typedMismatch.typed}" but their verified account is "${typedMismatch.actual}" — `
+          + 'acting on the verified one.');
+      }
+    }
 
     // Find the Community Support Officer role (env override, else by name, else
     // the lowest member rank — roles come back sorted rank ASC, Guest = rank 0).
@@ -66,14 +111,19 @@ async function acceptPassedCadetIntoMet(s, req) {
     let ranked = false;
     if (csoRoleId) ranked = await rlib.changeGroupRank(robloxId, csoRoleId, gid, cookie).then(() => true).catch(() => false);
 
+    // The audit trail names the account that was actually acted on and how it was
+    // established — not the name the cadet typed, which is the whole point.
+    const acted = (u && u.robloxUsername) || (typedMismatch && typedMismatch.actual) || robloxId;
     audit.log(req && req.user, {
       category: 'GROUP', action: ranked ? 'RANK_CHANGE' : 'GROUP_JOIN_APPROVED', division: 'MET',
-      target: { type: 'roblox_user', id: robloxId, name: s.robloxUsername },
-      summary: ranked
-        ? `Accepted ${s.robloxUsername || robloxId} into the MET group as Community Support Officer (passed final exam)`
-        : `Approved ${s.robloxUsername || robloxId}'s MET group join request (passed final exam) — CSO rank not applied`,
+      target: { type: 'roblox_user', id: robloxId, name: acted },
+      summary: (ranked
+        ? `Accepted ${acted} into the MET group as Community Support Officer (passed final exam)`
+        : `Approved ${acted}'s MET group join request (passed final exam) — CSO rank not applied`)
+        + ` — identity from ${via}`
+        + (typedMismatch ? `; they had typed "${typedMismatch.typed}" on the exam, which was NOT used` : ''),
     });
-    return { ok: true, ranked, robloxId, csoRoleId };
+    return { ok: true, ranked, robloxId, csoRoleId, via, typedMismatch };
   } catch (e) {
     console.warn('[HPC] acceptPassedCadetIntoMet failed:', e.message);
     return { ok: false, reason: e.message };
@@ -301,8 +351,26 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
     }).catch(() => {});
 
     // On a pass, accept the cadet into the MET group as CSO (best-effort, only if
-    // they have a pending join request). Fire-and-forget so the mark returns fast.
-    if (passed) acceptPassedCadetIntoMet(s, req).catch(() => {});
+    // they have a pending join request). Fire-and-forget so the mark returns fast —
+    // but NOT silent. A refusal used to leave nothing but a console line, so a cadet
+    // who passed and was never actually accepted looked identical to one who was,
+    // and the first anybody knew was them asking why they had no rank. Now every
+    // outcome lands in the audit trail, with the reason and what to do about it.
+    if (passed) {
+      acceptPassedCadetIntoMet(s, req)
+        .then((r) => {
+          if (r && r.ok) return;
+          audit.record({
+            req, action: 'EXAM_PASS_NOT_ACCEPTED', category: 'exam',
+            targetType: 'submission', targetId: s.id,
+            summary: `${s.discordUsername || s.robloxUsername || 'A cadet'} passed the final exam but was `
+                   + `NOT accepted into the MET group — ${(r && r.reason) || 'unknown reason'}. `
+                   + `Accept them by hand.`,
+            metadata: { reason: (r && r.reason) || null },
+          });
+        })
+        .catch(() => {});
+    }
 
     audit.record({
       req, action: 'EXAM_MARK', category: 'exam', targetType: 'submission', targetId: s.id,
@@ -667,4 +735,9 @@ router.get('/analytics', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to load analytics' }); }
 });
 
+// Exposed for tests. This function decides which Roblox account gets ranked into
+// the MET group off the back of an exam pass, and it used to take that from a
+// free-text box the cadet filled in — so it is worth being able to prove, directly,
+// that a typed username can no longer drive it.
 module.exports = router;
+module.exports.__acceptPassedCadetIntoMet = acceptPassedCadetIntoMet;
