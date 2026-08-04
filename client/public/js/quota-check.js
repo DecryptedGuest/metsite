@@ -104,7 +104,7 @@ function renderMissing(out) {
     return;
   }
   if (!missing.length) {
-    box.innerHTML = strayBlock(out) + ceilingNote(out)
+    box.innerHTML = misalignedBlock(out) + strayBlock(out) + ceilingNote(out)
       + '<div class="metdb-applied"><i class="ti ti-check"></i> Everybody in the '
       + escapeHtml(out.group || metDbName()) + ' group has a row. '
       + escapeHtml(String(out.groupSize || 0)) + ' in the group, '
@@ -112,7 +112,7 @@ function renderMissing(out) {
     return;
   }
   var probs = missing.filter(function (m) { return m.probationary; }).length;
-  box.innerHTML = strayBlock(out) + ceilingNote(out)
+  box.innerHTML = misalignedBlock(out) + strayBlock(out) + ceilingNote(out)
     + '<div class="miss-head">'
     + '<strong>' + missing.length + '</strong> in the group with no row'
     + (probs ? ' · <strong>' + probs + '</strong> probationary' : '')
@@ -157,6 +157,41 @@ function ceilingNote(out) {
 }
 
 /**
+ * Rows an older version of this wrote into the wrong columns.
+ *
+ * They are the wreckage at the bottom of the sheet: names and ranks a column or
+ * two to the right of where they belong, in a block of empty bordered cells that
+ * came from whatever the rows below the table happened to look like. Nothing here
+ * offers to fix them, because "which columns did it mean" is a guess and moving
+ * somebody's row sideways on a guess is worse than leaving it — so it says exactly
+ * which rows to delete, and a person deletes them.
+ */
+function misalignedBlock(out) {
+  var bad = (out && out.misaligned) || [];
+  if (!bad.length) return '';
+  var rowsList = bad.map(function (b) { return b.row; });
+  return '<div class="metdb-error" style="margin-bottom:.8rem;">'
+    + '<i class="ti ti-trash-x"></i> <strong>' + bad.length + '</strong> leftover row'
+    + (bad.length === 1 ? '' : 's') + ' at the bottom of the sheet, written into the wrong columns'
+    + '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
+    + 'These were left by an older version of this tool, which appended rows and let Google '
+    + 'decide which column to start at — so every field landed '
+    + escapeHtml(String(bad[0].offset)) + ' column'
+    + (bad[0].offset === 1 ? '' : 's') + ' to the right, inside the notes under the table. '
+    + 'They are not real rows and nothing reads them. <strong>Delete rows '
+    + escapeHtml(rowsList.join(', ')) + '</strong> on the sheet — select them by their row '
+    + 'numbers, right-click, Delete rows. Nothing here will touch them, because which columns '
+    + 'they were meant for is a guess.</div>'
+    + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+    + bad.slice(0, 20).map(function (b) {
+        return 'row ' + escapeHtml(String(b.row)) + ' — <span class="mono">'
+          + escapeHtml(b.username) + '</span>' + (b.rank ? ' (' + escapeHtml(b.rank) + ')' : '');
+      }).join('<br>')
+    + (bad.length > 20 ? '<br>and ' + (bad.length - 20) + ' more' : '')
+    + '</div></div>';
+}
+
+/**
  * Rows that exist but are nowhere anybody looks.
  *
  * This is the block that explains the confusing case: somebody who is plainly not
@@ -168,25 +203,48 @@ function ceilingNote(out) {
 function strayBlock(out) {
   var stray = (out && out.stray) || [];
   if (!stray.length) return '';
-  return '<div class="metdb-error" style="margin-bottom:.8rem;">'
+  // Two different faults arrive in one list. Say which is which, because the
+  // explanation for each is different and only one of them makes somebody
+  // invisible in the list below.
+  var order = stray.filter(function (s) { return !!s.why; });
+  var loose = stray.filter(function (s) { return !s.why; });
+  var html = '<div class="metdb-error" style="margin-bottom:.8rem;">'
     + '<i class="ti ti-alert-triangle"></i> <strong>' + stray.length + '</strong> row'
-    + (stray.length === 1 ? '' : 's') + ' on the sheet, but not in the right section'
-    + '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
-    + 'These were <em>appended</em> to the bottom of the sheet rather than inserted, which is what '
-    + 'happens when the sheet will not accept a row being inserted. They still count as having a row, '
-    + 'so these people stop appearing in the list below even though nobody can see them on the '
-    + 'database.</div>'
-    + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
-    + stray.map(function (s) {
-        return '<span class="mono">' + escapeHtml(s.username) + '</span> — row '
-          + escapeHtml(String(s.row))
-          + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
-          + ', belongs at row ' + escapeHtml(String(s.shouldBeRow));
-      }).join('<br>')
-    + '</div>'
+    + (stray.length === 1 ? '' : 's') + ' in the wrong place on the sheet';
+  if (loose.length) {
+    html += '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
+      + '<strong>' + loose.length + '</strong> outside ' + (loose.length === 1 ? 'its' : 'their')
+      + ' rank section — written below everything else rather than inserted, which is what happens '
+      + 'when the sheet will not accept a row being inserted. They still count as having a row, so '
+      + 'these people stop appearing in the list below even though nobody can see them on the '
+      + 'database.</div>'
+      + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+      + loose.map(function (s) {
+          return '<span class="mono">' + escapeHtml(s.username) + '</span> — row '
+            + escapeHtml(String(s.row))
+            + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
+            + ', belongs at row ' + escapeHtml(String(s.shouldBeRow));
+        }).join('<br>')
+      + '</div>';
+  }
+  if (order.length) {
+    html += '<div style="font-size:12px;line-height:1.8;margin-top:.55rem;color:var(--text-secondary);">'
+      + '<strong>' + order.length + '</strong> in the right section but the wrong order. Everyone '
+      + 'still waiting to be trained belongs at the bottom of their rank, so the line between '
+      + 'trained and waiting can be read at a glance.</div>'
+      + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+      + order.map(function (s) {
+          return '<span class="mono">' + escapeHtml(s.username) + '</span> — row '
+            + escapeHtml(String(s.row))
+            + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
+            + ', belongs at row ' + escapeHtml(String(s.shouldBeRow))
+            + ' (above the ones still waiting)';
+        }).join('<br>')
+      + '</div>';
+  }
+  return html
     + '<button type="button" class="btn btn-primary btn-sm" id="btn-miss-tidy" '
-    + 'style="margin-top:.7rem;"><i class="ti ti-arrows-sort"></i> Move '
-    + (stray.length === 1 ? 'it' : 'them') + ' into place</button>'
+    + 'style="margin-top:.7rem;"><i class="ti ti-arrows-sort"></i> Tidy the rows</button>'
     + '</div>';
 }
 

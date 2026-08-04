@@ -566,7 +566,15 @@ async function missingMembers(division) {
     // them. Reported here because they are the reason somebody who is plainly
     // absent from the database stops being offered: they DO have a row, just not
     // one in their rank's section, so "already on the sheet" was true and useless.
-    stray: strayMembers(sheet.rows, sheet.cols),
+    stray: strayMembers(sheet.rows, sheet.cols)
+      // Rows in their block but in the wrong order within it: somebody trained
+      // sitting under somebody of the same rank who is still waiting. Reported
+      // alongside the strays because the same button fixes both.
+      .concat(wtbtOutOfOrder(sheet.rows, sheet.cols)),
+    // Rows an older version of the append fallback wrote into the wrong columns.
+    // Reported, never touched: which columns were meant is a guess, and these have
+    // to be deleted by a person.
+    misaligned: misalignedRows(sheet.rows, sheet.cols),
     groupSize: all.length,
     sheetRows: roster.length,
     division:  scope.division,
@@ -722,7 +730,11 @@ async function tidyStrayRows(division, actor, opts = {}) {
     if (!read) return { ok: false, error: 'The quota sheet is not readable.', moved, skipped };
     const { sheets, spreadsheetId, sheetName, rows, cols } = read;
 
-    const strays = strayMembers(rows, cols)
+    // Rows outside their block first, then rows inside it but in the wrong order.
+    // In that order because moving a stray row INTO a block changes what "in the
+    // wrong order" means for that block, and the other way round would have to be
+    // redone.
+    const strays = strayMembers(rows, cols).concat(wtbtOutOfOrder(rows, cols))
       // Anything we have already tried is not tried again, or a move that silently
       // does nothing becomes an endless loop.
       .filter(s => !moved.some(m => m.username === s.username)
@@ -791,6 +803,17 @@ function isProbationary(roleName) {
 // own column is read by people and by formulas, and "TRUE" is what a checkbox
 // column contains.
 function wtbtCell(on) { return on ? 'TRUE' : 'FALSE'; }
+
+// Reading one back. A checkbox column comes back as "TRUE"/"FALSE", but the same
+// column filled in by hand holds ticks, "yes", "y", "wtbt" or a 1 — and a column
+// somebody has not touched holds nothing. Only an affirmative counts as waiting;
+// anything unrecognised is read as trained, which is the direction that leaves a
+// row where it already is rather than moving it on a guess.
+const WTBT_YES = /^(?:true|yes|y|✓|✔|x|wtbt|waiting|1)$/i;
+function isWtbtRow(cols, row) {
+  if (!row || cols.wtbt == null) return false;
+  return WTBT_YES.test(String(row[cols.wtbt] == null ? '' : row[cols.wtbt]).trim());
+}
 
 /**
  * Add exactly the people who were picked.
@@ -986,10 +1009,12 @@ async function appendRows(rows, scope) {
       // sheet — in the wrong section, which is a tidy-up rather than a loss.
       console.warn('[MetDB] could not place the rows by rank, appending instead:', err.message);
       try {
-        await appendToSheet(sheets, spreadsheetId, sheetName, wanted.map(r => memberRow(r, cols)));
+        const at = await appendToSheet(sheets, spreadsheetId, sheetName, wanted, cols, existing);
         errors.push('Could not put them in their rank sections (' + err.message
-          + '), so they were added at the end of the sheet instead.');
-        placed = wanted.map(r => ({ username: r.username, rank: r.rank || null, row: null, under: null }));
+          + `), so they were written below everything else, on row${at.length === 1 ? '' : 's'} `
+          + at.join(', ') + '. Use "Tidy the rows" to move them into their block.');
+        placed = wanted.map((r, i) => ({ username: r.username, rank: r.rank || null,
+                                         row: at[i] || null, under: null, appended: true }));
       } catch (err2) {
         return { ok: false, via: 'sheets', added: 0, alreadyThere, sheetName,
                  errors: errors.concat(err2.message) };
@@ -1081,6 +1106,23 @@ function mergedColumnsAt(merges, rowIndex, width) {
   return out;
 }
 
+/**
+ * The columns the member table occupies, as [start, end).
+ *
+ * From the columns the header row was found in — first to last, inclusive of
+ * everything between them, because a table's borders and fills belong to the
+ * whole run and not only to the cells this code writes into. Nothing outside it
+ * is ever touched: the notes, the point system and the gold frame around the
+ * table all live in columns this deliberately does not reach.
+ */
+function tableSpan(cols) {
+  const idx = [cols.username, cols.rank, cols.discordId, cols.wtbt]
+    .concat(Object.values(cols.days || {}))
+    .filter(c => c != null).map(Number).filter(Number.isFinite);
+  if (!idx.length) return null;
+  return { start: Math.min(...idx), end: Math.max(...idx) + 1 };
+}
+
 /** Sorted column indices as contiguous [start, end) runs, so N columns side by
  *  side become one paste instead of N. */
 function columnRuns(columns) {
@@ -1106,16 +1148,116 @@ function columnRuns(columns) {
  *          that does not exist ought to go is worse than putting the row
  *          somewhere obvious.
  */
-function rankBlockEnd(existing, cols, rank) {
+function rankBlockEnd(existing, cols, rank, opts = {}) {
   if (cols.rank == null) return null;
   const want = rankKey(rank);
   if (!want) return null;
-  let last = null;
+  const idx = [];
   for (let i = 0; i < existing.length; i++) {
     if (!isMemberRow(cols, existing[i])) continue;
-    if (rankKey(existing[i][cols.rank]) === want) last = i;
+    if (rankKey(existing[i][cols.rank]) === want) idx.push(i);
   }
-  return last == null ? null : last + 1;
+  if (!idx.length) return null;
+  const last = idx[idx.length - 1];
+  // Somebody who has already been trained goes ABOVE the people still waiting
+  // for their session. The waiting ones are the bottom of the block by
+  // convention — that is how the sheet is read at a glance, "everyone under this
+  // line still needs training" — and appending a trained officer under them
+  // breaks the only thing that ordering was carrying.
+  if (opts.beforeWtbt && cols.wtbt != null) {
+    let cut = idx.length;
+    while (cut > 0 && isWtbtRow(cols, existing[idx[cut - 1]])) cut--;
+    if (cut < idx.length) return idx[cut];
+  }
+  return last + 1;
+}
+
+/**
+ * Rows the old append fallback wrote one or more columns to the RIGHT of where
+ * they belong.
+ *
+ * values.append writes from the first column of whatever table Sheets decides it
+ * found, not from column A — so a row array built with the username at index 3
+ * landed it in column E on a sheet whose content starts at column B, and every
+ * other field went with it. The result is a row that looks like a member to a
+ * person reading it and like an empty row to every piece of code here, sitting
+ * below the table with the notes block's borders around it.
+ *
+ * They cannot be tidied into place: nothing here can be sure which columns were
+ * meant, and shifting somebody's row sideways on a guess is worse than leaving it.
+ * So they are found and named, precisely, and a person deletes them.
+ *
+ * The signature is exact rather than fuzzy: at the same offset, a non-empty
+ * username cell AND a rank cell holding a rank the sheet actually uses. A note
+ * that happens to sit under the table does not match it.
+ *
+ * @returns {Array<{row, username, rank, offset}>} 1-based rows
+ */
+function misalignedRows(rows, cols) {
+  if (!rows || !rows.length || cols.username == null || cols.rank == null) return [];
+  const known = new Set();
+  for (const r of rows) {
+    if (!isMemberRow(cols, r)) continue;
+    const k = rankKey(r[cols.rank]);
+    if (k) known.add(k);
+  }
+  if (!known.size) return [];
+
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || isMemberRow(cols, row)) continue;
+    for (let k = 1; k <= 8; k++) {
+      const name = String(row[cols.username + k] == null ? '' : row[cols.username + k]).trim();
+      const rank = String(row[cols.rank + k] == null ? '' : row[cols.rank + k]).trim();
+      if (!name || !rank || !known.has(rankKey(rank))) continue;
+      out.push({ row: i + 1, username: name, rank, offset: k });
+      break;
+    }
+  }
+  return out;
+}
+
+/**
+ * Trained members sitting underneath somebody of the same rank who is still
+ * waiting to be trained.
+ *
+ * Same shape as strayMembers, so the tidy pass can treat both the same way, and
+ * deliberately phrased as "the trained row is in the wrong place" rather than
+ * "the waiting row is": moving a row UP is the one direction moveDimension is
+ * used in here, and lifting the trained row above the waiting ones puts the
+ * block in order in exactly one move either way.
+ *
+ * @returns {Array<{username, row, rank, shouldBeRow, why}>} 1-based rows
+ */
+function wtbtOutOfOrder(rows, cols) {
+  if (!rows || !rows.length || cols.username == null || cols.wtbt == null) return [];
+  const byRank = new Map();
+  for (let i = 0; i < rows.length; i++) {
+    if (!isMemberRow(cols, rows[i])) continue;
+    const key = cols.rank != null ? rankKey(rows[i][cols.rank]) : '';
+    if (!byRank.has(key)) byRank.set(key, []);
+    byRank.get(key).push(i);
+  }
+
+  const out = [];
+  for (const idx of byRank.values()) {
+    const firstWaiting = idx.find(i => isWtbtRow(cols, rows[i]));
+    if (firstWaiting == null) continue;
+    for (const i of idx) {
+      if (i <= firstWaiting || isWtbtRow(cols, rows[i])) continue;
+      out.push({
+        username: String(rows[i][cols.username] || '').trim(),
+        row: i + 1,
+        rank: cols.rank != null ? String(rows[i][cols.rank] || '').trim() : '',
+        rankKey: cols.rank != null ? rankKey(rows[i][cols.rank]) : '',
+        // Straight above the first person of that rank who is still waiting.
+        shouldBeRow: firstWaiting + 1,
+        why: 'trained, but sitting below somebody of the same rank who is still waiting to be trained',
+      });
+    }
+  }
+  return out.sort((a, b) => a.row - b.row);
 }
 
 /** A rank name reduced to something two spellings of it can agree on. */
@@ -1148,12 +1290,22 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
   const warnings = [];
 
   // Group by where they go, so several people of one rank become one insert.
-  const groups = new Map();   // originalIndex → { at, rows[], byRank }
+  //
+  // Somebody still waiting to be trained goes at the very bottom of their rank's
+  // block; somebody already trained goes above everyone of that rank who is
+  // waiting. Those are two different insertion points in the same block, so they
+  // become two groups — and within a group the trained ones are written first,
+  // for the case where the block has no waiting rows yet and both land at the
+  // same point.
+  const groups = new Map();   // insertion index → { at, rows[], grouped }
   for (const r of rows) {
-    const at = rankBlockEnd(existing, cols, r.rank);
+    const at = rankBlockEnd(existing, cols, r.rank, { beforeWtbt: !r.wtbt });
     const key = at == null ? endOfData : at;
     if (!groups.has(key)) groups.set(key, { at: key, rows: [], grouped: at != null });
     groups.get(key).rows.push(r);
+  }
+  for (const g of groups.values()) {
+    g.rows.sort((a, b) => (a.wtbt ? 1 : 0) - (b.wtbt ? 1 : 0));
   }
 
   // Ascending, to work out where each group ENDS UP once the groups above it have
@@ -1207,15 +1359,63 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
     }
   }
 
-  // 2. The formulas, separately and best-effort, one paste per contiguous run of
+  // 2a. The formatting, explicitly.
+  //
+  //     insertDimension's inheritFromBefore is supposed to cover this, and mostly
+  //     does — but a border drawn as the EDGE of a range is a property of that
+  //     range, not of the row inside it, so a row inserted at the end of a bordered
+  //     block lands outside the block's bottom edge and comes out with no border on
+  //     it. That is exactly what the last three rows looked like: right section,
+  //     right values, no gridlines.
+  //
+  //     So the neighbour row's format is pasted over the new rows across the
+  //     table's own columns. It cannot make things worse — the answer it produces
+  //     is "identical to the row above", which is the whole requirement — and it is
+  //     best-effort, so a refusal costs formatting and not the placement.
+  const span = tableSpan(cols);
+  const formats = [];
+  const copies = [];
+  const skipped = new Set();
+  if (span) {
+    for (const g of ordered) {
+      if (g.at <= 0) continue;
+      const blocked = mergedCols.get(g.at) || new Set();
+      const cells = [];
+      for (let c = span.start; c < span.end; c++) if (!blocked.has(c)) cells.push(c);
+      for (const run of columnRuns(cells)) {
+        formats.push({
+          copyPaste: {
+            source: { sheetId, startRowIndex: g.finalAt - 1, endRowIndex: g.finalAt,
+                      startColumnIndex: run.start, endColumnIndex: run.end },
+            destination: { sheetId, startRowIndex: g.finalAt, endRowIndex: g.finalAt + g.rows.length,
+                           startColumnIndex: run.start, endColumnIndex: run.end },
+            pasteType: 'PASTE_FORMAT',
+            pasteOrientation: 'NORMAL',
+          },
+        });
+      }
+    }
+  }
+  // Its own batch, not folded in with the formulas below. A batch is all-or-
+  // nothing, and the formatting is the less important of the two: sharing a batch
+  // would mean a border that could not be pasted also cost the row its =SUM().
+  if (formats.length) {
+    try {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: formats } });
+    } catch (err) {
+      console.warn('[MetDB] could not copy the formatting onto the new rows:', err.message);
+      warnings.push('The rows are in the right sections, but the borders and colours of the row '
+        + `above could not be copied onto them (${err.message}).`);
+    }
+  }
+
+  // 2b. The formulas, separately and best-effort, one paste per contiguous run of
   //    formula columns. Narrow ranges rather than the whole row, because a paste
   //    that touches a merged cell is refused outright — and by now the rows are
   //    already where they belong, so a refusal costs a few blank formula cells
   //    instead of the placement.
   //
   //    These address the sheet AFTER the inserts, hence finalAt.
-  const copies = [];
-  const skipped = new Set();
   for (const g of ordered) {
     if (g.at <= 0) continue;                       // nothing above to copy from
     const blocked = mergedCols.get(g.at) || new Set();
@@ -1393,9 +1593,8 @@ async function formulaColumnsOf(sheets, spreadsheetId, sheetName, groups, width)
 /**
  * One member as a whole row, positioned by the sheet's own column indices.
  *
- * A whole row rather than a set of cells, because appending is what grows the
- * sheet and appending takes rows. Columns this does not know about are left
- * empty, which for a brand-new row is the same as not writing them.
+ * Index 0 of the array is column A. That is only true if whoever writes it says
+ * so, which is why nothing appends this any more — see appendToSheet.
  */
 function memberRow(r, cols) {
   const idx = [cols.username, cols.rank, cols.discordId, cols.wtbt]
@@ -1417,29 +1616,77 @@ function memberRow(r, cols) {
   return row;
 }
 
+/** One member as a list of explicit A1 cell writes. */
+function memberWrites(sheetName, rowNumber, r, cols) {
+  const out = [];
+  const cell = (col, value) => {
+    if (col == null) return;
+    out.push({ range: `${sheetName}!${quota.colLetter(col)}${rowNumber}`, values: [[value]] });
+  };
+  cell(cols.username, r.username);
+  cell(cols.rank, r.rank || '');
+  cell(cols.discordId, r.discordId || '');
+  if (r.wtbt) cell(cols.wtbt, wtbtCell(true));
+  for (const d of Object.values(cols.days || {})) cell(d, 0);
+  return out;
+}
+
 /**
- * Append rows to the end of a sheet, growing it if it needs to.
+ * The recovery path: put the rows on the sheet SOMEWHERE, below everything, when
+ * placing them in their rank's section did not work.
  *
- * This is the whole reason it is `append` and not `batchUpdate`. batchUpdate
- * writes into cells that already exist and refuses anything past the last one:
- * a tab whose grid ends at row 36 answers "Range (Staff!D37) exceeds grid
- * limits" and the entire write fails. Every new member hit that the moment a
- * sheet had no spare rows left, which is the normal state of a sheet somebody
- * has tidied.
+ * This used to be `values.append` over the whole sheet, and that is what wrecked
+ * the bottom of the IA database. Two things about append made it a bad choice
+ * here, and neither is obvious from the name:
  *
- * insertDataOption INSERT_ROWS is what adds the rows rather than overwriting
- * whatever happens to sit below the table.
+ *   * the values are written starting at the first column of whatever TABLE
+ *     Sheets decides it found — not at column A. The IA sheet's content starts at
+ *     column B, so an array built with the username at index 3 (column D) landed
+ *     it in column E, and every other field was one column out with it.
+ *   * INSERT_ROWS inserts at the end of that same guessed table. On a sheet with a
+ *     notes block under the roster, "the end of the table" was the middle of the
+ *     notes — so three rows went in there, inheriting the notes box's borders, and
+ *     produced an empty bordered grid with names dangling off the side of it.
+ *
+ * So: explicit rows, explicit A1 cell ranges, below every row the sheet currently
+ * holds. Untidy on purpose and honest about it — the row is on the sheet, the
+ * missing-members list stops offering the person, and the tidy pass can move it
+ * into its block afterwards, which is exactly what strayMembers exists to find.
+ *
+ * @param {object[]} rows [{ username, rank, discordId, wtbt }]
+ * @returns {Promise<number[]>} the 1-based rows written
  */
-async function appendToSheet(sheets, spreadsheetId, sheetName, values) {
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    // The whole sheet, so Sheets finds the real end of the data rather than the
-    // end of a range we guessed at.
-    range: sheetName,
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values },
+async function appendToSheet(sheets, spreadsheetId, sheetName, rows, cols, existing) {
+  if (!rows.length) return [];
+  if (cols.username == null) throw new Error('the sheet has no username column to write into');
+  // Below EVERYTHING. values.get trims trailing empty rows, so existing.length is
+  // the last row with anything on it anywhere in the read range.
+  const firstRow = (existing ? existing.length : 0) + 1;      // 1-based
+  const lastRow  = firstRow + rows.length - 1;
+
+  // The grid has to be that tall before a cell in it can be addressed: a write
+  // past the last row is refused with "exceeds grid limits", and it takes the
+  // whole batch with it.
+  const meta = await sheetMetaFor(sheets, spreadsheetId, sheetName).catch(() => null);
+  if (meta && meta.rowCount != null && meta.rowCount < lastRow) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{
+        appendDimension: { sheetId: meta.sheetId, dimension: 'ROWS', length: lastRow - meta.rowCount },
+      }] },
+    });
+  }
+
+  const data = [];
+  const written = [];
+  rows.forEach((r, i) => {
+    data.push(...memberWrites(sheetName, firstRow + i, r, cols));
+    written.push(firstRow + i);
   });
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data },
+  });
+  return written;
 }
 
 // ── Optional daily worker ─────────────────────────────────────────
@@ -1454,8 +1701,8 @@ function startMetDatabaseWorker() {
 module.exports = {
   planSync, applySync, syncMetDatabase, readRoster, readGroupMembers, scopeFor,
   startMetDatabaseWorker,
-  missingMembers, addMembers, appendRows, isProbationary, wtbtCell, MAX_PICK,
-  strayMembers, tidyStrayRows, rankCeiling, isAboveCeiling, NEVER_MEMBERS,
-  memberRow, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
-  sheetMetaFor, mergedColumnsAt, columnRuns, verifyPlacement,
+  missingMembers, addMembers, appendRows, isProbationary, wtbtCell, isWtbtRow, MAX_PICK,
+  strayMembers, wtbtOutOfOrder, misalignedRows, tidyStrayRows, rankCeiling, isAboveCeiling, NEVER_MEMBERS,
+  memberRow, memberWrites, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
+  sheetMetaFor, mergedColumnsAt, columnRuns, tableSpan, verifyPlacement,
 };
