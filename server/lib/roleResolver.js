@@ -218,8 +218,13 @@ function applyPanelGrants(divisions, panelGrant) {
 //   - CID/SCO19/FLP/HPC: from each division's Roblox group rank.
 // A developer (by id or DEVELOPER site role) gets LEAD in every division.
 // Developer-set `panelGrant` tokens are merged in additively at the end.
-async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null, metRankOverride = null, panelGrant = null }) {
+async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = null, metRankOverride = null, panelGrant = null, diag = null }) {
   const { resolveGroupDivisions } = require('./divisions');
+  // `diag.degraded` means: something this needed could not be READ, so an absent
+  // division here is not evidence that the member has left it. Anything that
+  // persists the result must check it — see accessControl.stampDivisions.
+  const d = diag || {};
+  d.degraded = false; d.robloxResolved = false;
 
   const isDeveloper = discordId === getDeveloperDiscordId() || siteRole === 'DEVELOPER';
   if (isDeveloper) {
@@ -252,11 +257,19 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
       rId = await getRobloxIdFromDiscord(discordId);
     } catch (e) { rId = null; }
   }
+  // No Roblox id is not proof of no divisions — it is far more often RoVer being
+  // unreachable or rate-limited. Every group division hangs off this one value.
+  if (!rId) d.degraded = true;
+  d.robloxResolved = !!rId;
   if (rId) {
     try {
-      const groupDivs = await resolveGroupDivisions(rId);
+      const gd = {};
+      const groupDivs = await resolveGroupDivisions(rId, gd);
       divisions.push(...groupDivs);
-    } catch (e) { /* Roblox unreachable → no group divisions this pass */ }
+      // Any group we could not ask about leaves this pass unable to say whether
+      // they are in it.
+      if (gd.failed > 0) d.degraded = true;
+    } catch (e) { d.degraded = true; }
 
     // Show the member's ACTUAL IA group rank name (e.g. "Senior Investigator")
     // instead of the coarse site role. Permissions/tier still come from the site
@@ -279,7 +292,11 @@ async function resolveDivisionsForUser({ discordId, siteRole = null, robloxId = 
       const { metHicommRoleByRoblox } = require('./metRank');
       const hc = await metHicommRoleByRoblox(rId);
       if (hc) return applyPanelGrants(buildMetHicommLead(hc.name, hc.rank), panelGrant);
-    } catch (e) { /* MET lookup failed → normal divisions only this pass */ }
+    } catch (e) {
+      // Their MET rank decides whether they are High Command across every
+      // division, so failing to read it is the most consequential gap of all.
+      d.degraded = true;
+    }
   }
 
   return applyPanelGrants(divisions, panelGrant);

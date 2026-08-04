@@ -116,28 +116,49 @@ async function localDiscordIds(robloxIds) {
   return out;
 }
 
+// The most RoVer lookups one run may make.
+//
+// This is a hard ceiling, not a tuning knob. RoVer's rate limit is shared with the
+// lookup EVERY LOGIN depends on to find somebody's Roblox account — and through it
+// their divisions and their site role. An earlier version of this let a 1,100-name
+// import spend the whole budget, and the result was members logging in to find
+// their divisions gone. Importing a leaderboard is never worth that; the rest of
+// the list stays pending and is claimed later, which costs nothing.
+const MAX_ROVER_PER_RUN = () => {
+  const n = parseInt(process.env.CLANSLABS_ROVER_MAX, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 40;
+};
+
 /**
  * Ask RoVer who a Roblox account is on Discord.
  *
- * One call per account, so it is rate-limited from our side and given up on
- * entirely after a few refusals — the rest of the list simply stays pending,
- * which loses nothing. Never throws.
+ * Gives up at the FIRST rate-limit refusal rather than pressing on: by the time
+ * RoVer says no, the damage to the shared budget is already done, and every
+ * further call extends it. Never throws.
  */
 async function roverDiscordId(robloxId, state) {
   if (state.roverDead) return null;
+  if (state.roverCalls >= state.roverBudget) {
+    if (!state.roverCapped) {
+      state.roverCapped = true;
+      state.notes.push(`Stopped asking RoVer after ${state.roverCalls} lookups — its rate limit is `
+        + `shared with the one every login needs. The rest are held and will be claimed when their `
+        + `owner next logs in, is looked up with /xp, or by the sweep.`);
+    }
+    return null;
+  }
   try {
-    const members = await require('./roblox').getDiscordFromRoblox(robloxId);
     state.roverCalls++;
+    const members = await require('./roblox').getDiscordFromRoblox(robloxId);
     const first = (members || []).find(m => m && m.discordId);
     return first ? String(first.discordId) : null;
   } catch (err) {
     state.roverErrors++;
-    // A couple of failures is a bad account; a run of them is a dead API or a
-    // rate limit, and hammering it would only make it worse.
-    if (state.roverErrors >= 5) {
+    // A rate limit is not a bad account, and it is not worth one more call.
+    if (/rate.?limit|429|paused/i.test(err.message) || state.roverErrors >= 3) {
       state.roverDead = true;
-      state.notes.push(`RoVer stopped answering after ${state.roverCalls} lookups `
-        + `(${err.message}) — the rest were left pending.`);
+      state.notes.push(`Stopped asking RoVer after ${state.roverCalls} lookups (${err.message}) — `
+        + `the rest were left to be claimed later. Nothing is lost.`);
     }
     return null;
   }
@@ -175,7 +196,8 @@ async function importLeaderboard(opts = {}) {
   if (opts.limit && opts.limit > 0) rows = rows.slice(0, opts.limit);
 
   const cap = XP.maxXp();
-  const state = { roverCalls: 0, roverErrors: 0, roverDead: !useRover, notes: [] };
+  const state = { roverCalls: 0, roverErrors: 0, roverDead: !useRover, roverCapped: false,
+                  roverBudget: MAX_ROVER_PER_RUN(), notes: [] };
   const out = {
     ok: true, dryRun: dry, cap,
     parsed: parsed.lines, accounts: parsed.rows.length, considered: rows.length,
@@ -320,7 +342,8 @@ async function sweepPending(opts = {}) {
     take: limit,
   });
 
-  const state = { roverCalls: 0, roverErrors: 0, roverDead: !useRover, notes: [] };
+  const state = { roverCalls: 0, roverErrors: 0, roverDead: !useRover, roverCapped: false,
+                  roverBudget: MAX_ROVER_PER_RUN(), notes: [] };
   const out = { ok: true, dryRun: dry, looked: rows.length, resolvedIds: 0,
                 claimed: 0, raised: 0, stillWaiting: 0, failed: 0, notes: state.notes };
   if (!rows.length) return out;

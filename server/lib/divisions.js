@@ -191,15 +191,30 @@ function invalidateConfig() { configCache = { at: 0, data: null }; }
 // Given a Roblox user id, return the divisions (of the four group-backed ones)
 // the user is a member of, with their group rank. IA is NOT included here.
 //   → [{ division, rank, rankName, tier }]
-async function resolveGroupDivisions(robloxId) {
+/**
+ * @param {object} [diag] filled in with { checked, failed } — how many division
+ *        groups were asked about and how many of those lookups FAILED.
+ *
+ *        This matters more than it looks. A failed lookup and "they hold no rank
+ *        in that group" both used to come out as an absent division, so a Roblox
+ *        outage was indistinguishable from a member holding nothing — and the
+ *        callers persist the result. One rate-limited minute could therefore strip
+ *        somebody's divisions permanently. Anything that WRITES this list has to
+ *        be able to tell the two apart.
+ */
+async function resolveGroupDivisions(robloxId, diag) {
+  const d = diag || {};
+  d.checked = 0; d.failed = 0;
   if (!robloxId) return [];
   const cfg = await getDivisionConfig();
   const out = [];
   for (const division of GROUP_DIVISIONS) {
     const groupId = cfg[division] && cfg[division].groupId;
     if (!groupId) continue;
+    d.checked++;
     let role = null;
-    try { role = await getUserGroupRole(robloxId, groupId); } catch (e) { role = null; }
+    try { role = await getUserGroupRole(robloxId, groupId); }
+    catch (e) { role = null; d.failed++; }
     if (role && Number(role.rank) > 0) {
       // HPC only counts as a division site-wide for Junior Instructor and above —
       // cadets / lower HPC group ranks don't get the HPC division on the dashboard.

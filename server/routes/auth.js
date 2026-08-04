@@ -287,8 +287,22 @@ router.get('/discord/callback', async (req, res) => {
     // (resolveDivisionsForUser resolves the user's Roblox id internally).
     // Only block login entirely when the user has neither an IA system role
     // nor access to any other division.
-    const _mroA = await prisma.user.findUnique({ where: { discordId: discordUser.id }, select: { metRankOverride: true, panelGrant: true } }).catch(() => null);
-    const divisions = await resolveDivisionsForUser({ discordId: discordUser.id, siteRole: systemRole, metRankOverride: _mroA?.metRankOverride || null, panelGrant: _mroA?.panelGrant || null });
+    const _mroA = await prisma.user.findUnique({ where: { discordId: discordUser.id },
+      select: { metRankOverride: true, panelGrant: true, divisions: true } }).catch(() => null);
+    const _diagA = {};
+    let divisions = await resolveDivisionsForUser({ discordId: discordUser.id, siteRole: systemRole,
+      metRankOverride: _mroA?.metRankOverride || null, panelGrant: _mroA?.panelGrant || null, diag: _diagA });
+    // A login that could not reach Roblox or RoVer must not overwrite a good list
+    // with a short one. Signing in is the moment somebody NOTICES their divisions
+    // are gone, and it used to be the moment that made it permanent.
+    if (_diagA.degraded) {
+      const kept = Array.isArray(_mroA?.divisions) ? _mroA.divisions : [];
+      if (kept.length > divisions.length) {
+        console.warn(`[Auth] Division lookup degraded for ${discordUser.id} — keeping the `
+          + `${kept.length} stored division(s) rather than writing ${divisions.length}.`);
+        divisions = kept;
+      }
+    }
     // MET High Command counts as HICOMM dashboard-wide (incl. the IA HICOMM tools).
     systemRole = effectiveSiteRole(systemRole, divisions);
     console.log('[Auth] Divisions resolved:', divisions.map(d => `${d.division}:${d.tier}`).join(', ') || 'none');
@@ -665,8 +679,19 @@ router.get('/roblox/callback', async (req, res) => {
     }
 
     // Divisions — pass robloxId so this never re-hits RoVer.
-    const _mroB = await prisma.user.findUnique({ where: { discordId }, select: { metRankOverride: true, panelGrant: true } }).catch(() => null);
-    const divisions = await resolveDivisionsForUser({ discordId, siteRole: systemRole, robloxId, metRankOverride: _mroB?.metRankOverride || null, panelGrant: _mroB?.panelGrant || null });
+    const _mroB = await prisma.user.findUnique({ where: { discordId },
+      select: { metRankOverride: true, panelGrant: true, divisions: true } }).catch(() => null);
+    const _diagB = {};
+    let divisions = await resolveDivisionsForUser({ discordId, siteRole: systemRole, robloxId,
+      metRankOverride: _mroB?.metRankOverride || null, panelGrant: _mroB?.panelGrant || null, diag: _diagB });
+    if (_diagB.degraded) {
+      const kept = Array.isArray(_mroB?.divisions) ? _mroB.divisions : [];
+      if (kept.length > divisions.length) {
+        console.warn(`[Auth] Division lookup degraded for ${discordId} — keeping the `
+          + `${kept.length} stored division(s) rather than writing ${divisions.length}.`);
+        divisions = kept;
+      }
+    }
     // MET High Command counts as HICOMM dashboard-wide (incl. the IA HICOMM tools).
     systemRole = effectiveSiteRole(systemRole, divisions);
     // Anyone in the MET Discord (guild membership checked above) may sign in —

@@ -164,12 +164,32 @@ async function getDiscordFromRoblox(robloxUserId) {
   const apiKey  = process.env.ROVER_API_KEY;
   if (!guildId || !apiKey) return [];
 
+  // RoVer's rate limit is per key, so it is SHARED with getRobloxIdFromDiscord —
+  // and that one is what every login uses to find somebody's Roblox account, and
+  // through it their divisions. This direction is the bulk one (a leaderboard
+  // import asks it a thousand times), so ignoring the cooldown here meant a batch
+  // job could spend the whole budget and leave ordinary logins unable to resolve
+  // anybody. It throws rather than returning [] because "nobody is linked to this
+  // account" is a fact, and this is not that.
+  if (roverOnCooldown()) throw new Error('RoVer is rate-limited — paused');
+
   const url = `${ROVER_API}/${guildId}/roblox-to-discord/${key}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
 
   if (res.status === 404) {
     roverReverseCache.set(key, { members: [], expires: Date.now() + ROVER_TTL });
     return [];
+  }
+  if (res.status === 429) {
+    // Trip the SAME cooldown the forward direction respects, so one hammered
+    // endpoint cannot keep hammering the other's budget.
+    let retryAfter = parseInt(res.headers.get('retry-after'), 10);
+    try {
+      const body = await res.json();
+      if (body && body.detail && body.detail.retryAfter) retryAfter = Number(body.detail.retryAfter);
+    } catch (e) { /* the header, or the default */ }
+    tripRoverCooldown(retryAfter);
+    throw new Error('RoVer rate-limited this lookup');
   }
   if (!res.ok) {
     const contentType = res.headers.get('content-type') || '';

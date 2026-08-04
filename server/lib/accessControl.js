@@ -34,7 +34,18 @@ async function revalidateUser(user, getMemberRecord) {
   // Refresh the cached per-division access alongside the site role. IA comes
   // from the (freshly resolved) site role; the other divisions come from their
   // Roblox group rank (resolved from the user's stored Roblox link).
+  // This runs on a TIMER for every user, and it writes what it works out. So a
+  // pass that could not reach Roblox or RoVer must not be allowed to write, or one
+  // rate-limited minute silently strips the divisions of everybody it touches —
+  // permanently, because the next pass reads the wiped value as the truth. That is
+  // exactly what happened: "all my divisions are gone", and logging out and back
+  // in did not bring them back.
+  //
+  // resolveDivisionsForUser never THREW for a failed lookup; it returned a shorter
+  // list, so the catch below never fired. `diag.degraded` is what tells them apart.
   let divisions;
+  const diag = {};
+  let trustworthy = true;
   try {
     divisions = await resolveDivisionsForUser({
       discordId: user.discordId,
@@ -42,9 +53,20 @@ async function revalidateUser(user, getMemberRecord) {
       robloxId:  user.robloxId || null,
       metRankOverride: user.metRankOverride || null,
       panelGrant: user.panelGrant || null,
+      diag,
     });
+    trustworthy = !diag.degraded;
   } catch (e) {
     divisions = Array.isArray(user.divisions) ? user.divisions : [];
+    trustworthy = false;
+  }
+  const stored = Array.isArray(user.divisions) ? user.divisions : [];
+  if (!trustworthy) {
+    // Keep whichever list is bigger. A degraded pass can still have found things
+    // the stored copy predates (a new division), and it can equally have lost
+    // everything — taking the larger of the two never removes access on the
+    // strength of a lookup that did not answer.
+    if (stored.length > divisions.length) divisions = stored;
   }
   // Cache the natural (group-derived) MET rank for the dev panel's "(default)"
   // marker. Best-effort; keep the last value on any lookup failure.

@@ -139,11 +139,15 @@ app.use((req, res, next) => {
  * RoVer and does neither would sit there indefinitely. This is that safety net,
  * and it does nothing at all once the holding table is empty.
  *
- * Small batches: each row that we cannot match from our own tables costs a RoVer
- * lookup, and a background job has no business spending that budget in bulk.
+ * It does NOT ask RoVer. RoVer's rate limit is the same one every login uses to
+ * find somebody's Roblox account, and through it their divisions — a background
+ * job that quietly spends that budget four times a day is how members end up
+ * logging in to find their access gone. Our own tables already know the link for
+ * everybody who has ever signed in, which is exactly the population this can help;
+ * anybody else is claimed by their own next login.
  */
 function startXpClaimWorker() {
-  const run = () => require('./lib/clanslabsXp').sweepPending({ limit: 60 })
+  const run = () => require('./lib/clanslabsXp').sweepPending({ limit: 60, rover: false })
     .then(out => {
       if (out.claimed) console.log(`[XP] Claimed ${out.claimed} imported balance(s); `
         + `${out.stillWaiting} still waiting for a Discord account.`);
