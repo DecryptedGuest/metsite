@@ -413,8 +413,14 @@ async function applySync(plan, scope) {
   // empty, because they are not ours to guess at.
   if (plan.add.length) {
     try {
+      // Member objects, `cols` and the sheet as read — not pre-built row arrays.
+      // appendToSheet stopped taking those when it stopped using values.append,
+      // which was writing every field one column to the right of where it belonged.
+      // This call site was missed, and with `cols` arriving as undefined the add
+      // half of every sync threw before writing anything.
       await appendToSheet(sheets, spreadsheetId, sheetName,
-        plan.add.map(a => memberRow({ username: a.username, rank: a.rank, discordId: a.discordId }, cols)));
+        plan.add.map(a => ({ username: a.username, rank: a.rank, discordId: a.discordId })),
+        cols, rows);
       added += plan.add.length;
     } catch (err) {
       // The clears already landed, so this is a partial success and has to say so
@@ -1699,32 +1705,6 @@ async function formulaColumnsOf(sheets, spreadsheetId, sheetName, groups, width)
   return out;
 }
 
-/**
- * One member as a whole row, positioned by the sheet's own column indices.
- *
- * Index 0 of the array is column A. That is only true if whoever writes it says
- * so, which is why nothing appends this any more — see appendToSheet.
- */
-function memberRow(r, cols) {
-  const idx = [cols.username, cols.rank, cols.discordId, cols.wtbt]
-    .concat(Object.values(cols.days || {}))
-    .filter(c => c != null)
-    .map(Number);
-  const width = idx.length ? Math.max.apply(null, idx) + 1 : 1;
-  const row = new Array(width).fill('');
-  const put = (col, value) => { if (col != null) row[col] = value; };
-  put(cols.username, r.username);
-  put(cols.rank, r.rank || '');
-  put(cols.discordId, r.discordId || '');
-  // Only when the mark was asked for. A FALSE stamped into every new row would
-  // overwrite whatever convention the sheet already uses for people who ARE
-  // trained; leaving it empty says nothing, which is the honest answer.
-  if (r.wtbt) put(cols.wtbt, wtbtCell(true));
-  // Zero, not blank: a blank day cell reads as "no data" when it means "no points".
-  for (const d of Object.values(cols.days || {})) put(d, 0);
-  return row;
-}
-
 /** One member as a list of explicit A1 cell writes. */
 function memberWrites(sheetName, rowNumber, r, cols) {
   const out = [];
@@ -1812,6 +1792,6 @@ module.exports = {
   startMetDatabaseWorker,
   missingMembers, addMembers, appendRows, isProbationary, wtbtCell, isWtbtRow, MAX_PICK,
   strayMembers, wtbtOutOfOrder, misalignedRows, tidyStrayRows, rankCeiling, isAboveCeiling, NEVER_MEMBERS,
-  memberRow, memberWrites, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
+  memberWrites, appendToSheet, placeMembers, rankBlockEnd, rankKey, sheetIdFor,
   sheetMetaFor, mergedColumnsAt, columnRuns, tableSpan, verifyPlacement,
 };
