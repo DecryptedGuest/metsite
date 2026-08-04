@@ -248,8 +248,8 @@ async function getRobloxUserInfo(robloxUserId) {
  */
 const groupRoleCache = new Map(); // `${robloxUserId}:${groupId}` → { role, expires }
 const GROUP_ROLE_TTL = 30 * 60 * 1000; // 30 min — ranks rarely change minute-to-minute
-async function getUserGroupRole(robloxUserId, groupId) {
-  const roles = await getUserGroupRoles(robloxUserId, groupId);
+async function getUserGroupRole(robloxUserId, groupId, diag) {
+  const roles = await getUserGroupRoles(robloxUserId, groupId, diag);
   if (!roles || !roles.length) return null;
   // Backwards-compatible single-role callers get the highest-rank role held.
   return roles.reduce((a, b) => (Number(b.rank) > Number(a.rank) ? b : a));
@@ -288,14 +288,37 @@ async function getUserGroups(robloxUserId) {
 // match (not just the first). Returns [{ id, name, rank }] — empty if not a
 // member / lookup failed. Cached for 30 min (ranks rarely change minute-to-minute).
 const groupRolesCache = new Map(); // `${robloxUserId}:${groupId}` → { roles, expires }
-async function getUserGroupRoles(robloxUserId, groupId) {
+/**
+ * @param {object} [diag] filled in with { failed, stale } — whether the lookup
+ *        could not be completed, and whether a stale cached answer was served in
+ *        its place.
+ *
+ *        This exists because an empty array is TWO different answers: "I asked, and
+ *        they hold no rank in that group" and "I could not ask". Everything here
+ *        returns [] for both, which is right for a reader — but callers that WRITE
+ *        the result have to tell them apart, or a Roblox rate limit becomes a
+ *        member losing their divisions. That is not hypothetical: it happened, and
+ *        the guard added afterwards could not see it, because a failure inside this
+ *        function never reached the caller in any form.
+ *
+ *        A FRESH cache hit is a real answer and is not flagged. A failure that was
+ *        covered by stale cache is still flagged — over-reporting only means a
+ *        caller declines to shrink a list this pass, which is the safe direction.
+ */
+async function getUserGroupRoles(robloxUserId, groupId, diag) {
+  const d = diag || {};
+  d.failed = false; d.stale = false;
   if (!groupId || !robloxUserId) return [];
   const key = `${robloxUserId}:${groupId}`;
   const hit = groupRolesCache.get(key);
   if (hit && Date.now() < hit.expires) return hit.roles;
   try {
     const res = await fetch(`https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`);
-    if (!res.ok) return hit ? hit.roles : []; // serve stale on transient error
+    if (!res.ok) {
+      // The one that actually happens: 429. Reported, not swallowed.
+      d.failed = true; d.stale = !!hit;
+      return hit ? hit.roles : []; // serve stale on transient error
+    }
     const data = await res.json();
     const roles = (data.data || [])
       .filter(x => x && x.group && String(x.group.id) === String(groupId) && x.role)
@@ -309,6 +332,7 @@ async function getUserGroupRoles(robloxUserId, groupId) {
     return roles;
   } catch (err) {
     console.error('Group roles lookup error:', err.message);
+    d.failed = true; d.stale = !!hit;
     return hit ? hit.roles : [];
   }
 }

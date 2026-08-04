@@ -98,7 +98,11 @@ async function resolveSiteRoleDetailed({ discordId, memberRoles = [] }) {
     const iaGroupId = process.env.IA_GROUP_ID || '407296071';
     const rId = await getRobloxIdFromDiscord(discordId);
     if (rId) {
-      const groupRole = await getUserGroupRole(rId, iaGroupId);
+      // The diag is what makes "not in the group" distinguishable from "could not
+      // ask". getUserGroupRole answers null for both and does not throw, so without
+      // it a Roblox 429 reads exactly like a member who holds no IA rank.
+      const gd = {};
+      const groupRole = await getUserGroupRole(rId, iaGroupId, gd);
       if (groupRole) {
         // We have their actual rank — a definitive signal either way.
         groupConclusive = true;
@@ -106,8 +110,14 @@ async function resolveSiteRoleDetailed({ discordId, memberRoles = [] }) {
         iaRankName = groupRole.name || null;
         const r = roleFromIaGroupRank(groupRole.name, groupRole.rank);
         if (r) return { role: r, conclusive: true, iaRank, iaRankName };
+      } else if (gd.failed) {
+        // Could not read it. Say so explicitly rather than leaving it to the
+        // "no role found anywhere" fall-through, whose conclusiveness depends on
+        // groupConclusive being false for the right reason.
+        return { role: null, conclusive: false, iaRank, iaRankName, lookupFailed: true };
       }
-      // groupRole null is ambiguous (not-in-group OR API error) → inconclusive
+      // groupRole null with no failure = genuinely not in the group → inconclusive
+      // only in the sense that a Discord role may still grant access below.
     }
     // rId null → not RoVer-linked → can't check the group → inconclusive
   } catch (e) { /* RoVer/group error → inconclusive, fall through */ }

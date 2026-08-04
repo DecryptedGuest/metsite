@@ -213,8 +213,16 @@ async function resolveGroupDivisions(robloxId, diag) {
     if (!groupId) continue;
     d.checked++;
     let role = null;
-    try { role = await getUserGroupRole(robloxId, groupId); }
-    catch (e) { role = null; d.failed++; }
+    // The diag is the load-bearing part. getUserGroupRole does NOT throw when the
+    // lookup fails — getUserGroupRoles catches its own errors and treats a non-OK
+    // response (a 429, which is the one that happens) as "no roles" — so the catch
+    // below is only for something unexpected, and on its own it counted nothing.
+    // That is why the degraded guard could not see a Roblox outage: the failure
+    // never left roblox.js in any form a caller could read.
+    const gd = {};
+    try { role = await getUserGroupRole(robloxId, groupId, gd); }
+    catch (e) { role = null; gd.failed = true; }
+    if (gd.failed) d.failed++;
     if (role && Number(role.rank) > 0) {
       // HPC only counts as a division site-wide for Junior Instructor and above —
       // cadets / lower HPC group ranks don't get the HPC division on the dashboard.
