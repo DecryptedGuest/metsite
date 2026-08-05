@@ -825,7 +825,24 @@ async function clrRenumber(dry, mode) {
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Working…'; }
   try {
     const m = mode === 'resequence' ? 'resequence' : 'repair';
-    const r = await api('/api/dev/case-renumber', { method: 'POST', body: JSON.stringify({ dry: !!dry, mode: m }) });
+    let r = await api('/api/dev/case-renumber', { method: 'POST', body: JSON.stringify({ dry: !!dry, mode: m }) });
+    // A real renumber runs in the background (renaming hundreds of cases and
+    // re-editing their Discord logs takes minutes), so poll until it finishes
+    // instead of waiting on the one request, which the proxy would time out.
+    if (!dry && r && r.started) {
+      const started = Date.now();
+      for (;;) {
+        await new Promise(res => setTimeout(res, 2000));
+        const s = await api('/api/dev/case-renumber');
+        if (out) out.innerHTML = `<span style="color:var(--text-muted);"><div class="spinner" style="display:inline-block;vertical-align:middle;"></div> `
+          + `Renumbering in the background… ${Math.round((Date.now() - started) / 1000)}s</span>`;
+        if (s && !s.running) {
+          if (s.error) throw new Error(s.error);
+          r = s.result || { ok: true, mode: m, total: 0, moved: 0, unchanged: 0, moves: [] };
+          break;
+        }
+      }
+    }
     let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
       + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
       + (r.dryRun ? 'What renumbering would do' : 'Renumbered')
@@ -3327,12 +3344,50 @@ async function getCase(caseId) {
   } catch (e) { return null; }
 }
 
+// The appeal dialog markup ships in the IA dashboard view, but the same scripts
+// (and the Grant appeal button) run on the developer, HPC, CID, FLP and SCO19
+// dashboards too. On those the modal element is not in the page, so the click
+// used to hit `if (!btn) return` and silently do nothing. Build it on demand so
+// the button works wherever a case card is shown.
+function ensureAppealModal() {
+  if (document.getElementById('modal-appeal')) return;
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay'; ov.id = 'modal-appeal';
+  ov.innerHTML = `<div class="modal glass-bright" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--purple);"><i class="ti ti-gavel" style="font-size:18px;"></i> Appeal Case <span id="appeal-ref"></span></div>
+      <button class="modal-close" onclick="closeModal('modal-appeal')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div id="appeal-warning" style="display:none;margin-bottom:1rem;padding:11px 13px;border-radius:9px;background:rgba(157,125,255,.12);border:1px solid rgba(157,125,255,.4);font-size:12.5px;color:var(--text-primary);line-height:1.6;"></div>
+      <p style="font-size:13px;line-height:1.65;color:var(--text-secondary);margin:0 0 .9rem;">
+        Filing an appeal <strong style="color:var(--text-primary);">approves it immediately</strong>. The case is marked
+        <strong style="color:var(--purple);">appealed</strong>, its punishment roles are removed in Discord, and it stops
+        counting toward the officer's record. This is permanent · it cannot be undone from the site.
+      </p>
+      <div id="appeal-punishments" style="margin-bottom:1rem;"></div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Reason for the appeal <span>*</span></label>
+        <textarea class="form-control" id="appeal-reason" rows="4" maxlength="2000" placeholder="Why is this case being overturned? (recorded permanently against the case)"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-appeal')">Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-appeal" style="background:var(--purple);border-color:var(--purple);">
+        <i class="ti ti-gavel"></i> Grant appeal
+      </button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+
 // Open the appeal dialog. Works from any case card on the site (My Cases, All
 // Cases, the review queue and the Records lookup).
 async function openAppealModal(caseId) {
   const c = await getCase(caseId);
   if (!c) { showToast('That case could not be loaded.', 'error'); return; }
 
+  ensureAppealModal();
   const refEl  = document.getElementById('appeal-ref');
   const warnEl = document.getElementById('appeal-warning');
   const punEl  = document.getElementById('appeal-punishments');

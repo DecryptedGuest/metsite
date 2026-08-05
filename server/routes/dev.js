@@ -720,23 +720,57 @@ router.post('/commands/register', async (req, res) => {
 //   mode 'resequence' — every case is renumbered in date order from the floor, so
 //     the refs climb with time and there is one scheme. Refs people have quoted do
 //     change; the old one is kept on the row either way.
+// A dry run answers in one request (it writes nothing). A real renumber does
+// NOT: it rewrites two rows per moved case and then re-edits every moved case's
+// Discord log at 350ms a time, which for hundreds of cases runs for minutes,
+// well past the edge proxy's timeout. Run for real in the BACKGROUND and let the
+// browser poll GET, the same way the XP and patrol imports do, so the work
+// finishes server-side even when the request that kicked it off is long gone.
+let _renumberRun = null;   // { running, mode, startedAt, finishedAt, result, error }
+
+router.get('/case-renumber', (req, res) => {
+  res.json(_renumberRun || { running: false, result: null });
+});
+
 router.post('/case-renumber', async (req, res) => {
   const body = req.body || {};
   const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
   const mode = String(body.mode || req.query.mode || 'repair') === 'resequence' ? 'resequence' : 'repair';
-  try {
-    const out = await require('../lib/caseLogImport').renumberRefs({ dryRun: dry, mode });
-    if (!out.ok) return res.status(400).json(out);
-    if (!dry && out.moved) {
-      audit.log(req.user, { category: 'SECURITY', action: 'CASE_RENUMBER',
-        summary: `Renumbered ${out.moved} case reference(s) into chronological order `
-               + `(${mode}; ${out.unchanged} left as they were)` });
+
+  // Dry run: fast and synchronous, exactly as before.
+  if (dry) {
+    try {
+      const out = await require('../lib/caseLogImport').renumberRefs({ dryRun: true, mode });
+      return out.ok ? res.json(out) : res.status(400).json(out);
+    } catch (e) {
+      console.error('[Dev] case renumber (dry) failed:', e.message);
+      return res.status(400).json({ error: 'Could not preview the renumber: ' + e.message });
     }
-    res.json(out);
-  } catch (e) {
-    console.error('[Dev] case renumber failed:', e.message);
-    res.status(400).json({ error: 'Could not renumber the cases: ' + e.message });
   }
+
+  // Real run: background it and report via GET.
+  if (_renumberRun && _renumberRun.running) return res.status(409).json({ error: 'A renumber is already running.', running: true });
+  _renumberRun = { running: true, mode, startedAt: Date.now(), finishedAt: null, result: null, error: null };
+  const actor = req.user;
+  (async () => {
+    try {
+      const out = await require('../lib/caseLogImport').renumberRefs({ dryRun: false, mode });
+      _renumberRun.result = out;
+      if (!out.ok) _renumberRun.error = (out.errors && out.errors[0]) || 'The renumber reported a failure.';
+      else if (out.moved) {
+        audit.log(actor, { category: 'SECURITY', action: 'CASE_RENUMBER',
+          summary: `Renumbered ${out.moved} case reference(s) (${mode}; ${out.unchanged} left as they were)` });
+      }
+    } catch (e) {
+      console.error('[Dev] case renumber failed:', e.message);
+      _renumberRun.error = e.message;
+    } finally {
+      _renumberRun.running = false;
+      _renumberRun.finishedAt = Date.now();
+    }
+  })();
+
+  res.status(202).json({ started: true, running: true, mode });
 });
 
 // ── Clans Labs XP import ──────────────────────────────────────────
