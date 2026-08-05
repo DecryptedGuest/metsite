@@ -77,7 +77,9 @@ function clientIp(req) {
     const { getClientIp } = require('../middleware/visit');
     if (typeof getClientIp === 'function') return getClientIp(req);
   } catch (e) { /* fall through */ }
-  return (req.headers && (req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.ip || null;
+  // Same resolver as the visit log — behind Cloudflare the first x-forwarded-for
+  // entry is an edge address, not the person.
+  try { return require('./clientIp').clientIp(req); } catch (e) { return req.ip || null; }
 }
 
 // Internal writer — stamps id + createdAt in code (so the hash covers them),

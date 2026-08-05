@@ -29,7 +29,9 @@ function flagOn(key) {
 // shared by most members, so matching on it would link unrelated accounts.
 async function signalsFor(user) {
   const ips = new Set();
-  if (user.lastRealIp) ips.add(user.lastRealIp);
+  // Filtered, not trusted: rows written before the Cloudflare fix hold an edge
+  // address, and linking on one would make alts of everybody who used that edge.
+  if (user.lastRealIp && !ipIntel.isLocalOrPrivate(user.lastRealIp)) ips.add(user.lastRealIp);
   try {
     const sess = await prisma.session.findMany({
       where: { userId: user.id },

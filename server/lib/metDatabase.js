@@ -729,6 +729,109 @@ function strayMembers(rows, cols) {
  */
 const MAX_TIDY = 25;
 
+/**
+ * Move a row up by rewriting values, when moveDimension will not do it.
+ *
+ * Sheets refuses to move a row past a merged cell — "it is not possible to move a
+ * row to a position that crosses a merged cell" — and the IA sheet has merged
+ * cells in and around the table. That refusal is about the ROW as a structural
+ * object; the member data itself is ordinary cells and can be reordered.
+ *
+ * So the rows from `to` to `from` are rotated down by one: the stray row's values
+ * land at `to`, and everything that was between them moves down a line. Only the
+ * member table's own columns are touched, and any column that is part of a merge
+ * on any of those rows is left exactly as it is — a cell merged across rows is
+ * not anybody's data slot.
+ *
+ * The row FORMATTING stays where it is, which is what is wanted here: the borders
+ * and fills belong to the block, not to the person, and dragging a row's own
+ * formatting up the sheet is how the block got scruffy in the first place.
+ */
+async function moveRowByValues({ sheets, spreadsheetId, sheetName, cols, from, to, username }) {
+  const span = tableSpan(cols);
+  if (!span) return { ok: false, why: 'the member columns could not be worked out' };
+  const height = from - to + 1;
+  if (height < 2) return { ok: false, why: 'there is nothing between it and where it belongs' };
+
+  const first = quota.colLetter(span.start);
+  const last  = quota.colLetter(span.end - 1);
+  const range = quota.sheetRef(sheetName, `${first}${to + 1}:${last}${from + 1}`);
+
+  // FORMULA, so a cell holding a formula travels as the formula rather than as
+  // the number it happened to show.
+  let grid;
+  try {
+    const got = await sheets.spreadsheets.values.get({
+      spreadsheetId, range, valueRenderOption: 'FORMULA',
+    });
+    grid = got.data.values || [];
+  } catch (err) {
+    return { ok: false, why: `the rows could not be read back: ${err.message}` };
+  }
+  const width = span.end - span.start;
+  const rows = Array.from({ length: height }, (_, i) => {
+    const r = grid[i] || [];
+    return Array.from({ length: width }, (_, c) => (r[c] === undefined ? '' : r[c]));
+  });
+
+  // Rotate down by one: the last row (the stray) becomes the first.
+  const rotated = [rows[height - 1], ...rows.slice(0, height - 1)];
+
+  // Which columns are off limits, on ANY of the rows being rewritten.
+  const { merges } = await sheetMetaFor(sheets, spreadsheetId, sheetName);
+  const blocked = new Set();
+  for (let i = 0; i < height; i++) {
+    for (const c of mergedColumnsAt(merges, to + i, span.end)) blocked.add(c);
+  }
+
+  // One cell per write, so a merged column can be skipped rather than the whole
+  // rectangle being refused. Split by how the value has to be entered: a formula
+  // must be parsed, and a name must NOT be — "+Bob" is a name, not a sum.
+  const raw = [], parsed = [];
+  for (let i = 0; i < height; i++) {
+    for (let c = 0; c < width; c++) {
+      const col = span.start + c;
+      if (blocked.has(col)) continue;
+      if (String(rows[i][c]) === String(rotated[i][c])) continue;   // unchanged
+      const value = rotated[i][c];
+      const cell = {
+        range: quota.sheetRef(sheetName, `${quota.colLetter(col)}${to + i + 1}`),
+        values: [[value]],
+      };
+      (typeof value === 'string' && value.startsWith('=') ? parsed : raw).push(cell);
+    }
+  }
+  if (!raw.length && !parsed.length) return { ok: false, why: 'there was nothing to rewrite' };
+
+  try {
+    if (raw.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId, requestBody: { valueInputOption: 'RAW', data: raw },
+      });
+    }
+    if (parsed.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId, requestBody: { valueInputOption: 'USER_ENTERED', data: parsed },
+      });
+    }
+  } catch (err) {
+    return { ok: false, why: `the rewrite failed: ${err.message}` };
+  }
+
+  // Did it land? Same read-back as the move path.
+  if (cols.username != null && !blocked.has(Number(cols.username))) {
+    const check = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: quota.sheetRef(sheetName, `${quota.colLetter(cols.username)}${to + 1}`),
+      valueRenderOption: 'FORMATTED_VALUE',
+    }).catch(() => null);
+    const landed = check && quota.normName((((check.data.values || [])[0] || [])[0]))
+      === quota.normName(username);
+    if (!landed) return { ok: false, why: 'the rows were rewritten but the name is not where it should be' };
+  }
+  return { ok: true, how: 'values' };
+}
+
 async function tidyStrayRows(division, actor, opts = {}) {
   const scope = scopeFor(division || 'IA');
   const dry = opts.dryRun === true;
@@ -789,6 +892,18 @@ async function tidyStrayRows(division, actor, opts = {}) {
       }
       moved.push({ ...s, to: s.shouldBeRow });
     } catch (err) {
+      // "it is not possible to move a row to a position that crosses a merged
+      // cell" — the sheet has merges in and around the table, and Sheets will not
+      // move a ROW past one however ordinary the cells being reordered are. The
+      // values can still be rotated into place.
+      if (/merged cell/i.test(String(err.message))) {
+        const alt = await moveRowByValues({
+          sheets, spreadsheetId, sheetName, cols, from, to, username: s.username,
+        }).catch(e => ({ ok: false, why: e.message }));
+        if (alt.ok) { moved.push({ ...s, to: s.shouldBeRow, how: 'values' }); continue; }
+        skipped.push({ ...s, why: `a merged cell is in the way, and ${alt.why}` });
+        continue;   // the next row may not cross the same merge
+      }
       errors.push(`${s.username}: ${err.message}`);
       break;
     }

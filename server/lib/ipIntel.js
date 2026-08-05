@@ -20,6 +20,10 @@ const TTL = 12 * 60 * 60 * 1000; // 12h — VPN/hosting status is stable
 const DC_PATTERNS = /\b(vpn|proxy|hosting|datacenter|data ?center|colo(cation)?|cloud|dedicated server|ovh|hetzner|digitalocean|linode|vultr|amazon|aws|google llc|microsoft|azure|oracle cloud|leaseweb|m247|choopa|quadranet|nordvpn|mullvad|proton|expressvpn|surfshark|private internet access|cyberghost|ipvanish|torguard|windscribe|tunnelbear|packethub|datacamp|g-?core|contabo|scaleway|zenlayer|zscaler|frantech|cloudvps)\b/i;
 
 // Local / private / reserved ranges never count as a VPN (and never need a lookup).
+// "Not a person's address." Private and loopback as before, and now Cloudflare's
+// own edge ranges too: the site sits behind Cloudflare, so those addresses turn
+// up constantly and belong to nobody. Treating one as personal is what let alt
+// detection link every member who happened through the same edge.
 function isLocalOrPrivate(ip) {
   if (!ip) return true;
   const v = String(ip);
@@ -27,6 +31,7 @@ function isLocalOrPrivate(ip) {
   if (v.startsWith('10.') || v.startsWith('192.168.') || v.startsWith('169.254.')) return true;
   const m = v.match(/^172\.(\d+)\./); if (m && +m[1] >= 16 && +m[1] <= 31) return true;
   if (/^(fc|fd|fe80)/i.test(v)) return true; // unique-local / link-local IPv6
+  try { if (require('./clientIp').isCloudflare(v)) return true; } catch (e) { /* keep going */ }
   return false;
 }
 

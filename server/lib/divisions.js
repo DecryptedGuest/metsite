@@ -312,9 +312,12 @@ function rgbTriplet(hex) {
 //
 // The image has to be absolute: Discord fetches it from its own servers and a
 // root-relative path means nothing to them.
-function brandMeta(division) {
+function brandMeta(division, origin) {
   const b = brandFor(division);
-  const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  // The host that actually served the page wins over the configured one: the
+  // dashboard answers on more than one domain, and a crawler will not follow a
+  // cross-host redirect for an image.
+  const base = String(origin || process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
   const img = /^https?:\/\//i.test(b.logo) ? b.logo : (base ? base + b.logo : b.logo);
   const title = division ? `${b.name} Dashboard` : 'MET Dashboard';
   const desc = b.fullName + (b.tagline ? ` · ${b.tagline}` : '');
@@ -323,6 +326,7 @@ function brandMeta(division) {
   return [
     `<meta property="og:site_name" content="Metropolitan Police Service" />`,
     `<meta property="og:type" content="website" />`,
+    ...(base ? [`<meta property="og:url" content="${esc(base)}" />`] : []),
     `<meta property="og:title" content="${esc(title)}" />`,
     `<meta property="og:description" content="${esc(desc)}" />`,
     ...(img ? [`<meta property="og:image" content="${esc(img)}" />`] : []),
@@ -336,13 +340,13 @@ function brandMeta(division) {
   ].join('\n');
 }
 
-function brandHead(division) {
+function brandHead(division, origin) {
   const b = brandFor(division);
   const accent = /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent;
   return [
     `<link rel="icon" type="image/png" href="${b.logo}" />`,
     `<link rel="apple-touch-icon" href="${b.logo}" />`,
-    brandMeta(division),
+    brandMeta(division, origin),
     `<link rel="stylesheet" href="/css/division-theme.css" />`,
     `<style>:root{--div-accent:${accent};--div-accent-rgb:${rgbTriplet(accent)};`
       + `--div-logo:url("${b.logo}");}</style>`,

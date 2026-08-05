@@ -1269,6 +1269,45 @@ const views = path.join(__dirname, '../client/views');
 // its accent palette, logo, favicon and crest are injected here rather than
 // baked into the view, so the same view can be served under more than one
 // division's path and so the theme is correct on first paint.
+// The origin this request actually came in on. Link previews are fetched by
+// Discord's servers, not by the reader's browser, so a root-relative image is
+// nothing they can resolve — every embed tag has to be absolute, and against the
+// host that served the page rather than a hard-coded one.
+function originOf(req) {
+  const host = String((req && (req.headers['x-forwarded-host'] || req.headers.host)) || '')
+    .split(',')[0].trim().toLowerCase();
+  if (host && /^[a-z0-9.-]+(:\d+)?$/.test(host)) return 'https://' + host;
+  return (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '') || null;
+}
+
+// ── Link previews for pages behind the sign-in ────────────────────
+// Every division dashboard requires auth, and Discord's crawler has none — so it
+// was following the redirect to the hub and embedding the hub: "MET Dashboard"
+// and the plain MET crest, whichever division the link pointed at.
+//
+// A crawler is answered directly with the division's own preview instead. Only a
+// crawler: a person with no session still gets the normal redirect to sign in, so
+// nothing about the login flow changes, and nothing behind the gate is served —
+// the response is a title, a description and a logo, all from our own table.
+const CRAWLER_UA = /discordbot|twitterbot|slackbot|facebookexternalhit|whatsapp|telegrambot|linkedinbot|embedly|redditbot|skypeuripreview|bingpreview|googlebot|applebot|mastodon|iframely|vkshare|pinterest/i;
+
+function linkPreview(division) {
+  return function (req, res, next) {
+    const ua = String(req.headers['user-agent'] || '');
+    if (!CRAWLER_UA.test(ua)) return next();
+    const { brandMeta, brandFor } = require('./lib/divisions');
+    const b = brandFor(division);
+    const esc = v => String(v == null ? '' : v).replace(/[&"<>]/g, c =>
+      ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]));
+    res.type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8" />'
+      + `<title>${esc(b.name)} Dashboard · Metropolitan Police Service</title>`
+      + brandMeta(division, originOf(req))
+      + `<meta name="robots" content="noindex" />`
+      + `</head><body><h1>${esc(b.fullName)}</h1>`
+      + `<p>${esc(b.tagline || '')} — sign in to continue.</p></body></html>`);
+  };
+}
+
 function sendPage(res, file, division) {
   try {
     let html = getMinifiedHtml(file);
@@ -1283,7 +1322,13 @@ function sendPage(res, file, division) {
       // An unknown division just means "no branding" — never a broken page.
       if (slug) {
         html = html.replace('<html', `<html data-division="${slug}"`);
-        if (html.includes('</head>')) html = html.replace('</head>', brandHead(division) + '</head>');
+        if (html.includes('</head>')) {
+          // A page that already carries its own og: tags would otherwise have two
+          // of each, and a crawler takes the first — the generic one. The
+          // division's are the right ones, so the page's own go.
+          html = html.replace(/\s*<meta\s+(?:property|name)="(?:og:[a-z:]+|twitter:[a-z:]+)"[^>]*>/gi, '');
+          html = html.replace('</head>', brandHead(division, originOf(res.req)) + '</head>');
+        }
       }
     }
     // Anti-copy / anti-save guard, baked with the actual serving host so a
@@ -1392,7 +1437,7 @@ app.get('/ia-application',  recordVisit, requireAuth, (req, res) => res.redirect
 // it is Deputy-Director-and-above, so a plain investigator sees an empty shell
 // rather than anybody's answers.
 app.get('/ia/applications', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'ia-applications.html'), 'IA'));
-app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
+app.get('/ia/dashboard', recordVisit, linkPreview('IA'), requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
 
@@ -1402,15 +1447,15 @@ app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, 
 function mountDivisionPages(slug, division) {
   app.get(`/${slug}`,           recordVisit, (req, res) => res.redirect('/'));
   app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html'), division));
-  app.get(`/${slug}/dashboard`, recordVisit, requireAuth, requireDivision(division),
+  app.get(`/${slug}/dashboard`, recordVisit, linkPreview(division), requireAuth, requireDivision(division),
     (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`), division));
 }
 // CID pages: dashboard is gated by CID tryout access (the CID Discord roles),
 // not the generic CID-division cache.
 app.get('/cid',           recordVisit, (req, res) => res.redirect('/'));
-app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
-app.get('/cid/dashboard', recordVisit, requireAuth, requireCidTryout,
-  (req, res) => sendPage(res, path.join(views, 'cid-dashboard.html')));
+app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html'), 'CID'));
+app.get('/cid/dashboard', recordVisit, linkPreview('CID'), requireAuth, requireCidTryout,
+  (req, res) => sendPage(res, path.join(views, 'cid-dashboard.html'), 'CID'));
 mountDivisionPages('sco19', 'SCO19');
 mountDivisionPages('flp',   'FLP');
 mountDivisionPages('hpc',   'HPC');

@@ -205,24 +205,48 @@ async function userHoldsAnyRole(user, guildId, roleIds) {
   return false;
 }
 
+/**
+ * May this person open the CID dashboard?
+ *
+ * BEING IN THE CID ROBLOX GROUP IS ENOUGH — the same rule as SCO-19, FLP and
+ * HPC, and the rule the rest of the app already uses for the word "CID".
+ *
+ * This gate used to be the two CID Discord roles and NOTHING else, which had two
+ * consequences nobody wanted. A CID officer with a rank in the group but neither
+ * of those roles was refused, and told to ask an administrator about roles that
+ * are not what the division is made of. And because userHoldsAnyRole returns
+ * false when the guild id or the role ids are unset, leaving any of the three env
+ * vars blank refused EVERYBODY except developers and MET High Command — silently,
+ * and identically to a genuine refusal.
+ *
+ * The Discord roles are kept as an ADDITIONAL way in: the Instructor Unit and the
+ * Director's Office run CID tryouts and may not hold a group rank.
+ */
 async function userHasCidTryout(user) {
   if (!user) return false;
   if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
+  if (userHasDivision(user, 'CID')) return true;
   return userHoldsAnyRole(user, cidGuildId(), cidAccessRoleIds());
 }
 async function userIsCidLead(user) {
   if (!user) return false;
   if (user.role === 'DEVELOPER' || userIsMetHicommCached(user)) return true;
+  // LEAD in the CID group is the Director's Office by another name.
+  if (userIsDivisionLead(user, 'CID')) return true;
   return userHoldsAnyRole(user, cidGuildId(), cidLeadRoleIds());
 }
 
-function requireCidTryout(req, res, next) {
+async function requireCidTryout(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  userHasCidTryout(req.user).then(ok => {
-    if (ok) return next();
-    if (req.originalUrl.startsWith('/api')) return res.status(403).json({ error: 'CID access required' });
-    return res.redirect('/cid/denied');
-  }).catch(() => res.status(403).json({ error: 'CID access required' }));
+  // Same freshness rule as every other division gate, so somebody ranked into
+  // CID a minute ago gets in on THIS request rather than after the next sweep.
+  if (req.user.role !== 'DEVELOPER' && await gateRevokedAfterRefresh(req, res)) return;
+  let ok = false;
+  try { ok = await userHasCidTryout(req.user); }
+  catch (e) { ok = false; }
+  if (ok) return next();
+  if (req.originalUrl.startsWith('/api')) return res.status(403).json({ error: 'CID access required' });
+  return res.redirect('/cid/denied');
 }
 function requireCidLead(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
