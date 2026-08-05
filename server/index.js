@@ -95,6 +95,10 @@ app.use((req, res, next) => {
     "img-src 'self' data: blob: https:",
     "connect-src 'self'",
     "media-src 'self' blob: data:",
+    // Tickety hosts ticket transcripts; the ticket detail view embeds them so a
+    // handler reads the actual conversation without leaving the dashboard. This
+    // only lets US frame Tickety, not the other way round (see frame-ancestors).
+    "frame-src 'self' https://tickety.top https://*.tickety.top",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

@@ -304,6 +304,42 @@ function renderAllTicketsTable() {
 }
 
 // ── Detail ────────────────────────────────────────────────────────
+// The actual ticket transcript, shown inline. Tickety hosts every transcript as
+// a shareable web page; embedding it here means a handler reads the real
+// conversation without leaving the dashboard. Only tickety.top URLs are framed
+// (the site CSP allows that host and no other); anything else, or a missing
+// link, degrades to a plain message with the out-of-dashboard link kept.
+function isTicketyTranscript(url) {
+  try { return /(^|\.)tickety\.top$/i.test(new URL(String(url)).hostname); } catch (e) { return false; }
+}
+function transcriptSectionHtml(t) {
+  var url = t && t.transcriptUrl;
+  if (!url) {
+    return '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
+      + '<span class="detail-field-value" style="color:var(--text-muted);">'
+      + 'No transcript link was captured for this ticket.</span></div>';
+  }
+  var href = (typeof safeLinkHref === 'function' ? safeLinkHref(url) : url) || url;
+  var openLink = '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" '
+    + 'class="row-btn" style="text-decoration:none;"><i class="ti ti-external-link"></i> Open in new tab</a>';
+  // A non-Tickety link cannot be embedded under our frame-src, so link out only.
+  if (!isTicketyTranscript(url)) {
+    return '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
+      + '<span class="detail-field-value">' + openLink + '</span></div>';
+  }
+  return '<div class="detail-field full">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;">'
+    +   '<span class="detail-field-label" style="margin:0;"><i class="ti ti-file-text"></i> Transcript</span>'
+    +   openLink
+    + '</div>'
+    + '<iframe src="' + escapeHtml(href) + '" title="Ticket transcript" loading="lazy" '
+    +   'referrerpolicy="no-referrer" '
+    +   'sandbox="allow-scripts allow-same-origin allow-popups allow-forms" '
+    +   'style="width:100%;height:60vh;min-height:360px;border:1px solid var(--border-dim);'
+    +   'border-radius:10px;background:#fff;"></iframe>'
+    + '</div>';
+}
+
 async function openTicketDetail(ticketId) {
   var body = document.getElementById('tdetail-body');
   var ref  = document.getElementById('tdetail-ref');
@@ -355,14 +391,7 @@ async function openTicketDetail(ticketId) {
     +   '<span class="detail-field-value">' + escapeHtml(t.reason || 'No reason given.') + '</span></div>'
     + field('Opened by (Discord)', escapeHtml(t.creatorUsername || '·'), true)
     + field('Creator ID', escapeHtml(t.creatorDiscordId || '·'), true)
-    + (t.transcriptUrl
-        ? '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
-          + '<span class="detail-field-value">'
-          + (typeof linkChip === 'function'
-              ? linkChip(t.transcriptUrl, 'View the transcript', 'file-text')
-              : '<a href="' + escapeHtml(t.transcriptUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);">View the transcript</a>')
-          + '</span></div>'
-        : '')
+    + transcriptSectionHtml(t)
     + targetHtml
     + '</div>'
     + '<div style="margin-top:1rem;padding:9px 12px;border-radius:8px;background:var(--blue-dim);border:1px solid var(--border-dim);font-size:11.5px;color:var(--text-secondary);">'
