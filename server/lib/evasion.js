@@ -49,10 +49,19 @@ const EXILE_ACTIONS = new Set(
 // Punishment TYPES on a MetPunishment that count as a blacklist/ban.
 const BLACKLIST_TYPES = /^(blacklist|ban)$/i;
 
+// The action NAMES on a case. `kase.actions` is a JSON array of objects
+// ({ action, roleId, durationDays }), not strings, so pulling `.action` out is
+// what stops it rendering as "[object Object]".
 function caseActions(kase) {
   const out = new Set();
   if (kase.action) out.add(String(kase.action));
-  if (Array.isArray(kase.actions)) for (const a of kase.actions) if (a) out.add(String(a));
+  if (Array.isArray(kase.actions)) {
+    for (const a of kase.actions) {
+      if (!a) continue;
+      const name = typeof a === 'object' ? a.action : a;
+      if (name) out.add(String(name));
+    }
+  }
   return out;
 }
 
@@ -150,15 +159,28 @@ const COLOR = { blacklist: 0xf04f5e, punishment: 0xe8842a, done: 0x2ed896, quiet
 
 function buildAlertEmbed(flag, record, avatar) {
   const bl = flag.kind === 'BLACKLIST_EVASION';
+
+  // A valid Roblox id is all digits — never build a profile link out of a
+  // stray "[object Object]" or a name.
+  const rbxId = /^\d+$/.test(String(record.robloxId || '')) ? String(record.robloxId) : null;
+  const rbxName = record.username && String(record.username) !== '[object Object]' ? String(record.username) : null;
+  // The mention resolves in the client, but a fresh alt often will not — so the
+  // Discord tag is shown alongside it, and the id after, so there is always a
+  // readable name rather than a bare number.
+  const tag = flag.discordTag ? ` \`${short(flag.discordTag, 40)}\`` : '';
+  // The best name we have for the headline: the Roblox username, else the
+  // Discord tag, else nothing dressed up as "unknown".
+  const who = rbxName || flag.discordTag || 'unknown account';
+
   const title = bl
-    ? `${e('met_denied')} Blacklist evasion — ${short(record.username || 'unknown', 40)}`
-    : `${e('met_warn')} Punishment evasion — ${short(record.username || 'unknown', 40)}`;
+    ? `${e('met_denied')} Blacklist evasion — ${short(who, 40)}`
+    : `${e('met_warn')} Punishment evasion — ${short(who, 40)}`;
 
   const lines = [
-    `${e('met_user')} **This account** <@${record.here}>`,
-    record.robloxId
-      ? `${e('met_search')} **Roblox** [${short(record.username || record.robloxId, 40)}](https://www.roblox.com/users/${record.robloxId}/profile) \`${record.robloxId}\``
-      : `${e('met_search')} **Roblox** ${short(record.username || 'unknown', 40)}`,
+    `${e('met_user')} **This account** <@${record.here}>${tag} \`${record.here}\``,
+    rbxId
+      ? `${e('met_search')} **Roblox** [${short(rbxName || rbxId, 40)}](https://www.roblox.com/users/${rbxId}/profile) \`${rbxId}\``
+      : `${e('met_search')} **Roblox** ${rbxName ? short(rbxName, 40) : '*not linked*'}`,
   ];
   if (record.otherAccounts.length) {
     lines.push(`${e('met_bot')} **Also seen as** ` + record.otherAccounts.slice(0, 8).map(id => `<@${id}>`).join(' · ')
@@ -213,16 +235,23 @@ function buildAlertEmbed(flag, record, avatar) {
 
 function alertButtons(flagId, resolved) {
   const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+  const { buttonEmoji } = require('./emoji');
+  const btn = (id, label, style, emojiName) => {
+    const b = new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style);
+    const em = buttonEmoji(emojiName);
+    if (em) b.setEmoji(em);   // the MET custom emoji, or its unicode fallback
+    return b;
+  };
   if (resolved) {
     return [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`evade_view_${flagId}`).setLabel('View record').setStyle(ButtonStyle.Secondary).setEmoji('🔎'),
+      btn(`evade_view_${flagId}`, 'View record', ButtonStyle.Secondary, 'met_search'),
     )];
   }
   return [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`evade_bl_${flagId}`).setLabel('Blacklist this account').setStyle(ButtonStyle.Danger).setEmoji('⛔'),
-    new ButtonBuilder().setCustomId(`evade_kick_${flagId}`).setLabel('Kick').setStyle(ButtonStyle.Danger).setEmoji('👢'),
-    new ButtonBuilder().setCustomId(`evade_view_${flagId}`).setLabel('View record').setStyle(ButtonStyle.Secondary).setEmoji('🔎'),
-    new ButtonBuilder().setCustomId(`evade_ok_${flagId}`).setLabel('Not evasion').setStyle(ButtonStyle.Secondary),
+    btn(`evade_bl_${flagId}`,   'Blacklist this account', ButtonStyle.Danger,    'met_denied'),
+    btn(`evade_kick_${flagId}`, 'Kick',                   ButtonStyle.Danger,    'met_kick'),
+    btn(`evade_view_${flagId}`, 'View record',            ButtonStyle.Secondary, 'met_search'),
+    btn(`evade_ok_${flagId}`,   'Not evasion',            ButtonStyle.Secondary, 'met_dot_off'),
   )];
 }
 

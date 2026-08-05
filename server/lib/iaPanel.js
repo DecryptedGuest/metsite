@@ -35,7 +35,7 @@ const {
 } = require('discord.js');
 
 const prisma = require('./db');
-const { e } = require('./emoji');
+const { e, buttonEmoji } = require('./emoji');
 const { canDiscipline } = require('./disciplineAccess');
 const { caseIsAbout, caseHasHicommOnlyPunishment } = require('./iaRank');
 
@@ -700,7 +700,7 @@ function navRow(token, active) {
     // The record is ephemeral by design; this is the one deliberate way to put a
     // piece of it into the channel where the question is being asked.
     new ButtonBuilder().setCustomId(`ia_post_${token}`)
-      .setLabel('Post to channel').setStyle(ButtonStyle.Success).setEmoji('📮'),
+      .setLabel('Post to channel').setStyle(ButtonStyle.Success).setEmoji(buttonEmoji('met_announce')),
   );
 }
 
@@ -754,11 +754,12 @@ function caseActionsRow(token, opts = {}) {
   const btns = [];
   if (opts.sendable) {
     btns.push(new ButtonBuilder().setCustomId(`ia_send_${token}`)
-      .setLabel(`Send evidence to channel (${opts.sendable})`).setStyle(ButtonStyle.Secondary));
+      .setLabel(`Send evidence to channel (${opts.sendable})`).setStyle(ButtonStyle.Secondary)
+      .setEmoji(buttonEmoji('met_link')));
   }
   if (opts.canAppeal) {
     btns.push(new ButtonBuilder().setCustomId(`ia_appeal_${token}`)
-      .setLabel('Appeal this case').setStyle(ButtonStyle.Danger).setEmoji('⚖️'));
+      .setLabel('Appeal this case').setStyle(ButtonStyle.Danger).setEmoji(buttonEmoji('met_scales')));
   }
   return btns.length ? new ActionRowBuilder().addComponents(btns) : null;
 }
@@ -931,8 +932,10 @@ async function postPickerView(token, subject, state, channel, picks = []) {
       new ActionRowBuilder().addComponents(menu),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`ia_postgo_${token}`)
-          .setLabel(picks.length > 1 ? `Post ${picks.length} items` : 'Post').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`ia_postno_${token}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+          .setLabel(picks.length > 1 ? `Post ${picks.length} items` : 'Post').setStyle(ButtonStyle.Success)
+          .setEmoji(buttonEmoji('met_announce')),
+        new ButtonBuilder().setCustomId(`ia_postno_${token}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+          .setEmoji(buttonEmoji('met_cross')),
       ),
     ],
   };
@@ -1218,9 +1221,10 @@ async function handleShare(interaction, token, state, step) {
       embeds: [shareConfirmView(kase, ev, channel)],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`ia_sendgo_${token}`)
-          .setLabel(`Send ${sendable} link${sendable === 1 ? '' : 's'}`).setStyle(ButtonStyle.Danger),
+          .setLabel(`Send ${sendable} link${sendable === 1 ? '' : 's'}`).setStyle(ButtonStyle.Danger)
+          .setEmoji(buttonEmoji('met_link')),
         new ButtonBuilder().setCustomId(`ia_sendno_${token}`)
-          .setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+          .setLabel('Cancel').setStyle(ButtonStyle.Secondary).setEmoji(buttonEmoji('met_cross')),
       )],
     }).catch(() => {});
   }

@@ -32,12 +32,18 @@ async function resolveRoblox(discordId) {
   // Confirm an id against Roblox and return the canonical username. A wrong
   // name on a disciplinary record is worse than no name.
   const finish = async (robloxId, via) => {
-    if (!robloxId) return null;
+    // getRobloxIdFromUsername returns an OBJECT ({ id, username, … }), not a bare
+    // id — so unwrap one if that is what was passed, or String(robloxId) becomes
+    // "[object Object]" and every record shows that instead of the account.
+    const rid = robloxId && typeof robloxId === 'object'
+      ? (robloxId.id != null ? robloxId.id : (robloxId.robloxId != null ? robloxId.robloxId : null))
+      : robloxId;
+    if (rid == null || rid === '') return null;
     try {
-      const info = await roblox.getRobloxUserInfo(String(robloxId));
+      const info = await roblox.getRobloxUserInfo(String(rid));
       if (info) return { robloxId: String(info.id), username: info.username, displayName: info.displayName, via };
     } catch (err) { /* fall through to the raw id */ }
-    return { robloxId: String(robloxId), username: null, displayName: null, via };
+    return { robloxId: String(rid), username: null, displayName: null, via };
   };
 
   // 1. RoVer.
