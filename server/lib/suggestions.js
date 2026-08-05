@@ -471,14 +471,29 @@ function recentDeletes() {
   return deletes.length;
 }
 
-function warnText(names) {
-  const who = names.length
+function whoLine(names) {
+  return names.length
     ? names.slice(0, 6).join(', ') + (names.length > 6 ? ` and ${names.length - 6} others` : '')
     : 'that';
-  return `**${who}** · this channel is for suggestions and questions only. `
-       + 'Post an idea with a sentence on why it would help, or ask something about how the '
-       + 'department works, and it stays · it gets a vote and a thread to discuss it in. '
-       + 'General chat belongs elsewhere. _This notice removes itself._';
+}
+
+// The notice is an embed, not a plain line · it reads as the bot speaking with
+// one voice rather than a member talking, and it stands out from the chat it is
+// clearing without shouting.
+function warnEmbed(names) {
+  const emoji = require('./emoji');
+  const e = typeof emoji.e === 'function' ? emoji.e : () => '';
+  const who = whoLine(names);
+  return {
+    color: 0xf5b730,
+    title: `${e('met_warn')} Suggestions and questions only`.trim(),
+    description:
+      `**${who}**, this channel is for suggestions and questions only.\n\n`
+      + 'Post an idea with a sentence on why it would help, or ask something about how the '
+      + 'department works, and it stays · it gets a vote and a thread to discuss it in. '
+      + 'General chat belongs elsewhere.',
+    footer: { text: 'This notice removes itself.' },
+  };
 }
 
 async function postOrRefreshWarning(channel, name) {
@@ -496,7 +511,7 @@ async function postOrRefreshWarning(channel, name) {
     const ttl = Math.min(WARN_TTL_MS(), lifeLeft) || WARN_TTL_MS();
     st.timer = setTimeout(() => removeWarning(channel, key).catch(() => {}), ttl);
     // Fold the extra names in, so one notice covers the whole burst.
-    try { await channel.messages.edit(st.messageId, { content: warnText(st.names), allowedMentions: { parse: [] } }); }
+    try { await channel.messages.edit(st.messageId, { embeds: [warnEmbed(st.names)], allowedMentions: { parse: [] } }); }
     catch (e) { /* it may already be gone; the timer will tidy up */ }
     return { posted: false, folded: true, count: st.count };
   }
@@ -507,7 +522,7 @@ async function postOrRefreshWarning(channel, name) {
     // parse: [] means the names render but nobody is pinged. They will see it —
     // it is sitting in the channel they just posted in — and a ping that then
     // vanishes leaves nothing but a notification with no message behind it.
-    const msg = await channel.send({ content: warnText(st.names), allowedMentions: { parse: [] } });
+    const msg = await channel.send({ embeds: [warnEmbed(st.names)], allowedMentions: { parse: [] } });
     st.messageId = msg.id;
     st.timer = setTimeout(() => removeWarning(channel, key).catch(() => {}), WARN_TTL_MS());
     return { posted: true, folded: false, count: 1 };
@@ -652,13 +667,14 @@ async function onSuggestionMessage(message) {
   return { ...decision, reacted: false, deleted, warning };
 }
 
-// A suggestion gets met_tick then met_cross, in that order — approve on the
-// left, the way every other sign-off in this system reads. A question gets one
-// mark instead: there is nothing to vote on, but the person who asked still
-// needs to be able to see that the bot handled it rather than ignoring it.
+// Everything kept gets met_tick then met_cross, in that order · approve on the
+// left, the way every other sign-off in this system reads. Questions get the
+// same pair rather than a lone search mark: the tick and cross read as "handled,
+// and here is how to weigh in", where the search icon just looked like the bot
+// was still thinking about it.
 const REACTIONS = {
   suggestion: ['met_tick', 'met_cross'],
-  question:   ['met_search'],
+  question:   ['met_tick', 'met_cross'],
 };
 
 async function addReactions(message, verdict) {

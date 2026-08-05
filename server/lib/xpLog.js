@@ -157,11 +157,11 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
  * so the channel shows WHY the XP came off, which is the actual question
  * anybody reading this will have.
  */
-async function logDemotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, reason, issuedById, avatar }) {
+async function logDemotion({ discordId, memberName, from, to, xp, progress, groupResult, dmSent, reason, issuedById, by, avatar }) {
   const fields = [
     { name: 'Rank',  value: `${badge(from.name)}${from.name} → ${badge(to.name)}**${to.name}**`, inline: true },
     { name: 'XP',    value: `**${xp}**`, inline: true },
-    { name: 'By',    value: issuedById ? `<@${issuedById}>` : 'System', inline: true },
+    { name: 'By',    value: issuedById ? `<@${issuedById}>` : (by || 'System'), inline: true },
     { name: 'Roblox group', value: groupResult && groupResult.ok
         ? `${e('met_tick')} Set to **${groupResult.to}**`
         : `${e('met_warn')} Not changed · ${short((groupResult && groupResult.reason) || 'unknown', 150)}`,
@@ -177,10 +177,12 @@ async function logDemotion({ discordId, memberName, from, to, xp, progress, grou
 
   const embed = {
     color: COLOR.demotion,
-    title: `${e('met_warn')} Demotion · ${to.name}`,
-    description: `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has dropped to **${xp} XP** and is now ${badge(to.name)}**${to.name}**.`,
+    title: `${e('met_warn')} ${by ? 'Rank changed' : 'Demotion'} · ${to.name}`,
+    description: by
+      ? `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has been set to ${badge(to.name)}**${to.name}** by ${short(by, 60)}.`
+      : `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has dropped to **${xp} XP** and is now ${badge(to.name)}**${to.name}**.`,
     fields,
-    footer: { text: 'MET XP · automatic demotion' },
+    footer: { text: by ? 'MET XP · rank set with /promote' : 'MET XP · automatic demotion' },
     timestamp: new Date().toISOString(),
   };
   if (avatar) embed.thumbnail = { url: avatar };

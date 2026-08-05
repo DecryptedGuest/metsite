@@ -395,6 +395,16 @@ async function listRegisteredCommands() {
 
 // Handle the import slash command (restricted to the developer user)
 async function onInteraction(interaction) {
+  // Autocomplete (the /promote rank picker). Answered separately from the
+  // command itself · it only ever suggests, it never runs anything.
+  if (interaction.isAutocomplete && interaction.isAutocomplete()) {
+    if (interaction.commandName === 'promote') {
+      return require('./promoteCommand').handlePromoteAutocomplete(interaction)
+        .catch(e => console.error('[Bot] promote autocomplete error:', e.message));
+    }
+    return;
+  }
+
   // Tryout DM buttons / co-host select menu.
   if (interaction.isButton()
       || (interaction.isUserSelectMenu && interaction.isUserSelectMenu())

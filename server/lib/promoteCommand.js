@@ -57,6 +57,10 @@ function buildCommand() {
       .setDescription('Who')
       .setRequired(true))
     .addStringOption(o => o
+      .setName('rank')
+      .setDescription('Set them to a specific rank (Deputy Commissioner and above). Leave blank to promote one rank up.')
+      .setAutocomplete(true))
+    .addStringOption(o => o
       .setName('reason')
       .setDescription('Why')
       .setMaxLength(300))
@@ -132,6 +136,99 @@ async function planPromotion(current, issuerRank) {
   return { ok: true, from, to, ceiling, why: null };
 }
 
+// ── The rank picker (Deputy Commissioner and above only) ──────────
+// A specific-rank set is a heavier tool than a one-rung promotion, so it is
+// gated harder and the list of ranks it offers stops below Deputy Assistant
+// Commissioner. DAC and everything above it is High Command; that is not set
+// from a slash command, whoever is running it.
+const DAC_NAME = /deputy assistant commissioner/i;
+
+/** The highest rank number the picker will offer: one below Deputy Assistant Commissioner. */
+function selectionCeiling(ranks) {
+  const dac = ranks.find(r => DAC_NAME.test(String(r.name || '')));
+  if (dac) return Number(dac.rank) - 1;
+  // No DAC in the ladder (renamed, or the group changed): fall back to the
+  // one-rung ceiling so the picker never runs off into High Command.
+  return ceilingFor(ranks);
+}
+
+/** Every rank the picker may offer, lowest first: everything below DAC. */
+async function selectableRanks() {
+  const ranks = await promotableRanks();
+  const cap = selectionCeiling(ranks);
+  return ranks.filter(r => Number(r.rank) <= cap);
+}
+
+/**
+ * Plan a set to a specific rank (up OR down), without performing it.
+ * @param {object} current   their live group role { id, name, rank }
+ * @param {object} target     the picked rank { id, name, rank }
+ * @param {number|null} issuerRank
+ */
+async function planRankChange(current, target, issuerRank) {
+  if (!current || current.rank == null) {
+    return { ok: false, why: 'Their MET Rank could not be read, so there is nothing to change from.' };
+  }
+  let ranks;
+  try { ranks = await promotableRanks(); }
+  catch (err) { return { ok: false, why: `The MET group's ranks could not be read (${err.message}).` }; }
+  if (!ranks.length) return { ok: false, why: "The MET group returned no ranks · refusing to guess at one." };
+
+  const cap = selectionCeiling(ranks);
+  const to = ranks.find(r => Number(r.rank) === Number(target.rank)) || target;
+  const from = ranks.find(r => Number(r.rank) === Number(current.rank))
+    || { id: null, name: current.name, rank: Number(current.rank) };
+
+  if (Number(to.rank) > cap) {
+    return { ok: false, from, to,
+      why: `**${to.name}** is Deputy Assistant Commissioner or above · that is High Command, and /promote only sets ranks below it.` };
+  }
+  if (Number(to.rank) === Number(from.rank)) {
+    return { ok: false, from, to, why: `They are already **${to.name}**.` };
+  }
+  if (issuerRank != null && Number(to.rank) >= Number(issuerRank)) {
+    return { ok: false, from, to,
+      why: `That would put them at **${to.name}**, which is at or above your own rank. You can't set somebody to your level or past it.` };
+  }
+  return { ok: true, from, to, direction: Number(to.rank) > Number(from.rank) ? 'up' : 'down' };
+}
+
+// Who may set a SPECIFIC rank, as opposed to promoting one rung. Deputy
+// Commissioner and above, or a server administrator (a developer comes through
+// the same route and does not need to be named). This is narrower than the
+// one-rung permission on purpose: FLP officers and HPC High Command graduate
+// and promote people, but they do not hand out arbitrary ranks.
+async function canSetRank({ discordId, roleIds, isAdmin }) {
+  if (isAdmin) return { ok: true, label: 'Server Administrator', name: null };
+  const v = await require('./disciplineAccess').canDiscipline(discordId, roleIds).catch(() => ({ ok: false }));
+  if (v.ok && v.isMetHicomm) return { ok: true, label: v.label, name: v.name };
+  return { ok: false, label: '', name: v && v.name };
+}
+
+// ── Autocomplete for the rank option ──────────────────────────────
+async function handlePromoteAutocomplete(interaction) {
+  // Only the people who may actually set a rank get a populated picker; for
+  // everyone else it comes back empty, so the field reads as "not for you"
+  // rather than tempting a click that will only be refused.
+  const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
+    ? [...interaction.member.roles.cache.keys()].map(String) : [];
+  const isAdmin = !!(interaction.memberPermissions
+    && typeof interaction.memberPermissions.has === 'function'
+    && interaction.memberPermissions.has(require('discord.js').PermissionFlagsBits.Administrator));
+  const auth = await canSetRank({ discordId: interaction.user.id, roleIds, isAdmin }).catch(() => ({ ok: false }));
+  if (!auth.ok) return interaction.respond([]).catch(() => {});
+
+  const focused = interaction.options.getFocused ? String(interaction.options.getFocused() || '') : '';
+  const q = focused.trim().toLowerCase();
+  let ranks = [];
+  try { ranks = await selectableRanks(); } catch (e) { ranks = []; }
+  const choices = ranks
+    .filter(r => !q || String(r.name || '').toLowerCase().includes(q))
+    .slice(0, 25)
+    .map(r => ({ name: short(String(r.name || ''), 100), value: short(String(r.name || ''), 100) }));
+  return interaction.respond(choices).catch(() => {});
+}
+
 // ── Pending confirmations ─────────────────────────────────────────
 const pending = new Map();   // token → { ... , at }
 
@@ -156,6 +253,7 @@ async function handlePromoteCommand(interaction) {
 
   const target = interaction.options.getUser('officer');
   const reason = interaction.options.getString('reason');
+  const rankArg = (interaction.options.getString('rank') || '').trim();
 
   const fail = (title, body) => new EmbedBuilder()
     .setColor(COLOR.fail).setTitle(`${e('met_cross')} ${title}`).setDescription(body);
@@ -213,14 +311,50 @@ async function handlePromoteCommand(interaction) {
   // fine — the "not above you" rule only applies when we know their rank.
   const issuerRank = issuerRole && issuerRole.rank != null ? Number(issuerRole.rank) : null;
 
-  const plan = await planPromotion(current, issuerRank);
+  // Two modes. With no `rank` given it is the plain one-rung promotion anyone
+  // with promote access can run. With a `rank`, it sets that exact rank, and
+  // that is Deputy Commissioner and above only.
+  let plan, mode = 'promote', issuerLabel = access.label, issuerName = access.name;
+  if (rankArg) {
+    const setAuth = await canSetRank({ discordId: interaction.user.id, roleIds, isAdmin });
+    if (!setAuth.ok) {
+      return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_denied')} Not authorised to set a rank`)
+        .setDescription(`Setting a specific rank is for Deputy Commissioner and above. `
+          + `You can still promote <@${target.id}> one rank up · run \`/promote\` again and leave the **rank** field empty.`)],
+      }).catch(() => {});
+    }
+    issuerLabel = setAuth.label || issuerLabel;
+    issuerName = setAuth.name || issuerName;
+
+    // Match the picked rank against the ranks the picker offers (below DAC).
+    let choices = [];
+    try { choices = await selectableRanks(); } catch (e) { choices = []; }
+    const wanted = rankArg.toLowerCase();
+    const targetRank = choices.find(r => String(r.name || '').toLowerCase() === wanted)
+      || choices.find(r => String(r.name || '').toLowerCase().includes(wanted));
+    if (!targetRank) {
+      return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.warn)
+        .setTitle(`${e('met_warn')} No such rank`)
+        .setDescription(`**${short(rankArg, 60)}** isn't a rank I can set. Pick one from the list · it only offers ranks below Deputy Assistant Commissioner.`)],
+      }).catch(() => {});
+    }
+
+    plan = await planRankChange(current, targetRank, issuerRank);
+    mode = 'setrank';
+  } else {
+    plan = await planPromotion(current, issuerRank);
+  }
+
   if (!plan.ok) {
     return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.warn)
-      .setTitle(`${e('met_warn')} Can't promote them`)
+      .setTitle(`${e('met_warn')} ${mode === 'setrank' ? "Can't set that rank" : "Can't promote them"}`)
       .setDescription(plan.why)
       .setFooter({ text: current ? `Currently ${current.name}` : 'MET rank unknown' })],
     }).catch(() => {});
   }
+
+  const down = mode === 'setrank' && plan.direction === 'down';
 
   // No fallback mark. The server's own rank badge or nothing — a generic
   // stand-in next to a real insignia reads as a different, lesser rank.
@@ -234,13 +368,16 @@ async function handlePromoteCommand(interaction) {
     robloxId: String(link.robloxId),
     username: link.username || null,
     from: plan.from, to: plan.to, reason: reason || null,
-    issuerName: access.name || (interaction.member && interaction.member.displayName) || interaction.user.username,
+    mode, direction: plan.direction || 'up',
+    issuerId: interaction.user.id,
+    issuerName: issuerName || (interaction.member && interaction.member.displayName) || interaction.user.username,
     avatar,
   });
 
+  const heading = mode === 'setrank' ? (down ? 'Change rank' : 'Set rank') : 'Promote';
   const embed = new EmbedBuilder()
     .setColor(COLOR.review)
-    .setTitle(`${e('met_promote')} Promote`)
+    .setTitle(`${e(down ? 'met_warn' : 'met_promote')} ${heading}`)
     .setDescription(
       `${e('met_user')} <@${target.id}>`
       + (link.username ? ` · [${short(link.username, 30)}](https://www.roblox.com/users/${link.robloxId}/profile)` : ''))
@@ -254,11 +391,14 @@ async function handlePromoteCommand(interaction) {
         `${e('met_dot_on')} DM them, and post it to the XP log`,
       ].join('\n'), inline: false },
     )
-    .setFooter({ text: `By ${access.name || interaction.user.username}${access.label ? ` · ${access.label}` : ''}` });
+    .setFooter({ text: `By ${issuerName || interaction.user.username}${issuerLabel ? ` · ${issuerLabel}` : ''}` });
   if (avatar) embed.setThumbnail(avatar);
 
+  const btnLabel = mode === 'setrank'
+    ? (down ? `Set to ${short(plan.to.name, 36)}` : `Promote to ${short(plan.to.name, 32)}`)
+    : `Promote to ${short(plan.to.name, 32)}`;
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`prom_go_${token}`).setLabel(`Promote to ${short(plan.to.name, 40)}`).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`prom_go_${token}`).setLabel(btnLabel).setStyle(down ? ButtonStyle.Primary : ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`prom_no_${token}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
   );
 
@@ -301,19 +441,24 @@ async function handlePromoteButton(interaction) {
 
   // One press only.
   pending.delete(token);
+  const down = state.direction === 'down';
+  const verbing = down ? 'Changing rank…' : 'Promoting…';
   await interaction.update({
     embeds: [new EmbedBuilder().setColor(COLOR.working)
-      .setTitle(`${e('met_load2')} Promoting…`)
+      .setTitle(`${e('met_load2')} ${verbing}`)
       .setDescription(`<@${state.targetId}> → **${state.to.name}**`)],
     components: [],
   }).catch(() => {});
 
   const result = await applyPromotion(state, interaction.client);
 
+  const doneTitle = result.group.ok
+    ? (down ? 'Rank changed' : 'Promoted')
+    : (down ? 'Rank change failed' : 'Promotion failed');
   const line = (ok, text) => `${ok ? e('met_tick') : e('met_cross')} ${text}`;
   const embed = new EmbedBuilder()
     .setColor(result.group.ok ? COLOR.done : COLOR.fail)
-    .setTitle(`${result.group.ok ? e('met_promote') : e('met_cross')} ${result.group.ok ? 'Promoted' : 'Promotion failed'}`)
+    .setTitle(`${result.group.ok ? e(down ? 'met_edit' : 'met_promote') : e('met_cross')} ${doneTitle}`)
     .setDescription(`${e('met_user')} <@${state.targetId}>`
       + (state.username ? ` · ${short(state.username, 30)}` : ''))
     .addFields(
@@ -379,36 +524,59 @@ async function applyPromotion(state, client) {
     out.xp.reason = err.message;
   }
 
-  // 3. Tell them.
+  const down = state.direction === 'down';
+
+  // 3. Tell them. A downward set is a rank change, not a promotion · say so
+  //    plainly rather than congratulating somebody on a lower rank.
   try {
     const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
     out.dm = await require('./bot').dmMemberNotice(state.targetId, {
-      color: 0xffc93c,
-      title: `Congratulations · you've been promoted to ${state.to.name}`,
+      color: down ? 0xe8842a : 0xffc93c,
+      title: down
+        ? `Your MET rank has been changed to ${state.to.name}`
+        : `Congratulations · you've been promoted to ${state.to.name}`,
       description:
-        `You have been promoted from **${state.from.name}** to **${state.to.name}** in the Metropolitan Police.\n\n`
+        (down
+          ? `Your rank in the Metropolitan Police has been changed from **${state.from.name}** to **${state.to.name}**.\n\n`
+          : `You have been promoted from **${state.from.name}** to **${state.to.name}** in the Metropolitan Police.\n\n`)
         + (state.reason ? `**Reason:** ${short(state.reason, 400)}\n` : '')
-        + `**Promoted by:** ${short(state.issuerName, 60)}\n\n`
+        + `**${down ? 'Changed' : 'Promoted'} by:** ${short(state.issuerName, 60)}\n\n`
         + `Your rank and record are on the MET Dashboard.`,
       appealUrl: `${base}/profile`,
       appealLabel: 'View my record',
     });
   } catch (err) { out.dm = false; }
 
-  // 4. And the log.
+  // 4. And the log · a promotion post for an upward move, a rank-change post
+  //    for a downward one.
   try {
-    const msg = await require('./xpLog').logPromotion({
-      discordId: state.targetId,
-      memberName: state.username,
-      from: { name: state.from.name, at: null },
-      to: { name: state.to.name, at: out.xp.value },
-      xp: out.xp.value,
-      groupResult: { ok: true, to: state.to.name },
-      dmSent: out.dm,
-      avatar: state.avatar,
-      by: state.issuerName,
-      reason: state.reason,
-    });
+    const XPLog = require('./xpLog');
+    const msg = down
+      ? await XPLog.logDemotion({
+          discordId: state.targetId,
+          memberName: state.username,
+          from: { name: state.from.name, at: null },
+          to: { name: state.to.name, at: out.xp.value },
+          xp: out.xp.value,
+          groupResult: { ok: true, to: state.to.name },
+          dmSent: out.dm,
+          avatar: state.avatar,
+          issuedById: state.issuerId,
+          by: state.issuerName,
+          reason: state.reason,
+        })
+      : await XPLog.logPromotion({
+          discordId: state.targetId,
+          memberName: state.username,
+          from: { name: state.from.name, at: null },
+          to: { name: state.to.name, at: out.xp.value },
+          xp: out.xp.value,
+          groupResult: { ok: true, to: state.to.name },
+          dmSent: out.dm,
+          avatar: state.avatar,
+          by: state.issuerName,
+          reason: state.reason,
+        });
     out.logged = !!msg;
   } catch (err) { out.logged = false; }
 
@@ -416,7 +584,8 @@ async function applyPromotion(state, client) {
 }
 
 module.exports = {
-  buildCommand, handlePromoteCommand, handlePromoteButton,
-  planPromotion, promotableRanks, ceilingFor, applyPromotion, keep, recall,
+  buildCommand, handlePromoteCommand, handlePromoteButton, handlePromoteAutocomplete,
+  planPromotion, planRankChange, promotableRanks, selectableRanks, selectionCeiling,
+  ceilingFor, canSetRank, applyPromotion, keep, recall,
   PROMOTE_ROLE_IDS,
 };
