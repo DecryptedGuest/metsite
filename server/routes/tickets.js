@@ -574,66 +574,24 @@ router.post('/repair', requireHICOMMStrict, async (req, res) => {
 // log. Approving one awards TICKET_POINTS (2) to the investigator who closed
 // the ticket; denying one awards nothing.
 router.post('/:id/review', requireHICOMM, async (req, res) => {
-  const action = ((req.body && req.body.action) || '').toString().toLowerCase();
-  if (!['approve', 'deny'].includes(action)) {
-    return res.status(400).json({ error: "action must be 'approve' or 'deny'." });
-  }
-  const status = action === 'approve' ? 'APPROVED' : 'DENIED';
   try {
-    const ticket = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
-    if (!ticket) return res.status(404).json({ error: 'Ticket log not found.' });
-
-    // A supervisor may sign off a ticket they closed themselves. Command asked
-    // for this: the people who review are the people who close, and a small
-    // team waiting for somebody else to press the button is a queue that does
-    // not move. The decision is recorded against their name either way.
-
-    const updated = await prisma.ticketLog.update({
-      where: { id: ticket.id },
-      data: {
-        status,
-        reviewedById:   req.user.id,
-        reviewedByName: req.user.displayName || req.user.discordUsername,
-        reviewedAt:     new Date(),
-      },
+    const { reviewTicket } = require('../lib/caseDecision');
+    const out = await reviewTicket({
+      ticketId: req.params.id,
+      actor:    req.user,
+      action:   (req.body && req.body.action) || '',
     });
-
-    // +2 quota points for the investigator who closed the ticket. Queued
-    // durably and keyed on the ticket id, so re-approving (or a retry) can never
-    // double-award — and a later deny simply leaves the existing award alone
-    // rather than clawing it back.
-    if (status === 'APPROVED' && (ticket.closerDiscordId || ticket.closerUserId)) {
-      const { enqueueQuotaAward, TICKET_POINTS } = require('../lib/quota');
-      let closer = null;
-      if (ticket.closerUserId) {
-        closer = await prisma.user.findUnique({
-          where:  { id: ticket.closerUserId },
-          select: { discordId: true, robloxUsername: true },
-        }).catch(() => null);
-      }
-      const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
-      if (discordId) {
-        enqueueQuotaAward({
-          refType: 'ticket', refId: ticket.id,
-          discordId,
-          // Only the matched site account's Roblox name — NEVER
-          // creatorRobloxUsername, which is the person who OPENED the ticket.
-          // With no Roblox name the sheet still matches on the Discord id.
-          robloxUsername: (closer && closer.robloxUsername) || null,
-          points: TICKET_POINTS(),
-          label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
-        }).catch(() => {});
-      }
-    }
+    if (!out.ok) return res.status(out.status).json({ error: out.error });
 
     require('../lib/audit').record({
-      req, action: status === 'APPROVED' ? 'TICKET_APPROVE' : 'TICKET_DENY',
-      category: 'ia', targetType: 'ticketLog', targetId: ticket.id,
-      summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`
-             + (status === 'APPROVED' ? ` (+${require('../lib/quota').TICKET_POINTS()} pts)` : ''),
+      req, action: out.decision === 'APPROVED' ? 'TICKET_APPROVE' : 'TICKET_DENY',
+      category: 'ia', targetType: 'ticketLog', targetId: out.ticket.id,
+      summary: `${out.decision === 'APPROVED' ? 'Approved' : 'Denied'} ticket `
+             + `${out.ticket.ticketRef || out.ticket.ticketName || out.ticket.id}`
+             + (out.decision === 'APPROVED' ? ` (+${require('../lib/quota').TICKET_POINTS()} pts)` : ''),
     });
 
-    res.json(updated);
+    res.json(out.ticket);
   } catch (err) {
     console.error('[TicketLogs] review error:', err.message);
     res.status(500).json({ error: 'Failed to record the decision.' });

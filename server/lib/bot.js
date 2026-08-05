@@ -254,6 +254,17 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /check-record:', err.message);
   }
 
+  // /ia — the Internal Affairs dashboard. Registered in the MET server (and the
+  // IA panel guild) like /check-record; who may actually use it, and what they
+  // may decide, is settled in code by lib/iaAuthority.
+  try {
+    const cmd = require('./iaDashboard').buildCommand();
+    add(IA_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /ia:', err.message);
+  }
+
   // /promote — one rank up in the MET group. Gated in code, like the rest.
   try {
     const cmd = require('./promoteCommand').buildCommand();
@@ -418,6 +429,16 @@ async function onInteraction(interaction) {
       return require('./disciplineCommand').handleDisciplineButton(interaction)
         .catch(e => console.error('[Bot] discipline button error:', e.message));
     }
+    // The /ia dashboard. Checked BEFORE the ia_ panel below: the prefixes are
+    // distinct (iad_ vs ia_) but the order makes that explicit rather than a
+    // fact somebody has to re-derive from string comparison.
+    if (cid.startsWith('iad_')) {
+      const D = require('./iaDashboard');
+      const run = (interaction.isModalSubmit && interaction.isModalSubmit())
+        ? D.handleIaDashboardModal(interaction)
+        : D.handleIaDashboardComponent(interaction);
+      return run.catch(e => console.error('[Bot] /ia dashboard component error:', e.message));
+    }
     if (cid.startsWith('ia_')) {
       return require('./iaPanel').handleIaComponent(interaction)
         .catch(e => console.error('[Bot] IA panel component error:', e.message));
@@ -483,6 +504,17 @@ async function onInteraction(interaction) {
       .catch(async (err) => {
         console.error('[Bot] /promote failed:', err.message);
         const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === require('./iaDashboard').COMMAND) {
+    return require('./iaDashboard').handleIaDashboardCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /ia failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong opening the dashboard. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});

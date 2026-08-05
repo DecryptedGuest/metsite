@@ -292,7 +292,66 @@ async function denyCase({ caseId, actor, note } = {}) {
   return { ok: true, status: 200, case: updated };
 }
 
+/**
+ * Approve or deny a closed-ticket log.
+ *
+ * No punishment tier applies — a ticket carries no punishment — so this is
+ * Supervisor and above, full stop. Approving awards the closer their quota
+ * points, queued on the ticket id so a retry or a re-approval cannot double
+ * them; denying leaves any existing award alone rather than clawing it back.
+ *
+ * @param {object} o
+ * @param {string} o.ticketId
+ * @param {{id:string, role:string, displayName?:string, discordUsername?:string}} o.actor
+ * @param {'approve'|'deny'} o.action
+ */
+async function reviewTicket({ ticketId, actor, action } = {}) {
+  const verb = String(action || '').toLowerCase();
+  if (!['approve', 'deny'].includes(verb)) {
+    return { ok: false, status: 400, error: "action must be 'approve' or 'deny'." };
+  }
+  const status = verb === 'approve' ? 'APPROVED' : 'DENIED';
+
+  const ticket = await prisma.ticketLog.findUnique({ where: { id: ticketId } });
+  if (!ticket) return { ok: false, status: 404, error: 'Ticket log not found.' };
+
+  const updated = await prisma.ticketLog.update({
+    where: { id: ticket.id },
+    data: {
+      status,
+      reviewedById:   actor.id,
+      reviewedByName: actor.displayName || actor.discordUsername || 'Internal Affairs',
+      reviewedAt:     new Date(),
+    },
+  });
+
+  if (status === 'APPROVED' && (ticket.closerDiscordId || ticket.closerUserId)) {
+    const { enqueueQuotaAward, TICKET_POINTS } = require('./quota');
+    let closer = null;
+    if (ticket.closerUserId) {
+      closer = await prisma.user.findUnique({
+        where:  { id: ticket.closerUserId },
+        select: { discordId: true, robloxUsername: true },
+      }).catch(() => null);
+    }
+    const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
+    if (discordId) {
+      enqueueQuotaAward({
+        refType: 'ticket', refId: ticket.id,
+        discordId,
+        // Only the matched site account's Roblox name — NEVER
+        // creatorRobloxUsername, which is the person who OPENED the ticket.
+        robloxUsername: (closer && closer.robloxUsername) || null,
+        points: TICKET_POINTS(),
+        label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
+      }).catch(() => {});
+    }
+  }
+
+  return { ok: true, status: 200, ticket: updated, decision: status };
+}
+
 module.exports = {
-  approveCase, denyCase, tierRefusal,
+  approveCase, denyCase, reviewTicket, tierRefusal,
   resolveCaseAvatars, resolveOfficerDiscordId, robloxHeadshotUrl,
 };
