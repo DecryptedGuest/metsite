@@ -275,6 +275,20 @@ model TicketLog {
   closerUserId          String? // matched site User.id → "My Tickets"
   closedAt              DateTime
 
+  // Which department's ticket logs this came out of: MET (the IA/MET server),
+  // CID or SCO. Internal Affairs handles all of them, so they all land in the
+  // same queue — the tag is what says where it came from.
+  division   String  @default("MET")
+  // The handler's rank as their nickname printed it in that server ("DUC",
+  // "FCINS", "IA | DCI"). Kept because a CID ticket closed by a CID officer
+  // still needs to say who, at what rank, even though they are not IA.
+  closerRank String?
+  // Whether whoever closed it is Internal Affairs. Quota points are IA's, so a
+  // ticket handled by a division officer is logged and reviewed but pays
+  // nobody. Resolved at ingest and stored, so a later rank change cannot
+  // silently rewrite who was owed for work already done.
+  closerIsIa Boolean @default(false)
+
   // Supervisor sign-off. Nobody logs a ticket by hand any more — the row is
   // ingested from Discord — but a supervisor still approves or denies it on the
   // site. Approval awards NO quota points.
@@ -294,6 +308,7 @@ model TicketLog {
   @@index([closerUserId])
   @@index([ticketType])
   @@index([status])
+  @@index([division])
   @@map("ticket_logs")
 }
 
@@ -438,48 +453,48 @@ model QuotaAward {
 // is no approval step, so the record has to carry enough to audit it after the
 // fact: who hosted, who attended, when, and what proof was offered.
 model IaEventLog {
-  id             String    @id @default(uuid())
+  id              String    @id @default(uuid())
   // Sequential, human-readable: "EVT-0042".
-  eventRef       String    @unique
-  eventType      String // Training | Briefing | Interview panel | …
-  title          String?
-  hostId         String // the site account that filed it
-  hostDiscordId  String?
-  hostName       String?
-  coHostName     String?
-  startedAt      DateTime
-  durationMins   Int?
+  eventRef        String    @unique
+  eventType       String // Training | Briefing | Interview panel | …
+  title           String?
+  hostId          String // the site account that filed it
+  hostDiscordId   String?
+  hostName        String?
+  coHostName      String?
+  startedAt       DateTime
+  durationMins    Int?
   // [{ discordId, username, name, awarded }] — the roll, and what each was paid.
-  attendees      Json
-  attendeeCount  Int       @default(0)
-  pointsEach     Int       @default(2)
+  attendees       Json
+  attendeeCount   Int       @default(0)
+  pointsEach      Int       @default(2)
   // XP is paid alongside the quota points. It has no outbox of its own — it is
   // applied straight to the balance — so this is its receipt: who was given
   // what, and whether it landed. A withdrawal takes back exactly this.
-  xpEach         Int       @default(0)
-  xpAward        Json?
-  notes          String?
-  proof          Json? // screenshots offered as evidence it happened
+  xpEach          Int       @default(0)
+  xpAward         Json?
+  notes           String?
+  proof           Json? // screenshots offered as evidence it happened
   // Nobody is paid until a supervisor signs it off. Filing one used to BE the
   // award, which meant the person who ran the event decided what it was worth.
-  status         String    @default("PENDING") // PENDING | APPROVED | DENIED
-  reviewedById   String?
-  reviewedByName String?
-  reviewedAt     DateTime?
-  reviewNote     String?
+  status          String    @default("PENDING") // PENDING | APPROVED | DENIED
+  reviewedById    String?
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  reviewNote      String?
   // Set when an approved event is withdrawn. The points already awarded are
   // reversed by their own award rows, so this is the record of the decision,
   // not the undo.
-  voidedAt       DateTime?
-  voidedById     String?
-  voidedReason   String?
+  voidedAt        DateTime?
+  voidedById      String?
+  voidedReason    String?
   // The Discord mirror of this log: posted as PENDING when it is filed, and the
   // SAME message edited when it is decided. Kept so the edit has something to
   // target — without the id there is no way to update the post, and the channel
   // ends up with a pending embed that never changes.
   mirrorChannelId String?
   mirrorMessageId String?
-  createdAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
 
   host User @relation("IaEventHost", fields: [hostId], references: [id])
 
@@ -1514,33 +1529,33 @@ model IaApplication {
 // the poller safe to run again and safe to overlap with itself — a re-read of the
 // same page inserts nothing and posts nothing.
 model GroupAuditEntry {
-  id          String   @id @default(uuid())
-  groupId     String
+  id             String    @id @default(uuid())
+  groupId        String
   // Roblox's own action type, verbatim ("Change Rank", "Accept Join Request", …).
   // Not an enum: Roblox adds types without notice and an unknown one must still be
   // recorded rather than rejected.
-  actionType  String
-  actorId     String?
-  actorName   String?
-  actorRank   Int?
-  actorRankName String?
+  actionType     String
+  actorId        String?
+  actorName      String?
+  actorRank      Int?
+  actorRankName  String?
   // Who or what the action was ABOUT, pulled out of the description where there is
   // one, so a member's history can be queried without unpacking JSON.
-  targetId    String?
-  targetName  String?
+  targetId       String?
+  targetName     String?
   // The description exactly as Roblox sent it — the formatter reads this, and
   // keeping it whole means a type we do not understand yet is still fully logged.
-  description Json?
-  occurredAt  DateTime
-  fingerprint String   @unique
+  description    Json?
+  occurredAt     DateTime
+  fingerprint    String    @unique
   // The Discord message this was posted as, so an entry is never posted twice and
   // a later correction can edit it.
-  messageId   String?
-  postedAt    DateTime?
+  messageId      String?
+  postedAt       DateTime?
   // Set when this entry was matched to something WE did, so the log can say which
   // site user asked for it rather than just naming the bot account.
   matchedAuditId String?
-  createdAt   DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   @@index([groupId, occurredAt])
   @@index([actionType])
@@ -1557,32 +1572,32 @@ model GroupAuditEntry {
 // does not re-alert; the record is permanent regardless of what happens to the
 // Discord account, because that is the whole point of it.
 model EvasionFlag {
-  id             String   @id @default(uuid())
+  id              String    @id @default(uuid())
   // The Roblox account the record follows. This, not the Discord id, is the
   // identity a punishment is really against.
-  robloxId       String
-  robloxUsername String?
+  robloxId        String
+  robloxUsername  String?
   // The account that just appeared wearing that identity.
-  discordId      String
-  discordTag     String?
+  discordId       String
+  discordTag      String?
   // BLACKLIST_EVASION — the identity is blacklisted.
   // PUNISHMENT_EVASION — an active strike/suspension sits on another account.
-  kind           String
+  kind            String
   // Every Discord account this Roblox identity has been seen on, and a compact
   // account of what was found — cases, punishments, which account each is on.
   knownDiscordIds Json?
-  evidence       Json?
-  summary        String?
+  evidence        Json?
+  summary         String?
   // Where the alert was posted, so a later action can edit it in place.
-  channelId      String?
-  messageId      String?
+  channelId       String?
+  messageId       String?
   // OPEN | ACTIONED | DISMISSED — set by the buttons on the alert.
-  status         String   @default("OPEN")
-  actionTaken    String?
-  actionedById   String?
-  actionedByName String?
-  actionedAt     DateTime?
-  createdAt      DateTime @default(now())
+  status          String    @default("OPEN")
+  actionTaken     String?
+  actionedById    String?
+  actionedByName  String?
+  actionedAt      DateTime?
+  createdAt       DateTime  @default(now())
 
   @@unique([robloxId, discordId])
   @@index([robloxId])

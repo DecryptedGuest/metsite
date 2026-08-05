@@ -21,6 +21,9 @@ const router = express.Router();
 
 const TYPES    = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
 const STATUSES = ['PENDING', 'APPROVED', 'DENIED'];
+// Which department's ticket logs a row came from. Internal Affairs handles all
+// three, so they share one queue and this narrows it.
+const DIVISIONS = ['MET', 'CID', 'SCO'];
 
 // Free-text search across everything on a ticket worth searching by.
 function searchClause(q) {
@@ -58,6 +61,8 @@ function buildWhere(req, base) {
   if (TYPES.includes(type)) filters.push({ ticketType: type });
   const status = (req.query.status || '').toString().toUpperCase();
   if (STATUSES.includes(status)) filters.push({ status });
+  const division = (req.query.division || '').toString().toUpperCase();
+  if (DIVISIONS.includes(division)) filters.push({ division });
   const search = searchClause(req.query.q);
   if (search) filters.push(search);
   return filters.length ? { AND: filters } : {};

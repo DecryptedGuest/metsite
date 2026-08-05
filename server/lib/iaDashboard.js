@@ -247,10 +247,18 @@ async function casesView(state, auth) {
   return { embed, rows, pages, total };
 }
 
+// Internal Affairs handles the MET's tickets, CID's and SCO-19's, so every line
+// carries the tag saying which — and the handler's rank when they are not IA,
+// because "closed by Sirrto49" alone does not tell a reviewer who that is.
+const DIV_TAG = { MET: 'MET', CID: 'CID', SCO: 'SCO' };
+function divisionTag(d) { return `\`${DIV_TAG[String(d || 'MET').toUpperCase()] || d}\``; }
+
 function ticketLine(t) {
   const num = t.ticketNo != null ? `#${String(t.ticketNo).padStart(4, '0')}` : (t.ticketRef || t.id.slice(0, 6));
-  return `${mark(t.status)} **${num}** · ${short(t.ticketName || t.ticketRef || 'ticket', 30)}\n`
-       + `${e('met_dot_on')} closed by ${short(t.closerUsername || '·', 22)} · ${dateOf(t.closedAt)}`;
+  const who = short(t.closerUsername || '·', 22);
+  const rank = t.closerRank ? ` (${short(t.closerRank, 18)})` : '';
+  return `${mark(t.status)} ${divisionTag(t.division)} **${num}** · ${short(t.ticketName || t.ticketRef || 'ticket', 26)}\n`
+       + `${e('met_dot_on')} closed by ${who}${rank} · ${dateOf(t.closedAt)}`;
 }
 
 async function ticketsView(state, auth) {
@@ -336,10 +344,14 @@ async function ticketDetailView(ticketId, auth) {
   const embed = new EmbedBuilder()
     .setColor(t.status === 'PENDING' ? COLOR.warn : t.status === 'APPROVED' ? COLOR.ok : COLOR.bad)
     .setTitle(`${mark(t.status)} Ticket ${num} · ${String(t.status || 'PENDING').toLowerCase()}`)
-    .setDescription(short(t.ticketName || t.ticketRef || 'Ticket', 200))
+    .setDescription(`${divisionTag(t.division)} ${short(t.ticketName || t.ticketRef || 'Ticket', 190)}`)
     .addFields(
       { name: `${e('met_user')} Opened by`, value: short(t.creatorUsername || '·', 40), inline: true },
-      { name: `${e('met_shield')} Closed by`, value: short(t.closerUsername || '·', 40), inline: true },
+      { name: `${e('met_shield')} Closed by`, inline: true, value:
+        short(t.closerUsername || '·', 40)
+        + (t.closerRank ? `\n${short(t.closerRank, 30)}` : '')
+        // Quota is IA's, so say plainly when approving this pays nobody.
+        + (t.closerIsIa === false ? `\n${e('met_warn')} not IA · no quota` : '') },
       { name: `${e('met_calendar')} Closed`, value: t.closedAt ? when(t.closedAt) : '·', inline: true },
       { name: `${e('met_note')} Close reason`, value: short(t.reason || 'No reason given.', 800), inline: false },
     );

@@ -1384,8 +1384,9 @@ async function onPatrolMessage(message) {
     const ch = String(message.channelId);
 
     // Closed-ticket logs are posted BY a bot (Tickety), so this has to run
-    // before the not-a-bot guard below.
-    if (TICKET_LOG_CHANNEL_ID && ch === String(TICKET_LOG_CHANNEL_ID)) {
+    // before the not-a-bot guard below. Any of the ticket-log channels counts:
+    // the MET one, CID's and SCO-19's — Internal Affairs handles all three.
+    if (require('./ticketIngest').divisionForChannel(ch)) {
       try { await require('./ticketIngest').ingestMessage(message); }
       catch (e) { console.warn('[TicketLogs] live ingest error:', e.message); }
       return;

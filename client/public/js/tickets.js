@@ -34,6 +34,16 @@ var allTicketStatus = 'all';
 // read-only. Read through window each time — this file loads first.
 function canReview() { return !!window.canReviewTickets; }
 
+// Which department's ticket logs a row came out of. Internal Affairs handles
+// the MET's, CID's and SCO-19's, so they share one queue and this says which.
+var DIVC = { MET: 'blue', CID: 'amber', SCO: 'muted' };
+var DIVL = { MET: 'MET', CID: 'CID', SCO: 'SCO' };
+function ticketDivisionBadge(d) {
+  var k = String(d || 'MET').toUpperCase();
+  var c = DIVC[k] || 'blue';
+  return '<span class="badge badge-' + c + '"><span class="badge-dot"></span>' + escapeHtml(DIVL[k] || k) + '</span>';
+}
+
 function ticketTypeBadge(t) {
   var c = TC[t] || 'blue';
   var l = TL[t] || t || '·';
@@ -166,6 +176,13 @@ function ticketIdCell(t) {
 // so in words. An em dash tells you nothing; "Not recorded" tells you the log
 // itself was missing an executor, which is a different problem from a lookup
 // that failed.
+// The handler's rank in the department whose ticket this is. Shown because a
+// CID or SCO-19 ticket is often closed by one of that division's own officers,
+// and "who closed it" without a rank tells a reviewer very little.
+function ticketHandlerRank(t) {
+  return t && t.closerRank ? String(t.closerRank) : null;
+}
+
 function ticketHandler(t) {
   const name = t.closerUsername || t.closerRaw || t.closerDiscordId;
   if (name) return String(name);
@@ -186,6 +203,7 @@ function ticketRowHtml(t, opts) {
           + '">' + escapeHtml(closer) + '</span></td>'
         : '')
     + '<td><span style="font-size:12px;font-weight:500;">' + escapeHtml(creator) + '</span></td>'
+    + '<td>' + ticketDivisionBadge(t.division) + '</td>'
     + '<td>' + ticketTypeBadge(t.ticketType) + '</td>'
     + '<td><span class="case-reason-cell">' + escapeHtml(t.reason || '·') + '</span></td>'
     + '<td>' + (t.transcriptUrl
@@ -381,8 +399,17 @@ async function openTicketDetail(ticketId) {
     // the transcript; ours is the one that is short enough to quote.
     + field('Tickety ID', escapeHtml(t.ticketRef || '·'), true)
     + field('Ticket number', escapeHtml(ticketSeq(t) || '·'), true)
+    + field('Department', ticketDivisionBadge(t.division))
     + field('Type', ticketTypeBadge(t.ticketType))
-    + field('Closed by', escapeHtml(ticketHandler(t)))
+    + field('Closed by', escapeHtml(ticketHandler(t))
+        + (ticketHandlerRank(t)
+            ? ' <span class="text-muted" style="font-size:11px;">' + escapeHtml(ticketHandlerRank(t)) + '</span>'
+            : '')
+        // Quota is Internal Affairs'. A ticket a division officer handled is
+        // still reviewed, it just pays nobody — say so where the decision is made.
+        + (t.closerIsIa === false
+            ? '<br><span class="text-muted" style="font-size:11px;">Not Internal Affairs · approving awards no quota points</span>'
+            : ''))
     + field('Closed at', formatDateTime(t.closedAt))
     + field('Status', statusBadge(t.status || 'PENDING'))
     + field('Reviewed by', escapeHtml(t.reviewedByName || '·')

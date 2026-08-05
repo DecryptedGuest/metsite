@@ -325,7 +325,12 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
     },
   });
 
-  if (status === 'APPROVED' && (ticket.closerDiscordId || ticket.closerUserId)) {
+  // Quota points are Internal Affairs'. A CID or SCO-19 ticket closed by one of
+  // that division's own officers is still logged and still reviewed, but there
+  // is no IA quota to pay — so the award is skipped rather than credited to
+  // somebody who is not on the IA sheet. `closerIsIa` was resolved at ingest.
+  const payable = ticket.closerIsIa !== false;
+  if (status === 'APPROVED' && payable && (ticket.closerDiscordId || ticket.closerUserId)) {
     const { enqueueQuotaAward, TICKET_POINTS } = require('./quota');
     let closer = null;
     if (ticket.closerUserId) {

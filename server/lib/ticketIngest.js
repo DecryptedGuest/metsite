@@ -20,6 +20,71 @@ const { parseTicketLogEmbed, transcriptUrlFromComponents } = require('./ticketLo
 const TICKET_LOG_GUILD_ID   = () => process.env.TICKET_LOG_GUILD_ID   || '1191048287315304470';
 const TICKET_LOG_CHANNEL_ID = () => process.env.TICKET_LOG_CHANNEL_ID || '1455877424582492264';
 
+// ── Where ticket logs come from ───────────────────────────────────
+// Three servers now, not one. Internal Affairs handles tickets for the MET, for
+// CID and for SCO-19, so all three land in the same queue and carry a tag
+// saying which department they came out of. Each is overridable by env so a
+// server move does not need a deploy.
+const CID_TICKET_GUILD_ID   = () => process.env.CID_TICKET_LOG_GUILD_ID   || '1438215998338760887';
+const CID_TICKET_CHANNEL_ID = () => process.env.CID_TICKET_LOG_CHANNEL_ID || '1438215999231885505';
+const SCO_TICKET_GUILD_ID   = () => process.env.SCO_TICKET_LOG_GUILD_ID   || '1438247592071921919';
+const SCO_TICKET_CHANNEL_ID = () => process.env.SCO_TICKET_LOG_CHANNEL_ID || '1438247593011581092';
+
+/** Every configured ticket-log source, in the order they are swept. */
+function ticketSources() {
+  return [
+    { division: 'MET', guildId: TICKET_LOG_GUILD_ID(),   channelId: TICKET_LOG_CHANNEL_ID() },
+    { division: 'CID', guildId: CID_TICKET_GUILD_ID(),   channelId: CID_TICKET_CHANNEL_ID() },
+    { division: 'SCO', guildId: SCO_TICKET_GUILD_ID(),   channelId: SCO_TICKET_CHANNEL_ID() },
+  ].filter(s => s.guildId && s.channelId);
+}
+
+/** Is this channel one we ingest from? Returns its division, or null. */
+function divisionForChannel(channelId) {
+  const id = String(channelId || '');
+  const hit = ticketSources().find(s => String(s.channelId) === id);
+  return hit ? hit.division : null;
+}
+
+/**
+ * The handler's rank, as their nickname printed it.
+ *
+ * Tickety prints the executor exactly as the server shows them: "DUC | Sirrto49",
+ * "FCINS | Calebjayce7", "IA | DCI | White_Bullet8". The rank is everything
+ * before the LAST separator — splitting on the first one would read
+ * "IA | DCI | White_Bullet8" as rank "IA", losing the DCI.
+ */
+function rankFromRaw(raw) {
+  const s = String(raw == null ? '' : raw).trim().replace(/^@/, '');
+  if (!s || !s.includes('|')) return null;
+  const rank = s.slice(0, s.lastIndexOf('|')).trim();
+  return rank || null;
+}
+
+// Site roles that mean "this person is Internal Affairs".
+const IA_SITE_ROLES = new Set(['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER']);
+
+/**
+ * Is the person who closed this ticket Internal Affairs?
+ *
+ * Quota points belong to IA, so a ticket a CID or SCO-19 officer handled is
+ * still logged and still reviewed — it just pays nobody. Cheapest signal first:
+ * their dashboard account, then the rank their own nickname printed, then a live
+ * resolve. Never throws; unknown means "not IA", which only costs points that a
+ * re-ingest can correct.
+ */
+async function resolveCloserIsIa({ discordId, siteRole, rank }) {
+  if (siteRole && IA_SITE_ROLES.has(siteRole)) return true;
+  // "IA | DCI | White_Bullet8" — the department is in the nickname itself.
+  if (rank && /(^|\|)\s*ia\b/i.test(rank)) return true;
+  if (!discordId) return false;
+  try {
+    const { resolveSiteRoleDetailed } = require('./roleResolver');
+    const live = await resolveSiteRoleDetailed({ discordId: String(discordId), memberRoles: [] });
+    return !!(live && live.role && IA_SITE_ROLES.has(live.role));
+  } catch (e) { return false; }
+}
+
 // How far back the first (empty-table) backfill reaches. Later sweeps stop as
 // soon as they hit a message that is already stored, so this only really
 // applies to the very first run.
@@ -78,7 +143,7 @@ async function rowFromMessage(msg) {
   //
   // Only closerUserId being null is acceptable — that just means the closer has
   // no site account, which is normal and only affects "My Tickets".
-  let closerUserId = null, closerUsername = null;
+  let closerUserId = null, closerUsername = null, closerSiteRole = null;
   const closerRaw = parsed.executorRaw || null;
 
   // The log named nobody. One more place to look before giving up: if the log was
@@ -94,9 +159,13 @@ async function rowFromMessage(msg) {
     try {
       const u = await prisma.user.findUnique({
         where:  { discordId: String(parsed.executorId) },
-        select: { id: true, displayName: true, discordUsername: true },
+        select: { id: true, displayName: true, discordUsername: true, role: true },
       });
-      if (u) { closerUserId = u.id; closerUsername = u.displayName || u.discordUsername || null; }
+      if (u) {
+        closerUserId = u.id;
+        closerUsername = u.displayName || u.discordUsername || null;
+        closerSiteRole = u.role || null;
+      }
     } catch (e) { /* unmatched closers are fine — they just have no owner */ }
 
     if (!closerUsername) {
@@ -125,9 +194,21 @@ async function rowFromMessage(msg) {
     ? new Date(msg.createdAt)
     : new Date(msg.createdTimestamp || Date.now());
 
+  // Which department's logs this came out of, and — when the handler is not IA
+  // — what rank they hold there, so a CID ticket closed by a CID officer still
+  // names who at what rank.
+  const division = divisionForChannel(msg.channelId) || 'MET';
+  const closerRank = rankFromRaw(closerRaw) || rankFromRaw(closerUsername) || null;
+  const closerIsIa = await resolveCloserIsIa({
+    discordId: parsed.executorId, siteRole: closerSiteRole, rank: closerRank,
+  });
+
   return {
     messageId:             String(msg.id),
     channelId:             msg.channelId ? String(msg.channelId) : TICKET_LOG_CHANNEL_ID(),
+    division,
+    closerRank,
+    closerIsIa,
     ticketRef:             parsed.ticketId || null,
     ticketName:            parsed.effectiveName || parsed.ticketName || null,
     ticketType:            parsed.ticketType || 'GENERAL_SUPPORT',
@@ -167,6 +248,9 @@ const RESOLVED_FIELDS = [
   'ticketRef', 'ticketName', 'reason', 'transcriptUrl',
   'creatorDiscordId', 'creatorUsername', 'creatorRobloxUsername',
   'closerDiscordId', 'closerUsername', 'closerRaw', 'closerUserId',
+  // The handler's rank is parsed from what the log printed, so it is only null
+  // when the log named nobody — never overwrite a good one with that.
+  'closerRank',
 ];
 
 // The next readable ticket number, from a Postgres sequence — concurrent
@@ -916,20 +1000,27 @@ async function ingestMessage(msg) {
 // Has the channel ever been swept end-to-end? Recorded so routine sweeps can
 // take the cheap incremental path instead of re-reading everything, and so a
 // channel with no parseable logs doesn't get re-scanned in full every 5 minutes.
+// Marked PER SOURCE. The MET channel having been walked end to end says nothing
+// about CID's or SCO-19's, and one shared marker would have told a newly-added
+// server it was already covered, so its history would never be read. MET keeps
+// the original key so an existing deployment is not re-swept from scratch.
 const FULL_SWEEP_KEY = 'ticketLogFullSweepAt';
+const fullSweepKeyFor = division =>
+  (!division || division === 'MET') ? FULL_SWEEP_KEY : `${FULL_SWEEP_KEY}:${division}`;
 
-async function fullSweepDone() {
+async function fullSweepDone(division) {
   try {
-    const row = await prisma.systemSetting.findUnique({ where: { key: FULL_SWEEP_KEY } });
+    const row = await prisma.systemSetting.findUnique({ where: { key: fullSweepKeyFor(division) } });
     return !!(row && row.value);
   } catch (e) { return false; }
 }
-async function markFullSweep() {
+async function markFullSweep(division) {
   try {
+    const key = fullSweepKeyFor(division);
     await prisma.systemSetting.upsert({
-      where:  { key: FULL_SWEEP_KEY },
+      where:  { key },
       update: { value: new Date().toISOString() },
-      create: { key: FULL_SWEEP_KEY, value: new Date().toISOString() },
+      create: { key, value: new Date().toISOString() },
     });
   } catch (e) { /* the sweep still worked; this is only an optimisation */ }
 }
@@ -938,30 +1029,55 @@ async function markFullSweep() {
 // Pages backwards through the log channel. Routine sweeps stop as soon as they
 // have seen `stopAfterKnown` consecutive messages already stored — the steady
 // state, so they cost one page. `opts.full` reads the whole channel history.
+/**
+ * Sweep EVERY configured ticket-log channel (MET, CID, SCO-19).
+ *
+ * Each source is swept independently so one unreachable server — the bot not
+ * invited yet, a permission missing — cannot stop the others from being read.
+ * Their counts are summed; per-source outcomes are reported in `sources` and
+ * any failures are collected into `error` rather than thrown.
+ */
 async function backfill(client, opts = {}) {
-  const stats = { scanned: 0, created: 0, updated: 0, unchanged: 0, skipped: 0, pages: 0, full: !!opts.full, error: null };
-  if (!client) { stats.error = 'bot not ready'; return stats; }
+  const total = { scanned: 0, created: 0, updated: 0, unchanged: 0, skipped: 0, pages: 0,
+                  full: !!opts.full, error: null, sources: [] };
+  if (!client) { total.error = 'bot not ready'; return total; }
 
-  const guildId   = TICKET_LOG_GUILD_ID();
-  const channelId = TICKET_LOG_CHANNEL_ID();
-  if (!guildId || !channelId) { stats.error = 'ticket log channel not configured'; return stats; }
+  const sources = ticketSources();
+  if (!sources.length) { total.error = 'no ticket log channels configured'; return total; }
+
+  const problems = [];
+  for (const src of sources) {
+    const stats = await backfillSource(client, src, opts);
+    total.scanned += stats.scanned; total.created += stats.created;
+    total.updated += stats.updated; total.unchanged += stats.unchanged;
+    total.skipped += stats.skipped; total.pages += stats.pages;
+    total.sources.push({ division: src.division, ...stats });
+    if (stats.error) problems.push(`${src.division}: ${stats.error}`);
+  }
+  if (problems.length) total.error = problems.join(' · ');
+  return total;
+}
+
+async function backfillSource(client, src, opts = {}) {
+  const stats = { scanned: 0, created: 0, updated: 0, unchanged: 0, skipped: 0, pages: 0, full: !!opts.full, error: null };
+  const { guildId, channelId, division } = src;
 
   let channel;
   try {
     const guild = await client.guilds.fetch(guildId);
     channel = await guild.channels.fetch(channelId);
   } catch (e) {
-    stats.error = `cannot access ticket log channel: ${e.message}`;
+    stats.error = `cannot access the ${division} ticket log channel: ${e.message}`;
     return stats;
   }
   if (!channel || typeof channel.messages?.fetch !== 'function') {
-    stats.error = 'ticket log channel is not a text channel';
+    stats.error = `the ${division} ticket log channel is not a text channel`;
     return stats;
   }
 
   // A first sweep (or an explicit full re-scan) walks the whole history; after
   // that, sweeps only need to reach back far enough to close any gap.
-  const swept = opts.full ? false : await fullSweepDone();
+  const swept = opts.full ? false : await fullSweepDone(division);
   const isFirst = opts.full || !swept;
   const limit = opts.limit || (isFirst ? (opts.full ? Infinity : FIRST_BACKFILL_LIMIT()) : 400);
   const stopAfterKnown = isFirst ? Infinity : 60;
@@ -1001,7 +1117,7 @@ async function backfill(client, opts = {}) {
   }
 
   // Only claim the history is covered when we actually walked off the end of it.
-  if (isFirst && reachedEnd && !stats.error) await markFullSweep();
+  if (isFirst && reachedEnd && !stats.error) await markFullSweep(division);
 
   // Reading embeds from another bot needs the (privileged) Message Content
   // intent. Without it every message parses as "not a ticket log", which looks
@@ -1150,4 +1266,6 @@ module.exports = {
   startTicketLogWorker,
   TICKET_LOG_CHANNEL_ID,
   TICKET_LOG_GUILD_ID,
+  // Multi-division sources: MET, CID and SCO-19.
+  ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
 };
