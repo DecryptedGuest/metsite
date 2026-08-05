@@ -73,9 +73,11 @@ function buildCommand() {
  * an officer's XP rank and their MET rank agree by construction — that's what
  * the promotion half of this system is for.
  *
- * @param {number} viewerPos  the caller's position, 0 if they have no XP
+ * @param {number}  viewerPos    the caller's position, 0 if they have no XP
+ * @param {boolean} viewerMaxed  true when they are at the top of the ladder, in
+ *                               which case they get no position at all
  */
-function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, total } = {}) {
+function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, viewerMaxed, total } = {}) {
   const lines = rows.map((r, i) => {
     // The server's own badge for the rank, or nothing at all — never a
     // generic stand-in, which reads as a rank of its own beside real insignia.
@@ -97,13 +99,14 @@ function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, total }
   // looking at themselves at #3 is noise.
   const inTop = rows.some(r => viewerId && String(r.discordId) === String(viewerId));
   if (viewerId && !inTop) {
-    embed.addFields({
-      name: 'You',
-      value: viewerPos
+    // At the top of the ladder there is no place to report — everybody there is
+    // level, and a number would only invite a comparison that no longer exists.
+    const mine = viewerMaxed
+      ? `${e('met_star')} <@${viewerId}> — **${viewerXp}** XP · top of the ladder`
+      : viewerPos
         ? `\`${viewerPos}\` <@${viewerId}> — **${viewerXp}** XP`
-        : `<@${viewerId}> — *no XP yet. Attend an event and you're on the board.*`,
-      inline: false,
-    });
+        : `<@${viewerId}> — *no XP yet. Attend an event and you're on the board.*`;
+    embed.addFields({ name: 'You', value: mine, inline: false });
   }
   return embed;
 }
@@ -122,6 +125,7 @@ async function showLeaderboard(interaction) {
       // shared with every other blank row.
       viewerPos: self && self.xp > 0 ? standing.position : 0,
       viewerXp: self ? self.xp : 0,
+      viewerMaxed: !!(self && self.xp > 0 && !XP.progress(self.xp).next),
       total: standing.total,
     })],
   }).catch(() => {});
@@ -362,6 +366,30 @@ async function buildCard(o, client) {
     ? `${e('met_promote')} **${p.next.name}** at **${p.next.at} XP**`
     : `${e('met_star')} Top of the XP ladder — nothing left to climb.`;
 
+  // Somebody at the top of the ladder is not in a race any more, so they are not
+  // given a place in one. "#1 of 39" invites the question of who the other 38
+  // are and whether the 38th is catching up — neither of which means anything
+  // once there is nothing left to climb.
+  const maxed = o.ranked && !p.next;
+
+  const fields = [
+    { name: 'Rank',     value: rankLine(o, client), inline: true },
+    // XP measures the climb to the NEXT rank, so the denominator is what that
+    // rank costs — not the ceiling. A CSO on 1 XP reads "1 / 2 XP", which is
+    // the number they actually care about.
+    { name: 'XP',       value: o.ranked
+        ? (p.next
+            ? `${o.xp} / ${p.next.at} XP\n${p.need} more to go!`
+            : `${o.xp} / ${XP.maxXp()} XP\nMax rank reached.`)
+        : '—', inline: true },
+  ];
+  if (!maxed) {
+    fields.push({ name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true });
+  }
+  fields.push({ name: o.ranked ? 'Next rank' : 'Why there is no XP here',
+    value: o.ranked ? `${nextLine}\n${xpLog.progressBar(p)}` : unrankedLine(o),
+    inline: false });
+
   const embed = new EmbedBuilder()
     .setColor(COLOR.card)
     .setTitle(`${e('met_xp')} ${short(o.displayName || 'Officer', 60)}`)
@@ -370,21 +398,7 @@ async function buildCard(o, client) {
       + (o.robloxUsername
         ? ` · [${short(o.robloxUsername, 30)}](https://www.roblox.com/users/${o.robloxId}/profile)`
         : ' · *no Roblox account linked*'))
-    .addFields(
-      { name: 'Rank',     value: rankLine(o, client), inline: true },
-      // XP measures the climb to the NEXT rank, so the denominator is what that
-      // rank costs — not the ceiling. A CSO on 1 XP reads "1 / 2 XP", which is
-      // the number they actually care about.
-      { name: 'XP',       value: o.ranked
-          ? (p.next
-              ? `${o.xp} / ${p.next.at} XP\n${p.need} more to go!`
-              : `${o.xp} / ${XP.maxXp()} XP\nMax rank reached.`)
-          : '—', inline: true },
-      { name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true },
-      { name: o.ranked ? 'Next rank' : 'Why there is no XP here',
-        value: o.ranked ? `${nextLine}\n${xpLog.progressBar(p)}` : unrankedLine(o),
-        inline: false },
-    )
+    .addFields(fields)
     .setFooter({ text: 'MET XP' });
 
   if (o.avatar) embed.setThumbnail(o.avatar);
