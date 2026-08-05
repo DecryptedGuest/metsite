@@ -37,6 +37,7 @@ const {
 const prisma = require('./db');
 const { e } = require('./emoji');
 const { canDiscipline } = require('./disciplineAccess');
+const { caseIsAbout, caseHasHicommOnlyPunishment } = require('./iaRank');
 
 const COLOR = { panel: 0x4a8fff, warn: 0xf5b730, fail: 0xf04f5e, ok: 0x2ed896 };
 const TTL_MS = 14 * 60 * 1000;   // a Discord component token lasts 15 minutes
@@ -47,6 +48,46 @@ function short(s, n) {
 }
 function when(d) {
   return d ? `<t:${Math.floor(new Date(d).getTime() / 1000)}:R>` : '*undated*';
+}
+
+// "3d 4h", "5h", "12m" — a plain how-much-longer, to sit beside the relative
+// timestamp Discord renders.
+function humanLeft(ms) {
+  if (ms <= 0) return '0m';
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (d) return `${d}d${h ? ` ${h}h` : ''}`;
+  if (h) return `${h}h${m ? ` ${m}m` : ''}`;
+  return `${m}m`;
+}
+
+/**
+ * The state of one punishment — the same shape whether it came from a
+ * CasePunishment (roleRemoved / expiresAt / durationDays) or a MetPunishment
+ * (active / expiresAt / issuedAt). Says whether it is live, and if it is timed,
+ * when it lapses and how long is left; if it has lapsed, when.
+ *
+ * @returns {{ icon: string, live: boolean, label: string }}
+ */
+function punishState(p) {
+  const now = Date.now();
+  const lifted = p.roleRemoved === true || p.active === false;
+  const exp = p.expiresAt ? new Date(p.expiresAt) : null;
+  const expMs = exp ? exp.getTime() : null;
+
+  if (lifted) {
+    return { icon: 'met_dot_off', live: false,
+      label: p.roleRemoved ? 'Lifted' : 'No longer active' };
+  }
+  if (expMs != null && expMs <= now) {
+    return { icon: 'met_dot_off', live: false, label: `Expired ${when(exp)}` };
+  }
+  if (expMs != null) {
+    return { icon: 'met_online', live: true,
+      label: `Active · expires ${when(exp)} · **${humanLeft(expMs - now)}** left` };
+  }
+  return { icon: 'met_stop', live: true, label: 'Active · permanent' };
 }
 function baseUrl() {
   return (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
@@ -344,15 +385,30 @@ async function recordView(subject) {
   // ref. Show it once, preferring the case — it carries the detail and the
   // appeal state.
   const refs = new Set(cases.map(c => c.caseRef).filter(Boolean));
-  const rows = cases.map(c => ({
-    at: c.createdAt, ref: c.caseRef, what: c.action, status: c.status,
-    origin: c.origin, appealed: !!c.appealedAt,
-  })).concat(punishments
+  const rows = cases.map(c => {
+    // The live/expired state of the case's own punishments, so the record can
+    // say at a glance whether a strike is still standing or has lapsed.
+    const pun = Array.isArray(c.casePunishments) ? c.casePunishments : [];
+    const live = pun.filter(p => punishState(p).live);
+    const soonest = live.map(p => p.expiresAt).filter(Boolean).map(d => new Date(d).getTime()).sort((a, b) => a - b)[0];
+    return {
+      at: c.createdAt, ref: c.caseRef, what: c.action, status: c.status,
+      origin: c.origin, appealed: !!c.appealedAt,
+      note: c.appealedAt ? null
+        : soonest ? `${humanLeft(soonest - Date.now())} left`
+        : (pun.length && !live.length) ? 'expired' : null,
+    };
+  }).concat(punishments
     .filter(p => !(p.caseRef && refs.has(p.caseRef)))
-    .map(p => ({
-      at: p.issuedAt, ref: p.caseRef, what: p.type,
-      status: p.active ? 'ACTIVE' : 'LIFTED', origin: 'BOT', appealed: false,
-    })))
+    .map(p => {
+      const st = punishState(p);
+      return {
+        at: p.issuedAt, ref: p.caseRef, what: p.type,
+        status: p.active ? 'ACTIVE' : 'LIFTED', origin: 'BOT', appealed: false,
+        note: !st.live ? (p.active ? 'expired' : null)
+          : p.expiresAt ? `${humanLeft(new Date(p.expiresAt).getTime() - Date.now())} left` : null,
+      };
+    }))
     .sort((a, b) => new Date(b.at) - new Date(a.at));
 
   const embed = new EmbedBuilder()
@@ -368,8 +424,9 @@ async function recordView(subject) {
 
   const lines = rows.slice(0, 18).map(r => {
     const tag = r.origin === 'DISCIPLINE' ? ' *(direct)*' : r.origin === 'BOT' ? ' *(bot)*' : '';
-    const appeal = r.appealed ? ` ${e('met_scales')}` : '';
-    return `${statusMark(r.status)} \`${short(r.ref || '—', 14)}\` ${short(r.what, 36)}${tag}${appeal} — ${when(r.at)}`;
+    const appeal = r.appealed ? ` ${e('met_scales')} *appealed*` : '';
+    const note = r.note ? ` · ${r.note}` : '';
+    return `${statusMark(r.status)} \`${short(r.ref || '—', 14)}\` ${short(r.what, 36)}${tag}${appeal}${note} — ${when(r.at)}`;
   });
   embed.addFields({ name: `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`,
     value: short(lines.join('\n'), 1000), inline: false });
@@ -477,10 +534,12 @@ async function caseView(kase, precomputed) {
 
   const punishments = Array.isArray(kase.casePunishments) ? kase.casePunishments : [];
   if (punishments.length) {
-    embed.addFields({ name: 'Punishments', value: punishments.map(p =>
-      `${p.roleRemoved ? e('met_dot_off') : e('met_warn')} ${short(p.action, 40)}`
-      + (p.durationDays ? ` — ${p.durationDays} day${p.durationDays === 1 ? '' : 's'}` : '')
-      + (p.roleRemoved ? ' *(lifted)*' : '')).join('\n'), inline: false });
+    embed.addFields({ name: 'Punishments', value: punishments.map(p => {
+      const st = punishState(p);
+      return `${e(st.icon)} **${short(p.action, 40)}**`
+        + (p.durationDays ? ` · ${p.durationDays} day${p.durationDays === 1 ? '' : 's'}` : '')
+        + `\n   ${st.label}`;
+    }).join('\n'), inline: false });
   }
 
   if (kase.appealedAt) {
@@ -687,6 +746,23 @@ function shareRow(token, sendable) {
   );
 }
 
+// The actions on an open case: share its evidence, and — for Internal Affairs
+// and Deputy Commissioner and above, on a case that can still be appealed —
+// grant an appeal. Both on one row so the case view stays inside Discord's
+// five-row limit.
+function caseActionsRow(token, opts = {}) {
+  const btns = [];
+  if (opts.sendable) {
+    btns.push(new ButtonBuilder().setCustomId(`ia_send_${token}`)
+      .setLabel(`Send evidence to channel (${opts.sendable})`).setStyle(ButtonStyle.Secondary));
+  }
+  if (opts.canAppeal) {
+    btns.push(new ButtonBuilder().setCustomId(`ia_appeal_${token}`)
+      .setLabel('Appeal this case').setStyle(ButtonStyle.Danger).setEmoji('⚖️'));
+  }
+  return btns.length ? new ActionRowBuilder().addComponents(btns) : null;
+}
+
 /**
  * Render a case and pin it to the panel token.
  *
@@ -694,14 +770,17 @@ function shareRow(token, sendable) {
  * is on screen. Doing that here means opening a case from the menu and opening
  * one by reference cannot end up remembering different things.
  */
-async function caseFrame(token, subject, kase) {
+async function caseFrame(token, subject, kase, interaction) {
   const ev = await require('./caseEvidence').evidenceFor(kase);
   const state = recall(token);
   if (state) { state.caseId = kase.id; state.caseRef = kase.caseRef; state.view = 'case'; }
   const sendable = ev.exhibits.filter(x => x.url).length;
+  // Whether the person looking at this may appeal it — worked out here so the
+  // button only appears when pressing it would actually do something.
+  const canAppeal = interaction ? (await appealCapability(interaction, kase)).allowed : false;
   return {
     embeds: [await caseView(kase, ev)],
-    components: await componentsFor(token, subject, 'case', { sendable }),
+    components: await componentsFor(token, subject, 'case', { sendable, canAppeal }),
   };
 }
 
@@ -710,10 +789,59 @@ async function componentsFor(token, subject, active, opts = {}) {
   const cases = await casesFor(subject, 25);
   const sel = caseSelectRow(token, cases);
   if (sel) rows.push(sel);
-  const share = active === 'case' ? shareRow(token, opts.sendable || 0) : null;
-  if (share) rows.push(share);
+  const actions = active === 'case'
+    ? caseActionsRow(token, { sendable: opts.sendable || 0, canAppeal: !!opts.canAppeal })
+    : null;
+  if (actions) rows.push(actions);
   rows.push(linkRow(subject));
   return rows;
+}
+
+/**
+ * May the person driving the panel appeal THIS case?
+ *
+ * Broader than the website (Internal Affairs and Deputy Commissioner and above,
+ * rather than Senior Investigator and above) but with the same two guards that
+ * make appeals safe: you cannot appeal a case about yourself, and only Deputy
+ * Commissioner and above can appeal a Termination or a Blacklist.
+ *
+ * @returns {Promise<{ allowed, reason?, actorName?, rankLabel?, userId? }>}
+ */
+async function appealCapability(interaction, kase) {
+  if (!kase) return { allowed: false, reason: 'That case is no longer there.' };
+  if (kase.appealedAt || kase.status === 'OVERTURNED')
+    return { allowed: false, reason: 'This case has already been appealed.' };
+  if (kase.status !== 'APPROVED')
+    return { allowed: false, reason: 'Only an approved case can be appealed.' };
+
+  const verdict = await canUsePanel(interaction);
+  if (!verdict.ok) return { allowed: false, reason: verdict.why || 'Not authorised.' };
+
+  // The appealer's own identity, for the self-appeal guard.
+  let appealer = null;
+  try {
+    appealer = await prisma.user.findUnique({
+      where: { discordId: String(interaction.user.id) },
+      select: { id: true, discordId: true, robloxId: true, robloxUsername: true },
+    });
+  } catch (e) { /* no dashboard account — still identified by discord id */ }
+  const appealerUser = appealer || { discordId: String(interaction.user.id) };
+
+  if (caseIsAbout(appealerUser, kase)) {
+    return { allowed: false, reason: 'You cannot appeal a case about yourself — ask somebody else in Internal Affairs.' };
+  }
+  if (caseHasHicommOnlyPunishment(kase) && !verdict.isMetHicomm) {
+    return { allowed: false, reason: 'Only Deputy Commissioner and above can appeal a Termination or a Blacklist.' };
+  }
+
+  const actorName = (interaction.member && interaction.member.displayName)
+    || (interaction.user && (interaction.user.globalName || interaction.user.username)) || 'Internal Affairs';
+  return {
+    allowed: true,
+    userId: appealer ? appealer.id : null,
+    actorName,
+    rankLabel: verdict.label || 'Internal Affairs',
+  };
 }
 
 // ── Posting a piece of the record to the channel ──────────────────
@@ -726,13 +854,13 @@ async function componentsFor(token, subject, active, opts = {}) {
 // The friendly name for the view on screen, for the picker and the confirmation.
 const VIEW_LABEL = { over: 'overview', rec: 'record', tik: 'tickets', act: 'activity', case: 'case' };
 
-// A human line for one punishment row.
+// A human line for one punishment row — with its live/expired state and, when
+// it is timed, how long is left.
 function punishLine(p) {
-  const mark = p.active ? e('met_stop') : e('met_dot_off');
-  const date = p.issuedAt ? new Date(p.issuedAt).toISOString().slice(0, 10) : '';
-  return `${mark} **${short(p.type, 40)}**${p.caseRef ? ` \`${short(p.caseRef, 20)}\`` : ''}`
-    + `${date ? ` · ${date}` : ''}${p.active ? '' : ' · *lifted*'}`
-    + (p.reason ? `\n> ${short(p.reason, 140)}` : '');
+  const st = punishState(p);
+  return `${e(st.icon)} **${short(p.type, 40)}**${p.caseRef ? ` \`${short(p.caseRef, 20)}\`` : ''}`
+    + `\n   ${e('met_calendar')} issued ${when(p.issuedAt)} · ${st.label}`
+    + (p.reason ? `\n   > ${short(p.reason, 140)}` : '');
 }
 
 /**
@@ -874,7 +1002,7 @@ async function handlePost(interaction, token, state, step) {
     const view = state.view || 'over';
     if (view === 'case' && state.caseId) {
       const kase = await loadCase(state.caseId);
-      if (kase) return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
+      if (kase) return interaction.editReply(await caseFrame(token, subject, kase, interaction)).catch(() => {});
     }
     const embed = view === 'rec' ? await recordView(subject)
       : view === 'tik' ? await ticketsView(subject)
@@ -945,6 +1073,96 @@ async function handlePost(interaction, token, state, step) {
   }).catch(() => {});
 }
 
+// ── Appealing a case from the panel ───────────────────────────────
+// Opening the modal has to be the FIRST response to the button — you cannot
+// defer and then show a modal — so this is called before the shared deferUpdate.
+async function openAppealModal(interaction, token, state) {
+  const kase = state.caseId ? await loadCase(state.caseId) : null;
+  const cap = await appealCapability(interaction, kase);
+  if (!cap.allowed) {
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(COLOR.warn)
+        .setTitle(`${e('met_warn')} Can't appeal this`).setDescription(cap.reason)],
+      flags: 64,
+    }).catch(() => {});
+  }
+  const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+  const modal = new ModalBuilder()
+    .setCustomId(`ia_appealmodal_${token}`)
+    .setTitle(short(`Appeal ${kase.caseRef}`, 45))
+    .addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('reason')
+        .setLabel('Reason for the appeal')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Recorded permanently against the case. This grants the appeal immediately.')
+        .setRequired(true).setMaxLength(2000)));
+  return interaction.showModal(modal).catch(() => {});
+}
+
+/**
+ * The modal came back — grant the appeal. Re-checks the gate (the panel token
+ * outlives the case's state) and re-reads the case, then runs the shared
+ * lib/caseAppeal so it happens exactly as it does from the website.
+ */
+async function handleAppealSubmit(interaction, token, state) {
+  const subject = state.subject;
+  const kase = state.caseId ? await loadCase(state.caseId) : null;
+  const cap = await appealCapability(interaction, kase);
+  if (!cap.allowed) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.warn)
+        .setTitle(`${e('met_warn')} Can't appeal this`).setDescription(cap.reason)],
+    }).catch(() => {});
+  }
+
+  const reason = interaction.fields && typeof interaction.fields.getTextInputValue === 'function'
+    ? interaction.fields.getTextInputValue('reason') : '';
+
+  // The appeal needs the punishments WITH their id and roleId to lift and mark
+  // them — the panel's loadCase selects a lighter set for display, so re-read
+  // the case in full for the operation itself.
+  const full = await prisma.case.findUnique({
+    where: { id: kase.id },
+    include: { casePunishments: true },
+  }).catch(() => null);
+
+  const out = await require('./caseAppeal').appealCase({
+    existing: full || kase,
+    actor: { userId: cap.userId, name: cap.actorName, rankLabel: cap.rankLabel },
+    reason,
+  });
+  if (!out.ok) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_cross')} Not appealed`).setDescription(out.error || 'Something went wrong.')],
+    }).catch(() => {});
+  }
+
+  require('./audit').log(
+    { id: cap.userId, displayName: cap.actorName },
+    { category: 'ia', action: 'CASE_APPEAL', target: { type: 'case', id: kase.id },
+      summary: `Appeal granted on ${kase.caseRef} from /check-record — ${out.lifted.length} role(s) lifted`,
+      metadata: { reason, lifted: out.lifted, failed: out.failed, kept: out.kept, manual: out.manual } });
+
+  const done = new EmbedBuilder()
+    .setColor(COLOR.ok)
+    .setTitle(`${e('met_scales')} Appeal granted — ${short(kase.caseRef, 20)}`)
+    .setDescription(`${e('met_tick')} The case is overturned and no longer counts against them.`)
+    .addFields(
+      { name: 'Roles lifted', value: out.lifted.length ? out.lifted.join(', ') : '*none to lift*', inline: false },
+    );
+  if (out.failed.length) done.addFields({ name: `${e('met_warn')} Couldn't remove (will retry)`, value: short(out.failed.join(', '), 300), inline: false });
+  if (out.kept.length)   done.addFields({ name: 'Left in place', value: short(out.kept.join(', '), 300), inline: false });
+  if (out.manual.length) done.addFields({ name: `${e('met_warn')} By hand`, value: short(out.manual.join('\n'), 400), inline: false });
+  done.setFooter({ text: `Appealed by ${short(cap.actorName, 50)} · Internal Affairs` });
+
+  // Reload the case so the panel underneath shows it appealed, with the result
+  // embed sitting on top.
+  const fresh = await loadCase(kase.id);
+  const frame = fresh ? await caseFrame(token, subject, fresh, interaction) : { components: await componentsFor(token, subject, 'over') };
+  return interaction.editReply({ embeds: [done], components: frame.components }).catch(() => {});
+}
+
 /**
  * The three steps of putting a case's evidence in the channel.
  *
@@ -958,7 +1176,7 @@ async function handleShare(interaction, token, state, step) {
   const back = async () => {
     const kase = state.caseId ? await loadCase(state.caseId) : null;
     if (!kase) return;
-    return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
+    return interaction.editReply(await caseFrame(token, subject, kase, interaction)).catch(() => {});
   };
 
   if (step === 'sendno') return back();
@@ -1097,7 +1315,7 @@ async function handleIaCommand(interaction) {
       discordId: kase.officerDiscordId, robloxUsername: kase.robloxUsername, robloxId: kase.robloxUserId,
     }, interaction.guild);
     const token = keep({ subject, ownerId: interaction.user.id });
-    return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
+    return interaction.editReply(await caseFrame(token, subject, kase, interaction)).catch(() => {});
   }
 
   if (!officer) {
@@ -1166,10 +1384,21 @@ async function handleIaComponent(interaction) {
     }).catch(() => {});
   }
 
+  // Opening the appeal modal must be the FIRST response — before the deferUpdate
+  // below, which would otherwise consume the interaction and make showModal fail.
+  if (view === 'appeal') {
+    return openAppealModal(interaction, token, state);
+  }
+
   await interaction.deferUpdate().catch(() => {});
   const subject = state.subject;
 
   try {
+    // ── Granting an appeal (the modal came back) ──
+    if (view === 'appealmodal') {
+      return handleAppealSubmit(interaction, token, state);
+    }
+
     // ── Sharing evidence ──
     if (view === 'send' || view === 'sendgo' || view === 'sendno') {
       return handleShare(interaction, token, state, view);
@@ -1185,7 +1414,7 @@ async function handleIaComponent(interaction) {
       const kase = id ? await loadCase(id) : null;
       if (!kase) return;
       state.view = 'case';
-      return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
+      return interaction.editReply(await caseFrame(token, subject, kase, interaction)).catch(() => {});
     }
 
     // Remember which view is on screen, so "Post to channel" knows what "this
@@ -1215,6 +1444,7 @@ module.exports = {
   COMMAND, buildCommand, handleIaCommand, handleIaComponent,
   shareConfirmView, evidencePost, channelProblem, caseFrame, handleShare, handlePost,
   postPickerView, buildPostEmbeds, loadCase,
+  appealCapability, openAppealModal, handleAppealSubmit, punishState, punishLine,
   resolveSubject, casesFor, punishmentsFor, ticketsFor, findCase,
   overviewView, recordView, ticketsView, activityView, caseView, deskView,
   componentsFor, keep, recall,
