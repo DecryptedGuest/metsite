@@ -11,7 +11,7 @@
     const cls = /APPROV|ACCEPT|RESOLV|CLOSED|COMPLETE/.test(v) ? 'badge-approved'
       : /DENY|DENIED|REJECT|DECLINE/.test(v) ? 'badge-denied'
       : /PENDING|REVIEW|OPEN|CLAIM/.test(v) ? 'badge-pending' : 'badge-amber';
-    return `<span class="badge ${cls}"><span class="badge-dot"></span>${esc(v || '—')}</span>`;
+    return `<span class="badge ${cls}"><span class="badge-dot"></span>${esc(v || '·')}</span>`;
   }
   function statusPills(byStatus) {
     const keys = Object.keys(byStatus || {});
@@ -95,9 +95,9 @@
     const open = typeof window.openCaseDetail === 'function'
       ? ` onclick="iapOpenCase('${esc(c.id)}')" style="cursor:pointer;" title="Open this case"` : '';
     return `<tr class="iap-clickable"${open}>
-      <td><span class="case-ref">${esc(c.caseRef || '—')}</span>${c.origin === 'IA' ? ' <span class="met-chip" style="font-size:9px;">IA</span>' : ''}</td>
-      <td>${esc(c.robloxUsername || c.suspectRobloxDisplayName || '—')}</td>
-      <td>${esc(c.action || '—')}</td>
+      <td><span class="case-ref">${esc(c.caseRef || '·')}</span>${c.origin === 'IA' ? ' <span class="met-chip" style="font-size:9px;">IA</span>' : ''}</td>
+      <td>${esc(c.robloxUsername || c.suspectRobloxDisplayName || '·')}</td>
+      <td>${esc(c.action || '·')}</td>
       <td>${statusBadge(c.status)}</td>
       <td class="date-cell">${esc(fmtDate(c.createdAt))}</td>
       <td onclick="event.stopPropagation();">${c.caseLink ? `<a href="${esc(c.caseLink)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open case in new tab" aria-label="Open case in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>
@@ -107,9 +107,9 @@
     const open = typeof window.openTicketDetail === 'function'
       ? ` onclick="iapOpenTicket('${esc(t.id)}')" style="cursor:pointer;" title="Open this ticket log"` : '';
     return `<tr class="iap-clickable"${open}>
-      <td><span class="case-ref">${esc(t.ticketRef || (t.ticketNo ? '#' + String(t.ticketNo).padStart(4, '0') : '—'))}</span></td>
-      <td>${esc(t.ticketType || '—')}</td>
-      <td>${esc(t.creatorRobloxUsername || '—')}</td>
+      <td><span class="case-ref">${esc(t.ticketRef || (t.ticketNo ? '#' + String(t.ticketNo).padStart(4, '0') : '·'))}</span></td>
+      <td>${esc(t.ticketType || '·')}</td>
+      <td>${esc(t.creatorRobloxUsername || '·')}</td>
       <td>${statusBadge(t.status)}</td>
       <td class="date-cell">${esc(fmtDate(t.closedAt))}</td>
       <td onclick="event.stopPropagation();">${t.transcriptUrl ? `<a href="${esc(t.transcriptUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Open ticket transcript in new tab" aria-label="Open ticket transcript in new tab"><i class="ti ti-external-link"></i></a>` : ''}</td>

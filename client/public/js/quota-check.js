@@ -82,12 +82,12 @@ function missRow(m) {
       + '<input type="checkbox" data-wtbt="' + escapeHtml(m.username) + '"' + (wtbt ? ' checked' : '')
       + (missHasWtbtCol ? '' : ' disabled') + ' /> '
       + '<span>' + (missHasWtbtCol ? 'Waiting to be trained' : 'No WTBT column on the sheet') + '</span></label>'
-    : '<span class="miss-na" title="Only a Probationary Investigator can be waiting for training">—</span>';
+    : '<span class="miss-na" title="Only a Probationary Investigator can be waiting for training">·</span>';
 
   return '<tr class="' + (picked ? 'miss-on' : '') + '">'
     + '<td><input type="checkbox" data-pick="' + escapeHtml(m.username) + '"' + (picked ? ' checked' : '') + ' /></td>'
     + '<td><span class="mono" style="font-size:12.5px;">' + escapeHtml(m.username) + '</span></td>'
-    + '<td><span style="font-size:12px;">' + escapeHtml(m.rank || '—') + '</span></td>'
+    + '<td><span style="font-size:12px;">' + escapeHtml(m.rank || '·') + '</span></td>'
     + '<td><span class="mono" style="font-size:11px;color:'
       + (m.discordId ? 'var(--text-secondary)' : 'var(--amber)') + ';">'
       + escapeHtml(m.discordId || 'not linked') + '</span></td>'
@@ -146,7 +146,7 @@ function ceilingNote(out) {
     + 'background:rgba(60,110,255,.07);border:1px solid rgba(60,110,255,.25);'
     + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
     + '<i class="ti ti-filter"></i> <strong>' + above.length + '</strong> above '
-    + escapeHtml(top) + ' left out — the database is for '
+    + escapeHtml(top) + ' left out · the database is for '
     + escapeHtml(top) + ' and below.<br>'
     + '<span style="color:var(--text-muted);">'
     + above.slice(0, 12).map(function (a) {
@@ -175,16 +175,16 @@ function misalignedBlock(out) {
     + (bad.length === 1 ? '' : 's') + ' at the bottom of the sheet, written into the wrong columns'
     + '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
     + 'These were left by an older version of this tool, which appended rows and let Google '
-    + 'decide which column to start at — so every field landed '
+    + 'decide which column to start at · so every field landed '
     + escapeHtml(String(bad[0].offset)) + ' column'
     + (bad[0].offset === 1 ? '' : 's') + ' to the right, inside the notes under the table. '
     + 'They are not real rows and nothing reads them. <strong>Delete rows '
-    + escapeHtml(rowsList.join(', ')) + '</strong> on the sheet — select them by their row '
+    + escapeHtml(rowsList.join(', ')) + '</strong> on the sheet · select them by their row '
     + 'numbers, right-click, Delete rows. Nothing here will touch them, because which columns '
     + 'they were meant for is a guess.</div>'
     + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
     + bad.slice(0, 20).map(function (b) {
-        return 'row ' + escapeHtml(String(b.row)) + ' — <span class="mono">'
+        return 'row ' + escapeHtml(String(b.row)) + ' · <span class="mono">'
           + escapeHtml(b.username) + '</span>' + (b.rank ? ' (' + escapeHtml(b.rank) + ')' : '');
       }).join('<br>')
     + (bad.length > 20 ? '<br>and ' + (bad.length - 20) + ' more' : '')
@@ -214,13 +214,13 @@ function strayBlock(out) {
   if (loose.length) {
     html += '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
       + '<strong>' + loose.length + '</strong> outside ' + (loose.length === 1 ? 'its' : 'their')
-      + ' rank section — written below everything else rather than inserted, which is what happens '
+      + ' rank section · written below everything else rather than inserted, which is what happens '
       + 'when the sheet will not accept a row being inserted. They still count as having a row, so '
       + 'these people stop appearing in the list below even though nobody can see them on the '
       + 'database.</div>'
       + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
       + loose.map(function (s) {
-          return '<span class="mono">' + escapeHtml(s.username) + '</span> — row '
+          return '<span class="mono">' + escapeHtml(s.username) + '</span> · row '
             + escapeHtml(String(s.row))
             + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
             + ', belongs at row ' + escapeHtml(String(s.shouldBeRow));
@@ -234,7 +234,7 @@ function strayBlock(out) {
       + 'trained and waiting can be read at a glance.</div>'
       + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
       + order.map(function (s) {
-          return '<span class="mono">' + escapeHtml(s.username) + '</span> — row '
+          return '<span class="mono">' + escapeHtml(s.username) + '</span> · row '
             + escapeHtml(String(s.row))
             + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
             + ', belongs at row ' + escapeHtml(String(s.shouldBeRow))
@@ -264,7 +264,7 @@ async function tidyStrayRows() {
       showToast("Nothing was moved.", "warning");
     }
     (out.skipped || []).forEach(function (s) {
-      showToast(s.username + " was left where it is — " + (s.why || "it could not be moved"), "warning");
+      showToast(s.username + " was left where it is · " + (s.why || "it could not be moved"), "warning");
     });
     if ((out.errors || []).length) showToast(out.errors.join("; "), "error");
     // Re-read: the sheet has changed, and the list below is now wrong.
@@ -361,7 +361,7 @@ async function addMissingMembers() {
     ? uiConfirm("Each one gets a new line on the " + metDbName() + " database with their rank, their "
         + "Discord ID where it is known, and every day at 0.\n\n"
         + picks.map(function (m) {
-            return m.username + " — " + (m.rank || "no rank")
+            return m.username + " · " + (m.rank || "no rank")
               + (missWtbt[m.username] ? " · waiting to be trained" : "");
           }).join("\n")
         + "\n\nNothing is removed, and anybody who already has a row is skipped.",
@@ -410,7 +410,7 @@ async function addMissingMembers() {
     var noRow = (out.placed || []).filter(function (p) { return !p.row; });
     if (noRow.length && withRow.length) {
       showToast("Could not confirm where " + noRow.map(function (p) { return p.username; }).join(", ")
-        + " ended up — check the sheet.", "warning");
+        + " ended up · check the sheet.", "warning");
     }
     if ((out.errors || []).length) showToast(out.errors.join("; "), "warning");
     // Re-read rather than patching the list: the sheet has changed, and the next
@@ -479,14 +479,14 @@ function renderMetAudit(report) {
     + auditGroup("Wrong rank tab", problemsOf(report, "WRONG_TAB"), "bad", function (m) {
         var p = (m.problems || []).find(function (x) { return x.kind === "WRONG_TAB"; }) || {};
         return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
-          + '<span class="metdb-why">' + where(m) + " — " + escapeHtml(p.detail || "") + '</span></li>';
+          + '<span class="metdb-why">' + where(m) + " · " + escapeHtml(p.detail || "") + '</span></li>';
       })
     + auditGroup("In the group, not on the sheet", report.missingFromSheet || [], "bad", function (g) {
         // Only the MET database is split by rank tab, so only it can say WHERE
         // the row belongs. On a single-roster database the rank is the answer.
         return '<li><span class="metdb-name">' + escapeHtml(g.username) + '</span>'
           + '<span class="metdb-why">' + escapeHtml(g.rank || "")
-          + (g.shouldBe ? ' — add to "' + escapeHtml(g.shouldBe) + '"' : " — not on the sheet") + '</span></li>';
+          + (g.shouldBe ? ' · add to "' + escapeHtml(g.shouldBe) + '"' : " · not on the sheet") + '</span></li>';
       })
     + auditGroup("On the sheet, not in the group", problemsOf(report, "NOT_IN_GROUP"), "bad", function (m) {
         return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
@@ -504,7 +504,7 @@ function renderMetAudit(report) {
     + auditGroup("Rank the database doesn't track", problemsOf(report, "RANK_NOT_TRACKED"), "", function (m) {
         var p = (m.problems || []).find(function (x) { return x.kind === "RANK_NOT_TRACKED"; }) || {};
         return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
-          + '<span class="metdb-why">' + where(m) + " — " + escapeHtml(p.detail || "") + '</span></li>';
+          + '<span class="metdb-why">' + where(m) + " · " + escapeHtml(p.detail || "") + '</span></li>';
       })
     + '</div>';
 
@@ -562,7 +562,7 @@ async function normaliseMetDb(reset) {
       body: JSON.stringify({ reset: !!reset, fillBlanks: true, apply: true }),
     });
     showToast(reset
-      ? metDbName() + " database reset — " + result.cleared + " cell(s) cleared, " + result.filled
+      ? metDbName() + " database reset · " + result.cleared + " cell(s) cleared, " + result.filled
         + " blank(s) filled, " + result.kept + " EX/LOA kept."
       : "Filled " + result.filled + " blank cell(s).", "success");
     await runMetAudit();
@@ -625,7 +625,7 @@ function renderMetDbPlan(plan, applied) {
     + '</div>';
 
   var footer = applied
-    ? '<div class="metdb-applied"><i class="ti ti-check"></i> Applied — removed '
+    ? '<div class="metdb-applied"><i class="ti ti-check"></i> Applied · removed '
       + (plan.removed || 0) + ', added ' + (plan.added || 0)
       + (plan.errors && plan.errors.length ? ' (' + escapeHtml(plan.errors.join("; ")) + ')' : '') + '</div>'
     : ((plan.remove || []).length || (plan.add || []).length
@@ -668,7 +668,7 @@ async function applyMetDatabase() {
       method: "POST", body: JSON.stringify({ token: metDbPlan.token || null }),
     });
     renderMetDbPlan(result, true);
-    showToast(metDbName() + " database synced — removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
+    showToast(metDbName() + " database synced · removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
     metDbPlan = null;
     if (typeof loadQuotaCheck === "function") loadQuotaCheck();
   } catch (err) {
@@ -754,7 +754,7 @@ function quotaStatusChip(m) {
   if (q.exempt) return "<span class='badge badge-approved' style='background:color-mix(in srgb,var(--purple,#9b6dff) 20%,transparent);color:var(--purple,#9b6dff);'><span class='badge-dot'></span>Quota exempt</span>";
   if (m.met === true)  return "<span class='badge badge-approved'><span class='badge-dot'></span>Quota met</span>";
   if (m.met === false) return "<span class='badge badge-pending'><span class='badge-dot'></span>Quota not met</span>";
-  return "<span class='text-muted' style='font-size:12px;'>—</span>";
+  return "<span class='text-muted' style='font-size:12px;'>·</span>";
 }
 
 function renderQuotaCheck() {
@@ -798,10 +798,10 @@ function renderQuotaCheck() {
     var exempt  = !!q.exempt;
     var reduced = (!exempt && q.reducedBy && q.target != null);
     var original = reduced ? (q.target + q.reducedBy) : null;
-    var target  = exempt ? "EX" : (q.target != null ? q.target : "—");
+    var target  = exempt ? "EX" : (q.target != null ? q.target : "·");
     // Make it clear the original target was reduced (Investigator of the Week).
     var reducedNote = reduced
-      ? " <span style='color:var(--amber);font-size:10px;' title='Investigator of the Week — original target " + original + ", reduced by " + q.reducedBy + "'>(was " + original + ", IOTW −" + q.reducedBy + ")</span>"
+      ? " <span style='color:var(--amber);font-size:10px;' title='Investigator of the Week · original target " + original + ", reduced by " + q.reducedBy + "'>(was " + original + ", IOTW −" + q.reducedBy + ")</span>"
       : "";
     // Pass ONLY when the quota was actually met; everything else fails (or exempt).
     if (!m._status) m._status = exempt ? "exempt" : (m.met === true ? "pass" : "fail");
@@ -820,7 +820,7 @@ function renderQuotaCheck() {
 
     return "<tr>"
       + "<td><span style='font-weight:600;font-size:12px;'>" + escapeHtml(m.username) + "</span></td>"
-      + "<td><span style='font-size:12px;'>" + escapeHtml(m.rank || "—") + "</span></td>"
+      + "<td><span style='font-size:12px;'>" + escapeHtml(m.rank || "·") + "</span></td>"
       + "<td><span class='text-muted' style='font-size:11px;'>" + escapeHtml(q.tier || "") + "</span></td>"
       + "<td><span style='font-weight:700;color:" + ptColor + ";'>" + (exempt ? "EX" : m.total) + "</span></td>"
       + "<td><span class='mono' style='font-size:12px;'>" + target + reducedNote + "</span></td>"
@@ -851,12 +851,12 @@ function populateIotwSelector() {
   });
   var defaultIdx = tops.length ? tops[0] : "";
 
-  var opts = "<option value=''>— No Investigator of the Week —</option>";
+  var opts = "<option value=''>· No Investigator of the Week ·</option>";
   quotaMembersCache.forEach(function (m, i) {
     var star = tops.indexOf(i) >= 0 ? " ★" : "";
     opts += "<option value='" + i + "'" + (i === defaultIdx ? " selected" : "") + ">"
       + escapeHtml(m.username) + (m.rank ? " · " + escapeHtml(m.rank) : "")
-      + " — " + (Number(m.total) || 0) + " pts" + star + "</option>";
+      + " · " + (Number(m.total) || 0) + " pts" + star + "</option>";
   });
   sel.innerHTML = opts;
 
@@ -864,7 +864,7 @@ function populateIotwSelector() {
     if (tops.length > 1) {
       tie.style.display = "";
       tie.textContent = "Tie for highest (" + max + " pts) between "
-        + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " — pick one.";
+        + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " · pick one.";
     } else {
       tie.style.display = "none";
     }
@@ -961,7 +961,7 @@ async function submitQuotaCheck() {
     if (iotwUsername) {
       iotwMsg = (resp && resp.iotw && resp.iotw.ok)
         ? " " + iotwUsername + " is now Investigator of the Week."
-        : " (Couldn't update the IOTW role — check the bot's access to that server.)";
+        : " (Couldn't update the IOTW role · check the bot's access to that server.)";
     }
     showToast("Quota review posted to Discord." + iotwMsg, "success");
   } catch (err) {

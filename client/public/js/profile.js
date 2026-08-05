@@ -240,7 +240,7 @@ async function loadProfile() {
       const bicon = loa ? 'ti-calendar-off' : 'ti-shield-check';
       const blabel = loa ? 'Leave of Absence' : bought ? 'Quota Exempt' : 'Exempt';
       const bsub = loa
-        ? "you're on leave — there's no weekly quota to meet."
+        ? "you're on leave · there's no weekly quota to meet."
         : bought
           ? 'you bought Quota Exempt, so the weekly MET quota does not apply to you.'
           : "you're exempt from the weekly quota.";
@@ -248,7 +248,7 @@ async function loadProfile() {
         `<div style="display:flex;align-items:center;gap:15px;padding:16px 4px;">
           <div style="font-size:32px;color:${bc};line-height:1;flex:0 0 auto;"><i class="ti ${bicon}"></i></div>
           <div><div style="font-size:19px;font-weight:800;color:${bc};text-transform:uppercase;letter-spacing:.04em;">${blabel}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:3px;"><strong style="color:var(--text);">${rank}</strong> — ${bsub}</div></div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px;"><strong style="color:var(--text);">${rank}</strong> · ${bsub}</div></div>
         </div>`;
     } else {
       const hasTarget = mq.target != null;
@@ -257,7 +257,7 @@ async function loadProfile() {
       // One point on the MET database is one event, so the card speaks in
       // events — that's the unit the quota is actually set in.
       const note = mq.onDatabase === false
-        ? `you're not on the MET database yet — ask a supervisor to add you.`
+        ? `you're not on the MET database yet · ask a supervisor to add you.`
         : !hasTarget
           ? `events are tracked on the MET database.`
           : (met
@@ -266,9 +266,9 @@ async function loadProfile() {
       host.innerHTML =
         `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
           ${stat(mq.total, 'Events this week', col)}
-          ${stat(hasTarget ? mq.target : '—', 'Target')}
-          ${stat(hasTarget ? (met ? '✓' : mq.remaining) : '—', hasTarget ? (met ? 'Quota met' : 'Remaining') : 'No target', hasTarget ? col : '')}
-          <div style="font-size:13px;color:var(--text-muted);flex:1;min-width:160px;"><strong style="color:var(--text);">${rank}</strong> — ${note}</div>
+          ${stat(hasTarget ? mq.target : '·', 'Target')}
+          ${stat(hasTarget ? (met ? '✓' : mq.remaining) : '·', hasTarget ? (met ? 'Quota met' : 'Remaining') : 'No target', hasTarget ? col : '')}
+          <div style="font-size:13px;color:var(--text-muted);flex:1;min-width:160px;"><strong style="color:var(--text);">${rank}</strong> · ${note}</div>
         </div>`;
     }
   }
@@ -306,9 +306,9 @@ async function loadProfile() {
   if (data.punishments && data.punishments.length) {
     pun.innerHTML = data.punishments.map((p, idx) => `<tr onclick="openPunishment(${idx})" style="cursor:pointer;" title="See the full details">
       <td>${chip(p.type, punishmentColor(p.type))}${p.caseRef ? ` <span style="color:var(--text-muted);font-size:10px;">${escHtml(p.caseRef)}</span>` : ''}</td>
-      <td>${escHtml((p.reason || '—').slice(0, 80))}${(p.reason || '').length > 80 ? '…' : ''}</td>
+      <td>${escHtml((p.reason || '·').slice(0, 80))}${(p.reason || '').length > 80 ? '…' : ''}</td>
       <td>${punishmentStatusBadge(p)}</td>
-      <td>${p.expiresAt ? formatDate(p.expiresAt) : (p.active ? '<span style="color:var(--text-muted);">Permanent</span>' : '—')}</td>
+      <td>${p.expiresAt ? formatDate(p.expiresAt) : (p.active ? '<span style="color:var(--text-muted);">Permanent</span>' : '·')}</td>
       <td>${formatDate(p.issuedAt)}</td>
       <td style="text-align:right;color:var(--text-muted);"><i class="ti ti-chevron-right"></i></td>
     </tr>`).join('');
@@ -345,10 +345,10 @@ function renderXp(data) {
     ? `<img src="${escHtml(data.metRankEmoji)}" alt="" class="rank-insignia">` : '';
 
   const next = x.next
-    ? `<div class="xp-next"><strong>${x.need}</strong> more to go — <strong>${escHtml(x.next.name)}</strong>
+    ? `<div class="xp-next"><strong>${x.need}</strong> more to go · <strong>${escHtml(x.next.name)}</strong>
          <span style="color:var(--text-muted);">at ${x.next.at} XP</span></div>`
     : `<div class="xp-next"><i class="ti ti-star-filled" style="color:var(--amber);"></i>
-         Top of the ladder — nothing left to climb.</div>`;
+         Top of the ladder · nothing left to climb.</div>`;
 
   const bar = x.next
     ? `<div class="xp-bar"><div class="xp-bar-fill" style="width:${pct}%;"></div></div>
@@ -417,7 +417,7 @@ function openPunishment(idx) {
   let actions = '';
   if (Array.isArray(p.actions) && p.actions.length) {
     actions = '<ul style="margin:0;padding-left:18px;">' + p.actions.map(a => {
-      const dur = a.durationDays ? ` — <strong>${a.durationDays} days</strong>` : '';
+      const dur = a.durationDays ? ` · <strong>${a.durationDays} days</strong>` : '';
       const gone = a.lifted ? ' <span style="color:var(--text-muted);">(lifted)</span>' : '';
       return `<li>${escHtml(a.action || '')}${dur}${gone}</li>`;
     }).join('') + '</ul>';
@@ -440,7 +440,7 @@ function openPunishment(idx) {
     + row('Reason', escHtml(p.reason || 'No reason recorded.'))
     + row('Notes', p.notes ? escHtml(p.notes) : null)
     + row('Issued', formatDate(p.issuedAt))
-    + row('Expires', p.expiresAt ? formatDate(p.expiresAt) : (p.active ? 'Does not expire' : '—'))
+    + row('Expires', p.expiresAt ? formatDate(p.expiresAt) : (p.active ? 'Does not expire' : '·'))
     + row('Appealed', p.appealedAt ? formatDate(p.appealedAt) : null)
     + row('Case document', p.caseLink ? `<a href="${escHtml(p.caseLink)}" target="_blank" rel="noopener">Open</a>` : null)
     + row('What this means', escHtml(meaning))
@@ -814,7 +814,7 @@ function renderNotifPanel() {
         <button class="btn btn-ghost btn-sm" onclick="disablePush()"><i class="ti ti-bell-off"></i> Turn off</button>
       </div>`;
   } else if (state === 'denied') {
-    body.innerHTML = `<div style="font-size:13px;color:var(--text-muted);"><i class="ti ti-bell-x"></i> Notifications are blocked for this site — enable them in your browser's site settings, then reload.</div>`;
+    body.innerHTML = `<div style="font-size:13px;color:var(--text-muted);"><i class="ti ti-bell-x"></i> Notifications are blocked for this site · enable them in your browser's site settings, then reload.</div>`;
   } else {
     body.innerHTML = `<button class="btn btn-primary btn-sm" onclick="enablePush()"><i class="ti ti-bell"></i> Enable notifications</button>`;
   }

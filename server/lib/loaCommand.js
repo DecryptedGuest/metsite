@@ -58,11 +58,11 @@ function buildCommand() {
       .setDescription('Request a leave of absence')
       .addStringOption(o => o
         .setName('duration')
-        .setDescription('How long — 7d, 2w, 10 days')
+        .setDescription('How long · 7d, 2w, 10 days')
         .setRequired(true).setMaxLength(20))
       .addStringOption(o => o
         .setName('reason')
-        .setDescription('Why — command decide on this')
+        .setDescription('Why · command decide on this')
         .setRequired(true).setMaxLength(900)))
     .addSubcommand(s => s
       .setName('manage')
@@ -82,7 +82,7 @@ function buildCommand() {
       .setName('history')
       .setDescription('View past leave of absences')
       .addUserOption(o => o
-        .setName('member').setDescription('Whose history — yours if left blank')))
+        .setName('member').setDescription('Whose history · yours if left blank')))
     .toJSON();
 }
 
@@ -136,7 +136,7 @@ function card(r, opts = {}) {
   if (r.changeRequest && r.changeRequest.kind === 'EXTEND') {
     fields.push({
       name: `${e('met_hourglass')} Extension requested`,
-      value: `**${L.humanDays(r.changeRequest.days)}** more — would end ${L.ts(r.changeRequest.endAt)}`
+      value: `**${L.humanDays(r.changeRequest.days)}** more · would end ${L.ts(r.changeRequest.endAt)}`
         + (r.changeRequest.reason ? `\n${short(r.changeRequest.reason, 400)}` : ''),
       inline: false,
     });
@@ -171,7 +171,7 @@ function card(r, opts = {}) {
 function line(r, i) {
   const mark = e(STATUS_MARK[r.status] || 'met_dot_off');
   const days = L.isActive(r) ? ` · **${L.daysUntil(r.endAt)}d** left` : '';
-  return `${mark} ${who(r)} — ${L.ts(r.startAt)} → ${L.ts(r.endAt)}${days}\n`
+  return `${mark} ${who(r)} · ${L.ts(r.startAt)} → ${L.ts(r.endAt)}${days}\n`
        + ` ${e('met_edit')} ${short(r.reason || 'No reason given', 120)}`;
 }
 
@@ -276,7 +276,7 @@ function manageRow(r) {
     row.addComponents(btn('cancel', r.id, 'Withdraw the request', ButtonStyle.Secondary, '🗑️'));
   } else if (L.isActive(r)) {
     row.addComponents(
-      btn('back', r.id, "I'm back — end it now", ButtonStyle.Success, '↩️'),
+      btn('back', r.id, "I'm back · end it now", ButtonStyle.Success, '↩️'),
       btn('more', r.id, 'Ask for more time',     ButtonStyle.Secondary, '⏳'),
       btn('less', r.id, 'Come back sooner',      ButtonStyle.Secondary, '⏪'),
     );
@@ -371,7 +371,7 @@ async function postForReview(r, overLimit) {
     if (!ch || !ch.send) return null;
 
     const em = card(r, {
-      title: 'Leave of Absence — awaiting a decision',
+      title: 'Leave of Absence · awaiting a decision',
       description: overLimit
         ? `${e('met_warn')} Longer than the usual **${L.humanDays(L.MAX_DAYS())}** limit.`
         : null,
@@ -448,17 +448,17 @@ function changeLine(r, kind, extra = {}) {
     case 'CANCELLED':
       return `${e('met_dot_off')} ${m} **withdrew** this request.`;
     case 'EXTENDED':
-      return `${e('met_hourglass')} ${m}'s leave has been **extended by ${L.humanDays(extra.days)}** — `
+      return `${e('met_hourglass')} ${m}'s leave has been **extended by ${L.humanDays(extra.days)}** · `
            + `now ending ${L.ts(r.endAt)}.`;
     case 'EXT_DENIED':
-      return `${e('met_cross')} **${L.humanDays(extra.days)} more** refused — still ending ${L.ts(r.endAt)}.`;
+      return `${e('met_cross')} **${L.humanDays(extra.days)} more** refused · still ending ${L.ts(r.endAt)}.`;
     case 'EXT_ASKED':
-      return `${e('met_hourglass')} ${m} has asked for **${L.humanDays(extra.days)} more** — `
+      return `${e('met_hourglass')} ${m} has asked for **${L.humanDays(extra.days)} more** · `
            + `would end ${L.ts(extra.wouldEndAt)}.`
            + (extra.reason ? `
 ${e('met_edit')} ${short(extra.reason, 400)}` : '');
     case 'SHORTENED':
-      return `${e('met_return')} ${m} **cut their leave short by ${L.humanDays(extra.days)}** — back ${L.ts(r.endAt)}.`;
+      return `${e('met_return')} ${m} **cut their leave short by ${L.humanDays(extra.days)}** · back ${L.ts(r.endAt)}.`;
     default:
       return null;
   }
@@ -610,7 +610,7 @@ const VIEWS = {
     review: true,
     async load()  { return L.pending(200); },
     render: rows => ({
-      title: 'Leave of absence — pending',
+      title: 'Leave of absence · pending',
       rows,
       color: COLOR.pending,
       empty: 'Nothing waiting.',
@@ -622,7 +622,7 @@ const VIEWS = {
     // The title needs to know whose history it is, and a button press has only
     // the id — so the id is what it says. `own` is set when it's the presser's.
     render: (rows, arg, own) => ({
-      title: own ? 'Your leave history' : `Leave history — <@${arg}>`,
+      title: own ? 'Your leave history' : `Leave history · <@${arg}>`,
       rows,
       color: COLOR.info,
       empty: 'No leave on record.',
@@ -825,14 +825,14 @@ async function handleLoaModal(interaction) {
       title: `${e('met_tick')} Your leave has been shortened`,
       description: out.request.status === 'ENDED'
         ? `${e('met_return')} Your leave has ended. Welcome back.`
-        : `${e('met_return')} **${L.humanDays(days)}** off the end — back ${L.ts(out.request.endAt)}.`,
+        : `${e('met_return')} **${L.humanDays(days)}** off the end · back ${L.ts(out.request.endAt)}.`,
       color: COLOR.approved,
     })] });
   }
 
   return interaction.editReply({ embeds: [card(out.request, {
     title: `${e('met_hourglass')} Extension requested`,
-    description: `${e('met_pending')} **${L.humanDays(days)}** more — waiting on Jade Command. `
+    description: `${e('met_pending')} **${L.humanDays(days)}** more · waiting on Jade Command. `
       + `Your leave still ends ${L.ts(out.request.endAt)}.`,
     color: COLOR.pending,
   })] });
@@ -894,7 +894,7 @@ async function endLeaveRole(r) {
   const res = await L.removeLeaveRole(require('./bot').getClient(), r.discordId)
     .catch(err => ({ ok: false, why: err.message }));
   if (!res || res.ok) return;
-  console.warn(`[LOA] could not take the on-leave role off ${r.userName || r.discordId} — ${res.why}`);
+  console.warn(`[LOA] could not take the on-leave role off ${r.userName || r.discordId} · ${res.why}`);
 }
 
 // ── The sweep ─────────────────────────────────────────────────────
@@ -925,7 +925,7 @@ async function sweepOnce() {
     console.log(`[LOA] ${out.closed} leave(s) finished and closed off`
       + `; on-leave role removed from ${roleRemoved.length}`);
     for (const f of roleFailed) {
-      console.warn(`[LOA] could not take the on-leave role off ${f.userName || f.discordId} — ${f.why}`);
+      console.warn(`[LOA] could not take the on-leave role off ${f.userName || f.discordId} · ${f.why}`);
     }
     return { ...out, roleRemoved, roleFailed };
   } catch (err) {
@@ -940,7 +940,7 @@ function startLoaWorker() {
   sweepTimer = setInterval(() => { sweepOnce(); }, every);
   if (sweepTimer.unref) sweepTimer.unref();
   setTimeout(() => { sweepOnce(); }, 20 * 1000);
-  console.log('[LOA] worker started — finished leave is closed off every 30 minutes');
+  console.log('[LOA] worker started · finished leave is closed off every 30 minutes');
 }
 
 module.exports = {

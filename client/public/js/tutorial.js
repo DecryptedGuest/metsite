@@ -8,17 +8,17 @@
 
   // ── Step sets, chosen by the current page ──────────────────────────
   const PROFILE = [
-    { sel: '#p-greeting,#p-name', title: 'Your profile', body: "This is your officer profile — your rank, divisions and standing all live here." },
+    { sel: '#p-greeting,#p-name', title: 'Your profile', body: "This is your officer profile · your rank, divisions and standing all live here." },
     { sel: '#p-activity-panel', title: 'Your activity', body: "A quick snapshot of your patrols, events and time on duty." },
     { sel: '#p-divisions', title: 'Divisions & rank', body: "Every division you're part of, with your current rank. Tap a card to open its dashboard." },
     { sel: '#p-appearance-panel', title: 'Make it yours', body: "Pick an accent colour, switch light/dark, or turn on compact mode. It's saved to this device." },
     { sel: '#p-passkeys-panel', title: 'Secure your account', body: "Add a passkey for fast, passwordless verification on sensitive actions." },
     { sel: '#met-switcher-btn', title: 'Switch division', body: "Jump to any division you have access to from here." },
-    { center: true, title: 'One last thing', body: "Press Ctrl/⌘ + K anywhere to jump around fast, or “?” for keyboard shortcuts. That's it — enjoy." },
+    { center: true, title: 'One last thing', body: "Press Ctrl/⌘ + K anywhere to jump around fast, or “?” for keyboard shortcuts. That's it · enjoy." },
   ];
   const DASH = [
     { sel: '.nav-item[data-page]', title: 'Get around', body: "Switch between sections here. The site remembers the tab you were on if you refresh." },
-    { sel: '#met-user-name,.user-name,#met-user-avatar', title: 'Your account', body: "You're signed in here — quick settings and sign-out live nearby." },
+    { sel: '#met-user-name,.user-name,#met-user-avatar', title: 'Your account', body: "You're signed in here · quick settings and sign-out live nearby." },
     { sel: '#met-switcher,#met-switcher-btn', title: 'Switch division', body: "Hop to another division you have access to." },
     { center: true, title: 'Handy shortcut', body: "Press Ctrl/⌘ + K to jump to any page or officer instantly, or “?” for keyboard shortcuts." },
   ];

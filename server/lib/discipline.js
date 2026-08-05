@@ -303,11 +303,11 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
   else effects.push({ kind: 'role', text: 'No Discord role is mapped to this action' });
 
   if (action === 'Demotion') {
-    effects.push({ kind: 'group', text: hasRoblox ? 'Demote one rank in the MET group' : 'Cannot demote — no linked Roblox account' });
+    effects.push({ kind: 'group', text: hasRoblox ? 'Demote one rank in the MET group' : 'Cannot demote · no linked Roblox account' });
   }
   if (cfg.exile) {
     if (!hasRoblox) {
-      effects.push({ kind: 'group', text: 'Cannot exile — no linked Roblox account' });
+      effects.push({ kind: 'group', text: 'Cannot exile · no linked Roblox account' });
     } else {
       // Say every group by name. "Remove from the MET Roblox group" understated
       // what confirming actually does by four groups.
@@ -317,12 +317,12 @@ function plannedEffects(action, { hasRoblox, durationDays } = {}) {
       const divisions = names.filter(n => n !== 'MET');
       if (divisions.length) {
         effects.push({ kind: 'group',
-          text: `Remove from every division they are in — ${divisions.join(', ')}` });
+          text: `Remove from every division they are in · ${divisions.join(', ')}` });
       }
     }
   }
   if (cfg.timed) {
-    effects.push({ kind: 'expiry', text: durationDays ? `Expires after ${durationDays} day${durationDays === 1 ? '' : 's'}` : 'No end date — stays until lifted' });
+    effects.push({ kind: 'expiry', text: durationDays ? `Expires after ${durationDays} day${durationDays === 1 ? '' : 's'}` : 'No end date · stays until lifted' });
   }
   effects.push({ kind: 'log',  text: 'Post to the administrative log' });
   effects.push({ kind: 'site', text: 'File it on the MET Dashboard as an approved record they can appeal' });
@@ -393,7 +393,7 @@ async function fileCase(o) {
       caseId: row.id,
       actionType: 'APPROVED',
       performedBy: owner.id,
-      notes: `Issued directly with /discipline by ${o.issuerName || o.issuerDiscordId} — no review required.`,
+      notes: `Issued directly with /discipline by ${o.issuerName || o.issuerDiscordId} · no review required.`,
     },
   }).catch(() => {});
 

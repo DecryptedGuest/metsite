@@ -173,8 +173,8 @@ function buildAlertEmbed(flag, record, avatar) {
   const who = rbxName || flag.discordTag || 'unknown account';
 
   const title = bl
-    ? `${e('met_denied')} Blacklist evasion — ${short(who, 40)}`
-    : `${e('met_warn')} Punishment evasion — ${short(who, 40)}`;
+    ? `${e('met_denied')} Blacklist evasion · ${short(who, 40)}`
+    : `${e('met_warn')} Punishment evasion · ${short(who, 40)}`;
 
   const lines = [
     `${e('met_user')} **This account** <@${record.here}>${tag} \`${record.here}\``,
@@ -194,7 +194,7 @@ function buildAlertEmbed(flag, record, avatar) {
       value: short(record.blacklistSources.map(s => s.kind === 'case'
         ? `Case \`${s.ref}\`${s.on ? ` (on <@${s.on}>)` : ''}`
         : s.kind === 'account'
-          ? `Dashboard account <@${s.on}> blacklisted${s.reason ? ` — ${short(s.reason, 80)}` : ''}`
+          ? `Dashboard account <@${s.on}> blacklisted${s.reason ? ` · ${short(s.reason, 80)}` : ''}`
           : `Punishment${s.ref ? ` \`${s.ref}\`` : ''} on <@${s.on}>`).join('\n'), 1000),
       inline: false,
     });
@@ -204,7 +204,7 @@ function buildAlertEmbed(flag, record, avatar) {
     fields.push({
       name: `${e('met_gavel')} Active punishments · ${active.length}`,
       value: short(active.slice(0, 8).map(p =>
-        `**${short(p.type, 30)}**${p.caseRef ? ` \`${p.caseRef}\`` : ''} — on <@${p.discordId}>`
+        `**${short(p.type, 30)}**${p.caseRef ? ` \`${p.caseRef}\`` : ''} · on <@${p.discordId}>`
         + (p.expiresAt ? ` · until <t:${Math.floor(new Date(p.expiresAt).getTime() / 1000)}:d>` : '')).join('\n'), 1000),
       inline: false,
     });
@@ -213,7 +213,7 @@ function buildAlertEmbed(flag, record, avatar) {
     fields.push({
       name: `${e('met_folder')} Cases on record · ${record.cases.length}`,
       value: short(record.cases.slice(0, 6).map(c =>
-        `\`${c.caseRef}\` ${short([...caseActions(c)].join(', ') || '—', 40)}`
+        `\`${c.caseRef}\` ${short([...caseActions(c)].join(', ') || '·', 40)}`
         + ` · ${c.status === 'APPROVED' ? 'approved' : short(String(c.status || '').toLowerCase(), 12)}`).join('\n'), 1000),
       inline: false,
     });
@@ -346,7 +346,7 @@ async function reapplySafeRoles(member, record) {
   }
   if (!toAdd.length) return out;
   try {
-    await member.roles.add(toAdd.map(x => x.roleId), 'Punishment still active — re-applied by Roblox identity on rejoin');
+    await member.roles.add(toAdd.map(x => x.roleId), 'Punishment still active · re-applied by Roblox identity on rejoin');
     out.added = toAdd.map(x => x.action);
   } catch (e) {
     for (const x of toAdd) {
@@ -460,7 +460,7 @@ async function viewRecord(interaction, flag) {
     robloxUsername: flag.robloxUsername, discordId: flag.discordId,
   });
   const embed = buildAlertEmbed(flag, record, null);
-  embed.title = `${e('met_search')} Record — ${short(flag.robloxUsername || flag.robloxId, 40)}`;
+  embed.title = `${e('met_search')} Record · ${short(flag.robloxUsername || flag.robloxId, 40)}`;
   embed.color = COLOR.info;
   return interaction.editReply({ embeds: [embed] }).catch(() => {});
 }
@@ -501,18 +501,18 @@ async function doKick(interaction, flag) {
     const bot = require('./bot');
     ok = await bot.kickMember(flag.discordId, {
       guildId,
-      reason: `Evasion (${flag.kind === 'BLACKLIST_EVASION' ? 'blacklist' : 'punishment'}) — ${flag.robloxUsername || flag.robloxId}`,
+      reason: `Evasion (${flag.kind === 'BLACKLIST_EVASION' ? 'blacklist' : 'punishment'}) · ${flag.robloxUsername || flag.robloxId}`,
     }) === true;
   } catch (err) { why = err.message; }
   if (!ok) {
-    return interaction.reply({ content: `${e('met_cross')} Could not kick them${why ? ` — ${short(why, 120)}` : ''}.`, flags: 64 }).catch(() => {});
+    return interaction.reply({ content: `${e('met_cross')} Could not kick them${why ? ` · ${short(why, 120)}` : ''}.`, flags: 64 }).catch(() => {});
   }
   return finish(interaction, flag, { status: 'ACTIONED', actionTaken: 'KICK', note: 'Kicked from the server' });
 }
 
 async function doBlacklist(interaction, flag) {
   const guildId = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
-  const reason = `Ban evasion — same Roblox account (${flag.robloxUsername || flag.robloxId}) as a blacklisted/punished user`;
+  const reason = `Ban evasion · same Roblox account (${flag.robloxUsername || flag.robloxId}) as a blacklisted/punished user`;
   const steps = [];
 
   // 1. The blacklist Discord role, in the MET server.
@@ -521,7 +521,7 @@ async function doBlacklist(interaction, flag) {
     const bot = require('./bot');
     const done = roleId ? await bot.assignRole(flag.discordId, roleId, guildId) : false;
     steps.push(`${done ? e('met_tick') : e('met_cross')} Blacklist role`);
-  } catch (e) { steps.push(`${e('met_cross')} Blacklist role — ${short(e.message, 60)}`); }
+  } catch (e) { steps.push(`${e('met_cross')} Blacklist role · ${short(e.message, 60)}`); }
 
   // 2. Exile the Roblox account from the MET group.
   if (flag.robloxId && !/^unknown:/.test(flag.robloxId)) {
@@ -529,7 +529,7 @@ async function doBlacklist(interaction, flag) {
       const R = require('./roblox');
       const done = await R.exileFromGroup(flag.robloxId, R.mainGroupId(), R.cookieForDivision('MET'));
       steps.push(`${done ? e('met_tick') : e('met_cross')} Exiled from the MET group`);
-    } catch (e) { steps.push(`${e('met_cross')} Group exile — ${short(e.message, 60)}`); }
+    } catch (e) { steps.push(`${e('met_cross')} Group exile · ${short(e.message, 60)}`); }
   }
 
   // 3. A permanent MetPunishment row on THIS account, so the record now names it
@@ -543,7 +543,7 @@ async function doBlacklist(interaction, flag) {
       },
     });
     steps.push(`${e('met_tick')} Recorded on their record`);
-  } catch (e) { steps.push(`${e('met_cross')} Record — ${short(e.message, 60)}`); }
+  } catch (e) { steps.push(`${e('met_cross')} Record · ${short(e.message, 60)}`); }
 
   // 4. Blacklist any dashboard account on this Discord id.
   try {

@@ -312,7 +312,7 @@ async function closeOutWeek(week, why) {
   const value = JSON.stringify({ attempts: MAX_ATTEMPTS, postedAt: new Date().toISOString(), skipped: why });
   try {
     await prisma.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
-    console.warn(`[Quota] weekly check for ${week} was NOT posted — ${why}. `
+    console.warn(`[Quota] weekly check for ${week} was NOT posted · ${why}. `
       + 'Post it by hand from the dashboard if it is still wanted.');
     return true;
   } catch (e) {
@@ -328,7 +328,7 @@ async function confirmPosted(week) {
   try {
     await prisma.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
   } catch (e) {
-    console.error('[Quota] POSTED but could not confirm it — the claim still holds, so it will not repeat:', e.message);
+    console.error('[Quota] POSTED but could not confirm it · the claim still holds, so it will not repeat:', e.message);
   }
   // Keep the legacy key current too, so anything still reading it agrees.
   try {
@@ -366,7 +366,7 @@ async function runWeeklyCheck(opts = {}) {
       if (claim.done) return { ok: true, skipped: claim.why || 'already posted', week };
       // Deliberately silent. Not knowing whether this week was already posted is
       // not a reason to post it again.
-      console.warn('[Quota] weekly check held back — ' + claim.error);
+      console.warn('[Quota] weekly check held back · ' + claim.error);
       return { ok: false, error: 'Could not confirm whether this week was already posted, so nothing was sent. ' + claim.error, week, heldBack: true };
     }
   }
@@ -425,7 +425,7 @@ async function runWeeklyCheck(opts = {}) {
   }
 
   await markPosted(week);
-  console.log(`[Quota] weekly check posted for ${week} — ${results.length} member(s), `
+  console.log(`[Quota] weekly check posted for ${week} · ${results.length} member(s), `
     + `${results.filter(r => r.status === 'pass').length} met, `
     + `${results.filter(r => r.status === 'fail').length} missed`
     + (iotw.winner ? `, IOTW ${iotw.winner.username} on ${iotw.top}` : ', no IOTW'));
@@ -500,7 +500,7 @@ async function markInstalled() {
     const week = reviewWeekKey(new Date(), cfg.timezone);
     const held = await prisma.systemSetting.findUnique({ where: { key: claimKey(week) } }).catch(() => null);
     if (!held) {
-      await closeOutWeek(week, 'this database had no record of it — the check was installed after the slot passed');
+      await closeOutWeek(week, 'this database had no record of it · the check was installed after the slot passed');
     }
     return { firstRun: true, closedOut: week };
   } catch (e) {
@@ -524,11 +524,11 @@ function startWeeklyQuotaWorker() {
   // the slot behind it rather than announcing it.
   setTimeout(() => {
     markInstalled()
-      .then(r => { if (r.firstRun) console.log('[Quota] first run against this database — the slot already past will not be posted.'); })
+      .then(r => { if (r.firstRun) console.log('[Quota] first run against this database · the slot already past will not be posted.'); })
       .then(() => tick())
       .catch(() => {});
   }, 90 * 1000);
-  console.log(`[Quota] weekly check armed — ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][DAY()]} `
+  console.log(`[Quota] weekly check armed · ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][DAY()]} `
     + `${String(HOUR()).padStart(2, '0')}:${String(MINUTE()).padStart(2, '0')} ${quota.quotaConfig('IA').timezone}`);
 }
 

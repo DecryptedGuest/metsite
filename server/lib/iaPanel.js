@@ -105,7 +105,7 @@ function buildCommand() {
     .setDescription("Look up an officer's record, or open a case by number")
     .addStringOption(o => o
       .setName('officer')
-      .setDescription('Who — a mention, a Discord id, or a Roblox username')
+      .setDescription('Who · a mention, a Discord id, or a Roblox username')
       .setMaxLength(120))
     .addStringOption(o => o
       .setName('case_number')
@@ -357,19 +357,19 @@ async function overviewView(subject, client) {
 
   if (strike && strike.cleared && strike.cleared.length) {
     embed.addFields({ name: 'Discounted', value:
-      `${e('met_dot_off')} ${short(strike.cleared.join('; '), 200)} — on record but the role isn't worn, so it doesn't count.`,
+      `${e('met_dot_off')} ${short(strike.cleared.join('; '), 200)} · on record but the role isn't worn, so it doesn't count.`,
       inline: false });
   }
 
   if (cases.length) {
     embed.addFields({ name: 'Most recent', value: cases.slice(0, 3).map(c =>
-      `${statusMark(c.status)} \`${short(c.caseRef, 14)}\` ${short(c.action, 34)} — ${when(c.createdAt)}`).join('\n'),
+      `${statusMark(c.status)} \`${short(c.caseRef, 14)}\` ${short(c.action, 34)} · ${when(c.createdAt)}`).join('\n'),
       inline: false });
   }
   if (tickets.length) {
     const opened = tickets.filter(t => subject.discordId && String(t.creatorDiscordId) === String(subject.discordId)).length;
     embed.addFields({ name: 'Tickets', value:
-      `${e('met_ticket')} ${tickets.length} on file — ${opened} opened, ${tickets.length - opened} closed by them`,
+      `${e('met_ticket')} ${tickets.length} on file · ${opened} opened, ${tickets.length - opened} closed by them`,
       inline: false });
   }
 
@@ -413,7 +413,7 @@ async function recordView(subject) {
 
   const embed = new EmbedBuilder()
     .setColor(rows.length ? COLOR.warn : COLOR.ok)
-    .setTitle(`${e('met_gavel')} Record — ${short(subject.displayName, 50)}`)
+    .setTitle(`${e('met_gavel')} Record · ${short(subject.displayName, 50)}`)
     .setDescription(headline(subject));
 
   if (!rows.length) {
@@ -426,11 +426,11 @@ async function recordView(subject) {
     const tag = r.origin === 'DISCIPLINE' ? ' *(direct)*' : r.origin === 'BOT' ? ' *(bot)*' : '';
     const appeal = r.appealed ? ` ${e('met_scales')} *appealed*` : '';
     const note = r.note ? ` · ${r.note}` : '';
-    return `${statusMark(r.status)} \`${short(r.ref || '—', 14)}\` ${short(r.what, 36)}${tag}${appeal}${note} — ${when(r.at)}`;
+    return `${statusMark(r.status)} \`${short(r.ref || '·', 14)}\` ${short(r.what, 36)}${tag}${appeal}${note} · ${when(r.at)}`;
   });
   embed.addFields({ name: `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`,
     value: short(lines.join('\n'), 1000), inline: false });
-  if (rows.length > 18) embed.setFooter({ text: `…and ${rows.length - 18} more — the full record is on the MET Dashboard` });
+  if (rows.length > 18) embed.setFooter({ text: `…and ${rows.length - 18} more · the full record is on the MET Dashboard` });
   return embed;
 }
 
@@ -438,7 +438,7 @@ async function ticketsView(subject) {
   const tickets = await ticketsFor(subject);
   const embed = new EmbedBuilder()
     .setColor(COLOR.panel)
-    .setTitle(`${e('met_ticket')} Tickets — ${short(subject.displayName, 50)}`)
+    .setTitle(`${e('met_ticket')} Tickets · ${short(subject.displayName, 50)}`)
     .setDescription(headline(subject));
 
   if (!tickets.length) {
@@ -448,8 +448,8 @@ async function ticketsView(subject) {
   const mine = String(subject.discordId || '');
   const opened = tickets.filter(t => mine && String(t.creatorDiscordId) === mine);
   const closed = tickets.filter(t => !(mine && String(t.creatorDiscordId) === mine));
-  const fmt = t => `${statusMark(t.status)} \`${short(t.ticketRef || t.ticketName || '—', 16)}\` `
-    + `${short(String(t.ticketType || '').replace(/_/g, ' ').toLowerCase(), 22)} — ${when(t.closedAt)}`;
+  const fmt = t => `${statusMark(t.status)} \`${short(t.ticketRef || t.ticketName || '·', 16)}\` `
+    + `${short(String(t.ticketType || '').replace(/_/g, ' ').toLowerCase(), 22)} · ${when(t.closedAt)}`;
 
   if (opened.length) embed.addFields({ name: `Opened (${opened.length})`, value: short(opened.slice(0, 8).map(fmt).join('\n'), 1000), inline: false });
   if (closed.length) embed.addFields({ name: `Closed by them (${closed.length})`, value: short(closed.slice(0, 8).map(fmt).join('\n'), 1000), inline: false });
@@ -459,7 +459,7 @@ async function ticketsView(subject) {
 async function activityView(subject, client) {
   const embed = new EmbedBuilder()
     .setColor(COLOR.panel)
-    .setTitle(`${e('met_xp')} Activity — ${short(subject.displayName, 50)}`)
+    .setTitle(`${e('met_xp')} Activity · ${short(subject.displayName, 50)}`)
     .setDescription(headline(subject));
 
   if (!subject.discordId) {
@@ -483,7 +483,7 @@ async function activityView(subject, client) {
     embed.addFields(
       { name: 'XP', value: p.next ? `${row.xp} / ${p.next.at} XP\n${p.need} more to go` : `${row.xp} / ${XP.maxXp()} XP\nMax rank`, inline: true },
       { name: 'Rank', value: p.rank.name, inline: true },
-      { name: 'Standing', value: standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true },
+      { name: 'Standing', value: standing.total ? `#${standing.position} of ${standing.total}` : '·', inline: true },
     );
   } else {
     embed.addFields({ name: 'XP', value: '*Never placed on the XP ladder.*', inline: false });
@@ -498,7 +498,7 @@ async function activityView(subject, client) {
       const target = res.quota ? res.quota.target : null;
       embed.addFields({ name: 'MET quota', value: res.quota && res.quota.exempt
           ? `${e('met_shield')} Exempt${res.exemptKind === 'PURCHASED' ? ' (bought)' : res.exemptKind === 'LOA' ? ' (on leave)' : ''}`
-          : `${res.total} / ${target == null ? '—' : target} events this week`
+          : `${res.total} / ${target == null ? '·' : target} events this week`
             + (target != null ? (res.total >= target ? ` ${e('met_tick')}` : ` · ${res.remaining} to go`) : ''),
         inline: true });
     }
@@ -522,7 +522,7 @@ async function caseView(kase, precomputed) {
     || (kase.user && kase.user.displayName) || null;
   const embed = new EmbedBuilder()
     .setColor(kase.status === 'APPROVED' ? COLOR.warn : COLOR.panel)
-    .setTitle(`${e('met_folder')} ${short(kase.caseRef, 20)} — ${short(kase.action, 40)}`)
+    .setTitle(`${e('met_folder')} ${short(kase.caseRef, 20)} · ${short(kase.action, 40)}`)
     .setDescription(
       `${statusMark(kase.status)} **${kase.status.replace('_', ' ')}**`
       + (kase.origin === 'DISCIPLINE'
@@ -554,7 +554,7 @@ async function caseView(kase, precomputed) {
     // reads oddly for something that just happened.
     const at = `<t:${Math.floor(new Date(kase.appealedAt).getTime() / 1000)}:f>`;
     const parts = [
-      `${e('met_scales')} **Appeal granted** — this case is overturned and no longer counts against them.`,
+      `${e('met_scales')} **Appeal granted** · this case is overturned and no longer counts against them.`,
       `${e('met_calendar')} ${at}${kase.appealedByName ? ` · by **${short(kase.appealedByName, 40)}**` : ''}`,
     ];
     if (kase.appealReason) parts.push(`${e('met_edit')} **Reason:** ${short(kase.appealReason, 400)}`);
@@ -566,7 +566,7 @@ async function caseView(kase, precomputed) {
     const lines = ev.exhibits.slice(0, 14).map(x => {
       const label = x.label || (x.external ? 'Case document' : 'Link');
       const body = x.url ? `[${label}](${x.url})` : `**${label}**`;
-      const note = x.note ? ` — ${short(x.note, 90)}` : '';
+      const note = x.note ? ` · ${short(x.note, 90)}` : '';
       const flag = x.rejected ? ` ${e('met_warn')} *link rejected: \`${short(x.rejected, 40)}\`*` : '';
       const src = x.source && x.source !== 'exhibit list' ? ` *(from the ${x.source})*` : '';
       return `${e('met_link')} ${body}${note}${src}${flag}`;
@@ -601,7 +601,7 @@ function shareConfirmView(kase, ev, channel) {
   const lines = ev.exhibits.slice(0, 14).map(x => {
     const label = x.label || (x.external ? 'Case document' : 'Link');
     const src = x.source ? ` *(${x.source})*` : '';
-    return `${e('met_link')} ${label}${src}${x.url ? `\n\`${short(x.url, 90)}\`` : ' — *no link, nothing to send*'}`;
+    return `${e('met_link')} ${label}${src}${x.url ? `\n\`${short(x.url, 90)}\`` : ' · *no link, nothing to send*'}`;
   });
 
   const sendable = ev.exhibits.filter(x => x.url).length;
@@ -614,7 +614,7 @@ function shareConfirmView(kase, ev, channel) {
       + `\`${short(kase.caseRef, 20)}\` into ${where}.\n\n`
       + `${e('met_dot_on')} It will be **visible to everyone who can read that channel**, not just Internal Affairs.\n`
       + `${e('met_dot_on')} It will say the case reference and that you shared it.\n`
-      + `${e('met_dot_on')} Nothing else from the case goes with it — no reason, no notes, no appeal detail.`)
+      + `${e('met_dot_on')} Nothing else from the case goes with it · no reason, no notes, no appeal detail.`)
     .addFields(
       { name: 'From', value:
         `\`${short(kase.caseRef, 20)}\` · ${short(kase.action, 40)}\n`
@@ -631,13 +631,13 @@ function shareConfirmView(kase, ev, channel) {
 function evidencePost(kase, ev, sharedBy) {
   const lines = ev.exhibits.filter(x => x.url).slice(0, 20).map(x => {
     const label = x.label || (x.external ? 'Case document' : 'Link');
-    const note = x.note && !x.external ? ` — ${short(x.note, 90)}` : '';
-    return `${e('met_link')} **${label}** — ${x.url}${note}`;
+    const note = x.note && !x.external ? ` · ${short(x.note, 90)}` : '';
+    return `${e('met_link')} **${label}** · ${x.url}${note}`;
   });
 
   return new EmbedBuilder()
     .setColor(COLOR.panel)
-    .setTitle(`${e('met_folder')} Evidence — ${short(kase.caseRef, 20)}`)
+    .setTitle(`${e('met_folder')} Evidence · ${short(kase.caseRef, 20)}`)
     .setDescription(
       `${short(kase.action, 60)}`
       + (kase.robloxUsername ? ` · ${short(kase.robloxUsername, 30)}` : '')
@@ -652,7 +652,7 @@ function channelProblem(channel, client) {
   if (typeof channel.send !== 'function') return "this isn't a channel the bot can post in";
   // A DM has no permission model to check, and posting evidence into somebody's
   // DMs from a panel is not what this button is for.
-  if (!channel.guild) return 'this is a direct message — run `/' + COMMAND + '` in the channel you want the evidence in';
+  if (!channel.guild) return 'this is a direct message · run `/' + COMMAND + '` in the channel you want the evidence in';
   try {
     const me = channel.guild.members && channel.guild.members.me;
     if (me && typeof channel.permissionsFor === 'function') {
@@ -684,7 +684,7 @@ async function deskView() {
   return new EmbedBuilder()
     .setColor(COLOR.panel)
     .setTitle(`${e('met_shield')} Internal Affairs`)
-    .setDescription('Name an officer to pull their record — `/' + COMMAND + ' officer:@someone` — or a case '
+    .setDescription('Name an officer to pull their record · `/' + COMMAND + ' officer:@someone` · or a case '
       + 'number to open it directly with `/' + COMMAND + ' case_number:618`.\n\n'
       + 'Officers can be found by @mention, Discord id, or Roblox username, and a Roblox username '
       + 'works even for somebody who has left the server.')
@@ -720,7 +720,7 @@ function caseSelectRow(token, cases) {
   if (!cases.length) return null;
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`ia_case_${token}`)
-    .setPlaceholder(`Open a case — ${cases.length} on file`)
+    .setPlaceholder(`Open a case · ${cases.length} on file`)
     .addOptions(cases.slice(0, 25).map(c => ({
       label: short(`${c.caseRef} · ${c.action}`, 100),
       description: short(`${c.status.replace('_', ' ')} · ${new Date(c.createdAt).toISOString().slice(0, 10)} · ${c.reason || ''}`, 100),
@@ -841,7 +841,7 @@ async function appealCapability(interaction, kase) {
   const appealerUser = appealer || { discordId: String(interaction.user.id) };
 
   if (caseIsAbout(appealerUser, kase)) {
-    return { allowed: false, reason: 'You cannot appeal a case about yourself — ask somebody else in Internal Affairs.' };
+    return { allowed: false, reason: 'You cannot appeal a case about yourself · ask somebody else in Internal Affairs.' };
   }
   if (caseHasHicommOnlyPunishment(kase) && !verdict.isMetHicomm) {
     return { allowed: false, reason: 'Only Deputy Commissioner and above can appeal a Termination or a Blacklist.' };
@@ -922,7 +922,7 @@ async function postPickerView(token, subject, state, channel, picks = []) {
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`ia_pick_${token}`)
-    .setPlaceholder('Pick what to post — the whole view, or specific items')
+    .setPlaceholder('Pick what to post · the whole view, or specific items')
     .setMinValues(0)
     .setMaxValues(Math.min(25, options.length))
     .addOptions(options.slice(0, 25));
@@ -935,7 +935,7 @@ async function postPickerView(token, subject, state, channel, picks = []) {
       `Choose what to put in ${where}. It posts publicly, attributed to you.\n\n`
       + (picks.length
         ? `${e('met_tick')} **${picks.length}** selected.`
-        : `${e('met_dot_off')} Nothing selected yet — the default is this ${viewLabel}.`))
+        : `${e('met_dot_off')} Nothing selected yet · the default is this ${viewLabel}.`))
     .setFooter({ text: 'Internal Affairs · nothing is posted until you press Post' });
 
   return {
@@ -982,7 +982,7 @@ async function buildPostEmbeds(subject, picks, view, client, sharedBy) {
     if (rows.length) {
       embeds.push(new EmbedBuilder()
         .setColor(COLOR.warn)
-        .setTitle(`${e('met_gavel')} Punishments — ${short(subject.displayName, 50)}`)
+        .setTitle(`${e('met_gavel')} Punishments · ${short(subject.displayName, 50)}`)
         .setDescription(headline(subject))
         .addFields({ name: `Selected (${rows.length})`, value: short(rows.map(punishLine).join('\n\n'), 1800), inline: false })
         .setFooter({ text: 'Internal Affairs record' }));
@@ -1044,7 +1044,7 @@ async function handlePost(interaction, token, state, step) {
     return interaction.editReply({
       embeds: [new EmbedBuilder().setColor(COLOR.fail)
         .setTitle(`${e('met_cross')} Can't post here`)
-        .setDescription(`Nothing was posted — ${problem}.`)],
+        .setDescription(`Nothing was posted · ${problem}.`)],
       components: await componentsFor(token, subject, state.view || 'over'),
     }).catch(() => {});
   }
@@ -1059,7 +1059,7 @@ async function handlePost(interaction, token, state, step) {
   // A lead line so the channel knows who pulled the record and about whom —
   // the embeds themselves carry no attribution.
   const lead = `${e('met_folder')} Record shared by **${short(who, 60)}**`
-    + (subject.discordId ? ` — <@${subject.discordId}>` : subject.robloxUsername ? ` — ${short(subject.robloxUsername, 40)}` : '');
+    + (subject.discordId ? ` · <@${subject.discordId}>` : subject.robloxUsername ? ` · ${short(subject.robloxUsername, 40)}` : '');
 
   let posted = null;
   try {
@@ -1082,7 +1082,7 @@ async function handlePost(interaction, token, state, step) {
       .setTitle(`${e('met_tick')} Posted`)
       .setDescription(`**${embeds.length}** item${embeds.length === 1 ? '' : 's'} posted in `
         + `${channel.name ? `**#${short(channel.name, 60)}**` : 'this channel'}.`
-        + (dropped ? `\n${e('met_warn')} ${dropped} more couldn't fit in one message — post them in a second batch.` : '')
+        + (dropped ? `\n${e('met_warn')} ${dropped} more couldn't fit in one message · post them in a second batch.` : '')
         + (posted && posted.url ? `\n\n[Jump to it](${posted.url})` : ''))],
     components: await componentsFor(token, subject, state.view || 'over'),
   }).catch(() => {});
@@ -1156,12 +1156,12 @@ async function handleAppealSubmit(interaction, token, state) {
   require('./audit').log(
     { id: cap.userId, displayName: cap.actorName },
     { category: 'ia', action: 'CASE_APPEAL', target: { type: 'case', id: kase.id },
-      summary: `Appeal granted on ${kase.caseRef} from /check-record — ${out.lifted.length} role(s) lifted`,
+      summary: `Appeal granted on ${kase.caseRef} from /check-record · ${out.lifted.length} role(s) lifted`,
       metadata: { reason, lifted: out.lifted, failed: out.failed, kept: out.kept, manual: out.manual } });
 
   const done = new EmbedBuilder()
     .setColor(COLOR.ok)
-    .setTitle(`${e('met_scales')} Appeal granted — ${short(kase.caseRef, 20)}`)
+    .setTitle(`${e('met_scales')} Appeal granted · ${short(kase.caseRef, 20)}`)
     .setDescription(`${e('met_tick')} The case is overturned and no longer counts against them.`)
     .addFields(
       { name: 'Roles lifted', value: out.lifted.length ? out.lifted.join(', ') : '*none to lift*', inline: false },
@@ -1225,7 +1225,7 @@ async function handleShare(interaction, token, state, step) {
       return interaction.editReply({
         embeds: [new EmbedBuilder().setColor(COLOR.fail)
           .setTitle(`${e('met_cross')} Can't send it here`)
-          .setDescription(`Nothing was sent — ${problem}.`)],
+          .setDescription(`Nothing was sent · ${problem}.`)],
         components: await componentsFor(token, subject, 'case', { sendable }),
       }).catch(() => {});
     }
@@ -1343,7 +1343,7 @@ async function handleIaCommand(interaction) {
     return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
       .setTitle(`${e('met_cross')} Couldn't find them`)
       .setDescription(`Nothing matched \`${short(officer, 40)}\`.\n\n`
-        + 'Try @-mentioning them — the picker inserts a real mention, which always resolves — '
+        + 'Try @-mentioning them · the picker inserts a real mention, which always resolves · '
         + 'or give their exact Roblox username.')] }).catch(() => {});
   }
 
@@ -1385,7 +1385,7 @@ async function handleIaComponent(interaction) {
     return interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOR.warn)
         .setTitle(`${e('met_warn')} This panel has expired`)
-        .setDescription('Run `/' + COMMAND + '` again — panels last about fifteen minutes.')],
+        .setDescription('Run `/' + COMMAND + '` again · panels last about fifteen minutes.')],
       flags: 64,
     }).catch(() => {});
   }

@@ -146,7 +146,7 @@ async function loadPatrols() {
 // (with its rank prefix); otherwise it shows the prefix-stripped Roblox username.
 // Discord username + user id follow in muted text.
 function flpPerson(m, host) {
-  if (!m) return '<span style="color:var(--text-muted);">—</span>';
+  if (!m) return '<span style="color:var(--text-muted);">·</span>';
   const primary = host ? (m.nickname || m.roblox || m.discordUsername || ('#' + m.id))
                        : (m.roblox || m.nickname || m.discordUsername || ('#' + m.id));
   const meta = [];
@@ -155,7 +155,7 @@ function flpPerson(m, host) {
   return `${fesc(primary)}${meta.length ? ` <span style="color:var(--text-muted);font-size:11px;">${fesc(meta.join(' · '))}</span>` : ''}`;
 }
 function flpPeopleList(arr, host) {
-  if (!arr || !arr.length) return '<span style="color:var(--text-muted);">—</span>';
+  if (!arr || !arr.length) return '<span style="color:var(--text-muted);">·</span>';
   return `<div style="display:flex;flex-direction:column;gap:5px;">${arr.map(m => `<div>${flpPerson(m, host)}</div>`).join('')}</div>`;
 }
 
@@ -165,7 +165,7 @@ function renderPatrol(p) {
   const fn = isEvent ? 'reviewEvent' : 'reviewPatrol';
   flpGal[p.id] = p.images || [];   // register this log's images for the lightbox
   const imgs = (p.images || []).map((u, i) => `<img src="${fesc(u)}" onclick="flpLightbox('${p.id}', ${i})" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border-dim);cursor:zoom-in;" loading="lazy" />`).join('');
-  const dateCell = `${fesc(p.dateLabel || '—')}${p.crossedMidnight ? ' <span style="color:var(--amber);font-size:11px;"><i class="ti ti-moon"></i> crossed midnight — started the night before</span>' : ''}`;
+  const dateCell = `${fesc(p.dateLabel || '·')}${p.crossedMidnight ? ' <span style="color:var(--amber);font-size:11px;"><i class="ti ti-moon"></i> crossed midnight · started the night before</span>' : ''}`;
   const submitterCell = `${fesc(p.submitterDisplayName || p.submitterUsername || 'Unknown')} <span style="color:var(--text-muted);font-size:11px;">@${fesc(p.submitterUsername || '')} · ${fesc(p.submitterDiscordId)}</span>`;
 
   let rowsArr, title;
@@ -179,9 +179,9 @@ function renderPatrol(p) {
       em.rank ? ['Rank', fesc(em.rank)] : null,
       (em.coHost || em.coHostText) ? ['Co-Host', em.coHost ? flpPerson(em.coHost, true) : fesc(em.coHostText)] : null,
       ['Date', dateCell],
-      ['Started', fesc(p.shiftStart || '—')],
-      ['Ended', fesc(p.shiftEnd || '—')],
-      ['Total time', fesc(p.totalLabel || '—')],
+      ['Started', fesc(p.shiftStart || '·')],
+      ['Ended', fesc(p.shiftEnd || '·')],
+      ['Total time', fesc(p.totalLabel || '·')],
       ['Attendees', flpPeopleList(em.attendees, false)],
       em.notesText ? ['Notes', fesc(em.notesText)] : null,
       (em.noteMembers && em.noteMembers.length) ? ['Noted', flpPeopleList(em.noteMembers, false)] : null,
@@ -192,14 +192,14 @@ function renderPatrol(p) {
       ['Submitted by', submitterCell],
       ['Division', fesc(p.division || 'N/A')],
       ['Date', dateCell],
-      ['Started', fesc(p.shiftStart || '—')],
-      ['Ended', fesc(p.shiftEnd || '—')],
-      ['Total time', fesc(p.totalLabel || '—')],
+      ['Started', fesc(p.shiftStart || '·')],
+      ['Ended', fesc(p.shiftEnd || '·')],
+      ['Total time', fesc(p.totalLabel || '·')],
     ];
   }
   const rows = rowsArr.map(([k, v]) => `<div style="display:flex;gap:12px;padding:5px 0;font-size:13px;"><span style="color:var(--text-muted);min-width:110px;flex-shrink:0;">${k}</span><span style="flex:1;">${v}</span></div>`).join('');
   const pointNote = (isEvent && p.status === 'APPROVED')
-    ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '<i class="ti ti-check"></i> +1 point added to the MET database' : '<i class="ti ti-alert-triangle"></i> point not added — member not found on a rank tab / non-numeric cell'}</div>` : '';
+    ? `<div style="font-size:11px;color:${p.pointAwarded ? 'var(--green)' : 'var(--amber)'};margin-top:6px;">${p.pointAwarded ? '<i class="ti ti-check"></i> +1 point added to the MET database' : '<i class="ti ti-alert-triangle"></i> point not added · member not found on a rank tab / non-numeric cell'}</div>` : '';
   const devDel = flpCtx.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="flpDeleteLog('${p.id}','${isEvent ? 'EVENT' : 'PATROL'}')"><i class="ti ti-trash"></i> Delete</button>` : '';
   return `<div class="panel glass fade-up" style="margin-bottom:16px;">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot ${isEvent ? 'amber' : 'blue'}"></span>${fesc(title)}</div>${PATROL_STATUS[p.status] || ''}</div>
@@ -261,7 +261,7 @@ function flpLightbox(logId, idx) {
 async function reviewPatrol(id, action) {
   try {
     const r = await api(`/api/flp/patrols/${id}/${action}`, { method: 'POST' });
-    showToast(action === 'approve' ? `Approved${r.reacted ? ' — reacted' : ''}` : `Denied${r.reacted ? ' — reacted' : ''}`, 'success');
+    showToast(action === 'approve' ? `Approved${r.reacted ? ' · reacted' : ''}` : `Denied${r.reacted ? ' · reacted' : ''}`, 'success');
     loadPatrols(); loadPatrolBadge();
   } catch (err) { showToast(err.message, 'error'); }
 }
@@ -407,10 +407,10 @@ function renderFlpMembers() {
     const opts = rankOptions(m.roleId);
     return `<tr style="${botLocked ? 'opacity:0.4;' : ''}">
       <td>${fesc(m.username)} <span style="color:var(--text-muted);font-size:11px;">#${fesc(m.userId)}</span></td>
-      <td>${fesc(m.roleName || '—')}${botLocked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}</td>
+      <td>${fesc(m.roleName || '·')}${botLocked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}</td>
       <td>${canManage && opts ? `<select class="form-control" id="flp-rank-${fesc(m.userId)}" style="width:auto;padding:4px 8px;font-size:12px;">${opts}</select>
              <button class="btn btn-ghost btn-sm" onclick="flpSetRank('${m.userId}','${fesc(m.username)}')">Set</button>`
-           : `<span style="color:var(--text-muted);font-size:11px;">—</span>`}</td>
+           : `<span style="color:var(--text-muted);font-size:11px;">·</span>`}</td>
       <td>${canManage ? `<button class="btn btn-danger btn-sm" onclick="flpKick('${m.userId}','${fesc(m.username)}')"><i class="ti ti-user-off"></i> Kick</button>` : ''}</td>
     </tr>`;
   }).join('');

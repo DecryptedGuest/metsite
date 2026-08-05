@@ -119,7 +119,7 @@ async function robloxSide(robloxId, robloxUsername) {
         }
       }
     } else {
-      out.notes.push('Roblox did not return this account — it may be deleted or renamed.');
+      out.notes.push('Roblox did not return this account · it may be deleted or renamed.');
     }
   } catch (e) { out.notes.push('Could not read the Roblox account: ' + e.message); }
 
@@ -384,7 +384,7 @@ function checksFor(live) {
     // Not a pass/fail — being in a division is allowed, it just puts them behind
     // the divisionless in the queue. Reported as information, deliberately.
     push('Division', 'note', live.met.divisionless
-      ? 'No division — first pick, by the rule.'
+      ? 'No division · first pick, by the rule.'
       : 'In ' + live.met.divisions.map(d => d.division + (d.rank ? ` (${d.rank})` : '')).join(', '));
   }
 

@@ -58,7 +58,7 @@ async function acceptPassedCadetIntoMet(s, req) {
       if (first) { robloxId = String(first); via = 'RoVer'; }
     }
     if (!robloxId) {
-      return { ok: false, reason: 'the cadet has no verified Roblox account — '
+      return { ok: false, reason: 'the cadet has no verified Roblox account · '
         + 'their site account is not linked and RoVer does not know them, so accept them by hand' };
     }
 
@@ -78,7 +78,7 @@ async function acceptPassedCadetIntoMet(s, req) {
       }
       if (typedMismatch) {
         console.warn(`[HPC] cadet ${s.discordUsername || s.discordId} typed Roblox username `
-          + `"${typedMismatch.typed}" but their verified account is "${typedMismatch.actual}" — `
+          + `"${typedMismatch.typed}" but their verified account is "${typedMismatch.actual}" · `
           + 'acting on the verified one.');
       }
     }
@@ -119,8 +119,8 @@ async function acceptPassedCadetIntoMet(s, req) {
       target: { type: 'roblox_user', id: robloxId, name: acted },
       summary: (ranked
         ? `Accepted ${acted} into the MET group as Community Support Officer (passed final exam)`
-        : `Approved ${acted}'s MET group join request (passed final exam) — CSO rank not applied`)
-        + ` — identity from ${via}`
+        : `Approved ${acted}'s MET group join request (passed final exam) · CSO rank not applied`)
+        + ` · identity from ${via}`
         + (typedMismatch ? `; they had typed "${typedMismatch.typed}" on the exam, which was NOT used` : ''),
     });
     return { ok: true, ranked, robloxId, csoRoleId, via, typedMismatch };
@@ -285,7 +285,7 @@ router.post('/exam/submissions/:id/ai-scan', requireHpcMarker, async (req, res) 
 
     audit.record({
       req, action: 'EXAM_AI_SCAN', category: 'exam', targetType: 'submission', targetId: s.id,
-      summary: `AI-scanned ${s.discordUsername || s.robloxUsername || 'a cadet'}'s final exam — overall ${scan.overall == null ? 'n/a' : scan.overall + '%'} across ${scan.providers.length} detector(s)`,
+      summary: `AI-scanned ${s.discordUsername || s.robloxUsername || 'a cadet'}'s final exam · overall ${scan.overall == null ? 'n/a' : scan.overall + '%'} across ${scan.providers.length} detector(s)`,
       metadata: { overall: scan.overall, providers: scan.providers },
     });
 
@@ -364,7 +364,7 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
             req, action: 'EXAM_PASS_NOT_ACCEPTED', category: 'exam',
             targetType: 'submission', targetId: s.id,
             summary: `${s.discordUsername || s.robloxUsername || 'A cadet'} passed the final exam but was `
-                   + `NOT accepted into the MET group — ${(r && r.reason) || 'unknown reason'}. `
+                   + `NOT accepted into the MET group · ${(r && r.reason) || 'unknown reason'}. `
                    + `Accept them by hand.`,
             metadata: { reason: (r && r.reason) || null },
           });
@@ -374,7 +374,7 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
 
     audit.record({
       req, action: 'EXAM_MARK', category: 'exam', targetType: 'submission', targetId: s.id,
-      summary: `Marked ${s.discordUsername || s.robloxUsername || 'a cadet'}'s final exam: ${total}/${maxScore} (${percentage}%) — ${updated.status}`,
+      summary: `Marked ${s.discordUsername || s.robloxUsername || 'a cadet'}'s final exam: ${total}/${maxScore} (${percentage}%) · ${updated.status}`,
       metadata: { score: total, maxScore, percentage, status: updated.status },
     });
 
@@ -382,7 +382,7 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
     try {
       require('../lib/events').publishToUser(s.userId, 'exam_marked', {
         status: updated.status, score: total, maxScore, percentage,
-        message: `Your final exam has been marked: ${percentage}% — ${passed ? 'PASSED' : 'FAILED'}.`,
+        message: `Your final exam has been marked: ${percentage}% · ${passed ? 'PASSED' : 'FAILED'}.`,
       });
     } catch (e) { /* non-fatal */ }
 

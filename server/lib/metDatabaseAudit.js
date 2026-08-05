@@ -128,7 +128,7 @@ async function auditMet(opts = {}) {
     // be worse than saying the tab is broken.
     if (isRankTab && entry.dayColumns < 7) {
       report.issues.push({ kind: 'TAB_MISSING_DAYS', tab,
-        detail: `only ${entry.dayColumns} of 7 day columns found — points on this tab cannot be counted` });
+        detail: `only ${entry.dayColumns} of 7 day columns found · points on this tab cannot be counted` });
     }
 
     if (cols.username != null) {
@@ -235,7 +235,7 @@ async function auditMet(opts = {}) {
         if (!should) {
           m.problems.push({ kind: 'RANK_NOT_TRACKED', detail: hit.roleName || 'unknown rank' });
         } else if (rankTabName(m.tab) && should !== rankTabName(m.tab)) {
-          m.problems.push({ kind: 'WRONG_TAB', detail: `is ${hit.roleName} — belongs on "${should}"`, shouldBe: should });
+          m.problems.push({ kind: 'WRONG_TAB', detail: `is ${hit.roleName} · belongs on "${should}"`, shouldBe: should });
           report.summary.wrongTab++;
         }
       }
@@ -273,7 +273,7 @@ async function normaliseMet(opts = {}) {
   const fillBlanks = opts.fillBlanks !== false;
   const reset = !!opts.reset;
   const dryRun = !!opts.dryRun;
-  if (!fillBlanks && !reset) return { ok: false, error: 'Nothing to do — pass fillBlanks or reset.' };
+  if (!fillBlanks && !reset) return { ok: false, error: 'Nothing to do · pass fillBlanks or reset.' };
 
   const division = (opts.division || 'MET').toString().toUpperCase();
   const cfg = quota.quotaConfig(division);

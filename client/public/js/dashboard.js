@@ -533,9 +533,9 @@ async function loadDevGameLogs() {
     const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
     return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
       <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
-      <td>${escapeHtml(g.actor || '—')}</td>
-      <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '—'}</td>
-      <td>${escapeHtml(g.target || '—')}</td>
+      <td>${escapeHtml(g.actor || '·')}</td>
+      <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '·'}</td>
+      <td>${escapeHtml(g.target || '·')}</td>
       <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
   }).join('') : (window.metEmpty
     ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-file-off', title: 'No game logs yet', sub: 'In-game activity will appear here.' })}</td></tr>`
@@ -553,9 +553,9 @@ function devGlRow(g) {
   const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
   return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
     <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
-    <td>${escapeHtml(g.actor || '—')}</td>
-    <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '—'}</td>
-    <td>${escapeHtml(g.target || '—')}</td>
+    <td>${escapeHtml(g.actor || '·')}</td>
+    <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '·'}</td>
+    <td>${escapeHtml(g.target || '·')}</td>
     <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
 }
 
@@ -607,7 +607,7 @@ async function runIaSync() {
     // silent failure look like "nothing happened".
     const failed = (r.cases && r.cases.ok === false) || (r.tickets && r.tickets.ok === false);
     const fmt = (lbl, x) => {
-      if (!x) return `${lbl}: —`;
+      if (!x) return `${lbl}: ·`;
       if (x.ok === false) return `${lbl}: ${met.e('met_warn')} ${x.reason || 'failed'}`;
       return `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}${x.skipped ? ` (${x.skipped} skipped)` : ''}`;
     };
@@ -665,7 +665,7 @@ async function clrImport(dry) {
     const yes = await uiConfirm(
       'This writes cases into the database from what it read in Discord.\n\n'
       + 'Cases you filed on the site are never overwritten, and running it again later is a refresh '
-      + 'rather than a duplicate — but read the dry run above before you do this.',
+      + 'rather than a duplicate · but read the dry run above before you do this.',
       { title: 'Import the cases for real?', confirmText: 'Import them', cancelText: 'Not yet', icon: 'ti-database-import' });
     if (!yes) return;
   }
@@ -709,7 +709,7 @@ function clrReport(r, dry) {
   h += clrRow('Messages read', r.scanned);
   // Whether it genuinely reached the beginning is the difference between "all the
   // cases" and "the recent ones".
-  h += clrRow('Reached the start of the channel', r.reachedStart ? 'yes' : 'NO — it stopped early',
+  h += clrRow('Reached the start of the channel', r.reachedStart ? 'yes' : 'NO · it stopped early',
               r.reachedStart ? 'good' : 'warn');
   h += clrRow('Cases found', r.parsed, r.parsed ? 'good' : 'warn');
   h += clrRow('Distinct cases', r.uniqueCases);
@@ -799,7 +799,7 @@ async function clrAudit() {
     h += clrRow('Numbered out of sequence', a.outOfOrderCount, a.outOfOrderCount ? 'warn' : 'good');
     if (a.outOfOrderCount) {
       h += `<div style="font-size:11.5px;color:var(--text-muted);line-height:1.7;margin-top:.3rem;">`
-        + `A reference lower than one that came before it. Normal where cases were filed out of order — `
+        + `A reference lower than one that came before it. Normal where cases were filed out of order · `
         + `the reference is what people quote, so nothing is renumbered automatically.</div>`;
     }
     if (out) out.innerHTML = h + `</div>`;
@@ -829,8 +829,8 @@ async function clrRenumber(dry, mode) {
       + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
       + (r.dryRun ? 'What renumbering would do' : 'Renumbered')
       + (r.mode === 'resequence'
-          ? ' — every case, in date order, from #' + (r.startsAt || 700)
-          : ' — only the ones out of the sequence')
+          ? ' · every case, in date order, from #' + (r.startsAt || 700)
+          : ' · only the ones out of the sequence')
       + `</div>`;
     h += clrRow('Cases', r.total);
     h += clrRow(r.mode === 'resequence' ? 'Keeping the ref they have' : 'Already in order', r.unchanged, 'good');
@@ -883,9 +883,9 @@ async function clrRenumberGo(mode) {
     'This renames case references, and references are what people quote at each other.\n\n'
     + (all
         ? 'EVERY case is renumbered in date order, so the references climb with time and there is '
-          + 'one scheme instead of four. References people have already quoted WILL change — the old '
+          + 'one scheme instead of four. References people have already quoted WILL change · the old '
           + 'one is kept on each case, so quoting it still finds them.'
-        : 'Only cases whose reference is not part of the sequence move — a code, a number below three '
+        : 'Only cases whose reference is not part of the sequence move · a code, a number below three '
           + 'digits, a number from another scheme, or one that goes backwards in time. Everything '
           + 'anybody has quoted keeps the reference it has.')
     + '\n\nThe Discord logs are left exactly as they are either way.',
@@ -922,7 +922,7 @@ async function cxpLook() {
     // A run that is still going, or the last one's result.
     if (r.run) {
       h += clrRow('Last run', r.run.running
-        ? (r.run.stage || 'running') + (r.run.total ? ` — ${r.run.done} of ${r.run.total}` : '')
+        ? (r.run.stage || 'running') + (r.run.total ? ` · ${r.run.done} of ${r.run.total}` : '')
         : new Date(r.run.finishedAt || r.run.startedAt).toLocaleString()
           + (r.run.dry ? ' (dry run)' : ''),
         r.run.error ? 'bad' : r.run.running ? 'warn' : 'good');
@@ -951,14 +951,14 @@ async function cxpImport(dry) {
     const yes = await uiConfirm(
       'This sets the XP of everyone on the leaderboard who can be matched to a Discord account, '
       + 'and holds the rest against their Roblox account.\n\n'
-      + 'It only ever raises a balance, so nothing anybody earned here is lost — but read the dry run first.',
+      + 'It only ever raises a balance, so nothing anybody earned here is lost · but read the dry run first.',
       { title: 'Sync the XP for real?', confirmText: 'Sync it', cancelText: 'Not yet', icon: 'ti-database-import' });
     // Saying so. Declining used to return in silence, which from the outside is
     // indistinguishable from a button that does nothing.
     if (!yes) {
       if (out) {
         out.innerHTML = '<span style="color:var(--text-muted);"><i class="ti ti-hand-stop"></i> '
-          + 'Cancelled — nothing was run.</span>';
+          + 'Cancelled · nothing was run.</span>';
       }
       return;
     }
@@ -1004,14 +1004,14 @@ function cxpUnlock(state) {
   const running = !!(run && run.running);
   go.disabled = !ok || running;
   let why = '';
-  if (running) why = 'A run is going now — wait for it to finish.';
+  if (running) why = 'A run is going now · wait for it to finish.';
   else if (!run) why = 'Do the dry run first: it does every lookup and writes nothing.';
   else if (!run.out) why = run.error ? 'The last run failed. Read it, then try the dry run again.'
                                      : 'Do the dry run first.';
   else if (!ok) why = 'The last dry run resolved nobody, so there is nothing to write.';
   else why = run.dry
     ? 'The dry run above is what this will write.'
-    : 'Already synced once — running it again is a refresh and cannot lower anybody.';
+    : 'Already synced once · running it again is a refresh and cannot lower anybody.';
   go.title = go.disabled ? why : '';
   if (hint) {
     hint.innerHTML = '<i class="ti ti-info-circle"></i> ' + escapeHtml(why);
@@ -1036,7 +1036,7 @@ async function cxpPoll(out) {
         out.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
           + `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:.5rem;">`
           + `<i class="ti ti-loader-2"></i> ${escapeHtml(run.stage || 'Working')}`
-          + (run.total ? ` — ${run.done} of ${run.total}` : '') + `</div>`
+          + (run.total ? ` · ${run.done} of ${run.total}` : '') + `</div>`
           + `<div style="height:6px;border-radius:3px;background:var(--border-dim);overflow:hidden;">`
           + `<div style="height:100%;width:${pct}%;background:var(--blue);transition:width .4s;"></div></div>`
           + `<div style="font-size:11.5px;color:var(--text-muted);margin-top:.5rem;line-height:1.6;">`
@@ -1048,7 +1048,7 @@ async function cxpPoll(out) {
   }
   if (out) {
     out.innerHTML = `<span style="color:var(--amber);"><i class="ti ti-alert-triangle"></i> `
-      + `Stopped watching after half an hour. The run may still be going — press `
+      + `Stopped watching after half an hour. The run may still be going · press `
       + `"What's in the file" to see where it got to.</span>`;
   }
   return null;
@@ -1085,7 +1085,7 @@ function cxpReport(r) {
       + `${r.unasked} name${r.unasked === 1 ? '' : 's'} were rate-limited, so the run is not finished</div>`
       + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;">`
       + `Roblox stopped answering. Those names were <strong>not</strong> looked at and nothing was `
-      + `stored or ruled out for them. Run it again in a few minutes — everything already imported is `
+      + `stored or ruled out for them. Run it again in a few minutes · everything already imported is `
       + `left exactly as it is.</div></div>`;
   } else if (!dry && r.resolved) {
     h += `<div style="margin-top:.7rem;font-size:12px;color:var(--green);">`
@@ -1097,7 +1097,7 @@ function cxpReport(r) {
       + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
       + `${r.unknown} name${r.unknown === 1 ? '' : 's'} could not be resolved</div>`
       + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:.5rem;">`
-      + `Mostly usernames the leaderboard cut short. Nothing was stored for them — a shortened name `
+      + `Mostly usernames the leaderboard cut short. Nothing was stored for them · a shortened name `
       + `belongs to a different account, or to nobody.</div>`
       + `<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);line-height:1.8;">`
       + r.unknownNames.map(function (n) { return escapeHtml(n); }).join(', ')
@@ -1162,7 +1162,7 @@ async function handleNotificationTarget(page, caseId, ticketId) {
     // loadReview populates allCasesCache with the currently-pending cases.
     const c = (allCasesCache || []).find(x => x.id === caseId);
     if (c && c.status === 'PENDING') openDetail(caseId);
-    else showToast('This case is no longer pending — it has already been reviewed.', 'info');
+    else showToast('This case is no longer pending · it has already been reviewed.', 'info');
   }
 
   // Ticket logs are read-only records — a deep link just opens the log.
@@ -1513,11 +1513,11 @@ async function importCaseFromDoc() {
         + (sus.groupRole ? ' · ' + escapeHtml(sus.groupRole) : '')
         + (d.punishments?.length ? ' · ' + d.punishments.map(p => escapeHtml(p.action)).join(', ') : '')
         + (d.evidence?.length ? ' · ' + d.evidence.length + ' exhibit' + (d.evidence.length === 1 ? '' : 's') : '')
-        + ' — review before submitting.';
+        + ' · review before submitting.';
     }
     // Unlock the (previously greyed) manual fields now that they're populated.
     if (typeof setCaseFieldsEnabled === 'function') setCaseFieldsEnabled(true);
-    showToast('Doc imported — review the autofilled fields.', 'success');
+    showToast('Doc imported · review the autofilled fields.', 'success');
   } catch (err) {
     if (resEl) { resEl.style.display = ''; resEl.style.color = 'var(--red)'; resEl.textContent = err.message || 'Failed to import.'; }
     showToast(err.message || 'Failed to import doc.', 'error');
@@ -1637,7 +1637,7 @@ async function lookupOfficer() {
         icon  = 'alert-triangle';
         if (data.isRateLimit) {
           title  = 'RoVer Rate Limited';
-          detail = 'Too many lookups. Wait a minute, then try again — or enter the officer\'s Roblox user ID directly instead.';
+          detail = 'Too many lookups. Wait a minute, then try again · or enter the officer\'s Roblox user ID directly instead.';
         } else {
           title  = 'RoVer Lookup Failed';
           detail = `RoVer API error: ${escapeHtml(data.error || 'unknown')}. Check ROVER_API_KEY.`;
@@ -1667,7 +1667,7 @@ async function lookupOfficer() {
       : '';
 
     const suggestedNote = data.suggestedAction
-      ? `<span class="officer-suggested-note"><i class="ti ti-alert-triangle"></i> ${escapeHtml(data.warning)} — <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
+      ? `<span class="officer-suggested-note"><i class="ti ti-alert-triangle"></i> ${escapeHtml(data.warning)} · <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
       : '';
 
     resultEl.innerHTML = `
@@ -1686,7 +1686,7 @@ async function lookupOfficer() {
 
     renderActionChecklist();
   } catch {
-    resultEl.innerHTML = `<div class="officer-card officer-card-error"><div class="officer-card-body"><span class="officer-card-detail">Lookup failed — check Discord ID.</span></div></div>`;
+    resultEl.innerHTML = `<div class="officer-card officer-card-error"><div class="officer-card-body"><span class="officer-card-detail">Lookup failed · check Discord ID.</span></div></div>`;
     resultEl.style.display = 'block';
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-search"></i> Lookup'; }
@@ -1794,7 +1794,7 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
     });
     closeModal('modal-submit');
     editingCaseId = null; editingCaseRef = ''; editingCaseApproved = false; caseDraftActive = false;
-    showToast(repost ? 'Case updated — log updated.' : 'Case updated.', 'success');
+    showToast(repost ? 'Case updated · log updated.' : 'Case updated.', 'success');
     await loadDashboard(); loadAllCases(); loadReview();
   } catch (err) {
     showToast(err.message || 'Failed to save changes.', 'error');
@@ -1833,7 +1833,7 @@ async function loadQuotaHero() {
     document.getElementById('quota-hero-points').textContent = q.exempt ? 'EX' : total;
     document.getElementById('quota-hero-target').textContent = (q.exempt || target == null) ? '' : ` / ${target} pts`;
     document.getElementById('quota-hero-sub').innerHTML = q.exempt
-      ? `${escapeHtml(d.rank || 'High Command')} — exempt from the weekly quota.`
+      ? `${escapeHtml(d.rank || 'High Command')} · exempt from the weekly quota.`
       : `${escapeHtml(d.rank || 'Internal Affairs')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''}`
         + (target == null ? ''
             : met
@@ -1871,7 +1871,7 @@ function renderAttention() {
   attentionState.changes.forEach(c => {
     items.push(`<button class="attention-item" onclick="openDetail('${c.id}')">
       <i class="ti ti-edit-circle" style="color:var(--amber);"></i>
-      <span><strong>${escapeHtml(c.caseRef)}</strong> needs changes — ${escapeHtml((c.reviewNote || '').slice(0, 90))}</span>
+      <span><strong>${escapeHtml(c.caseRef)}</strong> needs changes · ${escapeHtml((c.reviewNote || '').slice(0, 90))}</span>
       <i class="ti ti-chevron-right"></i>
     </button>`);
   });
@@ -1982,7 +1982,7 @@ function renderDashTable() {
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
   const filtered   = filterCases(allCasesCache, dashFilter, dashQuery).slice(0, 25);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, dashQuery ? 'No cases match that search.' : 'No cases yet — press “Submit Case” to file one.'); return; }
+  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, dashQuery ? 'No cases match that search.' : 'No cases yet · press “Submit Case” to file one.'); return; }
   tbody.innerHTML = filtered.map(c => `
     <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
@@ -2021,7 +2021,7 @@ function renderDashTickets() {
   if (!tbody) return;
   const rows = dashTicketsCache.slice(0, 8);
   if (!rows.length) {
-    tbody.innerHTML = emptyRow(5, 'No tickets closed by you yet — they appear here automatically.');
+    tbody.innerHTML = emptyRow(5, 'No tickets closed by you yet · they appear here automatically.');
     return;
   }
   const TLmap = (typeof TL !== 'undefined') ? TL : {};
@@ -2030,10 +2030,10 @@ function renderDashTickets() {
     const c = TCmap[t.ticketType] || 'blue';
     const l = TLmap[t.ticketType] || t.ticketType;
     return `<tr onclick="openTicketDetail('${t.id}')">
-      <td><span class="case-ref">${escapeHtml(t.ticketRef || t.ticketName || '—')}</span></td>
-      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.creatorRobloxUsername || t.creatorUsername || '—')}</span></td>
+      <td><span class="case-ref">${escapeHtml(t.ticketRef || t.ticketName || '·')}</span></td>
+      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.creatorRobloxUsername || t.creatorUsername || '·')}</span></td>
       <td><span class="badge badge-${c}"><span class="badge-dot"></span>${escapeHtml(l)}</span></td>
-      <td><span class="case-reason-cell">${escapeHtml(t.reason || '—')}</span></td>
+      <td><span class="case-reason-cell">${escapeHtml(t.reason || '·')}</span></td>
       <td><span class="date-cell">${formatDate(t.closedAt)}</span></td>
     </tr>`;
   }).join('');
@@ -2094,7 +2094,7 @@ function renderReviewTable() {
 
   if (label) label.textContent = `${rows.length} of ${allCasesCache.length} awaiting decision`;
   if (!rows.length) {
-    tbody.innerHTML = emptyRow(8, allCasesCache.length ? 'Nothing matches that filter.' : 'No pending cases — all caught up.');
+    tbody.innerHTML = emptyRow(8, allCasesCache.length ? 'Nothing matches that filter.' : 'No pending cases · all caught up.');
     return;
   }
   tbody.innerHTML = rows.map(c => {
@@ -2181,9 +2181,9 @@ async function loadAudit() {
       <tr>
         <td><span class="date-cell">${formatDateTime(a.timestamp)}</span></td>
         <td>${actionBadges[a.actionType] || `<span class="badge">${a.actionType}</span>`}</td>
-        <td><span class="case-ref">${escapeHtml(a.case?.caseRef || '—')}</span></td>
-        <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(a.user?.displayName || a.user?.discordUsername || '—')}</span></td>
-        <td><span style="font-size:11px;color:var(--text-muted);">${escapeHtml(a.notes || '—')}</span></td>
+        <td><span class="case-ref">${escapeHtml(a.case?.caseRef || '·')}</span></td>
+        <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(a.user?.displayName || a.user?.discordUsername || '·')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-muted);">${escapeHtml(a.notes || '·')}</span></td>
       </tr>`).join('');
   } catch { tbody.innerHTML = emptyRow(5, 'Failed to load audit log.'); }
 }
@@ -2209,7 +2209,7 @@ async function loadAccessGrants() {
       <tr>
         <td><span class="case-ref" style="font-size:10px;">${escapeHtml(g.discordId)}</span></td>
         <td><span class="badge badge-${g.role === 'DEVELOPER' ? 'amber' : (g.role === 'HICOMM' || g.role === 'SUPERVISOR') ? 'blue' : 'approved'}"><span class="badge-dot"></span>${roleLabel[g.role] || g.role}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(g.note || '—')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(g.note || '·')}</span></td>
         <td><span class="date-cell">${formatDate(g.createdAt)}</span></td>
         <td><div class="admin-actions">
           <button class="row-btn row-btn-deny btn-sm" onclick="revokeAccessGrant('${g.id}')"><i class="ti ti-user-x"></i> Revoke</button>
@@ -2400,7 +2400,7 @@ window.openMetRankDropdown = async function (userId, ev) {
   const curRank = u.metRankOverride ? Number(u.metRankOverride.rank) : null;
   const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
   const selRank = curRank != null ? curRank : natRank;   // default-select the natural rank
-  let opts = `<label class="met-cd-opt"><input type="radio" name="metrank" value="" ${selRank == null ? 'checked' : ''}><span class="met-cd-lbl" style="color:var(--text-muted);">— No MET rank —</span></label>`;
+  let opts = `<label class="met-cd-opt"><input type="radio" name="metrank" value="" ${selRank == null ? 'checked' : ''}><span class="met-cd-lbl" style="color:var(--text-muted);">· No MET rank ·</span></label>`;
   opts += (metRoles || []).map(r => {
     const isDef = natRank != null && Number(r.rank) === natRank;
     return `<label class="met-cd-opt ${isDef ? 'is-default' : ''}"><input type="radio" name="metrank" value="${r.rank}" ${Number(r.rank) === selRank ? 'checked' : ''}>
@@ -2447,11 +2447,11 @@ async function dedupeMigration(apply) {
   if (box) box.innerHTML = '<div class="table-loading" style="padding:8px;"><div class="spinner"></div></div>';
   try {
     const r = await api('/api/admin/dedupe-migration-logs', { method: 'POST', body: JSON.stringify({ apply, scope: 'all' }) });
-    const line = (name, s) => `<div style="margin-top:6px;"><strong>${name}:</strong> ${s.count} duplicate(s)${apply ? ` — deleted ${s.deleted}` : ''}` +
+    const line = (name, s) => `<div style="margin-top:6px;"><strong>${name}:</strong> ${s.count} duplicate(s)${apply ? ` · deleted ${s.deleted}` : ''}` +
       (s.report && s.report.length ? `<ul style="margin:4px 0 0 16px;color:var(--text-muted);">${s.report.slice(0, 40).map(g =>
-        `<li>keep <code>${escapeHtml(g.keep)}</code> (${escapeHtml(g.keepOrigin)}) — remove ${g.remove.map(x => `<code>${escapeHtml(x.ref)}</code>`).join(', ')}</li>`).join('')}</ul>` : '') + '</div>';
+        `<li>keep <code>${escapeHtml(g.keep)}</code> (${escapeHtml(g.keepOrigin)}) · remove ${g.remove.map(x => `<code>${escapeHtml(x.ref)}</code>`).join(', ')}</li>`).join('')}</ul>` : '') + '</div>';
     if (box) box.innerHTML = `<div style="border:1px solid var(--border,#2a3040);border-radius:8px;padding:10px;">
-      ${apply ? '<div style="color:var(--green,#28c76f);font-weight:600;">Cleanup applied.</div>' : '<div style="color:var(--amber);font-weight:600;">Preview only — nothing deleted.</div>'}
+      ${apply ? '<div style="color:var(--green,#28c76f);font-weight:600;">Cleanup applied.</div>' : '<div style="color:var(--amber);font-weight:600;">Preview only · nothing deleted.</div>'}
       ${line('Tickets', r.tickets)}${line('Cases', r.cases)}
       ${(r.tickets.count + r.cases.count) === 0 ? `<div style="margin-top:6px;color:var(--text-muted);">No migration duplicates found. ${met.e('met_celebrate')}</div>` : ''}
     </div>`;
@@ -2491,11 +2491,11 @@ async function loadAdminUsers() {
         <td><span class="case-ref" style="font-size:10px;">${escapeHtml(u.discordId)}</span></td>
         <td>${u.robloxUsername || u.robloxId
             ? `<div style="display:flex;flex-direction:column;gap:1px;">
-                 <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(u.robloxUsername || '—')}</span>
+                 <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(u.robloxUsername || '·')}</span>
                  ${u.robloxId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(u.robloxId)}</span>` : ''}
                </div>`
             : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>'}</td>
-        <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
+        <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">·</span>'}</span></td>
         <td><div style="display:flex;flex-direction:column;gap:6px;min-width:210px;">
           ${panelsDropdownTrigger(u)}
           ${metRankDropdownTrigger(u, metRoles)}
@@ -2536,14 +2536,14 @@ async function loadVisits() {
     tbody.innerHTML = visits.map(v => {
       const discord = v.discordUsername || v.discordId
         ? `<div style="display:flex;flex-direction:column;gap:1px;">
-             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '—')}</span>
+             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '·')}</span>
              ${v.discordId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(v.discordId)}</span>` : ''}
            </div>`
         : '<span style="font-size:11px;color:var(--text-muted);">Anonymous</span>';
 
       const roblox = v.robloxUsername || v.robloxId
         ? `<div style="display:flex;flex-direction:column;gap:1px;">
-             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.robloxUsername || '—')}</span>
+             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.robloxUsername || '·')}</span>
              ${v.robloxId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(v.robloxId)}</span>` : ''}
            </div>`
         : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>';
@@ -2552,8 +2552,8 @@ async function loadVisits() {
         <td><span class="date-cell">${formatDateTime(v.createdAt)}</span></td>
         <td>${discord}</td>
         <td>${roblox}</td>
-        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.path || '—')}</span></td>
+        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '<span style="color:var(--text-muted);">·</span>'}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.path || '·')}</span></td>
       </tr>`;
     }).join('');
   } catch (err) {
@@ -2585,7 +2585,7 @@ async function loadSecurity() {
     tbody.innerHTML = logs.map(v => {
       const user = v.discordUsername || v.discordId || v.robloxUsername
         ? `<div style="display:flex;flex-direction:column;gap:1px;">
-             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '—')}</span>
+             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '·')}</span>
              ${v.robloxUsername ? `<span style="font-size:10px;color:var(--text-muted);">Roblox: ${escapeHtml(v.robloxUsername)}</span>` : ''}
              ${v.discordId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(v.discordId)}</span>` : ''}
            </div>`
@@ -2594,11 +2594,11 @@ async function loadSecurity() {
         <td><span class="date-cell">${formatDateTime(v.createdAt)}</span>${v.screenshot ? ' <i class="ti ti-photo" title="Screenshot attached" style="color:var(--amber);"></i>' : ''}</td>
         <td><span class="badge badge-denied" style="font-size:10px;"><span class="badge-dot"></span>${escapeHtml(v.method)}</span>${v.details ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${escapeHtml(v.details)}</div>` : ''}</td>
         <td>${user}</td>
-        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '—'}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.os || '—')}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.browser || '—')}</span></td>
-        <td><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(v.screenInfo || '—')}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.page || '—')}</span></td>
+        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '·'}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.os || '·')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.browser || '·')}</span></td>
+        <td><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(v.screenInfo || '·')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.page || '·')}</span></td>
       </tr>`;
     }).join('');
   } catch (err) {
@@ -2627,15 +2627,15 @@ function openSecurityDetail(id) {
       ${row('Method', v.method)}
       ${row('Details', v.details)}
       ${row('Page Viewed', v.page)}
-      ${row('Discord', v.discordUsername ? `${v.discordUsername} (${v.discordId || '—'})` : v.discordId)}
-      ${row('Roblox', v.robloxUsername ? `${v.robloxUsername} (${v.robloxId || '—'})` : v.robloxId)}
+      ${row('Discord', v.discordUsername ? `${v.discordUsername} (${v.discordId || '·'})` : v.discordId)}
+      ${row('Roblox', v.robloxUsername ? `${v.robloxUsername} (${v.robloxId || '·'})` : v.robloxId)}
       ${row('IP Address', v.ip)}
       ${row('Operating System', v.os)}
       ${row('Browser', v.browser)}
       ${row('Device', v.device)}
       ${row('Screen / Viewport', v.screenInfo)}
       ${row('Language', v.language)}
-      <div class="detail-field full"><span class="detail-field-label">User Agent</span><span class="detail-field-value" style="font-size:11px;word-break:break-all;color:var(--text-muted);">${escapeHtml(v.userAgent || '—')}</span></div>
+      <div class="detail-field full"><span class="detail-field-label">User Agent</span><span class="detail-field-value" style="font-size:11px;word-break:break-all;color:var(--text-muted);">${escapeHtml(v.userAgent || '·')}</span></div>
       ${shot}
     </div>`;
   openModal('modal-security-detail');
@@ -2973,7 +2973,7 @@ async function loadGroupDivisions() {
   try {
     const divs = await api('/api/admin/group/divisions');
     sel.innerHTML = divs
-      .map(d => `<option value="${escapeHtml(d.key)}">${escapeHtml(d.name)}${d.fullName && d.fullName !== d.name ? ' — ' + escapeHtml(d.fullName) : ''}</option>`)
+      .map(d => `<option value="${escapeHtml(d.key)}">${escapeHtml(d.name)}${d.fullName && d.fullName !== d.name ? ' · ' + escapeHtml(d.fullName) : ''}</option>`)
       .join('');
     // Land on MET when nothing is chosen — that is what "Default" resolved to.
     if (!currentGroupDivision) currentGroupDivision = divs.some(d => d.key === 'MET') ? 'MET' : (divs[0] ? divs[0].key : '');
@@ -3193,7 +3193,7 @@ function renderGroupMembers() {
   let list = groupMembersCache.map(m => ({
     ...m,
     _rank:     (m.roleRank != null ? m.roleRank : -1),
-    _roleName: m.roleName || m.roleId || '—',
+    _roleName: m.roleName || m.roleId || '·',
   }));
   list.sort((a, b) => b._rank - a._rank); // highest rank first
 
@@ -3237,7 +3237,7 @@ function renderGroupMembers() {
         </td>
         <td>
           ${locked
-            ? '<span style="font-size:11px;color:var(--text-muted);">—</span>'
+            ? '<span style="font-size:11px;color:var(--text-muted);">·</span>'
             : `<select class="role-select" id="rank-sel-${escapeHtml(m.userId)}">${roleOptions(m.roleId)}</select>`}
         </td>
         <td>
@@ -3389,7 +3389,7 @@ async function openAppealModal(caseId) {
       const failed = (res.failed || []).length;
       const manual = res.manual || [];
       showToast(
-        `Appeal granted — ${res.lifted?.length || 0} punishment role(s) lifted.`
+        `Appeal granted · ${res.lifted?.length || 0} punishment role(s) lifted.`
         + (failed ? ` ${failed} role(s) couldn't be removed in Discord and will be retried automatically.` : ''),
         failed ? 'warning' : 'success');
       // Anything the bot physically cannot undo has to be said out loud, or
@@ -3586,7 +3586,7 @@ function requestCaseChanges(caseId) {
     if (!detectedEl) return;
     if (detected.length) {
       detectedEl.style.display = '';
-      detectedEl.innerHTML = '<i class="ti ti-wand"></i> Detected punishment change — the submitter will get a one-click apply for: <strong>'
+      detectedEl.innerHTML = '<i class="ti ti-wand"></i> Detected punishment change · the submitter will get a one-click apply for: <strong>'
         + detected.map(d => escapeHtml(reqActionLabel(d))).join(', ') + '</strong>';
     } else { detectedEl.style.display = 'none'; }
   };
@@ -3601,7 +3601,7 @@ function requestCaseChanges(caseId) {
       });
       closeModal('modal-request-changes');
       closeModal('modal-detail');
-      showToast('Changes requested — the submitter has been notified.', 'success');
+      showToast('Changes requested · the submitter has been notified.', 'success');
       loadReview(); loadAllCases();
     } catch (err) { showToast(err.message || 'Failed to request changes.', 'error'); }
   };
@@ -3629,7 +3629,7 @@ function promptApplyChanges(c) {
       // Pass durations through (preserveDurations) so "5 day zt" applies as 5d.
       applyDocPunishments(actions.map(a => { const o = reqActionObj(a); return { action: o.action, durationDays: o.durationDays }; }), true);
       closeModal('modal-apply-changes');
-      showToast('Requested punishment applied — review the details and save.', 'success');
+      showToast('Requested punishment applied · review the details and save.', 'success');
     };
   } else {
     // Nothing reliably parsed — just show the note, no auto-apply.
@@ -3714,7 +3714,7 @@ function openDetail(caseId) {
     ${awaiting ? `
     <div style="margin-bottom:1rem;padding:13px 15px;border-radius:10px;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.4);box-shadow:0 0 18px rgba(240,170,20,.12);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);"><i class="ti ti-edit-circle"></i> Changes requested — awaiting update</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);"><i class="ti ti-edit-circle"></i> Changes requested · awaiting update</div>
         ${reviewer ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">by <strong style="color:var(--text-secondary);">${escapeHtml(reviewer)}</strong>${reviewedAt ? ' · ' + formatDateTime(reviewedAt) : ''}</div>` : ''}
       </div>
       <div style="font-size:13px;color:var(--text-primary);line-height:1.5;">${escapeHtml(c.reviewNote)}</div>
@@ -3722,14 +3722,14 @@ function openDetail(caseId) {
         ? `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary);"><i class="ti ti-wand"></i> Suggested punishment: ${c.reviewChanges.actions.map(a => escapeHtml(reqActionLabel(a))).join(', ')}</div>` : ''}
       <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);line-height:1.5;">
         ${isOwner
-          ? '<i class="ti ti-arrow-back-up"></i> Edit this case to address the note — it will return to the review queue automatically.'
+          ? '<i class="ti ti-arrow-back-up"></i> Edit this case to address the note · it will return to the review queue automatically.'
           : '<i class="ti ti-clock"></i> Sent back to the submitter. It stays pending until they update it.'}
       </div>
     </div>` : ''}
     ${caseIsAppealed(c) ? `
     <div class="appeal-banner">
       <div class="appeal-banner-head">
-        <span><i class="ti ti-gavel"></i> Appeal granted — punishments lifted</span>
+        <span><i class="ti ti-gavel"></i> Appeal granted · punishments lifted</span>
         <span class="appeal-banner-when">${c.appealedAt ? formatDateTime(c.appealedAt) : ''}</span>
       </div>
       <div class="appeal-banner-by">by <strong>${escapeHtml(c.appealedByName || 'Internal Affairs')}</strong>${
@@ -3775,7 +3775,7 @@ function openDetail(caseId) {
       <div class="detail-divider"></div>
       <div class="detail-field">
         <span class="detail-field-label">${(c.investigatorRobloxUsername || c.investigatorDiscordUsername) ? 'Investigator' : 'Submitted By'}</span>
-        <span class="detail-field-value">${escapeHtml(c.investigatorRobloxUsername || c.investigatorDiscordUsername || c.user?.displayName || c.user?.discordUsername || '—')}</span>
+        <span class="detail-field-value">${escapeHtml(c.investigatorRobloxUsername || c.investigatorDiscordUsername || c.user?.displayName || c.user?.discordUsername || '·')}</span>
       </div>
       <div class="detail-field">
         <span class="detail-field-label">Submitted At</span>
@@ -3784,7 +3784,7 @@ function openDetail(caseId) {
       ${decisionAction ? `
         <div class="detail-field">
           <span class="detail-field-label">${c.status === 'APPROVED' ? 'Approved' : 'Denied'} By</span>
-          <span class="detail-field-value">${escapeHtml(decisionAction.user?.displayName || decisionAction.user?.discordUsername || '—')}</span>
+          <span class="detail-field-value">${escapeHtml(decisionAction.user?.displayName || decisionAction.user?.discordUsername || '·')}</span>
         </div>
         <div class="detail-field">
           <span class="detail-field-label">Decision At</span>
@@ -3939,7 +3939,7 @@ function loaiRoleWarning(r) {
     + 'background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);'
     + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
     + '<i class="ti ti-alert-triangle"></i> <strong>LOA_ROLE_ID is not set</strong>, so nothing will take '
-    + 'the on-leave role off anybody when their leave finishes — which is the main thing importing this '
+    + 'the on-leave role off anybody when their leave finishes · which is the main thing importing this '
     + 'is for. Set it to the on-leave role id and the sweep will handle it. The bot also needs '
     + '<em>Manage Roles</em>, with its own highest role above that one.</div>';
 }
@@ -3983,7 +3983,7 @@ async function loaiImport(dry) {
     }
     if ((r.skipped || []).length) {
       h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-secondary);line-height:1.8;">'
-        + r.skipped.map(function (x) { return escapeHtml(x.username) + ' — ' + escapeHtml(x.why || 'skipped'); }).join('<br>')
+        + r.skipped.map(function (x) { return escapeHtml(x.username) + ' · ' + escapeHtml(x.why || 'skipped'); }).join('<br>')
         + '</div>';
     }
     if ((r.problems || []).length) {
@@ -3996,7 +3996,7 @@ async function loaiImport(dry) {
     }
     if (r.dryRun && (r.imported || []).length) {
       h += '<div style="margin-top:.9rem;font-size:12px;color:var(--text-secondary);line-height:1.7;">'
-        + 'Nothing gains a role from this — everybody on the list already has it. The sweep takes it '
+        + 'Nothing gains a role from this · everybody on the list already has it. The sweep takes it '
         + 'off when each leave finishes.</div>'
         + '<button type="button" class="btn btn-success btn-sm" id="loai-go-btn" style="margin-top:.6rem;" '
         + 'onclick="loaiGo()"><i class="ti ti-check"></i> Import them</button>';
@@ -4012,7 +4012,7 @@ async function loaiImport(dry) {
 async function loaiGo() {
   const yes = await uiConfirm(
     'This writes a leave record for each person on the list, backdated and already approved.\n\n'
-    + 'It adds no roles — everybody on the list already has the on-leave one. What changes is that '
+    + 'It adds no roles · everybody on the list already has the on-leave one. What changes is that '
     + 'the leave becomes visible to /loa active and the quota check, and the role comes off '
     + 'automatically when each leave finishes.',
     { title: 'Import the leave?', confirmText: 'Import it', cancelText: 'Not yet', icon: 'ti-calendar-plus' });
@@ -4070,7 +4070,7 @@ async function galLook() {
 }
 
 function galWhen(v) {
-  if (!v) return '—';
+  if (!v) return '·';
   const d = new Date(v);
   return isNaN(d) ? String(v) : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }

@@ -229,7 +229,7 @@ function applyConfirmedIdentity() {
   if (r) { if (identity.roblox) r.value = identity.roblox; r.readOnly = true; r.style.opacity = '0.7'; r.style.cursor = 'not-allowed'; }
   if (d) { if (identity.discord) d.value = identity.discord; d.readOnly = true; d.style.opacity = '0.7'; d.style.cursor = 'not-allowed'; }
   const btn = document.getElementById('id-lookup-btn'); if (btn) btn.style.display = 'none';
-  const disp = identity.details && identity.details.robloxDisplay ? ' — ' + esc(identity.details.robloxDisplay) : '';
+  const disp = identity.details && identity.details.robloxDisplay ? ' · ' + esc(identity.details.robloxDisplay) : '';
   const rr = document.getElementById('id-result');
   if (rr) rr.innerHTML = `<div style="color:var(--green);font-size:12px;display:flex;align-items:center;gap:6px;"><i class="ti ti-lock"></i> Identity confirmed and locked${disp}. Use <strong>Restart</strong> to change it.</div>`;
 }
@@ -241,7 +241,7 @@ window.restartExam = async function () {
   identity = { confirmed: false, roblox: '', discord: '', details: null };
   pendingLookup = null;
   renderForm(null);
-  showToast('Progress reset — start fresh.', 'info');
+  showToast('Progress reset · start fresh.', 'info');
 };
 
 function restoreAnswers(answers) {
@@ -273,7 +273,7 @@ window.copyAgreement = async function () {
   const text = String(agreementStatement || '').replace(/\(USERNAME\)/gi, uname).replace(/[“”"]/g, '').trim();
   try {
     await navigator.clipboard.writeText(text);
-    showToast('Agreement copied — paste it into the box below.', 'success');
+    showToast('Agreement copied · paste it into the box below.', 'success');
   } catch (e) {
     // Clipboard blocked → drop it straight into the answer box instead.
     const ta = document.querySelector('.exam-input[data-qid="agreement"]');
@@ -363,7 +363,7 @@ function collectAnswers() {
 }
 
 async function submitExam() {
-  if (!identity.confirmed) return showToast('Confirm your identity first — look it up and press "Yes, this is me".', 'warning');
+  if (!identity.confirmed) return showToast('Confirm your identity first · look it up and press "Yes, this is me".', 'warning');
 
   const answers = collectAnswers();
   const missing = paper.questions.filter(q => q.required && !answers[q.id]);

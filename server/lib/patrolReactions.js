@@ -149,9 +149,9 @@ async function applyVerdict(log, status, by) {
     try {
       const out = await require('./logXpAward').awardForLog(updated, by || null);
       if (out.ok) {
-        console.log(`[LogXP] ${log.type} ${log.id} — ${out.total} XP across ${out.awarded.filter(a => a.ok).length} officer(s)`);
+        console.log(`[LogXP] ${log.type} ${log.id} · ${out.total} XP across ${out.awarded.filter(a => a.ok).length} officer(s)`);
       } else if (out.skipped && out.skipped !== 'nothing to award') {
-        console.log(`[LogXP] ${log.type} ${log.id} — no XP awarded (${out.skipped})`);
+        console.log(`[LogXP] ${log.type} ${log.id} · no XP awarded (${out.skipped})`);
       }
     } catch (e) {
       console.warn('[LogXP] award failed:', e.message);
@@ -253,7 +253,7 @@ async function sweep(client, opts) {
   try {
     const s = await reconcile(client, opts);
     if (s.updated || s.error) {
-      console.log(`[PatrolLog] reaction sweep — checked ${s.checked}, signed off ${s.updated}${s.error ? `, error: ${s.error}` : ''}`);
+      console.log(`[PatrolLog] reaction sweep · checked ${s.checked}, signed off ${s.updated}${s.error ? `, error: ${s.error}` : ''}`);
     }
     return s;
   } finally {

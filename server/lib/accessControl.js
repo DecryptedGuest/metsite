@@ -98,7 +98,7 @@ async function revalidateUser(user, getMemberRecord) {
   if (inDiscord === false && conclusive) {
     if (!user.mustReauth) {
       await prisma.user.update({ where: { id: user.id }, data: { ...stamp, mustReauth: true } });
-      console.log(`[Access] Revoked ${user.discordUsername} (${user.discordId}) — no longer in the MET Discord.`);
+      console.log(`[Access] Revoked ${user.discordUsername} (${user.discordId}) · no longer in the MET Discord.`);
       return 'revoked';
     }
     await prisma.user.update({ where: { id: user.id }, data: stamp });

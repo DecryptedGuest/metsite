@@ -132,7 +132,7 @@ function fmtStartAt(tryout) {
 // The ping line for an announcement: role mentions, or plain "(test mode)" when
 // suppressPings is set (so a test announcement pings nobody).
 function pingLine(cfg, tryout) {
-  if (tryout.suppressPings) return 'Ping: (test mode — no ping)';
+  if (tryout.suppressPings) return 'Ping: (test mode · no ping)';
   return cfg.pingRoleIds.length ? cfg.pingRoleIds.map(id => `<@&${id}>`).join(' ') : '';
 }
 
@@ -177,7 +177,7 @@ function formatSco19Announcement(tryout, { hostMention, coHostText } = {}) {
     `Game link: ${link}`,
     `STATUS: ${status}`,
     'Information:',
-    '`• SCO-19 is the Metropolitan Police Service\'s Specialist Firearms Command — the elite armed response unit.',
+    '`• SCO-19 is the Metropolitan Police Service\'s Specialist Firearms Command · the elite armed response unit.',
     '- Candidates are tested on discipline, marksmanship and command response.',
     '- Tryout lasts approximately 30–50 minutes.`',
     'Requirements: CON+ RANK',
@@ -231,7 +231,7 @@ function formatCidRecruitment(tryout) {
   const host   = tryout.hostDiscordId ? `<@${tryout.hostDiscordId}>` : (tryout.hostName || '');
   const coHost = tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A');
   const ping   = tryout.suppressPings
-    ? '(test mode — no ping)'
+    ? '(test mode · no ping)'
     : (cfg.recruitmentPingRoleIds.length ? cfg.recruitmentPingRoleIds.map(id => `<@&${id}>`).join(' ') : '');
   return [
     `#  ${cfg.emoji} CID TRYOUT ${cfg.emoji}`,
@@ -255,7 +255,7 @@ function formatHpcAnnouncement(tryout, { hostMention, coHostText } = {}) {
   const coHost = coHostText  || (tryout.coHostDiscordId ? `<@${tryout.coHostDiscordId}>` : (tryout.coHostName || 'N/A'));
   const link   = tryout.privateServerLink || tryoutJoinUrl(tryout) || 'TBA';
   const status = isServerLocked(tryout) ? 'Locked' : 'Unlocked';
-  const ping   = tryout.suppressPings ? 'Ping: (test mode — no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
+  const ping   = tryout.suppressPings ? 'Ping: (test mode · no ping)' : `Ping: <@&${TRYOUT_PING_ROLE()}>`;
   const hpc    = HPC_EMOJI();
   const stage  = divisionConfig('HPC').stageUrl;
   // The Public Tryout stage is only surfaced once the join link is actually
@@ -377,7 +377,7 @@ async function checkAbandonedTryouts() {
         if (typeof bot.dmTryoutAutoCancelled === 'function') {
           await bot.dmTryoutAutoCancelled(updated, Math.round(hostAbsenceMs() / 60000)).catch(() => {});
         }
-        console.log(`[Tryout] auto-cancelled ${t.id} — host absent > ${Math.round(hostAbsenceMs() / 60000)} min`);
+        console.log(`[Tryout] auto-cancelled ${t.id} · host absent > ${Math.round(hostAbsenceMs() / 60000)} min`);
       } catch (e) { console.warn('[Tryout] auto-cancel failed for', t.id, e.message); }
     }
   } catch (e) {

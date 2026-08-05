@@ -216,12 +216,12 @@ async function evidenceFor(kase) {
   if (out.caseLink && !seen.has(out.caseLink)) {
     out.exhibits.push({
       label: null, url: out.caseLink, source: 'case file', external: true,
-      note: 'The case file is hosted outside the dashboard — its exhibits are inside it.',
+      note: 'The case file is hosted outside the dashboard · its exhibits are inside it.',
     });
   }
 
   out.exhibits = sortExhibits(out.exhibits);
-  if (!out.exhibits.length) out.note = 'No case file and no links on the case — the evidence was never filed here.';
+  if (!out.exhibits.length) out.note = 'No case file and no links on the case · the evidence was never filed here.';
   return out;
 }
 

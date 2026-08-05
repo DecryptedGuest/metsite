@@ -17,7 +17,7 @@ function key() {
   if (_key) return _key;
   const src = process.env.SECRET_BOX_KEY || process.env.JWT_SECRET;
   if (!src || String(src).length < 32) {
-    throw new Error('Cannot encrypt secrets — SECRET_BOX_KEY or JWT_SECRET must be set to at least 32 characters.');
+    throw new Error('Cannot encrypt secrets · SECRET_BOX_KEY or JWT_SECRET must be set to at least 32 characters.');
   }
   // A fixed salt is correct here: the input is already a high-entropy secret, so
   // this is domain separation from anything else JWT_SECRET is used for, not

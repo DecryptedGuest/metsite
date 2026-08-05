@@ -32,7 +32,7 @@
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
-  function fmtWhen(d) { try { return window.formatDateTime ? window.formatDateTime(d) : new Date(d).toLocaleString(); } catch (e) { return '—'; } }
+  function fmtWhen(d) { try { return window.formatDateTime ? window.formatDateTime(d) : new Date(d).toLocaleString(); } catch (e) { return '·'; } }
   function tryoutStatusBadge(t) {
     const map = {
       SCHEDULED: ['badge-pending', 'Scheduled'],
@@ -67,7 +67,7 @@
         if (canEnd) btns.push(`<button class="btn btn-ghost btn-sm" ${stop}cidCancelTryout('${t.id}')"><i class="ti ti-x"></i> Cancel</button>`);
         if (CTX.isDev) btns.push(`<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" ${stop}cidDeleteTryout('${t.id}')"><i class="ti ti-trash"></i></button>`);
         const actions = btns.length ? `<div style="display:flex;gap:6px;justify-content:flex-end;">${btns.join('')}</div>` : '';
-        return `<tr style="cursor:pointer;" onclick="cidOpenTryout('${t.id}')"><td>${fmtWhen(t.scheduledAt)}</td><td>${esc(t.hostName || '—')}</td><td>${esc(t.coHostName || 'N/A')}</td><td>${tryoutStatusBadge(t)}</td><td>${link}</td><td>${actions}</td></tr>`;
+        return `<tr style="cursor:pointer;" onclick="cidOpenTryout('${t.id}')"><td>${fmtWhen(t.scheduledAt)}</td><td>${esc(t.hostName || '·')}</td><td>${esc(t.coHostName || 'N/A')}</td><td>${tryoutStatusBadge(t)}</td><td>${link}</td><td>${actions}</td></tr>`;
       }).join('');
     } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">${esc(e.message)}</div></td></tr>`; }
   };
@@ -112,16 +112,16 @@
     const t = cidTryoutsById[id];
     if (!t) return;
     openModal('modal-cid-log');
-    document.getElementById('cid-tlog-title').textContent = 'Tryout — ' + (t.hostName || '');
+    document.getElementById('cid-tlog-title').textContent = 'Tryout · ' + (t.hostName || '');
     const linkUrl = t.privateServerLink || t.joinUrl;
     const link = linkUrl ? `<a href="${esc(linkUrl)}" target="_blank" rel="noopener" style="color:var(--blue);">${esc(linkUrl)}</a>` : '<span style="color:var(--text-muted);">TBA</span>';
     const row = (label, val) => `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${label}</div><div style="font-size:13px;">${val}</div></div>`;
     document.getElementById('cid-tlog-body').innerHTML =
       row('Status', tryoutStatusBadge(t)) +
-      row('Host', esc(t.hostName || '—')) +
+      row('Host', esc(t.hostName || '·')) +
       row('Co-Host', esc(t.coHostName || 'N/A')) +
       row('Scheduled', fmtWhen(t.scheduledAt)) +
-      row('Server lock', esc(t.lockState || '—')) +
+      row('Server lock', esc(t.lockState || '·')) +
       row('Game link', link) +
       row('Announcement', t.announcementSent ? 'Posted' : 'Not posted') +
       (t.notes ? row('Notes', esc(t.notes)) : '') +
@@ -179,7 +179,7 @@
       ? '<span class="badge badge-approved"><span class="badge-dot"></span><i class="ti ti-lock-open"></i> Unlocked</span>'
       : '<span class="badge badge-denied"><span class="badge-dot"></span><i class="ti ti-lock"></i> Locked</span>';
     const rows = att.length ? att.map(a => attendeeRow(t, a)).join('') : '<tr><td colspan="4" class="table-empty"><div class="table-empty-text">No attendees reported yet.</div></td></tr>';
-    const manageNote = t.canManage ? '' : '<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">View only — host/co-host can manage.</span>';
+    const manageNote = t.canManage ? '' : '<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">View only · host/co-host can manage.</span>';
     return `<div class="panel glass fade-up" style="margin-bottom:1rem;">
       <div class="panel-header">
         <div class="panel-title"><span class="panel-dot green"></span>${esc(t.hostName || 'Tryout')} ${t.coHostName ? '· co: ' + esc(t.coHostName) : ''}</div>
@@ -199,7 +199,7 @@
     const rid = a.robloxId ? `data-rid="${esc(a.robloxId)}"` : '';
     const resColor = a.result === 'PASS' ? 'var(--green)' : (a.result === 'FAIL' ? 'var(--red)' : 'var(--text-muted)');
     const quiz = a.quiz ? `<span class="met-chip" title="Written quiz" style="margin-left:6px;"><i class="ti ti-writing"></i> ${a.quiz.score != null ? esc(a.quiz.score) + (a.quiz.outOf != null ? '/' + esc(a.quiz.outOf) : '') : esc(a.quiz.verdict || 'quiz')}</span>` : '';
-    const copy = (a.quiz && a.quiz.copyFlag) ? `<span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' — matched ' + esc(a.quiz.copyWith) : ''}" style="margin-left:6px;color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>` : '';
+    const copy = (a.quiz && a.quiz.copyFlag) ? `<span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' · matched ' + esc(a.quiz.copyWith) : ''}" style="margin-left:6px;color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>` : '';
     const flag = a.flagged ? `<span class="met-chip" title="Movement watch flag" style="margin-left:6px;color:var(--amber);border-color:var(--amber);"><i class="ti ti-flag"></i></span>` : '';
     const pts  = (a.pts != null) ? `<span class="met-chip" style="margin-left:6px;font-size:10px;" title="Points">${esc(String(a.pts))} pts</span>` : '';
     const status = a.kicked ? '<span style="color:var(--red);">Kicked</span>' : (a.leftAt ? '<span style="color:var(--text-muted);">Left</span>' : '');
@@ -250,7 +250,7 @@
   };
 
   function logRow(l, review) {
-    const first = review ? esc(l.hostName || '—') : fmtWhen(l.concludedAt || l.createdAt);
+    const first = review ? esc(l.hostName || '·') : fmtWhen(l.concludedAt || l.createdAt);
     const del = CTX.isDev ? `<button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Delete (dev)" onclick="event.stopPropagation();cidDeleteLog('${l.id}',${review})"><i class="ti ti-trash"></i></button>` : '';
     return `<tr style="cursor:pointer;" onclick="cidOpenLog('${l.id}',${review})"><td>${first}</td><td>${l.totalAttendees || 0}</td><td>${l.passedCount || 0}</td><td>${l.failedCount || 0}</td><td>${l.strikeCount || 0}</td><td>${logStatusBadge(l.status)}</td>
       <td style="text-align:right;"><div style="display:flex;gap:6px;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();cidOpenLog('${l.id}',${review})"><i class="ti ti-eye"></i> View</button>${del}</div></td></tr>`;
@@ -269,11 +269,11 @@
     body.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>'; footer.innerHTML = '';
     try {
       const l = await api('/api/cid/tryout-logs/' + id);
-      document.getElementById('cid-tlog-title').textContent = 'Tryout Log — ' + (l.hostName || '');
+      document.getElementById('cid-tlog-title').textContent = 'Tryout Log · ' + (l.hostName || '');
       const att = Array.isArray(l.attendees) ? l.attendees : [];
       const rows = att.length ? att.map(a => {
         const quiz = a.quiz ? `<span class="met-chip" style="margin-left:6px;"><i class="ti ti-writing"></i> ${a.quiz.score != null ? esc(a.quiz.score) + (a.quiz.outOf != null ? '/' + esc(a.quiz.outOf) : '') : esc(a.quiz.verdict || 'quiz')}</span>` : '';
-        const copy = (a.quiz && a.quiz.copyFlag) ? `<span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' — matched ' + esc(a.quiz.copyWith) : ''}" style="margin-left:6px;color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>` : '';
+        const copy = (a.quiz && a.quiz.copyFlag) ? `<span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' · matched ' + esc(a.quiz.copyWith) : ''}" style="margin-left:6px;color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>` : '';
         const flag = a.flagged ? `<span class="met-chip" title="Movement watch flag" style="margin-left:6px;color:var(--amber);border-color:var(--amber);"><i class="ti ti-flag"></i></span>` : '';
         const rc = a.result === 'PASS' ? 'var(--green)' : (a.result === 'FAIL' ? 'var(--red)' : 'var(--text-muted)');
         const st = a.kicked ? 'Kicked' : (a.leftAt ? 'Left' : '');
@@ -287,7 +287,7 @@
       const notesField = (!review && l.status === 'DRAFT')
         ? `<div class="form-group" style="margin-top:12px;"><label class="form-label">Notes for the reviewer</label><textarea class="form-control" id="cid-log-notes" rows="2">${esc(l.notes || '')}</textarea></div>`
         : (l.notes ? `<div style="margin-top:12px;font-size:13px;"><strong>Host notes:</strong> ${esc(l.notes)}</div>` : '');
-      const reviewNote = l.reviewNote ? `<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);"><strong>Reviewer:</strong> ${esc(l.reviewNote)} ${l.reviewedByName ? '— ' + esc(l.reviewedByName) : ''}</div>` : '';
+      const reviewNote = l.reviewNote ? `<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);"><strong>Reviewer:</strong> ${esc(l.reviewNote)} ${l.reviewedByName ? '· ' + esc(l.reviewedByName) : ''}</div>` : '';
       body.innerHTML = counts + `<div class="table-wrap"><table class="data-table"><thead><tr><th>Attendee</th><th>Result</th><th>Strikes</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` + notesField + reviewNote;
 
       const devDel = CTX.isDev ? `<button class="btn btn-ghost" style="color:var(--red);" onclick="cidDeleteLog('${l.id}',${review})"><i class="ti ti-trash"></i> Delete</button>` : '';

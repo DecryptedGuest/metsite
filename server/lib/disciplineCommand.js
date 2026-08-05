@@ -106,7 +106,7 @@ function renderSteps(keys, states, details, frame) {
                : st === 'failed'  ? e('met_cross')
                : st === 'running' ? spinner(frame)
                : e('met_dot_off');
-    const note = details[k] ? ` — ${details[k]}` : '';
+    const note = details[k] ? ` · ${details[k]}` : '';
     const label = st === 'pending' ? `*${STEP_LABELS[k] || k}*` : `${STEP_LABELS[k] || k}`;
     return `${mark} ${label}${st === 'done' || st === 'failed' ? note : ''}`;
   }).join('\n');
@@ -142,20 +142,20 @@ function recordSummary(record, strike) {
   // rather than wondering why an obvious escalation wasn't offered.
   const cleared = (strike && strike.cleared) || [];
   if (cleared.length) {
-    lines.push(`${e('met_dot_off')} *Not counted — ${short(cleared.join('; '), 120)}, `
+    lines.push(`${e('met_dot_off')} *Not counted · ${short(cleared.join('; '), 120)}, `
       + `but they aren't wearing the role, so it's treated as cleared.*`);
   }
   // The opposite worry: we couldn't see their roles at all, so the record is
   // standing in and might be out of date.
   if (strike && strike.rolesKnown === false && strike.recordLevel) {
-    lines.push(`${e('met_warn')} *Couldn't read their Discord roles — this is from the record alone.*`);
+    lines.push(`${e('met_warn')} *Couldn't read their Discord roles · this is from the record alone.*`);
   }
 
   if (!record.entries.length) {
     // Only mention where the strike came from when the list below doesn't show
     // it — a strike worn as a Discord role appears nowhere else.
     lines.push(level
-      ? `*Nothing on file — read from: ${short((strike.sources || []).join('; '), 150) || 'unknown'}.*`
+      ? `*Nothing on file · read from: ${short((strike.sources || []).join('; '), 150) || 'unknown'}.*`
       : '*Nothing on record.*');
     return lines.join('\n');
   }
@@ -168,7 +168,7 @@ function recordSummary(record, strike) {
     // saying they were on a strike, which looked like a contradiction.
     const state = en.active ? e('met_warn') : e('met_dot_off');
     const tail  = en.active ? '' : ' *(lifted)*';
-    lines.push(`${state} ${short(en.type, 40)} — ${when}${ref}${tail}`);
+    lines.push(`${state} ${short(en.type, 40)} · ${when}${ref}${tail}`);
   }
   const more = record.total - record.entries.length;
   if (more > 0) lines.push(`*…and ${more} more*`);
@@ -298,7 +298,7 @@ async function handleDisciplineCommand(interaction) {
       { name: 'Action',  value: action, inline: false },
       { name: 'Reason',  value: short(reason, 1000), inline: false },
       ...(notes ? [{ name: 'Notes', value: short(notes, 1000), inline: false }] : []),
-      { name: 'Case',    value: caseLink ? short(caseLink, 300) : '*None — direct action*', inline: false },
+      { name: 'Case',    value: caseLink ? short(caseLink, 300) : '*None · direct action*', inline: false },
       { name: 'Their record', value: short(recordSummary(record, strike), 1000), inline: false },
       { name: 'This will', value: effects.map(f => `${e('met_dot_on')} ${f.text}`).join('\n'), inline: false },
     )
@@ -313,7 +313,7 @@ async function handleDisciplineCommand(interaction) {
     embed.setColor(COLOR.suggest);
     embed.spliceFields(1, 0, {
       name: `${e('met_warn')} Their record suggests going further`,
-      value: `${esc.reason}\n\nBoth buttons below are live — **${action}** still issues exactly what you asked for.`,
+      value: `${esc.reason}\n\nBoth buttons below are live · **${action}** still issues exactly what you asked for.`,
       inline: false,
     });
   }
@@ -321,13 +321,13 @@ async function handleDisciplineCommand(interaction) {
   // Warn about the two things that quietly do nothing.
   const caveats = [];
   if (!cfg.roleId && action !== 'Demotion' && action !== 'Termination') {
-    caveats.push(`${e('met_warn')} No Discord role is configured for **${action}** — it will be recorded and logged, but no role is added.`);
+    caveats.push(`${e('met_warn')} No Discord role is configured for **${action}** · it will be recorded and logged, but no role is added.`);
   }
   if (!robloxId && (cfg.exile || action === 'Demotion')) {
-    caveats.push(`${e('met_warn')} **${action}** needs a linked Roblox account and this officer has none — the group change will be skipped and has to be done by hand.`);
+    caveats.push(`${e('met_warn')} **${action}** needs a linked Roblox account and this officer has none · the group change will be skipped and has to be done by hand.`);
   }
   if (cfg.timed && !days) {
-    caveats.push(`${e('met_warn')} **${action}** is a timed punishment and no **days** was given — it will not expire on its own.`);
+    caveats.push(`${e('met_warn')} **${action}** is a timed punishment and no **days** was given · it will not expire on its own.`);
   }
   if (caveats.length) embed.addFields({ name: 'Worth knowing', value: short(caveats.join('\n'), 1000), inline: false });
 
@@ -389,7 +389,7 @@ async function handleDisciplineButton(interaction) {
     return interaction.update({
       embeds: [new EmbedBuilder().setColor(COLOR.fail)
         .setTitle(`${e('met_warn')} This panel has expired`)
-        .setDescription('Run `/discipline` again — nothing was issued.')],
+        .setDescription('Run `/discipline` again · nothing was issued.')],
       components: [],
     }).catch(() => {});
   }
@@ -450,20 +450,20 @@ async function handleDisciplineButton(interaction) {
   const finalEmbed = new EmbedBuilder()
     .setColor(realFailure ? COLOR.partial : COLOR.done)
     .setTitle(realFailure
-      ? `${e('met_warn')} ${job.action} issued — with problems`
+      ? `${e('met_warn')} ${job.action} issued · with problems`
       : `${e('met_tick')} ${job.action} issued`)
     .setDescription(
       `${e('met_user')} <@${job.targetDiscordId}>`
       + (job.escalatedFrom ? `\n${e('met_warn')} Escalated from **${job.escalatedFrom}**.` : '')
       + `\n\n${renderSteps(keys, states, details, frame)}`)
     .setFooter({ text: result.caseRef
-      ? `Filed on the MET Dashboard as ${result.caseRef} — appealable there`
+      ? `Filed on the MET Dashboard as ${result.caseRef} · appealable there`
       : (result.punishmentId ? `Record ${result.punishmentId.slice(0, 8)}` : 'Not recorded') });
 
   if (failed.includes('notify') && !realFailure) {
     finalEmbed.addFields({
       name: 'Note',
-      value: `${e('met_warn')} They could not be DM'd (their DMs are closed). Everything else went through — tell them another way.`,
+      value: `${e('met_warn')} They could not be DM'd (their DMs are closed). Everything else went through · tell them another way.`,
     });
   }
   if (realFailure) {

@@ -326,7 +326,7 @@ async function awardHpcPoint(log) {
     if (!sheets) return { ok: false, reason: 'sheets_not_configured', detail: 'Google Sheets credentials are not configured on the server.' };
 
     const spreadsheetId = process.env.HPC_SHEET_ID;
-    if (!spreadsheetId) { console.warn('[tryoutLog] HPC_SHEET_ID not set — skipping point award.'); return { ok: false, reason: 'no_sheet_id', detail: 'HPC_SHEET_ID is not set.' }; }
+    if (!spreadsheetId) { console.warn('[tryoutLog] HPC_SHEET_ID not set · skipping point award.'); return { ok: false, reason: 'no_sheet_id', detail: 'HPC_SHEET_ID is not set.' }; }
     const tz = process.env.QUOTA_TIMEZONE || 'Europe/London';
 
     let sheetName = process.env.HPC_SHEET_NAME;
@@ -346,10 +346,10 @@ async function awardHpcPoint(log) {
     if (rowIdx < 0) { console.warn(`[tryoutLog] no HPC row for host ${who}`); return { ok: false, reason: 'host_not_on_sheet', detail: `"${who}" was not found on the "${sheetName}" tab. Add their row (or check the username matches).` }; }
 
     const dayCol = cols.days[q.currentDayIndex(tz)];
-    if (dayCol == null) { console.warn('[tryoutLog] HPC day column not found for today'); return { ok: false, reason: 'no_day_column', detail: 'Today\'s date column was not found on the sheet — check the header row / date format.' }; }
+    if (dayCol == null) { console.warn('[tryoutLog] HPC day column not found for today'); return { ok: false, reason: 'no_day_column', detail: 'Today\'s date column was not found on the sheet · check the header row / date format.' }; }
 
     const cellRaw = (rows[rowIdx][dayCol] || '').toString().trim();
-    if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: 'cell_locked', detail: `Today's cell already holds a non-numeric value ("${cellRaw}") — left untouched.` };
+    if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: 'cell_locked', detail: `Today's cell already holds a non-numeric value ("${cellRaw}") · left untouched.` };
     const newVal = (cellRaw ? parseFloat(cellRaw) : 0) + 1;
 
     await sheets.spreadsheets.values.update({
@@ -382,7 +382,7 @@ async function awardCidEventPoint(log) {
     if (!sheets) return false; // service account not configured — silent no-op
 
     const spreadsheetId = process.env.CID_SHEET_ID;
-    if (!spreadsheetId) { console.warn('[tryoutLog] CID_SHEET_ID not set — skipping CID event point.'); return false; }
+    if (!spreadsheetId) { console.warn('[tryoutLog] CID_SHEET_ID not set · skipping CID event point.'); return false; }
     const tz = process.env.QUOTA_TIMEZONE || 'Europe/London';
 
     // All tabs on the sheet (rank-tier tabs). Prefer the host's own tier tab
@@ -472,7 +472,7 @@ async function notifyTryoutApprovers(log) {
     await sendCustomNotification({
       userIds: approvers.map(u => u.id),
       title:   'New tryout log to review',
-      body:    `${log.hostName} posted a tryout — ${log.totalAttendees} attended, ${log.passedCount} passed.`,
+      body:    `${log.hostName} posted a tryout · ${log.totalAttendees} attended, ${log.passedCount} passed.`,
       url:     '/hpc/dashboard?tryoutReview=1',
     });
   } catch (e) { console.error('[tryoutLog] notifyTryoutApprovers failed:', e.message); }
@@ -522,7 +522,7 @@ async function grantFinalExamRoleToPassers(log) {
     // Manage Roles (or sitting below the role) and the role being in another guild.
     if (out.total && !out.granted) {
       console.warn(`[tryoutLog] final-exam role ${roleId} granted to NOBODY out of ${out.total} `
-        + `passer(s) in guild ${metGuild} — check the bot has "Manage Roles", that its own `
+        + `passer(s) in guild ${metGuild} · check the bot has "Manage Roles", that its own `
         + 'highest role is above that one, and that the role is in this guild.');
     }
   } catch (e) { console.error('[tryoutLog] grantFinalExamRoleToPassers failed:', e.message); }

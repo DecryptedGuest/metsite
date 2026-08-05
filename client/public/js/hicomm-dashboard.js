@@ -127,7 +127,7 @@
           ${f.logId ? `<a class="btn btn-ghost btn-sm" href="/${(f.division || 'hpc').toLowerCase() === 'sco19' ? 'sco19' : (f.division || 'hpc').toLowerCase()}/dashboard?tryoutLog=${f.logId}" target="_blank"><i class="ti ti-external-link"></i> Log</a>` : ''}
         </div>
         <div style="font-size:13px;margin-top:6px;">${esc(f.detail)}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Host: ${esc(f.host || '—')}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Host: ${esc(f.host || '·')}</div>
       </div>`).join('')}`
       : '<div class="table-empty"><div class="table-empty-text"><i class="ti ti-shield-check" style="font-size:26px;color:var(--green);"></i><br>No integrity issues detected.</div></div>';
   };
@@ -156,7 +156,7 @@
         <div onclick="hcOpenSubject('roblox','${esc(u.robloxId)}')" class="hc-off-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px dashed var(--border,#2a2a2a);margin-bottom:6px;">
           <div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;"><i class="ti ti-brand-roblox"></i></div>
           <div><div style="font-weight:600;">${esc(u.name)} <span style="font-size:10px;color:var(--amber);">Roblox only</span></div>
-          <div style="font-size:11px;color:var(--text-muted);">@${esc(u.robloxUsername || '')} · not a site user — view groups &amp; MET rank</div></div>
+          <div style="font-size:11px;color:var(--text-muted);">@${esc(u.robloxUsername || '')} · not a site user · view groups &amp; MET rank</div></div>
         </div>`;
         return `
         <div onclick="hcOfficer('${u.id}')" class="hc-off-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border,#2a2a2a);margin-bottom:6px;">
@@ -278,13 +278,13 @@
     const s = p.subject || {};
     const openFull = s.siteUserId
       ? `<button class="btn btn-primary btn-sm" onclick="hcOfficer('${s.siteUserId}')"><i class="ti ti-history"></i> Open full 360</button>`
-      : '<span style="font-size:11px;color:var(--text-muted);">No dashboard account — no site history.</span>';
+      : '<span style="font-size:11px;color:var(--text-muted);">No dashboard account · no site history.</span>';
     wrap.innerHTML = `
       <div class="panel glass fade-up" style="margin-bottom:16px;"><div style="padding:18px;display:flex;gap:16px;align-items:center;">
         ${s.avatar ? `<img src="${esc(s.avatar)}" style="width:64px;height:64px;border-radius:50%;">` : `<div style="width:64px;height:64px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:24px;">${esc((s.name || '?').slice(0,1).toUpperCase())}</div>`}
         <div style="flex:1;"><div style="font-size:20px;font-weight:800;">${esc(s.name)}</div>
         <div style="font-size:12px;color:var(--text-muted);">${s.robloxUsername ? 'Roblox: ' + esc(s.robloxUsername) : ''}${s.discordId ? ' · Discord id ' + esc(s.discordId) : ''}</div>
-        <div style="font-size:11px;color:var(--amber);margin-top:4px;">Live lookup — pulled from the MET server + Roblox, not the site.</div></div>
+        <div style="font-size:11px;color:var(--amber);margin-top:4px;">Live lookup · pulled from the MET server + Roblox, not the site.</div></div>
         <div>${openFull}</div>
       </div></div>
       ${renderMetProfile(p)}`;
@@ -302,7 +302,7 @@
     titleEl.textContent = d.title || 'Detail';
 
     const fmtVal = (v) => {
-      if (v == null || v === '') return '—';
+      if (v == null || v === '') return '·';
       if (v instanceof Object) return esc(JSON.stringify(v));
       // ISO-ish date → friendly
       if (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v)) return esc(fmtWhen(v));
@@ -316,14 +316,14 @@
     // Ticket intake answers
     if (Array.isArray(d.intake) && d.intake.length) {
       extra += `<div style="margin-top:14px;font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;">Intake</div>` +
-        d.intake.map(q => `<div style="margin-top:8px;font-size:13px;"><div style="color:var(--text-secondary);">${esc(q.prompt || '')}</div><div>${esc(q.answer || '—')}</div></div>`).join('');
+        d.intake.map(q => `<div style="margin-top:8px;font-size:13px;"><div style="color:var(--text-secondary);">${esc(q.prompt || '')}</div><div>${esc(q.answer || '·')}</div></div>`).join('');
     }
     // Conversation / case actions
     if (Array.isArray(d.messages) && d.messages.length) {
       extra += `<div style="margin-top:16px;font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;">${kind === 'ticket' ? 'Conversation' : 'Activity'}</div>` +
         `<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:260px;overflow:auto;">` +
         d.messages.map(m => `<div style="border:1px solid var(--border,#2a2a2a);border-radius:8px;padding:8px 10px;">
-          <div style="font-size:11px;color:var(--text-muted);">${esc(m.author || '—')}${m.kind ? ' · ' + esc(m.kind) : ''} · ${esc(fmtWhen(m.at))}</div>
+          <div style="font-size:11px;color:var(--text-muted);">${esc(m.author || '·')}${m.kind ? ' · ' + esc(m.kind) : ''} · ${esc(fmtWhen(m.at))}</div>
           <div style="font-size:13px;margin-top:3px;white-space:pre-wrap;">${esc(m.body || '')}</div></div>`).join('') + `</div>`;
     }
     // Tryout attendees
@@ -347,16 +347,16 @@
 
   window.hcForceReauth = async function (id, name) {
     if (!(await uiConfirm(`Force ${name || 'this officer'} to sign in again on every device?`))) return;
-    try { const r = await api(`/api/hicomm/officer/${id}/force-reauth`, { method: 'POST' }); showToast(`Done — ${r.killed} session(s) killed`, 'success'); }
+    try { const r = await api(`/api/hicomm/officer/${id}/force-reauth`, { method: 'POST' }); showToast(`Done · ${r.killed} session(s) killed`, 'success'); }
     catch (e) { showToast(e.message, 'error'); }
   };
   window.hcViewAs = async function (id) {
     const box = $('hc-viewas');
     box.innerHTML = '<div class="panel glass" style="margin-bottom:16px;"><div class="table-loading"><div class="spinner"></div></div></div>';
     let p; try { p = await api(`/api/hicomm/officer/${id}/access-preview`); } catch (e) { box.innerHTML = `<div class="panel glass" style="margin-bottom:16px;"><div class="table-empty-text" style="padding:14px;">${esc(e.message)}</div></div>`; return; }
-    const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}${d.tier === 'LEAD' ? ' (lead)' : ''}`).join('<br>') || '—';
+    const divs = (p.divisions || []).map(d => `${esc(d.division)}${d.rankName ? ' · ' + esc(d.rankName) : ''}${d.tier === 'LEAD' ? ' (lead)' : ''}`).join('<br>') || '·';
     const standing = p.standing.blacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : (p.standing.mustReauth ? '<span class="badge badge-pending"><span class="badge-dot"></span>Must re-auth</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Good standing</span>');
-    box.innerHTML = `<div class="panel glass fade-up" style="margin-bottom:16px;border-left:3px solid var(--blue);"><div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Viewing as ${esc(p.officer.name)} — read only</div>
+    box.innerHTML = `<div class="panel glass fade-up" style="margin-bottom:16px;border-left:3px solid var(--blue);"><div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Viewing as ${esc(p.officer.name)} · read only</div>
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('hc-viewas').innerHTML=''" title="Close access preview" aria-label="Close access preview"><i class="ti ti-x"></i></button></div>
       <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;">
         <div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;">Site role</div>${esc(p.role)}${p.metHicomm ? ' · MET HICOMM' : ''}</div>
@@ -394,9 +394,9 @@
     const [ic, col] = GL_ICON[g.source] || ['ti-point', '#888'];
     return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${ago(g.createdAt)}</td>
       <td><span style="color:${col};"><i class="ti ${ic}"></i> ${esc(g.source)}</span></td>
-      <td>${esc(g.actor || '—')}</td>
-      <td>${g.action ? `<span class="mono" style="font-size:11px;">${esc(g.action)}</span>` : '—'}</td>
-      <td>${esc(g.target || '—')}</td>
+      <td>${esc(g.actor || '·')}</td>
+      <td>${g.action ? `<span class="mono" style="font-size:11px;">${esc(g.action)}</span>` : '·'}</td>
+      <td>${esc(g.target || '·')}</td>
       <td style="max-width:360px;">${esc(g.message || '')}</td></tr>`;
   }
 

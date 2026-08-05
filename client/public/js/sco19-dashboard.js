@@ -56,8 +56,8 @@
       const mine = (data && data.mine) || [];
       sco = mine.find(d => d.division === 'SCO19');
     } catch (e) { /* fall through to placeholders */ }
-    const tier = sco ? (sco.tier === 'LEAD' ? 'Command' : 'Officer') : '—';
-    const rankName = sco ? (sco.rankName || (sco.rank ? 'Rank ' + sco.rank : '—')) : 'Not a member';
+    const tier = sco ? (sco.tier === 'LEAD' ? 'Command' : 'Officer') : '·';
+    const rankName = sco ? (sco.rankName || (sco.rank ? 'Rank ' + sco.rank : '·')) : 'Not a member';
     wrap.innerHTML =
       '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">' + [
         kpi(rankName, 'Your SCO-19 rank', '', 'ti-shield-half-filled'),

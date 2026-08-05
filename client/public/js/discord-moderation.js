@@ -49,8 +49,8 @@ async function searchDiscordMembers() {
     const members = await api('/api/admin/discord/members?search=' + encodeURIComponent(q) + dmGuildParam('&'));
     if (!members.length) {
       box.innerHTML = window.metEmpty
-        ? window.metEmpty({ icon: 'ti-users', title: 'No matching member', sub: 'They may have left the server — paste their Discord ID above to Ban/Unban directly, then use the Banned Users list to unban.' })
-        : '<div class="table-empty-text">No matching member found (they may have left the server — try Ban/Unban directly by pasting their Discord ID above, then use the Banned Users list to unban).</div>';
+        ? window.metEmpty({ icon: 'ti-users', title: 'No matching member', sub: 'They may have left the server · paste their Discord ID above to Ban/Unban directly, then use the Banned Users list to unban.' })
+        : '<div class="table-empty-text">No matching member found (they may have left the server · try Ban/Unban directly by pasting their Discord ID above, then use the Banned Users list to unban).</div>';
       return;
     }
     box.innerHTML = members.map(memberRowHtml).join('');
@@ -87,7 +87,7 @@ async function loadDiscordBans() {
     tbody.innerHTML = bans.length
       ? bans.map(b => `<tr>
           <td>@${escapeHtmlDM(b.username)}<div class="text-muted mono" style="font-size:10px;">${escapeHtmlDM(b.id)}</div></td>
-          <td>${escapeHtmlDM(b.reason || '—')}</td>
+          <td>${escapeHtmlDM(b.reason || '·')}</td>
           <td><button class="btn btn-success btn-sm" onclick="openDmAction('UNBAN','${b.id}','${escapeHtmlDM(b.username)}')"><i class="ti ti-check"></i> Unban</button></td>
         </tr>`).join('')
       : (window.metEmpty
@@ -108,7 +108,7 @@ async function loadDiscordModLog() {
       ? log.map(l => `<tr>
           <td>${DM_ACTION_LABEL[l.action] || l.action}${l.durationMinutes ? ` (${l.durationMinutes}m)` : ''}</td>
           <td>${escapeHtmlDM(l.targetUsername || l.targetDiscordId)}</td>
-          <td>${escapeHtmlDM(l.reason || '—')}</td>
+          <td>${escapeHtmlDM(l.reason || '·')}</td>
           <td>${escapeHtmlDM(l.performedBy)}</td>
           <td>${formatDateTime(l.createdAt)}</td>
         </tr>`).join('')
@@ -130,7 +130,7 @@ function openDmAction(action, discordId, username) {
     BAN:    `Ban <strong>@${escapeHtmlDM(username)}</strong> from the MET server. They can be unbanned later from the Banned Users list.`,
     UNBAN:  `Remove the ban on <strong>@${escapeHtmlDM(username)}</strong>, allowing them to rejoin the server.`,
     KICK:   `Kick <strong>@${escapeHtmlDM(username)}</strong> from the MET server. They can rejoin immediately unless also banned.`,
-    TIMEOUT:`Timeout (mute) <strong>@${escapeHtmlDM(username)}</strong> — they won't be able to send messages or speak in voice until it expires.`,
+    TIMEOUT:`Timeout (mute) <strong>@${escapeHtmlDM(username)}</strong> · they won't be able to send messages or speak in voice until it expires.`,
   };
   document.getElementById('dm-action-title').innerHTML = `<i class="ti ti-gavel" style="font-size:18px;"></i> ${titles[action]}`;
   document.getElementById('dm-action-desc').innerHTML = descs[action];

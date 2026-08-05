@@ -130,40 +130,40 @@ function stepsEmbed() {
   // and this being buried at the bottom of the recruitment post is why people
   // turned up to tryouts they could not attend.
   eb.addFields({
-    name: `${e('met_link')}  Step 1 — Join both Roblox groups`,
+    name: `${e('met_link')}  Step 1 · Join both Roblox groups`,
     value: `You cannot get into Hendon without **both** of these. Do this first.\n`
          + `· [Hendon Police College](${c.hendonGroupUrl})\n`
          + `· [Metropolitan Police](${c.metGroupUrl})`,
   });
 
   eb.addFields({
-    name: `${e('met_announce')}  Step 2 — Turn on tryout pings`,
+    name: `${e('met_announce')}  Step 2 · Turn on tryout pings`,
     value: `Tryouts are not on a timetable, so get told when one starts.\n`
          + `Go to [this message](${c.notifyMessageUrl}) and react with ${c.notifyEmoji}.\n`
          + `You will get the **Tryout Notifications** role and a ping every time one is hosted.`,
   });
 
   eb.addFields({
-    name: `${e('met_patrol')}  Step 3 — Attend a tryout`,
+    name: `${e('met_patrol')}  Step 3 · Attend a tryout`,
     value: `When you get the ping, go to <#${c.tryoutChannelId}> and join.\n`
          + `A Hendon instructor runs it live. Do what they ask, listen, and don't mess about.`,
   });
 
   eb.addFields({
-    name: `${e('met_note')}  Step 4 — Sit the final exam`,
+    name: `${e('met_note')}  Step 4 · Sit the final exam`,
     value: `Pass the tryout and you are sent to the exam: **[${prettyUrl(c.examUrl)}](${c.examUrl})**\n`
          + `Written questions. Take your time. There is no rush, and no penalty for thinking.`,
   });
 
   eb.addFields({
-    name: `${e('met_search')}  Step 5 — Wait for it to be marked`,
+    name: `${e('met_search')}  Step 5 · Wait for it to be marked`,
     value: `A member of the **Hendon Police College** marks it by hand. That is a person, not a bot, `
          + `so give it a little time.\n`
          + `Pass, and you are accepted into the Metropolitan Police as a **Community Support Officer**.`,
   });
 
   eb.addFields({
-    name: `${e('met_promote')}  Step 6 — ${spell(c.eventsForConstable).replace(/^./, m => m.toUpperCase())} events, then Constable`,
+    name: `${e('met_promote')}  Step 6 · ${spell(c.eventsForConstable).replace(/^./, m => m.toUpperCase())} events, then Constable`,
     value: `As a Community Support Officer, attend **${c.eventsForConstable} event`
          + `${c.eventsForConstable === 1 ? '' : 's'}**. Each one is worth **${c.xpPerEvent} XP**.\n`
          + `At **${c.constableAtXp} XP** you are promoted to **Police Constable** automatically, `
@@ -254,7 +254,7 @@ async function mayPost(interaction) {
   } catch (err) {
     console.error('[/met] access check failed:', err.message);
     // A failed lookup is not permission. The command posts to a whole channel.
-    return { ok: false, why: 'Your access could not be checked just now — try again shortly.' };
+    return { ok: false, why: 'Your access could not be checked just now · try again shortly.' };
   }
 }
 
@@ -317,12 +317,12 @@ async function handleMetButton(interaction) {
       )],
     });
     return interaction.editReply({
-      content: `${e('met_tick')} Sent — check your DMs. Work through it in order and you'll be fine.`,
+      content: `${e('met_tick')} Sent · check your DMs. Work through it in order and you'll be fine.`,
     }).catch(() => {});
   } catch (err) {
     // The only failure that actually happens: DMs closed to server members.
     return interaction.editReply({
-      content: `${e('met_warn')} I couldn't DM you — your privacy settings are blocking direct messages `
+      content: `${e('met_warn')} I couldn't DM you · your privacy settings are blocking direct messages `
              + 'from this server.\n\nTurn them on in **Privacy Settings → Direct Messages** for this server, '
              + 'or just read the steps above; they are the same.',
     }).catch(() => {});

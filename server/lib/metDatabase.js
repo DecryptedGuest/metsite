@@ -154,8 +154,8 @@ async function readGroupMembers(scope) {
     cursor = page.nextPageToken;
   } while (cursor && guard++ < 200);   // 200 pages × 100 = 20k members
 
-  if (cursor) throw new Error(`The ${who} group is larger than this sync can page through — aborting rather than removing members it never saw.`);
-  if (!all.length) throw new Error(`The ${who} group returned no members — refusing to treat that as "everyone left".`);
+  if (cursor) throw new Error(`The ${who} group is larger than this sync can page through · aborting rather than removing members it never saw.`);
+  if (!all.length) throw new Error(`The ${who} group returned no members · refusing to treat that as "everyone left".`);
   return { byName, all, groupId, division: sc.division };
 }
 
@@ -355,7 +355,7 @@ async function applySync(plan, scope) {
     return {
       ok: false, via: 'webhook', removed: 0, added: 0,
       errors: errors.concat(`The quota webhook did not apply the change: ${(viaWebhook && viaWebhook.error) || 'unknown error'}. `
-        + 'Nothing was retried through the service account, because the webhook may have applied part of it — check the sheet before running the sync again.'),
+        + 'Nothing was retried through the service account, because the webhook may have applied part of it · check the sheet before running the sync again.'),
     };
   }
 
@@ -464,13 +464,13 @@ async function syncMetDatabase(opts = {}) {
   if (opts.token && opts.token !== plan.token) {
     return {
       ok: false, dry: false, ...plan, removed: 0, added: 0,
-      error: 'The group has changed since you ran the check — nothing was written. Run Check again and review the new plan.',
+      error: 'The group has changed since you ran the check · nothing was written. Run Check again and review the new plan.',
       stale: true,
     };
   }
 
   const result = await applySync(plan, scope);
-  const summary = `${(scope && (scope.name || scope.division)) || 'MET'} database sync — removed ${result.removed}, added ${result.added}`;
+  const summary = `${(scope && (scope.name || scope.division)) || 'MET'} database sync · removed ${result.removed}, added ${result.added}`;
   console.log(`[MetDB] ${summary}${result.errors.length ? ` (errors: ${result.errors.join('; ')})` : ''}`);
 
   // Record it so High Command can see who ran a destructive roster change.
@@ -886,7 +886,7 @@ async function tidyStrayRows(division, actor, opts = {}) {
       const landed = check && quota.normName((((check.data.values || [])[0] || [])[0]))
         === quota.normName(s.username);
       if (!landed) {
-        skipped.push({ ...s, why: 'the move was accepted but the row is not there afterwards — '
+        skipped.push({ ...s, why: 'the move was accepted but the row is not there afterwards · '
           + 'the service account may not be allowed to change the sheet\'s structure' });
         break;   // it will not work for the next one either
       }
@@ -910,7 +910,7 @@ async function tidyStrayRows(division, actor, opts = {}) {
   }
 
   if (moved.length && !dry) {
-    console.log(`[MetDB] ${scope.division} database — moved ${moved.length} stray row(s) `
+    console.log(`[MetDB] ${scope.division} database · moved ${moved.length} stray row(s) `
       + `into place${actor && actor.name ? ` for ${actor.name}` : ''}`);
   }
   return { ok: !errors.length, dryRun: dry, moved, skipped, errors };
@@ -957,7 +957,7 @@ async function addMembers(picks, division, actor) {
   if (!list.length) return { ok: false, stage: 'select', error: 'Nobody was selected.' };
   if (list.length > MAX_PICK) {
     return { ok: false, stage: 'select',
-             error: `That is ${list.length} people at once. ${MAX_PICK} is the most this will write in one go — do it in batches so a mistake is small.` };
+             error: `That is ${list.length} people at once. ${MAX_PICK} is the most this will write in one go · do it in batches so a mistake is small.` };
   }
 
   const scope = scopeFor(division || 'IA');
@@ -1027,7 +1027,7 @@ async function addMembers(picks, division, actor) {
   // "added 0 member(s), 1 waiting to be trained" is a line about a selection,
   // not about what happened, and it reads as though a row went in.
   const marked = out.added ? resolved.filter(r => r.wtbt).length : 0;
-  const summary = `${scope.name || scope.division} database — added ${out.added} member(s) by hand`
+  const summary = `${scope.name || scope.division} database · added ${out.added} member(s) by hand`
     + (marked ? `, ${marked} waiting to be trained` : '');
   console.log(`[MetDB] ${summary}${out.errors && out.errors.length ? ` (errors: ${out.errors.join('; ')})` : ''}`);
   // Logged separately and loudly on failure, so the reason is in the deploy log
@@ -1513,7 +1513,7 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
     const after = await sheetMetaFor(sheets, spreadsheetId, sheetName).catch(() => null);
     if (after && after.rowCount != null && after.rowCount < rowCount + wantRows) {
       throw new Error(`the insert was accepted but the sheet still has ${after.rowCount} rows `
-        + `(it had ${rowCount}, and should now have ${rowCount + wantRows}) — the service account `
+        + `(it had ${rowCount}, and should now have ${rowCount + wantRows}) · the service account `
         + `may be able to edit cells but not the sheet's structure`);
     }
   }
@@ -1639,7 +1639,7 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
       + [...skipped].sort((a, b) => a - b).map(c => quota.colLetter(c)).join(', ')
       + ` ${skipped.size === 1 ? 'holds' : 'hold'} a formula inside a merged cell, `
       + `so ${skipped.size === 1 ? 'it was' : 'they were'} `
-      + `left blank rather than pasted over the merge — copy just ${skipped.size === 1 ? 'that cell' : 'those cells'} `
+      + `left blank rather than pasted over the merge · copy just ${skipped.size === 1 ? 'that cell' : 'those cells'} `
       + 'down from the row above (do not drag the whole row, it would overwrite the '
       + 'rank and Discord id).');
   }
@@ -1649,7 +1649,7 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
     } catch (err) {
       console.warn('[MetDB] could not carry the formulas onto the new rows:', err.message);
       warnings.push('The rows are in the right sections, but their formula cells could not be '
-        + `copied down (${err.message}) — drag the row above down over them.`);
+        + `copied down (${err.message}) · drag the row above down over them.`);
     }
   }
 
@@ -1743,7 +1743,7 @@ async function placeMembers(sheets, spreadsheetId, sheetName, rows, existing, co
     p.row = null;
     p.under = null;
     warnings.push(`${p.username} was written to row ${p.wanted || '?'} but is not there on a re-read `
-      + `— add them by hand.`);
+      + `· add them by hand.`);
   }
   return { placed, warnings };
 }

@@ -39,7 +39,7 @@
     if (perm === 'granted') return `<div class="muted" style="margin-top:14px;color:var(--green);"><i class="ti ti-bell-check"></i> Notifications are on for this device.</div>`;
     if (perm === 'denied') return `<div class="muted" style="margin-top:14px;"><i class="ti ti-bell-off"></i> Notifications are blocked in your device settings. Enable them for this site to get alerts.</div>`;
     return `<button class="btn btn-primary big-btn" id="notif-btn"><i class="ti ti-bell"></i> Enable notifications</button>
-      <div class="muted" style="margin-top:8px;">We'll only notify you about things that need you — tryouts going live, tickets assigned to you, logs to review. You choose; nothing is sent unless you turn this on.</div>`;
+      <div class="muted" style="margin-top:8px;">We'll only notify you about things that need you · tryouts going live, tickets assigned to you, logs to review. You choose; nothing is sent unless you turn this on.</div>`;
   }
   function wireNotif() {
     const b = $('notif-btn'); if (!b) return;
@@ -47,7 +47,7 @@
       b.disabled = true; b.innerHTML = '<i class="ti ti-loader"></i> Requesting…';
       const r = await pushClient.requestPushPermission();
       if (r === 'granted') showToast('Notifications enabled', 'success');
-      else if (r === 'denied') showToast('Permission denied — enable it in your browser settings.', 'warning');
+      else if (r === 'denied') showToast('Permission denied · enable it in your browser settings.', 'warning');
       else if (r === 'unsupported') showToast('This device doesn\'t support notifications.', 'warning');
       else showToast('Could not enable notifications.', 'error');
       render();
@@ -80,7 +80,7 @@
     return stepRows([
       'Tap the <strong>Share</strong> button <i class="ti ti-share"></i> at the bottom of Safari (or the top on iPad).',
       'Scroll down and choose <strong>Add to Home Screen</strong> <i class="ti ti-square-plus"></i>.',
-      'Tap <strong>Add</strong> — the MET Dashboard appears on your home screen.',
+      'Tap <strong>Add</strong> · the MET Dashboard appears on your home screen.',
     ]);
   }
   function stepsAndroid() {
@@ -90,21 +90,21 @@
       return installBtn + stepRows([
         'Tap the <strong>≡</strong> menu at the bottom of Samsung Internet.',
         'Choose <strong>Add page to</strong> → <strong>Home screen</strong>.',
-        'Tap <strong>Add</strong> — the MET Dashboard appears on your home screen.',
+        'Tap <strong>Add</strong> · the MET Dashboard appears on your home screen.',
       ]);
     }
     if (b === 'firefox') {
       return installBtn + stepRows([
         'Tap the <strong>⋮</strong> menu in Firefox.',
         'Choose <strong>Install</strong> (or <strong>Add to Home screen</strong>).',
-        'Confirm — the MET Dashboard appears on your home screen.',
+        'Confirm · the MET Dashboard appears on your home screen.',
       ]);
     }
     if (b === 'edge') {
       return installBtn + stepRows([
         'Tap the <strong>⋯</strong> menu at the bottom of Edge.',
         'Choose <strong>Add to phone</strong> (or <strong>Apps → Install</strong>).',
-        'Confirm — the MET Dashboard appears on your home screen.',
+        'Confirm · the MET Dashboard appears on your home screen.',
       ]);
     }
     // Chrome / Opera / other Chromium.
@@ -147,7 +147,7 @@
     //    they're already on the phone.
     if (isMobile) {
       $('app-sub').textContent = 'Add the MET Dashboard to your home screen.';
-      body().innerHTML = `<div class="muted">Install it so it opens like an app and keeps you signed in — follow the steps for your ${isIOS ? 'iPhone/iPad' : 'device'}.</div>
+      body().innerHTML = `<div class="muted">Install it so it opens like an app and keeps you signed in · follow the steps for your ${isIOS ? 'iPhone/iPad' : 'device'}.</div>
         ${isIOS ? stepsIOS() : stepsAndroid()}
         ${(isIOS && iosBrowser() !== 'safari') ? `<button class="btn btn-ghost big-btn" id="copy-here" style="margin-top:12px;"><i class="ti ti-copy"></i> Copy this page's link</button>` : ''}
         <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;">${notifButton()}</div>`;
@@ -156,19 +156,19 @@
       if (ai) ai.addEventListener('click', async () => { if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; } });
       const ch = $('copy-here');
       if (ch) ch.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(location.href); showToast('Link copied — paste it into Safari', 'success'); }
+        try { await navigator.clipboard.writeText(location.href); showToast('Link copied · paste it into Safari', 'success'); }
         catch (e) { window.prompt('Copy this link and open it in Safari:', location.href); }
       });
       return;
     }
     // 4) Desktop (or any browser) that's logged in → show the handoff QR.
-    $('app-sub').textContent = 'Get the dashboard on your phone — already signed in.';
+    $('app-sub').textContent = 'Get the dashboard on your phone · already signed in.';
     body().innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
     const link = await loadQR();
     if (!link) { body().innerHTML = `<div class="muted">Couldn't create an install link. <a href="/app" style="color:var(--blue);">Try again</a>.</div>`; return; }
     body().innerHTML = `
       <div class="qr-box"><img src="${link.qr}" alt="Install QR" /></div>
-      <div class="muted">Point your phone camera at this code — it opens the MET Dashboard <strong>already logged in</strong>. Then add it to your home screen.</div>
+      <div class="muted">Point your phone camera at this code · it opens the MET Dashboard <strong>already logged in</strong>. Then add it to your home screen.</div>
       <div class="muted" style="margin-top:6px;font-size:11px;">Single-use · expires in 5 minutes.</div>
 
       <div style="margin-top:16px;border-top:1px solid var(--border,#2a2a2a);padding-top:14px;text-align:left;">
@@ -183,7 +183,7 @@
     const rb = $('qr-refresh'); if (rb) rb.addEventListener('click', render);
     const cb = $('copy-btn');
     if (cb) cb.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(link.url); showToast('Link copied — open it on your phone', 'success'); }
+      try { await navigator.clipboard.writeText(link.url); showToast('Link copied · open it on your phone', 'success'); }
       catch (e) { window.prompt('Copy this link and open it on your phone:', link.url); }
     });
     const db = $('dm-btn');

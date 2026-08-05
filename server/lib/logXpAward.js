@@ -119,7 +119,7 @@ function plannedAwards(log) {
   return [{
     discordId: String(log.submitterDiscordId),
     amount,
-    reason: `Patrol — ${log.totalMinutes} min`,
+    reason: `Patrol · ${log.totalMinutes} min`,
     name: log.submitterDisplayName || log.submitterUsername || null,
   }];
 }

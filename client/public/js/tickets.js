@@ -36,7 +36,7 @@ function canReview() { return !!window.canReviewTickets; }
 
 function ticketTypeBadge(t) {
   var c = TC[t] || 'blue';
-  var l = TL[t] || t || '—';
+  var l = TL[t] || t || '·';
   return '<span class="badge badge-' + c + '"><span class="badge-dot"></span>' + escapeHtml(l) + '</span>';
 }
 
@@ -99,7 +99,7 @@ function ticketReviewCell(t, inQueue) {
       + '<i class="ti ti-clipboard-check"></i> Review in Pending</button></div>';
   }
   if (st === 'PENDING') return '<span class="text-muted" style="font-size:11px;">Awaiting review</span>';
-  return '<span style="font-size:11px;">' + escapeHtml(t.reviewedByName || '—') + '</span>';
+  return '<span style="font-size:11px;">' + escapeHtml(t.reviewedByName || '·') + '</span>';
 }
 
 // Straight to the ticket queue, with the ticket half of Pending already selected.
@@ -145,7 +145,7 @@ function ticketSeq(t) {
 
 // The single id to use where there is only room for one (modal headings, toasts).
 function ticketNumber(t) {
-  return t.ticketRef || ticketSeq(t) || t.ticketName || '—';
+  return t.ticketRef || ticketSeq(t) || t.ticketName || '·';
 }
 
 // The table cell: Tickety's id, with ours underneath it when we have both.
@@ -176,7 +176,7 @@ function ticketHandler(t) {
 
 function ticketRowHtml(t, opts) {
   opts = opts || {};
-  var creator = t.creatorRobloxUsername || t.creatorUsername || t.creatorDiscordId || '—';
+  var creator = t.creatorRobloxUsername || t.creatorUsername || t.creatorDiscordId || '·';
   var closer  = ticketHandler(t);
   return '<tr onclick="openTicketDetail(\'' + t.id + '\')">'
     + '<td>' + ticketIdCell(t) + '</td>'
@@ -187,10 +187,10 @@ function ticketRowHtml(t, opts) {
         : '')
     + '<td><span style="font-size:12px;font-weight:500;">' + escapeHtml(creator) + '</span></td>'
     + '<td>' + ticketTypeBadge(t.ticketType) + '</td>'
-    + '<td><span class="case-reason-cell">' + escapeHtml(t.reason || '—') + '</span></td>'
+    + '<td><span class="case-reason-cell">' + escapeHtml(t.reason || '·') + '</span></td>'
     + '<td>' + (t.transcriptUrl
         ? '<a href="' + escapeHtml(safeLinkHref(t.transcriptUrl) || '#') + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="row-btn"><i class="ti ti-file-text"></i> Transcript</a>'
-        : '<span class="text-muted" style="font-size:11px;">—</span>') + '</td>'
+        : '<span class="text-muted" style="font-size:11px;">·</span>') + '</td>'
     // The pending queue is all one status, so a Status column there would be
     // the same word on every row; the decision goes last, where the eye ends up.
     + (opts.review
@@ -282,7 +282,7 @@ function renderPendingTicketsTable() {
   if (!rows.length) {
     tbody.innerHTML = emptyRow(8, (pendingTicketQuery || pendingTicketType !== 'all')
       ? 'No pending tickets match that filter.'
-      : 'Nothing waiting — every ticket log has been signed off.');
+      : 'Nothing waiting · every ticket log has been signed off.');
     return;
   }
   tbody.innerHTML = rows.map(function (t) { return ticketRowHtml(t, { showCloser: true, review: true }); }).join('');
@@ -324,7 +324,7 @@ async function openTicketDetail(ticketId) {
   var field = function (label, value, mono) {
     return '<div class="detail-field"><span class="detail-field-label">' + escapeHtml(label) + '</span>'
       + '<span class="detail-field-value' + (mono ? ' mono' : '') + '">'
-      + (value || '<span style="color:var(--text-muted);">—</span>') + '</span></div>';
+      + (value || '<span style="color:var(--text-muted);">·</span>') + '</span></div>';
   };
 
   var targetHtml = '';
@@ -340,21 +340,21 @@ async function openTicketDetail(ticketId) {
   }
 
   body.innerHTML = '<div class="detail-grid">'
-    + field('Ticket', escapeHtml(t.ticketName || t.ticketRef || '—'), true)
+    + field('Ticket', escapeHtml(t.ticketName || t.ticketRef || '·'), true)
     // Both ids, spelled out. The Tickety id is the one that matches Discord and
     // the transcript; ours is the one that is short enough to quote.
-    + field('Tickety ID', escapeHtml(t.ticketRef || '—'), true)
-    + field('Ticket number', escapeHtml(ticketSeq(t) || '—'), true)
+    + field('Tickety ID', escapeHtml(t.ticketRef || '·'), true)
+    + field('Ticket number', escapeHtml(ticketSeq(t) || '·'), true)
     + field('Type', ticketTypeBadge(t.ticketType))
     + field('Closed by', escapeHtml(ticketHandler(t)))
     + field('Closed at', formatDateTime(t.closedAt))
     + field('Status', statusBadge(t.status || 'PENDING'))
-    + field('Reviewed by', escapeHtml(t.reviewedByName || '—')
+    + field('Reviewed by', escapeHtml(t.reviewedByName || '·')
         + (t.reviewedAt ? ' <span class="text-muted" style="font-size:11px;">' + formatDateTime(t.reviewedAt) + '</span>' : ''))
     + '<div class="detail-field full"><span class="detail-field-label">Close reason</span>'
     +   '<span class="detail-field-value">' + escapeHtml(t.reason || 'No reason given.') + '</span></div>'
-    + field('Opened by (Discord)', escapeHtml(t.creatorUsername || '—'), true)
-    + field('Creator ID', escapeHtml(t.creatorDiscordId || '—'), true)
+    + field('Opened by (Discord)', escapeHtml(t.creatorUsername || '·'), true)
+    + field('Creator ID', escapeHtml(t.creatorDiscordId || '·'), true)
     + (t.transcriptUrl
         ? '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
           + '<span class="detail-field-value">'
@@ -493,10 +493,10 @@ document.addEventListener('DOMContentLoaded', function () {
           showToast(dry.pendingTotal + ' ticket(s) are still pending but the clear matched none of them. '
             + (dry.clearBuild >= 4
                 ? 'Open /api/tickets/backlog-status to see why.'
-                : 'The server is running an older build — redeploy, then try again.'), 'error', 12000);
+                : 'The server is running an older build · redeploy, then try again.'), 'error', 12000);
           return;
         }
-        showToast('Nothing waiting — the queue is already clear.', 'success');
+        showToast('Nothing waiting · the queue is already clear.', 'success');
         return;
       }
       var okd = await (typeof uiConfirm === 'function'
@@ -522,7 +522,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // saying "cleared 0" for it sent us looking at the database four times
         // over. Name it.
         if (r && r.dryRun) {
-          showToast('The server treated that as a count, not a clear — it received '
+          showToast('The server treated that as a count, not a clear · it received '
             + JSON.stringify((r.saw && r.saw.resolved) || {})
             + '. Build ' + (r.clearBuild || '?') + '.', 'error', 15000);
           return;
@@ -535,11 +535,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!r.cleared && (r.pendingTotal || r.remaining)) {
           var why = (r.diagnosis && r.diagnosis.why)
             || (r.clearBuild >= 7
-                ? 'The server reported no diagnosis at all, which it should never do — open /api/tickets/backlog-status.'
+                ? 'The server reported no diagnosis at all, which it should never do · open /api/tickets/backlog-status.'
                 : 'The server is running an older build (' + (r.clearBuild || 'unknown')
-                  + ') — redeploy, then try again.');
+                  + ') · redeploy, then try again.');
           showToast('Cleared ' + total + '. ' + (r.pendingTotal || r.remaining)
-            + ' still pending — ' + why, 'error', 12000);
+            + ' still pending · ' + why, 'error', 12000);
           allTicketsCache = [];
           loadPendingTickets(); loadAllTickets();
           return;
@@ -549,7 +549,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // is a loop that is not converging, and spinning forever would be worse
         // than saying so.
         if (rounds >= 40) {
-          showToast('Cleared ' + total + ' so far, ' + r.remaining + ' still waiting — press again to continue.', 'warning');
+          showToast('Cleared ' + total + ' so far, ' + r.remaining + ' still waiting · press again to continue.', 'warning');
           break;
         }
       }
@@ -577,7 +577,7 @@ document.addEventListener('DOMContentLoaded', function () {
     sync.innerHTML = '<div class="spinner"></div> Syncing…';
     try {
       var s = await api('/api/tickets/sync', { method: 'POST', body: JSON.stringify({ full: true }) });
-      showToast('Synced — ' + s.created + ' new, ' + s.updated + ' refreshed (scanned ' + s.scanned + ').', 'success');
+      showToast('Synced · ' + s.created + ' new, ' + s.updated + ' refreshed (scanned ' + s.scanned + ').', 'success');
       loadAllTickets(); loadTickets();
       if (typeof renderPendingTicketsTable === 'function') renderPendingTicketsTable();
     } catch (err) {

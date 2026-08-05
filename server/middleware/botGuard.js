@@ -46,7 +46,7 @@ function botGuard(req, res, next) {
     try {
       require('../lib/audit').record({
         req, action: 'BOT_BLOCKED', category: 'SECURITY', targetType: 'request',
-        summary: `Blocked ${isAiBot ? 'AI crawler' : 'automation'} on ${req.path} — UA: ${ua.slice(0, 120)}`,
+        summary: `Blocked ${isAiBot ? 'AI crawler' : 'automation'} on ${req.path} · UA: ${ua.slice(0, 120)}`,
       });
     } catch (e) { /* ignore */ }
 

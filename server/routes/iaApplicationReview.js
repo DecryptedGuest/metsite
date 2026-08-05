@@ -94,7 +94,7 @@ router.post('/gate', async (req, res) => {
         summary: state.open
           ? 'Reopened Internal Affairs applications'
           : 'Closed Internal Affairs applications'
-            + (state.note ? ` — applicants are told: ${state.note}` : ''),
+            + (state.note ? ` · applicants are told: ${state.note}` : ''),
       });
     }
     res.json(state);
@@ -328,7 +328,7 @@ router.post('/:id/decide', async (req, res) => {
     });
 
     console.log(`[IA app review] ${row.appRef} ${decision}ed by `
-      + `${req.user.displayName || req.user.discordUsername} — ${total}/${maxScore} (${percentage}%)`);
+      + `${req.user.displayName || req.user.discordUsername} · ${total}/${maxScore} (${percentage}%)`);
 
     const updated = await prisma.iaApplication.findUnique({ where: { id: row.id } });
     res.json({ ok: true, application: summarise(updated), score: total, maxScore, percentage });

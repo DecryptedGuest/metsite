@@ -82,7 +82,7 @@
     var box = $('pt-suggest');
     if (!box) return;
     if (!suggestions.length) {
-      box.innerHTML = '<div class="ev-sug-empty">Nobody matches that — you can still type the name in full.</div>';
+      box.innerHTML = '<div class="ev-sug-empty">Nobody matches that · you can still type the name in full.</div>';
       box.style.display = '';
       return;
     }
@@ -184,7 +184,7 @@
       r.readAsDataURL(f);
     });
     if (rejected && window.showToast) {
-      showToast(rejected + ' file(s) skipped — images only, up to ' + META.maxProof
+      showToast(rejected + ' file(s) skipped · images only, up to ' + META.maxProof
         + ' of them, ' + META.maxProofMb + ' MB each.', 'warning');
     }
   }
@@ -297,19 +297,19 @@
     if (!box) return;
     var parsed = parsePartners($('pt-partners') ? $('pt-partners').value : '');
     if (!parsed.list.length) {
-      box.innerHTML = '<span class="ev-roll-empty">Nobody else listed — a solo patrol is fine.</span>';
+      box.innerHTML = '<span class="ev-roll-empty">Nobody else listed · a solo patrol is fine.</span>';
       return;
     }
     var chips = parsed.list.map(function (a) {
       var label = a.name || ('ID ' + a.discordId);
       return '<span class="ev-chip' + (a.discordId ? ' ev-chip-id' : '') + '"'
-        + ' title="' + esc(a.discordId ? 'Discord ' + a.discordId : 'Matched by name — an ID is more reliable') + '">'
+        + ' title="' + esc(a.discordId ? 'Discord ' + a.discordId : 'Matched by name · an ID is more reliable') + '">'
         + '<i class="ti ti-' + (a.discordId ? 'user-check' : 'user') + '"></i>' + esc(label) + '</span>';
     }).join('');
     box.innerHTML = '<div class="ev-roll-head">'
       + '<strong>' + parsed.list.length + '</strong> other officer'
       + (parsed.list.length === 1 ? '' : 's')
-      + ' <span class="ev-roll-note">recorded, not paid — they file their own log</span>'
+      + ' <span class="ev-roll-note">recorded, not paid · they file their own log</span>'
       + (parsed.dupes ? ' · <span class="ev-roll-note">' + parsed.dupes + ' duplicate'
           + (parsed.dupes === 1 ? '' : 's') + ' ignored</span>' : '')
       + (parsed.over ? ' · <span class="ev-roll-warn">only the first ' + META.maxPartners
@@ -338,7 +338,7 @@
   // a span rather than as two separate cells.
   function shiftCell(p) {
     var a = new Date(p.startedAt), b = new Date(p.endedAt);
-    if (isNaN(a) || isNaN(b)) return '—';
+    if (isNaN(a) || isNaN(b)) return '·';
     // 24-hour, explicitly. The rest of the dashboard shows "03 Aug 2026, 19:15",
     // and a table with 19:15 in one column and 07:15 PM in the next is a table
     // somebody has to stop and convert.
@@ -361,7 +361,7 @@
     var when = window.formatDateTime ? formatDateTime(p.createdAt) : new Date(p.createdAt).toLocaleString();
     return '<tr class="' + (p.voidedAt ? 'ev-void' : '') + '">'
       + '<td><span class="case-ref">' + esc(p.patrolRef) + '</span></td>'
-      + '<td><span style="font-size:12px;">' + esc(p.officerName || '—') + '</span></td>'
+      + '<td><span style="font-size:12px;">' + esc(p.officerName || '·') + '</span></td>'
       + '<td><span style="font-size:12px;">' + shiftCell(p)
         + (p.area ? '<br><span class="text-muted" style="font-size:11px;">' + esc(p.area) + '</span>' : '')
         + '</span></td>'
@@ -440,7 +440,7 @@
       showToast('A patrol has to be at least ' + META.minMinutes + ' minutes.', 'error'); return;
     }
     if (s.minutes > META.maxMinutes) {
-      showToast('That is longer than a shift — check the times.', 'error'); return;
+      showToast('That is longer than a shift · check the times.', 'error'); return;
     }
 
     var parsed = parsePartners($('pt-partners') ? $('pt-partners').value : '');
@@ -470,7 +470,7 @@
       };
       var out = await api('/api/ia-patrols', { method: 'POST', body: JSON.stringify(body) });
       closeModal('modal-patrol');
-      showToast(out.patrol.patrolRef + ' filed — waiting on a supervisor.', 'success');
+      showToast(out.patrol.patrolRef + ' filed · waiting on a supervisor.', 'success');
       ['pt-area', 'pt-partners', 'pt-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
       });
@@ -502,7 +502,7 @@
     var when = window.formatDateTime ? formatDateTime(p.createdAt) : new Date(p.createdAt).toLocaleString();
     return '<tr>'
       + '<td><span class="case-ref">' + esc(p.patrolRef) + '</span></td>'
-      + '<td><span style="font-size:12px;">' + esc(p.officerName || '—') + '</span></td>'
+      + '<td><span style="font-size:12px;">' + esc(p.officerName || '·') + '</span></td>'
       + '<td><span style="font-size:12px;">' + shiftCell(p)
         + (p.area ? '<br><span class="text-muted" style="font-size:11px;">' + esc(p.area) + '</span>' : '')
         + '</span></td>'
@@ -514,7 +514,7 @@
       + '<td><span class="date-cell">' + esc(when) + '</span></td>'
       + '<td>'
         + '<button class="row-btn row-btn-approve" onclick="iaPatrolReview(\'' + esc(p.id) + '\',\'approve\')" title="Approve and pay"><i class="ti ti-check"></i></button> '
-        + '<button class="row-btn row-btn-deny" onclick="iaPatrolReview(\'' + esc(p.id) + '\',\'deny\')" title="Deny — nothing is paid"><i class="ti ti-x"></i></button>'
+        + '<button class="row-btn row-btn-deny" onclick="iaPatrolReview(\'' + esc(p.id) + '\',\'deny\')" title="Deny · nothing is paid"><i class="ti ti-x"></i></button>'
         + '</td>'
       + '</tr>';
   }
@@ -581,7 +581,7 @@
       var out = await api('/api/ia-patrols/' + encodeURIComponent(id) + '/review',
         { method: 'POST', body: JSON.stringify({ action: action, note: note || null }) });
       showToast(action === 'approve'
-        ? (out.patrol.patrolRef + ' approved — ' + out.pointsEach + ' point(s)'
+        ? (out.patrol.patrolRef + ' approved · ' + out.pointsEach + ' point(s)'
            + (out.xpEach ? ' and ' + out.xpEach + ' MET XP' : '') + ' paid.')
         : (out.patrol.patrolRef + ' denied.'), 'success');
       queue = queue.filter(function (x) { return x.id !== id; });
@@ -601,7 +601,7 @@
     try {
       var out = await api('/api/ia-patrols/' + encodeURIComponent(id) + '/void',
         { method: 'POST', body: JSON.stringify({ reason: why }) });
-      showToast('Withdrawn — ' + out.reversed + ' award(s) reversed.', 'success');
+      showToast('Withdrawn · ' + out.reversed + ' award(s) reversed.', 'success');
       load();
     } catch (err) {
       showToast(err.message || 'Could not withdraw that patrol.', 'error');

@@ -72,7 +72,7 @@ async function logChange({ discordId, memberName, kind, delta, before, after, re
     title: `${icon} ${verb}`,
     description:
       `${e('met_user')} **Officer** <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''}\n`
-      + `**Rank** ${rank ? badge(rank.name) + rank.name : '—'}`,
+      + `**Rank** ${rank ? badge(rank.name) + rank.name : '·'}`,
     fields: [
       {
         name: 'Change',
@@ -92,7 +92,7 @@ async function logChange({ discordId, memberName, kind, delta, before, after, re
   if (capped) {
     embed.fields.push({
       name: 'Note',
-      value: `${e('met_warn')} They didn't have that much to take — the balance stopped at 0 rather than going negative.`,
+      value: `${e('met_warn')} They didn't have that much to take · the balance stopped at 0 rather than going negative.`,
       inline: false,
     });
   }
@@ -118,13 +118,13 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
     { name: 'XP',    value: `**${xp}**`, inline: true },
     { name: 'Roblox group', value: groupResult && groupResult.ok
         ? `${e('met_tick')} Promoted to **${groupResult.to}**`
-        : `${e('met_warn')} Not changed — ${short((groupResult && groupResult.reason) || 'unknown', 150)}`,
+        : `${e('met_warn')} Not changed · ${short((groupResult && groupResult.reason) || 'unknown', 150)}`,
       inline: false },
   ];
   if (progress) fields.push({ name: 'Progress', value: progressBar(progress), inline: false });
   fields.push({
     name: 'Officer notified',
-    value: dmSent ? `${e('met_tick')} DM sent` : `${e('met_warn')} Couldn't DM them — their DMs are closed`,
+    value: dmSent ? `${e('met_tick')} DM sent` : `${e('met_warn')} Couldn't DM them · their DMs are closed`,
     inline: false,
   });
 
@@ -132,7 +132,7 @@ async function logPromotion({ discordId, memberName, from, to, xp, progress, gro
 
   const embed = {
     color: COLOR.promotion,
-    title: `${e('met_promote')} Promotion — ${to.name}`.trim(),
+    title: `${e('met_promote')} Promotion · ${to.name}`.trim(),
     description: by
       ? `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has been promoted to ${badge(to.name)}**${to.name}** by ${short(by, 60)}.`
       : `${e('met_celebrate')} <@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has reached **${to.at} XP** and made ${badge(to.name)}**${to.name}**.`,
@@ -164,20 +164,20 @@ async function logDemotion({ discordId, memberName, from, to, xp, progress, grou
     { name: 'By',    value: issuedById ? `<@${issuedById}>` : 'System', inline: true },
     { name: 'Roblox group', value: groupResult && groupResult.ok
         ? `${e('met_tick')} Set to **${groupResult.to}**`
-        : `${e('met_warn')} Not changed — ${short((groupResult && groupResult.reason) || 'unknown', 150)}`,
+        : `${e('met_warn')} Not changed · ${short((groupResult && groupResult.reason) || 'unknown', 150)}`,
       inline: false },
     { name: 'Reason', value: short(reason || '*No reason given*', 1000), inline: false },
   ];
   if (progress) fields.push({ name: 'Progress', value: progressBar(progress), inline: false });
   fields.push({
     name: 'Officer notified',
-    value: dmSent ? `${e('met_tick')} DM sent` : `${e('met_warn')} Couldn't DM them — their DMs are closed`,
+    value: dmSent ? `${e('met_tick')} DM sent` : `${e('met_warn')} Couldn't DM them · their DMs are closed`,
     inline: false,
   });
 
   const embed = {
     color: COLOR.demotion,
-    title: `${e('met_warn')} Demotion — ${to.name}`,
+    title: `${e('met_warn')} Demotion · ${to.name}`,
     description: `<@${discordId}>${memberName ? ` · ${short(memberName, 50)}` : ''} has dropped to **${xp} XP** and is now ${badge(to.name)}**${to.name}**.`,
     fields,
     footer: { text: 'MET XP · automatic demotion' },

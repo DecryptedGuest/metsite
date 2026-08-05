@@ -333,7 +333,7 @@ function filterMetGroups(groups) {
     const gid = g && g.group && String(g.group.id);
     const name = (g && g.group && g.group.name) || '';
     if (gid && ids.has(gid)) return true;              // a configured group id is authoritative
-    if (FOREIGN_COMMUNITY_TAG.test(name)) return false; // another community's group — drop it
+    if (FOREIGN_COMMUNITY_TAG.test(name)) return false; // another community's group · drop it
     return MET_GROUP_NAME.test(name);
   });
 }
@@ -410,12 +410,12 @@ router.get('/officer/:id/timeline', async (req, res) => {
     ]);
 
     const events = [];
-    for (const c of cases) events.push({ at: c.createdAt, kind: 'case', refId: c.id, icon: 'ti-gavel', color: '#e0503a', title: `Case ${c.caseRef} — ${c.action}`, detail: c.reason, status: c.status });
+    for (const c of cases) events.push({ at: c.createdAt, kind: 'case', refId: c.id, icon: 'ti-gavel', color: '#e0503a', title: `Case ${c.caseRef} · ${c.action}`, detail: c.reason, status: c.status });
     for (const p of punishments) events.push({ at: p.issuedAt, kind: 'punishment', refId: p.id, icon: 'ti-alert-triangle', color: '#e8842a', title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, detail: p.reason, status: p.active ? 'ACTIVE' : 'ENDED' });
     for (const l of hosted) events.push({ at: l.createdAt, kind: 'tryout', refId: l.id, icon: 'ti-clipboard-check', color: '#3b82f6', title: `Hosted ${l.division} tryout`, detail: `${l.totalAttendees} attended · ${l.passedCount} passed`, status: l.status });
     for (const p of patrols) events.push({ at: p.createdAt, kind: 'patrol', refId: p.id, icon: 'ti-shield', color: '#14b8a6', title: p.type === 'EVENT' ? 'Event log' : 'Patrol log', detail: p.totalMinutes != null ? `${p.totalMinutes} min` : '', status: p.status });
     for (const t of tickets) events.push({ at: t.closedAt, kind: 'ticket', refId: t.id, icon: 'ti-lifebuoy', color: '#8b93a1', title: `Closed ticket ${t.ticketRef || ''} (${t.ticketType})`.trim(), detail: '', status: t.status });
-    for (const a of auditRows) events.push({ at: a.createdAt, kind: 'audit', refId: a.id, icon: 'ti-history', color: '#6b7280', title: a.summary || `${a.category}/${a.action}`, detail: a.actorId === u.id ? `by them` : `on them — by ${a.actorName}`, status: a.action });
+    for (const a of auditRows) events.push({ at: a.createdAt, kind: 'audit', refId: a.id, icon: 'ti-history', color: '#6b7280', title: a.summary || `${a.category}/${a.action}`, detail: a.actorId === u.id ? `by them` : `on them · by ${a.actorName}`, status: a.action });
 
     events.sort((a, b) => new Date(b.at) - new Date(a.at));
 
@@ -454,11 +454,11 @@ router.get('/entity/:kind/:id', async (req, res) => {
       out = { kind, title: `Ticket ${t.ticketRef || ''} · ${t.ticketType}`.trim(), status: t.status,
         link: t.transcriptUrl || null,
         fields: [
-          ['Type', t.ticketType], ['Ticket', t.ticketName || t.ticketRef || '—'],
-          ['Opened by', t.creatorRobloxUsername || t.creatorUsername || '—'],
-          ['Closed by', t.closerUsername || '—'], ['Reason', t.reason || '—'],
-          ['Reviewed by', t.reviewedByName || '—'],
-          ['Closed', t.closedAt], ['Reviewed', t.reviewedAt || '—'],
+          ['Type', t.ticketType], ['Ticket', t.ticketName || t.ticketRef || '·'],
+          ['Opened by', t.creatorRobloxUsername || t.creatorUsername || '·'],
+          ['Closed by', t.closerUsername || '·'], ['Reason', t.reason || '·'],
+          ['Reviewed by', t.reviewedByName || '·'],
+          ['Closed', t.closedAt], ['Reviewed', t.reviewedAt || '·'],
         ],
         intake: [],
         messages: [],
@@ -468,9 +468,9 @@ router.get('/entity/:kind/:id', async (req, res) => {
       if (!c) return res.status(404).json({ error: 'Case not found' });
       out = { kind, title: `IA Case ${c.caseRef}`, status: c.status, link: c.caseLink || null,
         fields: [
-          ['Action', c.action], ['Suspect', c.robloxUsername || c.suspectRobloxDisplayName || '—'],
-          ['Investigator', c.investigatorDiscordUsername || c.investigatorRobloxUsername || '—'],
-          ['Reason', c.reason], ['Notes', c.notes], ['Punishments', c.punishmentsSummary || '—'],
+          ['Action', c.action], ['Suspect', c.robloxUsername || c.suspectRobloxDisplayName || '·'],
+          ['Investigator', c.investigatorDiscordUsername || c.investigatorRobloxUsername || '·'],
+          ['Reason', c.reason], ['Notes', c.notes], ['Punishments', c.punishmentsSummary || '·'],
           ['Opened', c.createdAt], ['Updated', c.updatedAt],
         ],
         messages: (c.caseActions || []).map(a => ({ author: a.performedBy, kind: a.actionType, body: a.notes || '', at: a.timestamp })),
@@ -481,10 +481,10 @@ router.get('/entity/:kind/:id', async (req, res) => {
       out = { kind, title: `${l.division} tryout log`, status: l.status,
         link: `/${l.division.toLowerCase() === 'sco19' ? 'sco19' : l.division.toLowerCase()}/dashboard?tryoutLog=${l.id}`,
         fields: [
-          ['Host', l.hostName], ['Co-host', l.coHostName || '—'],
+          ['Host', l.hostName], ['Co-host', l.coHostName || '·'],
           ['Attended', l.totalAttendees], ['Passed', l.passedCount], ['Failed', l.failedCount],
           ['Strikes', l.strikeCount], ['Concluded', l.concludedAt || l.createdAt],
-          ['Review note', l.reviewNote || '—'], ['Reviewed by', l.reviewedByName || '—'],
+          ['Review note', l.reviewNote || '·'], ['Reviewed by', l.reviewedByName || '·'],
         ],
         attendees: Array.isArray(l.attendees) ? l.attendees.map(a => ({ username: a.username, result: a.result, strikes: a.strikes || 0 })) : [],
       };
@@ -495,9 +495,9 @@ router.get('/entity/:kind/:id', async (req, res) => {
         fields: [
           ['Type', p.type], ['Division', p.division || 'N/A'],
           ['Shift', `${p.shiftStart || '?'} → ${p.shiftEnd || '?'}`],
-          ['Duration', p.totalMinutes != null ? `${p.totalMinutes} min` : '—'],
-          ['Submitted by', p.submitterDisplayName || p.submitterUsername || '—'],
-          ['Reviewed by', p.reviewedByName || '—'], ['Logged', p.createdAt],
+          ['Duration', p.totalMinutes != null ? `${p.totalMinutes} min` : '·'],
+          ['Submitted by', p.submitterDisplayName || p.submitterUsername || '·'],
+          ['Reviewed by', p.reviewedByName || '·'], ['Logged', p.createdAt],
         ],
         raw: p.rawContent || '', images: Array.isArray(p.images) ? p.images : [],
       };
@@ -506,8 +506,8 @@ router.get('/entity/:kind/:id', async (req, res) => {
       if (!p) return res.status(404).json({ error: 'Punishment not found' });
       out = { kind, title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, status: p.active ? 'ACTIVE' : 'ENDED',
         fields: [
-          ['Type', p.type], ['Reason', p.reason || '—'], ['Issued by', p.issuedBy || '—'],
-          ['Case ref', p.caseRef || '—'], ['Issued', p.issuedAt], ['Expires', p.expiresAt || '—'],
+          ['Type', p.type], ['Reason', p.reason || '·'], ['Issued by', p.issuedBy || '·'],
+          ['Case ref', p.caseRef || '·'], ['Issued', p.issuedAt], ['Expires', p.expiresAt || '·'],
         ],
       };
     } else if (kind === 'audit') {
@@ -516,7 +516,7 @@ router.get('/entity/:kind/:id', async (req, res) => {
       out = { kind, title: a.summary || `${a.category}/${a.action}`, status: a.action,
         fields: [
           ['Category', a.category], ['Action', a.action], ['Actor', a.actorName || 'System'],
-          ['Target', a.targetName || '—'], ['Division', a.division || '—'], ['When', a.createdAt],
+          ['Target', a.targetName || '·'], ['Division', a.division || '·'], ['When', a.createdAt],
         ],
         metadata: a.metadata && typeof a.metadata === 'object' ? a.metadata : null,
       };

@@ -141,7 +141,7 @@ router.post('/parse-doc', async (req, res) => {
   try {
     const [text, html] = await Promise.all([fetchGoogleDocText(docId), fetchGoogleDocHtml(docId)]);
     if (!text && !html) {
-      return res.status(400).json({ error: 'Could not read that doc — make sure it is shared as "Anyone with the link can view".' });
+      return res.status(400).json({ error: 'Could not read that doc · make sure it is shared as "Anyone with the link can view".' });
     }
 
     const doc   = parseDocText(text) || {};
@@ -826,7 +826,7 @@ router.post('/', async (req, res) => {
     // Fire-and-forget — don't delay the response
     notifyStaff({
       category: 'case',
-      title: `New Case — ${caseRef}`,
+      title: `New Case · ${caseRef}`,
       body:  `${robloxUsername || 'Unknown'} · ${actionDisplay}`,
       url:   `/ia/dashboard?page=review&case=${newCase.id}`,
     });
@@ -874,7 +874,7 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
 
     await prisma.caseAction.create({
       data: { caseId: existing.id, actionType: 'APPROVED', performedBy: req.user.id,
-        notes: alreadyActioned ? 'Re-approved (already actioned — side effects skipped)' : 'Approved by HICOMM/Developer' },
+        notes: alreadyActioned ? 'Re-approved (already actioned · side effects skipped)' : 'Approved by HICOMM/Developer' },
     });
 
     if (!alreadyActioned) {
@@ -952,8 +952,8 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
             actionType:  'APPROVED',
             performedBy: req.user.id,
             notes: res.ok
-              ? `Group exile executed for "${a.action}" (user ${existing.robloxUserId}) — ${res.summary}`
-              : `Group exile FAILED for "${a.action}" (user ${existing.robloxUserId}) — ${res.summary}`,
+              ? `Group exile executed for "${a.action}" (user ${existing.robloxUserId}) · ${res.summary}`
+              : `Group exile FAILED for "${a.action}" (user ${existing.robloxUserId}) · ${res.summary}`,
           },
         });
       }
@@ -1177,7 +1177,7 @@ router.patch('/:id', async (req, res) => {
         actionType: hadRequest ? 'CHANGES_APPLIED' : 'CREATED',
         performedBy: req.user.id,
         notes: changed.length
-          ? `Case edited by ${req.user.displayName || req.user.discordUsername} — ${changed.map(c => c.label).join(', ')} updated`
+          ? `Case edited by ${req.user.displayName || req.user.discordUsername} · ${changed.map(c => c.label).join(', ')} updated`
           : `Case edited by ${req.user.displayName || req.user.discordUsername}`,
       },
     }).catch(() => {});
@@ -1186,7 +1186,7 @@ router.patch('/:id', async (req, res) => {
     if (hadRequest && existing.reviewChanges && existing.reviewChanges.byUserId) {
       sendCustomNotification({
         userIds: [existing.reviewChanges.byUserId],
-        title:   `Changes applied — ${existing.caseRef}`,
+        title:   `Changes applied · ${existing.caseRef}`,
         body:    changed.length ? changed.map(c => c.label).join(', ') + ' updated' : 'The submitter updated this case.',
         url:     `/ia/dashboard?page=review&case=${existing.id}`,
         prefKey: 'caseUpdated',
@@ -1280,7 +1280,7 @@ router.patch('/:id/request-changes', requireHICOMM, async (req, res) => {
     if (existing.user && existing.userId) {
       sendCustomNotification({
         userIds: [existing.userId],
-        title:   `Changes requested — ${existing.caseRef}`,
+        title:   `Changes requested · ${existing.caseRef}`,
         body:    note,
         url:     `/ia/dashboard?page=my-cases&case=${existing.id}`,
       }).catch(() => {});
@@ -1358,7 +1358,7 @@ router.post('/:id/appeal', async (req, res) => {
 
     require('../lib/audit').record({
       req, action: 'CASE_APPEAL', category: 'ia', targetType: 'case', targetId: existing.id,
-      summary: `Appeal granted on ${existing.caseRef} — ${lifted.length} punishment role(s) lifted`,
+      summary: `Appeal granted on ${existing.caseRef} · ${lifted.length} punishment role(s) lifted`,
       metadata: { reason, lifted, failed, kept, manual },
     });
 

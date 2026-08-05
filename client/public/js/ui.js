@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const test = document.getElementById('pref-toast-test');
   if (test) test.addEventListener('click', function () {
     let v = parseFloat(n && n.value) || 3.5; v = Math.max(1, Math.min(30, v));
-    showToast('This is a test notification — it disappears in ' + v + 's.', 'info', Math.round(v * 1000));
+    showToast('This is a test notification · it disappears in ' + v + 's.', 'info', Math.round(v * 1000));
   });
   const save = document.getElementById('pref-save');
   if (save) save.addEventListener('click', savePrefs);
@@ -352,7 +352,7 @@ window.uiPrompt  = uiPrompt;
 
 // ── Administrative Log / Notice embed preview ─────────────────────
 function fmtPunishmentLines(punishments) {
-  if (!Array.isArray(punishments) || !punishments.length) return '• —';
+  if (!Array.isArray(punishments) || !punishments.length) return '• ·';
   return punishments.map(p => {
     const cfg = (typeof ACTIONS_CLIENT !== 'undefined') ? ACTIONS_CLIENT.find(a => a.name === p.action) : null;
     // `timed`, to match the embed the server actually posts (webhook.js and
@@ -384,7 +384,7 @@ function buildAdminLogEmbedHTML({ officerMention, punishments, reason, notes, ca
 // Show the preview modal. buttons = [{ label(html), class, onClick }]
 function showEmbedPreview({ title, note, embedData, buttons }) {
   const t = document.getElementById('embed-preview-title');
-  if (t) t.textContent = title || 'Administrative Log — Preview';
+  if (t) t.textContent = title || 'Administrative Log · Preview';
   const n = document.getElementById('embed-preview-note');
   if (n) n.textContent = note || '';
   const body = document.getElementById('embed-preview-body');
@@ -498,7 +498,7 @@ async function api(path, options = {}) {
       .replace(/\s+/g, ' ')
       .trim();
     const hint = res.status >= 502 && res.status <= 504
-      ? ' The server did not answer — it may still be restarting, or the request took too long.'
+      ? ' The server did not answer · it may still be restarting, or the request took too long.'
       : '';
     throw new Error(`HTTP ${res.status}${plain ? ': ' + plain.slice(0, 300) : ''}${hint}`);
   }
@@ -511,7 +511,7 @@ async function api(path, options = {}) {
 
 // ── Format helpers ───────────────────────────────────────────────
 function formatDate(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '·';
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric'
@@ -519,7 +519,7 @@ function formatDate(dateStr) {
 }
 
 function formatDateTime(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '·';
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -570,7 +570,7 @@ function formatTzLabel(ianaTz) {
 // For display: convert a stored IANA name to the "BST +1" label; leave
 // values that are already labels (or anything non-IANA) untouched.
 function displayTz(stored) {
-  if (!stored) return '—';
+  if (!stored) return '·';
   // IANA names look like "Region/City"; already-formatted labels don't.
   if (/^[A-Za-z]+\/[A-Za-z_\/+-]+$/.test(stored)) return formatTzLabel(stored);
   return stored;
@@ -789,7 +789,7 @@ function statusBadge(status) {
 function originBadge(c) {
   const o = c && c.origin;
   if (o === 'DISCIPLINE') {
-    return '<span class="badge badge-amber" title="Issued directly with the /discipline command — no investigation, auto-approved by the officer who issued it.">'
+    return '<span class="badge badge-amber" title="Issued directly with the /discipline command · no investigation, auto-approved by the officer who issued it.">'
          + '<span class="badge-dot"></span><i class="ti ti-gavel"></i> Direct action</span>';
   }
   if (o === 'IA') {
@@ -893,7 +893,7 @@ function renderRevisionHistory(c) {
 function actionBadges(actionStr) {
   const names = String(actionStr == null ? '' : actionStr)
     .split(',').map(s => s.trim()).filter(Boolean);
-  if (!names.length) return '<span class="text-muted">—</span>';
+  if (!names.length) return '<span class="text-muted">·</span>';
   const badges = names.map(n => {
     const lc = n.toLowerCase();
     let color = 'blue';
@@ -906,12 +906,12 @@ function actionBadges(actionStr) {
 }
 
 function investigatorCell(user) {
-  if (!user) return '<span class="text-muted">—</span>';
+  if (!user) return '<span class="text-muted">·</span>';
   const initial = (user.discordUsername || '?')[0].toUpperCase();
   const avatarHtml = user.discordAvatar
     ? `<img class="inv-avatar" src="${user.discordAvatar}" alt="" />`
     : `<div class="inv-avatar-fallback">${initial}</div>`;
-  return `<div class="investigator-cell">${avatarHtml}<span class="inv-name">${escapeHtml(user.discordUsername || '—')}</span></div>`;
+  return `<div class="investigator-cell">${avatarHtml}<span class="inv-name">${escapeHtml(user.discordUsername || '·')}</span></div>`;
 }
 
 // Investigator for a case row — imported cases carry the real investigator name
@@ -928,14 +928,14 @@ function caseInvestigatorCell(c) {
 
 // Strip a leading "Punishment(s):" label from a case action string
 function cleanAction(action) {
-  return (action || '').replace(/^\s*punishments?\s*:\s*/i, '').trim() || '—';
+  return (action || '').replace(/^\s*punishments?\s*:\s*/i, '').trim() || '·';
 }
 
 // Suspect/officer cell: Roblox username + headshot + profile link (Discord ID
 // stays in the case detail only, not the row).
 function officerCell(c) {
   if (!c.robloxUsername && !c.robloxUserId) {
-    return '<span class="text-muted" style="font-size:11px;">—</span>';
+    return '<span class="text-muted" style="font-size:11px;">·</span>';
   }
   const uname = c.robloxUsername || ('ID ' + c.robloxUserId);
   const avatar = c.robloxUserId
@@ -1169,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (b) return;
       b = document.createElement('div');
       b.id = 'net-offline-banner';
-      b.innerHTML = '<i class="ti ti-wifi-off"></i> You\'re offline — changes may not save until you reconnect.';
+      b.innerHTML = '<i class="ti ti-wifi-off"></i> You\'re offline · changes may not save until you reconnect.';
       b.style.cssText =
         'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:11800;' +
         'display:flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;' +

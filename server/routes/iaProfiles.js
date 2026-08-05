@@ -48,7 +48,7 @@ function iaRankLabel(u) {
   if (u.role === 'HICOMM') return 'IA HICOMM';
   if (u.role === 'SUPERVISOR') return 'Supervisor';
   if (u.role === 'IA') return 'Investigator';
-  return u.role || '—';
+  return u.role || '·';
 }
 
 // ── GET /api/ia-profiles/search?q= ───────────────────────────────────

@@ -4,7 +4,7 @@
 (function () {
   const esc = window.escapeHtml || (s => String(s == null ? '' : s));
   const $ = id => document.getElementById(id);
-  const fmt = d => { try { return window.formatDateTime ? window.formatDateTime(d) : new Date(d).toLocaleString(); } catch (e) { return '—'; } };
+  const fmt = d => { try { return window.formatDateTime ? window.formatDateTime(d) : new Date(d).toLocaleString(); } catch (e) { return '·'; } };
 
   function showPage(name) {
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === name));
@@ -62,8 +62,8 @@
       return `<tr>
         <td>${esc(s.user ? s.user.name : s.userId)}${s.current ? ' <span class="badge badge-approved" style="font-size:9px;">THIS DEVICE</span>' : ''}</td>
         <td>${esc(s.user ? s.user.role : '')}</td>
-        <td style="font-family:monospace;font-size:12px;">${esc(s.ip || '—')}${vpnBadge}${org}${realIp}</td>
-        <td style="font-size:12px;">${esc(s.device || (s.userAgent || '').slice(0, 40) || '—')}</td>
+        <td style="font-family:monospace;font-size:12px;">${esc(s.ip || '·')}${vpnBadge}${org}${realIp}</td>
+        <td style="font-size:12px;">${esc(s.device || (s.userAgent || '').slice(0, 40) || '·')}</td>
         <td style="font-size:12px;">${fmt(s.lastSeenAt)}${stateTag}</td>
         <td style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">
           <button class="btn btn-ghost btn-sm" title="All logins for this account" onclick="secAccountLogins('${s.userId}','${jsAttr((s.user&&s.user.name)||'')}')"><i class="ti ti-history"></i></button>
@@ -100,7 +100,7 @@
   };
   window.secForceReauth = async function (userId, name) {
     if (!(await uiConfirm(`Force ${name || 'this officer'} to sign in again on every device?`))) return;
-    try { const r = await api('/api/dev/security/users/' + userId + '/force-reauth', { method: 'POST' }); showToast(`Done — ${r.killed} session(s) killed`, 'success'); secLoadSessions(); }
+    try { const r = await api('/api/dev/security/users/' + userId + '/force-reauth', { method: 'POST' }); showToast(`Done · ${r.killed} session(s) killed`, 'success'); secLoadSessions(); }
     catch (e) { showToast(e.message, 'error'); }
   };
 
@@ -136,7 +136,7 @@
   };
   function renderLock() {
     $('sec-lockdown-state').innerHTML = lockOn
-      ? '<span style="color:var(--red);font-weight:700;"><i class="ti ti-lock"></i> LOCKDOWN ACTIVE — only developers can access the site.</span>'
+      ? '<span style="color:var(--red);font-weight:700;"><i class="ti ti-lock"></i> LOCKDOWN ACTIVE · only developers can access the site.</span>'
       : '<span style="color:var(--green);"><i class="ti ti-lock-open"></i> Site is open (normal access).</span>';
     const btn = $('sec-lockdown-btn');
     btn.className = lockOn ? 'btn btn-ghost' : 'btn btn-danger';
@@ -157,7 +157,7 @@
   function renderEnforce() {
     const b = $('sec-enforce-btn'); if (!b) return;
     b.className = enforceOn ? 'btn btn-danger' : 'btn btn-ghost';
-    b.innerHTML = enforceOn ? '<i class="ti ti-shield-lock"></i> Enforcing — turn off' : '<i class="ti ti-shield"></i> Enable enforcement';
+    b.innerHTML = enforceOn ? '<i class="ti ti-shield-lock"></i> Enforcing · turn off' : '<i class="ti ti-shield"></i> Enable enforcement';
   }
   window.secToggleEnforce = async function () {
     const next = !enforceOn;
@@ -209,11 +209,11 @@
       const r = await api('/api/dev/security/audit/verify');
       const clean = r.tampered.length === 0;
       el.innerHTML = `<div style="font-size:15px;font-weight:700;color:${clean ? 'var(--green)' : 'var(--red)'};margin-bottom:8px;">
-        <i class="ti ${clean ? 'ti-shield-check' : 'ti-shield-x'}"></i> ${clean ? 'Intact — no tampering detected' : `${r.tampered.length} row(s) FAILED verification`}</div>
+        <i class="ti ${clean ? 'ti-shield-check' : 'ti-shield-x'}"></i> ${clean ? 'Intact · no tampering detected' : `${r.tampered.length} row(s) FAILED verification`}</div>
         <div style="font-size:12px;color:var(--text-muted);">${r.ok} of ${r.checked} rows verified${r.unhashed ? ` · ${r.unhashed} legacy (unhashed)` : ''}.</div>
         ${!clean ? `<div style="font-size:12px;color:var(--amber);margin-top:6px;line-height:1.6;">
           <i class="ti ti-info-circle"></i> A hashing bug (fixed) covered a field the database never stored, so
-          every row written with one — an AI scan that returned no score, for instance — could never verify. Those
+          every row written with one · an AI scan that returned no score, for instance · could never verify. Those
           rows were not edited, but there is no way left to tell them apart from ones that were: the field the
           original hash covered is gone.
           <br>Re-baselining accepts the current contents of older rows and starts the guarantee from now.
@@ -221,7 +221,7 @@
           <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="rebaselineAudit(this)">
             <i class="ti ti-flag"></i> Re-baseline older rows</button>
         </div>` : ''}
-        ${clean ? '' : `<div style="margin-top:8px;font-size:12px;color:var(--red);">${r.tampered.slice(0, 8).map(t => esc(t.action + ' — ' + (t.summary || t.id))).join('<br>')}</div>`}`;
+        ${clean ? '' : `<div style="margin-top:8px;font-size:12px;color:var(--red);">${r.tampered.slice(0, 8).map(t => esc(t.action + ' · ' + (t.summary || t.id))).join('<br>')}</div>`}`;
     } catch (e) { el.innerHTML = `<span style="color:var(--red);">${esc(e.message)}</span>`; }
   };
 
@@ -233,7 +233,7 @@
     if (action === 'BROADCAST') { if (!detail) return showToast('Enter a broadcast message.', 'warning'); params = { title: 'Message from High Command', body: detail, banner: true }; }
     try {
       const r = await api('/api/dev/security/approvals', { method: 'POST', body: JSON.stringify({ action, params, reason }) });
-      showToast(r && r.executed ? 'Executed (you are the only developer)' : 'Proposed — awaiting a second developer', 'success');
+      showToast(r && r.executed ? 'Executed (you are the only developer)' : 'Proposed · awaiting a second developer', 'success');
       $('ap-detail').value = ''; $('ap-reason').value = ''; secLoadApprovals();
     }
     catch (e) { showToast(e.message, 'error'); }
@@ -246,9 +246,9 @@
       const b = $('sec-approvals-badge'); if (b) { b.style.display = rows.length ? 'inline-flex' : 'none'; b.textContent = rows.length; }
       box.innerHTML = rows.length ? rows.map(a => `
         <div style="display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--border,#2a2a2a);">
-          <div style="flex:1;"><div style="font-weight:700;font-size:14px;">${esc(a.action)}${a.params && a.params.body ? ' — ' + esc(a.params.body) : ''}</div>
+          <div style="flex:1;"><div style="font-weight:700;font-size:14px;">${esc(a.action)}${a.params && a.params.body ? ' · ' + esc(a.params.body) : ''}</div>
             <div style="font-size:12px;color:var(--text-muted);">by ${esc(a.requestedByName || '')}${a.reason ? ' · ' + esc(a.reason) : ''} · ${fmt(a.createdAt)}</div></div>
-          ${a.mine ? '<span class="badge badge-pending"><span class="badge-dot"></span>Your proposal — needs another dev</span>'
+          ${a.mine ? '<span class="badge badge-pending"><span class="badge-dot"></span>Your proposal · needs another dev</span>'
             : `<button class="btn btn-primary btn-sm" onclick="secApprove('${a.id}')"><i class="ti ti-check"></i> Approve</button>
                <button class="btn btn-ghost btn-sm" style="color:var(--red);" title="Reject" aria-label="Reject" onclick="secReject('${a.id}')"><i class="ti ti-x"></i></button>`}
         </div>`).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-checklist', title: 'No pending approvals' }) : '<div class="table-empty-text">No pending approvals.</div>');
@@ -273,7 +273,7 @@
 async function rebaselineAudit(btn) {
   const okd = await (typeof uiConfirm === 'function'
     ? uiConfirm('Re-baseline the audit trail?\n\nThis accepts the CURRENT contents of every older row as correct '
-      + 'and re-hashes them. It does not prove they were never edited — that information is gone. '
+      + 'and re-hashes them. It does not prove they were never edited · that information is gone. '
       + 'Tampering from this point on is still detected.')
     : Promise.resolve(confirm('Accept the current contents of older rows as the baseline?')));
   if (!okd) return;
@@ -320,7 +320,7 @@ async function rebaselineAudit(btn) {
 
   function row(label, value, mono) {
     return '<div class="mem-kv"><span class="mem-k">' + esc(label) + '</span>'
-      + '<span class="mem-v' + (mono ? ' mono' : '') + '">' + (value || '<span class="text-muted">—</span>') + '</span></div>';
+      + '<span class="mem-v' + (mono ? ' mono' : '') + '">' + (value || '<span class="text-muted">·</span>') + '</span></div>';
   }
 
   function action(id, icon, label, tone) {
@@ -416,7 +416,7 @@ async function rebaselineAudit(btn) {
         + MEM.sessions.map(function (s) {
             return '<tr>'
               + '<td><span style="font-size:12px;">' + esc(s.device || 'Unknown') + '</span></td>'
-              + '<td><span class="mono" style="font-size:11.5px;">' + esc(s.ip || '—')
+              + '<td><span class="mono" style="font-size:11.5px;">' + esc(s.ip || '·')
                 + (s.ipVpn ? ' <span class="badge badge-amber"><span class="badge-dot"></span>VPN</span>' : '') + '</span></td>'
               + '<td><span class="date-cell">' + esc(ago(s.lastSeenAt)) + '</span></td>'
               + '<td>' + (s.revoked ? '<span class="badge badge-muted"><span class="badge-dot"></span>Revoked</span>'
@@ -489,7 +489,7 @@ async function rebaselineAudit(btn) {
       if (!(await confirmIt('Sign ' + name + ' out everywhere?\n\nEvery open session is revoked and they have to sign in again.'))) return;
       try {
         var r = await api('/api/dev/security/users/' + encodeURIComponent(u.id) + '/force-reauth', { method: 'POST' });
-        showToast('Signed out — ' + r.killed + ' session(s) killed.', 'success');
+        showToast('Signed out · ' + r.killed + ' session(s) killed.', 'success');
         secOpenMember(u.id);
         if (typeof secLoadPresence === 'function') secLoadPresence();
       } catch (err) { showToast(err.message || 'Could not sign them out.', 'error'); }

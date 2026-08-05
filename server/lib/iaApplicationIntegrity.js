@@ -136,7 +136,7 @@ function inspect(telemetry, answers, questions) {
     flags.push({
       severity: 'evidence', code: 'keystrokes_below_chars',
       label: `${shortfalls.length} answer${shortfalls.length === 1 ? '' : 's'} with fewer keystrokes than the text needs`,
-      detail: `Worst: "${worst.question}" — ${worst.chars} characters from ${worst.keystrokes} keystrokes `
+      detail: `Worst: "${worst.question}" · ${worst.chars} characters from ${worst.keystrokes} keystrokes `
             + `(${Math.round(worst.ratio * 100)}%). Text that was typed shows roughly one keystroke per character.`,
       items: shortfalls,
     });
@@ -147,7 +147,7 @@ function inspect(telemetry, answers, questions) {
     flags.push({
       severity: 'evidence', code: 'superhuman_speed',
       label: `${fast.length} answer${fast.length === 1 ? '' : 's'} written faster than anybody types`,
-      detail: `Fastest: "${worst.question}" — ${worst.chars} characters in ${worst.seconds}s, `
+      detail: `Fastest: "${worst.question}" · ${worst.chars} characters in ${worst.seconds}s, `
             + `about ${worst.cps} characters a second. A fast typist manages 10.`,
       items: fast,
     });

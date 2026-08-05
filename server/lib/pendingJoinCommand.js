@@ -153,7 +153,7 @@ async function mayDecide(interaction) {
     return { ok: false, why: REFUSAL + (extra ? `\n\n${extra}` : '') };
   } catch (err) {
     console.error('[/pendingjoin] access check failed:', err.message);
-    return { ok: false, why: 'Your rank could not be checked just now — try again shortly.' };
+    return { ok: false, why: 'Your rank could not be checked just now · try again shortly.' };
   }
 }
 
@@ -208,7 +208,7 @@ async function readQueue(max, opts = {}) {
  */
 function findOne(requests, needle) {
   const want = String(needle || '').trim().replace(/^@/, '');
-  if (!want) return { error: 'Say who — a Roblox username or user ID.' };
+  if (!want) return { error: 'Say who · a Roblox username or user ID.' };
   const lower = want.toLowerCase();
   const low = v => String(v == null ? '' : v).toLowerCase();
 
@@ -226,7 +226,7 @@ function findOne(requests, needle) {
     if (hits.length > 1) {
       return {
         ambiguous: true,
-        error: `${hits.length} people waiting match "${short(want, 40)}" — `
+        error: `${hits.length} people waiting match "${short(want, 40)}" · `
              + hits.slice(0, 5).map(r => `\`${short(r.username, 20)}\``).join(' · ')
              + '. Use their user ID instead.',
       };
@@ -277,7 +277,7 @@ function workingEmbed({ action, total, done, failed, current, frame, phase }) {
     // reading 9/23 is two numbers disagreeing on the same screen: one counts the
     // request in flight, the other the ones finished, and the reader cannot tell.
     lines.push(`${spinner(frame)} **${verb}**`
-      + (current ? ` — ${short(current.username, 30)}` : ''));
+      + (current ? ` · ${short(current.username, 30)}` : ''));
     lines.push('');
     lines.push(`${bar(done, total)}  **${done}** of **${total}** done`);
     if (failed) lines.push(`${e('met_warn')} ${failed} could not be done`);
@@ -359,7 +359,7 @@ async function resolveMany(requests, action, ctx, editor) {
         // them in the queue, has never been shown to have a request open — so a
         // 404 on them means "they are not waiting", not "their request is gone".
         const why = r.viaLookup && /\b404\b|not found/i.test(String(err.message))
-          ? 'they are not waiting to join — no request from them is open'
+          ? 'they are not waiting to join · no request from them is open'
           : cleanReason(err.message);
         failed.push({ ...r, why });
       }
@@ -380,10 +380,10 @@ async function resolveMany(requests, action, ctx, editor) {
  */
 function cleanReason(message) {
   const m = String(message || '');
-  if (/\b404\b/.test(m) || /not found/i.test(m)) return 'their request is gone — cancelled or already decided';
-  if (/\b403\b/.test(m)) return 'Roblox refused it — the bot may not have permission';
+  if (/\b404\b/.test(m) || /not found/i.test(m)) return 'their request is gone · cancelled or already decided';
+  if (/\b403\b/.test(m)) return 'Roblox refused it · the bot may not have permission';
   if (/\b401\b/.test(m)) return 'the Roblox login has expired';
-  if (/\b429\b/.test(m)) return 'Roblox is rate-limiting us — try the rest in a moment';
+  if (/\b429\b/.test(m)) return 'Roblox is rate-limiting us · try the rest in a moment';
   if (/\b5\d\d\b/.test(m)) return 'Roblox had an error at their end';
   const brief = m.replace(/^Roblox API \d+ on \w+:\s*/, '');
   return short(brief || 'unknown error', 90);
@@ -428,7 +428,7 @@ function resultEmbed({ action, okd, failed, more, remaining, issuerName }) {
     embed.addFields({
       name: `${e('met_warn')}  Could not be done · ${failed.length}`,
       // The reason per person, because "3 failed" tells nobody what to do next.
-      value: short(failed.slice(0, 12).map(f => `**${short(f.username, 24)}** — ${f.why}`).join('\n')
+      value: short(failed.slice(0, 12).map(f => `**${short(f.username, 24)}** · ${f.why}`).join('\n')
         + (failed.length > 12 ? `\n*and ${failed.length - 12} more*` : ''), 1024),
       inline: false,
     });
@@ -538,7 +538,7 @@ async function handlePendingJoinCommand(interaction) {
   // request is open, and they answer 404 when it is not.
   if (found.notHere) {
     await editor.draw({ embeds: [workingEmbed({
-      action, frame: 1, phase: `Not in the queue we read — asking Roblox who ${short(named, 30)} is…`,
+      action, frame: 1, phase: `Not in the queue we read · asking Roblox who ${short(named, 30)} is…`,
     })] });
     const person = await lookupPerson(named);
     if (person) found = { hit: person };
@@ -555,7 +555,7 @@ async function handlePendingJoinCommand(interaction) {
         name: 'What was checked',
         value: `${queue.requests.length}${queue.more ? '+' : ''} pending request`
              + `${queue.requests.length === 1 ? '' : 's'}, and Roblox's own user search.\n`
-             + 'If they are definitely waiting, try their **user ID** — '
+             + 'If they are definitely waiting, try their **user ID** · '
              + '`/pendingjoin list` shows both.',
         inline: false,
       });

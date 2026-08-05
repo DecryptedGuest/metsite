@@ -96,19 +96,19 @@ function parse(text) {
     if (!cur.startText) missing.push('a duration');
     if (!cur.reason) missing.push('a reason');
     if (missing.length) {
-      problems.push(`@${cur.username}: no ${missing.join(', no ')} — skipped.`);
+      problems.push(`@${cur.username}: no ${missing.join(', no ')} · skipped.`);
       cur = null;
       return;
     }
     const start = parseDay(cur.startText);
     const end   = parseDay(cur.endText);
     if (!start || !end) {
-      problems.push(`@${cur.username}: could not read the dates "${cur.startText} - ${cur.endText}" — skipped.`);
+      problems.push(`@${cur.username}: could not read the dates "${cur.startText} - ${cur.endText}" · skipped.`);
       cur = null;
       return;
     }
     if (end < start) {
-      problems.push(`@${cur.username}: the leave ends before it starts — skipped.`);
+      problems.push(`@${cur.username}: the leave ends before it starts · skipped.`);
       cur = null;
       return;
     }

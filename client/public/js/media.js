@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 function fmtBytes(n) {
-  if (n == null) return '—';
+  if (n == null) return '·';
   if (n < 1024) return n + ' B';
   if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
   return (n / 1048576).toFixed(1) + ' MB';
@@ -63,7 +63,7 @@ function renderMediaGrid() {
       + thumb
       + '<div style="padding:8px 10px;">'
       + '<div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(m.title || m.filename) + '</div>'
-      + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">' + visLabel(m.visibility) + ' · ' + escapeHtml(m.uploader || '—') + '</div>'
+      + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">' + visLabel(m.visibility) + ' · ' + escapeHtml(m.uploader || '·') + '</div>'
       + '</div></div>';
   }).join('');
 }
@@ -81,7 +81,7 @@ function openMediaView(id) {
       ? '<img src="' + m.url + '" style="max-width:100%;max-height:60vh;border-radius:8px;">'
       : '<video src="' + m.url + '" controls style="max-width:100%;max-height:60vh;border-radius:8px;"></video>';
   }
-  if (meta) meta.textContent = visLabel(m.visibility) + ' · ' + fmtBytes(m.size) + ' · ' + (m.views || 0) + ' views · by ' + (m.uploader || '—');
+  if (meta) meta.textContent = visLabel(m.visibility) + ' · ' + fmtBytes(m.size) + ' · ' + (m.views || 0) + ' views · by ' + (m.uploader || '·');
 
   var copy = document.getElementById('media-view-copy');
   if (copy) copy.onclick = function () { copyToClipboard(shareUrl); };
@@ -273,8 +273,8 @@ async function loadMediaAdmin() {
         + '</div>';
     return '<tr>'
       + '<td>' + thumb + '</td>'
-      + '<td><div style="font-size:12px;font-weight:600;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(m.title || '—') + '</div><div style="font-size:10px;color:var(--text-muted);">' + escapeHtml(m.filename) + '</div></td>'
-      + '<td style="font-size:12px;">' + escapeHtml(m.uploader || '—') + '</td>'
+      + '<td><div style="font-size:12px;font-weight:600;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(m.title || '·') + '</div><div style="font-size:10px;color:var(--text-muted);">' + escapeHtml(m.filename) + '</div></td>'
+      + '<td style="font-size:12px;">' + escapeHtml(m.uploader || '·') + '</td>'
       + '<td><span class="badge badge-' + (m.kind === 'video' ? 'amber' : 'blue') + '"><span class="badge-dot"></span>' + m.kind + '</span></td>'
       + '<td style="font-size:12px;">' + fmtBytes(m.size) + '</td>'
       + '<td style="font-size:12px;">' + (m.views || 0) + '</td>'

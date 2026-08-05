@@ -50,7 +50,7 @@
       <i class="ti ti-qrcode" style="font-size:22px;color:var(--blue,#3b82f6);"></i>
       <h2 style="font-size:17px;margin:0;">Sign in another device</h2>
     </div>
-    <p class="muted">On a computer, open the MET sign-in page and choose <strong>“Scan a QR code”</strong>. Scan that code here to approve the sign-in — no password needed.</p>
+    <p class="muted">On a computer, open the MET sign-in page and choose <strong>“Scan a QR code”</strong>. Scan that code here to approve the sign-in · no password needed.</p>
     <button id="qr-scan-btn" class="btn btn-primary big-btn"><i class="ti ti-camera"></i> Scan QR code</button>
   </div>
 
@@ -109,13 +109,13 @@
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       vid.srcObject = stream; await vid.play();
     } catch (e) {
-      msg('Camera unavailable — use your phone’s Camera app to scan the code, or paste the link above.'); return;
+      msg('Camera unavailable · use your phone’s Camera app to scan the code, or paste the link above.'); return;
     }
     if (!('BarcodeDetector' in window)) {
-      msg('In-app scanning isn’t supported on this browser — use your phone’s Camera app to scan, or paste the link above.'); return;
+      msg('In-app scanning isn’t supported on this browser · use your phone’s Camera app to scan, or paste the link above.'); return;
     }
     try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); }
-    catch (e) { msg('Scanning unavailable here — paste the link above instead.'); return; }
+    catch (e) { msg('Scanning unavailable here · paste the link above instead.'); return; }
 
     (function scan() {
       if (!overlay) return;

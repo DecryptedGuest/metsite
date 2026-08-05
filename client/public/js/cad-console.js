@@ -58,12 +58,12 @@
         // worker, so key presence comes from the worker's health, not Railway env.
         var hasKey = externalMode ? !!(wh && wh.hasElevenKey) : s.hasElevenKey;
         var head;
-        if (s.voiceMode === 'gateway' && !(s.worker && s.worker.connected)) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> Waiting for the voice worker to connect. Deploy it (see voice-worker/README) — once it dials in this turns green.';
-        else if (externalMode && !(wh && wh.ok)) head = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> Voice worker not responding' + (wh && wh.error ? ' — ' + esc(wh.error) : '') + '.';
-        else if (!hasKey) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected' + (externalMode ? ' on the voice worker' : '') + ' — set ELEVENLABS_API_KEY to speak.';
+        if (s.voiceMode === 'gateway' && !(s.worker && s.worker.connected)) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> Waiting for the voice worker to connect. Deploy it (see voice-worker/README) · once it dials in this turns green.';
+        else if (externalMode && !(wh && wh.ok)) head = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> Voice worker not responding' + (wh && wh.error ? ' · ' + esc(wh.error) : '') + '.';
+        else if (!hasKey) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> No ElevenLabs API key detected' + (externalMode ? ' on the voice worker' : '') + ' · set ELEVENLABS_API_KEY to speak.';
         else if (v.why) head = '<i class="ti ti-alert-triangle" style="color:#f59e0b;"></i> ' + esc(v.why);
         else if (v.lastError) head = '<i class="ti ti-alert-triangle" style="color:#ef4444;"></i> ' + esc(v.lastError);
-        else if (v.lastSpokeAt) head = '<i class="ti ti-circle-check" style="color:#2ed896;"></i> Speaking OK — last spoke ' + ago(v.lastSpokeAt) + ' ago.';
+        else if (v.lastSpokeAt) head = '<i class="ti ti-circle-check" style="color:#2ed896;"></i> Speaking OK · last spoke ' + ago(v.lastSpokeAt) + ' ago.';
         else head = '<span style="color:var(--text-muted);">Pick a server + voice channel, Join, then Radio check.</span>';
         var log = (v.events && v.events.length)
           ? '<pre style="margin:8px 0 0;padding:8px;background:rgba(0,0,0,.25);border-radius:6px;font-size:11px;line-height:1.5;max-height:150px;overflow:auto;white-space:pre-wrap;color:var(--text-secondary);">' + v.events.map(esc).join('\n') + '</pre>'
@@ -157,7 +157,7 @@
           '<div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;font-size:12px;color:' + g[1] + ';" title="' + g[2] + '">' + g[0] + '</span>' +
           '<span style="font-family:var(--font-mono,monospace);font-size:12px;">' + esc(i.cadRef) + '</span>' + chip(i.status, '#8b93a1') +
           '<span style="margin-left:auto;font-size:11px;color:var(--text-muted);">' + ago(i.createdAt) + '</span></div>' +
-          '<div style="font-size:13px;margin-top:3px;">' + esc(i.category) + ' — ' + esc(i.location) + '</div>' +
+          '<div style="font-size:13px;margin-top:3px;">' + esc(i.category) + ' · ' + esc(i.location) + '</div>' +
           (i.description ? '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">' + esc(i.description) + '</div>' : '') +
           '<div style="display:flex;gap:6px;margin-top:7px;">' +
             '<button class="btn btn-secondary" style="height:26px;padding:0 9px;font-size:11px;" onclick="cadAssign(\'' + esc(i.cadRef) + '\')"><i class="ti ti-user-check"></i> Assign</button>' +

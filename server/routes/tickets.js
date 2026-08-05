@@ -166,7 +166,7 @@ router.post('/sync', requireDeveloper, async (req, res) => {
   try {
     const { getClient } = require('../lib/bot');
     const client = getClient();
-    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet — try again shortly.' });
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet · try again shortly.' });
     const { sweep } = require('../lib/ticketIngest');
     const stats = await sweep(client, { full: !!(req.body && req.body.full) });
     if (!stats) return res.status(409).json({ error: 'A sync is already running.' });
@@ -449,19 +449,19 @@ router.post('/clear-backlog', requireDeveloper, async (req, res) => {
             : rawError
               ? `The clear statement failed: ${rawError}`
               : rawPending !== pendingTotal
-                ? `The database and the ORM disagree — SQL sees ${rawPending} pending, the ORM sees ${pendingTotal}. `
+                ? `The database and the ORM disagree · SQL sees ${rawPending} pending, the ORM sees ${pendingTotal}. `
                   + 'They are not reading the same rows; check DATABASE_URL and the schema search path.'
                 : (out.errors && out.errors.length)
                   ? `Every update path was tried and none of them wrote a row: ${out.errors.join(' | ')}`
                   : body.all === true
                     ? `${pendingTotal} rows are pending and every UPDATE matched none of them. `
-                      + 'Open /api/tickets/backlog-status — it reports what the database says about itself.'
+                      + 'Open /api/tickets/backlog-status · it reports what the database says about itself.'
                     : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
       };
       if (!out.cleared) console.warn('[TicketLogs] backlog clear moved nothing:', JSON.stringify(diagnosis));
     }
 
-    console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} — `
+    console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} · `
       + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
       + `${handlers.fixed} handler(s) filled in`);
     res.json({ clearBuild: 7, saw, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });

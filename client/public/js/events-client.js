@@ -140,7 +140,7 @@
       var r = await window.pushClient.requestPushPermission();
       if (typeof window.showToast === 'function') window.showToast(
         r === 'granted' ? 'Desktop notifications enabled.'
-        : r === 'denied' ? 'Notifications are blocked — allow them in your browser’s site settings.'
+        : r === 'denied' ? 'Notifications are blocked · allow them in your browser’s site settings.'
         : 'Notifications aren’t available on this device.',
         r === 'granted' ? 'success' : 'info');
       return r;

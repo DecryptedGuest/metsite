@@ -141,7 +141,7 @@ async function roverDiscordId(robloxId, state) {
   if (state.roverCalls >= state.roverBudget) {
     if (!state.roverCapped) {
       state.roverCapped = true;
-      state.notes.push(`Stopped asking RoVer after ${state.roverCalls} lookups — its rate limit is `
+      state.notes.push(`Stopped asking RoVer after ${state.roverCalls} lookups · its rate limit is `
         + `shared with the one every login needs. The rest are held and will be claimed when their `
         + `owner next logs in, is looked up with /xp, or by the sweep.`);
     }
@@ -157,7 +157,7 @@ async function roverDiscordId(robloxId, state) {
     // A rate limit is not a bad account, and it is not worth one more call.
     if (/rate.?limit|429|paused/i.test(err.message) || state.roverErrors >= 3) {
       state.roverDead = true;
-      state.notes.push(`Stopped asking RoVer after ${state.roverCalls} lookups (${err.message}) — `
+      state.notes.push(`Stopped asking RoVer after ${state.roverCalls} lookups (${err.message}) · `
         + `the rest were left to be claimed later. Nothing is lost.`);
     }
     return null;
@@ -242,7 +242,7 @@ async function importLeaderboard(opts = {}) {
     hits.push({ ...r, robloxId: rec.id, robloxUsername: rec.username, capped: Math.min(r.xp, cap) });
   }
   if (out.unasked) {
-    out.notes.push(`Roblox rate-limited ${out.unasked} name(s) — they were NOT looked at, and nothing `
+    out.notes.push(`Roblox rate-limited ${out.unasked} name(s) · they were NOT looked at, and nothing `
       + `was stored or ruled out for them. Run it again in a few minutes to pick them up; `
       + `nothing already imported will be touched.`);
   }
@@ -310,7 +310,7 @@ async function importLeaderboard(opts = {}) {
 
   if (state.roverCalls) out.roverLookups = state.roverCalls;
   if (out.unknown) {
-    out.notes.push(`${out.unknown} name(s) are not Roblox accounts — the leaderboard cuts long `
+    out.notes.push(`${out.unknown} name(s) are not Roblox accounts · the leaderboard cuts long `
       + `usernames short, and a shortened name is a different account or none at all. `
       + `Nothing was stored for them.`);
   }

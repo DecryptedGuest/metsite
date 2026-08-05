@@ -207,7 +207,7 @@ async function applyXp(o) {
   if (!KINDS.has(kind)) throw new Error(`unknown XP action "${o.kind}"`);
   const value = Math.trunc(Number(o.value));
   if (!Number.isFinite(value)) throw new Error('XP value must be a number');
-  if (value < 0) throw new Error('XP value must not be negative — use the remove action instead');
+  if (value < 0) throw new Error('XP value must not be negative · use the remove action instead');
 
   const id = String(o.discordId);
 
@@ -659,7 +659,7 @@ async function applyGroupRank(robloxId, rank, direction = 'up') {
       // Are they even on the ladder XP governs?
       const onLadder = ladder().some(r => r.match.test(String(current.name || '')));
       if (!onLadder) {
-        return { ok: false, reason: `${current.name || 'their rank'} is above the XP ranks — left alone` };
+        return { ok: false, reason: `${current.name || 'their rank'} is above the XP ranks · left alone` };
       }
       if (current.rank != null && Number(target.rank) >= Number(current.rank)) {
         return { ok: false, reason: `already ${current.name}, which is at or below ${target.name}` };

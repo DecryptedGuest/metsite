@@ -58,7 +58,7 @@ function envTargetsResolver(prefix, builtin) {
             }
           }
         }
-      } catch (e) { console.warn(`[quota] ${prefix}QUOTA_TARGETS is not valid JSON — ignoring.`); }
+      } catch (e) { console.warn(`[quota] ${prefix}QUOTA_TARGETS is not valid JSON · ignoring.`); }
     }
     const flat = process.env[`${prefix}QUOTA_TARGET`];
     if (flat != null && flat !== '') {
@@ -240,10 +240,10 @@ function serviceAccountRaw(prefix) {
 // Accepts an optional cfg (from quotaConfig) or a prefix string so the right
 // division's service account is used. No arg → the shared IA account.
 function getSheetsClient(cfgOrPrefix) {
-  if (!google) { console.warn('[quota] googleapis not installed — run npm install.'); return null; }
+  if (!google) { console.warn('[quota] googleapis not installed · run npm install.'); return null; }
   const prefix = cfgOrPrefix && typeof cfgOrPrefix === 'object' ? cfgOrPrefix.prefix : (cfgOrPrefix || '');
   const { raw, varName } = serviceAccountRaw(prefix);
-  if (!raw) { console.warn(`[quota] ${varName} not set — quota disabled for this division.`); return null; }
+  if (!raw) { console.warn(`[quota] ${varName} not set · quota disabled for this division.`); return null; }
   let creds;
   try { creds = JSON.parse(raw); } catch (e) { console.warn(`[quota] ${varName} is not valid JSON`); return null; }
   const auth = new google.auth.GoogleAuth({
@@ -447,7 +447,7 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 
     const rowIdx = findMemberRow(rows, cols, member.discordId, member.robloxCandidates);
     if (rowIdx < 0) {
-      console.warn(`[quota] no row matched for ${label} — discord=${member.discordId}, tried usernames=[${(member.robloxCandidates || []).join(', ')}] (discordCol=${cols.discordId != null}, userCol=${cols.username != null})`);
+      console.warn(`[quota] no row matched for ${label} · discord=${member.discordId}, tried usernames=[${(member.robloxCandidates || []).join(', ')}] (discordCol=${cols.discordId != null}, userCol=${cols.username != null})`);
       return false;
     }
 
@@ -457,7 +457,7 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 
     const cellRaw = (rows[rowIdx][dayCol] || '').toString().trim();
     if (cellRaw && isNaN(parseFloat(cellRaw))) {
-      console.warn(`[quota] cell "${cellRaw}" is non-numeric (e.g. EX) — leaving it untouched for ${label}`);
+      console.warn(`[quota] cell "${cellRaw}" is non-numeric (e.g. EX) · leaving it untouched for ${label}`);
       return false;
     }
     const base   = cellRaw ? parseFloat(cellRaw) : 0;
@@ -804,7 +804,7 @@ async function getAllMembersViaWebhook(cfg) {
     const data = await res.json().catch(() => ({}));
     if (!data || !data.ok || !Array.isArray(data.tabs)) {
       if (data && data.error) console.warn(`[quota] members webhook (${cfg.division}): ${data.error}`);
-      else console.warn(`[quota] members webhook (${cfg.division}): old deployment without the 'members' action — re-deploy the Apps Script.`);
+      else console.warn(`[quota] members webhook (${cfg.division}): old deployment without the 'members' action · re-deploy the Apps Script.`);
       return null;
     }
     // IA's Investigator-of-the-Week quota reduction still applies on the webhook path.
@@ -1028,7 +1028,7 @@ async function processQuotaAwards() {
           data:  { attempts, status, lastError: err || 'sheet write did not apply (no row matched?)' },
         }).catch(() => {});
         if (status === 'FAILED')
-          console.warn(`[quota] award ${a.label || a.id} FAILED after ${attempts} tries — discord=${a.discordId}, roblox=${a.robloxUsername}. Add the points manually.`);
+          console.warn(`[quota] award ${a.label || a.id} FAILED after ${attempts} tries · discord=${a.discordId}, roblox=${a.robloxUsername}. Add the points manually.`);
       }
     }
   } catch (e) {

@@ -24,7 +24,7 @@ async function postJson(url, { headers = {}, body, timeoutMs = 12000 } = {}) {
   const res = await fetch(url, opts);
   const text = await res.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch (e) {}
-  if (!res.ok) throw new Error(`HTTP ${res.status}${json && json.message ? ' — ' + json.message : ''}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}${json && json.message ? ' · ' + json.message : ''}`);
   return json;
 }
 

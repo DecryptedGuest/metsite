@@ -75,7 +75,7 @@ async function propagateBlacklistToAlts(user, reason) {
   try { alts = await findAlts(user); } catch (e) { return []; }
   const targets = alts.filter(a => !a.isBlacklisted);
   const done = [];
-  const label = `Automatically blacklisted — detected as an alt of ${user.displayName || user.discordUsername || user.id}` +
+  const label = `Automatically blacklisted · detected as an alt of ${user.displayName || user.discordUsername || user.id}` +
     (reason ? ` (${String(reason).slice(0, 160)})` : '');
   for (const a of targets) {
     try {

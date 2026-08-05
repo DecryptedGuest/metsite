@@ -67,7 +67,7 @@ const ts = (d, style = 'f') => {
 /** "2h 30m", "45m", "—". Minutes are what the form collects; nobody reads 150. */
 function humanMinutes(mins) {
   const m = Number(mins);
-  if (!Number.isFinite(m) || m <= 0) return '—';
+  if (!Number.isFinite(m) || m <= 0) return '·';
   const h = Math.floor(m / 60), r = m % 60;
   if (!h) return `${r}m`;
   if (!r) return `${h}h`;
@@ -121,7 +121,7 @@ function roll(people) {
 function statusLine(row) {
   if (row.voidedAt) {
     return `${e('met_warn')} **Withdrawn**`
-      + (row.voidedReason ? ` — ${cap(row.voidedReason, 200)}` : '')
+      + (row.voidedReason ? ` · ${cap(row.voidedReason, 200)}` : '')
       + `\nThe points and XP this paid have been taken back.`;
   }
   const who = row.reviewedByName ? `**${cap(row.reviewedByName, 60)}**` : 'a supervisor';
@@ -195,7 +195,7 @@ function patrolEmbed(row) {
 
 function eventEmbed(row) {
   const fields = [];
-  fields.push({ name: `${e('met_star')}  Type`, value: cap(row.eventType || '—', 200), inline: true });
+  fields.push({ name: `${e('met_star')}  Type`, value: cap(row.eventType || '·', 200), inline: true });
   fields.push({ name: `${e('met_user')}  Host`, value: cap(person({
     discordId: row.hostDiscordId, name: row.hostName })), inline: true });
   if (row.coHostName) {
@@ -245,7 +245,7 @@ function buildEmbed(kind, row) {
       name: `${e('met_camera')}  Proof`,
       value: linked.length === proof.length && proof.length === 1
         ? `[Screenshot](${linked[0]})`
-        : `**${proof.length}** attached — open the log on the site to see ${proof.length === 1 ? 'it' : 'them'}.`,
+        : `**${proof.length}** attached · open the log on the site to see ${proof.length === 1 ? 'it' : 'them'}.`,
       inline: false,
     });
   }
@@ -295,14 +295,14 @@ async function post(kind, row) {
   const ref = row.patrolRef || row.eventRef || row.id;
   const { channel, why: problem } = await fetchChannel(kind);
   if (!channel) {
-    console.warn(`[LogMirror] ${ref} not mirrored — ${problem}`);
+    console.warn(`[LogMirror] ${ref} not mirrored · ${problem}`);
     return null;
   }
   try {
     const msg = await channel.send({ embeds: [buildEmbed(kind, row)], allowedMentions: { parse: [] } });
     return { channelId: String(channel.id), messageId: String(msg.id) };
   } catch (err) {
-    console.warn(`[LogMirror] ${ref} not mirrored — ${why(err)}`);
+    console.warn(`[LogMirror] ${ref} not mirrored · ${why(err)}`);
     return null;
   }
 }
@@ -324,7 +324,7 @@ async function refresh(kind, row) {
   if (!row.mirrorMessageId) return post(kind, row);
 
   const c = client();
-  if (!c) { console.warn(`[LogMirror] ${ref} not updated — the bot is not connected`); return null; }
+  if (!c) { console.warn(`[LogMirror] ${ref} not updated · the bot is not connected`); return null; }
   try {
     const channel = await c.channels.fetch(String(row.mirrorChannelId || channelFor(kind)));
     const msg = await channel.messages.fetch(String(row.mirrorMessageId));
@@ -335,11 +335,11 @@ async function refresh(kind, row) {
     // left alone — reposting on a permission error would spam the channel the
     // moment permission came back.
     if (err && (err.code === 10008 || err.code === 10003)) {
-      console.warn(`[LogMirror] ${ref} — ${why(err)}, posting a fresh mirror`);
+      console.warn(`[LogMirror] ${ref} · ${why(err)}, posting a fresh mirror`);
       const out = await post(kind, row);
       return out ? { ...out, reposted: true } : null;
     }
-    console.warn(`[LogMirror] ${ref} not updated — ${why(err)}`);
+    console.warn(`[LogMirror] ${ref} not updated · ${why(err)}`);
     return null;
   }
 }

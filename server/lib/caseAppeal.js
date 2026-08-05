@@ -140,8 +140,12 @@ async function appealCase({ existing, actor, reason }) {
   // is left to do by hand.
   const manual = [];
   for (const a of actions) {
-    if (ACTION_CONFIG[a.action]?.exile) manual.push(`${a.action} — re-invite to the Roblox group manually`);
-    if (a.action === 'Demotion')        manual.push('Demotion — restore the Roblox group rank manually');
+    // A blacklist appeal does not imply putting them back in the group, so it
+    // gets no "re-invite" note. A Termination might, so that one keeps it.
+    if (ACTION_CONFIG[a.action]?.exile && a.action !== 'Blacklist') {
+      manual.push(`${a.action}: re-invite to the Roblox group by hand`);
+    }
+    if (a.action === 'Demotion') manual.push('Demotion: restore the Roblox group rank by hand');
   }
 
   if (lifted.length || failed.length || kept.length || manual.length) {
@@ -195,7 +199,7 @@ async function appealCase({ existing, actor, reason }) {
   if (existing.userId && existing.userId !== actor.userId) {
     require('./push').sendCustomNotification({
       userIds: [existing.userId],
-      title:   `Case appealed — ${existing.caseRef}`,
+      title:   `Case appealed · ${existing.caseRef}`,
       body:    `${appealedByName} granted an appeal. Punishments have been lifted.`,
       url:     `/ia/dashboard?case=${existing.id}`,
       prefKey: 'caseAppealed',

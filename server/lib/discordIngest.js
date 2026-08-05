@@ -99,7 +99,7 @@ async function ingestPromotion(message) {
           require('./bot').dmMemberNotice(mention.id, {
             color: 0xe8842a,
             title: 'You have been demoted',
-            description: `${change}${reason ? `**Reason:** ${String(reason).slice(0, 600)}\n` : ''}\nIf you believe this was a mistake, open your record below and file an appeal — an investigator will review it.`,
+            description: `${change}${reason ? `**Reason:** ${String(reason).slice(0, 600)}\n` : ''}\nIf you believe this was a mistake, open your record below and file an appeal · an investigator will review it.`,
             appealUrl: `${base}/profile`,
             appealLabel: 'View my record',
           }).catch(() => {});
@@ -186,7 +186,7 @@ async function ingestInfraction(message) {
         require('./bot').dmMemberNotice(mention.id, {
           color: 0xf04f5e,
           title: 'You have received a disciplinary action',
-          description: `**Type:** ${created.type}\n${reason ? `**Reason:** ${String(reason).slice(0, 600)}\n` : ''}\nIf you believe this was a mistake — or want to see the evidence and full details — open your record below and file an appeal.`,
+          description: `**Type:** ${created.type}\n${reason ? `**Reason:** ${String(reason).slice(0, 600)}\n` : ''}\nIf you believe this was a mistake · or want to see the evidence and full details · open your record below and file an appeal.`,
           appealUrl: `${base}/profile`,
           appealLabel: 'View my record',
         }).catch(() => {});

@@ -87,7 +87,7 @@
     var box = $('ev-suggest');
     if (!box) return;
     if (!suggestions.length) {
-      box.innerHTML = '<div class="ev-sug-empty">Nobody matches that — you can still type the name in full.</div>';
+      box.innerHTML = '<div class="ev-sug-empty">Nobody matches that · you can still type the name in full.</div>';
       box.style.display = '';
       return;
     }
@@ -197,7 +197,7 @@
       r.readAsDataURL(f);
     });
     if (rejected && window.showToast) {
-      showToast(rejected + ' file(s) skipped — images only, up to ' + META.maxProof
+      showToast(rejected + ' file(s) skipped · images only, up to ' + META.maxProof
         + ' of them, ' + META.maxProofMb + ' MB each.', 'warning');
     }
   }
@@ -264,13 +264,13 @@
     if (!box) return;
     var parsed = parseRoll($('ev-attendees') ? $('ev-attendees').value : '');
     if (!parsed.roll.length) {
-      box.innerHTML = '<span class="ev-roll-empty">No attendees yet — nobody gets paid.</span>';
+      box.innerHTML = '<span class="ev-roll-empty">No attendees yet · nobody gets paid.</span>';
       return;
     }
     var chips = parsed.roll.map(function (a) {
       var label = a.name || ('ID ' + a.discordId);
       return '<span class="ev-chip' + (a.discordId ? ' ev-chip-id' : '') + '"'
-        + ' title="' + esc(a.discordId ? 'Discord ' + a.discordId : 'Matched by name — an ID is more reliable') + '">'
+        + ' title="' + esc(a.discordId ? 'Discord ' + a.discordId : 'Matched by name · an ID is more reliable') + '">'
         + '<i class="ti ti-' + (a.discordId ? 'user-check' : 'user') + '"></i>' + esc(label) + '</span>';
     }).join('');
     // The host is paid too, so the totals count them — otherwise the number on
@@ -284,7 +284,7 @@
       + ' + you · <strong>' + total + '</strong> quota point' + (total === 1 ? '' : 's')
       + (META.xpEach ? ' · <strong>' + totalXp + '</strong> MET XP' : '') + ' once approved'
       + (META.xpEach && noId ? ' · <span class="ev-roll-warn">' + noId
-          + ' with no Discord ID — no MET XP</span>' : '')
+          + ' with no Discord ID · no MET XP</span>' : '')
       + (parsed.dupes ? ' · <span class="ev-roll-note">' + parsed.dupes + ' duplicate' + (parsed.dupes === 1 ? '' : 's') + ' ignored</span>' : '')
       + (parsed.over ? ' · <span class="ev-roll-warn">only the first ' + META.maxAttendees + ' are counted</span>' : '')
       + '</div><div class="ev-chips">' + chips + '</div>';
@@ -319,7 +319,7 @@
       + '<td><span style="font-size:12.5px;">' + esc(e.eventType)
         + (e.title ? '<br><span class="text-muted" style="font-size:11px;">' + esc(e.title) + '</span>' : '')
         + '</span></td>'
-      + '<td><span style="font-size:12px;">' + esc(e.hostName || '—')
+      + '<td><span style="font-size:12px;">' + esc(e.hostName || '·')
         + (e.coHostName ? ' <span class="text-muted">+ ' + esc(e.coHostName) + '</span>' : '') + '</span></td>'
       + '<td><span style="font-size:12px;">' + (e.attendeeCount || 0) + '</span></td>'
       + '<td>' + statusBadge(e, paid, paidXp) + '</td>'
@@ -340,7 +340,7 @@
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="7" class="table-empty-text" style="padding:14px;">'
         + (cache.length ? 'No events match that search.'
-                        : 'No events logged yet — press “Log an event” after you run one.')
+                        : 'No events logged yet · press “Log an event” after you run one.')
         + '</td></tr>';
       return;
     }
@@ -430,7 +430,7 @@
       };
       var out = await api('/api/ia-events', { method: 'POST', body: JSON.stringify(body) });
       closeModal('modal-event');
-      showToast(out.event.eventRef + ' filed — waiting on a supervisor.', 'success');
+      showToast(out.event.eventRef + ' filed · waiting on a supervisor.', 'success');
       ['ev-cohost', 'ev-attendees', 'ev-notes'].forEach(function (id) {
         var el = $(id); if (el) el.value = '';
       });
@@ -464,7 +464,7 @@
     return '<tr>'
       + '<td><span class="case-ref">' + esc(e.eventRef) + '</span></td>'
       + '<td><span style="font-size:12.5px;">' + esc(e.eventType) + '</span></td>'
-      + '<td><span style="font-size:12px;">' + esc(e.hostName || '—')
+      + '<td><span style="font-size:12px;">' + esc(e.hostName || '·')
         + (e.coHostName ? ' <span class="text-muted">+ ' + esc(e.coHostName) + '</span>' : '') + '</span></td>'
       + '<td><span style="font-size:12px;" title="' + esc(names.join(', ')) + '">'
         + (e.attendeeCount || 0) + '</span></td>'
@@ -474,7 +474,7 @@
       + '<td><span class="date-cell">' + esc(when) + '</span></td>'
       + '<td>'
         + '<button class="row-btn row-btn-approve" onclick="iaEventReview(\'' + esc(e.id) + '\',\'approve\')" title="Approve and pay"><i class="ti ti-check"></i></button> '
-        + '<button class="row-btn row-btn-deny" onclick="iaEventReview(\'' + esc(e.id) + '\',\'deny\')" title="Deny — nobody is paid"><i class="ti ti-x"></i></button>'
+        + '<button class="row-btn row-btn-deny" onclick="iaEventReview(\'' + esc(e.id) + '\',\'deny\')" title="Deny · nobody is paid"><i class="ti ti-x"></i></button>'
         + '</td>'
       + '</tr>';
   }
@@ -526,7 +526,7 @@
     var heads = (e.attendeeCount || 0) + 1;
     var okGo = await (typeof uiConfirm === 'function'
       ? uiConfirm(action === 'approve'
-          ? 'Approve ' + (e.eventRef || 'this event') + '?\n\n' + heads + ' people — the host included — will each get '
+          ? 'Approve ' + (e.eventRef || 'this event') + '?\n\n' + heads + ' people · the host included · will each get '
             + META.pointsEach + ' quota point(s)' + (META.xpEach ? ' and ' + META.xpEach + ' MET XP' : '') + '.'
           : 'Deny ' + (e.eventRef || 'this event') + '?\n\nNobody is paid.')
       : Promise.resolve(true));
@@ -540,7 +540,7 @@
       var out = await api('/api/ia-events/' + encodeURIComponent(id) + '/review',
         { method: 'POST', body: JSON.stringify({ action: action, note: note || null }) });
       showToast(action === 'approve'
-        ? (out.event.eventRef + ' approved — ' + (out.paid || 0) + ' paid ' + out.pointsEach + ' point(s)'
+        ? (out.event.eventRef + ' approved · ' + (out.paid || 0) + ' paid ' + out.pointsEach + ' point(s)'
            + (out.xpEach ? ' and ' + out.xpEach + ' MET XP' : '') + '.')
         : (out.event.eventRef + ' denied.'), 'success');
       queue = queue.filter(function (x) { return x.id !== id; });
@@ -560,7 +560,7 @@
     try {
       var out = await api('/api/ia-events/' + encodeURIComponent(id) + '/void',
         { method: 'POST', body: JSON.stringify({ reason: why }) });
-      showToast('Withdrawn — ' + out.reversed + ' award(s) reversed.', 'success');
+      showToast('Withdrawn · ' + out.reversed + ' award(s) reversed.', 'success');
       load();
     } catch (err) {
       showToast(err.message || 'Could not withdraw that event.', 'error');

@@ -39,10 +39,10 @@ function ipOf(req) { try { return require('../middleware/visit').getClientIp(req
 function usable(u) { return u && !u.isBlacklisted && !u.mustReauth; }
 
 const codeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
-  message: { error: 'Too many code requests — wait a few minutes and try again.' } });
+  message: { error: 'Too many code requests · wait a few minutes and try again.' } });
 // Brute-force guard for the passwordless verify endpoints.
 const verifyLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
-  message: { error: 'Too many sign-in attempts — wait a few minutes and try again.' } });
+  message: { error: 'Too many sign-in attempts · wait a few minutes and try again.' } });
 
 // ── 1. Discord DM 6-digit code ───────────────────────────────────────
 // POST /api/login/code/request { discord } — resolve the account, DM a code.
@@ -119,7 +119,7 @@ router.post('/code/verify', verifyLimiter, async (req, res) => {
 // approver, and the approval page shows the initiating device's context so a
 // victim can recognise an unfamiliar device and decline.
 const qrLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
-  message: { error: 'Too many sign-in requests — wait a few minutes and try again.' } });
+  message: { error: 'Too many sign-in requests · wait a few minutes and try again.' } });
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const qrCookieName = (id) => 'qr_' + String(id).replace(/[^a-zA-Z0-9]/g, '');
 

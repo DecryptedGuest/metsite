@@ -110,7 +110,7 @@ function flpQuotaRender(scope) {
     var m = all[i];
     var q = m.quota || {};
     var exempt = !!q.exempt;
-    var target = exempt ? "EX" : (q.target != null ? q.target : "—");
+    var target = exempt ? "EX" : (q.target != null ? q.target : "·");
     if (!m._status) m._status = exempt ? "exempt" : (m.met === true ? "pass" : "fail");
     var status = m._status;
     var ptColor = (exempt || status === "exempt" || status === "loa") ? "var(--purple)" : (m.met ? "var(--green)" : "var(--amber)");
@@ -127,7 +127,7 @@ function flpQuotaRender(scope) {
 
     return "<tr>"
       + "<td><span style='font-weight:600;font-size:12px;'>" + fqEsc(m.username) + "</span></td>"
-      + "<td><span style='font-size:12px;'>" + fqEsc(m.rank || "—") + "</span></td>"
+      + "<td><span style='font-size:12px;'>" + fqEsc(m.rank || "·") + "</span></td>"
       + "<td><span class='text-muted' style='font-size:11px;'>" + fqEsc(q.tier || "") + "</span></td>"
       + "<td><span style='font-weight:700;color:" + ptColor + ";'>" + (exempt ? "EX" : m.total) + "</span></td>"
       + "<td><span class='mono' style='font-size:12px;'>" + target + "</span></td>"

@@ -111,18 +111,18 @@ async function planPromotion(current, issuerRank) {
   let ranks;
   try { ranks = await promotableRanks(); }
   catch (err) { return { ok: false, why: `The MET group's ranks could not be read (${err.message}).` }; }
-  if (!ranks.length) return { ok: false, why: "The MET group returned no ranks — refusing to guess at one." };
+  if (!ranks.length) return { ok: false, why: "The MET group returned no ranks · refusing to guess at one." };
 
   const ceiling = ceilingFor(ranks);
   const from = ranks.find(r => Number(r.rank) === Number(current.rank))
     || { id: null, name: current.name, rank: Number(current.rank) };
   const to = ranks.find(r => Number(r.rank) > Number(current.rank));
 
-  if (!to) return { ok: false, from, ceiling, why: `**${from.name}** is the top of the ladder — there is nothing above it.` };
+  if (!to) return { ok: false, from, ceiling, why: `**${from.name}** is the top of the ladder · there is nothing above it.` };
   if (Number(to.rank) > ceiling) {
     return { ok: false, from, to, ceiling,
       why: `The next rank up is **${to.name}**, which is High Command. `
-        + `/promote stops below that — a promotion into High Command is not a slash-command decision.` };
+        + `/promote stops below that · a promotion into High Command is not a slash-command decision.` };
   }
   if (issuerRank != null && Number(to.rank) >= Number(issuerRank)) {
     return { ok: false, from, to, ceiling,
@@ -198,7 +198,7 @@ async function handlePromoteCommand(interaction) {
   ]);
   if (!link.robloxId) {
     return interaction.editReply({ embeds: [fail('No Roblox account',
-      `<@${target.id}> has no Roblox account we can find — verify them with RoVer, or have them log into the MET Dashboard once, and try again.`)],
+      `<@${target.id}> has no Roblox account we can find · verify them with RoVer, or have them log into the MET Dashboard once, and try again.`)],
     }).catch(() => {});
   }
 
@@ -276,7 +276,7 @@ async function handlePromoteButton(interaction) {
     return interaction.update({
       embeds: [new EmbedBuilder().setColor(COLOR.warn)
         .setTitle(`${e('met_warn')} This has expired`)
-        .setDescription('Run `/promote` again — nothing was changed.')],
+        .setDescription('Run `/promote` again · nothing was changed.')],
       components: [],
     }).catch(() => {});
   }
@@ -319,9 +319,9 @@ async function handlePromoteButton(interaction) {
     .addFields(
       { name: 'Rank', value: `${short(state.from.name, 40)} → **${short(state.to.name, 40)}**`, inline: false },
       { name: 'Steps', value: [
-        line(result.group.ok, `MET Rank — ${result.group.ok ? `now **${state.to.name}**` : short(result.group.reason || 'failed', 90)}`),
-        line(result.xp.ok, `XP — ${result.xp.ok ? `set to **${result.xp.value}**` : short(result.xp.reason || 'unchanged', 90)}`),
-        line(result.dm, result.dm ? 'Officer notified' : "Couldn't DM them — their DMs are closed"),
+        line(result.group.ok, `MET Rank · ${result.group.ok ? `now **${state.to.name}**` : short(result.group.reason || 'failed', 90)}`),
+        line(result.xp.ok, `XP · ${result.xp.ok ? `set to **${result.xp.value}**` : short(result.xp.reason || 'unchanged', 90)}`),
+        line(result.dm, result.dm ? 'Officer notified' : "Couldn't DM them · their DMs are closed"),
         line(result.logged, result.logged ? 'Posted to the XP log' : 'XP log not posted'),
       ].join('\n'), inline: false },
     )
@@ -384,7 +384,7 @@ async function applyPromotion(state, client) {
     const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
     out.dm = await require('./bot').dmMemberNotice(state.targetId, {
       color: 0xffc93c,
-      title: `Congratulations — you've been promoted to ${state.to.name}`,
+      title: `Congratulations · you've been promoted to ${state.to.name}`,
       description:
         `You have been promoted from **${state.from.name}** to **${state.to.name}** in the Metropolitan Police.\n\n`
         + (state.reason ? `**Reason:** ${short(state.reason, 400)}\n` : '')

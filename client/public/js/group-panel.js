@@ -49,7 +49,7 @@
       // is already in this list by name — two options doing the same thing, one
       // of them labelled after an environment variable.
       sel.innerHTML = divs
-        .map(d => `<option value="${esc(d.key)}">${esc(d.name)}${d.fullName && d.fullName !== d.name ? ' — ' + esc(d.fullName) : ''}</option>`)
+        .map(d => `<option value="${esc(d.key)}">${esc(d.name)}${d.fullName && d.fullName !== d.name ? ' · ' + esc(d.fullName) : ''}</option>`)
         .join('');
       // Land on MET when nothing is chosen — the group "Default" used to mean.
       if (!currentDivision) currentDivision = divs.some(d => d.key === 'MET') ? 'MET' : (divs[0] ? divs[0].key : '');
@@ -194,7 +194,7 @@
     const threshold = botRankThreshold();
     const q = (document.getElementById('members-search')?.value || '').trim().toLowerCase();
     const rankFilter = document.getElementById('members-rank-filter')?.value || '';
-    let list = membersCache.map(m => ({ ...m, _rank: (m.roleRank != null ? m.roleRank : -1), _roleName: m.roleName || m.roleId || '—' }));
+    let list = membersCache.map(m => ({ ...m, _rank: (m.roleRank != null ? m.roleRank : -1), _roleName: m.roleName || m.roleId || '·' }));
     list.sort((a, b) => b._rank - a._rank);
     if (rankFilter) list = list.filter(m => m._roleName === rankFilter);
     if (q) list = list.filter(m => (m.username || '').toLowerCase().includes(q) || (m.displayName || '').toLowerCase().includes(q) || String(m.userId).includes(q));
@@ -214,7 +214,7 @@
           </div></td>
           <td><span style="font-size:12px;color:var(--text-secondary);">${esc(m._roleName)}</span>
             ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}</td>
-          <td>${locked ? '<span style="font-size:11px;color:var(--text-muted);">—</span>' : `<select class="role-select" id="rank-sel-${esc(m.userId)}">${roleOptions(m.roleId)}</select>`}</td>
+          <td>${locked ? '<span style="font-size:11px;color:var(--text-muted);">·</span>' : `<select class="role-select" id="rank-sel-${esc(m.userId)}">${roleOptions(m.roleId)}</select>`}</td>
           <td>${locked ? '<span style="font-size:11px;color:var(--text-muted);">Cannot edit</span>' : `<div class="admin-actions">
             <button class="row-btn row-btn-approve btn-sm" onclick="changeGroupRankUI('${esc(m.userId)}','${esc(m.username)}')"><i class="ti ti-arrow-up"></i> Rank</button>
             <button class="row-btn row-btn-deny btn-sm" onclick="kickGroupMember('${esc(m.userId)}','${esc(m.username)}')"><i class="ti ti-door-exit"></i> Kick</button>

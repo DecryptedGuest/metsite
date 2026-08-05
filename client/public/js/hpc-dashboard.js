@@ -115,8 +115,8 @@ async function loadExamInsights() {
       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
   tiles.innerHTML =
     tile(d.total || 0, 'Total exams', 'var(--text-primary)') +
-    tile(d.passRate != null ? d.passRate + '%' : '—', 'Pass rate', 'var(--green,#22c55e)') +
-    tile(d.avgPercentage != null ? d.avgPercentage + '%' : '—', 'Average score', 'var(--blue,#4a8fff)') +
+    tile(d.passRate != null ? d.passRate + '%' : '·', 'Pass rate', 'var(--green,#22c55e)') +
+    tile(d.avgPercentage != null ? d.avgPercentage + '%' : '·', 'Average score', 'var(--blue,#4a8fff)') +
     tile(d.pending || 0, 'Awaiting marking', 'var(--amber,#e8842a)');
   const max = Math.max(1, ...(d.distribution || []).map(b => b.count));
   dist.innerHTML = (d.distribution || []).map(b => {
@@ -165,7 +165,7 @@ function subRow(s) {
   const mark = s.status === 'PENDING' ? '' : `${s.score}/${s.maxScore} · ${s.percentage}%`;
   return `<tr>
     <td>${esc(s.discordUsername || s.discordId)}</td>
-    <td>${esc(s.robloxUsername || '—')}</td>
+    <td>${esc(s.robloxUsername || '·')}</td>
     <td>${det}</td>
     <td>${statusBadge(s.status)}${mark ? ` <span class="text-muted" style="font-size:11px;">${mark}</span>` : ''}</td>
     <td>${formatDate(s.createdAt)}</td>
@@ -188,7 +188,7 @@ async function openMark(id) {
     document.getElementById('mark-flags').innerHTML = flags.length ? `
       <div style="border:1px solid rgba(200,40,60,0.3);background:rgba(180,20,40,0.06);border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1rem;">
         <div style="font-size:12px;font-weight:700;color:var(--red);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px;"><i class="ti ti-alert-triangle"></i> Cheating / AI detection (${flags.length})</div>
-        ${flags.map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:3px 0;"><span style="color:${SEV_COLOR[f.severity] || 'var(--text-muted)'};font-weight:600;">● ${esc(qNumberize(f.label))}</span>${f.detail ? ' — ' + esc(qNumberize(f.detail)) : ''}</div>`).join('')}
+        ${flags.map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:3px 0;"><span style="color:${SEV_COLOR[f.severity] || 'var(--text-muted)'};font-weight:600;">● ${esc(qNumberize(f.label))}</span>${f.detail ? ' · ' + esc(qNumberize(f.detail)) : ''}</div>`).join('')}
       </div>`
       : `<div style="font-size:12px;color:var(--green);margin-bottom:1rem;"><i class="ti ti-shield-check"></i> No cheating/AI signals detected.</div>`;
 
@@ -263,7 +263,7 @@ window.renderAiScan = function (scan) {
   const providerChips = (scan.providers || []).map(p => `<span class="met-chip" style="font-size:10px;">${esc(p)}</span>`).join(' ');
   const answers = (hpcCurrent && hpcCurrent.answers) || {};
   const perAnswer = (scan.perAnswer || []).map(a => {
-    const provs = (a.providers || []).map(pr => `<span style="font-size:10px;color:${aiColor(pr.aiProbability)};" ${pr.error ? `title="${esc(pr.error)}"` : ''}>${esc(pr.name)}: ${pr.aiProbability == null ? '—' : pr.aiProbability + '%'}</span>`).join(' · ');
+    const provs = (a.providers || []).map(pr => `<span style="font-size:10px;color:${aiColor(pr.aiProbability)};" ${pr.error ? `title="${esc(pr.error)}"` : ''}>${esc(pr.name)}: ${pr.aiProbability == null ? '·' : pr.aiProbability + '%'}</span>`).join(' · ');
     const prompt = a.prompt || '';
     const answerText = answers[a.qid] || '';
     const highlighted = highlightAi(answerText, a.aiSentences);
@@ -271,14 +271,14 @@ window.renderAiScan = function (scan) {
       ? ` · <span style="color:${aiColor(a.aiFraction)};">${a.aiFraction}% of text flagged</span>` : '';
     return `<div style="padding:7px 0;border-bottom:1px solid var(--border-dim);">
       <div style="font-size:11px;color:var(--text-muted);">${esc(prompt.slice(0, 80))}${prompt.length > 80 ? '…' : ''}</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:3px 0;"><span style="font-weight:700;color:${aiColor(a.overall)};">${a.overall == null ? '—' : a.overall + '% AI'}</span>${frac}<span style="font-size:10px;color:var(--text-muted);">${provs}</span></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:3px 0;"><span style="font-weight:700;color:${aiColor(a.overall)};">${a.overall == null ? '·' : a.overall + '% AI'}</span>${frac}<span style="font-size:10px;color:var(--text-muted);">${provs}</span></div>
       <div style="font-size:12px;color:var(--text-secondary);background:rgba(255,255,255,0.03);border-radius:6px;padding:6px 9px;white-space:pre-wrap;line-height:1.5;">${highlighted || '<em>(blank)</em>'}</div>
     </div>`;
   }).join('') || '<div style="font-size:12px;color:var(--text-muted);">No answers were long enough to scan reliably.</div>';
 
   el.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:1rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-      <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;"><i class="ti ti-robot"></i> AI detection — per answer</div>${btn}</div>
+      <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;"><i class="ti ti-robot"></i> AI detection · per answer</div>${btn}</div>
     <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">${(scan.providers || []).length} detector(s): ${providerChips}</div>
     ${scan.message ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${esc(scan.message)}</div>` : ''}
     <div>${perAnswer}</div>
@@ -337,11 +337,11 @@ async function loadResults() {
     const rows = await api('/api/hpc/exam/results');
     tbody.innerHTML = rows.length ? rows.map(r => `<tr class="row-clickable" onclick="openExamResult('${r.id}')" title="Click for details">
         <td>${esc(r.discordUsername || r.discordId)}</td>
-        <td>${esc(r.robloxUsername || '—')}</td>
-        <td>${r.status === 'PENDING' ? '—' : `${r.score}/${r.maxScore}`}</td>
-        <td>${r.percentage != null ? r.percentage + '%' : '—'}</td>
+        <td>${esc(r.robloxUsername || '·')}</td>
+        <td>${r.status === 'PENDING' ? '·' : `${r.score}/${r.maxScore}`}</td>
+        <td>${r.percentage != null ? r.percentage + '%' : '·'}</td>
         <td>${statusBadge(r.status)}</td>
-        <td>${esc(r.markedByName || '—')}</td>
+        <td>${esc(r.markedByName || '·')}</td>
         <td>${formatDate(r.createdAt)} <i class="ti ti-chevron-right" style="color:var(--text-muted);font-size:13px;vertical-align:middle;"></i></td>
       </tr>`).join('')
       : (window.metEmpty ? `<tr><td colspan="7">${window.metEmpty({ icon: 'ti-file-off', title: 'No exams submitted yet', sub: 'Cadet final exams will appear here once submitted.' })}</td></tr>` : `<tr><td colspan="7" class="table-empty"><div class="table-empty-text">No exams submitted yet.</div></td></tr>`);
@@ -362,13 +362,13 @@ async function openExamResult(id) {
   document.getElementById('exd-title').textContent = `Final Exam · ${r.discordUsername || r.robloxUsername || 'Cadet'}`;
   const marked = r.status !== 'PENDING';
   const rowsHtml = [
-    ['Cadet', esc(r.discordUsername || r.discordId || '—')],
-    ['Roblox', esc(r.robloxUsername || '—')],
+    ['Cadet', esc(r.discordUsername || r.discordId || '·')],
+    ['Roblox', esc(r.robloxUsername || '·')],
     ['Status', statusBadge(r.status)],
-    ['Mark', marked ? `${r.score}/${r.maxScore}` : '—'],
-    ['Percentage', r.percentage != null ? r.percentage + '%' : '—'],
-    ['Marked by', esc(r.markedByName || '—')],
-    ['Marked', r.markedAt ? formatDateTime(r.markedAt) : '—'],
+    ['Mark', marked ? `${r.score}/${r.maxScore}` : '·'],
+    ['Percentage', r.percentage != null ? r.percentage + '%' : '·'],
+    ['Marked by', esc(r.markedByName || '·')],
+    ['Marked', r.markedAt ? formatDateTime(r.markedAt) : '·'],
     ['Submitted', formatDateTime(r.createdAt)],
   ].map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px solid var(--border-dim);">
       <span style="font-size:12px;color:var(--text-muted);">${k}</span><span style="font-size:13px;">${v}</span></div>`).join('');
@@ -386,10 +386,10 @@ async function openExamResult(id) {
 
 // Developer-only: permanently void an exam so the cadet can retake it fresh.
 async function voidExam(id, who) {
-  if (!(await uiConfirm(`Void ${who}'s final exam? This deletes it entirely — they'll be treated as if they never took it and can take it again. This can't be undone.`))) return;
+  if (!(await uiConfirm(`Void ${who}'s final exam? This deletes it entirely · they'll be treated as if they never took it and can take it again. This can't be undone.`))) return;
   try {
     await api('/api/hpc/exam/submissions/' + id, { method: 'DELETE' });
-    showToast('Exam voided — the cadet can retake it.', 'success');
+    showToast('Exam voided · the cadet can retake it.', 'success');
     closeModal('modal-exam-detail');
     loadResults();
     if (typeof loadStats === 'function') loadStats();
@@ -419,9 +419,9 @@ async function loadTryouts() {
       return `<tr class="row-clickable" style="cursor:pointer;" onclick="openHpcTryout('${t.id}')">
         <td>${formatDateTime(t.scheduledAt)}</td>
         <td>${esc(t.hostName)}</td>
-        <td>${esc(t.coHostName || '—')}</td>
+        <td>${esc(t.coHostName || '·')}</td>
         <td><span class="badge ${s[0]}"><span class="badge-dot"></span>${s[1]}</span></td>
-        <td>${t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" class="btn btn-ghost btn-sm">Open</a>` : '—'}</td>
+        <td>${t.privateServerLink ? `<a href="${esc(t.privateServerLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" class="btn btn-ghost btn-sm">Open</a>` : '·'}</td>
         <td>${btns.length ? `<div style="display:flex;gap:6px;justify-content:flex-end;">${btns.join('')}</div>` : ''}</td>
       </tr>`;
     }).join('')
@@ -443,10 +443,10 @@ window.openHpcTryout = function (id) {
   const r = (label, val) => `<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border,#2a2a2a);"><div style="min-width:130px;color:var(--text-muted);font-size:12px;">${label}</div><div style="font-size:13px;">${val}</div></div>`;
   document.getElementById('tlog-body').innerHTML =
     r('Status', `<span class="badge ${s[0]}"><span class="badge-dot"></span>${s[1]}</span>`) +
-    r('Host', esc(t.hostName || '—')) +
-    r('Co-Host', esc(t.coHostName || '—')) +
+    r('Host', esc(t.hostName || '·')) +
+    r('Co-Host', esc(t.coHostName || '·')) +
     r('Scheduled', formatDateTime(t.scheduledAt)) +
-    r('Server lock', esc(t.lockState || '—')) +
+    r('Server lock', esc(t.lockState || '·')) +
     r('Game link', link) +
     r('Announcement', t.announcementSent ? 'Posted' : 'Not posted') +
     (t.notes ? r('Notes', esc(t.notes)) : '') +
@@ -599,7 +599,7 @@ function renderTryoutLog(l) {
     : String(a.strikes || 0);
 
   const copyChip = (a) => (a.quiz && a.quiz.copyFlag)
-    ? ` <span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' — matched ' + esc(a.quiz.copyWith) : ''}" style="color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>`
+    ? ` <span class="met-chip" title="Possible answer copying${a.quiz.copyWith ? ' · matched ' + esc(a.quiz.copyWith) : ''}" style="color:var(--red);border-color:var(--red);"><i class="ti ti-alert-triangle"></i> copy?</span>`
     : '';
   const flagChip = (a) => a.flagged
     ? ` <span class="met-chip" title="Movement watch flag" style="color:var(--amber);border-color:var(--amber);"><i class="ti ti-flag"></i> flagged</span>`
@@ -615,7 +615,7 @@ function renderTryoutLog(l) {
     <td>${esc(a.username)}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}${flagChip(a)}</td>
     <td>${resultSelect(a, i)}</td>
     <td>${strikesCell(a, i)}</td>
-    <td>${a.note ? esc(a.note) : ''}${quizChip(a)}${copyChip(a)}${(!a.note && !a.quiz) ? '—' : ''}</td>
+    <td>${a.note ? esc(a.note) : ''}${quizChip(a)}${copyChip(a)}${(!a.note && !a.quiz) ? '·' : ''}</td>
   </tr>`).join('') || (window.metEmpty ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No attendees recorded', sub: 'Attendees reported by the in-game panel will appear here.' })}</td></tr>` : `<tr><td colspan="4" class="table-empty-text">No attendees recorded.</td></tr>`);
 
   const summary = `<div class="chip-row" style="margin-bottom:14px;">
@@ -634,7 +634,7 @@ function renderTryoutLog(l) {
     : (l.notes ? `<p style="font-size:12px;color:var(--text-secondary);"><strong>Host notes:</strong> ${esc(l.notes)}</p>` : '');
 
   const reviewBanner = (l.status === 'APPROVED' || l.status === 'DENIED')
-    ? `<div class="${l.status === 'APPROVED' ? 'badge badge-approved' : 'badge badge-denied'}" style="margin-bottom:12px;"><span class="badge-dot"></span>${l.status} by ${esc(l.reviewedByName || 'HICOMM')}${l.reviewNote ? ' — ' + esc(l.reviewNote) : ''}${l.pointAwarded ? ' · +1 point awarded' : ''}</div>`
+    ? `<div class="${l.status === 'APPROVED' ? 'badge badge-approved' : 'badge badge-denied'}" style="margin-bottom:12px;"><span class="badge-dot"></span>${l.status} by ${esc(l.reviewedByName || 'HICOMM')}${l.reviewNote ? ' · ' + esc(l.reviewNote) : ''}${l.pointAwarded ? ' · +1 point awarded' : ''}</div>`
     : '';
 
   document.getElementById('tlog-body').innerHTML = `${reviewBanner}${summary}
@@ -686,7 +686,7 @@ async function reviewTryoutLog(id, action) {
     const r = await api(`/api/hpc/tryout-logs/${id}/${action}`, { method: 'POST', body: JSON.stringify({ note }) });
     if (action === 'approve') {
       if (r.pointAwarded) showToast('Approved · +1 point awarded', 'success');
-      else showToast('Approved — point NOT awarded: ' + (r.pointDetail || 'check the HPC sheet config.'), r.pointReason === 'host_not_on_sheet' ? 'warning' : 'error');
+      else showToast('Approved · point NOT awarded: ' + (r.pointDetail || 'check the HPC sheet config.'), r.pointReason === 'host_not_on_sheet' ? 'warning' : 'error');
     } else showToast('Tryout log denied.', 'success');
     closeModal('modal-tryout-log');
     loadReviewLogs(); loadReviewBadge();
@@ -758,7 +758,7 @@ async function loadLive() {
     const livePts  = (a) => (a.pts != null) ? ` <span class="met-chip" style="font-size:10px;" title="Points">${esc(String(a.pts))} pts</span>` : '';
     const rows = at.length ? at.map(a => `<tr>
         <td>${a.robloxId ? `<img src="https://www.roblox.com/headshot-thumbnail/image?userId=${encodeURIComponent(a.robloxId)}&width=48&height=48&format=png" alt="" style="width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;background:#0b1c3a;" onerror="this.style.display='none'"/>` : ''}${esc(a.username || 'Unknown')}${a.kicked ? ' <span class="badge badge-denied" style="font-size:9px;">KICKED</span>' : (a.leftAt ? ' <span class="badge badge-pending" style="font-size:9px;">LEFT</span>' : '')}${liveFlag(a)}${liveCopy(a)}${livePts(a)}</td>
-        <td>${a.result === 'PASS' ? '<span style="color:var(--green);">Passed</span>' : a.result === 'FAIL' ? '<span style="color:var(--red);">Failed</span>' : '—'}</td>
+        <td>${a.result === 'PASS' ? '<span style="color:var(--green);">Passed</span>' : a.result === 'FAIL' ? '<span style="color:var(--red);">Failed</span>' : '·'}</td>
         <td>${a.strikes || 0}</td>
         ${manage ? `<td><div style="display:flex;gap:4px;flex-wrap:wrap;">${act(a, 'STRIKE', 'Strike', 'btn-ghost')}${act(a, 'PASS', 'Pass', 'btn-success')}${act(a, 'FAIL', 'Fail', 'btn-danger')}${act(a, 'KICK', 'Kick', 'btn-ghost')}</div></td>` : ''}
       </tr>`).join('') : `<tr><td colspan="${manage ? 4 : 3}" class="table-empty-text">Waiting for the panel to report attendees…</td></tr>`;
@@ -781,7 +781,7 @@ async function loadLive() {
           <tbody>${rows}</tbody>
         </table></div>
         ${manage ? '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Actions are sent to the in-game panel and apply on its next sync.</div>' : ''}
-        ${s.at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Last update ${formatDateTime(s.at)}</div>` : '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">No live snapshot yet — the in-game panel sends these while the tryout runs.</div>'}
+        ${s.at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Last update ${formatDateTime(s.at)}</div>` : '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">No live snapshot yet · the in-game panel sends these while the tryout runs.</div>'}
       </div>
     </div>`;
   }).join('');
@@ -792,7 +792,7 @@ async function tryoutCmd(tryoutId, action, targetRobloxId, targetUsername) {
   if (action === 'KICK' && !(await uiConfirm(`Kick ${targetUsername || 'this attendee'} from the tryout?`))) return;
   try {
     await api(`/api/hpc/tryouts/${tryoutId}/command`, { method: 'POST', body: JSON.stringify({ action, targetRobloxId, targetUsername }) });
-    showToast(`${action[0] + action.slice(1).toLowerCase()} queued — applies on the next in-game sync.`, 'success');
+    showToast(`${action[0] + action.slice(1).toLowerCase()} queued · applies on the next in-game sync.`, 'success');
   } catch (err) { showToast(err.message, 'error'); }
 }
 

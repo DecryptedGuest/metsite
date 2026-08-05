@@ -242,7 +242,7 @@ async function submitPatrol(input, officer) {
   }
   if (!patrol) return { ok: false, problems: ['Could not allocate a patrol reference.'] };
 
-  console.log(`[IA patrols] ${patrol.patrolRef} filed by ${patrol.officerName || officer.id} — `
+  console.log(`[IA patrols] ${patrol.patrolRef} filed by ${patrol.officerName || officer.id} · `
     + `${span.minutes} min, worth ${pointsEach} point(s) + ${xpEach} XP on approval`
     + (span.crossedMidnight ? ', ran past midnight' : '')
     + (dropped ? `, ${dropped} duplicate/blank partner(s) dropped` : ''));
@@ -288,7 +288,7 @@ async function reviewPatrol(id, action, reviewer, note) {
 
   if (act === 'deny') {
     const denied = await prisma.iaPatrolLog.findUnique({ where: { id } });
-    console.log(`[IA patrols] ${patrol.patrolRef} denied by ${(reviewer && reviewer.displayName) || 'a supervisor'} — nobody paid`);
+    console.log(`[IA patrols] ${patrol.patrolRef} denied by ${(reviewer && reviewer.displayName) || 'a supervisor'} · nobody paid`);
     return { ok: true, patrol: await mirror.attach('PATROL', denied), awarded: 0, xpAwarded: 0 };
   }
 
@@ -361,7 +361,7 @@ async function payPatrol(patrol, reviewer) {
     updated = await prisma.iaPatrolLog.findUnique({ where: { id: patrol.id } });
   }
 
-  console.log(`[IA patrols] ${patrol.patrolRef} approved by ${actor.name} — `
+  console.log(`[IA patrols] ${patrol.patrolRef} approved by ${actor.name} · `
     + `${pointsEach} point(s) + ${xpEach} XP to ${patrol.officerName || patrol.officerId}`);
 
   updated = await mirror.attach('PATROL', updated);
@@ -430,7 +430,7 @@ async function voidPatrol(id, by, reason) {
       voidedReason: clean(reason, 300) || null,
     },
   });
-  console.log(`[IA patrols] ${patrol.patrolRef} withdrawn by ${actor.name} — `
+  console.log(`[IA patrols] ${patrol.patrolRef} withdrawn by ${actor.name} · `
     + `${reversed} points award(s) reversed, ${xpReversed} XP award(s) taken back`);
   updated = await mirror.attach('PATROL', updated);
   return { ok: true, patrol: updated, reversed, xpReversed };

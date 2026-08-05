@@ -61,7 +61,7 @@ function actionList(actions, fallbackAction) {
   if (!list.length) return `${e('met_gavel')} *Unspecified*`;
   return list.map(a => {
     const cfg = ACTION_CONFIG[a.action] || {};
-    const suffix = cfg.timed ? (a.durationDays ? ` — **${a.durationDays} days**` : ' — **indefinite**') : '';
+    const suffix = cfg.timed ? (a.durationDays ? ` · **${a.durationDays} days**` : ' · **indefinite**') : '';
     return `${iconFor(a.action)} **${a.action}**${suffix}`;
   }).join('\n');
 }
@@ -77,7 +77,7 @@ function consequenceFor(actions, fallbackAction) {
   else if (any(/termination/i)) out.push(`${e('met_leave')} Your service with the Metropolitan Police has been terminated.`);
   if (any(/demotion/i))      out.push(`${e('met_rank')} Your rank has been reduced.`);
   if (any(/strike\s*1/i))    out.push(`${e('met_strike1')} This is your first strike. A second is the last one before termination is considered.`);
-  if (any(/strike\s*2/i))    out.push(`${e('met_strike2')} This is your second strike — the last one. Any further misconduct will be considered for termination.`);
+  if (any(/strike\s*2/i))    out.push(`${e('met_strike2')} This is your second strike · the last one. Any further misconduct will be considered for termination.`);
   if (any(/suspension/i))    out.push(`${e('met_stop')} You are suspended from duty for the period below.`);
   if (any(/zero tolerance/i))out.push(`${e('met_warn')} You are under Zero Tolerance: any further breach will be dealt with at the next level up.`);
   if (any(/warning/i))       out.push(`${e('met_warn')} This is a formal warning. It stays on your record.`);
@@ -188,7 +188,7 @@ async function notifyAppealed(o) {
     name: `${e('met_shield')} What this means`,
     value: `${e('met_tick')} The punishment no longer counts toward your record.\n`
          + `${e('met_tick')} Any Discord roles it added have been removed.\n`
-         + `${e('met_tick')} It stays on your record marked as **appealed**, so the history is honest — but it holds nothing against you.`,
+         + `${e('met_tick')} It stays on your record marked as **appealed**, so the history is honest · but it holds nothing against you.`,
     inline: false,
   });
   if (o.manual && o.manual.length) {

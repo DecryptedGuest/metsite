@@ -86,12 +86,12 @@ function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, viewerM
     // fixed-width block so the names line up in a column.
     const mark = i === 0 ? e('met_star') : `\`${String(r.position).padStart(2, ' ')}\``;
     const me   = viewerId && String(r.discordId) === String(viewerId) ? '  ←  you' : '';
-    return `${mark} ${badge ? badge + ' ' : ''}<@${r.discordId}> — **${r.xp}** XP${me}`;
+    return `${mark} ${badge ? badge + ' ' : ''}<@${r.discordId}> · **${r.xp}** XP${me}`;
   });
 
   const embed = new EmbedBuilder()
     .setColor(COLOR.card)
-    .setTitle(`${e('met_xp')} MET XP — top ${rows.length}`)
+    .setTitle(`${e('met_xp')} MET XP · top ${rows.length}`)
     .setDescription(lines.length ? short(lines.join('\n'), 4000) : '*Nobody has any XP yet.*')
     .setFooter({ text: total ? `${total} officers on the ladder` : 'MET XP' });
 
@@ -102,10 +102,10 @@ function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, viewerM
     // At the top of the ladder there is no place to report — everybody there is
     // level, and a number would only invite a comparison that no longer exists.
     const mine = viewerMaxed
-      ? `${e('met_star')} <@${viewerId}> — **${viewerXp}** XP · top of the ladder`
+      ? `${e('met_star')} <@${viewerId}> · **${viewerXp}** XP · top of the ladder`
       : viewerPos
-        ? `\`${viewerPos}\` <@${viewerId}> — **${viewerXp}** XP`
-        : `<@${viewerId}> — *no XP yet. Attend an event and you're on the board.*`;
+        ? `\`${viewerPos}\` <@${viewerId}> · **${viewerXp}** XP`
+        : `<@${viewerId}> · *no XP yet. Attend an event and you're on the board.*`;
     embed.addFields({ name: 'You', value: mine, inline: false });
   }
   return embed;
@@ -364,7 +364,7 @@ async function buildCard(o, client) {
   // they're climbing towards rather than repeating the count back at them.
   const nextLine = p.next
     ? `${e('met_promote')} **${p.next.name}** at **${p.next.at} XP**`
-    : `${e('met_star')} Top of the XP ladder — nothing left to climb.`;
+    : `${e('met_star')} Top of the XP ladder · nothing left to climb.`;
 
   // Somebody at the top of the ladder is not in a race any more, so they are not
   // given a place in one. "#1 of 39" invites the question of who the other 38
@@ -381,10 +381,10 @@ async function buildCard(o, client) {
         ? (p.next
             ? `${o.xp} / ${p.next.at} XP\n${p.need} more to go!`
             : `${o.xp} / ${XP.maxXp()} XP\nMax rank reached.`)
-        : '—', inline: true },
+        : '·', inline: true },
   ];
   if (!maxed) {
-    fields.push({ name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true });
+    fields.push({ name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '·', inline: true });
   }
   fields.push({ name: o.ranked ? 'Next rank' : 'Why',
     value: o.ranked ? `${nextLine}\n${xpLog.progressBar(p)}` : unrankedLine(o),
@@ -408,11 +408,11 @@ async function buildCard(o, client) {
       name: 'Recent',
       value: short(hist.map(h => {
         const when = `<t:${Math.floor(new Date(h.createdAt).getTime() / 1000)}:R>`;
-        if (h.kind === 'PROMOTION') return `${e('met_promote')} Promoted to **${h.toRank}** — ${when}`;
-        if (h.kind === 'DEMOTION')  return `${e('met_warn')} Demoted to **${h.toRank}** — ${when}`;
+        if (h.kind === 'PROMOTION') return `${e('met_promote')} Promoted to **${h.toRank}** · ${when}`;
+        if (h.kind === 'DEMOTION')  return `${e('met_warn')} Demoted to **${h.toRank}** · ${when}`;
         const sign = h.delta > 0 ? `+${h.delta}` : String(h.delta);
         const icon = h.kind === 'SET' ? e('met_edit') : h.delta > 0 ? e('met_xp') : e('met_cross');
-        return `${icon} **${sign}** → ${h.after} XP${h.reason ? ` · ${short(h.reason, 50)}` : ''} — ${when}`;
+        return `${icon} **${sign}** → ${h.after} XP${h.reason ? ` · ${short(h.reason, 50)}` : ''} · ${when}`;
       }).join('\n'), 1000),
       inline: false,
     });
@@ -476,7 +476,7 @@ async function celebratePromotion(interaction, officer, promo, draw) {
     const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
     await require('./bot').dmMemberNotice(officer.discordId, {
       color: 0xffc93c,
-      title: `Congratulations — you've been promoted to ${to}`,
+      title: `Congratulations · you've been promoted to ${to}`,
       description:
         `You've been promoted from **${from}** to **${to}** in the Metropolitan Police.\n\n`
         + `**XP:** ${promo.xp != null ? promo.xp : (officer.xp || 0)}\n`
@@ -506,17 +506,17 @@ function rankLine(o, client) {
 /** A compact table when several officers were named at once. */
 function buildTable(officers, client) {
   const lines = officers.map(o => {
-    if (!o.ranked) return `${e('met_user')} <@${o.discordId}> — *unranked*`;
+    if (!o.ranked) return `${e('met_user')} <@${o.discordId}> · *unranked*`;
     const p = o.progress;
     const name = (o.groupRole && o.groupRole.name) || o.rank.name;
     const badge = require('./rankEmoji').forRank(client, name);
     const score = p.next ? `**${o.xp}/${p.next.at}** XP` : `**${o.xp}** XP`;
     const tail = p.next ? `${p.need} more to ${p.next.code}` : 'max';
-    return `${badge ? badge + ' ' : ''}<@${o.discordId}> — ${score} · ${short(name, 30)} · *${tail}*`;
+    return `${badge ? badge + ' ' : ''}<@${o.discordId}> · ${score} · ${short(name, 30)} · *${tail}*`;
   });
   return new EmbedBuilder()
     .setColor(COLOR.card)
-    .setTitle(`${e('met_xp')} XP — ${officers.length} officers`)
+    .setTitle(`${e('met_xp')} XP · ${officers.length} officers`)
     .setDescription(short(lines.join('\n'), 4000))
     .setFooter({ text: 'MET XP · name one officer for the full card' });
 }
@@ -620,7 +620,7 @@ async function handleXpCommand(interaction) {
   // ── Argument sanity, before anything else happens ──
   if (action && (value == null)) {
     return interaction.editReply({ embeds: [fail('That needs a value',
-      `**${action.toLowerCase()}** needs a **value** — how much XP to ${action.toLowerCase()}. Run it again with one.`)] }).catch(() => {});
+      `**${action.toLowerCase()}** needs a **value** · how much XP to ${action.toLowerCase()}. Run it again with one.`)] }).catch(() => {});
   }
   if (!action && value != null) {
     return interaction.editReply({ embeds: [fail('That needs an action',
@@ -642,7 +642,7 @@ async function handleXpCommand(interaction) {
 
   if (changing && !rawTargets) {
     return interaction.editReply({ embeds: [fail('Who?',
-      'Name the officers whose XP you want to change — `officers:@someone`. '
+      'Name the officers whose XP you want to change · `officers:@someone`. '
       + 'Leaving it blank only works for looking at your own card.')] }).catch(() => {});
   }
   // Nobody on Discord, but XP is being held for the Roblox account they named.
@@ -655,7 +655,7 @@ async function handleXpCommand(interaction) {
     return interaction.editReply({ embeds: [fail('Couldn\'t find them',
       problems.length
         ? `No MET member matched: ${problems.map(p => `\`${short(p, 30)}\``).join(', ')}.\n\n`
-          + 'Try @-mentioning them instead — the picker inserts a real mention, which always resolves.'
+          + 'Try @-mentioning them instead · the picker inserts a real mention, which always resolves.'
         : 'Nobody was named.')] }).catch(() => {});
   }
 
@@ -701,7 +701,7 @@ async function handleXpCommand(interaction) {
   if (problems.length) {
     embed.addFields({
       name: 'Not found',
-      value: `${e('met_warn')} ${problems.map(p => `\`${short(p, 30)}\``).join(', ')} — skipped.`,
+      value: `${e('met_warn')} ${problems.map(p => `\`${short(p, 30)}\``).join(', ')} · skipped.`,
       inline: false,
     });
   }
@@ -729,7 +729,7 @@ async function handleXpCommand(interaction) {
  */
 function unrankedLine(o) {
   if (!o.robloxId) {
-    return `${e('met_warn')} No Roblox account linked — they need to verify with RoVer.`;
+    return `${e('met_warn')} No Roblox account linked · they need to verify with RoVer.`;
   }
   // Short on purpose. "They aren't in MET" is the whole answer, and the commonest
   // one by far; a paragraph explaining it reads as though something went wrong.
@@ -746,7 +746,7 @@ function waitingLine(u) {
     + (u.robloxId
       ? `[${short(u.username, 30)}](https://www.roblox.com/users/${u.robloxId}/profile)`
       : `\`${short(u.username, 30)}\``)
-    + ` — **${u.xp} XP**`
+    + ` · **${u.xp} XP**`
     + (u.claimed ? ' *(already given to their account)*' : ' waiting');
 }
 
@@ -786,7 +786,7 @@ async function runChange({ interaction, targets, problems, action, value, reason
                : s.state === 'failed'  ? e('met_cross')
                : s.state === 'running' ? e('met_load2')
                : e('met_dot_off');
-    return `${mark} <@${id}>${s.note ? ` — ${s.note}` : ''}`;
+    return `${mark} <@${id}>${s.note ? ` · ${s.note}` : ''}`;
   }).join('\n');
 
   const verb = action === 'ADD' ? `Adding ${value} XP` : action === 'REMOVE' ? `Removing ${value} XP` : `Setting XP to ${value}`;
@@ -857,8 +857,8 @@ async function runChange({ interaction, targets, problems, action, value, reason
   const embed = new EmbedBuilder()
     .setColor(failed.length ? COLOR.partial : COLOR.done)
     .setTitle(failed.length
-      ? `${e('met_warn')} ${verb} — ${results.length - failed.length} of ${results.length} done`
-      : `${e('met_tick')} ${verb} — done`)
+      ? `${e('met_warn')} ${verb} · ${results.length - failed.length} of ${results.length} done`
+      : `${e('met_tick')} ${verb} · done`)
     .setDescription(board())
     .setFooter({ text: `Logged to #xp-logs by ${issuerName}` });
 
@@ -889,7 +889,7 @@ async function runChange({ interaction, targets, problems, action, value, reason
   if (problems.length) {
     embed.addFields({
       name: 'Not found',
-      value: `${e('met_warn')} ${problems.map(p => `\`${short(p, 30)}\``).join(', ')} — skipped, no XP changed for them.`,
+      value: `${e('met_warn')} ${problems.map(p => `\`${short(p, 30)}\``).join(', ')} · skipped, no XP changed for them.`,
       inline: false,
     });
   }
@@ -915,13 +915,13 @@ async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
   try {
     dmSent = await require('./bot').dmMemberNotice(officer.discordId, {
       color: 0xffc93c,
-      title: `Congratulations — you've been promoted to ${to.name}`,
+      title: `Congratulations · you've been promoted to ${to.name}`,
       description:
         `You've reached **${xp} XP** and made ${xpLog.rankIcon(to.name)} **${to.name}**.\n\n`
         + `**Previous rank:** ${from.name}\n`
         + (group.ok
           ? `**Roblox group:** updated to **${group.to}**\n`
-          : `**Roblox group:** not updated yet (${group.reason}) — speak to High Command if it doesn't change shortly.\n`)
+          : `**Roblox group:** not updated yet (${group.reason}) · speak to High Command if it doesn't change shortly.\n`)
         + `\nKeep it up. Your full record is on the dashboard.`,
       appealUrl: `${(process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '')}/profile`,
       appealLabel: 'View my record',
@@ -962,7 +962,7 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
   try {
     dmSent = await require('./bot').dmMemberNotice(officer.discordId, {
       color: 0xe8842a,
-      title: `Your rank has changed — you are now ${to.name}`,
+      title: `Your rank has changed · you are now ${to.name}`,
       description:
         `Your XP was adjusted to **${xp}**, which puts you at ${xpLog.rankIcon(to.name)} **${to.name}**.\n\n`
         + `**Previous rank:** ${from.name}\n`
@@ -971,7 +971,7 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
           ? `**Roblox group:** set to **${group.to}**\n`
           : `**Roblox group:** unchanged (${group.reason})\n`)
         + (p.next ? `\nYou need **${p.need}** more XP to reach **${p.next.name}** again.` : '')
-        + `\n\nIf you think this is wrong, speak to High Command — every XP change is logged with who made it.`,
+        + `\n\nIf you think this is wrong, speak to High Command · every XP change is logged with who made it.`,
       appealUrl: `${(process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '')}/profile`,
       appealLabel: 'View my record',
     });

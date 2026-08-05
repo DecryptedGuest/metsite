@@ -225,10 +225,10 @@ router.get('/discord/callback', async (req, res) => {
       } else {
         // Not in the guild — allowed only for the developer or a granted user
         if (!isDeveloper && !grant) {
-          console.warn('[Auth] User not in guild — denying');
+          console.warn('[Auth] User not in guild · denying');
           return res.redirect('/denied?reason=not_in_server');
         }
-        console.warn('[Auth] Not in guild but developer/granted — allowing');
+        console.warn('[Auth] Not in guild but developer/granted · allowing');
       }
     } catch (memberErr) {
       console.error('[Auth] Guild member fetch threw:', memberErr.message);
@@ -271,7 +271,7 @@ router.get('/discord/callback', async (req, res) => {
         const hasHICOMM     = memberRoles.includes(getRoleHICOMM());
         const hasSUPERVISOR = memberRoles.includes(getRoleSUPERVISOR());
         const hasIA         = memberRoles.includes(getRoleIA());
-        console.log('[Auth] Discord-role fallback — HICOMM:', hasHICOMM, '| SUPERVISOR:', hasSUPERVISOR, '| IA:', hasIA);
+        console.log('[Auth] Discord-role fallback · HICOMM:', hasHICOMM, '| SUPERVISOR:', hasSUPERVISOR, '| IA:', hasIA);
         if (hasHICOMM)          systemRole = 'HICOMM';
         else if (hasSUPERVISOR) systemRole = 'SUPERVISOR';
         else if (hasIA)         systemRole = 'IA';
@@ -298,7 +298,7 @@ router.get('/discord/callback', async (req, res) => {
     if (_diagA.degraded) {
       const kept = Array.isArray(_mroA?.divisions) ? _mroA.divisions : [];
       if (kept.length > divisions.length) {
-        console.warn(`[Auth] Division lookup degraded for ${discordUser.id} — keeping the `
+        console.warn(`[Auth] Division lookup degraded for ${discordUser.id} · keeping the `
           + `${kept.length} stored division(s) rather than writing ${divisions.length}.`);
         divisions = kept;
       }
@@ -312,7 +312,7 @@ router.get('/discord/callback', async (req, res) => {
     // rank still gets a base account (role NONE) and can use the hub/profile;
     // division-gated features stay gated by requireDivision. We NO LONGER deny
     // login for "no role" — that locked out ordinary members who are allowed in.
-    console.log('[Auth] System role assigned:', systemRole || '(none — signed in, no division access yet)');
+    console.log('[Auth] System role assigned:', systemRole || '(none · signed in, no division access yet)');
 
     // ── Login lockdown: developers only ───────────────────────
     if (!isDeveloper && siteConfig.isOn('loginLockdown')) {
@@ -468,7 +468,7 @@ async function establishSession(req, res, user) {
         require('../lib/audit').record({
           req, action: 'LOGIN_BLOCKED_ALT',
           category: 'SECURITY', targetType: 'user', targetId: user.id,
-          summary: `Login blocked — detected as an alt of a blacklisted account${verdict.detail && verdict.detail.of ? ' (' + verdict.detail.of + ')' : ''}`,
+          summary: `Login blocked · detected as an alt of a blacklisted account${verdict.detail && verdict.detail.of ? ' (' + verdict.detail.of + ')' : ''}`,
         });
       } catch (e) {}
       return res.redirect('/denied?reason=' + verdict.reason);
@@ -687,7 +687,7 @@ router.get('/roblox/callback', async (req, res) => {
     if (_diagB.degraded) {
       const kept = Array.isArray(_mroB?.divisions) ? _mroB.divisions : [];
       if (kept.length > divisions.length) {
-        console.warn(`[Auth] Division lookup degraded for ${discordId} — keeping the `
+        console.warn(`[Auth] Division lookup degraded for ${discordId} · keeping the `
           + `${kept.length} stored division(s) rather than writing ${divisions.length}.`);
         divisions = kept;
       }

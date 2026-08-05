@@ -407,7 +407,7 @@ async function fetchAllThreads(channel, onProgress, limit = null) {
   }
 
   const result = limit ? [...all.values()].slice(0, limit) : [...all.values()];
-  console.log(`[fetchAllThreads] done — returning ${result.length} threads`);
+  console.log(`[fetchAllThreads] done · returning ${result.length} threads`);
   return result;
 }
 
@@ -471,7 +471,7 @@ async function importForumCases(client, channelId, opts = {}) {
   // Tag id → name (for status)
   const tagNameById = new Map((channel.availableTags || []).map(t => [t.id, t.name]));
 
-  onProgress(dry ? 'Dry run — fetching up to 15 cases…' : 'Fetching all forum posts…');
+  onProgress(dry ? 'Dry run · fetching up to 15 cases…' : 'Fetching all forum posts…');
   const threads = await fetchAllThreads(channel, onProgress, dry ? 15 : null);
   onProgress(`Found ${threads.length} posts. Parsing…`);
 

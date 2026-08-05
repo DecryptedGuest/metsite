@@ -192,7 +192,7 @@ async function nextTicketNo() {
         const start = (top && top._max && top._max.ticketNo ? top._max.ticketNo : 0) + 1;
         await prisma.$executeRawUnsafe(
           `CREATE SEQUENCE IF NOT EXISTS ticket_log_no_seq START WITH ${Math.max(1, start)}`);
-        console.warn('[TicketLogs] ticket_log_no_seq was missing — created it, starting at ' + start);
+        console.warn('[TicketLogs] ticket_log_no_seq was missing · created it, starting at ' + start);
         const again = await prisma.$queryRaw`SELECT nextval('ticket_log_no_seq')::int AS n`;
         return again && again[0] ? Number(again[0].n) : null;
       } catch (e2) {
@@ -278,7 +278,7 @@ async function renumberTickets() {
     console.warn('[TicketLogs] renumbered, but could not move the sequence:', e.message);
   }
 
-  console.log(`[TicketLogs] renumbered ${renumbered} log(s) oldest-first — #0001 is now the oldest ticket`);
+  console.log(`[TicketLogs] renumbered ${renumbered} log(s) oldest-first · #0001 is now the oldest ticket`);
   return { renumbered: Number(renumbered) || 0, total };
 }
 
@@ -498,7 +498,7 @@ async function clearBacklogBefore(when, opts = {}) {
   let probe = null;
   if (!cleared && remaining) {
     probe = await probeTicketTable().catch(e => ({ probeError: e.message }));
-    console.error('[TicketLogs] backlog clear moved NOTHING —', JSON.stringify({ attempts, probe }));
+    console.error('[TicketLogs] backlog clear moved NOTHING ·', JSON.stringify({ attempts, probe }));
   }
 
   // Draw the line, so a later sync cannot rebuild what was just cleared. Only
@@ -511,7 +511,7 @@ async function clearBacklogBefore(when, opts = {}) {
 
   console.log(`[TicketLogs] cleared ${cleared} pending log(s)`
     + (opts.all ? '' : ` closed before ${cutoff.toISOString()}`)
-    + ` (approved, no points, via ${via || 'nothing'}) — ${remaining} still waiting`
+    + ` (approved, no points, via ${via || 'nothing'}) · ${remaining} still waiting`
     + (errors.length ? ` · errors: ${errors.join(' | ')}` : ''));
   return {
     cleared, remaining, done: remaining === 0, clearedBefore: cutoff,
@@ -669,7 +669,7 @@ async function mergeDuplicates(opts = {}) {
     removed += losers.length;
   }
 
-  console.log(`[TicketLogs] duplicate merge${dryRun ? ' (dry run)' : ''} — `
+  console.log(`[TicketLogs] duplicate merge${dryRun ? ' (dry run)' : ''} · `
     + `${groups.length} group(s), ${merged} merged, ${removed} row(s) removed`);
   return { groups: groups.length, merged, removed, kept: merged, dryRun, examples };
 }
@@ -800,7 +800,7 @@ async function backfillHandlers(limit = 5000, opts = {}) {
     } catch (e) { stillBlank++; }
   }
 
-  console.log(`[TicketLogs] handler backfill — ${fixed} filled (${refetched} by re-reading Discord), `
+  console.log(`[TicketLogs] handler backfill · ${fixed} filled (${refetched} by re-reading Discord), `
     + `${stillBlank} still unattributable of ${rows.length}`
     + (skippedProbed ? `, ${skippedProbed} already known to name nobody` : '')
     + (rotate ? `, next pass resumes at ${_handlerCursor}` : ''));
@@ -1007,7 +1007,7 @@ async function backfill(client, opts = {}) {
   // intent. Without it every message parses as "not a ticket log", which looks
   // exactly like an empty channel — so say so rather than failing silently.
   if (!stats.error && stats.scanned > 0 && stats.created === 0 && stats.updated === 0 && stats.unchanged === 0) {
-    stats.error = 'Read ' + stats.scanned + ' messages but could not parse any as ticket logs — '
+    stats.error = 'Read ' + stats.scanned + ' messages but could not parse any as ticket logs · '
       + 'check that the "Message Content Intent" is enabled for the bot in the Discord Developer Portal.';
   }
 
@@ -1064,7 +1064,7 @@ async function sweep(client, opts) {
     }
 
     if (s.created || s.updated || s.error || s.handlersFixed) {
-      console.log(`[TicketLogs] sweep — scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
+      console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
         + (s.error ? `, error: ${s.error}` : ''));
     }
@@ -1099,7 +1099,7 @@ async function repairOnce(client) {
   } catch (e) { return { skipped: 'could not read the stamp' }; }
   if (done === REPAIR_VERSION) return { skipped: 'already done' };
 
-  console.log('[TicketLogs] repairing stored rows — merging duplicates, then filling in handlers');
+  console.log('[TicketLogs] repairing stored rows · merging duplicates, then filling in handlers');
   const duplicates = await mergeDuplicates({ limit: 5000 }).catch(e => ({ error: e.message }));
   // The refetch is what actually fixes a handler: the stored columns never had
   // the executor, so it has to be re-read off the original message with the
@@ -1121,7 +1121,7 @@ async function repairOnce(client) {
     });
   } catch (e) { console.warn('[TicketLogs] could not stamp the repair:', e.message); }
 
-  console.log(`[TicketLogs] repair done — ${duplicates.removed || 0} duplicate row(s) removed, `
+  console.log(`[TicketLogs] repair done · ${duplicates.removed || 0} duplicate row(s) removed, `
     + `${handlers.fixed || 0} handler(s) filled in, ${handlers.stillBlank || 0} still blank, `
     + `${numbers.renumbered || 0} log(s) renumbered oldest-first`);
   return { duplicates, handlers, numbers };

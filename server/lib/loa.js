@@ -218,7 +218,7 @@ async function create(o) {
   if (days > HARD_MAX_DAYS) return { ok: false, why: `${days} days is beyond what leave covers.` };
 
   const reason = clean(o.reason, 900);
-  if (reason.length < 3) return { ok: false, why: 'Give a reason — command decide on it, and "n/a" is not one.' };
+  if (reason.length < 3) return { ok: false, why: 'Give a reason · command decide on it, and "n/a" is not one.' };
 
   const already = await openFor(o.discordId);
   if (already) {

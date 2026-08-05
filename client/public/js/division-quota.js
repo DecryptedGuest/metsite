@@ -56,7 +56,7 @@
     if (q.exempt) return "<span class='badge badge-approved' style='background:color-mix(in srgb,var(--purple,#9b6dff) 20%,transparent);color:var(--purple,#9b6dff);'><span class='badge-dot'></span>Quota exempt</span>";
     if (m.met === true)  return "<span class='badge badge-approved'><span class='badge-dot'></span>Quota met</span>";
     if (m.met === false) return "<span class='badge badge-pending'><span class='badge-dot'></span>Quota not met</span>";
-    return "<span class='text-muted' style='font-size:12px;'>—</span>";
+    return "<span class='text-muted' style='font-size:12px;'>·</span>";
   }
 
   function rowsFor(div, mode) {
@@ -97,10 +97,10 @@
     tbody.innerHTML = idxs.map(function (i) {
       var m = all[i], q = m.quota || {};
       var exempt = !!q.exempt;
-      var target = exempt ? 'EX' : (q.target != null ? q.target : '—');
+      var target = exempt ? 'EX' : (q.target != null ? q.target : '·');
       var ptColor = exempt ? 'var(--purple,#9b6dff)' : (m.met ? 'var(--green,#22c55e)' : 'var(--amber,#e8842a)');
       var base = "<td><span style='font-weight:600;font-size:12px;'>" + esc(m.username) + '</span></td>'
-        + "<td><span style='font-size:12px;'>" + esc(m.rank || '—') + '</span></td>'
+        + "<td><span style='font-size:12px;'>" + esc(m.rank || '·') + '</span></td>'
         + "<td><span class='text-muted' style='font-size:11px;'>" + esc(q.tier || '') + '</span></td>'
         + "<td><span style='font-weight:700;color:" + ptColor + ";'>" + (exempt ? 'EX' : m.total) + '</span></td>'
         + "<td><span class='mono' style='font-size:12px;'>" + target + '</span></td>';
@@ -150,14 +150,14 @@
     var color = loa ? 'var(--blue,#4a8fff)' : 'var(--purple,#9b6dff)';
     var icon = loa ? 'ti-calendar-off' : 'ti-shield-check';
     var label = loa ? 'Leave of Absence' : bought ? 'Quota Exempt' : 'Exempt';
-    var sub = loa ? "You're on leave — there's no weekly quota to meet."
+    var sub = loa ? "You're on leave · there's no weekly quota to meet."
       : bought ? 'You bought Quota Exempt, so the weekly quota does not apply to you.'
       : "You're exempt from the weekly quota.";
     return "<div class='profile-section'><div style='display:flex;align-items:center;gap:15px;padding:18px 16px;border-radius:12px;"
       + "background:color-mix(in srgb," + color + " 12%,transparent);border:1px solid color-mix(in srgb," + color + " 42%,transparent);'>"
       + "<div style='font-size:32px;color:" + color + ";line-height:1;flex:0 0 auto;'><i class='ti " + icon + "'></i></div>"
       + "<div style='min-width:0;'><div style='font-size:19px;font-weight:800;color:" + color + ";text-transform:uppercase;letter-spacing:.04em;'>" + label + "</div>"
-      + "<div style='font-size:12px;color:var(--text-muted);margin-top:3px;'><strong style='color:var(--text);'>" + esc(rank) + "</strong> — " + sub + "</div></div></div></div>";
+      + "<div style='font-size:12px;color:var(--text-muted);margin-top:3px;'><strong style='color:var(--text);'>" + esc(rank) + "</strong> · " + sub + "</div></div></div></div>";
   }
   // The Mon–Sun activity breakdown grid.
   function dqDayGrid(days) {
@@ -200,17 +200,17 @@
         + "<div style='height:10px;border-radius:6px;background:var(--hover,rgba(255,255,255,.08));overflow:hidden;'>"
         + "<div style='height:100%;width:" + pct + "%;background:" + col + ";border-radius:6px;transition:width .4s;'></div></div>"
         + "<div style='font-size:11px;color:var(--text-muted);margin-top:6px;'>" + (met
-            ? "Quota met — nice work."
+            ? "Quota met · nice work."
             : (d.remaining + " more point" + (d.remaining === 1 ? '' : 's') + " to go this week."))
         + "</div></div>"
-      : "<div style='font-size:13px;color:var(--text-muted);flex:1;min-width:160px;'>No target set for your rank — points are still tracked.</div>";
+      : "<div style='font-size:13px;color:var(--text-muted);flex:1;min-width:160px;'>No target set for your rank · points are still tracked.</div>";
     host.innerHTML =
       "<div class='panel-header'><div class='panel-title'><span class='panel-dot' style='background:var(--dc,#4a8fff);'></span>My Weekly Quota</div>"
       + "<span class='text-muted mono' style='font-size:11px;'>" + rank + "</span></div>"
       + "<div class='profile-section'>"
       + "<div style='display:flex;gap:18px;align-items:center;flex-wrap:wrap;'>"
       + statCell(d.total, 'Points this week', col)
-      + statCell(hasTarget ? d.target : '—', 'Target')
+      + statCell(hasTarget ? d.target : '·', 'Target')
       + bar
       + "</div>"
       + dqDayGrid(d.days)

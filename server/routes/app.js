@@ -40,7 +40,7 @@ router.post('/link/dm', async (req, res) => {
     await prisma.mobileLoginToken.create({ data: { token, userId: req.user.id, expiresAt: new Date(Date.now() + 5 * 60 * 1000) } });
     const url = `${baseUrl(req)}/mobile/${token}`;
     const ok = await require('../lib/bot').dmInstallLink(req.user.discordId, url).catch(() => false);
-    if (!ok) return res.status(502).json({ error: "Couldn't DM you — check your Discord privacy settings allow DMs from server members." });
+    if (!ok) return res.status(502).json({ error: "Couldn't DM you · check your Discord privacy settings allow DMs from server members." });
     res.json({ ok: true });
   } catch (e) {
     console.error('[App] link/dm failed:', e.message);

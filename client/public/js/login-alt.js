@@ -48,7 +48,7 @@
   function codeStart() {
     show(`${backBtn}
       <div class="alt-title"><i class="ti ti-message-2-code"></i> Get a code in Discord</div>
-      <p class="alt-desc">Enter your Discord username. We'll DM you a 6-digit code — you must share a server with the bot.</p>
+      <p class="alt-desc">Enter your Discord username. We'll DM you a 6-digit code · you must share a server with the bot.</p>
       <div class="form-group"><input class="form-control" id="alt-discord" placeholder="your_discord_username" autocomplete="username" /></div>
       <button class="btn btn-primary btn-discord-full" id="alt-code-send"><i class="ti ti-send"></i> Send me a code</button>`);
     const send = document.getElementById('alt-code-send');
@@ -153,7 +153,7 @@
           },
           clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
         };
-        pkStatus('Passkey accepted — signing you in…', false);
+        pkStatus('Passkey accepted · signing you in…', false);
         await api('/api/login/passkey/verify', { method: 'POST', body: JSON.stringify({ response }) });
         pkCtrl = null;
         location.replace('/dashboard');
@@ -162,7 +162,7 @@
         // A deliberate abort (navigating away / retrying) isn't an error to show.
         if (e && e.name === 'AbortError') return;
         let msg;
-        if (e && e.name === 'NotAllowedError') msg = 'No passkey was used — the prompt was dismissed or timed out. Tap "Use passkey" to try again. If you saved your passkey on a different site address, re-add one here.';
+        if (e && e.name === 'NotAllowedError') msg = 'No passkey was used · the prompt was dismissed or timed out. Tap "Use passkey" to try again. If you saved your passkey on a different site address, re-add one here.';
         else if (e && e.name === 'SecurityError') msg = "This site's address doesn't match the passkey. Make sure you're on the main domain and try again.";
         else if (e && e.name === 'InvalidStateError') msg = 'That passkey isn\'t registered to an account here. Sign in another way, then add a passkey from your profile.';
         else msg = e.message || 'Passkey sign-in failed.';

@@ -148,7 +148,7 @@ async function evaluate(discordId, roleIds) {
     why: robloxId
       ? 'This command is for Internal Affairs and Deputy Commissioner and above.'
       : 'This command is for Internal Affairs and Deputy Commissioner and above. '
-        + 'We could not find a Roblox account linked to your Discord — verify with RoVer, or log into the MET Dashboard once, and try again.',
+        + 'We could not find a Roblox account linked to your Discord · verify with RoVer, or log into the MET Dashboard once, and try again.',
   };
 }
 

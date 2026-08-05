@@ -109,7 +109,7 @@ const SECTIONS = [
     title: 'About you',
     // No `heading` on purpose: the page's own hero already says "Internal Affairs
     // Application", and repeating it here put the same words twice on one screen.
-    blurb: 'Thanks for your interest in Internal Affairs. We are very selective — there are only '
+    blurb: 'Thanks for your interest in Internal Affairs. We are very selective · there are only '
          + 'so many places. If you are serious about this, put the effort in and read the guidelines '
          + 'below before you start.\n\n'
          + 'Apply to become an Internal Affairs investigator, deal with the corruption, and support '
@@ -203,7 +203,7 @@ const SECTIONS = [
         // coming up has nothing to write, and forcing them to invent something is
         // worse than an empty box. Answering it honestly still earns the marks.
         prompt: 'Is anything coming up that would get in the way of your activity in Internal Affairs?',
-        help: 'Exams, holidays, work — anything. Saying so counts in your favour, not against you. '
+        help: 'Exams, holidays, work · anything. Saying so counts in your favour, not against you. '
             + 'Leave it blank if there is genuinely nothing.' },
       { id: 'time_spent', type: 'paragraph', required: true, points: P, minWords: 15,
         prompt: 'On average, how much time do you spend on Roblox and on Discord?',
@@ -568,7 +568,7 @@ function validate(answers, opts = {}) {
       // declaration that fails because of a trailing space is a form being
       // obstructive about something it can plainly see is right.
       const norm = (v) => String(v).replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim().toLowerCase();
-      if (!want) { wrong.push({ id: q.id, why: 'This declaration could not be checked — tell a developer.' }); continue; }
+      if (!want) { wrong.push({ id: q.id, why: 'This declaration could not be checked · tell a developer.' }); continue; }
       if (norm(raw) !== norm(want)) {
         wrong.push({ id: q.id, why: 'That does not match the line exactly.', expected: want });
         continue;

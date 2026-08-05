@@ -116,7 +116,7 @@ const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function embedField(embed, kind) {
   const fields = Array.isArray(embed && embed.fields) ? embed.fields : [];
   for (const label of LABELS[kind]) {
-    const m = new RegExp('^\\s*[•·*\\-–—]?\\s*\\*{0,2}' + escRe(label) + '\\*{0,2}\\s*:?\\s*$', 'i');
+    const m = new RegExp('^\\s*[•·*\\-–·]?\\s*\\*{0,2}' + escRe(label) + '\\*{0,2}\\s*:?\\s*$', 'i');
     const hit = fields.find(f => f && m.test(String(f.name || '')));
     if (hit) return String(hit.value || '');
   }
@@ -166,7 +166,7 @@ function textField(text, kind) {
   // every bold label handed back a value beginning with "** ".
   const SP = '[ \\t]*';
   for (const label of LABELS[kind]) {
-    const re = new RegExp('^' + SP + '[•·*\\-–—]?' + SP + '\\*{0,2}' + escRe(label)
+    const re = new RegExp('^' + SP + '[•·*\\-–·]?' + SP + '\\*{0,2}' + escRe(label)
       + '\\*{0,2}' + SP + '[:\\-]' + SP + '\\*{0,2}' + SP + '(.+)$', 'im');
     const m = re.exec(body);
     if (m && !EMPTY_ISH.test(m[1])) {
@@ -179,7 +179,7 @@ function textField(text, kind) {
   //    list of punishments is written.
   const lines = body.split(/\r?\n/);
   for (const label of LABELS[kind]) {
-    const head = new RegExp('^\\s*[•·*\\-–—]?\\s*\\*{0,2}' + escRe(label)
+    const head = new RegExp('^\\s*[•·*\\-–·]?\\s*\\*{0,2}' + escRe(label)
       + '\\*{0,2}\\s*[:\\-]\\s*\\*{0,2}\\s*$', 'i');
     const at = lines.findIndex(l => head.test(l));
     if (at < 0) continue;
@@ -230,7 +230,7 @@ function inlineFields(text) {
       // Either **Label:** anywhere, or Label: at the start of a line.
       const re = new RegExp('(\\*\\*\\s*' + escRe(label) + '\\s*\\*\\*\\s*:'
         + '|\\*\\*\\s*' + escRe(label) + '\\s*:\\s*\\*\\*'
-        + '|(?:^|\\n)\\s*[•·*\\-–—]?\\s*' + escRe(label) + '\\s*:)', 'gi');
+        + '|(?:^|\\n)\\s*[•·*\\-–·]?\\s*' + escRe(label) + '\\s*:)', 'gi');
       let m;
       while ((m = re.exec(body))) {
         hits.push({ kind, start: m.index, from: m.index + m[0].length, len: label.length });
@@ -589,7 +589,7 @@ async function importFromChannel(client, channelId, opts = {}) {
       byMessage.set(parsed.logMessageId, parsed);
       if (out.samples.length < 10) out.samples.push({
         caseRef: parsed.caseRef, format: parsed.format,
-        officer: parsed.officerDiscordId || parsed.officerName || '—',
+        officer: parsed.officerDiscordId || parsed.officerName || '·',
         action: parsed.action, reason: String(parsed.reason).slice(0, 70),
         at: parsed.createdAt,
       });
@@ -874,7 +874,7 @@ async function resolveOfficers(rows, out) {
   const capped = rows.some(r => r.officerDiscordId && !r.robloxUserId) && (spent >= budget || stop);
   if (capped && out) {
     out.notes = out.notes || [];
-    out.notes.push(`Stopped asking RoVer for Roblox links after ${spent} lookups — its rate limit is `
+    out.notes.push(`Stopped asking RoVer for Roblox links after ${spent} lookups · its rate limit is `
       + `the one every login uses. Those cases keep the Discord id they were logged with, so they `
       + `still appear on a record looked up by Discord.`);
   }

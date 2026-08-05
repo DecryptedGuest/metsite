@@ -27,7 +27,7 @@
         (when ? `<div><i class="ti ti-clock"></i> <strong>Started:</strong> ${esc(when)}</div>` : '');
       const m = document.getElementById('ap-match');
       if (d.matchCode && m) m.style.display = '';
-    } catch (e) { box.textContent = 'Could not load device details — approve only if you are certain.'; }
+    } catch (e) { box.textContent = 'Could not load device details · approve only if you are certain.'; }
   })();
 
   document.getElementById('ap-yes').addEventListener('click', async () => {
@@ -40,7 +40,7 @@
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || 'Could not approve.');
-      done('ti-circle-check', 'Approved', 'You can return to your other device — it will be signed in automatically.', 'var(--green,#22c55e)');
+      done('ti-circle-check', 'Approved', 'You can return to your other device · it will be signed in automatically.', 'var(--green,#22c55e)');
     } catch (e) {
       if (window.showToast) showToast(e.message, 'error');
       done('ti-alert-triangle', 'Could not approve', esc(e.message) + ' If you didn\'t start this sign-in, you can safely close this page.', 'var(--red,#e0503a)');
@@ -48,6 +48,6 @@
   });
 
   document.getElementById('ap-no').addEventListener('click', () => {
-    done('ti-shield-check', 'Ignored', 'No problem — nothing was approved and nobody was signed in. You can close this page.', 'var(--text-muted,#888)');
+    done('ti-shield-check', 'Ignored', 'No problem · nothing was approved and nobody was signed in. You can close this page.', 'var(--text-muted,#888)');
   });
 })();

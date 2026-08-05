@@ -241,7 +241,7 @@
     function update() {
       if (!el('site-countdown')) { clearInterval(countdownTimer); return; }
       var diff = end - Date.now();
-      if (diff <= 0) { box.innerHTML = '<div style="font-weight:700;color:#5dff9b;">' + met.e('met_celebrate') + ' ' + label + ' — NOW!</div>'; clearInterval(countdownTimer); countdownTimer = null; return; }
+      if (diff <= 0) { box.innerHTML = '<div style="font-weight:700;color:#5dff9b;">' + met.e('met_celebrate') + ' ' + label + ' · NOW!</div>'; clearInterval(countdownTimer); countdownTimer = null; return; }
       var d = Math.floor(diff/86400000);
       var h = Math.floor((diff%86400000)/3600000);
       var m = Math.floor((diff%3600000)/60000);

@@ -173,7 +173,7 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
   /* Show the sidebar/drawer hamburger on phones. This lives HERE (not only in
      dashboard.css) because met-dashboard.css loads AFTER dashboard.css, and its
      base `.met-nav-toggle{display:none}` would otherwise win the cascade over
-     dashboard.css's mobile rule at equal specificity — leaving no way to open
+     dashboard.css's mobile rule at equal specificity · leaving no way to open
      the sidebar on mobile. */
   .met-nav-toggle, #met-nav-toggle, #met-mnav-toggle { display: inline-flex !important; }
   .met-topbar { padding: 0.5rem 0.7rem; gap: 0.4rem; }

@@ -126,10 +126,10 @@ router.post('/broadcast', requireStepUpEnforced, requireSecondDevOrApprovals, as
     let pushed = 0;
     try { const { sendCustomNotification } = require('../lib/push'); const r = await sendCustomNotification({ all: true, title, body, url }); pushed = (r && r.sent) || 0; } catch (e) {}
     if (req.body && req.body.banner) {
-      await siteConfig.set('bannerText', `${title} — ${body}`);
+      await siteConfig.set('bannerText', `${title} · ${body}`);
       if (req.body.bannerColor) await siteConfig.set('bannerColor', String(req.body.bannerColor).slice(0, 12));
     }
-    audit.record({ req, action: 'BROADCAST', category: 'SECURITY', targetType: 'site', summary: `Broadcast: "${title}" — ${body}`.slice(0, 500) });
+    audit.record({ req, action: 'BROADCAST', category: 'SECURITY', targetType: 'site', summary: `Broadcast: "${title}" · ${body}`.slice(0, 500) });
     res.json({ ok: true, pushed });
   } catch (e) { res.status(500).json({ error: 'Failed to broadcast' }); }
 });
@@ -263,7 +263,7 @@ router.post('/audit/rebaseline', async (req, res) => {
   const body = req.body || {};
   if (body.acknowledge !== true) {
     return res.status(400).json({
-      error: 'This does not prove the older rows are untampered — it accepts them as the baseline. '
+      error: 'This does not prove the older rows are untampered · it accepts them as the baseline. '
            + 'Send acknowledge:true to confirm.',
     });
   }
@@ -309,7 +309,7 @@ async function executeApproval(a, approver) {
     await prisma.session.updateMany({ where: { userId: String(p.userId), revokedAt: null }, data: { revokedAt: new Date() } });
   } else if (a.action === 'BROADCAST') {
     try { const { sendCustomNotification } = require('../lib/push'); await sendCustomNotification({ all: true, title: p.title || 'Message from High Command', body: p.body || '', url: p.url || '/profile' }); } catch (e) {}
-    if (p.banner) await siteConfig.set('bannerText', `${p.title || 'High Command'} — ${p.body || ''}`);
+    if (p.banner) await siteConfig.set('bannerText', `${p.title || 'High Command'} · ${p.body || ''}`);
   }
 }
 
@@ -335,7 +335,7 @@ router.post('/approvals', requireStepUpEnforced, async (req, res) => {
     if (devCount <= 1) {
       await executeApproval(a, req.user);
       await prisma.pendingApproval.update({ where: { id: a.id }, data: { status: 'APPROVED', resolvedById: req.user.id, resolvedByName: req.user.displayName || req.user.discordUsername, resolvedAt: new Date() } });
-      audit.record({ req, action: 'APPROVAL_AUTO', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Executed ${action} (sole developer — no second approval required)` });
+      audit.record({ req, action: 'APPROVAL_AUTO', category: 'SECURITY', targetType: 'approval', targetId: a.id, summary: `Executed ${action} (sole developer · no second approval required)` });
       return res.status(201).json({ ok: true, id: a.id, executed: true });
     }
 
@@ -351,7 +351,7 @@ router.post('/approvals/:id/approve', requireStepUpEnforced, async (req, res) =>
     // A different developer must approve — unless this is the only developer.
     if (a.requestedById === req.user.id) {
       const devCount = await prisma.user.count({ where: { role: 'DEVELOPER' } }).catch(() => 2);
-      if (devCount > 1) return res.status(403).json({ error: 'A different developer must approve this — you proposed it.' });
+      if (devCount > 1) return res.status(403).json({ error: 'A different developer must approve this · you proposed it.' });
     }
     await executeApproval(a, req.user);
     await prisma.pendingApproval.update({ where: { id: a.id }, data: { status: 'APPROVED', resolvedById: req.user.id, resolvedByName: req.user.displayName || req.user.discordUsername, resolvedAt: new Date() } });

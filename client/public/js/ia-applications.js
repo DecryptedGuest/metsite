@@ -28,7 +28,7 @@
   var host = function () { return document.getElementById('iar-body'); };
 
   function fmt(d) {
-    if (!d) return '—';
+    if (!d) return '·';
     try { return new Date(d).toLocaleString(); } catch (e) { return String(d); }
   }
 
@@ -91,7 +91,7 @@
             : '');
       return '<div class="iar-row" data-id="' + esc(r.id) + '">'
         + '<span class="iar-ref">' + esc(r.appRef) + '</span>'
-        + '<span class="iar-who"><span class="a">' + esc(r.robloxUsername || r.discordUsername || '—') + '</span>'
+        + '<span class="iar-who"><span class="a">' + esc(r.robloxUsername || r.discordUsername || '·') + '</span>'
         +   '<span class="b">' + esc(r.discordUsername || '') + '</span></span>'
         + pick
         + '<span class="iar-chips">' + chips + '</span>'
@@ -135,7 +135,7 @@
   };
 
   function days(n) {
-    if (n == null) return '—';
+    if (n == null) return '·';
     if (n < 1) return 'today';
     if (n < 60) return n + ' day' + (n === 1 ? '' : 's');
     if (n < 730) return Math.round(n / 30.44) + ' months';
@@ -152,7 +152,7 @@
 
   function kv(k, v, tone) {
     return '<div class="iar-kv"><span class="k">' + esc(k) + '</span>'
-      + '<span class="v' + (tone ? ' ' + tone : '') + '">' + (v == null || v === '' ? '—' : v) + '</span></div>';
+      + '<span class="v' + (tone ? ' ' + tone : '') + '">' + (v == null || v === '' ? '·' : v) + '</span></div>';
   }
 
   function profileHtml(p) {
@@ -202,7 +202,7 @@
       + '<div class="iar-ident-pics">' + avatar(dc.avatar, dc.username, 'big') + '</div>'
       + '<div class="iar-ident-body">'
       +   '<div class="iar-ident-top"><i class="ti ti-brand-discord"></i> Discord</div>'
-      +   '<div class="iar-ident-name">' + esc(dc.username || '—') + '</div>'
+      +   '<div class="iar-ident-name">' + esc(dc.username || '·') + '</div>'
       +   (dc.displayName && dc.displayName !== dc.username
             ? '<div class="iar-ident-sub">shows as ' + esc(dc.displayName) + '</div>' : '')
       +   '<div class="iar-ident-rows">'
@@ -272,7 +272,7 @@
               + (m.xpPosition ? ' <span class="iar-dim">#' + m.xpPosition + ' of ' + m.xpOf + '</span>' : ''))
       +   kv('Site role', m.siteRole ? esc(m.siteRole) : null)
       +   kv('Divisions', m.divisionless === true
-            ? '<span class="iar-rule ok">none — first pick</span>'
+            ? '<span class="iar-rule ok">none · first pick</span>'
             : (m.divisions || []).map(function (x) {
                 return esc(x.division) + (x.rank ? ' <span class="iar-dim">' + esc(x.rank) + '</span>' : '');
               }).join(' · ') || null)
@@ -305,8 +305,8 @@
     if ((rec.recentCases || []).length) {
       h += '<div class="iar-cases">' + rec.recentCases.map(function (c) {
         return '<div class="iar-case">'
-          + '<span class="r mono">' + esc(c.caseRef || '—') + '</span>'
-          + '<span class="a">' + esc(c.action || '—') + '</span>'
+          + '<span class="r mono">' + esc(c.caseRef || '·') + '</span>'
+          + '<span class="a">' + esc(c.action || '·') + '</span>'
           + '<span class="s">' + esc(String(c.status || '').toLowerCase()) + '</span>'
           + '<span class="w">' + esc(fmt(c.createdAt)) + '</span>'
           + '<span class="y">' + esc(c.reason || '') + '</span>'
@@ -325,7 +325,7 @@
       h += '<div class="panel glass iar-panel">'
         + '<div class="iar-phead"><i class="ti ti-users-group"></i> Roblox groups · ' + rb.groups.length + '</div>'
         + '<div class="iar-nofind" style="margin:0 0 .7rem;">Every group they are in, with the rank they hold. '
-        + 'Nothing here is a verdict — it is context.</div>'
+        + 'Nothing here is a verdict · it is context.</div>'
         + '<div class="iar-groups">' + rb.groups.map(function (g) {
             var flag = (rb.metGroup && g.id === rb.metGroup.id) ? ' met'
                      : ((rb.iaGroup && g.id === rb.iaGroup.id) ? ' ia' : '');
@@ -347,7 +347,7 @@
             return '<div class="iar-histrow">'
               + '<span class="r mono">' + esc(x.appRef) + '</span>'
               + '<span class="s ' + esc(st) + '">' + esc(st) + '</span>'
-              + '<span class="p">' + (x.percentage != null ? x.percentage + '%' : '—') + '</span>'
+              + '<span class="p">' + (x.percentage != null ? x.percentage + '%' : '·') + '</span>'
               + '<span class="b">' + esc(x.markedByName || '') + '</span>'
               + '<span class="w">' + esc(fmt(x.markedAt || x.submittedAt)) + '</span>'
               + '</div>';
@@ -372,7 +372,7 @@
         b.innerHTML = '<div class="panel glass iar-panel" style="border-left:3px solid var(--amber);">'
           + '<div class="iar-phead"><i class="ti ti-user-scan"></i> Who applied</div>'
           + '<div class="iar-nofind">Their profile could not be built: ' + esc(err.message || 'unknown error')
-          + '. The application itself is unaffected — the summary above still stands.</div></div>';
+          + '. The application itself is unaffected · the summary above still stands.</div></div>';
       }
     }
   }
@@ -387,7 +387,7 @@
     // ── Who, and what we already knew about them ─────────────────
     var ctx = a.context || {};
     var cell = function (k, v) {
-      return '<div class="cell"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v || '—') + '</span></div>';
+      return '<div class="cell"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v || '·') + '</span></div>';
     };
     h += '<div class="panel glass iar-idbar">'
       + cell('Reference', a.appRef)
@@ -396,8 +396,8 @@
       + cell('Sent', fmt(a.submittedAt))
       + cell('Timezone', (a.answers || {}).timezone)
       + cell('MET rank', ctx.metRank)
-      + cell('Division', ctx.divisionless === true ? 'None — first pick'
-          : (Array.isArray(ctx.divisions) && ctx.divisions.length ? ctx.divisions.join(', ') : '—'))
+      + cell('Division', ctx.divisionless === true ? 'None · first pick'
+          : (Array.isArray(ctx.divisions) && ctx.divisions.length ? ctx.divisions.join(', ') : '·'))
       + cell('Plays on', (a.answers || {}).platform)
       + cell('Age', (a.answers || {}).age_band)
       + '</div>';
@@ -418,7 +418,7 @@
     var s = found.summary || {};
     if (s.hasTelemetry) {
       h += '<div class="iar-meta" style="margin:0 0 .7rem;">'
-        + '<span>' + esc(s.activeTyping || '—') + ' of typing</span>'
+        + '<span>' + esc(s.activeTyping || '·') + ' of typing</span>'
         + '<span>' + (s.characters || 0) + ' characters</span>'
         + '<span>away ' + esc(s.away || '0s') + '</span>'
         + (s.pasteCount ? '<span class="bad">' + s.pasteCount + ' paste(s), ' + s.pastedCharacters + ' characters</span>' : '<span>no pastes</span>')
@@ -426,7 +426,7 @@
     }
     var flags = (found.flags || []);
     if (!flags.length) {
-      h += '<div class="iar-nofind">Nothing stood out. That is not proof it was written honestly — '
+      h += '<div class="iar-nofind">Nothing stood out. That is not proof it was written honestly · '
         + 'it means the things this can measure look ordinary.</div>';
     } else {
       h += flags.map(function (f) {
@@ -456,7 +456,7 @@
     var providers = (stats && stats.aiProviders) || [];
     if (open.aiScan) {
       h += '<div class="iar-find note" style="margin-top:.7rem;">'
-        + '<div class="lbl"><span class="sev">AI scan</span>Run by ' + esc(open.aiScan.scannedByName || '—')
+        + '<div class="lbl"><span class="sev">AI scan</span>Run by ' + esc(open.aiScan.scannedByName || '·')
         + ' at ' + fmt(open.aiScan.at) + '</div>'
         + '<div class="det">' + esc(summariseScan(open.aiScan)) + '</div></div>';
     } else if (!decided) {
@@ -490,8 +490,8 @@
       h += '<div class="panel glass iar-panel">'
         + '<div class="iar-phead"><i class="ti ti-stamp"></i> Decision</div>'
         + '<div class="iar-nofind"><strong style="color:' + (a.status === 'ACCEPTED' ? 'var(--green)' : 'var(--amber)') + ';">'
-        + esc(a.status) + '</strong> by ' + esc(a.markedByName || '—') + ' on ' + fmt(a.markedAt)
-        + ' — ' + (a.score != null ? a.score + '/' + a.maxScore + ' (' + a.percentage + '%)' : 'no score')
+        + esc(a.status) + '</strong> by ' + esc(a.markedByName || '·') + ' on ' + fmt(a.markedAt)
+        + ' · ' + (a.score != null ? a.score + '/' + a.maxScore + ' (' + a.percentage + '%)' : 'no score')
         + (a.markerNote ? '<div style="margin-top:.6rem;white-space:pre-wrap;">' + esc(a.markerNote) + '</div>' : '')
         + '</div></div>';
     } else {
@@ -557,7 +557,7 @@
       } else if (q.type === 'choice' && q.correct != null) {
         var right = String(val) === String(q.correct);
         h += '<div class="iar-meta"><span class="' + (right ? '' : 'bad') + '">'
-          + (right ? 'Correct' : 'Wrong — the answer is “' + esc(q.correct) + '”') + '</span></div>';
+          + (right ? 'Correct' : 'Wrong · the answer is “' + esc(q.correct) + '”') + '</span></div>';
       }
       if (!decided) {
         h += '<div class="iar-mark">'
@@ -572,7 +572,7 @@
           +   '<button data-set="' + esc(q.id) + '|' + q.points + '">' + q.points + '</button>'
           + '</span></div>';
       } else {
-        h += '<div class="iar-meta"><span>' + ((a.scores || {})[q.id] != null ? (a.scores || {})[q.id] : '—')
+        h += '<div class="iar-meta"><span>' + ((a.scores || {})[q.id] != null ? (a.scores || {})[q.id] : '·')
           + ' of ' + q.points + ' marks</span></div>';
       }
     }
@@ -664,7 +664,7 @@
     var passMark = (stats && stats.passMark) || 0;
     if (what === 'accept' && passMark && total < passMark) {
       warn = '\n\nNote this scores ' + total + '/' + maxScore + ', which is below the pass mark of '
-           + passMark + '. Accepting is still yours to do — the score is evidence, not the decision.';
+           + passMark + '. Accepting is still yours to do · the score is evidence, not the decision.';
     }
     var ev = (open.integrity.flags || []).filter(function (f) { return f.severity === 'evidence'; });
     if (what === 'accept' && ev.length) {
@@ -677,8 +677,8 @@
     }
 
     var yes = await uiConfirm(
-      (what === 'accept' ? 'Accept ' : 'Reject ') + a.appRef + ' — '
-      + (a.robloxUsername || a.discordUsername) + ' — at ' + total + '/' + maxScore + ' (' + pc + '%)?'
+      (what === 'accept' ? 'Accept ' : 'Reject ') + a.appRef + ' · '
+      + (a.robloxUsername || a.discordUsername) + ' · at ' + total + '/' + maxScore + ' (' + pc + '%)?'
       + warn,
       { title: what === 'accept' ? 'Accept this application?' : 'Reject this application?',
         confirmText: what === 'accept' ? 'Accept' : 'Reject',

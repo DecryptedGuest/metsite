@@ -24,7 +24,7 @@ router.use((req, res, next) => {
 let _backfillRunning = false;
 router.post('/patrol-backfill', async (req, res) => {
   const bot = require('../lib/bot');
-  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet · try again shortly.' });
   if (_backfillRunning) return res.status(409).json({ error: 'A backfill is already running.' });
 
   const run = async () => {
@@ -32,7 +32,7 @@ router.post('/patrol-backfill', async (req, res) => {
     try {
       const result = await bot.backfillPatrolLogs();
       const sum = Object.values(result).map(r => `${r.type}: +${r.imported}/${r.scanned}`).join(', ') || 'nothing (no channels configured)';
-      audit.log(req.user, { category: 'DEV', action: 'PATROL_BACKFILL', summary: `Backfilled patrol/event logs — ${sum}` });
+      audit.log(req.user, { category: 'DEV', action: 'PATROL_BACKFILL', summary: `Backfilled patrol/event logs · ${sum}` });
       console.log('[Backfill] complete:', JSON.stringify(result));
       return result;
     } finally { _backfillRunning = false; }
@@ -43,7 +43,7 @@ router.post('/patrol-backfill', async (req, res) => {
     catch (e) { return res.status(500).json({ error: 'Backfill failed: ' + e.message }); }
   }
   run().catch(e => console.error('[Backfill] failed:', e.message));
-  res.json({ ok: true, started: true, message: 'Backfill started — logs will import in the background. Refresh the review queue to watch them appear.' });
+  res.json({ ok: true, started: true, message: 'Backfill started · logs will import in the background. Refresh the review queue to watch them appear.' });
 });
 
 // GET /api/dev/db-targets — WHICH databases is this app actually talking to?
@@ -186,19 +186,19 @@ router.get('/db-targets', async (req, res) => {
       sock.setTimeout(6000);
       sock.once('connect', () => done({
         open: true,
-        meaning: 'The port is OPEN, so a database is listening there. It is alive — '
+        meaning: 'The port is OPEN, so a database is listening there. It is alive · '
                + 'whatever is failing is not reachability.',
       }));
       sock.once('timeout', () => done({
         open: false, why: 'timed out',
-        meaning: 'The name resolves but the port never answers. That is BLOCKED, not absent — '
+        meaning: 'The name resolves but the port never answers. That is BLOCKED, not absent · '
                + "which is what Railway's public proxy looks like from inside Railway. The "
                + 'database is probably fine and reachable from your own machine.',
       }));
       sock.once('error', (e) => done({
         open: false, why: e.code || e.message,
         meaning: e.code === 'ECONNREFUSED'
-          ? 'The name resolves but nothing is listening on that port — the service is stopped, '
+          ? 'The name resolves but nothing is listening on that port · the service is stopped, '
           + 'deleted, or the port has changed.'
           : 'The connection failed before the database was reached.',
       }));
@@ -236,22 +236,22 @@ router.get('/db-targets', async (req, res) => {
 
   // Say what to DO, not just what is broken.
   const verdict = !ia.set
-    ? 'IA_DATABASE_URL is not set, so the IA sync does nothing. It needs the connection string of the OLD database that still holds the cases — not this one.'
+    ? 'IA_DATABASE_URL is not set, so the IA sync does nothing. It needs the connection string of the OLD database that still holds the cases · not this one.'
     : sameTarget
       ? 'IA_DATABASE_URL points at THE SAME DATABASE as the app itself, so the sync has nowhere to pull from and cannot recover anything. It has to point at a DIFFERENT database that still holds the cases. If there is no such database, use the Discord forum import instead.'
       // The TCP probe is what makes this specific, so it leads. "Gone" and
       // "blocked" are the same Prisma error and completely different outcomes.
       : !iaProbe.ok && iaTcp && iaTcp.resolves === false
-        ? `${iaTcp.meaning} There is nothing to recover from it — use the Discord forum import instead.`
+        ? `${iaTcp.meaning} There is nothing to recover from it · use the Discord forum import instead.`
         : !iaProbe.ok && iaTcp && iaTcp.open === true
-          ? 'A database IS listening on that host and port, so it is alive and the problem is not reachability — '
+          ? 'A database IS listening on that host and port, so it is alive and the problem is not reachability · '
             + 'check the password and the database name in IA_DATABASE_URL. '
             + (couldBeSameService ? 'Note it may still be the same database the app already uses, by its other address. ' : '')
             + 'Press Sync again once the credentials are right.'
           : !iaProbe.ok && iaTcp && iaTcp.why === 'timed out'
             ? `${iaTcp.meaning} `
               + (couldBeSameService
-                ? 'It may also be the SAME database the app already uses, reached by its public address instead of its private one — every Railway Postgres has both. Check DATABASE_PUBLIC_URL on the Postgres service: if it is this host and port, this is the same empty database and the sync can never recover anything. '
+                ? 'It may also be the SAME database the app already uses, reached by its public address instead of its private one · every Railway Postgres has both. Check DATABASE_PUBLIC_URL on the Postgres service: if it is this host and port, this is the same empty database and the sync can never recover anything. '
                 : '')
               + 'If that database is in this Railway project, put its private *.railway.internal address in IA_DATABASE_URL instead and press Sync again.'
             : !iaProbe.ok && iaTcp && iaTcp.why === 'ECONNREFUSED'
@@ -297,7 +297,7 @@ router.post('/case-log-import', async (req, res) => {
   try {
     const { getClient } = require('../lib/bot');
     const client = getClient();
-    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet — try again shortly.' });
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet · try again shortly.' });
 
     const out = await require('../lib/caseLogImport')
       .importFromChannel(client, channelId, { dryRun: dry, maxPages: body.maxPages });
@@ -435,7 +435,7 @@ router.post('/ia-sync', async (req, res) => {
     const result = await require('../lib/iaSync').syncAll();
     if (!result.ok) return res.status(400).json({ error: result.reason || 'IA sync not configured' });
     audit.log(req.user, { category: 'DEV', action: 'IA_SYNC',
-      summary: `Synced IA data — cases ${result.cases && result.cases.synced}/${result.cases && result.cases.total}, tickets ${result.tickets && result.tickets.synced}/${result.tickets && result.tickets.total}` });
+      summary: `Synced IA data · cases ${result.cases && result.cases.synced}/${result.cases && result.cases.total}, tickets ${result.tickets && result.tickets.synced}/${result.tickets && result.tickets.total}` });
     res.json(result);
   } catch (e) {
     console.error('[Dev] IA sync failed:', e.message);
@@ -652,7 +652,7 @@ router.get('/emoji', (req, res) => {
 //                         touched, so the server's own rank badges are safe.
 router.post('/emoji/sync', async (req, res) => {
   const bot = require('../lib/bot');
-  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet · try again shortly.' });
   const body = req.body || {};
   try {
     const out = await require('../lib/emoji').syncGuildEmoji(bot.getClient(), {
@@ -668,7 +668,7 @@ router.post('/emoji/sync', async (req, res) => {
 // POST /api/dev/emoji/purge-guild — the cleanup on its own, without a re-sync.
 router.post('/emoji/purge-guild', async (req, res) => {
   const bot = require('../lib/bot');
-  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet · try again shortly.' });
   try {
     const emoji = require('../lib/emoji');
     const strays = await emoji.findGuildStrays(bot.getClient());
@@ -699,7 +699,7 @@ router.get('/commands', async (req, res) => {
 
 router.post('/commands/register', async (req, res) => {
   const bot = require('../lib/bot');
-  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet — try again shortly.' });
+  if (!bot.isReady()) return res.status(503).json({ error: 'Bot not connected yet · try again shortly.' });
   try {
     const out = await bot.registerCommands();
     res.json({ ...out, now: await bot.listRegisteredCommands() });

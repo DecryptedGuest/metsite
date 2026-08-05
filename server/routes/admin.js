@@ -117,7 +117,7 @@ router.post('/dedupe-migration-logs', async (req, res) => {
     const result = await require('../lib/dedupeMigration').runDedupe({ apply, scope });
     if (apply) {
       audit.log(req.user, { category: 'ACCESS', action: 'DEDUPE_MIGRATION_LOGS',
-        summary: `Deduped migration logs — deleted ${result.tickets.deleted} ticket(s) + ${result.cases.deleted} case(s)` });
+        summary: `Deduped migration logs · deleted ${result.tickets.deleted} ticket(s) + ${result.cases.deleted} case(s)` });
     }
     res.json(result);
   } catch (e) {
@@ -241,7 +241,7 @@ router.post('/users/:id/blacklist', async (req, res) => {
     // Kill their live sessions immediately so the blacklist takes effect now.
     await prisma.session.updateMany({ where: { userId: req.params.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {});
     audit.log(req.user, { category: 'ACCESS', action: 'BLACKLIST', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
-      summary: `Blacklisted ${u.displayName || u.discordUsername}${reason ? ` — ${reason}` : ''}` });
+      summary: `Blacklisted ${u.displayName || u.discordUsername}${reason ? ` · ${reason}` : ''}` });
 
     // Advanced alt detection: propagate the blacklist to accounts that share a
     // real IP / device with this one (developer-toggleable via `altBlock`).
@@ -594,7 +594,7 @@ async function logModeration(req, { action, targetDiscordId, targetUsername, rea
   try {
     require('../lib/audit').record({
       req, action: `MOD_${action}`, category: 'moderation', targetType: 'discord_user', targetId: targetDiscordId,
-      summary: `${action} ${targetUsername || targetDiscordId}${reason ? ` — ${reason}` : ''}${durationMinutes ? ` (${durationMinutes}m)` : ''}`,
+      summary: `${action} ${targetUsername || targetDiscordId}${reason ? ` · ${reason}` : ''}${durationMinutes ? ` (${durationMinutes}m)` : ''}`,
     });
   } catch (e) { /* non-fatal */ }
 }

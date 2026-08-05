@@ -128,17 +128,17 @@ async function setCredential({ kind, value, creatorType, creatorId, setBy }) {
   // stray NUL would turn every error path into a way to read the credential back
   // out. Refusing it here means that path cannot be reached at all.
   if (/[\x00-\x1f\x7f]/.test(raw)) {
-    throw new Error('That value contains a control character — a line break, a tab or similar. '
+    throw new Error('That value contains a control character · a line break, a tab or similar. '
       + 'A credential cannot contain one, so copy it again as a single unbroken string.');
   }
   // Same reasoning: everything Roblox issues is printable ASCII, and anything
   // else cannot go in a header either.
   if (/[^\x20-\x7e]/.test(raw)) {
-    throw new Error('That value contains characters a Roblox credential never uses — check what was copied.');
+    throw new Error('That value contains characters a Roblox credential never uses · check what was copied.');
   }
 
   if (kind === 'cookie' && raw.length < 100) {
-    throw new Error('That does not look like a .ROBLOSECURITY cookie — it is several hundred characters and starts with _|WARNING.');
+    throw new Error('That does not look like a .ROBLOSECURITY cookie · it is several hundred characters and starts with _|WARNING.');
   }
   if (kind === 'apikey' && raw.length < 20) throw new Error('That does not look like an Open Cloud API key.');
 
@@ -149,7 +149,7 @@ async function setCredential({ kind, value, creatorType, creatorId, setBy }) {
   // A non-numeric user id stores cleanly and then fails at Roblox on every single
   // upload, which reads as "the credential is broken".
   if (ct === 'user' && creatorId && !/^\d+$/.test(String(creatorId))) {
-    throw new Error('A Roblox user id is a number — it is the digits in your profile URL.');
+    throw new Error('A Roblox user id is a number · it is the digits in your profile URL.');
   }
 
   const rec = {
@@ -182,7 +182,7 @@ async function clearCredential() {
 // The secret itself. Deliberately not exported.
 async function useCredential() {
   const rec = await readRecord();
-  if (!rec) throw new Error('No Roblox credential is set — add one in the panel above.');
+  if (!rec) throw new Error('No Roblox credential is set · add one in the panel above.');
   let value;
   try { value = secretBox.open(rec.sealed); }
   catch {
@@ -223,7 +223,7 @@ async function verifyInner(cred) {
     const res = await fetch('https://users.roblox.com/v1/users/authenticated', {
       headers: { Cookie: `.ROBLOSECURITY=${cred.value}` },
     });
-    if (res.status === 401) return { ok: false, error: 'Roblox rejected the cookie — it has expired or been invalidated. Log in again and paste a fresh one.' };
+    if (res.status === 401) return { ok: false, error: 'Roblox rejected the cookie · it has expired or been invalidated. Log in again and paste a fresh one.' };
     if (!res.ok) return { ok: false, error: `Roblox replied ${res.status} when checking the cookie.` };
     const me = await res.json().catch(() => null);
     if (!me || !me.id) return { ok: false, error: 'Roblox did not say who the cookie belongs to.' };
@@ -240,7 +240,7 @@ async function verifyInner(cred) {
   });
 
   if (res.status === 401 || res.status === 403) {
-    return { ok: false, error: 'Roblox rejected the API key. Check it was copied whole, has not been deleted or expired, and — if it restricts IP addresses — that this server\'s address is on its list.' };
+    return { ok: false, error: 'Roblox rejected the API key. Check it was copied whole, has not been deleted or expired, and · if it restricts IP addresses · that this server\'s address is on its list.' };
   }
   if (!res.ok) {
     // Introspection is not load-bearing enough to fail the whole credential over.
@@ -258,17 +258,17 @@ async function verifyInner(cred) {
 
   const info = await res.json().catch(() => null) || {};
   if (info.enabled === false) return { ok: false, error: 'That API key is disabled. Enable it, or create a new one.' };
-  if (info.expired === true)  return { ok: false, error: 'That API key has expired. Keys also expire after 60 days unused — create a new one.' };
+  if (info.expired === true)  return { ok: false, error: 'That API key has expired. Keys also expire after 60 days unused · create a new one.' };
 
   // scopes: [{ name: 'asset', operations: ['read','write'], userIds, groupIds }]
   const scopes = Array.isArray(info.scopes) ? info.scopes : [];
   const assetScope = scopes.find(s => String(s && s.name).toLowerCase() === 'asset');
   const ops = (assetScope && Array.isArray(assetScope.operations) ? assetScope.operations : []).map(o => String(o).toLowerCase());
   if (!assetScope) {
-    return { ok: false, error: 'That key has no Assets permission at all — add Assets with Read and Write to it.' };
+    return { ok: false, error: 'That key has no Assets permission at all · add Assets with Read and Write to it.' };
   }
   if (!ops.includes('write')) {
-    return { ok: false, error: 'That key can read assets but not create them — add the Write permission to its Assets entry.' };
+    return { ok: false, error: 'That key can read assets but not create them · add the Write permission to its Assets entry.' };
   }
 
   const account = info.authorizedUserId
@@ -368,7 +368,7 @@ function checkAudio({ fileName, mimeType, size }) {
   if (!size) return 'The file is empty.';
   // Roblox's wording is "less than 20 MB", so exactly 20 MB is over.
   if (size >= MAX_AUDIO_BYTES) {
-    return `Too large at ${(size / 1024 / 1024).toFixed(1)} MB — Roblox needs audio under ${MAX_AUDIO_BYTES / 1024 / 1024} MB.`;
+    return `Too large at ${(size / 1024 / 1024).toFixed(1)} MB · Roblox needs audio under ${MAX_AUDIO_BYTES / 1024 / 1024} MB.`;
   }
   return null;
 }
@@ -602,24 +602,24 @@ async function uploadViaCookie({ buffer, displayName, fileName, creatorType, cre
   }
   if (res.status === 429) {
     throw new Error(`Roblox rate-limited this one and was still refusing after ${RATE_RETRIES} attempts `
-      + `over ${Math.round(totalBackoffMs(RATE_RETRIES) / 1000)}s. It is still in the list below — `
+      + `over ${Math.round(totalBackoffMs(RATE_RETRIES) / 1000)}s. It is still in the list below · `
       + 'press Upload again in a minute or two and it will go.');
   }
   if (res.ok) easeThrottle();
   if (!res.ok) {
     const msg = (() => { try { const j = JSON.parse(text); return j.message || (j.errors && j.errors[0] && j.errors[0].message) || text; } catch { return text; } })();
-    if (res.status === 401) throw new Error('Roblox rejected the cookie — it has expired. Paste a fresh one.');
+    if (res.status === 401) throw new Error('Roblox rejected the cookie · it has expired. Paste a fresh one.');
     // Roblox's challenge system also answers 403, and no amount of token
     // refreshing will ever satisfy it from a server.
     if (res.status === 403 && (res.headers.get('rblx-challenge-id') || /challenge/i.test(msg))) {
       throw new Error('Roblox is asking for a challenge (captcha) on this account, which cannot be answered from here. '
-        + 'An Open Cloud API key is not subject to this — switch to one.');
+        + 'An Open Cloud API key is not subject to this · switch to one.');
     }
     if (/quota/i.test(msg)) {
       throw new Error('Roblox says the audio upload allowance for this account is used up: ' + scrub(msg, cookie));
     }
     if (/moderated/i.test(msg)) {
-      throw new Error(`Roblox rejected the NAME, not the audio: ${scrub(msg, cookie)} — rename it and try again.`);
+      throw new Error(`Roblox rejected the NAME, not the audio: ${scrub(msg, cookie)} · rename it and try again.`);
     }
     throw new Error(`Roblox refused the upload (${res.status}): ${scrub(msg, cookie)}`);
   }
@@ -640,7 +640,7 @@ function credentialProblem(cred) {
   // Open Cloud insists on a creator. A cookie knows the account implicitly; a
   // key does not, and Roblox will not guess.
   if (cred.kind === 'apikey' && (cred.creatorType || 'user') === 'user' && !cred.creatorId) {
-    return 'Set the Roblox user id that owns the API key — Open Cloud will not guess it.';
+    return 'Set the Roblox user id that owns the API key · Open Cloud will not guess it.';
   }
   return null;
 }
@@ -684,7 +684,7 @@ async function uploadAudio({ buffer, displayName, fileName, mimeType, uploadedBy
         operationId: out.operationId || null,
         status: out.assetId ? 'DONE' : 'PENDING',
         moderation: out.moderation || null,
-        error: out.pending ? 'Roblox is still processing this one — check back shortly.' : null,
+        error: out.pending ? 'Roblox is still processing this one · check back shortly.' : null,
         finishedAt: out.assetId ? new Date() : null,
       },
     });

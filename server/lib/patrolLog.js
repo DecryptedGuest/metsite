@@ -441,7 +441,7 @@ async function awardEventPoint(log, division = 'MET') {
   const q = require('./quota');
   const cfg = q.quotaConfig(division);
   const spreadsheetId = cfg.sheetId;
-  if (!spreadsheetId) { console.warn(`[EventLog] no sheet configured for ${division} — skipping point.`); return { ok: false, reason: `${division} sheet not set`, division }; }
+  if (!spreadsheetId) { console.warn(`[EventLog] no sheet configured for ${division} · skipping point.`); return { ok: false, reason: `${division} sheet not set`, division }; }
   try {
     const sheets = q.getSheetsClient(cfg);
     if (!sheets) return { ok: false, reason: 'Google Sheets not configured', division };
@@ -469,7 +469,7 @@ async function awardEventPoint(log, division = 'MET') {
       const dayCol = cols.days[q.currentDayIndex(tz)];
       if (dayCol == null) return { ok: false, reason: 'day column not found', tab, division };
       const cellRaw = (rows[rowIdx][dayCol] || '').toString().trim();
-      if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: `cell is "${cellRaw}" (e.g. EX) — left untouched`, tab, division };
+      if (cellRaw && isNaN(parseFloat(cellRaw))) return { ok: false, reason: `cell is "${cellRaw}" (e.g. EX) · left untouched`, tab, division };
       const newVal = (cellRaw ? parseFloat(cellRaw) : 0) + 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId, range: q.sheetRef(tab, `${q.colLetter(dayCol)}${rowIdx + 1}`),

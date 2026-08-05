@@ -464,7 +464,7 @@
 }
 
 /* A ticket carries two ids: Tickety's own (what Discord and the transcript
-   show) and this site's sequential number. Stacked rather than side by side —
+   show) and this site's sequential number. Stacked rather than side by side ·
    the column is narrow, and the second one is a footnote to the first. */
 .ticket-id-stack {
   display: inline-flex;

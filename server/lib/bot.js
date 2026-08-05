@@ -309,7 +309,7 @@ async function registerCommands(c) {
   const out = { guilds: [], global: null, errors: [] };
 
   if (!byGuild.size) {
-    console.warn('[Bot] no guild configured for slash commands — set MET_GUILD_ID or DISCORD_GUILD_ID.');
+    console.warn('[Bot] no guild configured for slash commands · set MET_GUILD_ID or DISCORD_GUILD_ID.');
   }
 
   let anyGuildOk = false;
@@ -324,13 +324,13 @@ async function registerCommands(c) {
     } catch (err) {
       // The three that actually happen, named so the log says what to DO.
       const why = /Missing Access|50001/i.test(err.message)
-        ? 'the bot is missing the "applications.commands" scope in that server — re-invite it with that scope ticked (its existing roles and messages are unaffected)'
+        ? 'the bot is missing the "applications.commands" scope in that server · re-invite it with that scope ticked (its existing roles and messages are unaffected)'
         : /Unknown Guild|10004/i.test(err.message)
           ? 'the bot is not in that server, or the id is wrong'
           : err.message;
       out.guilds.push({ guildId, ok: false, error: why });
       out.errors.push(`${guildId}: ${why}`);
-      console.error(`[Bot] could not register ${names} in guild ${guildId} — ${why}`);
+      console.error(`[Bot] could not register ${names} in guild ${guildId} · ${why}`);
     }
   }
 
@@ -344,7 +344,7 @@ async function registerCommands(c) {
       await api.application.commands.set(global);
       out.global = global.map(c => c.name);
       console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY`
-        + (anyGuildOk ? '' : ' (no guild registration succeeded — these can take up to an hour to show up)'));
+        + (anyGuildOk ? '' : ' (no guild registration succeeded · these can take up to an hour to show up)'));
     } catch (err) {
       out.errors.push(`global: ${err.message}`);
       console.error('[Bot] global command registration failed:', err.message);
@@ -461,7 +461,7 @@ async function onInteraction(interaction) {
         console.error('[Bot] /discipline failed:', err.message);
         // The panel is ephemeral and already deferred by this point, so the
         // issuer would otherwise be left staring at "thinking…" forever.
-        const msg = { content: `${e('met_cross')} Something went wrong running that — nothing was issued. (${err.message})`, embeds: [], components: [] };
+        const msg = { content: `${e('met_cross')} Something went wrong running that · nothing was issued. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
@@ -472,7 +472,7 @@ async function onInteraction(interaction) {
     return require('./promoteCommand').handlePromoteCommand(interaction)
       .catch(async (err) => {
         console.error('[Bot] /promote failed:', err.message);
-        const msg = { content: `${e('met_cross')} Something went wrong — nothing was changed. (${err.message})`, embeds: [], components: [] };
+        const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
@@ -507,7 +507,7 @@ async function onInteraction(interaction) {
     return require('./pendingJoinCommand').handlePendingJoinCommand(interaction)
       .catch(async (err) => {
         console.error('[Bot] /pendingjoin failed:', err.message);
-        const msg = { content: `${e('met_cross')} Something went wrong — the queue may be part-done, `
+        const msg = { content: `${e('met_cross')} Something went wrong · the queue may be part-done, `
           + `so run \`/pendingjoin list\` to see where it got to. (${err.message})`,
           embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
@@ -520,7 +520,7 @@ async function onInteraction(interaction) {
     return require('./loaCommand').handleLoaCommand(interaction)
       .catch(async (err) => {
         console.error('[Bot] /loa failed:', err.message);
-        const msg = { content: `${e('met_cross')} Something went wrong — nothing was changed. (${err.message})`, embeds: [], components: [] };
+        const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
@@ -539,7 +539,7 @@ async function onInteraction(interaction) {
   await interaction.deferReply({ flags: 64 }); // 64 = EPHEMERAL
 
   // Send the very first reply immediately so Discord doesn't expire the token
-  await interaction.editReply('⏳ Starting import — fetching forum posts…').catch(() => {});
+  await interaction.editReply('⏳ Starting import · fetching forum posts…').catch(() => {});
 
   const { importForumCases } = require('./forumImport');
   // Update Discord on every progress event — keep-alive interval handles rate limiting.
@@ -557,7 +557,7 @@ async function onInteraction(interaction) {
     clearInterval(keepAlive);
     if (s.dry) {
       const header =
-        `${e('met_search')} **Dry run** — found **${s.parsed}** cases, skipped **${s.skipped}** (bad title format).\n` +
+        `${e('met_search')} **Dry run** · found **${s.parsed}** cases, skipped **${s.skipped}** (bad title format).\n` +
         `Status: Pending **${s.byStatus.PENDING}** · Approved **${s.byStatus.APPROVED}** · Denied **${s.byStatus.DENIED}**\n` +
         `Docs linked: **${s.preview.filter(p => p.caseLink).length}** of first ${s.preview.length} shown.\n\n` +
         `Run again without **dry** to import all ${s.parsed} cases.`;
@@ -574,7 +574,7 @@ async function onInteraction(interaction) {
       await interaction.editReply(`${header}\n\`\`\`\n${preview}\n\`\`\``);
     } else {
       await interaction.editReply(
-        `${e('met_tick')} **Import complete** — created **${s.created}** cases (parsed ${s.parsed}, skipped ${s.skipped} bad-format).\n` +
+        `${e('met_tick')} **Import complete** · created **${s.created}** cases (parsed ${s.parsed}, skipped ${s.skipped} bad-format).\n` +
         `Status: Pending ${s.byStatus.PENDING} · Approved ${s.byStatus.APPROVED} · Denied ${s.byStatus.DENIED}\n` +
         `Cases are numbered #1 … #${s.created} oldest → newest.`,
       );
@@ -591,13 +591,13 @@ async function onInteraction(interaction) {
 function startBot() {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
-    console.warn('[Bot] No DISCORD_BOT_TOKEN set — bot features disabled.');
+    console.warn('[Bot] No DISCORD_BOT_TOKEN set · bot features disabled.');
     return;
   }
   client.login(token).catch(err => {
     const disallowed = err && (/disallowed intent/i.test(err.message || '') || err.code === 'DisallowedIntents');
     if (WANT_MESSAGE_CONTENT && disallowed) {
-      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal — starting the bot WITHOUT it. Role assignment still works, but forum + ticket-transcript reads are disabled until you enable "Message Content Intent" in the portal.');
+      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal · starting the bot WITHOUT it. Role assignment still works, but forum + ticket-transcript reads are disabled until you enable "Message Content Intent" in the portal.');
       client = buildClient(false);
       client.login(token).catch(e => console.error('Bot login failed (fallback):', e.message));
     } else {
@@ -803,7 +803,7 @@ async function listGuildRoleMembers(guildId, roleId) {
  */
 async function assignRole(discordUserId, roleId, guildId) {
   if (!ready) {
-    console.warn('Bot not ready — cannot assign role');
+    console.warn('Bot not ready · cannot assign role');
     return false;
   }
   const gid = guildId || process.env.DISCORD_GUILD_ID;
@@ -931,7 +931,7 @@ async function findMemberByUsername(query) {
  * Remove a role from a guild member.
  */
 async function removeRole(discordUserId, roleId) {
-  if (!ready) { console.warn('Bot not ready — cannot remove role'); return false; }
+  if (!ready) { console.warn('Bot not ready · cannot remove role'); return false; }
   const guildId = process.env.DISCORD_GUILD_ID;
   if (!guildId || !roleId) return false;
 
@@ -1227,8 +1227,8 @@ async function matchTicketTranscript(transcriptLink, opts = {}) {
 function privateServerLinkField(tryout) {
   const manual = require('./tryouts').tryoutManualLink(tryout.division);
   if (tryout.privateServerLink) return { name: 'Private server link', value: String(tryout.privateServerLink).slice(0, 1000), inline: false };
-  if (manual) return { name: 'Private server link', value: `${e('met_warn')} **Not set** — click **Set Private Server Link** below and paste your own private-server link.`, inline: false };
-  return { name: 'Private server link', value: 'Not provisioned — set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false };
+  if (manual) return { name: 'Private server link', value: `${e('met_warn')} **Not set** · click **Set Private Server Link** below and paste your own private-server link.`, inline: false };
+  return { name: 'Private server link', value: 'Not provisioned · set `TRYOUT_PRIVATE_SERVER_LINK` (or configure dynamic creation).', inline: false };
 }
 
 // The action buttons attached to a host's tryout DM: (set link,) pick a co-host,
@@ -1262,7 +1262,7 @@ function tryoutHostDmButtons(tryout) {
 
 // DM the host their tryout details + action buttons. Returns the DM message id.
 async function sendTryoutHostDM(tryout) {
-  if (!ready) { console.warn('[Tryout] bot not ready — cannot DM host'); return null; }
+  if (!ready) { console.warn('[Tryout] bot not ready · cannot DM host'); return null; }
   try {
     const user  = await client.users.fetch(tryout.hostDiscordId);
     const cfg   = require('./tryouts').divisionConfig(tryout.division);
@@ -1543,7 +1543,7 @@ async function postTryoutAnnouncement(tryout) {
   const { formatAnnouncement, formatCidRecruitment, announcementAllowedMentions, divisionConfig, announceChannelId } = require('./tryouts');
   const chId = announceChannelId(tryout);
   if (!chId) {
-    console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} — cannot announce.`);
+    console.warn(`[Tryout] no announce channel configured for division ${tryout.division || 'HPC'} · cannot announce.`);
     await db.tryout.update({ where: { id: tryout.id }, data: { announcementSent: false } }).catch(() => {}); // release claim
     return null;
   }
@@ -1590,14 +1590,14 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
   if (status === 'CANCELLED') {
     return new EmbedBuilder()
       .setColor(0xe74c3c)
-      .setTitle(`${cfg.eventType} — Cancelled`)
+      .setTitle(`${cfg.eventType} · Cancelled`)
       .setDescription('This tryout has been cancelled and its announcement removed from the channel.')
       .addFields({ name: 'Status', value: 'Cancelled', inline: true });
   }
   if (status === 'COMPLETED') {
     return new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle(`${cfg.eventType} — Concluded`)
+      .setTitle(`${cfg.eventType} · Concluded`)
       .setDescription('This tryout has concluded and its announcement removed from the channel. Review and post the results on the site.')
       .addFields(
         { name: 'Status', value: 'Concluded', inline: true },
@@ -1616,7 +1616,7 @@ function tryoutDmEmbed(tryout, { reviewUrl } = {}) {
     .addFields(
       privateServerLinkField(tryout),
       { name: 'Status', value: require('./tryouts').isServerLocked(tryout) ? 'Locked' : 'Unlocked', inline: true },
-      { name: 'Joining', value: tryout.joinable ? `${e('met_online')} Open — players can join via the link below` : `${e('met_offline')} Closed`, inline: true },
+      { name: 'Joining', value: tryout.joinable ? `${e('met_online')} Open · players can join via the link below` : `${e('met_offline')} Closed`, inline: true },
       ...(tryout.coHostName ? [{ name: 'Co-host', value: String(tryout.coHostName), inline: true }] : []),
       ...(joinUrl ? [{ name: `${e('met_link')} Join link`, value: joinUrl, inline: false }] : []),
       ...(stageUrl ? [{ name: `${e('met_mic')} Public Tryout stage`, value: `Join the stage to run your tryout: ${stageUrl}`, inline: false }] : []),
@@ -1656,7 +1656,7 @@ async function dmTicketAlert(discordId, opts) {
     const user  = await client.users.fetch(String(discordId));
     const desc  = `**${opts.typeLabel || 'Support ticket'}** opened by **${opts.openerName || 'a member'}**.`
       + (opts.preview ? `\n\n> ${String(opts.preview).slice(0, 300)}` : '')
-      + `\n\nTap **Claim ticket** to take it. Don't want these DMs? Use **Opt out** — you can turn them back on any time.`;
+      + `\n\nTap **Claim ticket** to take it. Don't want these DMs? Use **Opt out** · you can turn them back on any time.`;
     const embed = new EmbedBuilder()
       .setColor(0x4a8fff)
       .setTitle(`${e('met_ticket')} New Internal Affairs ticket`)
@@ -1706,7 +1706,7 @@ async function dmLoginCode(discordId, code, challengeId) {
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
       .setTitle('Your MET sign-in code')
-      .setDescription(`Enter this code on the sign-in page to log in:\n\n## \`${code}\`\n\nIt expires in 10 minutes and can only be used once. If you didn't request this, ignore this message — nobody can sign in without it.`);
+      .setDescription(`Enter this code on the sign-in page to log in:\n\n## \`${code}\`\n\nIt expires in 10 minutes and can only be used once. If you didn't request this, ignore this message · nobody can sign in without it.`);
     const msg = await user.send({ embeds: [embed] });
     if (challengeId) {
       const timer = setTimeout(() => deleteLoginDm(challengeId), LOGIN_DM_TTL_MS);
@@ -1739,7 +1739,7 @@ async function dmTryoutAutoCancelled(tryout, minutes) {
     const user = await client.users.fetch(tryout.hostDiscordId);
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
-      .setTitle(`${cfg.eventType} — auto-cancelled`)
+      .setTitle(`${cfg.eventType} · auto-cancelled`)
       .setDescription(`Your tryout was automatically cancelled because you left the server for more than ${minutes} minutes without returning. Its announcement has been removed. Start a new tryout in-game whenever you're ready.`);
     await user.send({ embeds: [embed] });
     return true;
@@ -1760,7 +1760,7 @@ async function dmTryoutLogReady(log) {
     const user = await client.users.fetch(log.hostDiscordId);
     const embed = new EmbedBuilder()
       .setColor(0x3b82f6)
-      .setTitle(`${cfg.eventType} — log ready to review`)
+      .setTitle(`${cfg.eventType} · log ready to review`)
       .setDescription('Your tryout concluded and a draft log has been queued on the site. Review the attendees, make any edits, then post it for approval.')
       .addFields(
         { name: 'Attendees', value: String(log.totalAttendees ?? 0), inline: true },
@@ -1879,9 +1879,9 @@ async function postTryoutSummary(summary) {
     const fmtDur = (s) => { s = Math.max(0, Math.round(+s || 0)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return (h ? `${h}h ` : '') + `${m}m`; };
     const embed = new EmbedBuilder()
       .setColor(cfg.dmColor || 0x3b82f6)
-      .setTitle(`${cfg.eventType} — Summary`)
+      .setTitle(`${cfg.eventType} · Summary`)
       .addFields(
-        { name: 'Host',      value: host.username ? String(host.username) : '—', inline: true },
+        { name: 'Host',      value: host.username ? String(host.username) : '·', inline: true },
         { name: 'Co-Host',   value: coHost && coHost.username ? String(coHost.username) : 'N/A', inline: true },
         { name: 'Duration',  value: fmtDur(summary.durationSecs), inline: true },
         { name: 'Attendees', value: String(n(summary.attendees)), inline: true },
@@ -1940,7 +1940,7 @@ async function handleTryoutComponent(interaction) {
     if (updated.announcementMsgId) await editTryoutAnnouncement(updated).catch(() => {});
     await editTryoutHostDM(updated).catch(() => {});
     return interaction.reply({
-      content: e('met_tick') + ' Private server link saved — it’s now in your tryout details' + (updated.announcementMsgId ? ' and the announcement has been updated.' : '. Post the announcement when you’re ready.'),
+      content: e('met_tick') + ' Private server link saved · it’s now in your tryout details' + (updated.announcementMsgId ? ' and the announcement has been updated.' : '. Post the announcement when you’re ready.'),
       flags: 64,
     });
   }
@@ -1966,7 +1966,7 @@ async function handleTryoutComponent(interaction) {
       // The staff role is empty / misconfigured, or the member list couldn't be
       // fetched. Don't dead-end the host — fall back to the open picker so they
       // can still choose any member as co-host.
-      console.warn(`[Bot] co-host: no members for staff role ${cfg.roleId} in guild ${cfg.guildId} — falling back to the open picker.`);
+      console.warn(`[Bot] co-host: no members for staff role ${cfg.roleId} in guild ${cfg.guildId} · falling back to the open picker.`);
       const row = new ActionRowBuilder().addComponents(
         new UserSelectMenuBuilder().setCustomId(`tryout_cohostsel_${tryoutId}`).setPlaceholder('Select a co-host').setMinValues(1).setMaxValues(1),
       );
@@ -2010,7 +2010,7 @@ async function handleTryoutComponent(interaction) {
         }
       } catch (e) { /* fall through to rejection */ }
     }
-    if (!ok) return interaction.update({ content: e('met_warn') + ' That member is not eligible staff — co-host not set.', components: [] });
+    if (!ok) return interaction.update({ content: e('met_warn') + ' That member is not eligible staff · co-host not set.', components: [] });
     await prisma.tryout.update({ where: { id: tryoutId }, data: { coHostDiscordId: pickedId, coHostName: coName } }).catch(() => {});
     // Reflect the co-host in the already-posted announcement + the host DM.
     const fresh = await prisma.tryout.findUnique({ where: { id: tryoutId } }).catch(() => null);
@@ -2038,9 +2038,9 @@ async function handleTryoutComponent(interaction) {
     const hasLink = !!require('./tryouts').tryoutJoinUrl(updated);
     return interaction.reply({
       content: joinable
-        ? (hasLink ? `${e('met_tick')} Joining is **open** — the Join link is now in the announcement.`
-                   : `${e('met_tick')} Joining is **open**. (No place id configured, so no launch link was added — set \`TRYOUT_JOIN_PLACE_ID\`.)`)
-        : `${e('met_stop')} Joining is **closed** — new joins are stopped and the Join link removed.`,
+        ? (hasLink ? `${e('met_tick')} Joining is **open** · the Join link is now in the announcement.`
+                   : `${e('met_tick')} Joining is **open**. (No place id configured, so no launch link was added · set \`TRYOUT_JOIN_PLACE_ID\`.)`)
+        : `${e('met_stop')} Joining is **closed** · new joins are stopped and the Join link removed.`,
       flags: 64,
     });
   }
@@ -2094,7 +2094,7 @@ function targetGuildId(guildId) { return guildId || process.env.DISCORD_GUILD_ID
 // tool's member picker. Returns up to `limit` matches (Discord caps a single
 // fetch({query}) at 1000; we ask for a bit more than `limit` and trim).
 async function searchGuildMembers(query, limit = 25, guildId) {
-  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  if (!ready) throw new Error('Bot is not connected yet · try again shortly.');
   const gId = targetGuildId(guildId);
   if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
   const guild = await guild_(gId);
@@ -2198,7 +2198,7 @@ async function deleteTryoutScheduledEvent(tryout, guildId) {
 // Discord has no server-side ban search, so this fetches the full ban list
 // (fine for a single-server community) and filters in memory.
 async function listGuildBans(search, guildId) {
-  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  if (!ready) throw new Error('Bot is not connected yet · try again shortly.');
   const gId = targetGuildId(guildId);
   if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
   const guild = await guild_(gId);
@@ -2214,7 +2214,7 @@ async function listGuildBans(search, guildId) {
 // Ban a Discord user from the guild. `deleteMessageSeconds` (0-604800) purges
 // their recent messages too — defaults to 0 (no purge).
 async function banMember(discordUserId, { reason, deleteMessageSeconds = 0, guildId } = {}) {
-  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  if (!ready) throw new Error('Bot is not connected yet · try again shortly.');
   const gId = targetGuildId(guildId);
   if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
   const guild = await guild_(gId);
@@ -2230,7 +2230,7 @@ async function banMember(discordUserId, { reason, deleteMessageSeconds = 0, guil
 // works even if the bot can't otherwise "find" them). Throws with a clear
 // message when they aren't actually banned (Discord returns 10026 Unknown Ban).
 async function unbanMember(discordUserId, { reason, guildId } = {}) {
-  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  if (!ready) throw new Error('Bot is not connected yet · try again shortly.');
   const gId = targetGuildId(guildId);
   if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
   const guild = await guild_(gId);
@@ -2246,7 +2246,7 @@ async function unbanMember(discordUserId, { reason, guildId } = {}) {
 
 // Kick a current guild member.
 async function kickMember(discordUserId, { reason, guildId } = {}) {
-  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  if (!ready) throw new Error('Bot is not connected yet · try again shortly.');
   const gId = targetGuildId(guildId);
   if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
   const guild  = await guild_(gId);
@@ -2260,7 +2260,7 @@ async function kickMember(discordUserId, { reason, guildId } = {}) {
 // Timeout ("mute") a member for `durationMinutes` (Discord caps timeouts at 28
 // days). Pass durationMinutes <= 0 to remove an existing timeout ("unmute").
 async function timeoutMember(discordUserId, { durationMinutes, reason, guildId } = {}) {
-  if (!ready) throw new Error('Bot is not connected yet — try again shortly.');
+  if (!ready) throw new Error('Bot is not connected yet · try again shortly.');
   const gId = targetGuildId(guildId);
   if (!gId) throw new Error('No guild configured (DISCORD_GUILD_ID not set).');
   const guild  = await guild_(gId);

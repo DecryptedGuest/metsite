@@ -92,7 +92,7 @@ function metSidebarIdentity(identity, currentDivision, mine) {
   const divKey = KEY[currentDivision] || currentDivision;
   const entry = (mine || []).find(x => x.division === divKey);
   const rankName = entry ? (entry.rankName || entry.rankTierLabel || entry.tier || '') : '';
-  const nick = d.metNickname || d.displayName || d.discordUsername || '—';
+  const nick = d.metNickname || d.displayName || d.discordUsername || '·';
   let foot = document.getElementById('met-sidebar-id');
   if (!foot) {
     foot = document.createElement('div');
@@ -354,7 +354,7 @@ async function initMetTopbar(currentDivision) {
     if (!el) return;
     el.style.background = 'rgba(74,143,255,0.14)';
     el.style.color = 'var(--blue,#4a8fff)';
-    el.title = (el.title ? el.title + ' — ' : '') + "You're here";
+    el.title = (el.title ? el.title + ' · ' : '') + "You're here";
   }
 
   const right = document.querySelector('.met-topbar-right');
@@ -398,7 +398,7 @@ async function initMetTopbar(currentDivision) {
       wrap.className = 'met-switcher';
       wrap.id = 'met-pages';
       wrap.innerHTML =
-        '<button class="btn btn-ghost btn-sm" id="met-pages-btn" title="Menu — dashboard, your pages & tour"><i class="ti ti-menu-2"></i> Menu</button>' +
+        '<button class="btn btn-ghost btn-sm" id="met-pages-btn" title="Menu · dashboard, your pages & tour"><i class="ti ti-menu-2"></i> Menu</button>' +
         '<div class="met-switcher-menu met-menu-wide">' + menuHtml + '</div>';
       if (switcherEl) right.insertBefore(wrap, switcherEl); else right.appendChild(wrap);
       const pBtn = wrap.querySelector('#met-pages-btn');

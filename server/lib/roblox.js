@@ -18,7 +18,7 @@ function roverOnCooldown() { return Date.now() < roverCooldownUntil; }
 function tripRoverCooldown(retryAfterSec) {
   const ms = (Number(retryAfterSec) > 0 ? Number(retryAfterSec) : 900) * 1000; // default 15 min
   roverCooldownUntil = Date.now() + ms;
-  console.warn(`[RoVer] rate-limited — pausing all RoVer lookups for ${Math.round(ms / 60000)} min.`);
+  console.warn(`[RoVer] rate-limited · pausing all RoVer lookups for ${Math.round(ms / 60000)} min.`);
 }
 
 // Called on server startup — warm up the Roblox CSRF token if a cookie is set.
@@ -111,7 +111,7 @@ async function getRobloxIdFromDiscord(discordUserId, opts = {}) {
     robloxId = data.robloxId ? String(data.robloxId) : null;
   } else {
     // Public fallback — no key required
-    console.warn('ROVER_API_KEY not set — falling back to public RoVer API (rate-limited).');
+    console.warn('ROVER_API_KEY not set · falling back to public RoVer API (rate-limited).');
     const res = await fetch(`https://verify.eryn.io/api/user/${discordUserId}`);
 
     if (res.status === 404) {
@@ -171,7 +171,7 @@ async function getDiscordFromRoblox(robloxUserId) {
   // job could spend the whole budget and leave ordinary logins unable to resolve
   // anybody. It throws rather than returning [] because "nobody is linked to this
   // account" is a fact, and this is not that.
-  if (roverOnCooldown()) throw new Error('RoVer is rate-limited — paused');
+  if (roverOnCooldown()) throw new Error('RoVer is rate-limited · paused');
 
   const url = `${ROVER_API}/${guildId}/roblox-to-discord/${key}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
@@ -728,7 +728,7 @@ async function exileFromGroup(robloxUserId, gid, cookie) {
   const groupId = gid || mainGroupId();
   const ck = cookie || robloxCookie();
   if (!groupId || !ck) {
-    console.warn('Group exile skipped — ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
+    console.warn('Group exile skipped · ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
     return false;
   }
   try {
@@ -869,7 +869,7 @@ async function getGroupAuditLog(gid, cookie, opts = {}) {
 
   const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
   if (res.status === 403) {
-    throw new Error('Roblox refused the group audit log (403) — the bot account\'s group '
+    throw new Error('Roblox refused the group audit log (403) · the bot account\'s group '
       + 'role needs the "View audit log" permission, which is separate from ranking members');
   }
   if (!res.ok) {

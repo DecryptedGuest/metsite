@@ -141,7 +141,7 @@ router.post('/met-database/normalise', requireFlpHicomm, async (req, res) => {
     if (!result.ok) return res.status(400).json(result);
     if (!result.dryRun) {
       console.log(`[FLP MetDB] normalised by ${req.user.displayName || req.user.discordUsername}`
-        + ` — ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
+        + ` · ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
     }
     res.json(result);
   } catch (err) {
@@ -405,7 +405,7 @@ router.post('/quota/reset', requireFlpHicomm, async (req, res) => {
   try {
     const result = await quotaLib.resetAllQuota(division);
     if (!result.ok) return res.status(500).json({ error: result.error || 'Reset failed.' });
-    console.log(`[FLP Quota] ${division} reset by ${req.user.displayName || req.user.discordUsername} — ${result.cleared} cell(s) cleared`);
+    console.log(`[FLP Quota] ${division} reset by ${req.user.displayName || req.user.discordUsername} · ${result.cleared} cell(s) cleared`);
     res.json(result);
   } catch (err) {
     console.error('[FLP Quota] reset error:', err.message);

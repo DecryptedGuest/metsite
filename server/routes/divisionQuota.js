@@ -143,7 +143,7 @@ router.post('/:division/reset', requireLead, async (req, res) => {
   try {
     const result = await quotaLib.resetAllQuota(req.division);
     if (!result.ok) return res.status(500).json({ error: result.error || 'Reset failed.' });
-    console.log(`[DivQuota] ${req.division} reset by ${req.user.displayName || req.user.discordUsername} — ${result.cleared} cell(s) cleared`);
+    console.log(`[DivQuota] ${req.division} reset by ${req.user.displayName || req.user.discordUsername} · ${result.cleared} cell(s) cleared`);
     res.json(result);
   } catch (err) {
     console.error(`[DivQuota] ${req.division} reset error:`, err.message);

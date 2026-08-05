@@ -53,7 +53,7 @@ router.post('/check', requireHICOMMStrict, async (req, res) => {
       // A member was picked but their sheet row has no Discord ID — surface it as
       // a failure instead of silently clearing everyone's IOTW role.
       iotwApplied = { ok: false, error: 'No Discord ID on file for the selected Investigator of the Week.' };
-      console.warn('[Quota] IOTW selection had no Discord ID — skipping role change for', iotwUsername);
+      console.warn('[Quota] IOTW selection had no Discord ID · skipping role change for', iotwUsername);
     }
 
     const ok = await sendQuotaCheckWebhook({
@@ -107,7 +107,7 @@ router.post('/reset', requireHICOMMStrict, async (req, res) => {
   try {
     const result = await resetAllQuota();
     if (!result.ok) return res.status(500).json({ error: result.error || 'Reset failed.' });
-    console.log(`[Quota] reset by ${req.user.displayName || req.user.discordUsername} — ${result.cleared} cell(s) cleared`);
+    console.log(`[Quota] reset by ${req.user.displayName || req.user.discordUsername} · ${result.cleared} cell(s) cleared`);
     res.json(result);
   } catch (err) {
     console.error('[Quota] reset error:', err.message);
@@ -282,7 +282,7 @@ router.post('/met-database/normalise', canTouchDatabase, async (req, res) => {
     if (!result.ok) return res.status(400).json(result);
     if (!result.dryRun) {
       console.log(`[MetDB] normalised by ${req.user.displayName || req.user.discordUsername}`
-        + ` — ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
+        + ` · ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
     }
     res.json(result);
   } catch (err) {

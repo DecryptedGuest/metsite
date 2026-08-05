@@ -183,7 +183,7 @@ async function syncEmoji(client, opts = {}) {
   let store = null;
   if (!wantGuild) {
     if (!client.application || !client.application.emojis) {
-      out.errors.push('this discord.js build has no application emoji support — set EMOJI_STORE=guild to upload into a server instead');
+      out.errors.push('this discord.js build has no application emoji support · set EMOJI_STORE=guild to upload into a server instead');
       return out;
     }
     try {
@@ -192,7 +192,7 @@ async function syncEmoji(client, opts = {}) {
     } catch (err) {
       // Deliberately NOT a fallback to the guild. Uploading 40-odd emoji into
       // somebody's server because a fetch failed is not a recovery.
-      out.errors.push(`application emoji unavailable (${err.message}) — nothing uploaded; e() will use unicode`);
+      out.errors.push(`application emoji unavailable (${err.message}) · nothing uploaded; e() will use unicode`);
       return out;
     }
   } else {
@@ -228,7 +228,7 @@ async function syncEmoji(client, opts = {}) {
     const file = path.join(PNG_DIR, def.name + '.png');
     if (!fs.existsSync(file)) {
       out.failed++;
-      out.errors.push(`${def.name}: ${path.relative(process.cwd(), file)} is missing — run "node scripts/build-emoji.js"`);
+      out.errors.push(`${def.name}: ${path.relative(process.cwd(), file)} is missing · run "node scripts/build-emoji.js"`);
       continue;
     }
 
@@ -274,7 +274,7 @@ async function syncEmoji(client, opts = {}) {
         } else {
           console.warn(`[Emoji] ${out.strayGuild.length} MET emoji are still uploaded in `
             + `${[...new Set(out.strayGuild.map(x => x.guildName))].join(', ')}. `
-            + `They are on the bot now and those copies are redundant — `
+            + `They are on the bot now and those copies are redundant · `
             + `set EMOJI_PURGE_GUILD=1 (or POST the sync with purgeGuild) to remove them.`);
         }
       }
@@ -286,8 +286,8 @@ async function syncEmoji(client, opts = {}) {
   const total = out.adopted + out.created;
   console.log(`[Emoji] ${total}/${EMOJI.filter(d => d.discord !== false).length} available on ${store.label} `
     + `(${out.created} uploaded, ${out.adopted} already there)`
-    + (out.strayGuild && out.strayGuild.length ? ` — ${out.strayGuild.length} stray guild copies` : '')
-    + (out.failed ? ` — ${out.failed} failed: ${out.errors[0]}` : ''));
+    + (out.strayGuild && out.strayGuild.length ? ` · ${out.strayGuild.length} stray guild copies` : '')
+    + (out.failed ? ` · ${out.failed} failed: ${out.errors[0]}` : ''));
   return out;
 }
 

@@ -94,7 +94,7 @@ function aiWritingSignals(text) {
 
   // 2) Typographic tells not produced by plain textarea typing: em-dashes,
   //    curly quotes — usually copied from a word processor or AI output.
-  if (/[—]/.test(t)) { score += 1; reasons.push('em-dashes (—)'); }
+  if (/[—]/.test(t)) { score += 1; reasons.push('em-dashes (·)'); }
   if (/[‘’“”]/.test(t)) { score += 1; reasons.push('curly quotes'); }
 
   // 3) Low burstiness: AI produces uniform sentence lengths; humans vary a lot.
@@ -153,7 +153,7 @@ function computeFlags(answers, detection) {
       const active = pq.activeMs || 0;
       if (active >= 1000 && (pq.pastedChars || 0) === 0) {
         const cps = len / (active / 1000);
-        if (cps > 13) add('high', 'superhuman_typing', `Q${n} typed impossibly fast`, `${cps.toFixed(1)} chars/sec sustained over ${len} chars — beyond human typing.`);
+        if (cps > 13) add('high', 'superhuman_typing', `Q${n} typed impossibly fast`, `${cps.toFixed(1)} chars/sec sustained over ${len} chars · beyond human typing.`);
       }
       // Coefficient of variation of inter-keystroke gaps: human typing is bursty
       // (cv typically > 0.5); a near-constant rhythm suggests automation.
@@ -165,12 +165,12 @@ function computeFlags(answers, detection) {
 
   // Global signals.
   if ((d.blurCount || 0) >= 3) {
-    add('high', 'tab_switch', 'Left the exam repeatedly', `Left/blurred the exam ${d.blurCount} times (${Math.round((d.blurMs || 0) / 1000)}s away) — possible external lookup (Google/AI).`);
+    add('high', 'tab_switch', 'Left the exam repeatedly', `Left/blurred the exam ${d.blurCount} times (${Math.round((d.blurMs || 0) / 1000)}s away) · possible external lookup (Google/AI).`);
   } else if ((d.blurCount || 0) >= 1) {
     add('medium', 'tab_switch', 'Left the exam', `Left/blurred the exam ${d.blurCount} time(s) (${Math.round((d.blurMs || 0) / 1000)}s away).`);
   }
   if (d.devtoolsOpened)               add('high',   'devtools', 'Developer tools opened', 'Browser devtools were detected open during the exam.');
-  if ((d.copyCount || 0) > 0)         add('medium', 'copy', 'Copied exam text', `Copied from the exam ${d.copyCount} time(s) — possible leaking.`);
+  if ((d.copyCount || 0) > 0)         add('medium', 'copy', 'Copied exam text', `Copied from the exam ${d.copyCount} time(s) · possible leaking.`);
   if ((d.contextMenuCount || 0) > 0)  add('low',    'context_menu', 'Right-click used', `Right-click menu opened ${d.contextMenuCount} time(s).`);
   if ((d.pasteBlockedCount || 0) > 0) add('medium', 'paste_attempt', 'Paste attempts', `Attempted to paste ${d.pasteBlockedCount} time(s) into non-answer areas.`);
 

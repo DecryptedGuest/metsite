@@ -250,7 +250,7 @@
     var d = captured.discord, r = captured.roblox;
     var row = function (k, v, mono, locked) {
       return '<div class="iaa-idrow"><span class="k">' + esc(k) + '</span>'
-        + '<span class="v' + (mono ? ' mono' : '') + '">' + esc(v || '—') + '</span>'
+        + '<span class="v' + (mono ? ' mono' : '') + '">' + esc(v || '·') + '</span>'
         + (locked ? ' <span class="iaa-locked"><i class="ti ti-lock"></i> from your account</span>' : '')
         + '</div>';
     };
@@ -288,18 +288,18 @@
     sections().forEach(function (s) { s.questions.forEach(function (q) { byId[q.id] = q; }); });
     var lines = [];
     (errors.missing || []).forEach(function (id) {
-      lines.push('<a data-goto="' + esc(id) + '">' + esc((byId[id] && byId[id].prompt) || id) + '</a> — not answered yet.');
+      lines.push('<a data-goto="' + esc(id) + '">' + esc((byId[id] && byId[id].prompt) || id) + '</a> · not answered yet.');
     });
     (errors.tooShort || []).forEach(function (t) {
-      lines.push('<a data-goto="' + esc(t.id) + '">' + esc((byId[t.id] && byId[t.id].prompt) || t.id) + '</a> — '
+      lines.push('<a data-goto="' + esc(t.id) + '">' + esc((byId[t.id] && byId[t.id].prompt) || t.id) + '</a> · '
         + t.got + ' ' + t.unit + ', and it needs at least ' + t.need + '.');
     });
     (errors.tooLong || []).forEach(function (t) {
-      lines.push('<a data-goto="' + esc(t.id) + '">' + esc((byId[t.id] && byId[t.id].prompt) || t.id) + '</a> — '
+      lines.push('<a data-goto="' + esc(t.id) + '">' + esc((byId[t.id] && byId[t.id].prompt) || t.id) + '</a> · '
         + t.got + ' ' + t.unit + ', and the limit is ' + t.limit + '.');
     });
     (errors.wrong || []).forEach(function (t) {
-      lines.push('<a data-goto="' + esc(t.id) + '">' + esc((byId[t.id] && byId[t.id].prompt) || t.id) + '</a> — ' + esc(t.why));
+      lines.push('<a data-goto="' + esc(t.id) + '">' + esc((byId[t.id] && byId[t.id].prompt) || t.id) + '</a> · ' + esc(t.why));
     });
     if (!lines.length) return '';
     return '<div class="iaa-err"><h4>Not quite finished</h4><ul>'
@@ -645,7 +645,7 @@
       page = firstBad;
       render();
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      showToast('Some of it is not finished — the missing bits are listed at the top.', 'error');
+      showToast('Some of it is not finished · the missing bits are listed at the top.', 'error');
       return;
     }
 

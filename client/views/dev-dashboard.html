@@ -526,25 +526,25 @@
         <div class="stat-card blue">
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-users"></i></div>
-            <div class="stat-body"><div class="stat-label">Total Users</div><div class="stat-value" id="admin-stat-users">—</div></div>
+            <div class="stat-body"><div class="stat-label">Total Users</div><div class="stat-value" id="admin-stat-users">·</div></div>
           </div><div class="stat-bar blue"></div>
         </div>
         <div class="stat-card amber">
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-files"></i></div>
-            <div class="stat-body"><div class="stat-label">Total Cases</div><div class="stat-value" id="admin-stat-cases">—</div></div>
+            <div class="stat-body"><div class="stat-label">Total Cases</div><div class="stat-value" id="admin-stat-cases">·</div></div>
           </div><div class="stat-bar amber"></div>
         </div>
         <div class="stat-card red">
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-ban"></i></div>
-            <div class="stat-body"><div class="stat-label">Blacklisted</div><div class="stat-value" id="admin-stat-blacklisted">—</div></div>
+            <div class="stat-body"><div class="stat-label">Blacklisted</div><div class="stat-value" id="admin-stat-blacklisted">·</div></div>
           </div><div class="stat-bar red"></div>
         </div>
         <div class="stat-card green">
           <div class="stat-card-inner">
             <div class="stat-icon"><i class="ti ti-activity"></i></div>
-            <div class="stat-body"><div class="stat-label">Audit Actions</div><div class="stat-value" id="admin-stat-actions">—</div></div>
+            <div class="stat-body"><div class="stat-label">Audit Actions</div><div class="stat-value" id="admin-stat-actions">·</div></div>
           </div><div class="stat-bar green"></div>
         </div>
       </div>
@@ -637,7 +637,7 @@
           <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.6;">
             Remove <strong>duplicate case &amp; ticket logs</strong> left over from the old IA website → MET website
             migration (e.g. a ticket imported as both <code>TKT-0001</code> and <code>TKT-0001-IA</code>). Always
-            <strong>scan first</strong> to preview — deletion keeps the canonical (native) record and removes the copies.
+            <strong>scan first</strong> to preview · deletion keeps the canonical (native) record and removes the copies.
           </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn btn-ghost" onclick="dedupeMigration(false)"><i class="ti ti-search"></i> Scan (preview)</button>
@@ -746,7 +746,7 @@
         <div style="padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:0.9rem;">
           <p style="font-size:11px;color:var(--text-muted);margin:0;line-height:1.6;">
             Search by Discord username, nickname, or paste a Discord user ID directly (works even if the
-            member already left the server — useful for unbanning).
+            member already left the server · useful for unbanning).
           </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
@@ -1076,7 +1076,7 @@
         <div style="padding:1.1rem 1.3rem;">
           <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:9px;">
             <span style="color:var(--text-secondary);"><i class="ti ti-database"></i> Media storage used</span>
-            <span id="media-storage-label" style="color:var(--text-primary);font-weight:600;">—</span>
+            <span id="media-storage-label" style="color:var(--text-primary);font-weight:600;">·</span>
           </div>
           <div style="height:10px;border-radius:6px;background:rgba(255,255,255,0.07);overflow:hidden;">
             <div id="media-storage-bar" style="height:100%;width:0%;background:var(--blue);transition:width .3s,background .3s;"></div>
@@ -1108,7 +1108,7 @@
         <div class="profile-section">
           <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
             Imports <strong>every</strong> patrol and event log from the configured channels (even the oldest),
-            reusing the live parser and skipping misc messages. Idempotent — safe to run repeatedly; it only adds
+            reusing the live parser and skipping misc messages. Idempotent · safe to run repeatedly; it only adds
             what's missing. Historical logs are written straight in as <strong>Approved</strong> (no review queue,
             no sheet points). Runs in the background; final counts are written to the Audit Trail.
           </p>
@@ -1123,7 +1123,7 @@
         <div class="profile-section">
           <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
             Pulls cases and tickets (pending and resolved) from the live IA database (<code>IA_DATABASE_URL</code>)
-            into this dashboard. Idempotent — keyed on case/ticket reference. Requires <code>IA_DATABASE_URL</code> to be set.
+            into this dashboard. Idempotent · keyed on case/ticket reference. Requires <code>IA_DATABASE_URL</code> to be set.
           </p>
           <button class="btn btn-primary" id="imp-ia-btn" onclick="runIaSync()"><i class="ti ti-refresh"></i> Sync IA cases &amp; tickets</button>
           <div id="imp-ia-result" style="margin-top:0.9rem;font-size:13px;"></div>
@@ -1209,12 +1209,12 @@
             reasons are given, and everybody on it already holds the on-leave role. None of it is in the
             database, so <code>/loa active</code> shows nothing and <strong>nothing will take the role off
             them when their leave finishes</strong>. This brings the records in, backdated and already
-            approved — the decision was made by a person and is not re-litigated here.
+            approved · the decision was made by a person and is not re-litigated here.
             <br><br>
             Each end date is treated as <strong>inclusive</strong>: "21 July - 4 August" means away
             <em>through</em> the 4th. It never adds a role, never overwrites a record that is already
             there, and never gives somebody a second live leave. Usernames are matched
-            <strong>exactly</strong> — anything it cannot match is listed for you rather than guessed at,
+            <strong>exactly</strong> · anything it cannot match is listed for you rather than guessed at,
             because a leave imported against the wrong person takes the wrong person's role off.
           </p>
           <div id="loai-result" style="margin-top:1rem;font-size:13px;"></div>
@@ -1238,7 +1238,7 @@
         </div>
         <div class="profile-section">
           <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin:0 0 1rem;">
-            Mirrors the MET group's own Roblox audit log into Discord — every rank change, join
+            Mirrors the MET group's own Roblox audit log into Discord · every rank change, join
             request, removal, shout and configuration change, whoever made it and wherever they made
             it from. Reading Roblox rather than our own activity feed is the point: a rank change made
             on roblox.com by hand shows up alongside one made here.
@@ -1246,7 +1246,7 @@
           <p style="font-size:12.5px;color:var(--text-muted);line-height:1.7;margin:0 0 1rem;">
             Where an action came from this site, the post names the person who asked for it rather
             than the bot account. Reading the log needs the <strong>View audit log</strong> permission
-            on the bot's own group role, which is separate from the ranking permission it already has —
+            on the bot's own group role, which is separate from the ranking permission it already has ·
             if that is missing, &ldquo;Check it&rdquo; says so. The first run records the group's
             existing history without posting any of it.
           </p>
@@ -1809,7 +1809,7 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th>
+              <th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail · optional)</th>
             </tr></thead>
             <tbody id="quota-check-tbody">
               <tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>
@@ -1835,7 +1835,7 @@
         <div style="padding:1.2rem 1.3rem;display:flex;flex-direction:column;gap:1rem;">
           <div id="ai-row-describe" class="form-group" style="margin:0;">
             <label class="form-label">What did the suspect do? <span style="color:var(--red);">*</span>
-              <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— describe the incident in as much detail as you can</span>
+              <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· describe the incident in as much detail as you can</span>
             </label>
             <textarea class="form-control" id="ai-description" rows="4" placeholder="Describe the incident…"></textarea>
           </div>
@@ -1856,7 +1856,7 @@
     <!-- CAD — Metropolitan Police dispatch console -->
     <section class="page" id="page-cad">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">CAD Dispatch</h1><p class="page-sub">Developer &middot; Metropolitan Police computer-aided dispatch — control console</p></div>
+        <div><h1 class="page-title">CAD Dispatch</h1><p class="page-sub">Developer &middot; Metropolitan Police computer-aided dispatch · control console</p></div>
         <div style="display:flex;gap:8px;align-items:center;">
           <span id="cad-status-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
           <button class="btn btn-secondary" onclick="cadSeedPnc(this)" title="Seed fictional PNC records"><i class="ti ti-database-plus"></i> Seed PNC</button>
@@ -1894,8 +1894,8 @@
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <div style="width:120px;"><label class="cad-lbl">Grade</label>
                   <select class="form-control" id="cad-inc-grade">
-                    <option value="I">I — Immediate</option><option value="S">S — Significant</option>
-                    <option value="E">E — Extended</option><option value="R">R — Referred</option>
+                    <option value="I">I · Immediate</option><option value="S">S · Significant</option>
+                    <option value="E">E · Extended</option><option value="R">R · Referred</option>
                   </select></div>
                 <div style="flex:1;min-width:140px;"><label class="cad-lbl">Category</label><input class="form-control" id="cad-inc-cat" placeholder="Affray"></div>
                 <div style="flex:1;min-width:140px;"><label class="cad-lbl">Location</label><input class="form-control" id="cad-inc-loc" placeholder="Trafalgar Square"></div>
@@ -1969,7 +1969,7 @@
     </div>
     <div class="modal-body">
       <div id="next-case-ref-notice" style="display:none;margin-bottom:0.9rem;padding:9px 12px;border-radius:8px;background:rgba(74,143,255,0.1);border:1px solid rgba(74,143,255,0.3);font-size:12px;color:var(--text-secondary);">
-        This case will be logged as approximately <strong id="next-case-ref-val" style="color:var(--text-primary);">#…</strong> — please update your document's title to this ID if you haven't already.
+        This case will be logged as approximately <strong id="next-case-ref-val" style="color:var(--text-primary);">#…</strong> · please update your document's title to this ID if you haven't already.
       </div>
       <!-- Import method: Import-from-link / Build-manually / AI (temporarily disabled) -->
       <div class="filter-tabs" id="case-mode-tabs" style="margin-bottom:1rem;">
@@ -1981,7 +1981,7 @@
       <div id="case-manual-import" class="form-group" style="background:rgba(74,143,255,0.06);border:1px solid var(--border-dim);border-radius:8px;padding:10px;">
         <label class="form-label" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
           <i class="ti ti-file-import"></i> Import from case doc
-          <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— autofills the fields below</span>
+          <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· autofills the fields below</span>
         </label>
         <div style="display:flex;gap:8px;">
           <input type="text" class="form-control" id="f-import-url" placeholder="Paste Google Doc link…" style="flex:1;" />
@@ -1993,7 +1993,7 @@
       </div>
       <div id="case-fields">
       <div class="form-group">
-        <label class="form-label">Officer — Discord/Roblox ID or username <span>*</span></label>
+        <label class="form-label">Officer · Discord/Roblox ID or username <span>*</span></label>
         <div style="display:flex;gap:8px;">
           <input type="text" class="form-control" id="f-officer-id" placeholder="Discord/Roblox ID or username" style="flex:1;" />
           <button class="btn btn-ghost btn-sm" id="btn-lookup-officer" type="button" style="white-space:nowrap;padding:0 0.9rem;">
@@ -2003,7 +2003,7 @@
         <div id="officer-lookup-result" style="margin-top:6px;font-size:11px;display:none;"></div>
       </div>
       <div class="form-group">
-        <label class="form-label">Punishments <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— select one or more</span></label>
+        <label class="form-label">Punishments <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· select one or more</span></label>
         <div class="action-checklist" id="action-checklist">
           <!-- Populated by JS -->
         </div>
@@ -2014,15 +2014,15 @@
       <div id="case-ai-section" style="display:none;background:rgba(74,143,255,0.05);border:1px solid var(--border-dim);border-radius:10px;padding:14px;margin-bottom:1rem;">
         <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#90b8ff;margin-bottom:12px;"><i class="ti ti-sparkles"></i> AI Document Generation</div>
         <div class="form-group">
-          <label class="form-label">Your email <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— gets edit access to the generated document</span></label>
+          <label class="form-label">Your email <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· gets edit access to the generated document</span></label>
           <input type="email" class="form-control" id="ai-email" placeholder="you@example.com" autocomplete="email" />
         </div>
         <div class="form-group">
-          <label class="form-label">Penal code(s) <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— comma-separated, e.g. PL-M304, TA-D402</span></label>
+          <label class="form-label">Penal code(s) <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· comma-separated, e.g. PL-M304, TA-D402</span></label>
           <input type="text" class="form-control" id="ai-penal" placeholder="PL-M304, TA-D402" />
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label">Evidence <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— links and/or uploaded images/videos</span></label>
+          <label class="form-label">Evidence <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· links and/or uploaded images/videos</span></label>
           <div id="ai-evidence-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn btn-ghost btn-sm" type="button" onclick="addEvidenceLinkRow()"><i class="ti ti-link"></i> Add link</button>
@@ -2085,7 +2085,7 @@
 <div class="modal-overlay" id="modal-embed-preview">
   <div class="modal glass-bright" style="max-width:560px;">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-eye" style="font-size:18px;"></i> <span id="embed-preview-title">Administrative Log — Preview</span></div>
+      <div class="modal-title"><i class="ti ti-eye" style="font-size:18px;"></i> <span id="embed-preview-title">Administrative Log · Preview</span></div>
       <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-embed-preview')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
@@ -2163,7 +2163,7 @@
     </div>
     <div class="modal-body">
       <div class="form-group" style="margin-bottom:0;">
-        <label class="form-label">Notification duration <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— how long pop-up notifications stay on screen</span></label>
+        <label class="form-label">Notification duration <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· how long pop-up notifications stay on screen</span></label>
         <div style="display:flex;align-items:center;gap:12px;">
           <input type="range" id="pref-toast-secs" min="1" max="30" step="0.5" value="3.5" style="flex:1;accent-color:var(--blue);" />
           <input type="number" class="form-control" id="pref-toast-secs-num" min="1" max="30" step="0.5" value="3.5" style="width:82px;" />
@@ -2192,14 +2192,14 @@
       <div class="filter-tabs" id="ticket-mode-tabs" style="margin-bottom:1rem;">
         <button class="filter-tab active" type="button" data-tmode="import"><i class="ti ti-link"></i> Import from link</button>
         <button class="filter-tab" type="button" data-tmode="manual"><i class="ti ti-pencil"></i> Build manually</button>
-        <button class="filter-tab" type="button" data-tmode="ai" disabled title="Case documents only — temporarily unavailable" style="opacity:.4;cursor:not-allowed;"><i class="ti ti-sparkles"></i> AI Document</button>
+        <button class="filter-tab" type="button" data-tmode="ai" disabled title="Case documents only · temporarily unavailable" style="opacity:.4;cursor:not-allowed;"><i class="ti ti-sparkles"></i> AI Document</button>
       </div>
 
       <!-- Import-from-transcript panel -->
       <div id="ticket-import-panel" class="form-group" style="background:rgba(74,143,255,0.06);border:1px solid var(--border-dim);border-radius:8px;padding:10px;">
         <label class="form-label" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
           <i class="ti ti-file-import"></i> Import from transcript link
-          <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— autofills the fields below</span>
+          <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· autofills the fields below</span>
         </label>
         <div style="display:flex;gap:8px;">
           <input type="text" class="form-control" id="t-import-url" placeholder="Paste the ticket's View Transcript link…" style="flex:1;" />
@@ -2235,7 +2235,7 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Time <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">— select the date &amp; time</span></label>
+        <label class="form-label">Time <span>*</span> <span style="color:var(--text-muted);font-weight:400;font-size:11px;">· select the date &amp; time</span></label>
         <div style="display:flex;gap:8px;">
           <input type="datetime-local" class="form-control" id="t-submitted-at"
                  style="flex:1;" />
@@ -2324,7 +2324,7 @@
     <div class="modal-body">
       <p style="font-size:13px;line-height:1.75;color:var(--text-secondary);margin:0 0 0.6rem;">
         Would you like to be notified the moment a new <strong style="color:var(--text-primary);">ticket log</strong>
-        or <strong style="color:var(--text-primary);">case</strong> is submitted — even when this site is closed?
+        or <strong style="color:var(--text-primary);">case</strong> is submitted · even when this site is closed?
       </p>
       <p style="font-size:12px;line-height:1.6;color:var(--text-muted);margin:0;">
         You can change this any time in <strong>Notification Settings</strong>. We'll only ask you once.
@@ -2345,7 +2345,7 @@
     </div>
     <div class="modal-body">
       <p style="font-size:13px;line-height:1.75;color:var(--text-secondary);margin:0;">
-        Your browser will now ask for permission — please click <strong style="color:var(--text-primary);">Allow</strong>
+        Your browser will now ask for permission · please click <strong style="color:var(--text-primary);">Allow</strong>
         to turn on notifications. If you don't see a prompt, check the address bar for a blocked-notifications icon.
       </p>
     </div>
@@ -2413,12 +2413,12 @@
       <div id="media-upload-preview" style="display:none;"></div>
       <div class="form-group" style="margin:0;">
         <label class="form-label">Title <span style="color:var(--text-muted);font-weight:400;font-size:11px;">(optional)</span></label>
-        <input type="text" class="form-control" id="media-title" maxlength="120" placeholder="e.g. Spawn camping clip — Player123" />
+        <input type="text" class="form-control" id="media-title" maxlength="120" placeholder="e.g. Spawn camping clip · Player123" />
       </div>
       <div class="form-group" style="margin:0;">
         <label class="form-label">Who can view this?</label>
         <select class="form-control" id="media-visibility">
-          <option value="PUBLIC" selected>Public — anyone with the link</option>
+          <option value="PUBLIC" selected>Public · anyone with the link</option>
           <option value="IA">Internal Affairs+ (must be logged in)</option>
         </select>
       </div>

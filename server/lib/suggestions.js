@@ -291,7 +291,7 @@ function classify(input) {
   // Neither has any `content` at all: the text lives in the poll question or in
   // the forwarded snapshot. Without this they read as "nothing was said" and get
   // deleted, which is the single worst thing this module can do.
-  if (input && input.isPoll) return { verdict: 'suggestion', score: 0, signals: ['a poll — the question is not in the content'] };
+  if (input && input.isPoll) return { verdict: 'suggestion', score: 0, signals: ['a poll · the question is not in the content'] };
   if (input && input.isForward) return { verdict: 'suggestion', score: 0, signals: ['a forwarded message'] };
 
   // An empty message that carried a picture or a link is somebody illustrating
@@ -447,7 +447,7 @@ function classify(input) {
   const substance = domainHits || suggestHits || rationaleHits || changeHits || words.length >= 12;
   if (substance) {
     return { verdict: asks ? 'question' : 'suggestion', score,
-             signals: signals.concat(['not clear-cut, but it is about the department — kept']) };
+             signals: signals.concat(['not clear-cut, but it is about the department · kept']) };
   }
   return { verdict: 'chat', score, signals: signals.concat(['nothing here about the department']) };
 }
@@ -475,9 +475,9 @@ function warnText(names) {
   const who = names.length
     ? names.slice(0, 6).join(', ') + (names.length > 6 ? ` and ${names.length - 6} others` : '')
     : 'that';
-  return `**${who}** — this channel is for suggestions and questions only. `
+  return `**${who}** · this channel is for suggestions and questions only. `
        + 'Post an idea with a sentence on why it would help, or ask something about how the '
-       + 'department works, and it stays — it gets a vote and a thread to discuss it in. '
+       + 'department works, and it stays · it gets a vote and a thread to discuss it in. '
        + 'General chat belongs elsewhere. _This notice removes itself._';
 }
 
@@ -548,7 +548,7 @@ async function mirror(client, message, decision) {
         fields: [
           { name: 'Author', value: who, inline: true },
           { name: 'Score',  value: String(decision.score), inline: true },
-          { name: 'Why',    value: decision.signals.join('\n').slice(0, 1000) || '—' },
+          { name: 'Why',    value: decision.signals.join('\n').slice(0, 1000) || '·' },
         ],
         timestamp: new Date().toISOString(),
       }],
@@ -609,13 +609,13 @@ async function onSuggestionMessage(message) {
 
   // ── Free chat ───────────────────────────────────────────────────
   if (mode === 'observe') {
-    console.log(`[Suggestions] OBSERVE — would delete: ${JSON.stringify(String(message.content || '').slice(0, 200))} `
+    console.log(`[Suggestions] OBSERVE · would delete: ${JSON.stringify(String(message.content || '').slice(0, 200))} `
       + `(score ${decision.score}; ${decision.signals.join('; ')})`);
     return { ...decision, reacted: false, deleted: false, observed: true };
   }
 
   if (recentDeletes() >= MAX_DELETES_PER_HOUR()) {
-    console.warn(`[Suggestions] REFUSING to delete — ${deletes.length} deletions in the last hour is `
+    console.warn(`[Suggestions] REFUSING to delete · ${deletes.length} deletions in the last hour is `
       + 'above the cap. Something is wrong with the classifier or the channel is being raided; '
       + 'nothing more will be removed until a human looks. Set SUGGESTIONS_MODE=off to silence this.');
     return { ...decision, reacted: false, deleted: false, cappedOut: true };
@@ -635,7 +635,7 @@ async function onSuggestionMessage(message) {
       : err && err.code === 10008 ? 'the message was already gone (somebody deleted it first)'
       : err && err.code === 50021 ? 'it is a system message, which cannot be deleted'
       : (err && err.message) || 'unknown';
-    console.warn('[Suggestions] could not delete the message —', why);
+    console.warn('[Suggestions] could not delete the message ·', why);
     // A permission failure means EVERY delete will fail, and the notice would
     // otherwise still be posted for each one — the bot telling people off for
     // messages it then leaves up. Say nothing rather than that.
@@ -676,7 +676,7 @@ async function addReactions(message, verdict) {
         // reaction fail, in every message, silently, and the symptom is a
         // channel that looks like the bot is not running at all.
         if (err && err.code === 50013) {
-          console.warn('[Suggestions] cannot react — the bot needs "Add Reactions" '
+          console.warn('[Suggestions] cannot react · the bot needs "Add Reactions" '
             + '(and "Read Message History") in that channel.');
           return false;
         }
@@ -731,7 +731,7 @@ function openerText(message, decision) {
     || message.author?.globalName || message.author?.username || 'the poster';
   return kind === 'question'
     ? `Answers to ${who}'s question go here, so the channel itself stays a list of suggestions and questions.`
-    : `Discuss ${who}'s suggestion here. Vote on the message above — this thread is for the argument, not the count.`;
+    : `Discuss ${who}'s suggestion here. Vote on the message above · this thread is for the argument, not the count.`;
 }
 
 async function openThread(message, decision) {
@@ -754,7 +754,7 @@ async function openThread(message, decision) {
       : err && err.code === 50024  ? 'threads cannot be created on that kind of channel'
       : err && err.code === 10008  ? 'the message was already gone'
       : (err && err.message) || 'unknown';
-    console.warn('[Suggestions] could not open a discussion thread —', why);
+    console.warn('[Suggestions] could not open a discussion thread ·', why);
     return { ok: false, why };
   }
   if (OPENER_ON() && thread && typeof thread.send === 'function') {
@@ -790,7 +790,7 @@ async function checkPermissions(client) {
   let ch;
   try { ch = await client.channels.fetch(id); }
   catch (e) {
-    console.warn(`[Suggestions] cannot see channel ${id} — ${e.message}. `
+    console.warn(`[Suggestions] cannot see channel ${id} · ${e.message}. `
       + 'The bot is either not in that server or has no access to that channel, '
       + 'so nothing in the suggestions channel will be handled.');
     return { ok: false, why: e.message };
@@ -804,11 +804,11 @@ async function checkPermissions(client) {
   }
   const missing = NEEDED.filter(([p]) => !perms.has(p));
   if (!missing.length) {
-    console.log(`[Suggestions] watching #${ch.name || id} — every permission it needs is granted.`);
+    console.log(`[Suggestions] watching #${ch.name || id} · every permission it needs is granted.`);
     return { ok: true, missing: [] };
   }
   console.warn(`[Suggestions] watching #${ch.name || id}, but MISSING permissions:`);
-  for (const [p, why] of missing) console.warn(`[Suggestions]   • ${p} — needed to ${why}`);
+  for (const [p, why] of missing) console.warn(`[Suggestions]   • ${p} · needed to ${why}`);
   return { ok: false, missing: missing.map(([p]) => p) };
 }
 

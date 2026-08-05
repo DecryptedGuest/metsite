@@ -117,15 +117,15 @@ router.post('/audio', uploadBody, async (req, res) => {
   const files = (req.body && req.body.files) || [];
   if (!Array.isArray(files) || !files.length) return res.status(400).json({ error: 'Attach at least one audio file.' });
   if (files.length > assets.MAX_BATCH) {
-    return res.status(400).json({ error: `${files.length} files at once is too many — ${assets.MAX_BATCH} is the limit per batch.` });
+    return res.status(400).json({ error: `${files.length} files at once is too many · ${assets.MAX_BATCH} is the limit per batch.` });
   }
-  if (uploadRunning()) return res.status(409).json({ error: 'An upload is already running — wait for it to finish.' });
+  if (uploadRunning()) return res.status(409).json({ error: 'An upload is already running · wait for it to finish.' });
 
   _uploading = Date.now();
   try {
     const out = await assets.uploadBatch(files, { uploadedById: req.user.id });
     audit.record({ req, category: 'SECURITY', action: 'ROBLOX_AUDIO_UPLOAD', targetType: 'site',
-      summary: `Uploaded audio to Roblox — ${out.uploaded} succeeded, ${out.failed} failed, ${out.rejected.length} rejected before sending`,
+      summary: `Uploaded audio to Roblox · ${out.uploaded} succeeded, ${out.failed} failed, ${out.rejected.length} rejected before sending`,
       metadata: { assetIds: out.rows.filter(r => r.assetId).map(r => r.assetId) } });
     res.json(out);
   } catch (e) {
@@ -153,7 +153,7 @@ router.delete('/uploads', async (req, res) => {
   try {
     const out = await assets.clearUploads();
     audit.record({ req, category: 'SECURITY', action: 'ROBLOX_UPLOADS_CLEARED', targetType: 'site',
-      summary: `Cleared the Roblox upload list (${out.cleared} row(s)) — the assets themselves are untouched` });
+      summary: `Cleared the Roblox upload list (${out.cleared} row(s)) · the assets themselves are untouched` });
     res.json(out);
   } catch (e) { res.status(500).json({ error: 'Could not clear the list.' }); }
 });

@@ -148,7 +148,7 @@ function problemsWith({ eventType, startedAt, attendees, durationMins }) {
     if (t > Date.now() + 3600 * 1000) problems.push('That start time is in the future.');
     if (t < Date.now() - 90 * 86400 * 1000) problems.push('That start time is more than 90 days ago.');
   }
-  if (!attendees || !attendees.length) problems.push('Add at least one attendee — the roll is what gets paid.');
+  if (!attendees || !attendees.length) problems.push('Add at least one attendee · the roll is what gets paid.');
   if (durationMins != null && (!Number.isFinite(durationMins) || durationMins < 0 || durationMins > 1440)) {
     problems.push('The duration has to be between 0 and 1440 minutes.');
   }
@@ -214,7 +214,7 @@ async function submitEvent(input, host) {
   if (selfRemoved && !roll.length) {
     // They are paid for hosting either way, so this is not about the money —
     // an event with nobody at it is not an event.
-    problems.push('You were the only name on the log — an event needs somebody to attend it.');
+    problems.push('You were the only name on the log · an event needs somebody to attend it.');
   }
   if (problems.length) return { ok: false, problems };
 
@@ -253,7 +253,7 @@ async function submitEvent(input, host) {
   }
   if (!event) return { ok: false, problems: ['Could not allocate an event reference.'] };
 
-  console.log(`[IA events] ${event.eventRef} filed by ${event.hostName || host.id} — `
+  console.log(`[IA events] ${event.eventRef} filed by ${event.hostName || host.id} · `
     + `${roll.length} attendee(s), awaiting review`
     + (dropped ? `, ${dropped} duplicate/blank name(s) dropped` : '')
     + (selfRemoved ? ', host taken off their own attendee list' : ''));
@@ -330,7 +330,7 @@ async function reviewEvent(id, action, reviewer, note) {
   if (!claim.count) return { ok: false, why: 'Somebody decided that one first.' };
 
   if (act === 'deny') {
-    console.log(`[IA events] ${event.eventRef} denied by ${(reviewer && reviewer.displayName) || 'a supervisor'} — nobody paid`);
+    console.log(`[IA events] ${event.eventRef} denied by ${(reviewer && reviewer.displayName) || 'a supervisor'} · nobody paid`);
     const denied = await prisma.iaEventLog.findUnique({ where: { id } });
     // The Discord mirror is edited in place, so the pending embed in the channel
     // becomes the denial rather than sitting there contradicting the site.
@@ -417,7 +417,7 @@ async function payEvent(event, reviewer) {
     updated = await prisma.iaEventLog.findUnique({ where: { id: event.id } });
   }
 
-  console.log(`[IA events] ${event.eventRef} approved by ${actor.name} — `
+  console.log(`[IA events] ${event.eventRef} approved by ${actor.name} · `
     + `${payees.length} paid ${pointsEach} point(s) + ${xpEach} XP (host included)`
     + (xpSkipped ? `, ${xpSkipped} with no Discord id got no XP` : ''));
 
@@ -502,7 +502,7 @@ async function voidEvent(id, by, reason) {
       voidedReason: clean(reason, 300) || null,
     },
   });
-  console.log(`[IA events] ${event.eventRef} withdrawn by ${actor.name} — `
+  console.log(`[IA events] ${event.eventRef} withdrawn by ${actor.name} · `
     + `${reversed} points award(s) reversed, ${xpReversed} XP award(s) taken back`);
   return { ok: true, event: await require('./logMirror').attach('EVENT', updated),
            reversed, xpReversed };

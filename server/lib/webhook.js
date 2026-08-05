@@ -82,7 +82,7 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
   // appealed, so the channel history stays honest instead of silently changing.
   if (appealed) {
     embed.color = 0x9d7dff;
-    embed.title = 'Staff Consequences & Discipline — APPEALED';
+    embed.title = 'Staff Consequences & Discipline · APPEALED';
     embed.fields.push({
       name:  '• Appeal:',
       value: `Granted by **${appealed.by || 'Internal Affairs'}**`
@@ -102,7 +102,7 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
 async function sendApprovalWebhook(data) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
-    console.warn('No DISCORD_WEBHOOK_URL configured — skipping webhook.');
+    console.warn('No DISCORD_WEBHOOK_URL configured · skipping webhook.');
     return null;
   }
 
@@ -200,9 +200,9 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
     const pts    = r.exempt
       ? 'Exempt'
       : `**${r.total != null ? r.total : '?'}**${r.target != null ? '/' + r.target : ''} pts`;
-    const reason = (r.status === 'fail' && r.reason) ? ` — ${String(r.reason).slice(0, 120)}` : '';
+    const reason = (r.status === 'fail' && r.reason) ? ` · ${String(r.reason).slice(0, 120)}` : '';
     const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ` ${e('met_trophy')}` : '';
-    return `${icon} **${r.username}**${r.rank ? ` · ${r.rank}` : ''} — ${pts}${reason}${iotw}`;
+    return `${icon} **${r.username}**${r.rank ? ` · ${r.rank}` : ''} · ${pts}${reason}${iotw}`;
   };
 
   // Highest first: a review is read to find who is short, and sorting by points
@@ -224,14 +224,14 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
   if (iotwUsername) {
     fields.push({
       name: `${e('met_trophy')} Investigator of the Week`,
-      value: `**${iotwUsername}**${iotwPoints ? ` — ${iotwPoints} points` : ''}`,
+      value: `**${iotwUsername}**${iotwPoints ? ` · ${iotwPoints} points` : ''}`,
       inline: false,
     });
   } else if (iotwTied && iotwTied.length > 1) {
     // Nobody, and why. A silent absence reads as an oversight.
     fields.push({
       name: `${e('met_trophy')} Investigator of the Week`,
-      value: `Tied on **${iotwPoints}** points — ${iotwTied.slice(0, 8).join(', ')}. `
+      value: `Tied on **${iotwPoints}** points · ${iotwTied.slice(0, 8).join(', ')}. `
            + `High Command to pick one.`,
       inline: false,
     });
@@ -248,7 +248,7 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
   const embed = {
     color: failed ? 0xf5b730 : 0x2ed896,
     title: `${e('met_chart')} ${divisionLabel ? divisionLabel + ' ' : ''}Weekly Quota Review`
-         + `${weekLabel ? ` — ${weekLabel}` : ''}`,
+         + `${weekLabel ? ` · ${weekLabel}` : ''}`,
     description: desc || '*No members.*',
     fields,
     footer:    { text: `${divisionLabel || 'Internal Affairs'} · ${results.length} member(s)` },
@@ -279,14 +279,14 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
           allowedMentions: { roles: [IA_QUOTA_PING_ROLE_ID()].filter(Boolean), parse: [] },
         });
         if (id) return true;
-        console.warn('[Quota] could not post the IA review to the channel — falling back to the webhook.');
+        console.warn('[Quota] could not post the IA review to the channel · falling back to the webhook.');
       } catch (err) {
         console.warn('[Quota] IA review channel post failed:', err.message);
       }
     }
   }
 
-  if (!url) { console.warn('No webhook URL for quota check — skipping.'); return false; }
+  if (!url) { console.warn('No webhook URL for quota check · skipping.'); return false; }
   try {
     const res = await fetch(url, {
       method:  'POST',
@@ -358,7 +358,7 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
       console.error(`HPC exam webhook failed [${res.status}]:`, await res.text().catch(() => ''));
     } catch (err) { console.error('HPC exam webhook error:', err.message); }
   }
-  console.warn('[Exam] result was NOT delivered — check the bot is in the guild or set FINAL_EXAM_WEBHOOK.');
+  console.warn('[Exam] result was NOT delivered · check the bot is in the guild or set FINAL_EXAM_WEBHOOK.');
   return null;
 }
 
@@ -375,7 +375,7 @@ function buildTryoutLogEmbed(log, event) {
   const isCid = String(log.division || '').toUpperCase() === 'CID';
   const footerText = isCid ? 'Criminal Investigation Department · Tryout Log' : 'Hendon Police College · Tryout Log';
   const colorFor = { submitted: 0xf5b730, approved: 0x2ed896, denied: 0xf04f5e };
-  const titleFor = { submitted: 'Tryout Log — Pending Review', approved: 'Tryout Log — Approved', denied: 'Tryout Log — Denied' };
+  const titleFor = { submitted: 'Tryout Log · Pending Review', approved: 'Tryout Log · Approved', denied: 'Tryout Log · Denied' };
 
   const A       = Array.isArray(log.attendees) ? log.attendees : [];
   const names   = A.map(a => a && a.username).filter(Boolean);
@@ -407,7 +407,7 @@ function buildTryoutLogEmbed(log, event) {
 // Post a tryout log for review. Returns the message id, or null.
 async function sendTryoutLog(log, { event = 'submitted' } = {}) {
   const { url, chId } = tryoutLogRoute(log);
-  if (!url && !chId) { console.warn('No tryout-log webhook or channel configured — skipping tryout log post.'); return null; }
+  if (!url && !chId) { console.warn('No tryout-log webhook or channel configured · skipping tryout log post.'); return null; }
   const embed = buildTryoutLogEmbed(log, event);
 
   if (url) {

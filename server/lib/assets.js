@@ -166,7 +166,7 @@ function guardScript(host) {
     'try{document.documentElement.style.setProperty("visibility","hidden","important");}catch(e){}' +
     'var MSG=\'<div style="max-width:520px"><div style="font-size:48px;line-height:1">\\u26D4</div>' +
     '<div style="font-size:22px;font-weight:800;margin:12px 0 8px;color:#ff5d6c">This is not the official MET Police site</div>' +
-    '<div style="font-size:14px;line-height:1.7;color:#c9d1e0">This page has been saved, copied or re-hosted. The Metropolitan Police dashboard only runs on its official website — saved and cloned copies are disabled for security. Please return to the official site.</div></div>\';' +
+    '<div style="font-size:14px;line-height:1.7;color:#c9d1e0">This page has been saved, copied or re-hosted. The Metropolitan Police dashboard only runs on its official website · saved and cloned copies are disabled for security. Please return to the official site.</div></div>\';' +
     'function L(){try{if(document.getElementById("__sl__"))return;var d=document.createElement("div");d.id="__sl__";' +
     'd.setAttribute("style","position:fixed;inset:0;z-index:2147483647;background:#0b0f1a;color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:24px;");' +
     'd.innerHTML=MSG;(document.body||document.documentElement).appendChild(d);' +

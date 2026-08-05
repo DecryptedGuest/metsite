@@ -264,7 +264,7 @@ router.put('/draft', async (req, res) => {
       const since = req.body && req.body.knownUpdatedAt ? new Date(req.body.knownUpdatedAt) : null;
       if (since && existing.updatedAt && existing.updatedAt.getTime() > since.getTime() + 1000) {
         return res.status(409).json({
-          error: 'This application was saved somewhere else more recently — probably another tab. '
+          error: 'This application was saved somewhere else more recently · probably another tab. '
                + 'Reload to pick up that version, or keep writing here and save again to overwrite it.',
           serverUpdatedAt: existing.updatedAt,
         });

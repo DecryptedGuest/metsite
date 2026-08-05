@@ -36,8 +36,8 @@ async function requireAuth(req, res, next) {
   } catch (dbErr) {
     console.error('[Auth] requireAuth DB lookup failed (transient):', dbErr.message);
     return isApi
-      ? res.status(503).json({ error: 'Server busy — please retry.' })
-      : res.status(503).send('Server busy — please refresh in a moment.');
+      ? res.status(503).json({ error: 'Server busy · please retry.' })
+      : res.status(503).send('Server busy · please refresh in a moment.');
   }
 
   if (!user) {
@@ -71,8 +71,8 @@ async function requireAuth(req, res, next) {
     } catch (dbErr) {
       console.error('[Auth] session lookup failed (transient):', dbErr.message);
       return isApi
-        ? res.status(503).json({ error: 'Server busy — please retry.' })
-        : res.status(503).send('Server busy — please refresh in a moment.');
+        ? res.status(503).json({ error: 'Server busy · please retry.' })
+        : res.status(503).send('Server busy · please refresh in a moment.');
     }
     if (!session || session.revokedAt || session.expiresAt < new Date()) {
       res.clearCookie('iacms_token');

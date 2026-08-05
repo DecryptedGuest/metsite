@@ -27,7 +27,7 @@ function recChip(label, state) {
 
 function recField(label, value, mono) {
   return "<div class=\"detail-field\"><span class=\"detail-field-label\">" + escapeHtml(label) + "</span>"
-    + "<span class=\"detail-field-value" + (mono ? " mono" : "") + "\">" + (value || "<span style=\"color:var(--text-muted);\">—</span>") + "</span></div>";
+    + "<span class=\"detail-field-value" + (mono ? " mono" : "") + "\">" + (value || "<span style=\"color:var(--text-muted);\">·</span>") + "</span></div>";
 }
 
 // Reuse the shared status badge so Records reads identically to My/All Cases.
@@ -52,7 +52,7 @@ function recCaseRows(list, emptyText) {
   return list.map(function (c) {
     var act = c.actions && c.actions.length
       ? c.actions.map(function (a) { return escapeHtml(a.action); }).join(", ")
-      : escapeHtml(c.action || "—");
+      : escapeHtml(c.action || "·");
 
     var appeal = "";
     if (typeof canAppealLocally === "function") {
@@ -67,7 +67,7 @@ function recCaseRows(list, emptyText) {
     return "<tr class=\"rec-case-row\" onclick=\"openCaseDetail('" + c.id + "')\" title=\"Open this case\">"
       + "<td><span class=\"case-ref\">" + escapeHtml(c.caseRef) + "</span></td>"
       + "<td><span style=\"font-size:12px;\">" + act + "</span></td>"
-      + "<td><span style=\"font-size:12px;color:var(--text-secondary);\">" + escapeHtml(c.reason || "—") + "</span></td>"
+      + "<td><span style=\"font-size:12px;color:var(--text-secondary);\">" + escapeHtml(c.reason || "·") + "</span></td>"
       + "<td>" + recStatusBadge(c.status) + " " + appealed + "</td>"
       + "<td><span class=\"date-cell\">" + formatDateTime(c.createdAt) + "</span></td>"
       + "<td onclick=\"event.stopPropagation();\">" + appeal + "</td>"

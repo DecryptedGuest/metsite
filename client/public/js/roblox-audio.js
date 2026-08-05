@@ -45,8 +45,8 @@ function raCreatorChanged() {
     if (lbl)  lbl.textContent = 'Roblox user ID';
     if (inp)  inp.placeholder = 'e.g. 1234567';
     if (hint) hint.textContent = raKind === 'apikey'
-      ? 'Leave blank — testing the key fills this in from Roblox. Only needed if that cannot be read.'
-      : 'Not needed for a cookie — it already knows the account.';
+      ? 'Leave blank · testing the key fills this in from Roblox. Only needed if that cannot be read.'
+      : 'Not needed for a cookie · it already knows the account.';
   }
 }
 
@@ -124,7 +124,7 @@ async function raSaveCredential() {
 
   if (raKind === 'cookie') {
     const go = await uiConfirm(
-      'A .ROBLOSECURITY cookie authenticates past two-factor — it is the whole account. It will be stored encrypted and never shown again. Continue?',
+      'A .ROBLOSECURITY cookie authenticates past two-factor · it is the whole account. It will be stored encrypted and never shown again. Continue?',
       { title: 'Store an account cookie?', confirmText: 'Store it', danger: true });
     if (!go) return;
   }
@@ -146,7 +146,7 @@ async function raSaveCredential() {
     if (val) val.value = '';
     const v = r.verify || {};
     if (out) out.innerHTML = v.ok
-      ? raOk(`Saved and working${v.account ? ` — Roblox says this is ${escapeHtml(v.account.name || v.account.id)}` : ''}.${v.note ? ' ' + escapeHtml(v.note) : ''}`)
+      ? raOk(`Saved and working${v.account ? ` · Roblox says this is ${escapeHtml(v.account.name || v.account.id)}` : ''}.${v.note ? ' ' + escapeHtml(v.note) : ''}`)
       : raWarn(`Saved, but Roblox would not accept it: ${escapeHtml(v.error || 'unknown reason')}`);
     await raLoadCredential();
   } catch (e) {
@@ -163,7 +163,7 @@ async function raVerifyCredential() {
   try {
     const r = await api('/api/dev/roblox/credential/verify', { method: 'POST' });
     if (out) out.innerHTML = r.ok
-      ? raOk(`Working${r.account ? ` — ${escapeHtml(r.account.name || r.account.id)}` : ''}${
+      ? raOk(`Working${r.account ? ` · ${escapeHtml(r.account.name || r.account.id)}` : ''}${
           r.scopes && r.scopes.length ? `, allowed to ${escapeHtml(r.scopes.join(' and '))} assets` : ''}.${
           r.note ? ' ' + escapeHtml(r.note) : ''}`)
       : raErr(r.error || 'Roblox rejected it.');
@@ -274,7 +274,7 @@ function raQueueProblem(f) {
     return 'Only ' + RA_EXTS.join(', ');
   }
   // Roblox's wording is "less than 20 MB", so exactly 20 MB is over.
-  if (f.size >= RA_MAX_MB * 1024 * 1024) return `${(f.size / 1024 / 1024).toFixed(1)} MB — needs to be under ${RA_MAX_MB} MB`;
+  if (f.size >= RA_MAX_MB * 1024 * 1024) return `${(f.size / 1024 / 1024).toFixed(1)} MB · needs to be under ${RA_MAX_MB} MB`;
   if (!f.size) return 'Empty file';
   return null;
 }
@@ -304,7 +304,7 @@ function raRenderQueue() {
     </tr></thead><tbody>${raQueue.map((q, i) => {
       const bad = raQueueProblem(q.file);
       return `<tr${bad ? ' style="opacity:.55;"' : ''}>
-        <td>${bad ? '—' : `<input class="form-control" style="padding:5px 8px;font-size:12.5px;" maxlength="50"
+        <td>${bad ? '·' : `<input class="form-control" style="padding:5px 8px;font-size:12.5px;" maxlength="50"
               value="${escapeHtml(q.name)}" oninput="raQueue[${i}].name=this.value">`}</td>
         <td style="font-size:12px;">${escapeHtml(q.file.name)}</td>
         <td style="font-size:12px;white-space:nowrap;">${(q.file.size / 1024 / 1024).toFixed(2)} MB</td>
@@ -344,13 +344,13 @@ async function raUpload() {
   if (!all.length) return;
   const out0 = document.getElementById('ra-upload-result');
   if (all.length > RA_MAX_BATCH) {
-    if (out0) out0.innerHTML = raErr(`${all.length} at once is too many — ${RA_MAX_BATCH} per batch. `
+    if (out0) out0.innerHTML = raErr(`${all.length} at once is too many · ${RA_MAX_BATCH} per batch. `
       + 'Remove some and upload the rest afterwards.');
     return;
   }
   const totalMb = all.reduce((n, q) => n + q.file.size, 0) / 1024 / 1024;
   if (totalMb > RA_MAX_TOTAL_MB) {
-    if (out0) out0.innerHTML = raErr(`${totalMb.toFixed(0)} MB in one go is too much — `
+    if (out0) out0.innerHTML = raErr(`${totalMb.toFixed(0)} MB in one go is too much · `
       + `keep a batch under ${RA_MAX_TOTAL_MB} MB in total. Upload it in two halves.`);
     return;
   }
@@ -374,7 +374,7 @@ async function raUpload() {
     }
     if (btn) btn.innerHTML = `<i class="ti ti-loader-2"></i> Uploading ${files.length}…`;
     if (out) out.innerHTML = '<span style="color:var(--text-secondary);">Two at a time, and it slows itself down if Roblox starts '
-      + 'throttling — a big batch can take a few minutes. Leave this open.</span>';
+      + 'throttling · a big batch can take a few minutes. Leave this open.</span>';
 
     const r = await api('/api/dev/roblox/audio', { method: 'POST', body: JSON.stringify({ files }) });
 
@@ -401,14 +401,14 @@ async function raUpload() {
       // batch getting rate-limited is normal and expected — the files are still
       // queued, and pressing Upload again is the whole fix.
       const retryLine = limited
-        ? `<div style="margin-top:0.5rem;">${limited === 1 ? 'That one is' : 'Those are'} still queued above — `
+        ? `<div style="margin-top:0.5rem;">${limited === 1 ? 'That one is' : 'Those are'} still queued above · `
           + `Roblox throttles after a run of uploads. Wait a minute, then press Upload again.</div>`
         : '';
       out.innerHTML = (r.failed || (r.rejected || []).length)
         ? (limited && !brokenCount && !(r.rejected || []).length
             ? raOk(bits.join(' · ')) + retryLine + list
             : raWarn(bits.join(' · ')) + retryLine + list)
-        : raOk(bits.join(' · ') + ' — the IDs are in the table below.');
+        : raOk(bits.join(' · ') + ' · the IDs are in the table below.');
     }
 
     // Only the ones that went are cleared; a failure stays put so it can be
@@ -432,7 +432,7 @@ async function raUpload() {
       await raLoadUploads();
       if (raUploads.length > before && out) {
         out.innerHTML = raWarn('The connection dropped before Roblox finished answering, but '
-          + `${raUploads.length - before} upload${raUploads.length - before === 1 ? '' : 's'} did land — `
+          + `${raUploads.length - before} upload${raUploads.length - before === 1 ? '' : 's'} did land · `
           + 'they are in the table below. Anything missing is still queued above.');
       }
     } catch (_) { /* the original error already says what happened */ }
@@ -482,12 +482,12 @@ async function raLoadUploads() {
       <td style="font-size:12px;color:var(--text-secondary);">${escapeHtml(u.fileName)}</td>
       <td>${u.assetId
         ? `<span class="mono" style="font-size:12.5px;">${escapeHtml(u.assetId)}</span>`
-        : '<span style="color:var(--text-muted);">—</span>'}</td>
+        : '<span style="color:var(--text-muted);">·</span>'}</td>
       <td style="white-space:nowrap;"><span style="color:var(--${col});font-size:12.5px;"><i class="ti ${ic}"></i> ${escapeHtml(label)}</span>${
         u.error ? `<div style="font-size:11px;color:var(--text-muted);max-width:280px;">${escapeHtml(u.error)}</div>` : ''}</td>
       <td style="white-space:nowrap;">${(() => {
         const m = RA_MODERATION[u.moderation];
-        if (!m) return u.assetId ? '<span style="color:var(--text-muted);font-size:12px;">Not reported</span>' : '<span style="color:var(--text-muted);">—</span>';
+        if (!m) return u.assetId ? '<span style="color:var(--text-muted);font-size:12px;">Not reported</span>' : '<span style="color:var(--text-muted);">·</span>';
         return `<span style="color:var(--${m[0]});font-size:12.5px;" title="${m[1] === 'ti-shield-search' ? 'Uploaded, but not usable until Roblox approves it' : ''}"><i class="ti ${m[1]}"></i> ${escapeHtml(m[2])}</span>`;
       })()}</td>
       <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${escapeHtml(formatDateTime(u.createdAt))}</td>
@@ -500,7 +500,7 @@ async function raLoadUploads() {
 }
 
 async function raClearUploads() {
-  const go = await uiConfirm('Clear this list? The audio stays on Roblox — but the asset IDs are only recorded here, so copy anything you still need first.',
+  const go = await uiConfirm('Clear this list? The audio stays on Roblox · but the asset IDs are only recorded here, so copy anything you still need first.',
     { title: 'Clear the list?', confirmText: 'Clear', danger: true });
   if (!go) return;
   try {

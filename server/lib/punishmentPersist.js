@@ -166,7 +166,7 @@ async function reapplyOnJoin(member) {
   }
   if (!toAdd.length) { report(member, out); return out; }
 
-  const reason = (items) => `Punishment still active on rejoin — `
+  const reason = (items) => `Punishment still active on rejoin · `
     + items.map(i => `${i.action} (${i.why})`).join('; ');
 
   // One PATCH for the lot. Discord takes a whole role array, and a member who
@@ -223,14 +223,14 @@ async function reapplyOnJoin(member) {
 // lifted by leaving the server, and somebody needs to see that.
 function report(member, out) {
   if (out.restored.length) {
-    console.log(`[Punishments] ${member.id} rejoined — restored ${out.restored.join(', ')}`
+    console.log(`[Punishments] ${member.id} rejoined · restored ${out.restored.join(', ')}`
       + (out.skipped ? ` · ${out.skipped} already worn` : ''));
   }
   if (out.failed.length) {
-    console.warn(`[Punishments] ${member.id} rejoined — COULD NOT restore: ${out.failed.join(' | ')}`);
+    console.warn(`[Punishments] ${member.id} rejoined · COULD NOT restore: ${out.failed.join(' | ')}`);
   }
   if (out.unusable.length) {
-    console.warn(`[Punishments] ${member.id} rejoined — unusable roles: ${out.unusable.join(' | ')}`);
+    console.warn(`[Punishments] ${member.id} rejoined · unusable roles: ${out.unusable.join(' | ')}`);
   }
 }
 
