@@ -355,6 +355,65 @@ const EMOJI = [
   { name: 'met_dot_off', fallback: '⚪', desc: 'progress step pending',
     svg: `<circle cx="64" cy="64" r="34" fill="none" stroke="#3f5170" stroke-width="12"/>` },
 
+  // ── Internal Affairs dashboard (/ia) ────────────────────────────
+  // The /ia panel is a whole dashboard in a message, so it needs marks for the
+  // things a dashboard has: sections, a review queue, a verdict, a rank. These
+  // are IA's own — amber/purple against the MET blue — so a glance at an embed
+  // says "this is Internal Affairs" before you have read a word of it.
+  { name: 'met_ia',        fallback: '🛡', desc: 'Internal Affairs crest',
+    svg: `<path d="M64 8 L114 30 v34 c0 32 -22 50 -50 58 -28 -8 -50 -26 -50 -58 V30 Z" fill="${C.purple}"/>`
+       + `<circle cx="58" cy="56" r="19" fill="none" stroke="${C.paper}" stroke-width="9"/>`
+       + `<path d="M72 70 L92 90" stroke="${C.paper}" stroke-width="10" stroke-linecap="round"/>` },
+  { name: 'met_ia_home',   fallback: '🏠', desc: 'dashboard home',
+    svg: tile(C.purple)
+       + `<path d="M28 66 L64 34 L100 66 v30 a6 6 0 0 1 -6 6 H34 a6 6 0 0 1 -6 -6 Z" fill="${C.paper}"/>`
+       + `<rect x="56" y="76" width="16" height="26" fill="${C.purple}"/>` },
+  { name: 'met_ia_queue',  fallback: '📥', desc: 'pending review queue',
+    svg: tile(C.amber)
+       + `<path d="M26 70 h20 l8 12 h20 l8 -12 h20 v26 a6 6 0 0 1 -6 6 H32 a6 6 0 0 1 -6 -6 Z" fill="${C.ink}"/>`
+       + `<path d="M64 24 v30 M50 44 L64 58 L78 44" fill="none" stroke="${C.ink}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { name: 'met_ia_verdict',fallback: '⚖', desc: 'decision recorded',
+    svg: disc(C.gold)
+       + `<path d="M64 26 v72 M36 44 h56" stroke="${C.ink}" stroke-width="9" stroke-linecap="round"/>`
+       + `<path d="M36 44 L24 70 h24 Z M92 44 L80 70 h24 Z" fill="${C.ink}"/>` },
+  { name: 'met_ia_locked', fallback: '⛔', desc: 'above your rank',
+    svg: disc(C.slate)
+       + `<path d="M44 60 V46 a20 20 0 0 1 40 0 v14" fill="none" stroke="${C.ink}" stroke-width="11"/>`
+       + `<rect x="34" y="58" width="60" height="46" rx="10" fill="${C.ink}"/>` },
+  { name: 'met_ia_case',   fallback: '🗂', desc: 'IA case file',
+    svg: `<path d="M14 26 h44 l10 12 h46 a8 8 0 0 1 8 8 v58 a8 8 0 0 1 -8 8 H14 a8 8 0 0 1 -8 -8 V34 a8 8 0 0 1 8 -8 Z" fill="#6f56c4"/>`
+       + `<rect x="30" y="54" width="68" height="52" rx="6" fill="${C.paper}"/>`
+       + `<g stroke="#6f56c4" stroke-width="7" stroke-linecap="round">`
+       + `<path d="M42 70 h44 M42 84 h44 M42 96 h26"/></g>` },
+  { name: 'met_ia_evidence',fallback:'📎', desc: 'exhibit / evidence',
+    svg: tile(C.cyan)
+       + `<path d="M84 44 L52 76 a13 13 0 0 0 18 18 l30 -30 a22 22 0 0 0 -31 -31 L36 66 a31 31 0 0 0 44 44"`
+       + ` fill="none" stroke="${C.ink}" stroke-width="9" stroke-linecap="round"/>` },
+  { name: 'met_ia_stats',  fallback: '📊', desc: 'IA statistics',
+    svg: tile(C.purple)
+       + `<g fill="${C.paper}"><rect x="30" y="66" width="16" height="36" rx="4"/>`
+       + `<rect x="56" y="46" width="16" height="56" rx="4"/>`
+       + `<rect x="82" y="30" width="16" height="72" rx="4"/></g>` },
+  { name: 'met_ia_quota',  fallback: '🎯', desc: 'weekly quota target',
+    svg: disc(C.paper) + `<circle cx="64" cy="64" r="40" fill="${C.red}"/>`
+       + `<circle cx="64" cy="64" r="24" fill="${C.paper}"/>`
+       + `<circle cx="64" cy="64" r="10" fill="${C.red}"/>` },
+  { name: 'met_ia_appeal', fallback: '🔨', desc: 'appeal granted',
+    svg: `<path d="M22 96 L62 56 l14 14 -40 40 Z" fill="#8a6a3a"/>`
+       + `<rect x="64" y="24" width="44" height="26" rx="7" transform="rotate(45 86 37)" fill="${C.slate}"/>` },
+  { name: 'met_ia_officer',fallback: '🕵', desc: 'officer under investigation',
+    svg: disc('#1b2942')
+       + `<path d="M28 46 q36 -22 72 0" fill="none" stroke="${C.paper}" stroke-width="9" stroke-linecap="round"/>`
+       + `<circle cx="64" cy="62" r="17" fill="${C.paper}"/>`
+       + `<path d="M30 108 a34 30 0 0 1 68 0 Z" fill="${C.paper}"/>` },
+  { name: 'met_ia_prev',   fallback: '◀', desc: 'previous page',
+    svg: disc('#2a3a58') + `<path d="M76 34 L46 64 L76 94" fill="none" stroke="${C.paper}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { name: 'met_ia_next',   fallback: '▶', desc: 'next page',
+    svg: disc('#2a3a58') + `<path d="M52 34 L82 64 L52 94" fill="none" stroke="${C.paper}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { name: 'met_ia_refresh',fallback: '🔄', desc: 'refresh the panel',
+    svg: `<path d="M64 22 a42 42 0 1 0 42 42" fill="none" stroke="${C.green}" stroke-width="13" stroke-linecap="round"/>`
+       + `<path d="M64 4 L64 40 L94 22 Z" fill="${C.green}"/>` },
+
   // ── Site-only (seasonal effects) ────────────────────────────────
   { name: 'met_pumpkin', fallback: '🎃', discord: false, desc: 'halloween',
     svg: `<ellipse cx="64" cy="76" rx="52" ry="44" fill="#ff7a1a"/>`
