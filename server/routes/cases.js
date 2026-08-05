@@ -959,6 +959,27 @@ router.patch('/:id/approve', requireHICOMM, async (req, res) => {
       }
     }
 
+    // Strip MET Discord roles when this case terminates or blacklists them.
+    // The Roblox exile above removes their group ranks; this removes the Discord
+    // rank, division and permission roles that mirror them, keeping the Blacklist
+    // role when the case is a blacklist. Independent of Roblox, so it runs on the
+    // Discord id alone.
+    if (existing.officerDiscordId && actions.some(a => ACTION_CONFIG[a.action]?.exile)) {
+      const stripRes = await require('../lib/exile')
+        .stripDiscordRolesForExile(existing.officerDiscordId, actions.map(a => a.action))
+        .catch(err => ({ summary: 'role strip failed: ' + err.message }));
+      if (stripRes) {
+        await prisma.caseAction.create({
+          data: {
+            caseId:      existing.id,
+            actionType:  'APPROVED',
+            performedBy: req.user.id,
+            notes:       `MET Discord roles stripped (user ${existing.officerDiscordId}) · ${stripRes.summary}`,
+          },
+        }).catch(() => {});
+      }
+    }
+
     // Demotion → drop the suspect one rank in the Roblox group (requires Roblox ID)
     if (existing.robloxUserId && actions.some(a => a.action === 'Demotion')) {
       const { demoteByOneRank } = require('../lib/roblox');

@@ -139,14 +139,20 @@ async function appealCase({ existing, actor, reason }) {
   // demotion has no recorded "before" rank. Name them so the grantor knows what
   // is left to do by hand.
   const manual = [];
+  let exileAppealed = false;
   for (const a of actions) {
     // A blacklist appeal does not imply putting them back in the group, so it
     // gets no "re-invite" note. A Termination might, so that one keeps it.
     if (ACTION_CONFIG[a.action]?.exile && a.action !== 'Blacklist') {
       manual.push(`${a.action}: re-invite to the Roblox group by hand`);
     }
+    if (ACTION_CONFIG[a.action]?.exile) exileAppealed = true;
     if (a.action === 'Demotion') manual.push('Demotion: restore the Roblox group rank by hand');
   }
+  // A termination or blacklist stripped their MET Discord roles (rank, division,
+  // permissions). The appeal cannot know which they held, so restoring them is a
+  // by-hand step and is named as one.
+  if (exileAppealed) manual.push('Their MET Discord roles were removed by the discipline · add their rank and division roles back by hand');
 
   if (lifted.length || failed.length || kept.length || manual.length) {
     await prisma.caseAction.create({

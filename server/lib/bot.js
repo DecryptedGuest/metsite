@@ -958,6 +958,57 @@ async function removeRole(discordUserId, roleId) {
 }
 
 /**
+ * Strip a member of ALL their MET roles across the discipline guilds (the MET
+ * server and the primary server), keeping only the roles named in keepRoleIds.
+ * Used when somebody is terminated or blacklisted: an officer removed from the
+ * group should not still be wearing its rank, division and permission roles.
+ *
+ * @everyone, managed roles (bots, boosts, integrations) and any role above the
+ * bot's own top role are left alone · Discord will not let the bot touch those,
+ * and pretending otherwise would report a strip that did not happen. Everything
+ * else the member holds is removed.
+ *
+ * @param {string} discordUserId
+ * @param {object} [opts]
+ * @param {string[]} [opts.keepRoleIds] role ids to leave in place (e.g. Blacklist)
+ * @param {string} [opts.reason]
+ * @returns {Promise<{ ok, removed, kept, skipped, guilds:Array }>}
+ */
+async function stripMetRoles(discordUserId, opts = {}) {
+  const out = { ok: false, removed: 0, kept: 0, skipped: 0, guilds: [] };
+  if (!ready) { console.warn('Bot not ready · cannot strip roles'); return out; }
+  const keep = new Set((opts.keepRoleIds || []).filter(Boolean).map(String));
+  const reason = opts.reason || 'MET discipline';
+  for (const gid of DISCIPLINE_GUILD_IDS()) {
+    const g = { guildId: gid, removed: 0, kept: 0, skipped: 0 };
+    try {
+      const guild = await client.guilds.fetch(gid);
+      const member = await guild.members.fetch(discordUserId).catch(() => null);
+      if (!member) { g.note = 'not a member'; out.guilds.push(g); continue; }
+      let me = guild.members.me;
+      if (!me) me = await guild.members.fetchMe().catch(() => null);
+      const myTop = me && me.roles && me.roles.highest ? me.roles.highest.position : 0;
+      const remove = [];
+      for (const role of member.roles.cache.values()) {
+        if (role.id === guild.id) continue;            // @everyone
+        if (keep.has(role.id)) { g.kept++; continue; } // deliberately preserved
+        if (role.managed || role.position >= myTop) { g.skipped++; continue; } // the bot cannot touch these
+        remove.push(role.id);
+      }
+      if (remove.length) await member.roles.remove(remove, reason);
+      g.removed = remove.length;
+      out.removed += g.removed; out.kept += g.kept; out.skipped += g.skipped;
+      out.ok = true;
+    } catch (err) {
+      g.error = err.message;
+      console.error(`[Discipline] could not strip MET roles in ${gid} for ${discordUserId}:`, err.message);
+    }
+    out.guilds.push(g);
+  }
+  return out;
+}
+
+/**
  * Check for expired CasePunishments and remove the corresponding Discord roles.
  * Called on startup and every 5 minutes.
  */
@@ -2352,7 +2403,7 @@ async function listGuildVoiceChannels(guildId) {
 }
 
 module.exports = {
-  startBot, assignRole, removeRole, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, stripMetRoles, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
   listBotGuilds, listGuildVoiceChannels,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,

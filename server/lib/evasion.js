@@ -523,6 +523,14 @@ async function doBlacklist(interaction, flag) {
     steps.push(`${done ? e('met_tick') : e('met_cross')} Blacklist role`);
   } catch (e) { steps.push(`${e('met_cross')} Blacklist role · ${short(e.message, 60)}`); }
 
+  // 1b. Strip every other MET role. A blacklisted account should not still be
+  //     wearing rank, division and permission roles; only the blacklist role
+  //     (added just above) is kept.
+  try {
+    const res = await require('./exile').stripDiscordRolesForExile(flag.discordId, ['Blacklist']);
+    if (res) steps.push(`${e('met_tick')} MET roles stripped · ${res.summary}`);
+  } catch (err) { steps.push(`${e('met_cross')} Role strip · ${short(err.message, 60)}`); }
+
   // 2. Exile the Roblox account from the MET group.
   if (flag.robloxId && !/^unknown:/.test(flag.robloxId)) {
     try {

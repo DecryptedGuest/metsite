@@ -100,4 +100,45 @@ async function exileEverywhere(robloxUserId, opts = {}) {
   return out;
 }
 
-module.exports = { exileEverywhere, exileTargets };
+/**
+ * The Discord half of an exile: strip the member of every MET role.
+ *
+ * Removing somebody from the Roblox group does not touch Discord, so a
+ * terminated officer kept every rank, division and permission role in the
+ * server. This strips them, keeping only the Blacklist role when the punishment
+ * is a Blacklist (the record has to stay visible on the account), plus anything
+ * an admin has explicitly protected via DISCIPLINE_KEEP_ROLE_IDS.
+ *
+ * @param {string} discordUserId
+ * @param {string[]} actionNames  the actions being applied (e.g. ['Blacklist'])
+ * @returns {Promise<{ stripped, summary, keptBlacklist }|null>} null if there is
+ *   nothing to strip (no discord id, or none of the actions exile)
+ */
+async function stripDiscordRolesForExile(discordUserId, actionNames = []) {
+  if (!discordUserId) return null;
+  const { ACTION_CONFIG } = require('./actions');
+  const names = Array.isArray(actionNames) ? actionNames : [actionNames];
+  const anyExile = names.some(n => ACTION_CONFIG[n] && ACTION_CONFIG[n].exile);
+  if (!anyExile) return null;
+
+  const keep = [];
+  // A Blacklist keeps its own role so the account still reads as blacklisted.
+  const isBlacklist = names.includes('Blacklist');
+  if (isBlacklist) {
+    const blRole = ACTION_CONFIG['Blacklist'] && ACTION_CONFIG['Blacklist'].roleId;
+    if (blRole) keep.push(String(blRole));
+  }
+  // An escape hatch: roles the owner never wants a discipline to remove.
+  for (const r of String(process.env.DISCIPLINE_KEEP_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean)) keep.push(r);
+
+  const res = await require('./bot').stripMetRoles(discordUserId, {
+    keepRoleIds: keep,
+    reason: `MET ${isBlacklist ? 'blacklist' : 'termination'}: roles stripped`,
+  });
+  const parts = [`removed ${res.removed} role(s)`];
+  if (res.kept) parts.push(`kept ${res.kept}`);
+  if (res.skipped) parts.push(`${res.skipped} above the bot or managed`);
+  return { stripped: res.removed, keptBlacklist: isBlacklist, summary: parts.join(' · ') };
+}
+
+module.exports = { exileEverywhere, exileTargets, stripDiscordRolesForExile };

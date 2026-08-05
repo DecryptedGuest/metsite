@@ -516,6 +516,17 @@ async function applyDiscipline(o) {
     });
   }
 
+  // 3b. Discord roles. A termination or blacklist strips every MET role in the
+  //     server (rank, division, permissions), keeping only the Blacklist role
+  //     when applicable. Independent of Roblox, so it runs on the Discord id
+  //     even when there is no linked Roblox account.
+  if (o.targetDiscordId && cfg.exile) {
+    await step('discord_roles', async () => {
+      const r = await require('./exile').stripDiscordRolesForExile(o.targetDiscordId, [o.action]);
+      return r ? r.summary : 'nothing to strip';
+    });
+  }
+
   // 4. The dashboard record, BEFORE the log. The log's footer carries the
   //    infraction id, and that id is the case number — so the case has to
   //    exist first. Its logMessageId is filled in straight after, which is
