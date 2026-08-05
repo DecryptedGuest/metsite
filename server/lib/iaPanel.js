@@ -516,12 +516,18 @@ async function activityView(subject, client) {
 /** One case, in full, with its evidence. */
 async function caseView(kase, precomputed) {
   const ev = precomputed || await require('./caseEvidence').evidenceFor(kase);
+  // Who filed it — the issuer for a /discipline action, the investigator for an
+  // ordinary case. A direct action MUST show who ran the command.
+  const issuer = kase.investigatorDiscordUsername || kase.investigatorRobloxUsername
+    || (kase.user && kase.user.displayName) || null;
   const embed = new EmbedBuilder()
     .setColor(kase.status === 'APPROVED' ? COLOR.warn : COLOR.panel)
     .setTitle(`${e('met_folder')} ${short(kase.caseRef, 20)} — ${short(kase.action, 40)}`)
     .setDescription(
       `${statusMark(kase.status)} **${kase.status.replace('_', ' ')}**`
-      + (kase.origin === 'DISCIPLINE' ? ` · *issued directly with /discipline, not an investigation*` : '')
+      + (kase.origin === 'DISCIPLINE'
+        ? ` · ${e('met_gavel')} issued with \`/discipline\`${issuer ? ` by **${short(issuer, 40)}**` : ''}`
+        : (issuer ? ` · ${e('met_scales')} by **${short(issuer, 40)}**` : ''))
       + `\n${e('met_user')} ${kase.robloxUsername ? short(kase.robloxUsername, 30) : (kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'unknown')}`
       + ` · filed ${when(kase.createdAt)}`)
     .addFields(
@@ -561,7 +567,7 @@ async function caseView(kase, precomputed) {
     });
     embed.addFields({ name: `Evidence (${ev.exhibits.length})`, value: short(lines.join('\n'), 1000), inline: false });
   } else {
-    embed.addFields({ name: 'Evidence', value: `${e('met_warn')} ${ev.note}`, inline: false });
+    embed.addFields({ name: 'Evidence', value: `${e('met_dot_off')} There is no evidence for this case.`, inline: false });
   }
 
   const links = [];
