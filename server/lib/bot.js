@@ -138,9 +138,15 @@ function buildClient(withMessageContent) {
   // A punishment role has to survive somebody leaving and rejoining, or every
   // punishment is one /leave away from being undone. GuildMembers is already
   // requested above, which is what makes this event fire at all.
-  c.on('guildMemberAdd', member =>
+  c.on('guildMemberAdd', member => {
     require('./punishmentPersist').reapplyOnJoin(member)
-      .catch(e => console.warn('[Punishments] rejoin re-apply failed:', e.message)));
+      .catch(e => console.warn('[Punishments] rejoin re-apply failed:', e.message));
+    // Same event, different question: is this a blacklisted/punished Roblox
+    // account back under a new Discord one? Re-applies the safe roles by Roblox
+    // identity and alerts Internal Affairs when it is evasion.
+    require('./evasion').scanJoin(member)
+      .catch(e => console.warn('[Evasion] join scan failed:', e.message));
+  });
   c.on('error', err => console.error('Discord bot error:', err.message));
   return c;
 }
@@ -409,6 +415,10 @@ async function onInteraction(interaction) {
     if (cid.startsWith('prom_')) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
+    }
+    if (cid.startsWith('evade_')) {
+      return require('./evasion').handleEvasionButton(interaction)
+        .catch(e => console.error('[Bot] evasion button error:', e.message));
     }
     if (cid.startsWith('met_dm_')) {
       return require('./metCommand').handleMetButton(interaction)

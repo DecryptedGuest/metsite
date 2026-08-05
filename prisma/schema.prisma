@@ -1543,3 +1543,44 @@ model GroupAuditEntry {
   @@index([postedAt])
   @@map("group_audit_entries")
 }
+
+// ── Ban / punishment evasion ─────────────────────────────────────────
+// A member joined whose Roblox identity already carries a blacklist or an
+// active punishment under a DIFFERENT Discord account — i.e. an alt made to
+// dodge a decision. One row per (robloxId, discordId) so the same alt rejoining
+// does not re-alert; the record is permanent regardless of what happens to the
+// Discord account, because that is the whole point of it.
+model EvasionFlag {
+  id             String   @id @default(uuid())
+  // The Roblox account the record follows. This, not the Discord id, is the
+  // identity a punishment is really against.
+  robloxId       String
+  robloxUsername String?
+  // The account that just appeared wearing that identity.
+  discordId      String
+  discordTag     String?
+  // BLACKLIST_EVASION — the identity is blacklisted.
+  // PUNISHMENT_EVASION — an active strike/suspension sits on another account.
+  kind           String
+  // Every Discord account this Roblox identity has been seen on, and a compact
+  // account of what was found — cases, punishments, which account each is on.
+  knownDiscordIds Json?
+  evidence       Json?
+  summary        String?
+  // Where the alert was posted, so a later action can edit it in place.
+  channelId      String?
+  messageId      String?
+  // OPEN | ACTIONED | DISMISSED — set by the buttons on the alert.
+  status         String   @default("OPEN")
+  actionTaken    String?
+  actionedById   String?
+  actionedByName String?
+  actionedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@unique([robloxId, discordId])
+  @@index([robloxId])
+  @@index([discordId])
+  @@index([status])
+  @@map("evasion_flags")
+}

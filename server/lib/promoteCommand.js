@@ -38,6 +38,16 @@ function short(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+// Discord roles that may promote on top of the XP-management routes. HPC High
+// Command by default, so graduating a cadet into the MET group does not need a
+// Deputy Commissioner; PROMOTE_ROLE_IDS overrides without a deploy.
+const HPC_HICOMM_ROLE = '1398071632207151184';
+function PROMOTE_ROLE_IDS() {
+  const raw = process.env.PROMOTE_ROLE_IDS;
+  return String(raw == null ? HPC_HICOMM_ROLE : raw)
+    .split(',').map(s => s.trim()).filter(Boolean);
+}
+
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('promote')
@@ -154,21 +164,27 @@ async function handlePromoteCommand(interaction) {
     return interaction.editReply({ embeds: [fail("That's a bot", 'Pick an officer.')] }).catch(() => {});
   }
 
-  // Permission: the same people who may move XP may promote. Both are "this
-  // person's standing in the MET changes", and splitting them would mean two
-  // lists to keep in step.
+  // Permission: everyone who may move XP (FLP officers, DC and above, server
+  // administrators), PLUS HPC High Command — they graduate cadets into the MET
+  // group, so promoting is part of the job, but they have no business moving XP,
+  // which is why this is not just folded into canManageXp.
   const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
-    ? [...interaction.member.roles.cache.keys()] : [];
+    ? [...interaction.member.roles.cache.keys()].map(String) : [];
   const isAdmin = !!(interaction.memberPermissions
     && typeof interaction.memberPermissions.has === 'function'
     && interaction.memberPermissions.has(require('discord.js').PermissionFlagsBits.Administrator));
-  const access = await require('./xpCommand').canManageXp({
-    discordId: interaction.user.id, roleIds, isAdmin,
-  });
+
+  let access = { ok: false };
+  const extraRole = PROMOTE_ROLE_IDS().find(rid => roleIds.includes(String(rid)));
+  if (extraRole) {
+    access = { ok: true, via: 'promote-role', label: 'HPC High Command', name: null };
+  } else {
+    access = await require('./xpCommand').canManageXp({ discordId: interaction.user.id, roleIds, isAdmin });
+  }
   if (!access.ok) {
     return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
       .setTitle(`${e('met_denied')} Not authorised`)
-      .setDescription('Promoting is for FLP officers, Deputy Commissioner and above, and server administrators.')],
+      .setDescription('Promoting is for FLP officers, HPC High Command, Deputy Commissioner and above, and server administrators.')],
     }).catch(() => {});
   }
 
@@ -402,4 +418,5 @@ async function applyPromotion(state, client) {
 module.exports = {
   buildCommand, handlePromoteCommand, handlePromoteButton,
   planPromotion, promotableRanks, ceilingFor, applyPromotion, keep, recall,
+  PROMOTE_ROLE_IDS,
 };
