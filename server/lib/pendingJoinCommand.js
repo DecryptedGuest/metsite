@@ -3,15 +3,15 @@
 // from Discord.
 //
 // The queue already exists in the developer panel. This puts it where the people
-// who actually clear it are: Deputy Commissioner and above, in the MET server,
-// who want to let somebody in without opening a browser.
+// who actually clear it are: in the MET server, letting somebody in without
+// opening a browser.
 //
 // Four things it takes seriously:
 //
-//   DEPUTY COMMISSIONER AND ABOVE, AND NOBODY ELSE. Not "can manage this server",
-//   not Internal Affairs. Who is in the group is a High Command decision, and the
-//   check is in code (mayDecide) rather than a Discord permission bit, because
-//   Discord's bits answer a different question.
+//   WHO MAY DECIDE IS IN CODE, not in a Discord permission bit — MET High
+//   Command, Internal Affairs and HPC High Command (mayDecide). "Can manage this
+//   server" answers a different question and is held by people who have no
+//   business recruiting.
 //
 //   ONE PERSON PER COMMAND. There is deliberately no "all". Reading the queue is
 //   bulk; deciding it is not. Emptying it in one press is a thing that can only be
@@ -93,46 +93,64 @@ function buildCommand() {
       .setDescription('Who is waiting, without deciding anything'));
 }
 
+// Discord roles that may clear the queue on top of whatever canDiscipline says.
+// HPC High Command recruit into MET as part of running training, so they are in
+// by default; the env exists so another role can be added without a deploy.
+const HPC_HICOMM_ROLE = '1398071632207151184';
+const EXTRA_ROLE_IDS = () => {
+  const raw = process.env.PENDING_JOIN_ROLE_IDS;
+  const list = String(raw == null ? HPC_HICOMM_ROLE : raw)
+    .split(',').map(s => s.trim()).filter(Boolean);
+  return list;
+};
+
 /**
  * May this person decide who joins MET?
  *
- * Deputy Commissioner and above, and nobody else. Not Administrator: "can manage
- * this server" is a Discord housekeeping permission, and it is held by people who
- * have no business recruiting. Not Internal Affairs either — canDiscipline admits
- * them, which is right for a strike and wrong for the group roster, so only its
- * MET-rank verdicts are accepted here. `/xp` gates itself the same way.
+ * MET High Command, Internal Affairs, and HPC High Command. Not Administrator:
+ * "can manage this server" is a Discord housekeeping permission held by people
+ * who have no business recruiting.
  *
- * Three ways in, because the threshold is a MET rank and a Deputy Commissioner
- * who has never opened the dashboard still holds it:
+ * canDiscipline already answers this for the first two, by any of its routes —
+ * a Discord role, a dashboard account, or a live MET group rank — so a Deputy
+ * Commissioner who has never opened the dashboard still gets in. HPC High
+ * Command is a plain role-id check, because it is a Discord role and nothing
+ * else.
  *
- *   met-hicomm-role  the High Command Discord role, no network calls
- *   met-rank         their live MET group rank, via RoVer
- *
- * A lookup that fails is not permission.
+ * A lookup that fails is not permission — except for the role check, which
+ * needs no lookup and is therefore still trustworthy when Roblox is down.
  */
 async function mayDecide(interaction) {
-  const REFUSAL = 'Only Deputy Commissioner and above can decide who joins the MET group.';
+  const REFUSAL = 'Only MET High Command, Internal Affairs and HPC High Command '
+    + 'can decide who joins the MET group.';
+
+  const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
+    ? [...interaction.member.roles.cache.keys()].map(String)
+    : (Array.isArray(interaction.member && interaction.member.roles)
+        ? interaction.member.roles.map(String) : []);
+
+  // First, because it costs nothing and still works when the rank lookup can't.
+  for (const rid of EXTRA_ROLE_IDS()) {
+    if (roleIds.includes(String(rid))) {
+      return { ok: true, via: 'hpc-hicomm-role', label: 'HPC High Command' };
+    }
+  }
+
   try {
     const { canDiscipline } = require('./disciplineAccess');
-    const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
-      ? [...interaction.member.roles.cache.keys()]
-      : (Array.isArray(interaction.member && interaction.member.roles)
-          ? interaction.member.roles.map(String) : []);
     const verdict = await canDiscipline(String(interaction.user.id), roleIds);
-
-    // isMetHicomm is the whole test. An IA investigator comes back ok:true with
-    // isMetHicomm false, and that is a refusal here.
-    if (verdict && verdict.ok && verdict.isMetHicomm) {
+    if (verdict && verdict.ok) {
       return { ok: true, via: verdict.via, label: verdict.label || 'MET High Command' };
     }
-    return {
-      ok: false,
-      why: verdict && verdict.ok
-        // They passed a gate, just not this one. Saying so beats implying their
-        // account is broken.
-        ? `${REFUSAL} Your ${verdict.label || 'rank'} rank does not cover the group roster.`
-        : REFUSAL,
-    };
+    // canDiscipline's own refusal names ITS gate ("Internal Affairs and Deputy
+    // Commissioner"), which is not this one — so the sentence is ours. What is
+    // worth keeping is anything it added about WHY it could not place them: a
+    // missing RoVer link or a blacklisted account are the reader's next step,
+    // and neither is implied by "not for you".
+    const extra = verdict && verdict.why
+      ? verdict.why.split(/(?<=\.)\s+/).filter(s => !/^This command is for/.test(s)).join(' ').trim()
+      : '';
+    return { ok: false, why: REFUSAL + (extra ? `\n\n${extra}` : '') };
   } catch (err) {
     console.error('[/pendingjoin] access check failed:', err.message);
     return { ok: false, why: 'Your rank could not be checked just now — try again shortly.' };
@@ -147,7 +165,21 @@ async function mayDecide(interaction) {
  * A page that fails mid-way is an error, not "the rest of the queue is empty" —
  * treating it as empty would make "deny all" look like it had nothing to do.
  */
-async function readQueue(max) {
+// The page cap. 100 per page, so this is 4,000 requests — far past any queue MET
+// will have, and a hard stop so a broken cursor cannot loop.
+const MAX_PAGES = 40;
+
+/**
+ * @param {number} max      how many requests a run could act on
+ * @param {object} opts     `all: true` reads the WHOLE queue rather than stopping
+ *                          at `max`
+ *
+ * The queue comes back oldest-first, so stopping early reads the oldest requests
+ * and misses the newest — which is exactly the person somebody is most likely to
+ * be trying to accept. `list` can stop early because it only shows the top of the
+ * queue anyway; looking somebody up must not.
+ */
+async function readQueue(max, opts = {}) {
   const R = require('./roblox');
   const gid = R.mainGroupId();
   const cookie = R.cookieForDivision('MET');
@@ -158,38 +190,79 @@ async function readQueue(max) {
     out.push(...page.requests);
     token = page.nextPageToken;
     pages++;
-    // Enough to act on, plus one — no point paging 400 requests to resolve 60.
-    // `more` then means "there are others we did not read", and NOTHING may
-    // report what we did read as the size of the queue.
-  } while (token && pages < 40 && out.length < max + 1);
-  return { requests: out, more: !!token, gid, cookie };
+    // `more` means "there are others we did not read", and NOTHING may report
+    // what we did read as the size of the queue.
+  } while (token && pages < MAX_PAGES && (opts.all || out.length < max + 1));
+  return { requests: out, more: !!token, pages, gid, cookie };
 }
 
 /**
  * Find the one request a name refers to.
  *
- * Exact match on the id, then exact on the username, then a case-insensitive
- * pass. Anything ambiguous is refused rather than picked between: two people
- * whose names differ only in case is unlikely, and getting it wrong lets the
- * wrong person into the group.
+ * Id, then username, then DISPLAY NAME — because the display name is what Roblox
+ * shows on a profile and in game, so it is what people copy. Each pass is exact
+ * first, then case-insensitive.
+ *
+ * Anything ambiguous is refused rather than picked between: getting it wrong lets
+ * the wrong person into the group, and that is not undoable from here.
  */
 function findOne(requests, needle) {
   const want = String(needle || '').trim().replace(/^@/, '');
   if (!want) return { error: 'Say who — a Roblox username or user ID.' };
+  const lower = want.toLowerCase();
+  const low = v => String(v == null ? '' : v).toLowerCase();
 
   const byId = requests.filter(r => r.userId === want);
   if (byId.length === 1) return { hit: byId[0] };
 
-  const exact = requests.filter(r => r.username === want);
-  if (exact.length === 1) return { hit: exact[0] };
-
-  const loose = requests.filter(r => String(r.username).toLowerCase() === want.toLowerCase());
-  if (loose.length === 1) return { hit: loose[0] };
-  if (loose.length > 1) {
-    return { error: `${loose.length} people waiting match "${short(want, 40)}". Use their user ID instead.` };
+  for (const pass of [
+    r => r.username === want,
+    r => low(r.username) === lower,
+    r => r.displayName === want,
+    r => low(r.displayName) === lower,
+  ]) {
+    const hits = requests.filter(pass);
+    if (hits.length === 1) return { hit: hits[0] };
+    if (hits.length > 1) {
+      return {
+        ambiguous: true,
+        error: `${hits.length} people waiting match "${short(want, 40)}" — `
+             + hits.slice(0, 5).map(r => `\`${short(r.username, 20)}\``).join(' · ')
+             + '. Use their user ID instead.',
+      };
+    }
   }
-  return { error: `Nobody called "${short(want, 40)}" is waiting to join. `
-    + `Use \`/pendingjoin list\` to see who is.` };
+  return { notHere: true, error: `Nobody called "${short(want, 40)}" is waiting to join.` };
+}
+
+/**
+ * Who a name refers to on Roblox, regardless of the queue.
+ *
+ * The fallback when a name is not in what we read. Roblox itself is the authority
+ * on whether they have a request open — asking to accept somebody with none comes
+ * back 404 — so this only has to turn a name into an id.
+ *
+ * @returns {Promise<{userId, username, displayName, viaLookup:true}|null>}
+ */
+async function lookupPerson(needle) {
+  const want = String(needle || '').trim().replace(/^@/, '');
+  if (!want) return null;
+  const R = require('./roblox');
+  try {
+    if (/^\d+$/.test(want)) {
+      const info = await R.getRobloxUserInfo(want);
+      if (!info) return null;
+      return { userId: String(info.id), username: info.username, displayName: info.displayName, viaLookup: true };
+    }
+    // The map comes back keyed on the lowercased name — both what we asked for
+    // and what the account is called now.
+    const found = await R.getRobloxIdsFromUsernames([want], { attempts: 2 });
+    const hit = found && found.users ? found.users.get(want.toLowerCase()) : null;
+    if (!hit || !/^\d+$/.test(String(hit.id))) return null;
+    return { userId: String(hit.id), username: hit.username || want, displayName: hit.displayName || null, viaLookup: true };
+  } catch (err) {
+    return null;
+  }
 }
 
 // ── The live embed ────────────────────────────────────────────────
@@ -282,7 +355,13 @@ async function resolveMany(requests, action, ctx, editor) {
         await R.resolveJoinRequest(r.userId, action, ctx.gid, ctx.cookie);
         okd.push(r);
       } catch (err) {
-        failed.push({ ...r, why: cleanReason(err.message) });
+        // Somebody we found by asking Roblox who they are, rather than by seeing
+        // them in the queue, has never been shown to have a request open — so a
+        // 404 on them means "they are not waiting", not "their request is gone".
+        const why = r.viaLookup && /\b404\b|not found/i.test(String(err.message))
+          ? 'they are not waiting to join — no request from them is open'
+          : cleanReason(err.message);
+        failed.push({ ...r, why });
       }
     }
   } finally {
@@ -424,7 +503,10 @@ async function handlePendingJoinCommand(interaction) {
   const max = MAX_PER_RUN();
   let queue;
   try {
-    queue = await readQueue(max);
+    // Looking somebody up reads the WHOLE queue. It comes back oldest-first, so
+    // stopping at 200 was reading the oldest 200 and reporting anybody newer as
+    // not waiting — which is the person most likely to be looked up.
+    queue = await readQueue(max, { all: sub !== 'list' });
   } catch (err) {
     console.error('[/pendingjoin] could not read the queue:', err.message);
     return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.fail)
@@ -447,11 +529,38 @@ async function handlePendingJoinCommand(interaction) {
   // One person, always. `user` is a required option, so an empty one only happens
   // if Discord sends a malformed interaction — worth answering rather than
   // resolving whoever happens to be first in the queue.
-  const found = findOne(queue.requests, named);
+  let found = findOne(queue.requests, named);
+
+  // Not in the queue we read — but the queue we read is not the whole world. The
+  // cursor can be capped, a request can arrive between the read and now, and the
+  // name may be one Roblox knows under a different spelling. So ask Roblox who
+  // that is and put it to them directly: they are the authority on whether a
+  // request is open, and they answer 404 when it is not.
+  if (found.notHere) {
+    await editor.draw({ embeds: [workingEmbed({
+      action, frame: 1, phase: `Not in the queue we read — asking Roblox who ${short(named, 30)} is…`,
+    })] });
+    const person = await lookupPerson(named);
+    if (person) found = { hit: person };
+  }
+
   if (found.error) {
-    return editor.flush({ embeds: [new EmbedBuilder().setColor(COLOUR.ask)
+    const embed = new EmbedBuilder().setColor(COLOUR.ask)
       .setTitle(`${e('met_warn')} Not sure who you mean`)
-      .setDescription(found.error)] });
+      .setDescription(found.error);
+    // What was actually looked at, so "nobody called that" is a statement with a
+    // scope rather than a flat denial.
+    if (found.notHere) {
+      embed.addFields({
+        name: 'What was checked',
+        value: `${queue.requests.length}${queue.more ? '+' : ''} pending request`
+             + `${queue.requests.length === 1 ? '' : 's'}, and Roblox's own user search.\n`
+             + 'If they are definitely waiting, try their **user ID** — '
+             + '`/pendingjoin list` shows both.',
+        inline: false,
+      });
+    }
+    return editor.flush({ embeds: [embed] });
   }
   const { okd, failed } = await resolveMany([found.hit], action, queue, editor);
   return editor.flush({ embeds: [resultEmbed({
@@ -482,7 +591,11 @@ async function showList(editor, queue) {
     embed.setDescription(rows.map(r => {
       const when = r.requestedAt && !isNaN(new Date(r.requestedAt))
         ? ` · <t:${Math.floor(new Date(r.requestedAt).getTime() / 1000)}:R>` : '';
-      return `${e('met_user')} \`${short(r.username, 24)}\` `
+      // The display name too when it differs — that is what a profile shows, so
+      // it is what somebody looking them up is most likely to type.
+      const also = r.displayName && r.displayName !== r.username
+        ? ` · *${short(r.displayName, 24)}*` : '';
+      return `${e('met_user')} \`${short(r.username, 24)}\`${also} `
         + `[profile](https://www.roblox.com/users/${r.userId}/profile)${when}`;
     }).join('\n'));
     if (queue.requests.length > rows.length || queue.more) {
@@ -499,6 +612,6 @@ async function showList(editor, queue) {
 module.exports = {
   buildCommand, handlePendingJoinCommand,
   // exported for the tests
-  mayDecide, readQueue, findOne, resolveMany, cleanReason, resultEmbed,
-  workingEmbed, bar, throttledEditor, MAX_PER_RUN, nameList,
+  mayDecide, readQueue, findOne, lookupPerson, resolveMany, cleanReason, resultEmbed,
+  workingEmbed, bar, throttledEditor, MAX_PER_RUN, MAX_PAGES, EXTRA_ROLE_IDS, nameList,
 };

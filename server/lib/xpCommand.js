@@ -386,7 +386,7 @@ async function buildCard(o, client) {
   if (!maxed) {
     fields.push({ name: 'Standing', value: o.ranked && standing.total ? `#${standing.position} of ${standing.total}` : '—', inline: true });
   }
-  fields.push({ name: o.ranked ? 'Next rank' : 'Why there is no XP here',
+  fields.push({ name: o.ranked ? 'Next rank' : 'Why',
     value: o.ranked ? `${nextLine}\n${xpLog.progressBar(p)}` : unrankedLine(o),
     inline: false });
 
@@ -641,9 +641,9 @@ async function handleXpCommand(interaction) {
 /**
  * Why somebody has no XP standing — and it is not always the same reason.
  *
- * It used to always say "their MET rank isn't one the XP ladder covers", which is
- * wrong and confusing for the commonest case by far: somebody who is not in MET at
- * all. The ladder has nothing to do with it; there is no rank to place.
+ * One short line each. The commonest case by far is somebody who is simply not in
+ * MET, and there is nothing to explain about that — a paragraph about the ladder
+ * reads as though something is broken when nothing is.
  *
  * Three genuinely different situations, three answers:
  *   no Roblox link   nothing can be looked up, so nothing can be said
@@ -652,16 +652,15 @@ async function handleXpCommand(interaction) {
  */
 function unrankedLine(o) {
   if (!o.robloxId) {
-    return `${e('met_warn')} No Roblox account is linked to them, so their MET rank cannot be `
-      + `looked up. They need to verify with RoVer or log into the dashboard once.`;
+    return `${e('met_warn')} No Roblox account linked — they need to verify with RoVer.`;
   }
+  // Short on purpose. "They aren't in MET" is the whole answer, and the commonest
+  // one by far; a paragraph explaining it reads as though something went wrong.
   if (!o.groupRole) {
-    return `${e('met_note')} They are not in the MET group, so there is no rank to place them on `
-      + `the XP ladder. Nothing is wrong — XP is for serving officers.`;
+    return `${e('met_note')} Not in the MET group.`;
   }
   const name = (o.groupRole && o.groupRole.name) ? short(o.groupRole.name, 40) : 'their rank';
-  return `${e('met_warn')} **${name}** is not a rank the XP ladder covers, so they have no XP `
-    + `standing yet. Giving them any XP places them.`;
+  return `${e('met_warn')} **${name}** is not on the XP ladder.`;
 }
 
 /** One Roblox account with XP held for it. */
