@@ -549,10 +549,16 @@ async function caseView(kase, precomputed) {
   }
 
   if (kase.appealedAt) {
-    embed.addFields({ name: 'Appeal', value:
-      `${e('met_scales')} Granted ${when(kase.appealedAt)}`
-      + (kase.appealedByName ? ` by ${short(kase.appealedByName, 40)}` : '')
-      + (kase.appealReason ? `\n${short(kase.appealReason, 400)}` : ''), inline: false });
+    // An absolute date rather than "18 seconds ago" — a record reads better
+    // with a fixed timestamp than a relative one that changes every refresh and
+    // reads oddly for something that just happened.
+    const at = `<t:${Math.floor(new Date(kase.appealedAt).getTime() / 1000)}:f>`;
+    const parts = [
+      `${e('met_scales')} **Appeal granted** — this case is overturned and no longer counts against them.`,
+      `${e('met_calendar')} ${at}${kase.appealedByName ? ` · by **${short(kase.appealedByName, 40)}**` : ''}`,
+    ];
+    if (kase.appealReason) parts.push(`${e('met_edit')} **Reason:** ${short(kase.appealReason, 400)}`);
+    embed.addFields({ name: 'Appeal', value: parts.join('\n'), inline: false });
   }
 
   // ── Evidence ──
