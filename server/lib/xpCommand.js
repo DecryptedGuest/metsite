@@ -423,6 +423,70 @@ async function buildCard(o, client) {
   return embed;
 }
 
+// ── The promotion celebration ─────────────────────────────────────
+// A promotion happens quietly — a supervisor signs off a log, the XP crosses a
+// threshold, the rank changes in the background. This is the moment the officer
+// actually SEES it: the next time /xp is run for them, a short build-up plays
+// and then the promotion is revealed. It also re-sends the DM, in case the one
+// at promotion time never landed (closed DMs, offline), and clears the marker so
+// it fires exactly once.
+const CONFETTI = ['met_celebrate', 'met_star', 'met_trophy', 'met_promote'];
+
+async function celebratePromotion(interaction, officer, promo, draw) {
+  const from = promo.from || (officer.rank && officer.rank.name) || 'their old rank';
+  const to   = promo.to   || (officer.rank && officer.rank.name) || 'a new rank';
+  const badge = n => { const i = require('./rankEmoji').forRank(interaction.client, n); return i ? i + ' ' : ''; };
+
+  // The build-up. A few frames, each a beat longer than a spinner tick, so it
+  // reads as a drumroll rather than a stutter. draw() already floors the edit
+  // rate, so this cannot outrun the rate limit.
+  const rollFrames = [
+    `${e('met_hourglass')} Counting the XP…`,
+    `${e('met_chart')} That crosses a threshold…`,
+    `${e('met_promote')} A promotion has come through…`,
+  ];
+  for (let i = 0; i < rollFrames.length; i++) {
+    await draw(new EmbedBuilder()
+      .setColor(COLOR.working)
+      .setTitle(`${e(CONFETTI[i % CONFETTI.length])} ${rollFrames[i]}`)
+      .setDescription(`${e('met_user')} <@${officer.discordId}>`));
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0xffc93c)
+    .setTitle(`${e('met_celebrate')} Promoted to ${short(to, 40)}!`)
+    .setDescription(
+      `${e('met_user')} <@${officer.discordId}>`
+      + (officer.robloxUsername ? ` · ${short(officer.robloxUsername, 30)}` : '')
+      + `\n\n${e('met_trophy')} **Congratulations!** You've earned your way up.`)
+    .addFields(
+      { name: 'Rank', value: `${badge(from)}${short(from, 40)}  →  ${badge(to)}**${short(to, 40)}**`, inline: false },
+      { name: 'XP',   value: `**${promo.xp != null ? promo.xp : (officer.xp || 0)}**`, inline: true },
+      { name: 'When', value: promo.at ? `<t:${Math.floor(new Date(promo.at).getTime() / 1000)}:R>` : 'just now', inline: true },
+    )
+    .setFooter({ text: 'MET XP · well earned' })
+    .setTimestamp(new Date());
+  if (officer.avatar) embed.setThumbnail(officer.avatar);
+
+  await interaction.editReply({ embeds: [embed] }).catch(() => {});
+
+  // Re-send the DM with the full details — the one at promotion time may never
+  // have landed. Best-effort; a closed DM is not a failure of the celebration.
+  try {
+    const base = (process.env.PUBLIC_BASE_URL || 'https://metia.uk').replace(/\/+$/, '');
+    await require('./bot').dmMemberNotice(officer.discordId, {
+      color: 0xffc93c,
+      title: `Congratulations — you've been promoted to ${to}`,
+      description:
+        `You've been promoted from **${from}** to **${to}** in the Metropolitan Police.\n\n`
+        + `**XP:** ${promo.xp != null ? promo.xp : (officer.xp || 0)}\n`
+        + `Your rank, XP and full record are on the MET Dashboard.`,
+      appealUrl: `${base}/profile`,
+      appealLabel: 'View my record',
+    });
+  } catch (e) { /* the moment already played in the channel */ }
+}
+
 /**
  * The Rank line — their actual MET rank, badged with the server's own emoji for
  * it rather than anything we drew. That is the insignia the server already
@@ -617,6 +681,19 @@ async function handleXpCommand(interaction) {
   await draw(working(`Reading ${targets.length === 1 ? 'the record' : `${targets.length} records`}…`));
   const officers = [];
   for (const t of targets) officers.push(await loadOfficer(t.discordId, guild));
+
+  // A promotion nobody has celebrated yet gets its moment here — on the
+  // officer's own /xp, or when somebody runs it on them. Only for a single
+  // officer (a table is a glance, not a moment), and taken atomically so it
+  // fires exactly once.
+  if (officers.length === 1 && officers[0] && officers[0].discordId) {
+    let promo = null;
+    try { promo = await XP.takePendingPromo(officers[0].discordId); } catch (e) { promo = null; }
+    if (promo) {
+      await celebratePromotion(interaction, officers[0], promo, draw);
+      return;
+    }
+  }
 
   const embed = officers.length === 1
     ? await buildCard(officers[0], interaction.client)
@@ -918,6 +995,6 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
 
 module.exports = {
   buildCommand, handleXpCommand,
-  resolveTargets, loadOfficer, buildCard, buildTable, buildLeaderboard, showLeaderboard,
+  resolveTargets, loadOfficer, buildCard, buildTable, buildLeaderboard, showLeaderboard, celebratePromotion,
   canManageXp, xpRoleIds, promote, demote,
 };

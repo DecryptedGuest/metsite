@@ -276,10 +276,20 @@ async function applyXp(o) {
  */
 async function recordPromotion({ discordId, from, to, groupResult, issuedById, issuedBy }) {
   const id = String(discordId);
+  const at = new Date();
   const row = await prisma.metXp.update({
     where: { discordId: id },
-    data:  { promotedRank: to.code, promotedAt: new Date() },
+    data:  { promotedRank: to.code, promotedAt: at },
   });
+  // The celebration owed to them — shown once, on their next /xp or the next
+  // time their profile opens. Carries enough to draw the moment on its own, and
+  // the xp is read off the row we just updated so it quotes the real balance.
+  try {
+    await prisma.metXp.update({
+      where: { discordId: id },
+      data: { pendingPromo: { from: from.name, to: to.name, xp: row.xp, at: at.toISOString() } },
+    });
+  } catch (e) { /* the marker is best-effort — never block the promotion on it */ }
   const event = await prisma.xpEvent.create({
     data: {
       discordId: id, kind: 'PROMOTION', delta: 0,
@@ -307,7 +317,9 @@ async function recordDemotion({ discordId, from, to, groupResult, issuedById, is
   const id = String(discordId);
   const row = await prisma.metXp.update({
     where: { discordId: id },
-    data:  { promotedRank: to.code, promotedAt: new Date() },
+    // A since-demoted officer must never be congratulated — clear any promotion
+    // that was still waiting to be celebrated.
+    data:  { promotedRank: to.code, promotedAt: new Date(), pendingPromo: null },
   });
   const event = await prisma.xpEvent.create({
     data: {
@@ -322,6 +334,46 @@ async function recordDemotion({ discordId, from, to, groupResult, issuedById, is
     },
   });
   return { row, event };
+}
+
+// ── The celebration marker ────────────────────────────────────────
+/**
+ * The promotion an officer has not been shown yet, WITHOUT clearing it — for the
+ * website banner, which shows until dismissed.
+ * @returns {Promise<{from,to,xp,at}|null>}
+ */
+async function peekPendingPromo(discordId) {
+  try {
+    const row = await prisma.metXp.findUnique({
+      where: { discordId: String(discordId) }, select: { pendingPromo: true },
+    });
+    return row && row.pendingPromo ? row.pendingPromo : null;
+  } catch (e) { return null; }
+}
+
+/**
+ * Read the unseen promotion AND clear it in one step, so exactly one caller ever
+ * celebrates it — a second /xp a moment later gets null rather than a repeat.
+ * @returns {Promise<{from,to,xp,at}|null>}
+ */
+async function takePendingPromo(discordId) {
+  const id = String(discordId);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw`
+        SELECT "pendingPromo" FROM "met_xp" WHERE "discordId" = ${id} FOR UPDATE`;
+      const promo = rows && rows[0] ? rows[0].pendingPromo : null;
+      if (promo) await tx.metXp.update({ where: { discordId: id }, data: { pendingPromo: null } });
+      return promo || null;
+    });
+  } catch (e) { return null; }
+}
+
+/** Clear the marker without reading it — the website "dismiss". */
+async function clearPendingPromo(discordId) {
+  try {
+    await prisma.metXp.update({ where: { discordId: String(discordId) }, data: { pendingPromo: null } });
+  } catch (e) { /* no row / nothing to clear */ }
 }
 
 // The group's roleset list, cached briefly. Only the numeric-placement path
@@ -643,4 +695,5 @@ module.exports = {
   applyXp, recordPromotion, recordDemotion, seedFromRank, rungForGroupRank,
   applyGroupRank, promoteInGroup, demoteInGroup,
   usernameKey, holdPending, pendingFor, claimPending,
+  peekPendingPromo, takePendingPromo, clearPendingPromo,
 };

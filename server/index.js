@@ -1028,9 +1028,12 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
     const row = await XP.getBalance(req.user.discordId);
     if (row) {
       const p = XP.progress(row.xp);
-      const [standing, history] = await Promise.all([
+      const [standing, history, promo] = await Promise.all([
         XP.standing(req.user.discordId).catch(() => ({ position: 0, total: 0 })),
         XP.history(req.user.discordId, 8).catch(() => []),
+        // The promotion they have not been shown yet — the profile plays the
+        // same celebration /xp does, and dismisses it via /api/me/xp/promo-seen.
+        XP.peekPendingPromo(req.user.discordId).catch(() => null),
       ]);
       xp = {
         xp: row.xp,
@@ -1039,6 +1042,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
         next: p.next ? { code: p.next.code, name: p.next.name, at: p.next.at } : null,
         need: p.need, have: p.have, span: p.span, pct: p.pct,
         position: standing.position, of: standing.total,
+        promo: promo || null,
         // No issuedBy: who moved somebody's XP is command's business, the same
         // way who disciplined them is.
         history: history.map(h => ({
@@ -1158,6 +1162,19 @@ app.get('/api/me/points', requireAuth, async (req, res) => {
     res.json({ configured: true, ...result });
   } catch (err) {
     res.json({ configured: false, error: err.message });
+  }
+});
+
+// ── Dismiss the promotion celebration ──
+// The profile plays the promotion moment from `xp.promo`; once it has played,
+// the client calls this so it never plays again. Own account only — you can
+// only dismiss your own.
+app.post('/api/me/xp/promo-seen', requireAuth, async (req, res) => {
+  try {
+    await require('./lib/xp').clearPendingPromo(req.user.discordId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

@@ -144,18 +144,32 @@ async function loadProfile() {
   setTimeout(() => {
     try {
       if (!window.metBrandMoment) return;
-      // Welcome / promotion — driven by the numeric MET rank (0 = not a member).
-      const cur = (typeof data.metRank === 'number' && data.metRank > 0) ? data.metRank : 0;
-      const prevRaw = localStorage.getItem('metRankNum');
-      if (prevRaw != null) {
-        const prev = parseInt(prevRaw, 10) || 0;
-        if (prev === 0 && cur > 0) {
+      // A promotion the XP system recorded but has not shown them yet is the
+      // authoritative signal — the server hands it over in xp.promo, and we tell
+      // the server it has been seen so it plays exactly once, here or on /xp,
+      // whichever comes first. This is server truth, not a localStorage guess.
+      const promo = data.xp && data.xp.promo;
+      if (promo) {
+        metBrandMoment({
+          icon: 'ti-military-rank', variant: 'celebrate',
+          title: 'Promoted to ' + (promo.to || data.metRankName || 'a new rank'),
+          tagline: (promo.from ? promo.from + ' → ' + promo.to : (data.metRankName || 'Congratulations'))
+            + (promo.xp != null ? ' · ' + promo.xp + ' XP' : ''),
+          autoMs: 4200,
+        });
+        // Mark it seen so it does not replay on the next load. A failure here is
+        // harmless — worst case it plays once more.
+        fetch('/api/me/xp/promo-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+      } else {
+        // First time we ever see them as a member — a plain welcome, still off
+        // the numeric rank so a brand-new officer gets a moment too.
+        const cur = (typeof data.metRank === 'number' && data.metRank > 0) ? data.metRank : 0;
+        const prevRaw = localStorage.getItem('metRankNum');
+        if (prevRaw != null && (parseInt(prevRaw, 10) || 0) === 0 && cur > 0) {
           metBrandMoment({ icon: 'ti-shield-check', title: 'Welcome to the Metropolitan Police Service', tagline: data.metRankName || 'Working together for a safer London', autoMs: 3400 });
-        } else if (cur > prev) {
-          metBrandMoment({ icon: 'ti-military-rank', variant: 'celebrate', title: 'Promoted', tagline: data.metRankName || ('Rank ' + cur), autoMs: 3000 });
         }
+        localStorage.setItem('metRankNum', String(cur));
       }
-      localStorage.setItem('metRankNum', String(cur));
 
       // Newly-awarded medal (highest of any not seen before).
       const medalsList = data.medals || [];

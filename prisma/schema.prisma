@@ -1351,6 +1351,12 @@ model MetXp {
   // this existed is not "promoted" to Sergeant the first time they earn XP.
   promotedRank   String?
   promotedAt     DateTime?
+  // A promotion that has not yet been CELEBRATED to the officer. Set when a
+  // promotion is recorded and cleared the first time they (or somebody running
+  // /xp on them) see it, or when the website banner is dismissed. { from, to,
+  // xp, at } — enough to draw the moment without re-deriving it. Cleared on a
+  // demotion, so a since-demoted officer is never congratulated.
+  pendingPromo   Json?
   firstEarnedAt  DateTime?
   updatedAt      DateTime  @updatedAt
   createdAt      DateTime  @default(now())
