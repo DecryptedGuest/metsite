@@ -320,7 +320,8 @@ function brandMeta(division, origin) {
   const base = String(origin || process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
   const img = /^https?:\/\//i.test(b.logo) ? b.logo : (base ? base + b.logo : b.logo);
   const title = division ? `${b.name} Dashboard` : 'MET Dashboard';
-  const desc = b.fullName + (b.tagline ? ` · ${b.tagline}` : '');
+  // Just the division's full name in the link embed, nothing else.
+  const desc = b.fullName;
   const esc = v => String(v == null ? '' : v)
     .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return [
