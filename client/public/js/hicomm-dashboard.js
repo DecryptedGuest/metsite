@@ -385,23 +385,74 @@
 
   // ── Game logs ──
   const GL_ICON = { ADONIS: ['ti-shield-bolt', '#f59e0b'], JOIN: ['ti-login', '#2ed896'], LEAVE: ['ti-logout', '#8b93a1'], CHAT: ['ti-message', '#3b82f6'] };
-  window.hcLoadGameLogs = async function () {
+  // The log is kept all-time and nothing prunes it, so the page must be able to
+  // reach all of it: each fetch appends rather than replaces, and the count says
+  // how much of the whole is on screen.
+  let glBefore = null, glShown = 0, glTotal = null, glBusy = false;
+
+  function glRowHtml(g) {
+    const [ic, col] = GL_ICON[g.source] || ['ti-point', '#888'];
+    return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${ago(g.createdAt)}</td>
+      <td><span style="color:${col};"><i class="ti ${ic}"></i> ${esc(g.source)}</span></td>
+      <td>${esc(g.actor || '—')}</td>
+      <td>${g.action ? `<span class="mono" style="font-size:11px;">${esc(g.action)}</span>` : '—'}</td>
+      <td>${esc(g.target || '—')}</td>
+      <td style="max-width:360px;">${esc(g.message || '')}</td></tr>`;
+  }
+
+  function glFooter(hasMore) {
+    const foot = $('hc-gl-foot');
+    if (!foot) return;
+    const of = glTotal == null ? '' : ` of <strong>${glTotal.toLocaleString()}</strong>`;
+    const src = $('hc-gl-source') ? $('hc-gl-source').value : '';
+    const q = $('hc-gl-q') ? $('hc-gl-q').value.trim() : '';
+    const csv = `/api/hicomm/game-logs.csv?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`;
+    foot.innerHTML =
+      `<span style="font-size:12px;color:var(--text-muted);">Showing <strong>${glShown.toLocaleString()}</strong>${of}</span>`
+      + (hasMore
+        ? ` <button class="btn btn-ghost btn-sm" onclick="hcMoreGameLogs()"><i class="ti ti-chevron-down"></i> Load more</button>`
+        : ` <span style="font-size:12px;color:var(--text-muted);">· that is all of them</span>`)
+      + ` <a class="btn btn-ghost btn-sm" href="${csv}" download><i class="ti ti-file-download"></i> Export all</a>`;
+  }
+
+  async function glFetch(append) {
+    if (glBusy) return;
+    glBusy = true;
     const src = $('hc-gl-source') ? $('hc-gl-source').value : '';
     const q = $('hc-gl-q') ? $('hc-gl-q').value.trim() : '';
     const tb = $('hc-gl-tbody');
-    if (!tb) return;
-    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
-    let rows; try { rows = await api(`/api/hicomm/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); } catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${esc(e.message)}</td></tr>`; return; }
-    tb.innerHTML = rows.length ? rows.map(g => {
-      const [ic, col] = GL_ICON[g.source] || ['ti-point', '#888'];
-      return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${ago(g.createdAt)}</td>
-        <td><span style="color:${col};"><i class="ti ${ic}"></i> ${esc(g.source)}</span></td>
-        <td>${esc(g.actor || '—')}</td>
-        <td>${g.action ? `<span class="mono" style="font-size:11px;">${esc(g.action)}</span>` : '—'}</td>
-        <td>${esc(g.target || '—')}</td>
-        <td style="max-width:360px;">${esc(g.message || '')}</td></tr>`;
-    }).join('') : (window.metEmpty ? '<tr><td colspan="6">' + window.metEmpty({ icon: 'ti-device-gamepad-2', title: 'No game logs yet', sub: 'Adonis actions, joins, leaves and chat will appear here.' }) + '</td></tr>' : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
-  };
+    if (!tb) { glBusy = false; return; }
+    if (!append) tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+    let out;
+    try {
+      out = await api(`/api/hicomm/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`
+        + `&limit=200${append && glBefore ? '&before=' + encodeURIComponent(glBefore) : ''}`);
+    } catch (e) {
+      glBusy = false;
+      if (!append) tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${esc(e.message)}</td></tr>`;
+      return;
+    }
+    // Tolerate the older shape (a bare array) so a cached page still works.
+    const rows = Array.isArray(out) ? out : (out.rows || []);
+    const hasMore = Array.isArray(out) ? false : !!out.hasMore;
+    if (!Array.isArray(out) && out.total != null) glTotal = out.total;
+    glBefore = Array.isArray(out) ? null : out.nextBefore;
+
+    const html = rows.map(glRowHtml).join('');
+    if (append) { tb.insertAdjacentHTML('beforeend', html); glShown += rows.length; }
+    else {
+      glShown = rows.length;
+      tb.innerHTML = html || (window.metEmpty
+        ? '<tr><td colspan="6">' + window.metEmpty({ icon: 'ti-device-gamepad-2', title: 'No game logs yet', sub: 'Adonis actions, joins, leaves and chat will appear here.' }) + '</td></tr>'
+        : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
+    }
+    glFooter(hasMore);
+    glBusy = false;
+  }
+
+  window.hcLoadGameLogs = function () { glBefore = null; glTotal = null; return glFetch(false); };
+  window.hcMoreGameLogs = function () { return glFetch(true); };
+
   let glT = null;
   document.addEventListener('input', (e) => { if (e.target && e.target.id === 'hc-gl-q') { clearTimeout(glT); glT = setTimeout(hcLoadGameLogs, 250); } });
 

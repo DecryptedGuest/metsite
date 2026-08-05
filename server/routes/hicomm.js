@@ -107,31 +107,36 @@ router.get('/audit', async (req, res) => {
   }
 });
 
-// ── GET /api/hicomm/game-logs?source=&q=&before= — in-game log feed ──
+// ── The in-game log feed ─────────────────────────────────────────
 // Adonis / join / leave / chat logs ingested from the training game.
+//
+// Nothing ever deletes a GameLog row — the record is all-time and always has
+// been. What was capped was the READING of it: one request for the newest 150
+// and no way to reach anything older, so the page looked like the log itself
+// stopped there. lib/gameLog owns the query now, shared with the developer
+// panel, which had a second copy of it and the same cap.
+const GL = require('../lib/gameLog');
+
+// GET /api/hicomm/game-logs?source=&q=&before=&limit=
 router.get('/game-logs', async (req, res) => {
   try {
-    const where = {};
-    const src = String(req.query.source || '').toUpperCase();
-    if (['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src)) where.source = src;
-    const q = String(req.query.q || '').trim();
-    if (q) where.OR = [
-      { actor: { contains: q, mode: 'insensitive' } },
-      { target: { contains: q, mode: 'insensitive' } },
-      { message: { contains: q, mode: 'insensitive' } },
-      { action: { contains: q, mode: 'insensitive' } },
-    ];
-    if (req.query.before) where.createdAt = { lt: new Date(req.query.before) };
-    const rows = await prisma.gameLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 150 });
-    const { deriveTarget } = require('../lib/gameLog');
-    res.json(rows.map(r => ({
-      id: r.id, source: r.source, actor: r.actor, actorId: r.actorId,
-      target: deriveTarget(r), action: r.action, message: r.message, place: r.place,
-      createdAt: r.createdAt,
-    })));
+    res.json(await GL.page(req.query));
   } catch (e) {
     console.error('[HICOMM] game-logs failed:', e.message);
     res.status(500).json({ error: 'Failed to load game logs' });
+  }
+});
+
+// GET /api/hicomm/game-logs.csv?source=&q= — the whole log, as a file.
+router.get('/game-logs.csv', async (req, res) => {
+  try {
+    res.type('text/csv').set('Content-Disposition', `attachment; filename="${GL.csvFilename()}"`);
+    await GL.writeCsv(res, req.query);
+    res.end();
+  } catch (e) {
+    console.error('[HICOMM] game-logs.csv failed:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to export game logs' });
+    else res.end();
   }
 });
 

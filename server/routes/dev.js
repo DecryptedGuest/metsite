@@ -483,32 +483,29 @@ router.delete('/tryout-logs/:id', async (req, res) => {
   }
 });
 
-// GET /api/dev/game-logs?source=&q=&before= — in-game log feed (Adonis / join /
-// leave / chat) ingested from the training game. Same data the MET HICOMM feed
-// shows; exposed here so developers can read it from the dev panel too.
+// GET /api/dev/game-logs — the same all-time log the MET High Command feed
+// reads, exposed here so developers can read it from the dev panel too. One
+// implementation, in lib/gameLog: this used to be a second copy of the query,
+// with its own 150-row cap and no way past it.
 router.get('/game-logs', async (req, res) => {
   try {
-    const where = {};
-    const src = String(req.query.source || '').toUpperCase();
-    if (['ADONIS', 'JOIN', 'LEAVE', 'CHAT'].includes(src)) where.source = src;
-    const q = String(req.query.q || '').trim();
-    if (q) where.OR = [
-      { actor:   { contains: q, mode: 'insensitive' } },
-      { target:  { contains: q, mode: 'insensitive' } },
-      { message: { contains: q, mode: 'insensitive' } },
-      { action:  { contains: q, mode: 'insensitive' } },
-    ];
-    if (req.query.before) where.createdAt = { lt: new Date(req.query.before) };
-    const rows = await prisma.gameLog.findMany({ where, orderBy: { createdAt: 'desc' }, take: 150 });
-    const { deriveTarget } = require('../lib/gameLog');
-    res.json(rows.map(r => ({
-      id: r.id, source: r.source, actor: r.actor, actorId: r.actorId,
-      target: deriveTarget(r), action: r.action, message: r.message, place: r.place,
-      createdAt: r.createdAt,
-    })));
+    res.json(await require('../lib/gameLog').page(req.query));
   } catch (e) {
     console.error('[Dev] game-logs failed:', e.message);
     res.status(500).json({ error: 'Failed to load game logs' });
+  }
+});
+
+router.get('/game-logs.csv', async (req, res) => {
+  try {
+    const GL = require('../lib/gameLog');
+    res.type('text/csv').set('Content-Disposition', `attachment; filename="${GL.csvFilename()}"`);
+    await GL.writeCsv(res, req.query);
+    res.end();
+  } catch (e) {
+    console.error('[Dev] game-logs.csv failed:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to export game logs' });
+    else res.end();
   }
 });
 

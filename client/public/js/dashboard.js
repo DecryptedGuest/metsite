@@ -515,11 +515,21 @@ async function loadDevGameLogs() {
   if (!tb) return;
   const src = srcEl ? srcEl.value : '';
   const q   = qEl ? qEl.value.trim() : '';
-  tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
-  let rows;
-  try { rows = await api(`/api/dev/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); }
+  // A fresh load starts at the top of the log again; only "load more" carries the
+  // cursor forward.
+  if (!_devGlAppend) {
+    _devGlBefore = null; _devGlTotal = null; _devGlShown = 0;
+    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  }
+  let out;
+  try { out = await api(`/api/dev/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}&limit=200${_devGlBefore ? '&before=' + encodeURIComponent(_devGlBefore) : ''}`); }
   catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${escapeHtml(e.message)}</td></tr>`; return; }
-  tb.innerHTML = rows.length ? rows.map(g => {
+  // Tolerate the older shape (a bare array) so a cached page still works.
+  const rows = Array.isArray(out) ? out : (out.rows || []);
+  _devGlBefore = Array.isArray(out) ? null : out.nextBefore;
+  _devGlTotal  = Array.isArray(out) ? null : out.total;
+  _devGlMore   = Array.isArray(out) ? false : !!out.hasMore;
+  const html = rows.length ? rows.map(g => {
     const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
     return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
       <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
@@ -530,6 +540,41 @@ async function loadDevGameLogs() {
   }).join('') : (window.metEmpty
     ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-file-off', title: 'No game logs yet', sub: 'In-game activity will appear here.' })}</td></tr>`
     : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
+  if (_devGlAppend) { tb.insertAdjacentHTML('beforeend', rows.map(devGlRow).join('')); _devGlShown += rows.length; }
+  else { tb.innerHTML = html; _devGlShown = rows.length; }
+  devGlFooter(src, q);
+}
+
+// Nothing prunes the game log — it is the all-time record — so the panel has to
+// be able to reach past the first page of it.
+let _devGlBefore = null, _devGlTotal = null, _devGlMore = false, _devGlShown = 0, _devGlAppend = false;
+
+function devGlRow(g) {
+  const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
+  return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
+    <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
+    <td>${escapeHtml(g.actor || '—')}</td>
+    <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '—'}</td>
+    <td>${escapeHtml(g.target || '—')}</td>
+    <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
+}
+
+function devGlFooter(src, q) {
+  const foot = document.getElementById('dev-gl-foot');
+  if (!foot) return;
+  const of = _devGlTotal == null ? '' : ` of <strong>${_devGlTotal.toLocaleString()}</strong>`;
+  const csv = `/api/dev/game-logs.csv?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`;
+  foot.innerHTML =
+    `<span style="font-size:12px;color:var(--text-muted);">Showing <strong>${_devGlShown.toLocaleString()}</strong>${of}</span>`
+    + (_devGlMore
+      ? ` <button class="btn btn-ghost btn-sm" onclick="devMoreGameLogs()"><i class="ti ti-chevron-down"></i> Load more</button>`
+      : ` <span style="font-size:12px;color:var(--text-muted);">· that is all of them</span>`)
+    + ` <a class="btn btn-ghost btn-sm" href="${csv}" download><i class="ti ti-file-download"></i> Export all</a>`;
+}
+
+async function devMoreGameLogs() {
+  _devGlAppend = true;
+  try { await devLoadGameLogs(); } finally { _devGlAppend = false; }
 }
 
 let _devGlT = null;

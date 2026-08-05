@@ -45,4 +45,112 @@ function deriveTarget(row) {
   return specialTargetLabel(tok) || tok;
 }
 
-module.exports = { deriveTarget, commandName, NON_TARGET_CMDS };
+// ── Reading the log ───────────────────────────────────────────────
+// Nothing ever deletes a GameLog row: the record is all-time by design. What was
+// capped was the READING of it — one request for the newest 150 with no way to
+// reach anything older, so the page looked like the log stopped there. These are
+// shared by the MET High Command feed and the developer panel, which had two
+// copies of the same query and the same cap.
+const prisma = require('./db');
+
+const SOURCES = ['ADONIS', 'JOIN', 'LEAVE', 'CHAT'];
+const PAGE_MAX = 500;
+const PAGE_DEFAULT = 200;
+
+function whereFor(query = {}) {
+  const where = {};
+  const src = String(query.source || '').toUpperCase();
+  if (SOURCES.includes(src)) where.source = src;
+  const q = String(query.q || '').trim();
+  if (q) where.OR = [
+    { actor:   { contains: q, mode: 'insensitive' } },
+    { target:  { contains: q, mode: 'insensitive' } },
+    { message: { contains: q, mode: 'insensitive' } },
+    { action:  { contains: q, mode: 'insensitive' } },
+  ];
+  return where;
+}
+
+function shape(r) {
+  return {
+    id: r.id, source: r.source, actor: r.actor, actorId: r.actorId,
+    target: deriveTarget(r), action: r.action, message: r.message, place: r.place,
+    createdAt: r.createdAt,
+  };
+}
+
+/**
+ * One page, newest first, plus how many there are in total.
+ *
+ * The `before` cursor narrows the PAGE and never the count — "1,240 in total"
+ * has to mean the whole log, or scrolling would appear to shrink it.
+ */
+async function page(query = {}) {
+  const where = whereFor(query);
+  const take = Math.max(1, Math.min(PAGE_MAX, parseInt(query.limit, 10) || PAGE_DEFAULT));
+
+  const paged = { ...where };
+  if (query.before) {
+    const t = new Date(query.before);
+    if (!isNaN(t)) paged.createdAt = { lt: t };
+  }
+
+  // One more than asked for, so "is there another page" is answered by reading
+  // rather than guessed at from a full one.
+  const [rows, total] = await Promise.all([
+    prisma.gameLog.findMany({ where: paged, orderBy: { createdAt: 'desc' }, take: take + 1 }),
+    prisma.gameLog.count({ where }).catch(() => null),
+  ]);
+  const hasMore = rows.length > take;
+  if (hasMore) rows.pop();
+
+  return {
+    rows: rows.map(shape),
+    total,
+    hasMore,
+    nextBefore: rows.length ? rows[rows.length - 1].createdAt : null,
+  };
+}
+
+// A leading =, +, - or @ is a formula to a spreadsheet, and these are strings a
+// player typed into a game. Prefixed so a chat line cannot execute.
+function csvCell(v) {
+  const s = v == null ? '' : String(v);
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+/**
+ * The whole log, as a file, streamed in batches.
+ * Every row that matches — there is deliberately no cap, which is the point.
+ */
+async function writeCsv(res, query = {}) {
+  const where = whereFor(query);
+  res.write('Time,Source,Actor,Actor ID,Target,Action,Message,Place\n');
+  let cursor = null;
+  for (;;) {
+    const batch = await prisma.gameLog.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: 1000,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    if (!batch.length) break;
+    for (const r of batch) {
+      const row = shape(r);
+      res.write([
+        new Date(row.createdAt).toISOString(), row.source, row.actor, row.actorId,
+        row.target, row.action, row.message, row.place,
+      ].map(csvCell).join(',') + '\n');
+    }
+    cursor = batch[batch.length - 1].id;
+    if (batch.length < 1000) break;
+  }
+}
+
+function csvFilename() {
+  return `met-game-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+}
+
+module.exports = {
+  deriveTarget, commandName, NON_TARGET_CMDS,
+  whereFor, shape, page, writeCsv, csvFilename, SOURCES, PAGE_MAX,
+};
