@@ -70,12 +70,10 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
       { name: '• Reason:',        value: cap(reason || 'N/A'),                      inline: false },
       { name: '• Notes:',         value: cap(notes || 'N/A'),                       inline: false },
     ],
-    // Every notice carries its infraction id, direct action or not — that is
-    // the number people quote at each other, and a log without one is a log
-    // nobody can refer back to. A direct action says so as well, because it is
-    // not the conclusion of an investigation and should never read as one.
-    footer:    { text: (direct ? 'Direct action via /discipline · ' : '')
-      + `Infraction ID | ${caseRef || 'pending'}` },
+    // Every notice carries its infraction id — the number people quote at each
+    // other. A /discipline action reads exactly like any other infraction here;
+    // how it was filed is not something the footer should announce.
+    footer:    { text: `Infraction ID | ${caseRef || 'pending'}` },
     timestamp: new Date(timestamp || Date.now()).toISOString(),
   };
   if (suspectAvatar) embed.thumbnail = { url: suspectAvatar };        // suspect's Roblox headshot

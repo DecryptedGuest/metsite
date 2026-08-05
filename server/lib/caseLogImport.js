@@ -986,7 +986,15 @@ async function renumberRefs(opts = {}) {
                 startsAt: mode === 'resequence' ? RESEQ_START() : null };
   try {
     const cases = await prisma.case.findMany({
-      select: { id: true, caseRef: true, sourceRef: true, createdAt: true, origin: true },
+      // The extra fields are for re-editing the posted Discord infraction log to
+      // the new ref, so the number in the channel matches the number on the site.
+      select: {
+        id: true, caseRef: true, sourceRef: true, createdAt: true, origin: true,
+        action: true, actions: true, reason: true, notes: true,
+        officerDiscordId: true, robloxUsername: true, robloxUserId: true,
+        suspectRobloxDisplayName: true, logMessageId: true,
+        appealedAt: true, appealedByName: true, appealReason: true,
+      },
       orderBy: [{ createdAt: 'asc' }, { caseRef: 'asc' }],
     });
     out.total = cases.length;
@@ -1059,6 +1067,45 @@ async function renumberRefs(opts = {}) {
     }
     out.counter = await raiseCounter();
     console.log(`[AdminLogImport] renumbered ${real.length} case ref(s) into sequence (${mode})`);
+
+    // ── Keep Discord in step with the website ──
+    // The renamed cases still have their OLD ref in the infraction log posted to
+    // the channel. Edit each one to the new ref so the number people quote in
+    // Discord is the number on the site. Best-effort and paced — a rate-limited
+    // or missing message is reported, never fatal to the renumber that already
+    // succeeded in the database.
+    if (opts.syncDiscord !== false) {
+      const byId = new Map(cases.map(c => [c.id, c]));
+      let synced = 0;
+      const editable = real.filter(p => byId.get(p.id) && byId.get(p.id).logMessageId);
+      for (const p of editable) {
+        const c = byId.get(p.id);
+        try {
+          let suspectAvatar = null;
+          try { if (c.robloxUserId) suspectAvatar = await require('./roblox').getRobloxAvatarHeadshot(c.robloxUserId); } catch (e) {}
+          const okEdit = await require('./webhook').editApprovalWebhook(c.logMessageId, {
+            caseRef: p.to, action: c.action,
+            actions: Array.isArray(c.actions) && c.actions.length ? c.actions : undefined,
+            reason: c.reason, notes: c.notes,
+            officerDiscordId: c.officerDiscordId,
+            officerName: c.robloxUsername || c.suspectRobloxDisplayName || null,
+            officerRobloxId: c.robloxUserId || null,
+            suspectAvatar, timestamp: c.createdAt,
+            appealed: c.appealedAt
+              ? { by: c.appealedByName || 'Internal Affairs', reason: c.appealReason || null, at: c.appealedAt }
+              : undefined,
+          });
+          if (okEdit) synced++;
+          else out.errors.push(`Discord log for ${p.to} (was ${p.from}) could not be edited`);
+        } catch (e) {
+          out.errors.push(`Discord log for ${p.to}: ${e.message}`);
+        }
+        await new Promise(r => setTimeout(r, 350));   // stay under the webhook rate limit
+      }
+      out.discordSynced = synced;
+      out.discordToSync = editable.length;
+      if (editable.length) console.log(`[AdminLogImport] re-synced ${synced}/${editable.length} Discord infraction log(s) to the new refs`);
+    }
   } catch (e) {
     out.ok = false;
     out.errors.push(e.message);
