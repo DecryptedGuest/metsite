@@ -631,13 +631,17 @@ async function deskView() {
 
 // ── Components ────────────────────────────────────────────────────
 function navRow(token, active) {
-  const b = (id, label, emoji) => new ButtonBuilder()
+  const b = (id, label) => new ButtonBuilder()
     .setCustomId(`ia_${id}_${token}`)
     .setLabel(label)
     .setStyle(active === id ? ButtonStyle.Primary : ButtonStyle.Secondary)
     .setDisabled(active === id);
   return new ActionRowBuilder().addComponents(
     b('over', 'Overview'), b('rec', 'Record'), b('tik', 'Tickets'), b('act', 'Activity'),
+    // The record is ephemeral by design; this is the one deliberate way to put a
+    // piece of it into the channel where the question is being asked.
+    new ButtonBuilder().setCustomId(`ia_post_${token}`)
+      .setLabel('Post to channel').setStyle(ButtonStyle.Success).setEmoji('📮'),
   );
 }
 
@@ -693,7 +697,7 @@ function shareRow(token, sendable) {
 async function caseFrame(token, subject, kase) {
   const ev = await require('./caseEvidence').evidenceFor(kase);
   const state = recall(token);
-  if (state) { state.caseId = kase.id; state.caseRef = kase.caseRef; }
+  if (state) { state.caseId = kase.id; state.caseRef = kase.caseRef; state.view = 'case'; }
   const sendable = ev.exhibits.filter(x => x.url).length;
   return {
     embeds: [await caseView(kase, ev)],
@@ -710,6 +714,235 @@ async function componentsFor(token, subject, active, opts = {}) {
   if (share) rows.push(share);
   rows.push(linkRow(subject));
   return rows;
+}
+
+// ── Posting a piece of the record to the channel ──────────────────
+// The panel is a reading tool for one person; sometimes the answer needs to be
+// in the channel where the question was asked — "here is their record", or "here
+// is exactly the Blacklist and the two cases behind it". This is that: a picker
+// of the shareable parts (the current view, each punishment, each case, and the
+// evidence on the open case), then a public post of whichever were chosen.
+//
+// The friendly name for the view on screen, for the picker and the confirmation.
+const VIEW_LABEL = { over: 'overview', rec: 'record', tik: 'tickets', act: 'activity', case: 'case' };
+
+// A human line for one punishment row.
+function punishLine(p) {
+  const mark = p.active ? e('met_stop') : e('met_dot_off');
+  const date = p.issuedAt ? new Date(p.issuedAt).toISOString().slice(0, 10) : '';
+  return `${mark} **${short(p.type, 40)}**${p.caseRef ? ` \`${short(p.caseRef, 20)}\`` : ''}`
+    + `${date ? ` · ${date}` : ''}${p.active ? '' : ' · *lifted*'}`
+    + (p.reason ? `\n> ${short(p.reason, 140)}` : '');
+}
+
+/**
+ * The picker: an embed that says where it will post, a multi-select of the
+ * shareable parts, and Post / Cancel. `picks` is what is currently ticked, so
+ * the selection survives a re-render.
+ */
+async function postPickerView(token, subject, state, channel, picks = []) {
+  const chosen = new Set(picks);
+  const [cases, punishments] = await Promise.all([casesFor(subject, 20), punishmentsFor(subject)]);
+  // A punishment that is really the CasePunishment half of a case is not listed
+  // twice — the case carries it.
+  const caseRefs = new Set(cases.map(c => c.caseRef).filter(Boolean));
+  const punOptions = punishments.filter(p => !(p.caseRef && caseRefs.has(p.caseRef)));
+
+  const options = [];
+  const viewLabel = VIEW_LABEL[state.view] || 'record';
+  options.push({
+    label: short(`This ${viewLabel}`, 100),
+    description: 'Post the panel exactly as it is on screen',
+    value: 'view', emoji: '🧾', default: chosen.has('view'),
+  });
+  for (const p of punOptions.slice(0, 10)) {
+    options.push({
+      label: short(`${p.type}${p.caseRef ? ` · ${p.caseRef}` : ''}`, 100),
+      description: short(`${p.active ? 'Active' : 'Lifted'} · ${p.issuedAt ? new Date(p.issuedAt).toISOString().slice(0, 10) : ''} · ${p.reason || ''}`, 100),
+      value: `pun:${p.id}`, emoji: '⛔', default: chosen.has(`pun:${p.id}`),
+    });
+  }
+  for (const c of cases.slice(0, 12)) {
+    options.push({
+      label: short(`${c.caseRef} · ${c.action}`, 100),
+      description: short(`${String(c.status || '').replace('_', ' ')} · ${c.reason || ''}`, 100),
+      value: `case:${c.id}`, emoji: '📁', default: chosen.has(`case:${c.id}`),
+    });
+  }
+  // Evidence is only offered for the case that is open, because working out how
+  // many links every case has would mean loading every one.
+  if (state.caseId) {
+    options.push({
+      label: short(`Evidence from ${state.caseRef || 'the open case'}`, 100),
+      description: 'The exhibit links on the case currently open',
+      value: `ev:${state.caseId}`, emoji: '📎', default: chosen.has(`ev:${state.caseId}`),
+    });
+  }
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`ia_pick_${token}`)
+    .setPlaceholder('Pick what to post — the whole view, or specific items')
+    .setMinValues(0)
+    .setMaxValues(Math.min(25, options.length))
+    .addOptions(options.slice(0, 25));
+
+  const where = channel && channel.name ? `**#${short(channel.name, 60)}**` : 'this channel';
+  const embed = new EmbedBuilder()
+    .setColor(COLOR.panel)
+    .setTitle(`${e('met_announce')} Post to the channel`)
+    .setDescription(
+      `Choose what to put in ${where}. It posts publicly, attributed to you.\n\n`
+      + (picks.length
+        ? `${e('met_tick')} **${picks.length}** selected.`
+        : `${e('met_dot_off')} Nothing selected yet — the default is this ${viewLabel}.`))
+    .setFooter({ text: 'Internal Affairs · nothing is posted until you press Post' });
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(menu),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`ia_postgo_${token}`)
+          .setLabel(picks.length > 1 ? `Post ${picks.length} items` : 'Post').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`ia_postno_${token}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+  };
+}
+
+/**
+ * Turn the chosen picks into the embeds that go in the channel.
+ *
+ * Everything is read fresh here, so what is posted is what the record says now
+ * rather than what it said when the picker opened. Capped at Discord's ten
+ * embeds per message; a run of picks past that is noted rather than dropped
+ * silently.
+ */
+async function buildPostEmbeds(subject, picks, view, client, sharedBy) {
+  const embeds = [];
+  const set = new Set(picks.length ? picks : ['view']);   // nothing ticked → the view
+  let dropped = 0;
+
+  if (set.has('view')) {
+    const v = view === 'rec' ? await recordView(subject)
+      : view === 'tik' ? await ticketsView(subject)
+      : view === 'act' ? await activityView(subject, client)
+      : await overviewView(subject, client);
+    embeds.push(v);
+  }
+
+  // Punishments collapse into one embed — a list reads better than five cards.
+  const punIds = [...set].filter(v => v.startsWith('pun:')).map(v => v.slice(4));
+  if (punIds.length) {
+    const all = await punishmentsFor(subject);
+    const rows = all.filter(p => punIds.includes(String(p.id)));
+    if (rows.length) {
+      embeds.push(new EmbedBuilder()
+        .setColor(COLOR.warn)
+        .setTitle(`${e('met_gavel')} Punishments — ${short(subject.displayName, 50)}`)
+        .setDescription(headline(subject))
+        .addFields({ name: `Selected (${rows.length})`, value: short(rows.map(punishLine).join('\n\n'), 1800), inline: false })
+        .setFooter({ text: 'Internal Affairs record' }));
+    }
+  }
+
+  for (const v of set) {
+    if (embeds.length >= 10) { dropped++; continue; }
+    if (v.startsWith('case:')) {
+      const kase = await loadCase(v.slice(5));
+      if (kase) { const ev = await require('./caseEvidence').evidenceFor(kase); embeds.push(await caseView(kase, ev)); }
+    } else if (v.startsWith('ev:')) {
+      const kase = await loadCase(v.slice(3));
+      if (kase) {
+        const ev = await require('./caseEvidence').evidenceFor(kase);
+        if (ev.exhibits.filter(x => x.url).length) embeds.push(evidencePost(kase, ev, sharedBy || 'Internal Affairs'));
+      }
+    }
+  }
+  return { embeds: embeds.slice(0, 10), dropped };
+}
+
+/**
+ * The post-to-channel flow: `post` opens the picker, `pick` records a selection
+ * and keeps it on screen, `postno` backs out, `postgo` posts.
+ */
+async function handlePost(interaction, token, state, step) {
+  const subject = state.subject;
+  const channel = interaction.channel;
+
+  const backToView = async () => {
+    const view = state.view || 'over';
+    if (view === 'case' && state.caseId) {
+      const kase = await loadCase(state.caseId);
+      if (kase) return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
+    }
+    const embed = view === 'rec' ? await recordView(subject)
+      : view === 'tik' ? await ticketsView(subject)
+      : view === 'act' ? await activityView(subject, interaction.client)
+      : await overviewView(subject, interaction.client);
+    return interaction.editReply({ embeds: [embed], components: await componentsFor(token, subject, view) }).catch(() => {});
+  };
+
+  if (step === 'postno') { state.postPick = []; return backToView(); }
+
+  if (step === 'post') {
+    state.postPick = state.postPick || [];
+    return interaction.editReply(await postPickerView(token, subject, state, channel, state.postPick)).catch(() => {});
+  }
+
+  if (step === 'pick') {
+    state.postPick = Array.isArray(interaction.values) ? interaction.values : [];
+    return interaction.editReply(await postPickerView(token, subject, state, channel, state.postPick)).catch(() => {});
+  }
+
+  // ── postgo ──
+  const problem = channelProblem(channel, interaction.client);
+  if (problem) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_cross')} Can't post here`)
+        .setDescription(`Nothing was posted — ${problem}.`)],
+      components: await componentsFor(token, subject, state.view || 'over'),
+    }).catch(() => {});
+  }
+
+  const picks = state.postPick || [];
+  const who = (interaction.member && interaction.member.displayName)
+    || interaction.user.globalName || interaction.user.username;
+  const { embeds, dropped } = await buildPostEmbeds(subject, picks, state.view || 'over', interaction.client, who);
+  if (!embeds.length) {
+    return interaction.editReply(await postPickerView(token, subject, state, channel, picks)).catch(() => {});
+  }
+  // A lead line so the channel knows who pulled the record and about whom —
+  // the embeds themselves carry no attribution.
+  const lead = `${e('met_folder')} Record shared by **${short(who, 60)}**`
+    + (subject.discordId ? ` — <@${subject.discordId}>` : subject.robloxUsername ? ` — ${short(subject.robloxUsername, 40)}` : '');
+
+  let posted = null;
+  try {
+    posted = await channel.send({ content: lead, embeds, allowedMentions: { parse: [] } });
+  } catch (err) {
+    return interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR.fail)
+        .setTitle(`${e('met_cross')} Not posted`)
+        .setDescription(`Discord refused it: ${short(err.message, 300)}`)],
+      components: await componentsFor(token, subject, state.view || 'over'),
+    }).catch(() => {});
+  }
+
+  console.log(`[IA panel] ${interaction.user.id} posted ${embeds.length} record item(s) about `
+    + `${subject.discordId || subject.robloxUsername || 'unknown'} into #${(channel && channel.name) || channel.id}`);
+  state.postPick = [];
+
+  return interaction.editReply({
+    embeds: [new EmbedBuilder().setColor(COLOR.ok)
+      .setTitle(`${e('met_tick')} Posted`)
+      .setDescription(`**${embeds.length}** item${embeds.length === 1 ? '' : 's'} posted in `
+        + `${channel.name ? `**#${short(channel.name, 60)}**` : 'this channel'}.`
+        + (dropped ? `\n${e('met_warn')} ${dropped} more couldn't fit in one message — post them in a second batch.` : '')
+        + (posted && posted.url ? `\n\n[Jump to it](${posted.url})` : ''))],
+    components: await componentsFor(token, subject, state.view || 'over'),
+  }).catch(() => {});
 }
 
 /**
@@ -880,7 +1113,7 @@ async function handleIaCommand(interaction) {
         + 'or give their exact Roblox username.')] }).catch(() => {});
   }
 
-  const token = keep({ subject, ownerId: interaction.user.id });
+  const token = keep({ subject, ownerId: interaction.user.id, view: 'over' });
   return interaction.editReply({
     embeds: [await overviewView(subject, interaction.client)],
     components: await componentsFor(token, subject, 'over'),
@@ -942,12 +1175,22 @@ async function handleIaComponent(interaction) {
       return handleShare(interaction, token, state, view);
     }
 
+    // ── Posting a piece of the record to the channel ──
+    if (view === 'post' || view === 'pick' || view === 'postgo' || view === 'postno') {
+      return handlePost(interaction, token, state, view);
+    }
+
     if (view === 'case') {
       const id = interaction.values && interaction.values[0];
       const kase = id ? await loadCase(id) : null;
       if (!kase) return;
+      state.view = 'case';
       return interaction.editReply(await caseFrame(token, subject, kase)).catch(() => {});
     }
+
+    // Remember which view is on screen, so "Post to channel" knows what "this
+    // view" means when it is pressed.
+    state.view = view;
 
     const embed = view === 'rec' ? await recordView(subject)
       : view === 'tik' ? await ticketsView(subject)
@@ -970,7 +1213,8 @@ async function handleIaComponent(interaction) {
 
 module.exports = {
   COMMAND, buildCommand, handleIaCommand, handleIaComponent,
-  shareConfirmView, evidencePost, channelProblem, caseFrame, handleShare, loadCase,
+  shareConfirmView, evidencePost, channelProblem, caseFrame, handleShare, handlePost,
+  postPickerView, buildPostEmbeds, loadCase,
   resolveSubject, casesFor, punishmentsFor, ticketsFor, findCase,
   overviewView, recordView, ticketsView, activityView, caseView, deskView,
   componentsFor, keep, recall,
