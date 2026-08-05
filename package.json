@@ -1,7 +1,7 @@
 {
   "name": "metsite",
   "version": "1.0.0",
-  "description": "Metropolitan Police Service Portal \u2014 CID, SCO-19, Internal Affairs, FLP, Hendon Police College",
+  "description": "Metropolitan Police Service Portal — CID, SCO-19, Internal Affairs, FLP, Hendon Police College",
   "main": "server/index.js",
   "scripts": {
     "start": "node scripts/start.js",
@@ -37,14 +37,15 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.3",
+    "playwright": "^1.62.1"
   },
   "//optionalDependencies": "CAD voice (TTS into a voice channel). Optional so a native-build failure can never break `npm install`; the CAD runs text-only until these are present. Install with: npm i @discordjs/voice opusscript libsodium-wrappers ffmpeg-static",
   "optionalDependencies": {
     "@discordjs/voice": "^0.18.0",
-    "opusscript": "^0.1.1",
+    "ffmpeg-static": "^5.2.0",
     "libsodium-wrappers": "^0.7.13",
-    "ffmpeg-static": "^5.2.0"
+    "opusscript": "^0.1.1"
   },
   "engines": {
     "node": ">=20.0.0"
