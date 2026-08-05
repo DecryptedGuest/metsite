@@ -423,6 +423,10 @@ app.use('/api/dev/security', requireAuth, require('./middleware/auth').requireDe
 // Roblox asset uploads — mounted ahead of /api/dev so its paths win. Handles the
 // stored upload credential, so DEVELOPER only, gated again inside the router.
 app.use('/api/dev/roblox', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devRoblox'));
+// Server Control — full control over every Discord guild the bot is in (channels,
+// roles, members, emojis, messaging). Mounted before /api/dev so its paths win.
+// DEVELOPER only, gated again inside the router.
+app.use('/api/dev/control', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devControl'));
 // Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
 // inside the router.
 app.use('/api/dev', requireAuth, require('./routes/dev'));

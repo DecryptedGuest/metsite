@@ -502,6 +502,7 @@ function navigateTo(pageId) {
     gamelogs:        loadDevGameLogs,
     cad:             (typeof loadCad === 'function' ? loadCad : null),
     'roblox-audio':  (typeof loadRobloxAudio === 'function' ? loadRobloxAudio : null),
+    'server-control': (typeof loadServerControl === 'function' ? loadServerControl : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
 }
