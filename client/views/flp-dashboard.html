@@ -6,19 +6,25 @@
   <title>MET · FLP Dashboard</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
   <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
-<body>
+<body class="div-flp">
 <div class="bg-canvas">
   <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
 </div>
 
 <div class="met-topbar">
   <div class="met-topbar-left">
-    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <img src="/img/divisions/flp.png" class="met-topbar-logo" alt="FLP" />
     <div class="met-topbar-title">
       <span class="met-topbar-brand">Metropolitan Police Service</span>
       <span class="met-topbar-division" id="met-division-badge">FLP</span>
@@ -42,7 +48,7 @@
   <aside class="sidebar">
     <div class="sidebar-top">
       <div class="sidebar-brand">
-        <div class="brand-logo"><img src="/img/logo.png" alt="FLP" /></div>
+        <div class="brand-logo"><img src="/img/divisions/flp.png" alt="FLP" /></div>
         <div class="brand-text">
           <div class="brand-name">MET · FLP</div>
           <div class="brand-sub">Frontline Policing</div>
@@ -52,6 +58,15 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Logs</div>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
+        <div class="nav-section-label quota-only" style="display:none;">Quota</div>
+        <button class="nav-item quota-only" data-page="quota-flp" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check (FLP)</span></button>
+        <button class="nav-item quota-only" data-page="quota-met" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>MET Quota Review</span></button>
+        <div class="nav-section-label group-admin-only" style="display:none;">High Command</div>
+        <button class="nav-item group-admin-only" data-page="group" style="display:none;"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
+        <div class="nav-section-label">Activity</div>
+        <button class="nav-item" data-page="dq-activity"><i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span></button>
       </nav>
     </div>
   </aside>
@@ -61,22 +76,219 @@
       <div class="page-header fade-up">
         <div><h1 class="page-title">Frontline Policing</h1><p class="page-sub">FLP · Overview</p></div>
       </div>
+      <div id="flp-kpis" class="fade-up"></div>
+      <div class="panel glass fade-up" id="dq-FLP-mine" style="display:none;"></div>
       <div class="panel glass fade-up stagger-1">
-        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
-          <div style="font-size:40px;margin-bottom:1rem;">🚧</div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
-          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">FLP tools are being built. You have access to this division — check back soon for its features.</div>
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>Activity</div>
+          <select class="form-control" id="flp-ov-days" style="width:auto;" onchange="loadFlpOverview()">
+            <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
+          </select>
+        </div>
+        <div style="padding:0.6rem 1rem 1.1rem;" id="flp-activity-chart"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Quick actions</div></div>
+        <div class="profile-section" style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="flpNavigate('analytics')"><i class="ti ti-chart-histogram"></i> Analytics</button>
         </div>
       </div>
     </section>
+
+    <!-- PATROL LOGS (FLP review — bot reacts ✅/❌) -->
+
+    <!-- Patrol and event logs are signed off in Discord — ticking or crossing
+         the log IS the review. There is nothing left for the site to do with
+         them, and a second place to approve them was a second place to
+         disagree. -->
+
+    <!-- EVENT LOGS (approve → +1 on the MET database) -->
+
+    <!-- GROUP PANEL (FLP Assistant Director+) -->
+    <section class="page" id="page-group">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Group Panel</h1><p class="page-sub">FLP High Command · Department of Performance group</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadFlpGroup()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header"><div class="panel-title">
+          <button class="btn btn-icon btn-ghost btn-sm" onclick="flpToggleSection('flp-pending', this)" title="Collapse/expand"><i class="ti ti-chevron-right"></i></button>
+          <span class="panel-dot amber"></span>Pending Join Requests <span id="flp-pending-count" style="font-size:11px;color:var(--text-muted);"></span></div></div>
+        <div class="profile-section" id="flp-pending" style="display:none;"><div class="table-loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="flpToggleSection('flp-members-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot blue"></span>Members</div>
+          <input type="text" class="form-control" id="flp-member-search" placeholder="Search members…" style="width:200px;padding:5px 10px;font-size:12px;" oninput="renderFlpMembers()" />
+        </div>
+        <div class="table-wrap" id="flp-members-body">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Change rank</th><th></th></tr></thead>
+            <tbody id="flp-members-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-analytics">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">FLP Analytics</h1><p class="page-sub">Patrol &amp; event activity across the frontline</p></div>
+        <select class="form-control" id="flp-an-days" style="width:auto;" onchange="loadFlpAnalytics()">
+          <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
+        </select>
+      </div>
+      <div id="flp-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- QUOTA CHECK (FLP) — FLP High Command, reviews the FLP sheet -->
+    <section class="page" id="page-quota-flp">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Quota Check (FLP)</h1><p class="page-sub">FLP High Command · Weekly quota review</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="flpQuotaReset('FLP')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="flpQuotaSubmit('FLP')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot blue"></span>FLP Members</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost btn-sm" onclick="flpQuotaAuto('FLP')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="flpq-FLP-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="flpq-FLP-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MET QUOTA REVIEW — FLP High Command, reviews the MET sheet -->
+    <section class="page" id="page-quota-met">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">MET Quota Review</h1><p class="page-sub">FLP High Command · Reviews the MET database sheet</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="flpQuotaReset('MET')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="flpQuotaSubmit('MET')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>MET Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="flpq-MET-tabs"></span>
+            <button class="btn btn-ghost btn-sm" onclick="flpQuotaAuto('MET')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="flpq-MET-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="flpq-MET-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MET database sync — FLP High Command maintain this database, so the
+           same machinery IA runs against its own sheet is here against the MET
+           one: identical comparison, identical safety rails. -->
+      <div class="panel glass fade-up stagger-2" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>MET Database Sync</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost btn-sm" id="btn-metdb-check"><i class="ti ti-search"></i> Check</button>
+            <button class="btn btn-primary btn-sm" id="btn-metdb-apply" disabled><i class="ti ti-refresh"></i> Apply changes</button>
+          </div>
+        </div>
+        <div style="padding:1rem 1.2rem;">
+          <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Compares the <strong>MET database</strong> against the MET Roblox group. Anyone no longer in
+            the group is removed, and newly joined constables are written into the rows that frees up —
+            with their Discord ID filled in where it can be resolved. Timezone, WTBT and anything else
+            the sheet carries are left blank rather than guessed at. Always run <strong>Check</strong>
+            first: it shows exactly what will change before anything is written.
+          </p>
+          <div id="metdb-result"></div>
+        </div>
+      </div>
+
+      <!-- MET database audit — is the sheet itself correct? -->
+      <div class="panel glass fade-up stagger-2" style="margin-top:1.2rem;">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot purple"></span>MET Database Audit</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" id="btn-metaudit-run"><i class="ti ti-list-search"></i> Audit</button>
+            <button class="btn btn-ghost btn-sm" id="btn-metaudit-fill" disabled><i class="ti ti-eraser"></i> Fill blanks with 0</button>
+            <button class="btn btn-danger btn-sm" id="btn-metaudit-reset" disabled><i class="ti ti-refresh-alert"></i> Reset all points to 0</button>
+          </div>
+        </div>
+        <div style="padding:1rem 1.2rem;">
+          <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Checks every rank tab of the MET database against the MET Roblox group: who is on the wrong
+            tab, who is in the group but on no tab, who is on the sheet but has left, duplicate rows,
+            blank day cells and anything in a day column that isn't a number. <strong>Fill blanks</strong>
+            writes 0 into empty or unreadable day cells. <strong>Reset all points</strong> zeroes every
+            day cell so counting starts clean — the weekly quota is
+            <strong id="metaudit-target">3</strong> events, one database point each. Neither ever touches
+            a cell marked <code>EX</code> or <code>LOA</code>, and neither adds, deletes or moves a row:
+            rank-tab moves are listed for you to make.
+          </p>
+          <div id="metaudit-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY TRACKING (read-only, every FLP member) -->
+    <section class="page" id="page-dq-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every member's weekly activity · read-only</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>FLP Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-FLP-act-tabs"></span>
+            <span class="text-muted mono" id="dq-FLP-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-FLP-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOA REQUESTS (FLP High Command) -->
   </main>
 </div>
 
 <div id="toast-container"></div>
-<script src="/js/ui.js"></script>
-<script src="/js/met-topbar.js"></script>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
+<script>
+  // The database sync/audit panels below are the same code the IA dashboard
+  // uses. This says which database they are about: FLP High Command maintain
+  // the MET one, so the calls go to /api/flp/met-database rather than IA's.
+  window.MET_DB_BASE = '/api/flp';
+</script>
+<script src="/js/quota-check.js?v=88"></script>
+<script src="/js/flp-quota-check.js"></script>
+<script src="/js/flp-dashboard.js"></script>
+<script src="/js/division-quota.js"></script>
+<script>(function(){var DIV='FLP';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('FLP');</script>
 </body>
 </html>

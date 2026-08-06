@@ -3,12 +3,12 @@
 const jwt    = require('jsonwebtoken');
 const prisma = require('../lib/db');
 
-// Resolve the real client IP, honouring the proxy (Railway) X-Forwarded-For header.
-function getClientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (xff) return String(xff).split(',')[0].trim();
-  return req.ip || req.socket?.remoteAddress || null;
-}
+// The visitor's real IP. Behind Cloudflare, x-forwarded-for as it arrives here
+// names the last proxy rather than the browser, so this is not a one-liner — see
+// lib/clientIp.js, which also knows which addresses belong to Cloudflare and must
+// never be treated as somebody's own.
+const { clientIp, isRealClientIp } = require('../lib/clientIp');
+function getClientIp(req) { return clientIp(req); }
 
 // Express middleware — records a visit row without blocking the response.
 function recordVisit(req, res, next) {
@@ -31,13 +31,23 @@ function recordVisit(req, res, next) {
             where:  { id: payload.userId },
             select: {
               id: true, discordId: true, discordUsername: true,
-              robloxId: true, robloxUsername: true,
+              robloxId: true, robloxUsername: true, lastRealIp: true,
             },
           });
-          if (u) info = {
-            userId: u.id, discordId: u.discordId, discordUsername: u.discordUsername,
-            robloxId: u.robloxId, robloxUsername: u.robloxUsername,
-          };
+          if (u) {
+            info = {
+              userId: u.id, discordId: u.discordId, discordUsername: u.discordUsername,
+              robloxId: u.robloxId, robloxUsername: u.robloxUsername,
+            };
+            // If they're visiting from a new IP, re-classify it (VPN?) and refresh
+            // the account's most-recent real IP — dev-panel only, best-effort.
+            // Only a REAL address is worth classifying or storing as theirs. A
+            // proxy's address shared by every visitor is what made alt detection
+            // link unrelated members to each other.
+            if (ip && isRealClientIp(ip) && ip !== u.lastRealIp) {
+              require('../lib/ipIntel').classifyAndRecord({ userId: u.id, ip }).catch(() => {});
+            }
+          }
         } catch { /* invalid/expired token → anonymous visit */ }
       }
 

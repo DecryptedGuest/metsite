@@ -1,6 +1,26 @@
 // client/public/js/quota-check.js — HICOMM weekly quota review
 var quotaMembersCache = [];
 
+// Which database the sync/audit panels on THIS page are about.
+//
+// IA maintains its own; FLP High Command maintains the MET one. The panels are
+// identical, so rather than a second copy of all this the page says which it
+// is: the FLP dashboard sets window.MET_DB_BASE = '/api/flp' before loading.
+function metDbUrl(path, params) {
+  var base = window.MET_DB_BASE || '/api/quota';
+  var url = base + '/met-database' + (path || '');
+  var qs = [];
+  // The IA route serves both databases and defaults to IA; the FLP route only
+  // ever serves the MET one and takes no division.
+  if (base === '/api/quota') qs.push('division=' + encodeURIComponent(window.MET_DB_DIVISION || 'IA'));
+  if (params) Object.keys(params).forEach(function (k) {
+    qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+  });
+  return qs.length ? url + '?' + qs.join('&') : url;
+}
+// What to call it on screen, so a message never says "MET" on the IA page.
+function metDbName() { return (window.MET_DB_BASE === '/api/flp' ? 'MET' : (window.MET_DB_DIVISION || 'IA')); }
+
 document.addEventListener("DOMContentLoaded", function () {
   var sb = document.getElementById("btn-submit-quota-check");
   if (sb) sb.addEventListener("click", submitQuotaCheck);
@@ -15,7 +35,648 @@ document.addEventListener("DOMContentLoaded", function () {
     var btn = document.getElementById("btn-confirm-quota-reset");
     if (btn) btn.disabled = ri.value.trim().toUpperCase() !== "RESET";
   });
+
+  // MET database sync
+  var mc = document.getElementById("btn-metdb-check");
+  if (mc) mc.addEventListener("click", checkMetDatabase);
+  var ma = document.getElementById("btn-metdb-apply");
+  if (ma) ma.addEventListener("click", applyMetDatabase);
+
+  // MET database audit
+  var ar = document.getElementById("btn-metaudit-run");
+  if (ar) ar.addEventListener("click", runMetAudit);
+  var af2 = document.getElementById("btn-metaudit-fill");
+  if (af2) af2.addEventListener("click", function () { normaliseMetDb(false); });
+  var arst = document.getElementById("btn-metaudit-reset");
+  if (arst) arst.addEventListener("click", function () { normaliseMetDb(true); });
+
+  // Adding the people the sheet is missing
+  var mf = document.getElementById("btn-miss-find");
+  if (mf) mf.addEventListener("click", findMissingMembers);
+  var mad = document.getElementById("btn-miss-add");
+  if (mad) mad.addEventListener("click", addMissingMembers);
+  // One handler on the container rather than one per row, so a redraw does not
+  // have to rewire anything.
+  var mr = document.getElementById("miss-result");
+  if (mr) mr.addEventListener("change", onMissChange);
+  if (mr) mr.addEventListener("click", onMissClick);
 });
+
+
+// ── Adding the people the sheet is missing ─────────────────────────
+// The sync only offers new joiners at the entry rank, so anybody who slipped
+// through at a higher rank is invisible there. This lists everyone with no row,
+// and adds exactly the ones that get ticked.
+var missing = [];        // [{ username, rank, robloxId, discordId, probationary }]
+var missPicked = {};     // username → true
+var missWtbt = {};       // username → true, probationers only
+var missHasWtbtCol = true;
+
+function missRow(m) {
+  var picked = !!missPicked[m.username];
+  var wtbt = !!missWtbt[m.username];
+  // The mark is only offered where it means something. A disabled tickbox with
+  // a reason beats a live one that the server then refuses.
+  var wtbtCell = m.probationary
+    ? '<label class="miss-wtbt' + (missHasWtbtCol ? '' : ' off') + '">'
+      + '<input type="checkbox" data-wtbt="' + escapeHtml(m.username) + '"' + (wtbt ? ' checked' : '')
+      + (missHasWtbtCol ? '' : ' disabled') + ' /> '
+      + '<span>' + (missHasWtbtCol ? 'Waiting to be trained' : 'No WTBT column on the sheet') + '</span></label>'
+    : '<span class="miss-na" title="Only a Probationary Investigator can be waiting for training">·</span>';
+
+  return '<tr class="' + (picked ? 'miss-on' : '') + '">'
+    + '<td><input type="checkbox" data-pick="' + escapeHtml(m.username) + '"' + (picked ? ' checked' : '') + ' /></td>'
+    + '<td><span class="mono" style="font-size:12.5px;">' + escapeHtml(m.username) + '</span></td>'
+    + '<td><span style="font-size:12px;">' + escapeHtml(m.rank || '·') + '</span></td>'
+    + '<td><span class="mono" style="font-size:11px;color:'
+      + (m.discordId ? 'var(--text-secondary)' : 'var(--amber)') + ';">'
+      + escapeHtml(m.discordId || 'not linked') + '</span></td>'
+    + '<td>' + wtbtCell + '</td>'
+    + '</tr>';
+}
+
+function renderMissing(out) {
+  var box = document.getElementById("miss-result");
+  if (!box) return;
+  if (!out || out.error) {
+    box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> '
+      + escapeHtml((out && out.error) || "Could not work out who is missing.") + '</div>';
+    return;
+  }
+  if (!missing.length) {
+    box.innerHTML = misalignedBlock(out) + strayBlock(out) + ceilingNote(out)
+      + '<div class="metdb-applied"><i class="ti ti-check"></i> Everybody in the '
+      + escapeHtml(out.group || metDbName()) + ' group has a row. '
+      + escapeHtml(String(out.groupSize || 0)) + ' in the group, '
+      + escapeHtml(String(out.sheetRows || 0)) + ' on the sheet.</div>';
+    return;
+  }
+  var probs = missing.filter(function (m) { return m.probationary; }).length;
+  box.innerHTML = misalignedBlock(out) + strayBlock(out) + ceilingNote(out)
+    + '<div class="miss-head">'
+    + '<strong>' + missing.length + '</strong> in the group with no row'
+    + (probs ? ' · <strong>' + probs + '</strong> probationary' : '')
+    + ' · ' + (out.groupSize || 0) + ' in the group, ' + (out.sheetRows || 0) + ' on the sheet'
+    + '<span class="spacer"></span>'
+    + '<button type="button" class="btn btn-ghost btn-sm" data-miss-all="1">'
+    + (missing.every(function (m) { return missPicked[m.username]; }) ? 'Select none' : 'Select all') + '</button>'
+    + '</div>'
+    + (missHasWtbtCol ? '' : '<div class="metdb-error" style="margin-bottom:.6rem;">'
+        + '<i class="ti ti-alert-triangle"></i> The sheet has no <code>WTBT</code> column, so the mark cannot '
+        + 'be written. Add a column headed <code>WTBT</code> and check again.</div>')
+    + '<div class="table-wrap"><table class="data-table"><thead><tr>'
+    + '<th style="width:34px;"></th><th>Roblox</th><th>Group rank</th><th>Discord ID</th><th>Training</th>'
+    + '</tr></thead><tbody>' + missing.map(missRow).join("") + '</tbody></table></div>';
+  refreshMissButton();
+}
+
+/**
+ * The ranks left out of the list, and why.
+ *
+ * The IA group contains the whole umbrella above the division — the game owner,
+ * the holders, MET Overseer, MET Administration — and none of them belong on a
+ * sheet of investigators with a weekly quota. They are filtered out, and SAID so:
+ * a list that silently drops eleven of thirteen people reads as broken.
+ */
+function ceilingNote(out) {
+  var above = (out && out.aboveCeiling) || [];
+  if (!above.length) return '';
+  var top = out.ceiling && out.ceiling.name ? out.ceiling.name : 'Director';
+  return '<div style="margin-bottom:.7rem;padding:.6rem .8rem;border-radius:8px;'
+    + 'background:rgba(60,110,255,.07);border:1px solid rgba(60,110,255,.25);'
+    + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
+    + '<i class="ti ti-filter"></i> <strong>' + above.length + '</strong> above '
+    + escapeHtml(top) + ' left out · the database is for '
+    + escapeHtml(top) + ' and below.<br>'
+    + '<span style="color:var(--text-muted);">'
+    + above.slice(0, 12).map(function (a) {
+        return escapeHtml(a.username) + ' (' + escapeHtml(a.rank || '?') + ')';
+      }).join(', ')
+    + (above.length > 12 ? ', and ' + (above.length - 12) + ' more' : '')
+    + '</span></div>';
+}
+
+/**
+ * Rows an older version of this wrote into the wrong columns.
+ *
+ * They are the wreckage at the bottom of the sheet: names and ranks a column or
+ * two to the right of where they belong, in a block of empty bordered cells that
+ * came from whatever the rows below the table happened to look like. Nothing here
+ * offers to fix them, because "which columns did it mean" is a guess and moving
+ * somebody's row sideways on a guess is worse than leaving it — so it says exactly
+ * which rows to delete, and a person deletes them.
+ */
+function misalignedBlock(out) {
+  var bad = (out && out.misaligned) || [];
+  if (!bad.length) return '';
+  var rowsList = bad.map(function (b) { return b.row; });
+  return '<div class="metdb-error" style="margin-bottom:.8rem;">'
+    + '<i class="ti ti-trash-x"></i> <strong>' + bad.length + '</strong> leftover row'
+    + (bad.length === 1 ? '' : 's') + ' at the bottom of the sheet, written into the wrong columns'
+    + '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
+    + 'These were left by an older version of this tool, which appended rows and let Google '
+    + 'decide which column to start at · so every field landed '
+    + escapeHtml(String(bad[0].offset)) + ' column'
+    + (bad[0].offset === 1 ? '' : 's') + ' to the right, inside the notes under the table. '
+    + 'They are not real rows and nothing reads them. <strong>Delete rows '
+    + escapeHtml(rowsList.join(', ')) + '</strong> on the sheet · select them by their row '
+    + 'numbers, right-click, Delete rows. Nothing here will touch them, because which columns '
+    + 'they were meant for is a guess.</div>'
+    + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+    + bad.slice(0, 20).map(function (b) {
+        return 'row ' + escapeHtml(String(b.row)) + ' · <span class="mono">'
+          + escapeHtml(b.username) + '</span>' + (b.rank ? ' (' + escapeHtml(b.rank) + ')' : '');
+      }).join('<br>')
+    + (bad.length > 20 ? '<br>and ' + (bad.length - 20) + ' more' : '')
+    + '</div></div>';
+}
+
+/**
+ * Rows that exist but are nowhere anybody looks.
+ *
+ * This is the block that explains the confusing case: somebody who is plainly not
+ * in the database stops being offered here, because a previous run appended their
+ * row past the end of the table instead of inserting it. The row is real, so
+ * "already on the sheet" was true — and useless. Now it says where the row is and
+ * offers to drag it back.
+ */
+function strayBlock(out) {
+  var stray = (out && out.stray) || [];
+  if (!stray.length) return '';
+  // Two different faults arrive in one list. Say which is which, because the
+  // explanation for each is different and only one of them makes somebody
+  // invisible in the list below.
+  var order = stray.filter(function (s) { return !!s.why; });
+  var loose = stray.filter(function (s) { return !s.why; });
+  var html = '<div class="metdb-error" style="margin-bottom:.8rem;">'
+    + '<i class="ti ti-alert-triangle"></i> <strong>' + stray.length + '</strong> row'
+    + (stray.length === 1 ? '' : 's') + ' in the wrong place on the sheet';
+  if (loose.length) {
+    html += '<div style="font-size:12px;line-height:1.8;margin-top:.45rem;color:var(--text-secondary);">'
+      + '<strong>' + loose.length + '</strong> outside ' + (loose.length === 1 ? 'its' : 'their')
+      + ' rank section · written below everything else rather than inserted, which is what happens '
+      + 'when the sheet will not accept a row being inserted. They still count as having a row, so '
+      + 'these people stop appearing in the list below even though nobody can see them on the '
+      + 'database.</div>'
+      + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+      + loose.map(function (s) {
+          return '<span class="mono">' + escapeHtml(s.username) + '</span> · row '
+            + escapeHtml(String(s.row))
+            + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
+            + ', belongs at row ' + escapeHtml(String(s.shouldBeRow));
+        }).join('<br>')
+      + '</div>';
+  }
+  if (order.length) {
+    html += '<div style="font-size:12px;line-height:1.8;margin-top:.55rem;color:var(--text-secondary);">'
+      + '<strong>' + order.length + '</strong> in the right section but the wrong order. Everyone '
+      + 'still waiting to be trained belongs at the bottom of their rank, so the line between '
+      + 'trained and waiting can be read at a glance.</div>'
+      + '<div style="font-size:12px;line-height:1.9;margin-top:.4rem;">'
+      + order.map(function (s) {
+          return '<span class="mono">' + escapeHtml(s.username) + '</span> · row '
+            + escapeHtml(String(s.row))
+            + (s.rank ? ' (' + escapeHtml(s.rank) + ')' : '')
+            + ', belongs at row ' + escapeHtml(String(s.shouldBeRow))
+            + ' (above the ones still waiting)';
+        }).join('<br>')
+      + '</div>';
+  }
+  return html
+    + '<button type="button" class="btn btn-primary btn-sm" id="btn-miss-tidy" '
+    + 'style="margin-top:.7rem;"><i class="ti ti-arrows-sort"></i> Tidy the rows</button>'
+    + '</div>';
+}
+
+/** Drag the stray rows back into their rank's block. Nothing is deleted. */
+async function tidyStrayRows() {
+  var btn = document.getElementById("btn-miss-tidy");
+  var was = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Moving…"; }
+  try {
+    var out = await api(metDbUrl("/tidy-rows"), { method: "POST", body: JSON.stringify({}) });
+    var moved = out.moved || [];
+    if (moved.length) {
+      showToast(moved.map(function (m) {
+        return m.username + ": row " + m.row + " → " + m.to;
+      }).join(", "), "success");
+    } else {
+      showToast("Nothing was moved.", "warning");
+    }
+    (out.skipped || []).forEach(function (s) {
+      showToast(s.username + " was left where it is · " + (s.why || "it could not be moved"), "warning");
+    });
+    if ((out.errors || []).length) showToast(out.errors.join("; "), "error");
+    // Re-read: the sheet has changed, and the list below is now wrong.
+    await findMissingMembers();
+  } catch (err) {
+    showToast(err.message || "Could not move them.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+function refreshMissButton() {
+  var n = Object.keys(missPicked).filter(function (k) { return missPicked[k]; }).length;
+  var btn = document.getElementById("btn-miss-add");
+  if (!btn) return;
+  btn.disabled = !n;
+  btn.title = n ? "" : "Pick at least one person first";
+  btn.innerHTML = '<i class="ti ti-user-plus"></i> Add ' + (n ? n + " selected" : "selected");
+}
+
+function onMissChange(ev) {
+  var t = ev.target;
+  if (!t || t.type !== "checkbox") return;
+  if (t.dataset.pick) {
+    missPicked[t.dataset.pick] = t.checked;
+    // Unticking somebody drops their mark too: leaving it set would send a WTBT
+    // for a person who is no longer in the batch the next time they are ticked.
+    if (!t.checked) delete missWtbt[t.dataset.pick];
+    var tr = t.closest("tr");
+    if (tr) tr.classList.toggle("miss-on", t.checked);
+    refreshMissButton();
+    return;
+  }
+  if (t.dataset.wtbt) {
+    missWtbt[t.dataset.wtbt] = t.checked;
+    // Marking somebody as waiting to be trained is only meaningful if they are
+    // actually being added, so it ticks them as well.
+    if (t.checked && !missPicked[t.dataset.wtbt]) {
+      missPicked[t.dataset.wtbt] = true;
+      var box = document.querySelector('[data-pick="' + t.dataset.wtbt.replace(/"/g, '\\"') + '"]');
+      if (box) box.checked = true;
+      var row = t.closest("tr");
+      if (row) row.classList.add("miss-on");
+      refreshMissButton();
+    }
+  }
+}
+
+function onMissClick(ev) {
+  if (ev.target.closest("#btn-miss-tidy")) { tidyStrayRows(); return; }
+  var all = ev.target.closest("[data-miss-all]");
+  if (!all) return;
+  var everyone = missing.every(function (m) { return missPicked[m.username]; });
+  missing.forEach(function (m) {
+    missPicked[m.username] = !everyone;
+    if (everyone) delete missWtbt[m.username];
+  });
+  // The whole payload, not a copy of three fields — a redraw that dropped the
+  // stray-rows warning would hide the very thing it is there to explain.
+  renderMissing(missLast);
+}
+
+var missLast = {};
+
+async function findMissingMembers() {
+  var btn = document.getElementById("btn-miss-find");
+  var box = document.getElementById("miss-result");
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Reading the group…"; }
+  try {
+    var out = await api(metDbUrl("/missing"));
+    missing = out.missing || [];
+    missLast = out;
+    missHasWtbtCol = out.hasWtbtColumn !== false;
+    // A fresh list means a fresh selection. Keeping ticks across a reload would
+    // let somebody add a person who has since been given a row.
+    missPicked = {};
+    missWtbt = {};
+    renderMissing(out);
+  } catch (err) {
+    missing = [];
+    renderMissing({ error: err.message });
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-user-search"></i> Find who is missing'; }
+  }
+}
+
+async function addMissingMembers() {
+  var picks = missing.filter(function (m) { return missPicked[m.username]; });
+  if (!picks.length) return;
+  var marked = picks.filter(function (m) { return missWtbt[m.username]; });
+
+  var yes = await (typeof uiConfirm === "function"
+    ? uiConfirm("Each one gets a new line on the " + metDbName() + " database with their rank, their "
+        + "Discord ID where it is known, and every day at 0.\n\n"
+        + picks.map(function (m) {
+            return m.username + " · " + (m.rank || "no rank")
+              + (missWtbt[m.username] ? " · waiting to be trained" : "");
+          }).join("\n")
+        + "\n\nNothing is removed, and anybody who already has a row is skipped.",
+        { title: "Add " + picks.length + (picks.length === 1 ? " person?" : " people?"),
+          confirmText: "Add " + (picks.length === 1 ? "them" : "all " + picks.length),
+          cancelText: "Not yet", icon: "ti-user-plus" })
+    : Promise.resolve(true));
+  if (!yes) return;
+
+  var btn = document.getElementById("btn-miss-add");
+  var was = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Writing…"; }
+  try {
+    var out = await api(metDbUrl("/add-members"), {
+      method: "POST",
+      body: JSON.stringify({
+        members: picks.map(function (m) {
+          return { username: m.username, discordId: m.discordId || "", wtbt: !!missWtbt[m.username] };
+        }),
+      }),
+    });
+    // A refusal that arrives with a 200 rather than a 400 must not be read as a
+    // success — "undefined members added" is worse than the actual reason.
+    if (out.error) {
+      showToast(out.error, "error");
+      return;
+    }
+    var bits = [out.added + (out.added === 1 ? " member added" : " members added")];
+    if (marked.length && out.added) bits.push(marked.length + " waiting to be trained");
+    if ((out.alreadyThere || []).length) bits.push((out.alreadyThere || []).length + " already had a row");
+    if ((out.skipped || []).length) bits.push((out.skipped || []).length + " no longer in the group");
+    showToast(bits.join(" · ") + ".", out.added ? "success" : "warning");
+    // Where each one landed. Somebody who asked for a row in the right section
+    // wants to be told it went there, not just that it went somewhere.
+    //
+    // A row number only appears here once the server has READ IT BACK off the
+    // sheet. It used to be the row the write aimed at, which is how three members
+    // came to be reported at rows 29, 30 and 31 of a sheet that had not gained a
+    // single row. No number is better than a wrong one.
+    var withRow = (out.placed || []).filter(function (p) { return p.row; });
+    if (withRow.length) {
+      showToast(withRow.map(function (p) {
+        return p.username + " → row " + p.row + (p.under ? " (under the other " + p.under + "s)" : "");
+      }).join(", "), "success");
+    }
+    var noRow = (out.placed || []).filter(function (p) { return !p.row; });
+    if (noRow.length && withRow.length) {
+      showToast("Could not confirm where " + noRow.map(function (p) { return p.username; }).join(", ")
+        + " ended up · check the sheet.", "warning");
+    }
+    if ((out.errors || []).length) showToast(out.errors.join("; "), "warning");
+    // Re-read rather than patching the list: the sheet has changed, and the next
+    // decision should be made against what is actually on it now.
+    await findMissingMembers();
+  } catch (err) {
+    showToast(err.message || "Could not add them.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; refreshMissButton(); }
+  }
+}
+
+// ── MET database audit ────────────────────────────────────────────
+// Read-only. Says what is wrong with the sheet; the two buttons beside it fix
+// the half that is safe to fix from here (day cells), and everything structural
+// — wrong rank tab, missing person, someone who has left — is listed for a
+// human to act on rather than done silently.
+var metAudit = null;
+
+function auditGroup(title, items, tone, render) {
+  if (!items || !items.length) return "";
+  return '<div class="metdb-col"><div class="metdb-col-head">' + title
+    + ' <span class="metdb-count ' + (tone || "") + '">' + items.length + '</span></div>'
+    + '<ul class="metdb-list">' + items.slice(0, 60).map(render).join("")
+    + (items.length > 60 ? '<li><span class="metdb-why">…and ' + (items.length - 60) + ' more</span></li>' : "")
+    + '</ul></div>';
+}
+
+function problemsOf(report, kind) {
+  return (report.members || []).filter(function (m) {
+    return (m.problems || []).some(function (p) { return p.kind === kind; });
+  });
+}
+
+function renderMetAudit(report) {
+  var box = document.getElementById("metaudit-result");
+  if (!box) return;
+  if (!report || report.error) {
+    box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> '
+      + escapeHtml((report && report.error) || "Audit failed.") + '</div>';
+    return;
+  }
+  var s = report.summary || {};
+  var pill = function (n, label, tone) {
+    return '<span>' + label + ': <strong class="' + (n ? (tone || "") : "") + '">' + n + '</strong></span>';
+  };
+  var summary = '<div class="metdb-summary">'
+    + pill(s.members || 0, "on the sheet")
+    + pill(s.clean || 0, "with nothing wrong", "good")
+    + pill(s.wrongTab || 0, "wrong rank tab", "bad")
+    + pill(s.missingFromSheet || 0, "in the group, not on a tab", "bad")
+    + pill(s.notInGroup || 0, "left the group", "bad")
+    + pill(s.duplicates || 0, "duplicate rows", "bad")
+    + pill(s.blankDays || 0, "blank day cells", "bad")
+    + pill(s.junkDays || 0, "unreadable day cells", "bad")
+    + pill(s.missingDiscordId || 0, "no Discord ID", "bad")
+    + pill(s.markers || 0, "EX/LOA (kept)")
+    + '</div>'
+    + (report.groupError
+        ? '<div class="metdb-hint"><i class="ti ti-alert-triangle"></i> Couldn\'t read the ' + escapeHtml(report.groupName || metDbName()) + ' Roblox group, so the group cross-check was skipped: '
+          + escapeHtml(report.groupError) + '</div>'
+        : "");
+
+  var where = function (m) { return escapeHtml(m.tab) + " row " + m.row; };
+  var cols = '<div class="metdb-cols">'
+    + auditGroup("Wrong rank tab", problemsOf(report, "WRONG_TAB"), "bad", function (m) {
+        var p = (m.problems || []).find(function (x) { return x.kind === "WRONG_TAB"; }) || {};
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + " · " + escapeHtml(p.detail || "") + '</span></li>';
+      })
+    + auditGroup("In the group, not on the sheet", report.missingFromSheet || [], "bad", function (g) {
+        // Only the MET database is split by rank tab, so only it can say WHERE
+        // the row belongs. On a single-roster database the rank is the answer.
+        return '<li><span class="metdb-name">' + escapeHtml(g.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(g.rank || "")
+          + (g.shouldBe ? ' · add to "' + escapeHtml(g.shouldBe) + '"' : " · not on the sheet") + '</span></li>';
+      })
+    + auditGroup("On the sheet, not in the group", problemsOf(report, "NOT_IN_GROUP"), "bad", function (m) {
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + '</span></li>';
+      })
+    + auditGroup("Duplicate rows", problemsOf(report, "DUPLICATE"), "bad", function (m) {
+        var p = (m.problems || []).find(function (x) { return x.kind === "DUPLICATE"; }) || {};
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(p.detail || "") + '</span></li>';
+      })
+    + auditGroup("No Discord ID", problemsOf(report, "MISSING_DISCORD_ID"), "bad", function (m) {
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + '</span></li>';
+      })
+    + auditGroup("Rank the database doesn't track", problemsOf(report, "RANK_NOT_TRACKED"), "", function (m) {
+        var p = (m.problems || []).find(function (x) { return x.kind === "RANK_NOT_TRACKED"; }) || {};
+        return '<li><span class="metdb-name">' + escapeHtml(m.username) + '</span>'
+          + '<span class="metdb-why">' + where(m) + " · " + escapeHtml(p.detail || "") + '</span></li>';
+      })
+    + '</div>';
+
+  var footer = (s.blankDays || s.junkDays)
+    ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> <strong>Fill blanks with 0</strong> will write '
+      + ((s.blankDays || 0) + (s.junkDays || 0)) + ' cell(s). Nothing has been written yet.</div>'
+    : '<div class="metdb-hint"><i class="ti ti-check"></i> No blank or unreadable day cells.</div>';
+
+  box.innerHTML = summary + cols + footer;
+}
+
+async function runMetAudit() {
+  var btn = document.getElementById("btn-metaudit-run");
+  var box = document.getElementById("metaudit-result");
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Auditing…"; }
+  try {
+    metAudit = await api(metDbUrl("/audit"));
+    renderMetAudit(metAudit);
+    var t = document.getElementById("metaudit-target");
+    if (t && metAudit.target != null) t.textContent = metAudit.target;
+    var fill = document.getElementById("btn-metaudit-fill");
+    var reset = document.getElementById("btn-metaudit-reset");
+    var s = metAudit.summary || {};
+    if (fill)  fill.disabled  = !((s.blankDays || 0) + (s.junkDays || 0));
+    if (reset) reset.disabled = !(s.members || 0);
+  } catch (err) {
+    metAudit = null;
+    renderMetAudit({ error: err.message || "Audit failed." });
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-list-search'></i> Audit"; }
+  }
+}
+
+async function normaliseMetDb(reset) {
+  if (!metAudit) { showToast("Run the audit first.", "error"); return; }
+  var s = metAudit.summary || {};
+  if (reset) {
+    // Zeroing a live database is not something to do by accident, and there is
+    // no undo — so the confirmation says the number out loud.
+    var ok = await (typeof uiConfirm === "function"
+      ? uiConfirm("Reset EVERY day cell on the " + metDbName() + " database to 0? That clears "
+          + (s.pointsToClear || 0) + " point(s) across " + (s.members || 0)
+          + " member(s). EX and LOA cells are left alone. This cannot be undone.")
+      : Promise.resolve(confirm("Reset every day cell to 0? This cannot be undone.")));
+    if (!ok) return;
+  }
+
+  var btn = document.getElementById(reset ? "btn-metaudit-reset" : "btn-metaudit-fill");
+  var label = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Writing…"; }
+  try {
+    var result = await api(metDbUrl("/normalise"), {
+      method: "POST",
+      body: JSON.stringify({ reset: !!reset, fillBlanks: true, apply: true }),
+    });
+    showToast(reset
+      ? metDbName() + " database reset · " + result.cleared + " cell(s) cleared, " + result.filled
+        + " blank(s) filled, " + result.kept + " EX/LOA kept."
+      : "Filled " + result.filled + " blank cell(s).", "success");
+    await runMetAudit();
+  } catch (err) {
+    showToast(err.message || "Write failed.", "error");
+  } finally {
+    if (btn) { btn.innerHTML = label; }
+  }
+}
+
+// ── MET database sync ─────────────────────────────────────────────
+// "Check" is a dry run: it shows exactly who would be removed (no longer in the
+// MET group) and who would be added (newly joined constables) before anything
+// is written. "Apply" performs the same plan for real.
+var metDbPlan = null;
+
+function metdbList(title, items, colour, render) {
+  if (!items.length) {
+    return '<div class="metdb-col"><div class="metdb-col-head">' + title
+      + ' <span class="metdb-count">0</span></div>'
+      + '<div class="metdb-empty">Nothing to do.</div></div>';
+  }
+  return '<div class="metdb-col"><div class="metdb-col-head">' + title
+    + ' <span class="metdb-count ' + colour + '">' + items.length + '</span></div>'
+    + '<ul class="metdb-list">' + items.map(render).join("") + '</ul></div>';
+}
+
+function renderMetDbPlan(plan, applied) {
+  var box = document.getElementById("metdb-result");
+  if (!box) return;
+
+  if (plan.error) {
+    box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(plan.error) + '</div>';
+    return;
+  }
+
+  var summary = '<div class="metdb-summary">'
+    + '<span><strong>' + (plan.sheetRows || 0) + '</strong> on the sheet</span>'
+    + '<span><strong>' + (plan.groupSize || 0) + '</strong> in the ' + escapeHtml(metDbName()) + ' group</span>'
+    + '<span><strong>' + (plan.keep || 0) + '</strong> matched</span>'
+    + (plan.joinRanks && plan.joinRanks.length
+        ? '<span>new joiners: <strong>' + escapeHtml(plan.joinRanks.join(", ")) + '</strong></span>' : '')
+    + ((plan.renamed && plan.renamed.length)
+        ? '<span><strong>' + plan.renamed.length + '</strong> renamed (kept)</span>' : '')
+    + '</div>'
+    + ((plan.renamed && plan.renamed.length)
+        ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> Matched by Discord ID after a Roblox rename: '
+          + plan.renamed.map(function (r) { return escapeHtml(r.was) + ' → ' + escapeHtml(r.now); }).join(", ")
+          + '</div>' : '');
+
+  var cols = '<div class="metdb-cols">'
+    + metdbList("Remove", plan.remove || [], "bad", function (r) {
+        return '<li><span class="metdb-name">' + escapeHtml(r.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(r.why || ("not in the " + metDbName() + " group")) + '</span></li>';
+      })
+    + metdbList("Add", plan.add || [], "good", function (a) {
+        return '<li><span class="metdb-name">' + escapeHtml(a.username) + '</span>'
+          + '<span class="metdb-why">' + escapeHtml(a.rank || "") + '</span></li>';
+      })
+    + '</div>';
+
+  var footer = applied
+    ? '<div class="metdb-applied"><i class="ti ti-check"></i> Applied · removed '
+      + (plan.removed || 0) + ', added ' + (plan.added || 0)
+      + (plan.errors && plan.errors.length ? ' (' + escapeHtml(plan.errors.join("; ")) + ')' : '') + '</div>'
+    : ((plan.remove || []).length || (plan.add || []).length
+        ? '<div class="metdb-hint"><i class="ti ti-info-circle"></i> Nothing has been written yet. Press <strong>Apply changes</strong> to make it so.</div>'
+        : '<div class="metdb-hint"><i class="ti ti-check"></i> The database already matches the ' + escapeHtml(metDbName()) + ' group.</div>');
+
+  box.innerHTML = summary + cols + footer;
+}
+
+async function checkMetDatabase() {
+  var btn = document.getElementById("btn-metdb-check");
+  var apply = document.getElementById("btn-metdb-apply");
+  var box = document.getElementById("metdb-result");
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:1.4rem;"><div class="spinner"></div></div>';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Checking…"; }
+  try {
+    metDbPlan = await api(metDbUrl(""));
+    renderMetDbPlan(metDbPlan, false);
+    if (apply) apply.disabled = !((metDbPlan.remove || []).length || (metDbPlan.add || []).length);
+  } catch (err) {
+    metDbPlan = null;
+    if (box) box.innerHTML = '<div class="metdb-error"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(err.message || "Check failed.") + '</div>';
+    if (apply) apply.disabled = true;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-search'></i> Check"; }
+  }
+}
+
+async function applyMetDatabase() {
+  if (!metDbPlan) { showToast("Run a check first.", "error"); return; }
+  var total = (metDbPlan.remove || []).length + (metDbPlan.add || []).length;
+  if (!confirm("This will remove " + (metDbPlan.remove || []).length + " member(s) from the database sheet and add "
+      + (metDbPlan.add || []).length + " new joiner(s). " + total + " row(s) change. Continue?")) return;
+  // A removed member's whole row is cleared, so this is not reversible from here.
+
+  var btn = document.getElementById("btn-metdb-apply");
+  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Applying…"; }
+  try {
+    var result = await api(metDbUrl("/sync"), {
+      method: "POST", body: JSON.stringify({ token: metDbPlan.token || null }),
+    });
+    renderMetDbPlan(result, true);
+    showToast(metDbName() + " database synced · removed " + (result.removed || 0) + ", added " + (result.added || 0) + ".", "success");
+    metDbPlan = null;
+    if (typeof loadQuotaCheck === "function") loadQuotaCheck();
+  } catch (err) {
+    showToast(err.message || "Sync failed.", "error");
+  } finally {
+    if (btn) { btn.innerHTML = "<i class='ti ti-refresh'></i> Apply changes"; btn.disabled = true; }
+  }
+}
 
 function openQuotaResetModal() {
   var ri = document.getElementById("quota-reset-confirm-input");
@@ -43,19 +704,57 @@ async function confirmQuotaReset() {
 async function loadQuotaCheck() {
   var tbody = document.getElementById("quota-check-tbody");
   if (!tbody) return;
-  tbody.innerHTML = "<tr><td colspan='7' class='table-loading'><div class='spinner'></div></td></tr>";
+  tbody.innerHTML = "<tr><td colspan='8' class='table-loading'><div class='spinner'></div></td></tr>";
   try {
     var d = await api("/api/quota/members");
     if (!d || !d.configured) {
-      tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span></td></tr>";
+      var CFG = window.metEmpty
+        ? window.metEmpty({ icon: "ti-alert-triangle", title: "Quota sheet not configured", sub: "Read access needs the Google service account." })
+        : "<span class='table-empty-text'>Quota sheet read access isn't configured (needs the Google service account).</span>";
+      tbody.innerHTML = "<tr><td colspan='8' class='table-empty'>" + CFG + "</td></tr>";
       return;
     }
     quotaMembersCache = d.members || [];
     renderQuotaCheck();
     populateIotwSelector();
   } catch (e) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>Failed to load quota data.</span></td></tr>";
+    tbody.innerHTML = "<tr><td colspan='8' class='table-empty'><span class='table-empty-text'>Failed to load quota data.</span></td></tr>";
   }
+}
+
+// Which rank the table is filtered to ("ALL" = everyone).
+var quotaRankFilter = "ALL";
+
+function setQuotaRankFilter(v) { quotaRankFilter = v || "ALL"; renderQuotaCheck(); }
+
+// The rank picker, built from the ranks actually present on the sheet.
+function renderQuotaFilter() {
+  var host = document.getElementById("quota-check-filter");
+  if (!host) return;
+  var ranks = [];
+  quotaMembersCache.forEach(function (m) {
+    var r = (m.rank || "").trim();
+    if (r && ranks.indexOf(r) < 0) ranks.push(r);
+  });
+  var w = window.metRankWeight || function () { return 0; };
+  ranks.sort(function (a, b) { return w(a) - w(b); });
+  if (ranks.length < 2) { host.innerHTML = ""; return; }
+  var opts = ["<option value='ALL'" + (quotaRankFilter === "ALL" ? " selected" : "") + ">All ranks</option>"];
+  ranks.forEach(function (r) {
+    opts.push("<option value='" + escapeHtml(r) + "'" + (quotaRankFilter === r ? " selected" : "") + ">" + escapeHtml(r) + "</option>");
+  });
+  host.innerHTML = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' "
+    + "title='Filter by rank' onchange='setQuotaRankFilter(this.value)'>" + opts.join("") + "</select>";
+}
+
+// Whether the quota was met, as a chip. Same wording as every other division's
+// table: "MET" on its own reads as the police service, so it says which.
+function quotaStatusChip(m) {
+  var q = m.quota || {};
+  if (q.exempt) return "<span class='badge badge-approved' style='background:color-mix(in srgb,var(--purple,#9b6dff) 20%,transparent);color:var(--purple,#9b6dff);'><span class='badge-dot'></span>Quota exempt</span>";
+  if (m.met === true)  return "<span class='badge badge-approved'><span class='badge-dot'></span>Quota met</span>";
+  if (m.met === false) return "<span class='badge badge-pending'><span class='badge-dot'></span>Quota not met</span>";
+  return "<span class='text-muted' style='font-size:12px;'>·</span>";
 }
 
 function renderQuotaCheck() {
@@ -63,21 +762,46 @@ function renderQuotaCheck() {
   var countEl = document.getElementById("quota-check-count");
   if (!tbody) return;
   if (!quotaMembersCache.length) {
-    tbody.innerHTML = "<tr><td colspan='7' class='table-empty'><span class='table-empty-text'>No members found in the sheet.</span></td></tr>";
+    var EMPTY = window.metEmpty
+      ? window.metEmpty({ icon: "ti-users", title: "No members found in the sheet." })
+      : "<span class='table-empty-text'>No members found in the sheet.</span>";
+    tbody.innerHTML = "<tr><td colspan='8' class='table-empty'>" + EMPTY + "</td></tr>";
     if (countEl) countEl.textContent = "";
+    renderQuotaFilter();
     return;
   }
-  if (countEl) countEl.textContent = quotaMembersCache.length + " members";
+  renderQuotaFilter();
 
-  tbody.innerHTML = quotaMembersCache.map(function (m, i) {
+  // Rank order, highest first — and the index kept, because the decision
+  // dropdowns write back into quotaMembersCache by position.
+  var w = window.metRankWeight || function () { return 0; };
+  var idxs = [];
+  for (var n = 0; n < quotaMembersCache.length; n++) {
+    if (quotaRankFilter !== "ALL" && (quotaMembersCache[n].rank || "").trim() !== quotaRankFilter) continue;
+    idxs.push(n);
+  }
+  idxs.sort(function (a, b) { return (w(quotaMembersCache[a].rank) - w(quotaMembersCache[b].rank)) || (a - b); });
+
+  if (countEl) {
+    countEl.textContent = idxs.length === quotaMembersCache.length
+      ? quotaMembersCache.length + " members"
+      : idxs.length + " of " + quotaMembersCache.length + " members";
+  }
+  if (!idxs.length) {
+    tbody.innerHTML = "<tr><td colspan='8' class='table-empty'><span class='table-empty-text'>No members at that rank.</span></td></tr>";
+    return;
+  }
+
+  tbody.innerHTML = idxs.map(function (i) {
+    var m = quotaMembersCache[i];
     var q       = m.quota || {};
     var exempt  = !!q.exempt;
     var reduced = (!exempt && q.reducedBy && q.target != null);
     var original = reduced ? (q.target + q.reducedBy) : null;
-    var target  = exempt ? "EX" : (q.target != null ? q.target : "—");
+    var target  = exempt ? "EX" : (q.target != null ? q.target : "·");
     // Make it clear the original target was reduced (Investigator of the Week).
     var reducedNote = reduced
-      ? " <span style='color:var(--amber);font-size:10px;' title='Investigator of the Week — original target " + original + ", reduced by " + q.reducedBy + "'>(was " + original + ", IOTW −" + q.reducedBy + ")</span>"
+      ? " <span style='color:var(--amber);font-size:10px;' title='Investigator of the Week · original target " + original + ", reduced by " + q.reducedBy + "'>(was " + original + ", IOTW −" + q.reducedBy + ")</span>"
       : "";
     // Pass ONLY when the quota was actually met; everything else fails (or exempt).
     if (!m._status) m._status = exempt ? "exempt" : (m.met === true ? "pass" : "fail");
@@ -85,10 +809,10 @@ function renderQuotaCheck() {
     var ptColor = (exempt || status === "exempt" || status === "loa") ? "var(--purple)" : (m.met ? "var(--green)" : "var(--amber)");
 
     var sel = "<select class='form-control' style='padding:4px 8px;height:auto;font-size:12px;' onchange='setQuotaStatus(" + i + ",this.value)'>"
-      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">✅ Pass</option>"
-      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">❌ Fail</option>"
-      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">🟣 Exempt</option>"
-      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">🟠 Leave of Absence</option>"
+      + "<option value='pass'"   + (status === "pass"   ? " selected" : "") + ">Pass</option>"
+      + "<option value='fail'"   + (status === "fail"   ? " selected" : "") + ">Fail</option>"
+      + "<option value='exempt'" + (status === "exempt" ? " selected" : "") + ">Exempt</option>"
+      + "<option value='loa'"    + (status === "loa"    ? " selected" : "") + ">Leave of Absence</option>"
       + "</select>";
     var reason = "<input type='text' class='form-control' style='padding:4px 8px;height:auto;font-size:12px;"
       + (status === "fail" ? "" : "display:none;") + "' id='quota-reason-" + i + "' placeholder='Reason…' value='"
@@ -96,10 +820,11 @@ function renderQuotaCheck() {
 
     return "<tr>"
       + "<td><span style='font-weight:600;font-size:12px;'>" + escapeHtml(m.username) + "</span></td>"
-      + "<td><span style='font-size:12px;'>" + escapeHtml(m.rank || "—") + "</span></td>"
+      + "<td><span style='font-size:12px;'>" + escapeHtml(m.rank || "·") + "</span></td>"
       + "<td><span class='text-muted' style='font-size:11px;'>" + escapeHtml(q.tier || "") + "</span></td>"
       + "<td><span style='font-weight:700;color:" + ptColor + ";'>" + (exempt ? "EX" : m.total) + "</span></td>"
       + "<td><span class='mono' style='font-size:12px;'>" + target + reducedNote + "</span></td>"
+      + "<td>" + quotaStatusChip(m) + "</td>"
       + "<td>" + sel + "</td>"
       + "<td>" + reason + "</td>"
       + "</tr>";
@@ -126,20 +851,20 @@ function populateIotwSelector() {
   });
   var defaultIdx = tops.length ? tops[0] : "";
 
-  var opts = "<option value=''>— No Investigator of the Week —</option>";
+  var opts = "<option value=''>· No Investigator of the Week ·</option>";
   quotaMembersCache.forEach(function (m, i) {
-    var star = tops.indexOf(i) >= 0 ? " ⭐" : "";
+    var star = tops.indexOf(i) >= 0 ? " ★" : "";
     opts += "<option value='" + i + "'" + (i === defaultIdx ? " selected" : "") + ">"
       + escapeHtml(m.username) + (m.rank ? " · " + escapeHtml(m.rank) : "")
-      + " — " + (Number(m.total) || 0) + " pts" + star + "</option>";
+      + " · " + (Number(m.total) || 0) + " pts" + star + "</option>";
   });
   sel.innerHTML = opts;
 
   if (tie) {
     if (tops.length > 1) {
       tie.style.display = "";
-      tie.textContent = "⚠ Tie for highest (" + max + " pts) between "
-        + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " — pick one.";
+      tie.textContent = "Tie for highest (" + max + " pts) between "
+        + tops.map(function (i) { return quotaMembersCache[i].username; }).join(", ") + " · pick one.";
     } else {
       tie.style.display = "none";
     }
@@ -236,7 +961,7 @@ async function submitQuotaCheck() {
     if (iotwUsername) {
       iotwMsg = (resp && resp.iotw && resp.iotw.ok)
         ? " " + iotwUsername + " is now Investigator of the Week."
-        : " (Couldn't update the IOTW role — check the bot's access to that server.)";
+        : " (Couldn't update the IOTW role · check the bot's access to that server.)";
     }
     showToast("Quota review posted to Discord." + iotwMsg, "success");
   } catch (err) {

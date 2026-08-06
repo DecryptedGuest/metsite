@@ -1,0 +1,144 @@
+// server/lib/exile.js
+// Removing somebody from the Metropolitan Police means removing them from ALL
+// of it.
+//
+// A Termination or a Blacklist used to exile from the MET umbrella group only.
+// But somebody terminated from the MET is not still a CID detective, an SCO-19
+// firearms officer or an FLP responder — and every divisional group they stay
+// in is a live rank, a live set of permissions on this dashboard, and a way
+// back in. "Terminated" that leaves four group memberships standing is not a
+// termination, it is a paperwork exercise.
+//
+// So this exiles from the umbrella group and then from every divisional group
+// they are actually in. It reports each one separately, because a partial
+// removal is exactly the thing somebody needs to know about and finish by hand.
+//
+// Everything is best-effort per group: one group refusing must not stop the
+// rest, and a Roblox outage must not make a termination read as failed when the
+// record, the role and the log all landed.
+
+const { ALL, explicitGroupId, metGroupId, META } = require('./divisions');
+
+/**
+ * Which groups a termination should cover: the MET umbrella first, then every
+ * division that has a group id configured.
+ */
+function exileTargets() {
+  const out = [];
+  const met = metGroupId();
+  if (met) out.push({ key: 'MET', name: 'Metropolitan Police', groupId: String(met) });
+  for (const d of ALL) {
+    const gid = explicitGroupId(d);
+    // Never list the same group twice — a division pinned to the umbrella group
+    // would otherwise be exiled from, and reported, twice.
+    if (!gid || out.some(x => x.groupId === String(gid))) continue;
+    out.push({ key: d, name: (META[d] && META[d].fullName) || d, groupId: String(gid) });
+  }
+  return out;
+}
+
+/**
+ * Exile a Roblox user from the MET and from every division they are in.
+ *
+ * Membership is checked before exiling so the result distinguishes "removed"
+ * from "was never in it" — a report that says "removed from 5 groups" when they
+ * were only in two is a report nobody can act on.
+ *
+ * @param {string|number} robloxUserId
+ * @param {object} [opts]
+ * @param {boolean} [opts.metOnly=false] skip the divisions (the old behaviour)
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   removed: Array<{key,name}>,
+ *   notIn: Array<{key,name}>,
+ *   failed: Array<{key,name,error}>,
+ *   summary: string,
+ * }>}
+ */
+async function exileEverywhere(robloxUserId, opts = {}) {
+  const roblox = require('./roblox');
+  const out = { ok: false, removed: [], notIn: [], failed: [], summary: '' };
+  if (!robloxUserId) { out.summary = 'no linked Roblox account'; return out; }
+
+  const targets = opts.metOnly ? exileTargets().slice(0, 1) : exileTargets();
+
+  for (const t of targets) {
+    let inGroup = null;
+    try {
+      const role = await roblox.getUserGroupRole(String(robloxUserId), t.groupId);
+      inGroup = !!(role && Number(role.rank) > 0);
+    } catch (err) {
+      // Unknown membership is not "not a member" — try the exile and let the
+      // API say. Skipping on a failed read is how somebody stays in a group.
+      inGroup = null;
+    }
+
+    if (inGroup === false) { out.notIn.push({ key: t.key, name: t.name }); continue; }
+
+    try {
+      const done = await roblox.exileFromGroup(String(robloxUserId), t.groupId);
+      if (done) out.removed.push({ key: t.key, name: t.name });
+      else if (inGroup === null) out.notIn.push({ key: t.key, name: t.name });
+      else out.failed.push({ key: t.key, name: t.name, error: 'the group refused the exile' });
+    } catch (err) {
+      out.failed.push({ key: t.key, name: t.name, error: err.message });
+    }
+  }
+
+  // The MET umbrella is the one that has to succeed. A division refusing is
+  // worth reporting and finishing by hand; the umbrella refusing means they are
+  // still an officer.
+  const metResult = targets[0] && (out.removed.some(x => x.key === 'MET') || out.notIn.some(x => x.key === 'MET'));
+  out.ok = !!metResult;
+
+  const bits = [];
+  if (out.removed.length) bits.push(`removed from ${out.removed.map(x => x.key).join(', ')}`);
+  if (out.notIn.length && !out.removed.length) bits.push('was not in any group');
+  else if (out.notIn.length) bits.push(`not in ${out.notIn.map(x => x.key).join(', ')}`);
+  if (out.failed.length) bits.push(`FAILED for ${out.failed.map(x => x.key).join(', ')}`);
+  out.summary = bits.join(' · ') || 'nothing to do';
+  return out;
+}
+
+/**
+ * The Discord half of an exile: strip the member of every MET role.
+ *
+ * Removing somebody from the Roblox group does not touch Discord, so a
+ * terminated officer kept every rank, division and permission role in the
+ * server. This strips them, keeping only the Blacklist role when the punishment
+ * is a Blacklist (the record has to stay visible on the account), plus anything
+ * an admin has explicitly protected via DISCIPLINE_KEEP_ROLE_IDS.
+ *
+ * @param {string} discordUserId
+ * @param {string[]} actionNames  the actions being applied (e.g. ['Blacklist'])
+ * @returns {Promise<{ stripped, summary, keptBlacklist }|null>} null if there is
+ *   nothing to strip (no discord id, or none of the actions exile)
+ */
+async function stripDiscordRolesForExile(discordUserId, actionNames = []) {
+  if (!discordUserId) return null;
+  const { ACTION_CONFIG } = require('./actions');
+  const names = Array.isArray(actionNames) ? actionNames : [actionNames];
+  const anyExile = names.some(n => ACTION_CONFIG[n] && ACTION_CONFIG[n].exile);
+  if (!anyExile) return null;
+
+  const keep = [];
+  // A Blacklist keeps its own role so the account still reads as blacklisted.
+  const isBlacklist = names.includes('Blacklist');
+  if (isBlacklist) {
+    const blRole = ACTION_CONFIG['Blacklist'] && ACTION_CONFIG['Blacklist'].roleId;
+    if (blRole) keep.push(String(blRole));
+  }
+  // An escape hatch: roles the owner never wants a discipline to remove.
+  for (const r of String(process.env.DISCIPLINE_KEEP_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean)) keep.push(r);
+
+  const res = await require('./bot').stripMetRoles(discordUserId, {
+    keepRoleIds: keep,
+    reason: `MET ${isBlacklist ? 'blacklist' : 'termination'}: roles stripped`,
+  });
+  const parts = [`removed ${res.removed} role(s)`];
+  if (res.kept) parts.push(`kept ${res.kept}`);
+  if (res.skipped) parts.push(`${res.skipped} above the bot or managed`);
+  return { stripped: res.removed, keptBlacklist: isBlacklist, summary: parts.join(' · ') };
+}
+
+module.exports = { exileEverywhere, exileTargets, stripDiscordRolesForExile };

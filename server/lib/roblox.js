@@ -18,7 +18,7 @@ function roverOnCooldown() { return Date.now() < roverCooldownUntil; }
 function tripRoverCooldown(retryAfterSec) {
   const ms = (Number(retryAfterSec) > 0 ? Number(retryAfterSec) : 900) * 1000; // default 15 min
   roverCooldownUntil = Date.now() + ms;
-  console.warn(`[RoVer] rate-limited — pausing all RoVer lookups for ${Math.round(ms / 60000)} min.`);
+  console.warn(`[RoVer] rate-limited · pausing all RoVer lookups for ${Math.round(ms / 60000)} min.`);
 }
 
 // Called on server startup — warm up the Roblox CSRF token if a cookie is set.
@@ -90,7 +90,7 @@ async function getRobloxIdFromDiscord(discordUserId, opts = {}) {
       // no retry storm) so we don't extend the ban.
       if (res.status === 429) {
         tripRoverCooldown(body && body.detail && body.detail.retryAfter);
-        return hit ? hit.robloxId : null;
+        return hit ? hit.robloxId : (await storedRobloxId(discordUserId)); // fall back to the stored DB link
       }
 
       // "not verified" is a normal, non-error outcome — cache as unlinked
@@ -111,7 +111,7 @@ async function getRobloxIdFromDiscord(discordUserId, opts = {}) {
     robloxId = data.robloxId ? String(data.robloxId) : null;
   } else {
     // Public fallback — no key required
-    console.warn('ROVER_API_KEY not set — falling back to public RoVer API (rate-limited).');
+    console.warn('ROVER_API_KEY not set · falling back to public RoVer API (rate-limited).');
     const res = await fetch(`https://verify.eryn.io/api/user/${discordUserId}`);
 
     if (res.status === 404) {
@@ -120,7 +120,7 @@ async function getRobloxIdFromDiscord(discordUserId, opts = {}) {
     }
     if (res.status === 429) {
       tripRoverCooldown(parseInt(res.headers.get('retry-after'), 10));
-      return hit ? hit.robloxId : null;
+      return hit ? hit.robloxId : (await storedRobloxId(discordUserId)); // fall back to the stored DB link
     }
     if (!res.ok) {
       console.error(`Public RoVer API error [${res.status}]`);
@@ -164,12 +164,32 @@ async function getDiscordFromRoblox(robloxUserId) {
   const apiKey  = process.env.ROVER_API_KEY;
   if (!guildId || !apiKey) return [];
 
+  // RoVer's rate limit is per key, so it is SHARED with getRobloxIdFromDiscord —
+  // and that one is what every login uses to find somebody's Roblox account, and
+  // through it their divisions. This direction is the bulk one (a leaderboard
+  // import asks it a thousand times), so ignoring the cooldown here meant a batch
+  // job could spend the whole budget and leave ordinary logins unable to resolve
+  // anybody. It throws rather than returning [] because "nobody is linked to this
+  // account" is a fact, and this is not that.
+  if (roverOnCooldown()) throw new Error('RoVer is rate-limited · paused');
+
   const url = `${ROVER_API}/${guildId}/roblox-to-discord/${key}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
 
   if (res.status === 404) {
     roverReverseCache.set(key, { members: [], expires: Date.now() + ROVER_TTL });
     return [];
+  }
+  if (res.status === 429) {
+    // Trip the SAME cooldown the forward direction respects, so one hammered
+    // endpoint cannot keep hammering the other's budget.
+    let retryAfter = parseInt(res.headers.get('retry-after'), 10);
+    try {
+      const body = await res.json();
+      if (body && body.detail && body.detail.retryAfter) retryAfter = Number(body.detail.retryAfter);
+    } catch (e) { /* the header, or the default */ }
+    tripRoverCooldown(retryAfter);
+    throw new Error('RoVer rate-limited this lookup');
   }
   if (!res.ok) {
     const contentType = res.headers.get('content-type') || '';
@@ -209,6 +229,12 @@ async function getRobloxUserInfo(robloxUserId) {
       id:          String(data.id),
       username:    data.name,
       displayName: data.displayName,
+      // The same call already returns these; not passing them on meant every
+      // caller who wanted an account age had to make a second identical request.
+      // MET's tryout rule is a 100-day-old account, so somebody always wants it.
+      createdAt:   data.created || null,
+      description: data.description || null,
+      banned:      !!data.isBanned,
     };
   } catch (err) {
     console.error('Roblox user info error:', err.message);
@@ -222,22 +248,141 @@ async function getRobloxUserInfo(robloxUserId) {
  */
 const groupRoleCache = new Map(); // `${robloxUserId}:${groupId}` → { role, expires }
 const GROUP_ROLE_TTL = 30 * 60 * 1000; // 30 min — ranks rarely change minute-to-minute
-async function getUserGroupRole(robloxUserId, groupId) {
-  if (!groupId || !robloxUserId) return null;
-  const key = `${robloxUserId}:${groupId}`;
-  const hit = groupRoleCache.get(key);
-  if (hit && Date.now() < hit.expires) return hit.role;
+async function getUserGroupRole(robloxUserId, groupId, diag) {
+  const roles = await getUserGroupRoles(robloxUserId, groupId, diag);
+  if (!roles || !roles.length) return null;
+  // Backwards-compatible single-role callers get the highest-rank role held.
+  return roles.reduce((a, b) => (Number(b.rank) > Number(a.rank) ? b : a));
+}
+
+// Every group a Roblox user is in, with the rank they hold in each. Public v2
+// endpoint (no auth). Returns [{ group:{id,name,memberCount}, role:{id,name,rank} }]
+// sorted by rank (highest first). Cached ~15 min. Empty on error / no groups.
+const userGroupsCache = new Map(); // robloxUserId → { groups, expires }
+async function getUserGroups(robloxUserId) {
+  if (!robloxUserId) return [];
+  const hit = userGroupsCache.get(String(robloxUserId));
+  if (hit && Date.now() < hit.expires) return hit.groups;
   try {
     const res = await fetch(`https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`);
-    if (!res.ok) return hit ? hit.role : null; // serve stale on transient error
+    if (!res.ok) return hit ? hit.groups : [];
     const data = await res.json();
-    const g = (data.data || []).find(x => String(x.group.id) === String(groupId));
-    const role = g ? g.role : null;
-    groupRoleCache.set(key, { role, expires: Date.now() + GROUP_ROLE_TTL });
-    return role;
+    const groups = (data.data || [])
+      .filter(x => x && x.group && x.role)
+      .map(x => ({
+        group: { id: String(x.group.id), name: x.group.name, memberCount: x.group.memberCount },
+        role:  { id: x.role.id, name: x.role.name, rank: x.role.rank },
+      }))
+      .sort((a, b) => Number(b.role.rank) - Number(a.role.rank));
+    userGroupsCache.set(String(robloxUserId), { groups, expires: Date.now() + 15 * 60 * 1000 });
+    return groups;
   } catch (err) {
-    console.error('Group role lookup error:', err.message);
-    return hit ? hit.role : null;
+    console.error('User groups lookup error:', err.message);
+    return hit ? hit.groups : [];
+  }
+}
+
+// Get ALL of a user's roles in a SPECIFIC group. Roblox now lets a member hold
+// more than one role in a single group; the public v2 endpoint surfaces that as
+// multiple `{ group, role }` entries for the same group id, so we collect every
+// match (not just the first). Returns [{ id, name, rank }] — empty if not a
+// member / lookup failed. Cached for 30 min (ranks rarely change minute-to-minute).
+const groupRolesCache = new Map(); // `${robloxUserId}:${groupId}` → { roles, expires }
+/**
+ * @param {object} [diag] filled in with { failed, stale } — whether the lookup
+ *        could not be completed, and whether a stale cached answer was served in
+ *        its place.
+ *
+ *        This exists because an empty array is TWO different answers: "I asked, and
+ *        they hold no rank in that group" and "I could not ask". Everything here
+ *        returns [] for both, which is right for a reader — but callers that WRITE
+ *        the result have to tell them apart, or a Roblox rate limit becomes a
+ *        member losing their divisions. That is not hypothetical: it happened, and
+ *        the guard added afterwards could not see it, because a failure inside this
+ *        function never reached the caller in any form.
+ *
+ *        A FRESH cache hit is a real answer and is not flagged. A failure that was
+ *        covered by stale cache is still flagged — over-reporting only means a
+ *        caller declines to shrink a list this pass, which is the safe direction.
+ */
+async function getUserGroupRoles(robloxUserId, groupId, diag) {
+  const d = diag || {};
+  d.failed = false; d.stale = false;
+  if (!groupId || !robloxUserId) return [];
+  const key = `${robloxUserId}:${groupId}`;
+  const hit = groupRolesCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.roles;
+  try {
+    const res = await fetch(`https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`);
+    if (!res.ok) {
+      // The one that actually happens: 429. Reported, not swallowed.
+      d.failed = true; d.stale = !!hit;
+      return hit ? hit.roles : []; // serve stale on transient error
+    }
+    const data = await res.json();
+    const roles = (data.data || [])
+      .filter(x => x && x.group && String(x.group.id) === String(groupId) && x.role)
+      .map(x => x.role);
+    groupRolesCache.set(key, { roles, expires: Date.now() + GROUP_ROLE_TTL });
+    // Keep the legacy single-role cache warm too, for getGroupMembership callers.
+    groupRoleCache.set(key, {
+      role: roles.length ? roles.reduce((a, b) => (Number(b.rank) > Number(a.rank) ? b : a)) : null,
+      expires: Date.now() + GROUP_ROLE_TTL,
+    });
+    return roles;
+  } catch (err) {
+    console.error('Group roles lookup error:', err.message);
+    d.failed = true; d.stale = !!hit;
+    return hit ? hit.roles : [];
+  }
+}
+
+/**
+ * Public (no-auth) list of a group's roles: [{ id, name, rank }]. Uses the
+ * groups.roblox.com v1 endpoint. Returns [] on error. Used to map role ids
+ * (e.g. from the Open Cloud memberships API) to their real names + ranks.
+ */
+const publicRolesCache = new Map(); // groupId → { roles, expires }
+async function getGroupRolesPublic(groupId) {
+  if (!groupId) return [];
+  const key = String(groupId);
+  const hit = publicRolesCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.roles;
+  try {
+    const res = await fetch(`https://groups.roblox.com/v1/groups/${key}/roles`);
+    if (!res.ok) return hit ? hit.roles : [];
+    const data = await res.json();
+    const roles = (data.roles || []).map(r => ({ id: String(r.id), name: r.name, rank: r.rank }));
+    publicRolesCache.set(key, { roles, expires: Date.now() + 60 * 60 * 1000 }); // 1h — ranks rarely change
+    return roles;
+  } catch (err) {
+    console.error('Group public roles error:', err.message);
+    return hit ? hit.roles : [];
+  }
+}
+
+/**
+ * Batch-resolve many Roblox user IDs to { id, username, displayName } in one
+ * request (public Users API, no auth). Returns a Map keyed by string id.
+ * Best-effort: unresolved / errored ids are simply absent from the map.
+ */
+async function getRobloxUsersInfo(userIds) {
+  const ids = [...new Set((userIds || []).map(String).filter(Boolean))].map(Number).filter(Number.isFinite);
+  const out = new Map();
+  if (!ids.length) return out;
+  try {
+    const res = await fetch('https://users.roblox.com/v1/users', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userIds: ids, excludeBannedUsers: false }),
+    });
+    if (!res.ok) return out;
+    const data = await res.json();
+    for (const u of (data.data || [])) out.set(String(u.id), { id: String(u.id), username: u.name, displayName: u.displayName });
+    return out;
+  } catch (err) {
+    console.error('Roblox batch user info error:', err.message);
+    return out;
   }
 }
 
@@ -263,21 +408,174 @@ async function getRobloxIdFromUsername(username) {
 }
 
 /**
- * Fetch a Roblox user's headshot thumbnail URL. Public API, no auth.
- * Returns a PNG URL or null.
+ * Resolve many Roblox usernames at once.
+ *
+ * The same endpoint takes an array, so a thousand names cost eleven calls rather
+ * than a thousand. Returns a Map keyed on the LOWERCASED name that was asked
+ * for — Roblox usernames are unique case-insensitively, and the caller needs to
+ * find its own entry again.
+ *
+ * Only exact matches go in the Map. Roblox will answer a request for "the" with
+ * the real account called "the", which is a stranger rather than the person a
+ * truncated leaderboard row meant, so a caller has to be able to tell an exact
+ * hit from a miss.
+ *
+ * Two things this has to be careful about, both learned the hard way:
+ *
+ *   RATE LIMITS ARE THE NORM HERE, not the exception. Unauthenticated, this
+ *   endpoint starts answering 429 after a couple of batches. So batches are
+ *   PACED, and a 429 is retried with backoff (honouring Retry-After) rather than
+ *   dropped.
+ *
+ *   "WE COULDN'T ASK" IS NOT "THEY DON'T EXIST". A batch that never succeeded is
+ *   reported in `failed`, separately from names Roblox answered about and did not
+ *   know. Folding the two together told a caller that 820 real officers were not
+ *   Roblox accounts, which was false and would have been acted on.
+ *
+ * @param {string[]} names
+ * @param {{ chunk?: number, gapMs?: number, attempts?: number, onBatch?: function }} [opts]
+ *        onBatch({ done, total, failed }) after each batch, for a progress line —
+ *        a three-minute job with no visible progress looks like a hang.
+ * @returns {Promise<{ users: Map<string, {id, username, displayName}>, failed: string[], calls: number, retries: number }>}
  */
+async function getRobloxIdsFromUsernames(names, opts = {}) {
+  const users = new Map();
+  const failed = [];
+  const chunk = Math.max(1, Math.min(100, opts.chunk || 100));
+  // Measured against the live endpoint with 1,120 names: at a 400ms gap and four
+  // retries topping out at 8s, 300 names were still being refused at the end. The
+  // window Roblox counts over is longer than that, so the gap is a second and the
+  // backoff goes to a minute.
+  const gapMs = opts.gapMs == null ? 1000 : Math.max(0, opts.gapMs);
+  const attempts = Math.max(1, opts.attempts || 8);
+  const backoff = (n) => Math.min(60000, 2000 * Math.pow(2, n - 1));
+  const wanted = [...new Set((names || []).map(n => String(n || '').trim()).filter(Boolean))];
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let calls = 0, retries = 0;
+
+  for (let i = 0; i < wanted.length; i += chunk) {
+    const slice = wanted.slice(i, i + chunk);
+    if (i && gapMs) await sleep(gapMs);
+
+    let done = false;
+    for (let attempt = 1; attempt <= attempts && !done; attempt++) {
+      try {
+        calls++;
+        const res = await fetch('https://users.roblox.com/v1/usernames/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usernames: slice, excludeBannedUsers: false }),
+        });
+
+        if (res.status === 429 || res.status >= 500) {
+          if (attempt === attempts) break;
+          // Retry-After when they give one, otherwise 1s, 2s, 4s, 8s.
+          const after = parseFloat(res.headers.get('retry-after') || '');
+          const wait = Number.isFinite(after) && after > 0
+            ? Math.min(60000, after * 1000)
+            : backoff(attempt);
+          retries++;
+          await sleep(wait);
+          continue;
+        }
+        if (!res.ok) break;   // a 4xx that is not a rate limit will not improve
+
+        const data = await res.json();
+        for (const u of (data.data || [])) {
+          // requestedUsername is what we asked for; name is what the account is
+          // called now. Key on both, so a row written under an old name still
+          // finds its account.
+          const rec = { id: String(u.id), username: u.name, displayName: u.displayName };
+          if (u.requestedUsername) users.set(String(u.requestedUsername).toLowerCase(), rec);
+          if (u.name) users.set(String(u.name).toLowerCase(), rec);
+        }
+        done = true;
+      } catch (err) {
+        if (attempt === attempts) {
+          console.warn('Roblox batch username lookup error:', err.message);
+          break;
+        }
+        retries++;
+        await sleep(backoff(attempt));
+      }
+    }
+
+    if (!done) {
+      // Say which names we never got an answer about, so nobody reports them as
+      // non-existent.
+      failed.push(...slice);
+      console.warn(`Roblox batch username lookup gave up on ${slice.length} name(s) after ${attempts} attempts`);
+    }
+    if (typeof opts.onBatch === 'function') {
+      try {
+        opts.onBatch({ done: Math.min(i + chunk, wanted.length), total: wanted.length,
+                       failed: failed.length });
+      } catch (err) { /* a progress line must never break the run */ }
+    }
+  }
+  return { users, failed, calls, retries };
+}
+
+/**
+ * Fetch a Roblox user's headshot thumbnail URL. Public API, no auth.
+ * Returns a PNG URL or null. Cached per user id (headshots change rarely) so the
+ * topbar/sidebar don't re-hit Roblox on every dashboard load.
+ */
+const headshotCache = new Map(); // robloxUserId → { url, expires }
+const HEADSHOT_TTL = 6 * 60 * 60 * 1000; // 6h
 async function getRobloxAvatarHeadshot(robloxUserId) {
+  if (!robloxUserId) return null;
+  const key = String(robloxUserId);
+  const hit = headshotCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.url;
   try {
     const res = await fetch(
-      `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${robloxUserId}&size=150x150&format=Png&isCircular=false`,
+      `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${key}&size=150x150&format=Png&isCircular=false`,
     );
-    if (!res.ok) return null;
+    if (!res.ok) return hit ? hit.url : null;
     const data = await res.json();
-    return (data.data && data.data[0] && data.data[0].imageUrl) || null;
+    const url = (data.data && data.data[0] && data.data[0].imageUrl) || null;
+    headshotCache.set(key, { url, expires: Date.now() + HEADSHOT_TTL });
+    return url;
   } catch (err) {
     console.error('Roblox avatar lookup error:', err.message);
-    return null;
+    return hit ? hit.url : null;
   }
+}
+
+/**
+ * Fetch group icons for a batch of group ids from the public Roblox thumbnails
+ * API (no auth). Returns { [groupId]: imageUrl }. Missing/failed ids are simply
+ * absent. Cached per group id (icons basically never change) so repeated
+ * profile lookups don't re-hit Roblox.
+ */
+const groupIconCache = new Map(); // groupId → { url, expires }
+const GROUP_ICON_TTL = 24 * 60 * 60 * 1000; // 24h
+async function getGroupIcons(groupIds) {
+  const out = {};
+  const want = [...new Set((groupIds || []).map(String).filter(Boolean))];
+  const need = [];
+  for (const id of want) {
+    const hit = groupIconCache.get(id);
+    if (hit && Date.now() < hit.expires) { if (hit.url) out[id] = hit.url; }
+    else need.push(id);
+  }
+  if (!need.length) return out;
+  try {
+    const res = await fetch(`https://thumbnails.roblox.com/v1/groups/icons?groupIds=${need.join(',')}&size=150x150&format=Png&isCircular=false`);
+    if (res.ok) {
+      const data = await res.json();
+      for (const x of (data.data || [])) {
+        const id = String(x.targetId);
+        const url = (x.state === 'Completed' && x.imageUrl) ? x.imageUrl : null;
+        groupIconCache.set(id, { url, expires: Date.now() + GROUP_ICON_TTL });
+        if (url) out[id] = url;
+      }
+    }
+  } catch (err) {
+    console.error('Group icons lookup error:', err.message);
+  }
+  return out;
 }
 
 /**
@@ -286,7 +584,7 @@ async function getRobloxAvatarHeadshot(robloxUserId) {
  * Returns the membership object { group, role } or null if not in group.
  */
 async function getGroupMembership(robloxUserId) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+  const groupId = mainGroupId();
   if (!groupId) return null;
 
   try {
@@ -354,9 +652,30 @@ async function getOfficerProfileByRobloxId(robloxUserId) {
 // The bot account must be in the group with permission to manage members.
 
 const ROBLOX_GROUPS = 'https://groups.roblox.com/v1';
-let csrfToken = null; // cached X-CSRF-TOKEN, refreshed automatically on 403
+// X-CSRF-TOKEN is per account/cookie, so cache it keyed by cookie. Different
+// divisions can manage their group with a different bot account (e.g. CID uses
+// CID_ROBLOX_BOT_COOKIE) — each needs its own token.
+const _csrfByCookie = new Map(); // cookie -> token
 
 function robloxCookie() {
+  return process.env.ROBLOX_COOKIE || null;
+}
+
+// The MET umbrella group id used for the default group operations (exile,
+// demote, membership, role list, nickname sync). Historically only
+// ROBLOX_GROUP_ID was read, but the deployed config puts the real MET group id
+// in GROUP_MET (ROBLOX_GROUP_ID ships empty), which silently disabled every
+// main-group action. Fall back GROUP_MET → the known MET group id so those work
+// out of the box. Matches divisions.metGroupId().
+function mainGroupId() {
+  return process.env.ROBLOX_GROUP_ID || process.env.GROUP_MET || '17275620';
+}
+
+// The cookie to manage a given division's group. CID uses its own bot account
+// (CID_ROBLOX_BOT_COOKIE) when set; everything else uses the default ROBLOX_COOKIE.
+function cookieForDivision(division) {
+  const d = String(division || '').toUpperCase();
+  if (d === 'CID' && process.env.CID_ROBLOX_BOT_COOKIE) return process.env.CID_ROBLOX_BOT_COOKIE;
   return process.env.ROBLOX_COOKIE || null;
 }
 
@@ -364,17 +683,19 @@ function robloxCookie() {
  * Authenticated fetch against the Roblox web API.
  * Adds the .ROBLOSECURITY cookie + X-CSRF-TOKEN, and transparently refreshes
  * the CSRF token (Roblox returns a fresh one in the 403 response header).
+ * `cookie` overrides the default account (for per-division bot accounts).
  */
-async function robloxAuthFetch(url, options = {}, allowRetry = true) {
-  const cookie = robloxCookie();
-  if (!cookie) throw new Error('ROBLOX_COOKIE is not set');
+async function robloxAuthFetch(url, options = {}, allowRetry = true, cookie) {
+  const ck = cookie || robloxCookie();
+  if (!ck) throw new Error('ROBLOX_COOKIE is not set');
 
   const headers = {
-    Cookie:         `.ROBLOSECURITY=${cookie}`,
+    Cookie:         `.ROBLOSECURITY=${ck}`,
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
-  if (csrfToken) headers['X-CSRF-TOKEN'] = csrfToken;
+  const tok = _csrfByCookie.get(ck);
+  if (tok) headers['X-CSRF-TOKEN'] = tok;
 
   const res = await fetch(url, { ...options, headers });
 
@@ -382,8 +703,8 @@ async function robloxAuthFetch(url, options = {}, allowRetry = true) {
   if (res.status === 403 && allowRetry) {
     const fresh = res.headers.get('x-csrf-token');
     if (fresh) {
-      csrfToken = fresh;
-      return robloxAuthFetch(url, options, false);
+      _csrfByCookie.set(ck, fresh);
+      return robloxAuthFetch(url, options, false, ck);
     }
   }
   return res;
@@ -395,7 +716,7 @@ async function initCsrfReal() {
   try {
     const res = await robloxAuthFetch('https://auth.roblox.com/v2/logout', { method: 'POST' }, false);
     const fresh = res.headers.get('x-csrf-token');
-    if (fresh) csrfToken = fresh;
+    if (fresh) _csrfByCookie.set(robloxCookie(), fresh);
   } catch (e) { /* token will be fetched lazily on first real call */ }
 }
 
@@ -403,16 +724,21 @@ async function initCsrfReal() {
  * Exile (kick) a Roblox user from the configured group.
  * DELETE /groups/{groupId}/users/{userId}. Returns true/false.
  */
-async function exileFromGroup(robloxUserId) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
-  if (!groupId || !robloxCookie()) {
-    console.warn('Group exile skipped — ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
+async function exileFromGroup(robloxUserId, gid, cookie) {
+  const groupId = gid || mainGroupId();
+  const ck = cookie || robloxCookie();
+  if (!groupId || !ck) {
+    console.warn('Group exile skipped · ROBLOX_GROUP_ID or ROBLOX_COOKIE not set.');
     return false;
   }
   try {
-    const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, { method: 'DELETE' });
+    const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, { method: 'DELETE' }, true, ck);
     if (res.ok) {
       console.log(`Roblox exile: user ${robloxUserId} removed from group ${groupId}`);
+      // RoVer-style Discord update — strip the rank prefix on termination.
+      try {
+        require('./rover').roverUpdate({ robloxId: robloxUserId, groupId, terminated: true }).catch(() => {});
+      } catch (e) { /* ignore */ }
       return true;
     }
     const text = await res.text();
@@ -428,11 +754,11 @@ async function exileFromGroup(robloxUserId) {
  * List the group's role definitions (ranks).
  * Returns array of { id, path, name, rank, memberCount }.
  */
-async function listGroupRoles() {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listGroupRoles(gid, cookie) {
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
-  const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/roles`, { method: 'GET' });
+  const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/roles`, { method: 'GET' }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} listing roles: ${body.slice(0, 200)}`);
@@ -450,15 +776,17 @@ async function listGroupRoles() {
 /**
  * List group members, paginated (100/page).
  * Returns { members: [{ userId, username, displayName, roleId }], nextPageToken }.
+ * `groupId` defaults to ROBLOX_GROUP_ID; pass one to list a different group
+ * (the MET database sync mirrors MET_DB_GROUP_ID, which may differ).
  */
-async function listGroupMembers(pageToken = null) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listGroupMembers(pageToken = null, gid, cookie) {
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/users?limit=100&sortOrder=Asc`;
   if (pageToken) url += `&cursor=${encodeURIComponent(pageToken)}`;
 
-  const res = await robloxAuthFetch(url, { method: 'GET' });
+  const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} listing members: ${body.slice(0, 200)}`);
@@ -479,14 +807,14 @@ async function listGroupMembers(pageToken = null) {
  * List pending join requests, paginated (100/page).
  * Returns { requests: [{ userId, username, displayName, requestedAt }], nextPageToken }.
  */
-async function listJoinRequests(pageToken = null) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function listJoinRequests(pageToken = null, gid, cookie) {
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   let url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests?limit=100&sortOrder=Asc`;
   if (pageToken) url += `&cursor=${encodeURIComponent(pageToken)}`;
 
-  const res = await robloxAuthFetch(url, { method: 'GET' });
+  const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} listing join requests: ${body.slice(0, 200)}`);
@@ -502,15 +830,75 @@ async function listJoinRequests(pageToken = null) {
 }
 
 /**
+ * One page of the group's own audit log.
+ *
+ * This is the ONLY way to see an action somebody took on the Roblox website rather
+ * than through this app. Everything we do goes through the API as the bot account,
+ * so our own actions appear here too — which makes this log the complete record and
+ * our audit trail the annotation on it, not the other way round.
+ *
+ * Needs the bot cookie AND the bot's group role to hold the "view audit log"
+ * permission, which is separate from ranking people. A 403 here means that
+ * permission, not a bad cookie, and the caller says so.
+ *
+ * Entries look like:
+ *   { actor: { user: { userId, username, displayName },
+ *              role: { id, name, rank } },
+ *     actionType: 'Change Rank',
+ *     description: { TargetId, TargetName, OldRoleSetName, NewRoleSetName, ... },
+ *     created: '2026-08-04T20:11:02.123Z' }
+ *
+ * The `description` shape differs per action type and Roblox adds new ones without
+ * notice, so it is returned verbatim for the formatter to deal with.
+ *
+ * @param {object}  opts
+ * @param {string}  [opts.cursor]     page cursor
+ * @param {number}  [opts.limit]      10 | 25 | 50 | 100 (Roblox rejects anything else)
+ * @param {string}  [opts.actionType] filter to one type; omit for everything
+ * @param {string}  [opts.sortOrder]  'Desc' (default, newest first) | 'Asc'
+ */
+async function getGroupAuditLog(gid, cookie, opts = {}) {
+  const groupId = gid || mainGroupId();
+  if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
+
+  const limit = [10, 25, 50, 100].includes(Number(opts.limit)) ? Number(opts.limit) : 100;
+  let url = `${ROBLOX_GROUPS}/groups/${groupId}/audit-log`
+    + `?limit=${limit}&sortOrder=${opts.sortOrder === 'Asc' ? 'Asc' : 'Desc'}`;
+  if (opts.cursor) url += `&cursor=${encodeURIComponent(opts.cursor)}`;
+  if (opts.actionType) url += `&actionType=${encodeURIComponent(opts.actionType)}`;
+
+  const res = await robloxAuthFetch(url, { method: 'GET' }, true, cookie);
+  if (res.status === 403) {
+    throw new Error('Roblox refused the group audit log (403) · the bot account\'s group '
+      + 'role needs the "View audit log" permission, which is separate from ranking members');
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Roblox API ${res.status} reading the group audit log: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const entries = (data.data || []).map(e => ({
+    actorId:       e.actor && e.actor.user ? String(e.actor.user.userId) : null,
+    actorName:     e.actor && e.actor.user ? (e.actor.user.username || null) : null,
+    actorRankName: e.actor && e.actor.role ? (e.actor.role.name || null) : null,
+    actorRank:     e.actor && e.actor.role && e.actor.role.rank != null ? Number(e.actor.role.rank) : null,
+    actionType:    e.actionType || 'Unknown',
+    description:   e.description && typeof e.description === 'object' ? e.description : {},
+    created:       e.created || null,
+  }));
+  return { entries, nextPageToken: data.nextPageCursor || null };
+}
+
+/**
  * Approve or decline a join request for a Roblox user.
  * action: 'approve' (POST) | 'decline' (DELETE)
  */
-async function resolveJoinRequest(robloxUserId, action) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function resolveJoinRequest(robloxUserId, action, gid, cookie) {
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   const url = `${ROBLOX_GROUPS}/groups/${groupId}/join-requests/users/${robloxUserId}`;
-  const res = await robloxAuthFetch(url, { method: action === 'approve' ? 'POST' : 'DELETE' });
+  const res = await robloxAuthFetch(url, { method: action === 'approve' ? 'POST' : 'DELETE' }, true, cookie);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`Roblox API ${res.status} on ${action}: ${body.slice(0, 200)}`);
@@ -521,8 +909,8 @@ async function resolveJoinRequest(robloxUserId, action) {
  * Change a group member's rank.
  * PATCH /groups/{groupId}/users/{userId} with { roleId }.
  */
-async function changeGroupRank(robloxUserId, roleId) {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+async function changeGroupRank(robloxUserId, roleId, gid, cookie) {
+  const groupId = gid || mainGroupId();
   if (!groupId) throw new Error('ROBLOX_GROUP_ID is not set');
 
   // Accept either a numeric id or a full "groups/x/roles/y" path
@@ -531,11 +919,16 @@ async function changeGroupRank(robloxUserId, roleId) {
   const res = await robloxAuthFetch(`${ROBLOX_GROUPS}/groups/${groupId}/users/${robloxUserId}`, {
     method: 'PATCH',
     body:   JSON.stringify({ roleId: Number(numericRoleId) }),
-  });
+  }, true, cookie);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Roblox API ${res.status} changing rank: ${body.slice(0, 200)}`);
   }
+  // RoVer-style Discord update (nickname sync) — fire-and-forget so it never
+  // slows or fails the rank change. Lazy require avoids a circular dependency.
+  try {
+    require('./rover').roverUpdate({ robloxId: robloxUserId, groupId, roleId }).catch(() => {});
+  } catch (e) { /* ignore */ }
 }
 
 /**
@@ -568,10 +961,17 @@ module.exports = {
   getRobloxIdFromDiscord,
   getDiscordFromRoblox,
   getRobloxIdFromUsername,
+  getGroupAuditLog,
+  getRobloxIdsFromUsernames,
   getRobloxUserInfo,
+  getRobloxUsersInfo,
+  getGroupRolesPublic,
   getRobloxAvatarHeadshot,
+  getGroupIcons,
   getGroupMembership,
   getUserGroupRole,
+  getUserGroupRoles,
+  getUserGroups,
   getOfficerProfile,
   getOfficerProfileByRobloxId,
   exileFromGroup,
@@ -581,4 +981,6 @@ module.exports = {
   listJoinRequests,
   resolveJoinRequest,
   changeGroupRank,
+  cookieForDivision,
+  mainGroupId,
 };

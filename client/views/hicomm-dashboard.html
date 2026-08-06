@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · High Command</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .cc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
+    .cc-stat{padding:16px 18px;border-radius:14px;border:1px solid var(--border,#2a2a2a);background:var(--panel,rgba(255,255,255,.02));}
+    .cc-stat .v{font-size:30px;font-weight:800;line-height:1;}
+    .cc-stat .l{font-size:11px;color:var(--text-muted);margin-top:6px;text-transform:uppercase;letter-spacing:.05em;}
+    .cc-live{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--green);}
+    .cc-live .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:ccpulse 1.6s infinite;}
+    @keyframes ccpulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+    .tl-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border,#2a2a2a);}
+    .tl-dot{width:30px;height:30px;border-radius:8px;flex:0 0 30px;display:flex;align-items:center;justify-content:center;font-size:15px;}
+    .flag-card{border-left:3px solid;padding:10px 14px;border-radius:9px;background:var(--panel,rgba(255,255,255,.02));margin-bottom:8px;}
+  </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+</head>
+<body class="div-hicomm">
+<div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/divisions/met.png" class="met-topbar-logo" alt="MET" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Metropolitan Police Service</span>
+      <span class="met-topbar-division" id="met-division-badge">HIGH COMMAND</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <div class="met-topbar-user">
+      <img id="met-user-avatar" class="met-user-avatar" src="" alt="" style="display:none;" />
+      <div class="met-user-avatar-fallback" id="met-user-avatar-fallback">?</div>
+      <span id="met-user-name">Loading…</span>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo"><img src="/img/divisions/met.png" alt="MET" /></div>
+        <div class="brand-text"><div class="brand-name">MET · High Command</div><div class="brand-sub">Oversight &amp; Intelligence</div></div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Oversight</div>
+        <button class="nav-item active" data-page="command"><i class="ti ti-layout-dashboard nav-icon"></i><span>Command Center</span></button>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
+        <button class="nav-item" data-page="integrity"><i class="ti ti-shield-check nav-icon"></i><span>Integrity</span><span class="nav-badge pending" id="hc-integrity-badge" style="display:none;"></span></button>
+        <div class="nav-section-label">Intelligence</div>
+        <button class="nav-item" data-page="officer"><i class="ti ti-user-search nav-icon"></i><span>Officer Lookup</span></button>
+        <button class="nav-item" data-page="audit"><i class="ti ti-history nav-icon"></i><span>Audit Trail</span></button>
+        <button class="nav-item" data-page="gamelogs"><i class="ti ti-device-gamepad-2 nav-icon"></i><span>Game Logs</span></button>
+        <div class="nav-section-label">Groups</div>
+        <button class="nav-item" data-page="group"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
+      </nav>
+    </div>
+    <div class="sidebar-foot" style="padding:12px 16px;font-size:11px;color:var(--text-muted);">
+      <span id="hc-rank"></span>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <!-- COMMAND CENTER -->
+    <section class="page active" id="page-command">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Command Center</h1><p class="page-sub">Live MET operations · <span class="cc-live"><span class="dot"></span>live</span></p></div>
+        <button class="btn btn-ghost btn-sm" onclick="hcLoadOverview()"><i class="ti ti-refresh"></i> Refresh</button>
+      </div>
+      <div class="cc-grid fade-up stagger-1" id="hc-counters"></div>
+      <div style="display:flex;flex-direction:column;gap:18px;margin-top:18px;" id="hc-cc-cols">
+        <div class="panel glass fade-up stagger-2">
+          <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Live Tryouts</div></div>
+          <div id="hc-live" style="padding:10px 6px;min-height:120px;"><div class="table-loading"><div class="spinner"></div></div></div>
+        </div>
+        <div class="panel glass fade-up stagger-3">
+          <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Recent Activity</div></div>
+          <div id="hc-audit-feed" style="padding:6px 16px;min-height:340px;max-height:none;"><div class="table-loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ANALYTICS -->
+    <section class="page" id="page-analytics">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Analytics</h1><p class="page-sub">Recruitment, performance &amp; activity intelligence</p></div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="hc-an-div" style="width:auto;" onchange="hcLoadAnalytics()">
+            <option value="">All divisions</option><option value="HPC">HPC</option><option value="CID">CID</option><option value="SCO19">SCO-19</option><option value="FLP">FLP</option>
+          </select>
+          <select class="form-control" id="hc-an-days" style="width:auto;" onchange="hcLoadAnalytics()">
+            <option value="14">14 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="all">All time</option>
+          </select>
+        </div>
+      </div>
+      <div id="hc-analytics"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- INTEGRITY -->
+    <section class="page" id="page-integrity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Integrity Monitor</h1><p class="page-sub">Automated anomaly detection over recent tryout logs</p></div>
+        <select class="form-control" id="hc-int-div" style="width:auto;" onchange="hcLoadIntegrity()">
+          <option value="">All divisions</option><option value="HPC">HPC</option><option value="CID">CID</option><option value="SCO19">SCO-19</option><option value="FLP">FLP</option>
+        </select>
+      </div>
+      <div class="panel glass fade-up stagger-1"><div id="hc-integrity" style="padding:16px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <!-- OFFICER LOOKUP -->
+    <section class="page" id="page-officer">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Officer Lookup</h1><p class="page-sub">Every action, tryout, patrol, case and punishment for one person</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:16px;">
+        <div style="padding:14px;display:flex;gap:8px;">
+          <input type="text" class="form-control" id="hc-off-search" placeholder="Search an officer by Discord / Roblox name…" oninput="hcOfficerSearch()" style="flex:1;" />
+        </div>
+        <div id="hc-off-results" style="padding:0 14px 12px;"></div>
+      </div>
+      <div id="hc-off-detail"></div>
+    </section>
+
+    <!-- AUDIT TRAIL -->
+    <section class="page" id="page-audit">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Audit Trail</h1><p class="page-sub">Immutable record of every privileged action</p></div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-control" id="hc-audit-cat" style="width:auto;" onchange="hcLoadAudit()">
+            <option value="">All categories</option><option value="GROUP">Group</option><option value="TRYOUT">Tryout</option><option value="TICKET">Ticket</option><option value="SUPPORT">Support</option><option value="CASE">Case</option><option value="ACCESS">Access / LOA</option><option value="SECURITY">Security</option>
+          </select>
+          <input type="text" class="form-control" id="hc-audit-q" placeholder="Search…" oninput="hcAuditDebounced()" style="width:200px;" />
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>When</th><th>Category</th><th>Action</th><th>Actor</th><th>Summary</th></tr></thead>
+          <tbody id="hc-audit-tbody"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- GAME LOGS (Adonis / join / leave / chat from the training game) -->
+    <section class="page" id="page-gamelogs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Game Logs</h1><p class="page-sub">Training game · Adonis, joins, leaves and chat</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot green"></span>Live Feed</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select class="form-control" id="hc-gl-source" onchange="hcLoadGameLogs()" style="height:30px;font-size:12px;width:130px;">
+              <option value="">All types</option>
+              <option value="ADONIS">Adonis</option>
+              <option value="JOIN">Joins</option>
+              <option value="LEAVE">Leaves</option>
+              <option value="CHAT">Chat</option>
+            </select>
+            <input type="text" class="form-control" id="hc-gl-q" placeholder="Search…" style="height:30px;font-size:12px;width:160px;" />
+            <button class="btn btn-ghost btn-sm" onclick="hcLoadGameLogs()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>When</th><th>Type</th><th>Actor</th><th>Action</th><th>Target</th><th>Message</th></tr></thead>
+          <tbody id="hc-gl-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div>
+        <!-- Nothing prunes this log, so every page of it has to be reachable:
+             how many of the whole are on screen, more, and the lot as a file. -->
+        <div id="hc-gl-foot" style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;padding:.8rem 1rem 0;"></div>
+      </div>
+    </section>
+
+    <!-- GROUP PANEL (shared with developers) -->
+    <section class="page" id="page-group">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Group Management</h1><p class="page-sub">High Command · Roblox Group Control</p></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+          <i class="ti ti-apps"></i> Division group
+          <select id="group-division-select" class="form-control" style="width:auto;padding:5px 10px;font-size:12px;" onchange="changeGroupDivision(this.value)">
+            <!-- Filled by loadDivisions(). No "Default" entry: it meant the MET
+                 umbrella group, which is in the list under its own name. -->
+          </select>
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="refreshGroupPanel()"><i class="ti ti-refresh"></i> Refresh all</button>
+        <button class="btn btn-ghost btn-sm" onclick="runGroupDebug()"><i class="ti ti-bug"></i> Debug API</button>
+        <span id="group-env-badge" style="font-size:10px;color:var(--text-muted);"></span>
+      </div>
+      <div id="group-debug-output" style="display:none;background:rgba(0,0,0,0.4);border:1px solid var(--border-dim);border-radius:6px;padding:0.75rem 1rem;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:0.06em;">RAW ROBLOX API DEBUG</span>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px;" onclick="document.getElementById('group-debug-output').style.display='none'" title="Hide debug output" aria-label="Hide debug output"><i class="ti ti-x"></i></button>
+        </div>
+        <pre id="group-debug-pre" style="font-size:10px;color:var(--text-secondary);overflow:auto;max-height:280px;margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+      <div class="panel glass fade-up stagger-1" style="margin-bottom:1.4rem;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('pending-body', this)" title="Collapse/expand"><i class="ti ti-chevron-right"></i></button>
+            <span class="panel-dot amber pulse-anim"></span>Pending Join Requests
+            <span id="pending-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="pending-search" oninput="renderPendingRequests()" placeholder="Search user…" style="height:30px;font-size:12px;width:170px;" />
+            <button class="btn btn-ghost btn-sm" onclick="loadPendingRequests()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div id="pending-body" style="display:none;"><div id="pending-requests-container" style="padding:0.5rem 0;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+      </div>
+      <div class="panel glass fade-up stagger-2">
+        <div class="panel-header">
+          <div class="panel-title">
+            <button class="btn btn-icon btn-ghost btn-sm" onclick="toggleGroupSection('members-body', this)" title="Collapse/expand"><i class="ti ti-chevron-down"></i></button>
+            <span class="panel-dot blue"></span>Group Members
+            <span id="members-count" style="font-size:10px;color:var(--text-muted);margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="members-search" oninput="renderGroupMembers()" placeholder="Search user…" style="height:30px;font-size:12px;width:150px;" />
+            <select class="form-control" id="members-rank-filter" onchange="renderGroupMembers()" style="height:30px;font-size:12px;width:180px;"><option value="">All ranks</option></select>
+            <button class="btn btn-ghost btn-sm" onclick="loadGroupMembers()"><i class="ti ti-refresh"></i> Refresh</button>
+          </div>
+        </div>
+        <div id="members-body"><div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Roblox User</th><th>Current Rank</th><th>Change Rank</th><th>Actions</th></tr></thead>
+          <tbody id="group-members-tbody"><tr><td colspan="4" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        </table></div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- TIMELINE ENTITY DETAIL — the actual ticket / case / log behind a timeline point -->
+<div class="modal-overlay" id="modal-hc-entity">
+  <div class="modal glass-bright" style="max-width:760px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-search" style="font-size:18px;"></i> <span id="hc-entity-title">Detail</span></div>
+      <button class="modal-close" onclick="closeModal('modal-hc-entity')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="hc-entity-body"><div class="table-loading"><div class="spinner"></div></div></div>
+    <div class="modal-footer" id="hc-entity-footer"></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/met-topbar.js?v=3"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/group-panel.js?v=88"></script>
+<script src="/js/discord-format.js?v=80"></script>
+<script src="/js/hicomm-dashboard.js"></script>
+<script>initMetTopbar('HIGH COMMAND');</script>
+</body>
+</html>

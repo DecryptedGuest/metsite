@@ -2,10 +2,11 @@
 // behind requireAuth). Users register passkeys and use them as a step-up
 // ("2FA") for sensitive actions. Verification is done by @simplewebauthn/server;
 // the RP id + origin are derived from the incoming request so it works on any
-// domain the portal is served from (localhost, Railway, a custom domain).
+// domain the dashboard is served from (localhost, Railway, a custom domain).
 const express = require('express');
 const prisma  = require('../lib/db');
 const audit   = require('../lib/audit');
+const { requireStepUp } = require('../middleware/stepup');
 const {
   generateRegistrationOptions, verifyRegistrationResponse,
   generateAuthenticationOptions, verifyAuthenticationResponse,
@@ -13,7 +14,7 @@ const {
 
 const router = express.Router();
 
-const RP_NAME = 'MET Police Portal';
+const RP_NAME = 'MET Police Dashboard';
 const STEP_UP_WINDOW_MS = 10 * 60 * 1000; // a step-up is "fresh" for 10 minutes
 
 // Derive the Relying Party id (a bare domain) + expected origin from the
@@ -75,7 +76,10 @@ router.post('/register/options', async (req, res) => {
 });
 
 // ── POST /api/webauthn/register/verify { response, name } ──
-router.post('/register/verify', async (req, res) => {
+// requireStepUp is a no-op for the FIRST passkey (0 enrolled), but once a user
+// has any passkey, enrolling ANOTHER requires a fresh step-up with an existing
+// one — so a hijacked-but-not-stepped-up session can't add its own authenticator.
+router.post('/register/verify', requireStepUp, async (req, res) => {
   try {
     const { rpID, origin } = rpInfo(req);
     const expectedChallenge = req.user.webauthnChallenge;
@@ -184,7 +188,10 @@ router.patch('/passkeys/:id', async (req, res) => {
 });
 
 // ── DELETE /api/webauthn/passkeys/:id ──
-router.delete('/passkeys/:id', async (req, res) => {
+// Requires a fresh step-up (proof of possession of an existing passkey) so a
+// hijacked session can't delete the victim's factor(s) down to zero to switch
+// the step-up gate off entirely.
+router.delete('/passkeys/:id', requireStepUp, async (req, res) => {
   try {
     const pk = await prisma.passkey.findUnique({ where: { id: req.params.id } });
     if (!pk || pk.userId !== req.user.id) return res.status(404).json({ error: 'Passkey not found.' });

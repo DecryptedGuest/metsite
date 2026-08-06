@@ -21,11 +21,15 @@
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  height: 100dvh;      /* dynamic viewport — don't hide under mobile browser chrome */
+  overflow: hidden;    /* the nav scrolls internally; footer stays pinned */
 }
 
-.sidebar-top    { flex: 1; display: flex; flex-direction: column; }
-.sidebar-bottom { padding-bottom: 1rem; }
+/* Brand + nav share the growable area; the nav is the scroll region so the
+   identity/rank footer can never be pushed off the bottom of the screen. */
+.sidebar-top    { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-bottom { padding-bottom: 1rem; flex: 0 0 auto; }
+.sidebar-foot   { flex: 0 0 auto; }
 
 /* Brand */
 .sidebar-brand {
@@ -77,8 +81,12 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;   /* long nav lists scroll here, not the whole sidebar */
 }
+.sidebar-nav::-webkit-scrollbar { width: 6px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 6px; }
 
 .nav-section-label {
   font-size: 9px;
@@ -171,6 +179,7 @@
   align-items: center;
   gap: 9px;
   padding: 0.8rem 1rem;
+  flex: 0 0 auto;   /* stays pinned at the bottom, never pushed off-screen */
 }
 
 .user-avatar-wrap {
@@ -454,6 +463,22 @@
   font-weight: 500;
 }
 
+/* A ticket carries two ids: Tickety's own (what Discord and the transcript
+   show) and this site's sequential number. Stacked rather than side by side ·
+   the column is narrow, and the second one is a footnote to the first. */
+.ticket-id-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+.ticket-seq {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
 .case-action-cell {
   font-weight: 500;
   color: var(--text-primary);
@@ -646,9 +671,26 @@
 
 @media (max-width: 640px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
-  .app-layout { flex-direction: column; }
-  .sidebar { width: 100%; min-height: auto; height: auto; position: static; }
+  /* Sidebar becomes an off-canvas DRAWER (toggled by the topbar hamburger), so
+     content spans the full width instead of scrolling past a tall nav list. */
+  .met-nav-toggle { display: inline-flex; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; height: 100dvh;
+    width: min(84vw, 300px); transform: translateX(-100%);
+    transition: transform .25s ease; z-index: 60; box-shadow: none;
+  }
+  .app-layout.nav-open .sidebar { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.6); }
+  .sidebar-scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 55;
+  }
+  .app-layout.nav-open .sidebar-scrim { opacity: 1; pointer-events: auto; }
+  body.nav-locked { overflow: hidden; }
+  .main-content { width: 100%; }
 }
+/* The scrim element only matters inside the drawer breakpoint. */
+.sidebar-scrim { display: block; }
+@media (min-width: 641px) { .sidebar-scrim { display: none; } }
 
 /* ── Brand logo in sidebar ──────────────────────────────────────── */
 .brand-logo {
@@ -1013,3 +1055,559 @@ tr.blacklisted-row { background: rgba(180,20,40,0.05); }
 .badge-amber  { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,183,48,0.22); }
 .badge-red    { background: var(--red-dim); color: var(--red); border-color: rgba(240,79,94,0.22); }
 .badge-green  { background: var(--green-dim); color: var(--green); border-color: rgba(46,216,150,0.22); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   IA overhaul — search, quota hero, appeals, change diffs, documents
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Panel tools: search + filters on one line ──────────────────── */
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search-box i {
+  position: absolute;
+  left: 9px;
+  font-size: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.search-box input {
+  width: 260px;
+  max-width: 46vw;
+  height: 30px;
+  padding: 0 0.6rem 0 1.85rem;
+  font-size: 12px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: all var(--transition);
+}
+.search-box input::placeholder { color: var(--text-muted); }
+.search-box input:focus {
+  border-color: var(--border-bright);
+  box-shadow: 0 0 0 3px var(--blue-glow);
+  width: 320px;
+}
+
+/* ── Sidebar search chip + collapsible developer group ──────────── */
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 12px;
+  font-family: var(--font-body);
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.nav-search:hover { color: var(--text-primary); border-color: var(--border-mid); }
+.nav-search span { flex: 1; text-align: left; }
+.nav-search kbd {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-dim);
+}
+
+.nav-chevron { margin-left: auto; font-size: 13px; transition: transform var(--transition); }
+.nav-group-toggle.nav-open .nav-chevron { transform: rotate(180deg); }
+.nav-group { padding-left: 0.55rem; border-left: 1px solid var(--border-dim); margin-left: 0.6rem; }
+.nav-item.nav-sub { font-size: 12px; opacity: 0.88; }
+
+/* ── Weekly quota hero ──────────────────────────────────────────── */
+.quota-hero {
+  position: relative;
+  padding: 1.3rem 1.5rem 1.1rem;
+  margin-bottom: 1.4rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.quota-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--amber);
+}
+.quota-hero.quota-met::before { background: var(--green); }
+.quota-hero-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.quota-hero-value {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--text-primary);
+  margin: 0.15rem 0 0.2rem;
+}
+.quota-hero-value small { font-size: 17px; color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+.quota-hero-sub { font-size: 12.5px; color: var(--text-secondary); }
+.quota-hero-track {
+  height: 7px;
+  margin: 0.9rem 0 0.8rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.quota-hero-fill { height: 100%; border-radius: 4px; transition: width 0.45s ease; }
+.quota-hero-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.quota-day {
+  flex: 1;
+  min-width: 56px;
+  text-align: center;
+  padding: 6px 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
+}
+.quota-day-on { border-color: rgba(46, 216, 150, 0.35); background: var(--green-dim); }
+.quota-day-name { display: block; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.quota-day-val { display: block; font-size: 15px; font-weight: 700; color: var(--text-primary); margin-top: 1px; }
+
+/* ── "Needs your attention" ─────────────────────────────────────── */
+.attention-panel {
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.4rem;
+  background: rgba(245, 183, 48, 0.06);
+  border: 1px solid rgba(245, 183, 48, 0.28);
+  border-radius: var(--radius-lg);
+}
+.attention-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 0.6rem;
+}
+.attention-items { display: flex; flex-direction: column; gap: 5px; }
+.attention-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  font-size: 12.5px;
+  font-family: var(--font-body);
+  text-align: left;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.attention-item:hover { color: var(--text-primary); border-color: var(--border-mid); transform: translateX(2px); }
+.attention-item span { flex: 1; }
+.attention-item strong { color: var(--text-primary); }
+
+/* ── Appeals ────────────────────────────────────────────────────── */
+.badge-purple { background: var(--purple-dim); color: var(--purple); border-color: rgba(157, 125, 255, 0.28); }
+.badge-purple .badge-dot { background: var(--purple); box-shadow: 0 0 6px var(--purple); }
+
+.btn-appeal { color: var(--purple) !important; }
+.btn-appeal:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.appeal-banner {
+  margin-bottom: 1rem;
+  padding: 13px 15px;
+  border-radius: var(--radius-lg);
+  background: rgba(157, 125, 255, 0.1);
+  border: 1px solid rgba(157, 125, 255, 0.4);
+}
+.appeal-banner-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--purple);
+}
+.appeal-banner-when { color: var(--text-muted); font-weight: 400; white-space: nowrap; }
+.appeal-banner-by { font-size: 12px; color: var(--text-secondary); margin-top: 5px; }
+.appeal-banner-by strong { color: var(--text-primary); }
+.appeal-banner-reason {
+  margin-top: 7px;
+  padding-left: 9px;
+  border-left: 2px solid rgba(157, 125, 255, 0.5);
+  font-size: 12.5px;
+  color: var(--text-primary);
+  line-height: 1.55;
+}
+.appeal-banner-note { margin-top: 7px; font-size: 11.5px; color: var(--text-muted); }
+
+.appeal-lift {
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+}
+.appeal-lift-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 7px;
+}
+.appeal-lift-list { display: flex; flex-wrap: wrap; gap: 5px; }
+
+tr.rec-case-row { cursor: pointer; }
+
+/* ── Change diffs ("what actually changed") ─────────────────────── */
+tr.row-updated > td { background: rgba(74, 143, 255, 0.06); }
+tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
+
+.row-diff-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--blue);
+  cursor: help;
+}
+
+.diff-block {
+  margin-bottom: 1rem;
+  padding: 11px 13px;
+  background: rgba(74, 143, 255, 0.06);
+  border: 1px solid rgba(74, 143, 255, 0.28);
+  border-radius: var(--radius-lg);
+}
+.diff-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--blue);
+  margin-bottom: 8px;
+}
+.diff-when { color: var(--text-muted); font-weight: 400; white-space: nowrap; }
+.diff-note {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-bottom: 9px;
+  padding-left: 9px;
+  border-left: 2px solid rgba(245, 183, 48, 0.5);
+}
+.diff-row { margin-bottom: 7px; }
+.diff-row:last-child { margin-bottom: 0; }
+.diff-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.diff-values { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.diff-before {
+  color: var(--red);
+  text-decoration: line-through;
+  text-decoration-color: rgba(240, 79, 94, 0.55);
+  opacity: 0.85;
+}
+.diff-after { color: var(--green); font-weight: 600; }
+.diff-arrow { color: var(--text-muted); font-size: 13px; }
+.diff-before em, .diff-after em { color: var(--text-muted); font-style: italic; text-decoration: none; }
+
+/* ── Case documents ─────────────────────────────────────────────── */
+.doc-attached {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 11px;
+  background: var(--green-dim);
+  border: 1px solid rgba(46, 216, 150, 0.35);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.doc-attached > span { flex: 1; min-width: 140px; }
+.doc-attached i.ti-file-check { color: var(--green); font-size: 16px; }
+
+.doc-picker-list { display: flex; flex-direction: column; gap: 6px; padding: 0.3rem 0; }
+.doc-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  text-align: left;
+  font-family: var(--font-body);
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.doc-picker-item:hover { border-color: var(--border-bright); background: var(--bg-panel-hover); }
+.doc-picker-ref { font-family: var(--font-mono); font-size: 11px; color: var(--blue); }
+.doc-picker-title { flex: 1; font-size: 12.5px; color: var(--text-primary); }
+.doc-picker-meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* ── MET database sync ──────────────────────────────────────────── */
+.metdb-summary {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-bottom: 0.7rem;
+  margin-bottom: 0.8rem;
+  border-bottom: 1px solid var(--border-dim);
+}
+.metdb-summary strong { color: var(--text-primary); }
+.metdb-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.metdb-col-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+.metdb-count {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.metdb-count.bad  { background: var(--red-dim);   color: var(--red); }
+.metdb-count.good { background: var(--green-dim); color: var(--green); }
+.metdb-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.metdb-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.metdb-list li:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
+.metdb-name { color: var(--text-primary); font-weight: 500; }
+.metdb-why  { color: var(--text-muted); font-size: 11px; text-align: right; }
+.metdb-empty { font-size: 12px; color: var(--text-muted); font-style: italic; }
+.metdb-hint, .metdb-applied, .metdb-error {
+  margin-top: 0.9rem;
+  padding: 8px 11px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+.metdb-hint    { background: var(--blue-dim);  border: 1px solid var(--border-dim); color: var(--text-secondary); }
+.metdb-applied { background: var(--green-dim); border: 1px solid rgba(46,216,150,.35); color: var(--green); }
+.metdb-error   { background: var(--red-dim);   border: 1px solid rgba(240,79,94,.35);  color: var(--red); }
+
+/* ── Add Missing Members ──────────────────────────────────────────────
+   A list of people in the group with no row on the sheet, to tick and add.
+   A picked row is tinted, because the thing being confirmed is "these ones",
+   and a column of identical tickboxes is easy to miscount. */
+.miss-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+             font-size: 12px; color: var(--text-secondary); margin-bottom: .7rem; }
+.miss-head .spacer { flex: 1 1 auto; }
+.miss-on > td { background: rgba(60, 110, 255, 0.07); }
+.miss-wtbt { display: inline-flex; align-items: center; gap: .4rem; font-size: 11.5px;
+             color: var(--text-secondary); cursor: pointer; }
+.miss-wtbt.off { color: var(--text-muted); cursor: not-allowed; }
+.miss-na { color: var(--text-muted); font-size: 12px; }
+
+/* ── Stat card: purple variant (appeals) ────────────────────────── */
+.stat-card.purple .stat-icon { color: var(--purple); background: var(--purple-dim); }
+.stat-bar.purple { background: linear-gradient(90deg, var(--purple), transparent); }
+
+@media (max-width: 860px) {
+  .search-box input { width: 100%; max-width: none; }
+  .search-box input:focus { width: 100%; }
+  .panel-tools { width: 100%; }
+  .quota-hero-value { font-size: 32px; }
+}
+
+/* ── Patrol & event logs ─────────────────────────────────────────── */
+/* A log's status comes from someone ticking or crossing the message in
+   Discord, so the row is a link into the detail rather than an editable form. */
+.clickable-row { cursor: pointer; }
+.clickable-row:hover { background: var(--blue-dim); }
+.log-muted { color: var(--text-muted); }
+/* main.css makes every anchor inherit its colour, so an attachment link needs
+   to say out loud that it leaves the site. */
+.log-link { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+.log-link:hover { color: var(--text-primary); }
+
+/* ── Casework selector ────────────────────────────────────────────────
+   Cases or tickets, everyone's or mine. Big enough to read at a glance and
+   to hit on a phone — it replaces four sidebar items, so it has to be
+   obviously the thing you use to move between them. */
+.casework-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 1.1rem;
+}
+.seg {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 11px;
+  background: var(--bg-elevated, rgba(255,255,255,.03));
+  border: 1px solid var(--border-dim);
+}
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.seg-btn i { font-size: 15px; opacity: .85; }
+.seg-btn:hover { color: var(--text-primary); background: rgba(255,255,255,.04); }
+.seg-btn.active {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(74,143,255,.32);
+}
+.seg-btn.active i { opacity: 1; }
+/* The scope switch is the secondary choice, so it reads quieter than the
+   thing it is scoping. */
+.seg-scope .seg-btn.active {
+  background: var(--bg-card, rgba(255,255,255,.08));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--border-bright);
+}
+.seg-btn .nav-badge { margin-left: 2px; }
+
+.casework-foot {
+  margin: 1rem 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.casework-foot a { color: var(--text-secondary); }
+
+@media (max-width: 640px) {
+  .casework-switch { gap: 8px; }
+  .seg { width: 100%; }
+  .seg-btn { flex: 1; justify-content: center; padding: 9px 8px; }
+}
+
+/* ── Minimise a panel ──────────────────────────────────────────────
+   Injected by panel-collapse.js into every panel header. Quiet until the
+   header is hovered, so it never competes with the panel's own controls. */
+.panel-header { position: relative; }
+.panel-collapse-btn {
+  margin-left: 10px;
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--border-dim, rgba(120,150,200,.18));
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .15s, background .15s, color .15s, transform .2s;
+}
+.panel-header:hover .panel-collapse-btn { opacity: 1; }
+.panel-collapse-btn:hover { background: var(--hover, rgba(255,255,255,.07)); color: var(--text); }
+.panel-collapse-btn:focus-visible { opacity: 1; outline: 2px solid var(--blue, #4a8fff); outline-offset: 1px; }
+.panel-collapsed .panel-collapse-btn i { transform: rotate(180deg); }
+.panel-collapsed .panel-header { border-bottom: none; }
+.panel-collapsed { padding-bottom: 0; }
+
+/* ── Link chips ───────────────────────────────────────────────────
+   A raw URL in a panel is a wall of characters nobody reads. A chip names the
+   link and puts the host underneath, so it is both tidier AND clearer about
+   where it goes than the full URL ever was. Used for case files, exhibits and
+   ticket transcripts. */
+.link-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  max-width: 100%;
+  padding: .34rem .7rem;
+  border-radius: 999px;
+  background: var(--blue-dim);
+  border: 1px solid rgba(74, 143, 255, 0.28);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+}
+.link-chip:hover { background: rgba(74, 143, 255, 0.22); border-color: var(--blue); }
+.link-chip i { font-size: 14px; flex-shrink: 0; }
+.link-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-chip-host {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  padding-left: .45rem;
+  margin-left: .1rem;
+  border-left: 1px solid rgba(120, 150, 200, 0.3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+}
+/* An exhibit that was filed with no link the browser can follow. */
+.link-chip-dead {
+  background: rgba(120, 140, 175, 0.14);
+  border-color: rgba(120, 140, 175, 0.32);
+  color: rgba(175, 195, 230, 0.9);
+  cursor: default;
+}

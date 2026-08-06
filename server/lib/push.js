@@ -12,22 +12,24 @@ if (CONFIGURED) {
   );
 }
 
-const ALL_TICKET_TYPES = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
+// Notification categories. Tickets are no longer submitted on the site (their
+// logs are mirrored from Discord), so the ticket categories are gone; what's
+// left is the casework that actually needs a human.
+const CATEGORIES = ['case', 'caseUpdated', 'caseAppealed', 'announcement'];
 
 // Default preference set — used when a user has enabled notifications but has
 // not customised anything yet (notifyPrefs is null).
 function defaultPrefs() {
-  return { newCase: true, newTicket: true, ticketTypes: [...ALL_TICKET_TYPES], announcements: true };
+  return { newCase: true, caseUpdated: true, caseAppealed: true, announcements: true };
 }
 
 function getPrefs(user) {
   const p = user.notifyPrefs && typeof user.notifyPrefs === 'object' ? user.notifyPrefs : {};
-  const d = defaultPrefs();
   return {
     newCase:       p.newCase       !== false,
-    newTicket:     p.newTicket     !== false,
+    caseUpdated:   p.caseUpdated   !== false,
+    caseAppealed:  p.caseAppealed  !== false,
     announcements: p.announcements !== false,
-    ticketTypes:   Array.isArray(p.ticketTypes) ? p.ticketTypes : d.ticketTypes,
   };
 }
 
@@ -49,8 +51,8 @@ async function deliver(subs, payload) {
   }));
 }
 
-// Notify staff of a new case/ticket, honouring each user's preferences.
-//   payload: { category: 'case'|'ticket', ticketType?, title, body, url }
+// Notify reviewing staff of a new case, honouring each user's preferences.
+//   payload: { category: 'case', title, body, url }
 async function notifyStaff(payload) {
   if (!CONFIGURED) return;
   try {
@@ -62,37 +64,39 @@ async function notifyStaff(payload) {
       if (!u || !['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(u.role)) return false;
       if (!u.notifyEnabled) return false;
       const prefs = getPrefs(u);
-      if (payload.category === 'case')   return prefs.newCase;
-      if (payload.category === 'ticket') {
-        if (!prefs.newTicket) return false;
-        if (payload.ticketType && prefs.ticketTypes.length)
-          return prefs.ticketTypes.includes(payload.ticketType);
-        return true;
-      }
+      if (payload.category === 'case') return prefs.newCase;
       return true;
     });
     await deliver(eligible, {
       title: payload.title, body: payload.body, url: payload.url,
+      // Optional richer-notification fields (action buttons, per-action URLs,
+      // keep-on-screen, vibration, coalescing tag) passed straight to the SW.
+      actions: payload.actions, viewUrl: payload.viewUrl, claimUrl: payload.claimUrl,
+      requireInteraction: payload.requireInteraction, vibrate: payload.vibrate, tag: payload.tag,
     });
   } catch (e) {
     console.error('[Push] notifyStaff error:', e.message);
   }
 }
 
-// Developer-initiated custom notification.
-//   opts: { userIds?: string[], all?: boolean, title, body, url }
-// Sends to every active subscription of the targeted users (admin intent — not
-// gated on category prefs), but still skips users who disabled notifications.
-async function sendCustomNotification({ userIds, all, title, body, url }) {
+// Targeted notification: a developer announcement, or a per-user event such as
+// "changes requested on your case" / "your case was appealed".
+//   opts: { userIds?: string[], all?: boolean, title, body, url, prefKey?, … }
+// `prefKey` (e.g. 'caseUpdated', 'caseAppealed') honours that user preference;
+// omit it for admin announcements, which always go out. Users who turned
+// notifications off are always skipped. The remaining fields are passed
+// straight through to the service worker (action buttons, tag, vibrate…).
+async function sendCustomNotification({ userIds, all, title, body, url, prefKey, actions, viewUrl, requireInteraction, vibrate, tag }) {
   if (!CONFIGURED) return { sent: 0 };
   try {
     const where = all ? {} : { userId: { in: userIds || [] } };
     const subs = await prisma.pushSubscription.findMany({
       where,
-      include: { user: { select: { notifyEnabled: true } } },
+      include: { user: { select: { notifyEnabled: true, notifyPrefs: true } } },
     });
-    const targets = subs.filter(s => s.user && s.user.notifyEnabled);
-    await deliver(targets, { title, body, url: url || '/dashboard' });
+    const targets = subs.filter(s =>
+      s.user && s.user.notifyEnabled && (!prefKey || getPrefs(s.user)[prefKey] !== false));
+    await deliver(targets, { title, body, url: url || '/dashboard', actions, viewUrl, requireInteraction, vibrate, tag });
     return { sent: targets.length };
   } catch (e) {
     console.error('[Push] sendCustomNotification error:', e.message);
@@ -100,4 +104,4 @@ async function sendCustomNotification({ userIds, all, title, body, url }) {
   }
 }
 
-module.exports = { notifyStaff, sendCustomNotification, defaultPrefs, getPrefs, ALL_TICKET_TYPES, CONFIGURED };
+module.exports = { notifyStaff, sendCustomNotification, defaultPrefs, getPrefs, CATEGORIES, CONFIGURED };

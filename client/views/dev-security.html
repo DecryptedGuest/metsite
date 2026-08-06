@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · Dev Security</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
+  <!-- The developer cloak. Loaded in <head> and BEFORE anything renders, so the
+       dev tab is never painted and then taken away. Ctrl+Shift+Alt+D toggles. -->
+  <script src="/js/dev-cloak.js?v=1"></script>
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    .sec-stat{padding:14px 16px;border-radius:13px;border:1px solid var(--border,#2a2a2a);background:var(--panel,rgba(255,255,255,.02));}
+    .sec-stat .v{font-size:26px;font-weight:800;line-height:1;} .sec-stat .l{font-size:11px;color:var(--text-muted);margin-top:5px;text-transform:uppercase;letter-spacing:.05em;}
+    .dev-accent{color:#f5c518;}
+  </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+</head>
+<body>
+<div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
+
+<div class="met-topbar">
+  <div class="met-topbar-left">
+    <img src="/img/divisions/dev.svg" class="met-topbar-logo" alt="DEV" onerror="this.src='/img/divisions/dev.png'" />
+    <div class="met-topbar-title">
+      <span class="met-topbar-brand">Developer</span>
+      <span class="met-topbar-division dev-accent" id="met-division-badge">SECURITY</span>
+    </div>
+  </div>
+  <div class="met-topbar-right">
+    <div class="met-switcher" id="met-switcher">
+      <button class="btn btn-ghost btn-sm" id="met-switcher-btn"><i class="ti ti-apps"></i> Switch Division</button>
+      <div class="met-switcher-menu" id="met-switcher-menu"></div>
+    </div>
+    <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="brand-logo"><img src="/img/divisions/dev.svg" alt="DEV" onerror="this.src='/img/divisions/dev.png'" /></div>
+        <div class="brand-text"><div class="brand-name">MET · DEV</div><div class="brand-sub">Security Center</div></div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Security</div>
+        <button class="nav-item active" data-page="overview"><i class="ti ti-shield-lock nav-icon"></i><span>Overview</span></button>
+        <button class="nav-item" data-page="presence"><i class="ti ti-users nav-icon"></i><span>Live Presence</span><span class="nav-badge" id="sec-presence-badge" style="display:none;background:var(--green);"></span></button>
+        <button class="nav-item" data-page="sessions"><i class="ti ti-devices nav-icon"></i><span>Sessions</span></button>
+        <button class="nav-item" data-page="integrity"><i class="ti ti-fingerprint-scan nav-icon"></i><span>Audit Integrity</span></button>
+        <button class="nav-item" data-page="alerts"><i class="ti ti-alert-triangle nav-icon"></i><span>Alerts</span><span class="nav-badge pending" id="sec-alert-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="broadcast"><i class="ti ti-broadcast nav-icon"></i><span>Broadcast</span></button>
+        <button class="nav-item" data-page="lockdown"><i class="ti ti-lock-square nav-icon"></i><span>Break-glass</span></button>
+        <button class="nav-item" data-page="approvals"><i class="ti ti-checks nav-icon"></i><span>Approvals</span><span class="nav-badge pending" id="sec-approvals-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="passkeys"><i class="ti ti-fingerprint nav-icon"></i><span>2FA Compliance</span></button>
+      </nav>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <section class="page active" id="page-overview">
+      <div class="page-header fade-up"><div><h1 class="page-title">Security Center</h1><p class="page-sub">Developer · dashboard-wide security command</p></div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;" id="sec-stats"></div>
+      <div class="panel glass fade-up stagger-1" style="margin-top:16px;"><div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Recent security events</div></div>
+        <div id="sec-overview-feed" style="padding:6px 16px;max-height:360px;overflow:auto;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-sessions">
+      <div class="page-header fade-up"><div><h1 class="page-title">Active Sessions</h1><p class="page-sub">Every signed-in device · revoke any instantly</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadSessions()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up stagger-1"><div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Officer</th><th>Role</th><th>IP</th><th>Device</th><th>Last seen</th><th></th></tr></thead>
+        <tbody id="sec-sessions-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="page" id="page-presence">
+      <div class="page-header fade-up"><div><h1 class="page-title">Live Presence</h1><p class="page-sub">Officers active in the last 5 minutes</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadPresence()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-presence" style="padding:14px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-integrity">
+      <div class="page-header fade-up"><div><h1 class="page-title">Audit Integrity</h1><p class="page-sub">Verify the audit trail hasn't been tampered with · export it</p></div></div>
+      <div class="panel glass fade-up stagger-1" style="max-width:620px;"><div style="padding:20px;">
+        <div id="sec-verify-result" style="font-size:14px;margin-bottom:16px;color:var(--text-muted);">Every audit row is signed with a per-row HMAC. Verify recomputes them and flags any that were altered in the database.</div>
+        <button class="btn btn-primary" onclick="secVerifyAudit()"><i class="ti ti-shield-check"></i> Verify integrity</button>
+        <a class="btn btn-ghost" href="/api/dev/security/audit/export?format=csv" style="margin-left:8px;"><i class="ti ti-download"></i> Export CSV</a>
+        <a class="btn btn-ghost" href="/api/dev/security/audit/export?format=json"><i class="ti ti-download"></i> JSON</a>
+      </div></div>
+    </section>
+
+    <section class="page" id="page-alerts">
+      <div class="page-header fade-up"><div><h1 class="page-title">Security Alerts</h1><p class="page-sub">Sensitive actions, access changes &amp; anomalies (7 days)</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadAlerts()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div id="sec-multi-ip"></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-alerts-feed" style="padding:6px 16px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-broadcast">
+      <div class="page-header fade-up"><div><h1 class="page-title">Global Broadcast</h1><p class="page-sub">Push a message from High Command to everyone</p></div></div>
+      <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:18px;">
+        <div class="form-group"><label class="form-label">Title</label><input class="form-control" id="bc-title" value="Message from High Command" /></div>
+        <div class="form-group"><label class="form-label">Message</label><textarea class="form-control" id="bc-body" rows="3" placeholder="What everyone needs to know…"></textarea></div>
+        <div class="form-group"><label class="form-label">Link (optional)</label><input class="form-control" id="bc-url" placeholder="/profile" /></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;"><input type="checkbox" id="bc-banner" checked /> Also show a site-wide banner</label>
+        <button class="btn btn-primary" onclick="secBroadcast()"><i class="ti ti-send"></i> Send broadcast</button>
+        <button class="btn btn-ghost" onclick="secClearBanner()" style="margin-left:8px;"><i class="ti ti-eraser"></i> Clear banner</button>
+      </div></div>
+    </section>
+
+    <section class="page" id="page-lockdown">
+      <div class="page-header fade-up"><div><h1 class="page-title">Break-glass Lockdown</h1><p class="page-sub">Instantly block everyone but developers</p></div></div>
+      <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:22px;text-align:center;">
+        <div id="sec-lockdown-state" style="font-size:15px;margin-bottom:18px;">Loading…</div>
+        <button class="btn btn-danger" id="sec-lockdown-btn" onclick="secToggleLockdown()" style="min-width:220px;"><i class="ti ti-lock"></i> …</button>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site — including the login page — is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
+      </div></div>
+    </section>
+
+    <section class="page" id="page-approvals">
+      <div class="page-header fade-up"><div><h1 class="page-title">Four-Eyes Approvals</h1><p class="page-sub">High-stakes actions need a second developer to approve</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadApprovals()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up" style="margin-bottom:16px;max-width:620px;"><div style="padding:16px 18px;">
+        <div style="font-weight:700;margin-bottom:10px;">Propose an action</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select class="form-control" id="ap-action" style="width:auto;">
+            <option value="LOCKDOWN">Engage lockdown</option>
+            <option value="BROADCAST">Broadcast a message</option>
+          </select>
+          <input class="form-control" id="ap-detail" placeholder="Message (for broadcast)" style="flex:1;min-width:180px;" />
+          <input class="form-control" id="ap-reason" placeholder="Reason" style="flex:1;min-width:140px;" />
+          <button class="btn btn-primary" onclick="secPropose()"><i class="ti ti-plus"></i> Propose</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Another developer must approve before it runs.</div>
+      </div></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-approvals" style="padding:14px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+
+    <section class="page" id="page-passkeys">
+      <div class="page-header fade-up"><div><h1 class="page-title">2FA Compliance</h1><p class="page-sub">Which staff have a passkey enrolled</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="secLoadCompliance()"><i class="ti ti-refresh"></i> Refresh</button></div>
+      <div class="panel glass fade-up" style="margin-bottom:16px;"><div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+        <div><div style="font-weight:700;font-size:14px;">Require passkeys for elevated staff</div>
+          <div style="font-size:12px;color:var(--text-muted);max-width:560px;margin-top:4px;">When on, HICOMM / Supervisors / Developers must have a passkey enrolled and pass a fresh passkey check before sensitive Security Center actions (kill sessions, force re-auth, lockdown, broadcast).</div></div>
+        <button class="btn" id="sec-enforce-btn" onclick="secToggleEnforce()">…</button>
+      </div></div>
+      <div class="panel glass fade-up stagger-1"><div id="sec-compliance" style="padding:8px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
+    </section>
+  </main>
+</div>
+
+
+<!-- MEMBER ACTIONS — opened by clicking a live-presence card -->
+<div class="modal-overlay" id="modal-member">
+  <div class="modal glass-bright" style="max-width:860px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-user-cog" style="font-size:18px;"></i> <span id="mem-title">Member</span></div>
+      <button class="modal-close" onclick="closeModal('modal-member')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="mem-body"><div class="table-loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/met-topbar.js?v=3"></script>
+<script src="/js/command-palette.js"></script>
+<script src="/js/passkeys.js"></script>
+<script src="/js/dev-security.js"></script>
+<script>initMetTopbar('SECURITY');</script>
+</body>
+</html>

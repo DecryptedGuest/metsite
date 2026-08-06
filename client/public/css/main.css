@@ -18,7 +18,7 @@
 
   --text-primary:   #d8eaff;
   --text-secondary: rgba(160, 195, 240, 0.7);
-  --text-muted:     rgba(100, 140, 210, 0.45);
+  --text-muted:     rgba(140, 175, 230, 0.78);
   --text-tiny:      rgba(80, 115, 180, 0.38);
 
   --blue:           #4a8fff;
@@ -55,6 +55,15 @@
 
   --transition:     0.18s ease;
   --transition-slow: 0.35s ease;
+
+  /* Compatibility aliases — several components use these bare token names; without
+     them they fell back to browser defaults (grey), which is what made the HICOMM
+     panels look dead. They reference themed tokens so they adapt to light/dark. */
+  --border:    var(--border-mid);
+  --panel:     var(--bg-panel);
+  --surface:   var(--bg-deep);
+  --surface-1: var(--bg-panel);
+  --hover:     var(--blue-dim);
 }
 
 html, body {
@@ -254,11 +263,20 @@ input, textarea, select { font-family: var(--font-body); }
   text-transform: uppercase;
 }
 
+/* The dot inherits the badge's own colour by default.
+   It used to have no background at all, so every badge variant without its own
+   `.badge-dot` rule — badge-blue, badge-red, badge-green, badge-hicomm,
+   badge-ia and anything added later — drew a transparent 5px square and a 5px
+   gap. That is the empty space on the left of a rank chip or a ticket status.
+   currentColor means a new variant is right the moment it is written, and the
+   explicit rules below still win where a specific glow is wanted. */
 .badge-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: currentColor;
+  box-shadow: 0 0 5px currentColor;
 }
 
 .badge-pending {
@@ -281,6 +299,15 @@ input, textarea, select { font-family: var(--font-body); }
   border: 1px solid rgba(200, 40, 60, 0.25);
 }
 .badge-denied .badge-dot { background: var(--red); box-shadow: 0 0 5px var(--red); }
+
+/* Voided: a log that was never anybody's decision. Deliberately colourless —
+   it must not read as approved, denied, or still waiting. */
+.badge-muted {
+  background: rgba(120, 140, 175, 0.14);
+  color: rgba(175, 195, 230, 0.9);
+  border: 1px solid rgba(120, 140, 175, 0.32);
+}
+.badge-muted .badge-dot { background: rgba(175, 195, 230, 0.75); box-shadow: none; }
 
 .badge-hicomm {
   background: var(--purple-dim);
@@ -368,7 +395,9 @@ tr.row-changes > td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
   resize: vertical;
 }
 
-.form-control::placeholder { color: rgba(70, 110, 180, 0.3); }
+/* Placeholders were 30% alpha — legible on a good monitor in a dark room and
+   nowhere else. This is the same hue, at a contrast people can actually read. */
+.form-control::placeholder { color: rgba(140, 175, 230, 0.62); }
 
 .form-control:focus {
   border-color: var(--border-bright);
@@ -607,7 +636,7 @@ html[data-theme="light"] {
 
   --text-primary:   #0d1b3e;
   --text-secondary: rgba(30, 60, 130, 0.75);
-  --text-muted:     rgba(60, 100, 180, 0.55);
+  --text-muted:     rgba(55, 90, 160, 0.82);
   --text-tiny:      rgba(80, 120, 190, 0.45);
 
   --blue-dim:       rgba(60, 110, 240, 0.12);
@@ -719,3 +748,96 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
   border-color: var(--border-bright);
   color: var(--text-primary);
 }
+
+/* ── Roblox brand icon fallback ───────────────────────────────────────
+   The `ti-brand-roblox` glyph is missing from the pinned Tabler webfont
+   (2.47.0), so any <i class="ti ti-brand-roblox"> renders blank. Override
+   it to paint an inline Roblox-logo SVG via a CSS mask (inherits the
+   current text colour and font-size like a real icon). !important so it
+   wins over the later-loaded Tabler stylesheet. */
+.ti-brand-roblox::before {
+  content: "" !important;
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.926 23.998L0 18.892 5.075.002 24 5.108 18.926 23.998ZM15.348 10.09l-5.282-1.453-1.414 5.273 5.282 1.453 1.414-5.273Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.926 23.998L0 18.892 5.075.002 24 5.108 18.926 23.998ZM15.348 10.09l-5.282-1.453-1.414 5.273 5.282 1.453 1.414-5.273Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* ── MET emoji ────────────────────────────────────────────────────────
+   The custom emoji set (client/public/js/emoji.js, artwork in
+   scripts/emoji/manifest.js). Sized in `em` so it tracks whatever text it
+   sits in, and nudged down a touch so it sits on the baseline the way a
+   real emoji glyph does. */
+.met-emoji {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.22em;
+  object-fit: contain;
+  user-select: none;
+}
+/* Standing alone in a heading or a stat tile it wants a little more weight. */
+.met-emoji-lg { width: 1.5em; height: 1.5em; vertical-align: -0.35em; }
+
+/* The MET server's own rank insignia, shown beside a rank name. Sized like an
+   inline icon so it sits in a chip without changing its height. */
+.rank-insignia {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  margin-right: 4px;
+  object-fit: contain;
+}
+
+/* ── MET XP on the profile ────────────────────────────────────────────
+   The same numbers /xp shows in Discord. The balance is the headline; the
+   bar is how far through the current rank band they are. */
+.xp-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.xp-num  { font-size: 34px; font-weight: 800; line-height: 1; }
+.xp-unit { font-size: 13px; color: var(--text-muted); margin-left: 7px; }
+.xp-rank { font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; }
+
+.xp-bar {
+  height: 9px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.07);
+  overflow: hidden;
+}
+.xp-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--blue), #7fb4ff);
+  transition: width .5s cubic-bezier(.2,.7,.3,1);
+}
+.xp-bar-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+.xp-next { margin-top: 11px; font-size: 13px; color: var(--text-secondary); }
+
+.xp-hist { margin-top: 16px; border-top: 1px solid var(--border-dim); padding-top: 12px; }
+.xp-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  padding: 5px 0;
+  color: var(--text-secondary);
+}
+.xp-hist-row > span:first-of-type { flex: 1; min-width: 0; }
+.xp-hist-when { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.xp-hist-empty { margin-top: 14px; font-size: 12.5px; color: var(--text-muted); }

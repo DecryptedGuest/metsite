@@ -6,9 +6,14 @@
   <title>MET · Final Examination</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
   <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     body { overflow-y: auto; overflow-x: hidden; }
@@ -36,6 +41,7 @@
     .exam-state h2 { font-family: var(--font-display); font-size: 22px; margin: 0 0 0.6rem; }
     .exam-state p { color: var(--text-secondary); font-size: 13px; line-height: 1.7; max-width: 460px; margin: 0 auto; }
   </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body>
 <div class="bg-canvas">
@@ -51,7 +57,6 @@
     </div>
   </div>
   <div class="met-topbar-right">
-    <a href="/profile" class="btn btn-ghost btn-sm"><i class="ti ti-arrow-left"></i> My Dashboard</a>
     <form action="/auth/logout" method="POST"><button type="submit" class="btn btn-icon btn-ghost" title="Sign out"><i class="ti ti-logout"></i></button></form>
   </div>
 </div>
@@ -80,17 +85,32 @@
       <span>This exam is monitored for integrity. Any cheating or use of Google/AI will be detected and will result in a blacklist. Type your own answers.</span>
     </div>
 
+    <div id="exam-identity"></div>
+
     <div id="exam-questions"></div>
 
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:1rem;">
+    <div class="anti-cheat-note" style="border-color:rgba(255,193,7,0.35);background:rgba(255,193,7,0.08);">
+      <i class="ti ti-user-plus" style="color:#ffc107;"></i>
+      <span>Before you submit, make sure you have <strong>requested to join</strong> the
+        <a href="https://www.roblox.com/communities/17275620/Metropolitan-Police-SLR" target="_blank" rel="noopener" style="color:#ffc107;text-decoration:underline;">Metropolitan Police group</a>.
+        When you pass, you'll be automatically accepted as a <strong>Community Support Officer</strong> · but only if a join request is pending.</span>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:1rem;">
+      <button class="btn btn-ghost btn-sm" id="exam-restart-btn" style="color:var(--red);" onclick="restartExam()"><i class="ti ti-refresh"></i> Restart</button>
       <button class="btn btn-primary" id="exam-submit-btn" onclick="submitExam()"><i class="ti ti-send"></i> Submit Final Exam</button>
     </div>
+    <div style="text-align:right;font-size:11px;color:var(--text-muted);margin-top:6px;" id="exam-save-note"></div>
   </div>
 </div>
 
 <div id="toast-container"></div>
-<script src="/js/ui.js"></script>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/met-topbar.js?v=3"></script>
+<script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
 <script src="/js/exam.js"></script>
+<script>initMetTopbar('');</script>
 </body>
 </html>

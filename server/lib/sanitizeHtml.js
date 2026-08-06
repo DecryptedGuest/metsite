@@ -1,0 +1,280 @@
+// server/lib/sanitizeHtml.js
+// A small, dependency-free HTML allowlist sanitiser for the rich-text sections
+// of a case document. Case documents are written by IA members but READ by
+// anyone with the link, so the stored HTML has to be safe to render.
+//
+// Everything not explicitly allowed is dropped:
+//   * only the tags in ALLOWED_TAGS survive; unknown tags are unwrapped (their
+//     text content is kept) so pasting from Word/Docs doesn't lose the writing.
+//   * <script>, <style>, <iframe>, <object>, <embed>, <link>, <meta>, <form>
+//     and friends are removed OUTRIGHT, contents and all.
+//   * every attribute is checked against a per-tag allowlist; on* handlers and
+//     javascript:/vbscript:/data: URLs (except data:image) never get through.
+//   * inline styles are re-built property-by-property from a safe allowlist, so
+//     `position:fixed`, `url(...)` and `expression(...)` can't sneak in.
+
+const ALLOWED_TAGS = new Set([
+  'p', 'br', 'div', 'span', 'section',
+  'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'ins', 'mark', 'small', 'sub', 'sup', 'code',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'ul', 'ol', 'li', 'blockquote', 'pre', 'hr',
+  'a', 'img', 'figure', 'figcaption',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'colgroup', 'col',
+  'font',
+]);
+
+// Tags whose *contents* are dropped along with the tag itself. Handled inside
+// the main tokenizer loop (see sanitizeHtml) rather than by a regex pre-pass.
+const VOID_CONTENT_TAGS = new Set([
+  'script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'form',
+  'input', 'button', 'select', 'option', 'textarea', 'noscript', 'template', 'svg', 'math',
+]);
+
+const SELF_CLOSING = new Set(['br', 'hr', 'img', 'col']);
+
+const ALLOWED_ATTRS = {
+  '*':   ['style', 'class', 'align', 'dir'],
+  a:     ['href', 'title', 'target', 'rel'],
+  img:   ['src', 'alt', 'title', 'width', 'height'],
+  td:    ['colspan', 'rowspan'],
+  th:    ['colspan', 'rowspan', 'scope'],
+  col:   ['span', 'width'],
+  font:  ['color', 'face', 'size'],
+  ol:    ['start', 'type'],
+  li:    ['value'],
+};
+
+// CSS properties a document author can legitimately need. Anything that could
+// escape the document flow (position, z-index, transform…) is deliberately out.
+const ALLOWED_CSS = new Set([
+  'color', 'background-color', 'background',
+  'font-size', 'font-family', 'font-weight', 'font-style', 'font-variant',
+  'text-decoration', 'text-decoration-line', 'text-decoration-color', 'text-decoration-style',
+  'text-align', 'text-indent', 'text-transform', 'letter-spacing', 'word-spacing',
+  'line-height', 'vertical-align', 'white-space',
+  'margin', 'margin-left', 'margin-right', 'margin-top', 'margin-bottom',
+  'padding', 'padding-left', 'padding-right', 'padding-top', 'padding-bottom',
+  'border', 'border-left', 'border-right', 'border-top', 'border-bottom',
+  'border-color', 'border-width', 'border-style', 'border-radius', 'border-collapse',
+  'list-style', 'list-style-type', 'list-style-position',
+  'width', 'max-width', 'height', 'min-height', 'opacity',
+]);
+
+// Class names the editor itself applies (document blocks / callouts).
+const ALLOWED_CLASS = /^(doc-[a-z0-9-]+|cd-[a-z0-9-]+)$/;
+
+const BAD_URL = /^\s*(javascript|vbscript|file|blob):/i;
+
+function safeUrl(value, { allowDataImage = false } = {}) {
+  const v = String(value || '').trim().replace(/[\x00-\x1f]/g, '');
+  if (!v) return null;
+  if (BAD_URL.test(v)) return null;
+  if (/^data:/i.test(v)) {
+    return (allowDataImage && /^data:image\/(png|jpe?g|gif|webp|avif);base64,[a-z0-9+/=\s]+$/i.test(v)) ? v : null;
+  }
+  if (/^(https?:)?\/\//i.test(v) || /^mailto:/i.test(v) || v.startsWith('/') || v.startsWith('#')) return v;
+  // Bare "example.com/x" — treat as https so a pasted link still works.
+  if (/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(v)) return 'https://' + v;
+  return null;
+}
+
+function sanitizeStyle(value) {
+  const out = [];
+  for (const decl of String(value || '').split(';')) {
+    const idx = decl.indexOf(':');
+    if (idx < 0) continue;
+    const prop = decl.slice(0, idx).trim().toLowerCase();
+    let   val  = decl.slice(idx + 1).trim();
+    if (!ALLOWED_CSS.has(prop)) continue;
+    if (/url\s*\(|expression\s*\(|javascript:|@import|\\/i.test(val)) continue;
+    val = val.replace(/[<>"']/g, '');
+    if (!val || val.length > 160) continue;
+    out.push(`${prop}:${val}`);
+  }
+  return out.join(';');
+}
+
+function escapeText(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Pull `name="value"` / `name='value'` / `name=value` / `name` pairs out of a
+// raw tag's attribute section.
+function parseAttrs(raw) {
+  const attrs = {};
+  const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>`]+)))?/g;
+  let m;
+  while ((m = re.exec(raw))) {
+    const name = m[1].toLowerCase();
+    const val  = m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4] !== undefined ? m[4] : '';
+    attrs[name] = val;
+  }
+  return attrs;
+}
+
+function renderAttrs(tag, attrs) {
+  const allowed = new Set([...(ALLOWED_ATTRS['*'] || []), ...(ALLOWED_ATTRS[tag] || [])]);
+  const parts = [];
+  const seen = new Set();
+  for (const [name, rawVal] of Object.entries(attrs)) {
+    if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction') continue;
+    if (!allowed.has(name)) continue;
+    // Duplicate attributes: the FIRST one wins in HTML, so an attacker-supplied
+    // rel/target must never be emitted before the safe one we append below.
+    if (seen.has(name)) continue;
+    if (tag === 'a' && (name === 'rel' || name === 'target')) continue;
+    seen.add(name);
+
+    let value = rawVal;
+    if (name === 'style') {
+      value = sanitizeStyle(value);
+      if (!value) continue;
+    } else if (name === 'class') {
+      value = String(value).split(/\s+/).filter(c => ALLOWED_CLASS.test(c)).join(' ');
+      if (!value) continue;
+    } else if (name === 'href') {
+      value = safeUrl(value);
+      if (!value) continue;
+    } else if (name === 'src') {
+      value = safeUrl(value, { allowDataImage: true });
+      if (!value) continue;
+    } else if (['width', 'height', 'colspan', 'rowspan', 'span', 'start', 'value'].includes(name)) {
+      if (!/^\d{1,5}$/.test(String(value).trim())) continue;
+    } else if (name === 'align') {
+      if (!['left', 'right', 'center', 'justify'].includes(String(value).toLowerCase())) continue;
+    } else if (String(value).length > 300) {
+      continue;
+    }
+    parts.push(`${name}="${escapeAttr(value)}"`);
+  }
+  // Every external link opens safely. These are appended (never taken from the
+  // input) so they cannot be overridden by a duplicate attribute.
+  if (tag === 'a' && attrs.href) {
+    parts.push('target="_blank"');
+    parts.push('rel="noopener noreferrer nofollow"');
+  }
+  return parts.length ? ' ' + parts.join(' ') : '';
+}
+
+/**
+ * Sanitise a rich-text fragment. Returns safe HTML (never null).
+ *
+ * Single linear pass: one tokenizer walks the input, unknown tags are unwrapped
+ * (their text survives), and the tags whose CONTENT must also go — <script>,
+ * <style>, <svg>… — put the walk into "skipping" mode until their close tag.
+ * Doing it in the tokenizer rather than in a pre-pass of per-tag regexes is what
+ * keeps this linear: the old pre-pass ran ~20 lazy `<tag>[\s\S]*?</tag>`
+ * patterns over the whole string, which is quadratic on hostile input.
+ *
+ * `maxLength` caps the OUTPUT. The budget is enforced BETWEEN tokens and the
+ * open-tag stack is then closed properly, so truncation can never cut a tag in
+ * half and leave broken markup behind.
+ */
+const MAX_INPUT = 400000; // hard ceiling on what we'll even look at
+
+function sanitizeHtml(input, { maxLength = 200000 } = {}) {
+  let html = String(input == null ? '' : input);
+  if (!html.trim()) return '';
+  if (html.length > MAX_INPUT) html = html.slice(0, MAX_INPUT);
+
+  // Comments can hide markup from a naive parser, so they go first. This is a
+  // single linear scan, not a backtracking pattern.
+  html = stripComments(html);
+
+  const out   = [];
+  const stack = [];
+  let size = 0, truncated = false;
+  const push = (s) => {
+    if (truncated) return;
+    if (size + s.length > maxLength) { truncated = true; return; }
+    out.push(s); size += s.length;
+  };
+
+  const tokenRe = /<\/?([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  let last = 0, m;
+  let skipUntil = null;   // tag name whose content is being discarded
+
+  while ((m = tokenRe.exec(html))) {
+    const isClose = m[0][1] === '/';
+    const tag     = m[1].toLowerCase();
+
+    if (skipUntil) {
+      // Discard everything, including text, until the matching close tag.
+      if (isClose && tag === skipUntil) skipUntil = null;
+      last = tokenRe.lastIndex;
+      continue;
+    }
+
+    if (m.index > last) push(escapeText(html.slice(last, m.index)));
+    last = tokenRe.lastIndex;
+    if (truncated) break;
+
+    if (VOID_CONTENT_TAGS.has(tag)) {
+      // <script>, <style>, <svg>… — drop the tag AND its contents.
+      const selfShut = /\/\s*$/.test(m[2] || '');
+      if (!isClose && !selfShut) skipUntil = tag;
+      continue;
+    }
+    if (!ALLOWED_TAGS.has(tag)) continue;          // unwrap: keep inner text only
+
+    if (isClose) {
+      const at = stack.lastIndexOf(tag);
+      if (at < 0) continue;                        // stray close tag
+      while (stack.length > at) push(`</${stack.pop()}>`);
+      continue;
+    }
+
+    const selfShut = SELF_CLOSING.has(tag) || /\/\s*$/.test(m[2] || '');
+    const attrs    = parseAttrs(m[2] || '');
+    const rendered = `<${tag}${renderAttrs(tag, attrs)}${SELF_CLOSING.has(tag) ? ' /' : ''}>`;
+    // Reserve room for the closing tag so the budget can never strand an
+    // unclosed element.
+    if (!selfShut && !SELF_CLOSING.has(tag) && size + rendered.length + tag.length + 3 > maxLength) {
+      truncated = true;
+      break;
+    }
+    push(rendered);
+    if (truncated) break;
+    if (!selfShut && !SELF_CLOSING.has(tag)) stack.push(tag);
+  }
+  if (!truncated && !skipUntil && last < html.length) push(escapeText(html.slice(last)));
+  // Always close what we opened — even when we stopped early.
+  while (stack.length) out.push(`</${stack.pop()}>`);
+
+  return out.join('');
+}
+
+// Remove <!-- … --> in one forward scan. An unterminated comment swallows the
+// rest of the input, which is what a browser does too.
+function stripComments(html) {
+  let out = '', i = 0;
+  for (;;) {
+    const start = html.indexOf('<!--', i);
+    if (start < 0) { out += html.slice(i); break; }
+    out += html.slice(i, start);
+    const end = html.indexOf('-->', start + 4);
+    if (end < 0) break;                 // unterminated — drop the remainder
+    i = end + 3;
+  }
+  return out;
+}
+
+// Plain text from a rich-text fragment (for previews, search and the AI prompt).
+function htmlToText(input) {
+  return String(input == null ? '' : input)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+module.exports = { sanitizeHtml, htmlToText, escapeText, escapeAttr, safeUrl };
