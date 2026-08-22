@@ -1,24 +1,74 @@
 # Build Prompt — `/discipline`, `/xp`, `/loa` Discord Bot
 
-> Copy everything below the line into a fresh AI coding session.
-> Fill in the `<<PLACEHOLDERS>>` (or leave them — every one is read from an env
-> var at runtime, never hard-coded).
+> Paste everything below into a fresh Claude Code session. It is fully
+> self-contained — the agent needs no other repository, file or context.
+> Replace the `<<PLACEHOLDERS>>` where you already know the values; every one of
+> them is read from an environment variable at runtime, so you can also leave
+> them and fill the `.env` in later.
 
 ---
 
-## ROLE
+## ROLE AND GROUND RULES
 
-Build a **standalone Discord bot** (Node.js 20+, `discord.js` v14, Prisma +
-PostgreSQL) with exactly **three slash command groups** — `/discipline`, `/xp`,
-`/loa` — reproducing the systems specified below verbatim. Do not add any other
-commands or features. Where a number, emoji, colour, string or interval is
-given, use it exactly.
+You are building a **new, standalone Discord bot from scratch** in an empty
+directory. Stack: **Node.js 20+, `discord.js` v14, Prisma + PostgreSQL**. There
+is no existing code to read and no repository to inspect — this document is the
+complete and only specification. Build exactly what it says.
 
-Finish by printing a complete `.env.example` and a plain-English list of every
-environment variable: what it is, where I get it, required or optional.
+The bot serves a Roblox law-enforcement roleplay community. Staff members
+discipline each other through formal "cases", and staff earn weekly quota points
+(the community calls them XP) for the casework they submit. The bot exposes
+**exactly three slash command groups** — `/discipline`, `/xp`, `/loa` — and
+nothing else.
 
-Everything must be **fail-soft** — a Discord/Google/Roblox failure is logged and
-retried, never crashes a command.
+Rules you must follow without exception:
+
+1. **Do not invent features.** No extra commands, no extra fields, no "helpful"
+   additions. If something is not in this document, it does not exist.
+2. **Do not rename anything.** Action names, embed titles, field labels, log
+   lines and error strings are contractual — real people read them and other
+   tooling matches on them. Reproduce every quoted string character for
+   character, including the emojis, the `• ` prefixes, and the double space in
+   the boot log line.
+3. **Every number is deliberate.** Intervals, point values, retry counts, batch
+   sizes, colours and character limits are given explicitly. Use them verbatim;
+   do not round, tune or "improve" them.
+4. **Everything is fail-soft at runtime.** Any Discord, Google or Roblox failure
+   is caught, logged and retried where specified — it must never crash a command
+   or abort an approval halfway. The single exception is boot: a missing
+   *required* env var must fail loudly and exit with a clear message.
+5. **No hard-coded IDs, anywhere.** Role IDs, guild IDs, group IDs, sheet IDs
+   and webhook URLs come from `process.env`, read at call time (not captured at
+   module load), so they can be changed without a redeploy.
+
+### Glossary
+
+| Term | Meaning |
+|---|---|
+| **Case** | One disciplinary record filed against a staff member. Carries one or more punishments. |
+| **Subject / officer** | The staff member the case is *against*. Confusingly, the code field is `officerDiscordId` — keep that name. |
+| **Submitter / filer** | The staff member who *wrote* the case. This is who earns the points. |
+| **IA** | Internal Affairs — the staff department that files cases. |
+| **HICOMM** | High Command — the top permission tier. |
+| **Supervisor** | The middle tier: can approve cases, but not Blacklist or Termination. |
+| **XP / quota points** | Points earned for approved work, tracked per weekday in a Google Sheet. |
+| **Exile** | Removing someone from the Roblox group. |
+| **LOA** | Leave of Absence — a marker written into the sheet that exempts someone from quota. |
+| **IOTW** | Investigator of the Week — a Discord role that reduces its holder's weekly target. |
+| **RoVer** | The third-party bot/API that links Discord accounts to Roblox accounts. |
+
+### What you are building, in one paragraph
+
+A staff member runs `/discipline file` against someone, choosing punishments
+from a fixed catalog of eleven. That creates a PENDING case. A reviewer runs
+`/discipline approve`, and the bot then: posts a formal "Administrative Log"
+embed to a Discord webhook, assigns the Discord role for each punishment,
+records an expiry for the timed ones (a background worker strips those roles
+when they lapse), removes the subject from the Roblox group if any punishment
+is exile-flagged, drops them one Roblox rank if the punishment is a Demotion,
+and finally awards **+4 points to the person who filed the case** — written into
+a Google Sheet through a durable outbox that retries until it lands. `/xp` reads
+and administers those points; `/loa` writes the leave-of-absence marker.
 
 ---
 
@@ -408,3 +458,154 @@ DEVELOPER_ROLE_ID    = <<OPTIONAL_ROLE_ID>>
    Discord, Roles, Roblox, Google/Quota, Webhooks. I'm adding the bot accounts
    to the Roblox groups myself, so state which group permissions each Roblox
    feature needs (exile, rank change).
+
+
+---
+
+# 10. APPENDIX — exact external API contracts
+
+You have no reference implementation to copy from, so here is every external
+call spelled out.
+
+## 10.1 Roblox — identity (Discord → Roblox)
+
+Primary, with `ROVER_API_KEY`:
+```
+GET https://registry.rover.link/api/guilds/<DISCORD_GUILD_ID>/discord-to-roblox/<discordUserId>
+Authorization: Bearer <ROVER_API_KEY>
+→ 200 { robloxId: 123456 }   → String(robloxId)
+→ 404                        → not linked; cache the null
+→ body.errorCode === 'user_not_found' → not linked; cache the null
+→ 429                        → TRIP THE COOLDOWN (below) and return cached/null
+```
+Public fallback when no key is set (rate-limited, warn about it):
+`GET https://verify.eryn.io/api/user/<discordUserId>`.
+
+**Resolution order, and this order matters:** in-memory cache (TTL ~30 min) →
+the Roblox id already stored on that user's row in your own DB → RoVer. Hitting
+your own database before RoVer is what keeps you off the rate limit.
+
+**The 429 cooldown**: on a 429, set `roverCooldownUntil` from the response's
+`detail.retryAfter` (default a few minutes) and, while it holds, **never call
+RoVer at all** — serve the cached or stored value, or null. Retrying into a
+rate-limit extends the ban and stalls approvals. A missing Roblox link is never
+an error: exile and demotion are simply skipped for that case.
+
+## 10.2 Roblox — reads (public, no auth)
+
+```
+Headshot   GET https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=<id>&size=150x150&format=Png&isCircular=false
+           → data[0].imageUrl
+Membership GET https://groups.roblox.com/v2/users/<id>/groups/roles
+           → data[] — find the entry whose group.id === ROBLOX_GROUP_ID; gives { group, role:{ id, name, rank } }
+```
+
+## 10.3 Roblox — writes (authenticated)
+
+Every write goes through one `robloxAuthFetch(url, options, allowRetry = true)`
+helper:
+
+- Headers: `Cookie: .ROBLOSECURITY=<ROBLOX_COOKIE>`,
+  `Content-Type: application/json`, and `X-CSRF-TOKEN` when one is cached.
+- **On a 403, Roblox returns a fresh token in the `x-csrf-token` response
+  header.** Capture it, then retry the request exactly once with
+  `allowRetry = false`. Without this, every write fails.
+- Warm the token at boot with a throwaway
+  `POST https://auth.roblox.com/v2/logout` (its own failure is irrelevant —
+  you only want the header), so the first real action doesn't pay for the retry.
+
+The calls themselves:
+```
+Exile        DELETE https://groups.roblox.com/v1/groups/<groupId>/users/<userId>
+List ranks   GET    https://groups.roblox.com/v1/groups/<groupId>/roles
+                    → roles[] of { id, name, rank }, sort ascending by rank
+Change rank  PATCH  https://groups.roblox.com/v1/groups/<groupId>/users/<userId>
+                    body { roleId: <the target role's id> }
+```
+**Demotion algorithm**: read the subject's current `rank`; from the group's
+roles take every role with `rank > 0` **and** `rank < currentRank`; pick the
+**highest** of those; set it. `rank > 0` excludes the guest role. If nothing
+qualifies, fail with reason `already at the lowest rank`.
+
+Group permissions the bot's Roblox account needs: **Remove Members** for exile,
+**Manage lower-ranked member ranks** for demotion, and its own group rank must
+sit **above** everyone it acts on.
+
+## 10.4 Google Sheet — the Apps Script web app (primary write path)
+
+Ship a `scripts/quota-webhook.gs` for the user to paste into their sheet
+(Extensions → Apps Script → Deploy → Web app, *Execute as: Me*, *Who has access:
+Anyone*). The `/exec` URL becomes `QUOTA_WEBHOOK_URL`.
+
+The bot POSTs JSON, always with `redirect: 'follow'` (Apps Script 302s):
+```jsonc
+{ "secret": "<QUOTA_WEBHOOK_SECRET>", "action": "add",    "username": "...", "discordId": "...", "points": 4 }
+{ "secret": "<QUOTA_WEBHOOK_SECRET>", "action": "exempt", "username": "...", "marker": "EX" }   // or "LOA"
+{ "secret": "<QUOTA_WEBHOOK_SECRET>", "action": "reset" }
+```
+Responses are `{ ok: true, row, day, newValue }` / `{ ok: true, cleared }` /
+`{ ok: false, error }`. A wrong secret returns `{ ok:false, error:'bad secret' }`.
+
+The script itself must:
+- Verify the secret before doing anything.
+- **Take a `LockService.getScriptLock()` with `waitLock(30000)` around the whole
+  handler**, and `SpreadsheetApp.flush()` before releasing. Two approvals
+  landing together would otherwise each read the old cell value and write back
+  `old + points`, silently losing one increment. On lock timeout return
+  `{ ok:false, error:'busy — could not acquire lock' }`.
+- Resolve "today" in its own `TIMEZONE` constant (`Europe/London`).
+- Carry the same header-detection and row-matching rules as §2.3, so both write
+  paths agree on which cell they are touching.
+
+## 10.5 Google Sheet — the service account (fallback path)
+
+`GOOGLE_SERVICE_ACCOUNT_JSON` holds the whole key JSON on one line; scope
+`https://www.googleapis.com/auth/spreadsheets`. The user must share the sheet
+with the key's `client_email` as an **Editor**, or every call 403s.
+
+- Read: `spreadsheets.values.get` over the whole tab,
+  `valueRenderOption: 'FORMATTED_VALUE'`, `majorDimension: 'ROWS'`.
+- Write one cell: `spreadsheets.values.update`, `valueInputOption: 'USER_ENTERED'`.
+- Write many (markers, reset): `spreadsheets.values.batchUpdate`.
+- If `QUOTA_SHEET_NAME` is unset, `spreadsheets.get` with
+  `fields: 'sheets.properties.title'` and take the **first tab**.
+- Column letters past Z need a proper base-26 conversion — write the helper,
+  don't assume single letters.
+
+## 10.6 Discord webhooks
+
+```
+Post   POST  <webhookUrl>?wait=true      → the created message, keep msg.id
+Edit   PATCH <webhookUrl-without-query>/messages/<messageId>
+```
+`?wait=true` is what makes Discord return the message body; without it you get
+no id and can never edit the log in place. Strip any existing query string and
+trailing slashes off the base URL before appending `/messages/<id>`.
+
+---
+
+# 11. BUILD ORDER (suggested)
+
+1. `prisma/schema.prisma` + `npx prisma migrate dev` — get the data model real first.
+2. `lib/actions.js` — the catalog with env getters. Tiny, and everything depends on it.
+3. `lib/roblox.js` — identity, CSRF helper, exile, list roles, demote. Test the CSRF retry.
+4. `lib/webhook.js` — `buildCaseEmbed`, post, edit. Verify the embed against §1.4 field by field.
+5. `lib/quota.js` — sheet read/write, column discovery, row matching, targets, markers, the outbox.
+6. `lib/discipline.js` — the approval pipeline, in the order given in §1.3.
+7. The expiry worker and the outbox worker; start both from `index.js`.
+8. `commands/discipline.js`, `commands/xp.js`, `commands/loa.js`; register them.
+9. `scripts/quota-webhook.gs`, `README.md`, `.env.example`, and the env-var table.
+
+## Before you say you are done, verify
+
+- [ ] All 11 actions present, exact names, correct `exile`/`timed` flags.
+- [ ] `roleId` is a **getter**, not a value captured at import time.
+- [ ] A Supervisor cannot approve a Blacklist or Termination case.
+- [ ] Approving twice returns 409; the outbox never double-awards.
+- [ ] Exile fires **once per case**, even with two exile-flagged punishments.
+- [ ] The embed matches §1.4 exactly — colour, author, `• ` field names, footer,
+      and the duration-suffix exceptions.
+- [ ] Editing an approved case PATCHes the original message, not a new post.
+- [ ] The expiry worker leaves `roleRemoved = false` on failure so it retries.
+- [ ] `EX` and `LOA` cells survive `/xp reset` and are never summed.
+- [ ] Nothing anywhere is a hard-coded Discord/Roblox/Sheet id.
