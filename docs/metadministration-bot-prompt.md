@@ -69,11 +69,11 @@ exile-flagged, drops them one Roblox rank on a Demotion, and awards **+4 points
 to the filer** — written to a Google Sheet through a durable outbox that retries
 until it lands. `/check-record` shows someone's disciplinary history and the
 suggested next step. `/xp` reads and administers points. `/loa` writes the
-leave-of-absence marker. `/import-cases` is a one-off developer backfill tool.
+leave-of-absence marker.
 
 ---
 
-## THE COMMAND LIST — build these five, and only these five
+## THE COMMAND LIST — build these four, and only these four
 
 | Command | Subcommands | Who can run it |
 |---|---|---|
@@ -81,7 +81,6 @@ leave-of-absence marker. `/import-cases` is a one-off developer backfill tool.
 | `/check-record` | *(none)* | IA and above |
 | `/xp` | `me`, `check`, `review`, `reset`, `exempt`, `iotw` | `me` anyone; rest per §3.7 |
 | `/loa` | `set` | HICOMM only |
-| `/import-cases` | *(none)* | The developer user ID only |
 
 ---
 
@@ -134,7 +133,7 @@ Options:
 - `notes` (string, optional) — defaults to `N/A`.
 - `evidence` (string, optional) — a link.
 
-Behaviour: resolve the subject's Roblox identity at filing time (§6.1), but
+Behaviour: resolve the subject's Roblox identity at filing time (§5.1), but
 never block on it — if RoVer is unavailable, store what you have and carry on;
 exile and demotion are simply skipped later. Store the case as `PENDING`, write
 a `CaseAction` audit row (`CREATED`, notes `Case submitted`), and reply with the
@@ -163,7 +162,7 @@ case ref.
    exactly `Roblox group exile executed for "<Action>" (user <id>)` or
    `Roblox group exile failed for "<Action>" (user <id>)`.
 9. **Demotion** — if any action is `Demotion`, drop the subject one Roblox rank
-   (§6.3). Audit `Group demotion: <from> → <to> (user <id>)` or
+   (§5.3). Audit `Group demotion: <from> → <to> (user <id>)` or
    `Group demotion failed: <reason> (user <id>)`.
 10. **Award +4 points** to the member who **filed** the case (never the
     subject), through the outbox in §3.2, label `case #<n>`.
@@ -234,7 +233,7 @@ was deleted, post a fresh one and store the new id.
 One option: `user` — a Discord member **or** a Roblox username (accept both;
 decide by whether the input is all digits / a mention).
 
-Identity resolution, in order: RoVer (§6.1) → if that yields nothing, parse the
+Identity resolution, in order: RoVer (§5.1) → if that yields nothing, parse the
 member's **Discord nickname** in the format `RANK | RobloxUsername` and look the
 Roblox username up. If RoVer errored rather than simply finding nothing, say so
 in the reply and flag whether it was a rate-limit.
@@ -389,46 +388,7 @@ fallback.
 
 ---
 
-# 5. `/import-cases`
-
-A one-off developer backfill: reads a Discord **forum channel** whose posts are
-historical cases and creates case records from them.
-
-- Options: `channel` (channel, required) — the forum channel;
-  `dry` (boolean, optional) — preview only, write nothing.
-- **Registered only in `IMPORT_GUILD_ID`**, not globally. Everyone there can see
-  it, but execution is gated in code to `DEVELOPER_DISCORD_ID`; anyone else gets
-  exactly: `⛔ You are not authorised to use this command.`
-- Reply ephemerally (`flags: 64`). Defer, then immediately edit to
-  `⏳ Starting import — fetching forum posts…` so the token cannot expire.
-  Edit on every progress event as `⏳ <msg>`, and run a **10-second keep-alive**
-  `setInterval` editing `⏳ Still working…` for the whole run. Always
-  `clearInterval` on both success and failure.
-- Dry-run reply:
-  ```
-  🔎 **Dry run** — found **<parsed>** cases, skipped **<skipped>** (bad title format).
-  Status: Pending **<n>** · Approved **<n>** · Denied **<n>**
-  Docs linked: **<n>** of first <n> shown.
-
-  Run again without **dry** to import all <parsed> cases.
-  ```
-  followed by a fenced code block, one line per case:
-  `<caseRef> <username> · <status><✓|✗ for evidence link>< · investigator>< · punishments truncated to 35 chars>`.
-  Cap that table at **1400 characters**, appending `\n…(truncated)` — Discord's
-  message limit is 2000 and the header eats the rest.
-- Real-run reply:
-  ```
-  ✅ **Import complete** — created **<created>** cases (parsed <parsed>, skipped <skipped> bad-format).
-  Status: Pending <n> · Approved <n> · Denied <n>
-  Cases are numbered #1 … #<created> oldest → newest.
-  ```
-- On failure: `❌ Import failed: <message>`.
-- Reading forum post bodies needs the **privileged Message Content intent**
-  (§7.2).
-
----
-
-# 6. External integrations
+# 5. External integrations
 
 ## 6.1 Roblox identity (Discord → Roblox)
 
@@ -553,16 +513,18 @@ and trailing slashes from the base URL before appending `/messages/<id>`.
 
 ---
 
-# 7. Explicitly out of scope
+# 6. Explicitly out of scope
 
 ## 7.1 Commands that must NOT exist
 
 The old system had a companion website. **Do not** rebuild any of it, and do not
 add commands for it. In particular, do not create: `/promote`, `/ia`, `/met`,
 `/loa request`, `/loa history`, `/loa admin`, `/tryout`, `/exam`, `/ticket`,
-`/penal`, `/offence`, or any command for divisions (CID, SCO-19, FLP, HPC),
-tryouts, exams, tickets, penal-code or offence lookups, media, or push
-notifications. If you think one is needed, stop and say so instead of building
+`/penal`, `/offence`, `/import-cases`, or any command for divisions (CID,
+SCO-19, FLP, HPC), tryouts, exams, tickets, penal-code or offence lookups,
+media, or push notifications. **`/import-cases` in particular belongs to the
+separate IA server and must not be built here** — this bot is for the MET
+server only. If you think one is needed, stop and say so instead of building
 it.
 
 Note also there is no `/xp` ticket award: the website awarded +2 for approved
@@ -572,12 +534,9 @@ general (`'case'`) so a second source could be added later without a migration.
 
 ## 7.2 Bot mechanics
 
-- Intents: `Guilds` and `GuildMembers` always. Request the **privileged**
-  `GuildMessages` + `MessageContent` intents **only** when `IMPORT_GUILD_ID` is
-  configured (§5 needs them). If login fails because the Developer Portal has
-  not enabled them, **transparently retry the login without them** — the import
-  command stops working, but discipline, expiry and points keep running. Never
-  let a missing privileged intent take the whole bot offline.
+- Intents: `Guilds` and `GuildMembers` only. Do **not** request the privileged
+  `MessageContent` intent — nothing in this bot reads message content. Still
+  guard the login: if it fails, log the reason clearly rather than crashing.
 - Boot log line, exactly: ``🤖  Discord bot online as <tag>`` (two spaces).
 - Guard every guild/member/role call: not ready → warn and return false, never
   throw. Log `Role <id> assigned to <user>` and `Role <id> removed from <user>`,
@@ -587,7 +546,7 @@ general (`'case'`) so a second source could be added later without a migration.
 
 ---
 
-# 8. Data model (Prisma)
+# 7. Data model (Prisma)
 
 ```prisma
 enum CaseStatus { PENDING APPROVED DENIED }
@@ -659,21 +618,21 @@ the Discord user id, and the Roblox link is resolved live and cached.
 
 ---
 
-# 9. Permissions
+# 8. Permissions
 
 Resolved from Discord roles in `DISCORD_GUILD_ID`, checked at call time:
 ```
 ROLE_IA              = <<STAFF_ROLE_ID>>          # file cases, /check-record, /xp check
 ROLE_SUPERVISOR      = <<SUPERVISOR_ROLE_ID>>     # approve/deny — NOT Blacklist/Termination
 ROLE_HICOMM          = <<HIGH_COMMAND_ROLE_ID>>   # approve anything; /xp review|reset|exempt|iotw; /loa
-DEVELOPER_DISCORD_ID = <<YOUR_DISCORD_USER_ID>>   # always full access; the only /import-cases user
+DEVELOPER_DISCORD_ID = <<YOUR_DISCORD_USER_ID>>   # always full access, every command
 DEVELOPER_ROLE_ID    = <<OPTIONAL_ROLE_ID>>
 ```
 Nobody may review their own case.
 
 ---
 
-# 10. Build order
+# 9. Build order
 
 1. `prisma/schema.prisma` + `npx prisma migrate dev` — make the data model real first.
 2. `lib/actions.js` — the catalog with env getters. Tiny, and everything depends on it.
@@ -683,12 +642,12 @@ Nobody may review their own case.
 6. `lib/discipline.js` — the approval pipeline, in the order given in §1.3.
 7. The expiry worker and the outbox worker; start both from `index.js`.
 8. `commands/discipline.js`, `commands/check-record.js`, `commands/xp.js`,
-   `commands/loa.js`, `commands/import-cases.js`; register them.
+   `commands/loa.js`; register them.
 9. `scripts/quota-webhook.gs`, `README.md`, `.env.example`, and the env-var table.
 
 ## Before you call it done, verify
 
-- [ ] Exactly five commands registered — no others.
+- [ ] Exactly four commands registered — no others.
 - [ ] All 11 actions present, exact names, correct `exile`/`timed` flags.
 - [ ] `roleId` is a **getter**, not a value captured at import time.
 - [ ] A Supervisor cannot approve a Blacklist or Termination case.
@@ -700,20 +659,18 @@ Nobody may review their own case.
 - [ ] The expiry worker leaves `roleRemoved = false` on failure so it retries.
 - [ ] `/check-record`'s suggestion ladder resolves in the §2 precedence order.
 - [ ] `EX` and `LOA` cells survive `/xp reset` and are never summed.
-- [ ] `/import-cases` is registered only in `IMPORT_GUILD_ID` and refuses
-      non-developers with `⛔ You are not authorised to use this command.`
 - [ ] No Express, no HTTP routes, no web server anywhere.
 - [ ] Nothing is a hard-coded Discord, Roblox or Sheet id.
 
 ---
 
-# 11. Deliverables
+# 10. Deliverables
 
 1. The bot: `index.js`, `lib/actions.js`, `lib/discipline.js`, `lib/quota.js`,
    `lib/roblox.js`, `lib/webhook.js`, `commands/*.js`, `prisma/schema.prisma`,
    and `scripts/quota-webhook.gs`.
-2. A `README.md`: creating the bot application, which privileged intents to
-   enable and why they are optional, inviting it with Manage Roles (its role
+2. A `README.md`: creating the bot application, enabling the Server Members
+   intent, inviting it with Manage Roles (its role
    must sit **above** every punishment role), the Google service account and
    sharing the sheet with its `client_email`, and deploying the Apps Script.
 3. **A complete `.env.example` and a plain-English table of every environment
