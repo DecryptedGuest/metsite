@@ -73,7 +73,7 @@ leave-of-absence marker.
 
 ---
 
-## THE COMMAND LIST — build these four, and only these four
+## THE COMMAND LIST — build these six, and only these six
 
 | Command | Subcommands | Who can run it |
 |---|---|---|
@@ -81,6 +81,8 @@ leave-of-absence marker.
 | `/check-record` | *(none)* | IA and above |
 | `/xp` | `me`, `check`, `review`, `reset`, `exempt`, `iotw` | `me` anyone; rest per §3.7 |
 | `/loa` | `set` | HICOMM only |
+| `/pendingjoin` | `list`, `approve`, `decline` | HICOMM only |
+| `/promote` | *(none)* | HICOMM only |
 
 ---
 
@@ -133,7 +135,7 @@ Options:
 - `notes` (string, optional) — defaults to `N/A`.
 - `evidence` (string, optional) — a link.
 
-Behaviour: resolve the subject's Roblox identity at filing time (§5.1), but
+Behaviour: resolve the subject's Roblox identity at filing time (§7.1), but
 never block on it — if RoVer is unavailable, store what you have and carry on;
 exile and demotion are simply skipped later. Store the case as `PENDING`, write
 a `CaseAction` audit row (`CREATED`, notes `Case submitted`), and reply with the
@@ -162,7 +164,7 @@ case ref.
    exactly `Roblox group exile executed for "<Action>" (user <id>)` or
    `Roblox group exile failed for "<Action>" (user <id>)`.
 9. **Demotion** — if any action is `Demotion`, drop the subject one Roblox rank
-   (§5.3). Audit `Group demotion: <from> → <to> (user <id>)` or
+   (§7.3). Audit `Group demotion: <from> → <to> (user <id>)` or
    `Group demotion failed: <reason> (user <id>)`.
 10. **Award +4 points** to the member who **filed** the case (never the
     subject), through the outbox in §3.2, label `case #<n>`.
@@ -233,7 +235,7 @@ was deleted, post a fresh one and store the new id.
 One option: `user` — a Discord member **or** a Roblox username (accept both;
 decide by whether the input is all digits / a mention).
 
-Identity resolution, in order: RoVer (§5.1) → if that yields nothing, parse the
+Identity resolution, in order: RoVer (§7.1) → if that yields nothing, parse the
 member's **Discord nickname** in the format `RANK | RobloxUsername` and look the
 Roblox username up. If RoVer errored rather than simply finding nothing, say so
 in the reply and flag whether it was a rate-limit.
@@ -388,7 +390,64 @@ fallback.
 
 ---
 
-# 5. External integrations
+---
+
+# 5. `/pendingjoin`
+
+Manages the **Roblox group's join requests**. All three subcommands are HICOMM
+only, and all need `ROBLOX_GROUP_ID` + `ROBLOX_COOKIE` (§7.3).
+
+- **`/pendingjoin list`** — fetch the pending join requests, 100 per page,
+  `sortOrder=Asc`:
+  `GET https://groups.roblox.com/v1/groups/<groupId>/join-requests?limit=100&sortOrder=Asc`
+  (append `&cursor=<token>` to page). For each request show the Roblox
+  **username**, **display name** (falling back to the username when Roblox
+  returns none), **user id**, and **requested-at** timestamp. Carry Roblox's
+  `nextPageCursor` so a "next page" button or option can continue; treat a
+  missing cursor as the end.
+- **`/pendingjoin approve <roblox_user_id>`** —
+  `POST .../join-requests/users/<userId>`
+- **`/pendingjoin decline <roblox_user_id>`** —
+  `DELETE .../join-requests/users/<userId>`
+
+Both actions hit the **same URL** and differ only in HTTP method. On a non-OK
+response, surface Roblox's own body, truncated to 200 characters, in the form
+`Roblox API <status> on <approve|decline>: <body>`. Listing errors read
+`Roblox API <status> listing join requests: <body>`. If `ROBLOX_GROUP_ID` is
+unset, fail with `ROBLOX_GROUP_ID is not set`.
+
+---
+
+# 6. `/promote`
+
+Changes a member's **Roblox group rank**. HICOMM only.
+
+Options: `user` (the member — accept a Discord user, resolved to Roblox via
+§7.1, or a Roblox username) and `rank` (the target rank).
+
+Offer the target ranks through **autocomplete**, sourced live from
+`GET https://groups.roblox.com/v1/groups/<groupId>/roles` — which returns
+`{ id, name, rank }` per role — sorted ascending by `rank`. Never hard-code a
+rank ladder; the group is the source of truth.
+
+Apply with:
+```
+PATCH https://groups.roblox.com/v1/groups/<groupId>/users/<robloxUserId>
+body { roleId: <numeric role id> }
+```
+Accept a role id given either as a bare number **or** as a full
+`groups/<x>/roles/<y>` path — if the value contains a `/`, take the segment
+after the last one, then coerce to `Number`. On failure surface
+`Roblox API <status> changing rank: <body truncated to 200 chars>`.
+
+This command sets a rank **directly** — it is not the one-step demotion in
+§1.3, which is a side effect of a `Demotion` punishment and computes its own
+target. Both call the same underlying rank-change endpoint.
+
+The bot's Roblox account needs **Manage lower-ranked member ranks**, and its own
+group rank must sit above both the member's current and target ranks.
+
+# 7. External integrations
 
 ## 6.1 Roblox identity (Discord → Roblox)
 
@@ -513,7 +572,7 @@ and trailing slashes from the base URL before appending `/messages/<id>`.
 
 ---
 
-# 6. Explicitly out of scope
+# 8. Explicitly out of scope
 
 ## 7.1 Commands that must NOT exist
 
@@ -546,7 +605,7 @@ general (`'case'`) so a second source could be added later without a migration.
 
 ---
 
-# 7. Data model (Prisma)
+# 9. Data model (Prisma)
 
 ```prisma
 enum CaseStatus { PENDING APPROVED DENIED }
@@ -618,7 +677,7 @@ the Discord user id, and the Roblox link is resolved live and cached.
 
 ---
 
-# 8. Permissions
+# 10. Permissions
 
 Resolved from Discord roles in `DISCORD_GUILD_ID`, checked at call time:
 ```
@@ -632,22 +691,24 @@ Nobody may review their own case.
 
 ---
 
-# 9. Build order
+# 11. Build order
 
 1. `prisma/schema.prisma` + `npx prisma migrate dev` — make the data model real first.
 2. `lib/actions.js` — the catalog with env getters. Tiny, and everything depends on it.
-3. `lib/roblox.js` — identity, the CSRF helper, exile, list roles, demote. Test the CSRF retry.
+3. `lib/roblox.js` — identity, the CSRF helper, exile, list roles, demote,
+   change rank, list/resolve join requests. Test the CSRF retry.
 4. `lib/webhook.js` — `buildCaseEmbed`, post, edit. Check the embed against §1.6 field by field.
 5. `lib/quota.js` — sheet read/write, column discovery, row matching, targets, markers, the outbox.
 6. `lib/discipline.js` — the approval pipeline, in the order given in §1.3.
 7. The expiry worker and the outbox worker; start both from `index.js`.
 8. `commands/discipline.js`, `commands/check-record.js`, `commands/xp.js`,
-   `commands/loa.js`; register them.
+   `commands/loa.js`, `commands/pendingjoin.js`, `commands/promote.js`;
+   register them.
 9. `scripts/quota-webhook.gs`, `README.md`, `.env.example`, and the env-var table.
 
 ## Before you call it done, verify
 
-- [ ] Exactly four commands registered — no others.
+- [ ] Exactly six commands registered — no others.
 - [ ] All 11 actions present, exact names, correct `exile`/`timed` flags.
 - [ ] `roleId` is a **getter**, not a value captured at import time.
 - [ ] A Supervisor cannot approve a Blacklist or Termination case.
@@ -658,13 +719,16 @@ Nobody may review their own case.
 - [ ] Editing an approved case PATCHes the original message, not a new post.
 - [ ] The expiry worker leaves `roleRemoved = false` on failure so it retries.
 - [ ] `/check-record`'s suggestion ladder resolves in the §2 precedence order.
+- [ ] `/promote`'s rank autocomplete is read live from the group, not hard-coded.
+- [ ] `/pendingjoin approve` and `decline` hit the same URL, differing only in
+      HTTP method (POST vs DELETE).
 - [ ] `EX` and `LOA` cells survive `/xp reset` and are never summed.
 - [ ] No Express, no HTTP routes, no web server anywhere.
 - [ ] Nothing is a hard-coded Discord, Roblox or Sheet id.
 
 ---
 
-# 10. Deliverables
+# 12. Deliverables
 
 1. The bot: `index.js`, `lib/actions.js`, `lib/discipline.js`, `lib/quota.js`,
    `lib/roblox.js`, `lib/webhook.js`, `commands/*.js`, `prisma/schema.prisma`,
