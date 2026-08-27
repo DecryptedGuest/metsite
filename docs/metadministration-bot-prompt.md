@@ -73,7 +73,7 @@ leave-of-absence marker.
 
 ---
 
-## THE COMMAND LIST — build these six, and only these six
+## THE COMMAND LIST — build these seven, and only these seven
 
 | Command | Subcommands | Who can run it |
 |---|---|---|
@@ -83,6 +83,7 @@ leave-of-absence marker.
 | `/loa` | `set` | HICOMM only |
 | `/pendingjoin` | `list`, `approve`, `decline` | HICOMM only |
 | `/promote` | *(none)* | HICOMM only |
+| `/ia` | `case`, `ticket` | IA and above |
 
 ---
 
@@ -135,7 +136,7 @@ Options:
 - `notes` (string, optional) — defaults to `N/A`.
 - `evidence` (string, optional) — a link.
 
-Behaviour: resolve the subject's Roblox identity at filing time (§7.1), but
+Behaviour: resolve the subject's Roblox identity at filing time (§8.1), but
 never block on it — if RoVer is unavailable, store what you have and carry on;
 exile and demotion are simply skipped later. Store the case as `PENDING`, write
 a `CaseAction` audit row (`CREATED`, notes `Case submitted`), and reply with the
@@ -164,7 +165,7 @@ case ref.
    exactly `Roblox group exile executed for "<Action>" (user <id>)` or
    `Roblox group exile failed for "<Action>" (user <id>)`.
 9. **Demotion** — if any action is `Demotion`, drop the subject one Roblox rank
-   (§7.3). Audit `Group demotion: <from> → <to> (user <id>)` or
+   (§8.3). Audit `Group demotion: <from> → <to> (user <id>)` or
    `Group demotion failed: <reason> (user <id>)`.
 10. **Award +4 points** to the member who **filed** the case (never the
     subject), through the outbox in §3.2, label `case #<n>`.
@@ -235,7 +236,7 @@ was deleted, post a fresh one and store the new id.
 One option: `user` — a Discord member **or** a Roblox username (accept both;
 decide by whether the input is all digits / a mention).
 
-Identity resolution, in order: RoVer (§7.1) → if that yields nothing, parse the
+Identity resolution, in order: RoVer (§8.1) → if that yields nothing, parse the
 member's **Discord nickname** in the format `RANK | RobloxUsername` and look the
 Roblox username up. If RoVer errored rather than simply finding nothing, say so
 in the reply and flag whether it was a rate-limit.
@@ -267,6 +268,7 @@ Reply with:
 | Event | Points | Label |
 |-------|--------|-------|
 | Case approved | **+4** | `case #<n>` |
+| Ticket approved | **+2** | `ticket TKT-0001` |
 
 Points always go to the **submitter**, never the subject.
 
@@ -395,7 +397,7 @@ fallback.
 # 5. `/pendingjoin`
 
 Manages the **Roblox group's join requests**. All three subcommands are HICOMM
-only, and all need `ROBLOX_GROUP_ID` + `ROBLOX_COOKIE` (§7.3).
+only, and all need `ROBLOX_GROUP_ID` + `ROBLOX_COOKIE` (§8.3).
 
 - **`/pendingjoin list`** — fetch the pending join requests, 100 per page,
   `sortOrder=Asc`:
@@ -423,7 +425,7 @@ unset, fail with `ROBLOX_GROUP_ID is not set`.
 Changes a member's **Roblox group rank**. HICOMM only.
 
 Options: `user` (the member — accept a Discord user, resolved to Roblox via
-§7.1, or a Roblox username) and `rank` (the target rank).
+§8.1, or a Roblox username) and `rank` (the target rank).
 
 Offer the target ranks through **autocomplete**, sourced live from
 `GET https://groups.roblox.com/v1/groups/<groupId>/roles` — which returns
@@ -447,7 +449,125 @@ target. Both call the same underlying rank-change endpoint.
 The bot's Roblox account needs **Manage lower-ranked member ranks**, and its own
 group rank must sit above both the member's current and target ranks.
 
-# 7. External integrations
+---
+
+# 7. `/ia` — cases and tickets, reviewed in Discord
+
+The old system reviewed cases and tickets on a website. **There is no website.**
+Both are filed with a slash command, posted as an embed into a dedicated
+channel, and approved or denied with **buttons on that message**. The channel
+message *is* the review queue.
+
+Channels (env-configurable, these are the real ids):
+```
+IA_GUILD_ID          = 1537076386198716438
+CASES_CHANNEL_ID     = 1537076390829101057
+TICKETS_CHANNEL_ID   = 1537076390829101058
+```
+
+## 7.1 `/ia case` — file a disciplinary case
+
+Same fields and the same eleven-punishment catalog as `/discipline file`
+(§1.1–§1.2). The difference is **where it goes**: instead of sitting invisibly
+in a database as PENDING, the bot posts a **review card** into
+`CASES_CHANNEL_ID` and replies to the filer ephemerally with the case ref.
+
+`/discipline` and `/ia case` write to the **same `Case` table** and share the
+same `CaseCounter`, so refs never collide.
+
+## 7.2 `/ia ticket` — log a ticket
+
+Fields, all matching the old ticket record:
+- `roblox` (string, required) — the Roblox username the ticket concerns
+- `type` (choice, required) — exactly these four values, no others:
+  `GENERAL_SUPPORT`, `HICOMM`, `OFFICER_REPORT`, `APPEAL`
+- `conclusion` (string, required) — how the ticket was resolved
+- `submitted_at` (string, required) and `timezone` (string, required)
+- `transcript` (string, optional) — link
+- `proof` (attachment, optional, repeatable up to 3) — store the CDN URLs
+
+Ticket refs are **`TKT-0001`** — the literal prefix `TKT-` and the counter
+zero-padded to **4 digits** — from an atomic upsert-increment on
+`TicketCounter` id 1, exactly like case refs.
+
+Posts a review card into `TICKETS_CHANNEL_ID`.
+
+## 7.3 The review card
+
+One embed plus one action row: **Approve** (`ButtonStyle.Success`) and **Deny**
+(`ButtonStyle.Danger`). Set the button `customId` to
+`ia:<case|ticket>:<approve|deny>:<recordId>` so a restart never orphans a
+pending card — the handler parses the id out of the button, it holds no state
+in memory.
+
+While PENDING:
+- `color`: `0xf5b730` (amber)
+- `title`: `Case #<n>` or `Ticket TKT-0001`
+- Fields: the subject, the punishments (cases) or type and conclusion
+  (tickets), the reason, and any evidence or transcript link
+- `footer.text`: `Filed by <name>`, with `footer.icon_url` set to the **filer's
+  Discord avatar**
+- `timestamp`: ISO now
+
+On **Approve**, edit that same message in place — never post a second card:
+- `color` → `0x2ed896` (green)
+- add a field `• Approved by:` → `<@approverId>`
+- set `author.name` → `Approved by <approver display name>` and
+  `author.icon_url` → the approver's avatar, from
+  `interaction.user.displayAvatarURL({ extension: 'png', size: 64 })`
+- **remove the buttons** (`components: []`) so it cannot be actioned twice
+
+On **Deny**: `color` → `0xf04f5e` (red), author line
+`Denied by <name>` with the same avatar, buttons removed. Denials award no
+points and trigger no roles, exile or demotion.
+
+## 7.4 Who may press the buttons
+
+Approve/Deny are **Supervisor and above**. Enforce it in the interaction
+handler, not by hiding the buttons — anyone can click. A non-reviewer gets an
+ephemeral `⛔ You are not authorised to review this.`
+
+The §1.1 rules still hold: nobody reviews their own submission, and a
+Supervisor pressing Approve on a case containing `Blacklist` or `Termination`
+is refused ephemerally with
+`Only HICOMM can approve a case involving a Blacklist or Termination.`
+`HICOMM`-type **tickets** are High Command only in the same way:
+`Only HICOMM can action IA Complaint (HICOMM) tickets.`
+
+A card whose record is no longer PENDING is refused with
+`Case is not pending` / `Ticket is not pending`, and its buttons are stripped.
+
+## 7.5 What approval does
+
+**A case** runs the full §1.3 pipeline unchanged — Administrative Log webhook,
+roles, expiry rows, once-per-case exile, one-rank demotion — and then awards
+**+4**.
+
+**A ticket** does none of that. It sets `APPROVED`, records `reviewedBy` and
+`reviewedAt`, and awards **+2**. Nothing else.
+
+## 7.6 Points — one database, two sources
+
+Both awards go through the **same `QuotaAward` outbox and the same Google
+Sheet** described in §3.2–§3.3. Nothing about the sheet write differs between
+them; only `refType`, `points` and `label` change:
+
+| Source | `refType` | `points` | `label` |
+|---|---|---|---|
+| Case approved | `'case'` | **4** | `case #<n>` |
+| Ticket approved | `'ticket'` | **2** | `ticket TKT-0001` |
+
+The `@@unique([refType, refId])` constraint is what makes this safe: a case and
+a ticket can share an id without colliding, and re-pressing Approve can never
+double-award. Points always go to the **filer**, never the subject.
+
+For a ticket, resolve the filer's Roblox username for the sheet lookup; if it
+is not already cached, do a live RoVer lookup (§8.1) and **cache the result**
+back onto their record so the next award is free.
+
+---
+
+# 8. External integrations
 
 ## 6.1 Roblox identity (Discord → Roblox)
 
@@ -572,7 +692,7 @@ and trailing slashes from the base URL before appending `/messages/<id>`.
 
 ---
 
-# 8. Explicitly out of scope
+# 9. Explicitly out of scope
 
 ## 7.1 Commands that must NOT exist
 
@@ -586,10 +706,8 @@ separate IA server and must not be built here** — this bot is for the MET
 server only. If you think one is needed, stop and say so instead of building
 it.
 
-Note also there is no `/xp` ticket award: the website awarded +2 for approved
-ticket logs, but tickets do not exist in this bot, so **`+4` on a case approval
-is the only way points are earned**. Keep the `QuotaAward.refType` field
-general (`'case'`) so a second source could be added later without a migration.
+Tickets **do** exist — see §7 — so points come from two sources: +4 on a case
+approval and +2 on a ticket approval, both into the same `QuotaAward` table.
 
 ## 7.2 Bot mechanics
 
@@ -605,7 +723,7 @@ general (`'case'`) so a second source could be added later without a migration.
 
 ---
 
-# 9. Data model (Prisma)
+# 10. Data model (Prisma)
 
 ```prisma
 enum CaseStatus { PENDING APPROVED DENIED }
@@ -649,11 +767,33 @@ model CaseAction {          // audit trail
   createdAt   DateTime @default(now())
 }
 
-model CaseCounter { id Int @id @default(1)  count Int @default(0) }
+model CaseCounter   { id Int @id @default(1)  count Int @default(0) }
+model TicketCounter { id Int @id @default(1)  count Int @default(0) }
+
+enum TicketType   { GENERAL_SUPPORT HICOMM OFFICER_REPORT APPEAL }
+enum TicketStatus { PENDING APPROVED DENIED }
+
+model Ticket {
+  id               String       @id @default(uuid())
+  ticketRef        String       @unique     // "TKT-0001"
+  filerDiscordId   String                   // who logged it — earns the +2
+  robloxUsername   String
+  ticketType       TicketType
+  submittedAt      String
+  timezone         String
+  conclusion       String
+  transcriptLink   String?
+  proofImages      Json?
+  logMessageId     String?                  // the review card in TICKETS_CHANNEL_ID
+  status           TicketStatus @default(PENDING)
+  reviewedBy       String?                  // Discord user id
+  reviewedAt       DateTime?
+  createdAt        DateTime     @default(now())
+}
 
 model QuotaAward {
   id             String   @id @default(uuid())
-  refType        String   // 'case'
+  refType        String   // 'case' | 'ticket'
   refId          String
   discordId      String?
   robloxUsername String?
@@ -677,7 +817,7 @@ the Discord user id, and the Roblox link is resolved live and cached.
 
 ---
 
-# 10. Permissions
+# 11. Permissions
 
 Resolved from Discord roles in `DISCORD_GUILD_ID`, checked at call time:
 ```
@@ -691,7 +831,7 @@ Nobody may review their own case.
 
 ---
 
-# 11. Build order
+# 12. Build order
 
 1. `prisma/schema.prisma` + `npx prisma migrate dev` — make the data model real first.
 2. `lib/actions.js` — the catalog with env getters. Tiny, and everything depends on it.
@@ -702,13 +842,14 @@ Nobody may review their own case.
 6. `lib/discipline.js` — the approval pipeline, in the order given in §1.3.
 7. The expiry worker and the outbox worker; start both from `index.js`.
 8. `commands/discipline.js`, `commands/check-record.js`, `commands/xp.js`,
-   `commands/loa.js`, `commands/pendingjoin.js`, `commands/promote.js`;
-   register them.
+   `commands/loa.js`, `commands/pendingjoin.js`, `commands/promote.js`,
+   `commands/ia.js`; register them, plus the button handler for the review
+   cards (`lib/reviewCard.js`).
 9. `scripts/quota-webhook.gs`, `README.md`, `.env.example`, and the env-var table.
 
 ## Before you call it done, verify
 
-- [ ] Exactly six commands registered — no others.
+- [ ] Exactly seven commands registered — no others.
 - [ ] All 11 actions present, exact names, correct `exile`/`timed` flags.
 - [ ] `roleId` is a **getter**, not a value captured at import time.
 - [ ] A Supervisor cannot approve a Blacklist or Termination case.
@@ -722,13 +863,20 @@ Nobody may review their own case.
 - [ ] `/promote`'s rank autocomplete is read live from the group, not hard-coded.
 - [ ] `/pendingjoin approve` and `decline` hit the same URL, differing only in
       HTTP method (POST vs DELETE).
+- [ ] Review-card buttons carry the record id in their `customId`, so a restart
+      does not orphan pending cards.
+- [ ] Approving edits the original card in place and strips its buttons; it
+      never posts a second card.
+- [ ] The approver's avatar shows on the card via `displayAvatarURL()`.
+- [ ] A case awards 4 and a ticket 2, into the same `QuotaAward` table, and
+      re-pressing Approve cannot double-award.
 - [ ] `EX` and `LOA` cells survive `/xp reset` and are never summed.
 - [ ] No Express, no HTTP routes, no web server anywhere.
 - [ ] Nothing is a hard-coded Discord, Roblox or Sheet id.
 
 ---
 
-# 12. Deliverables
+# 13. Deliverables
 
 1. The bot: `index.js`, `lib/actions.js`, `lib/discipline.js`, `lib/quota.js`,
    `lib/roblox.js`, `lib/webhook.js`, `commands/*.js`, `prisma/schema.prisma`,
