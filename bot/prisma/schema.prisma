@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CaseStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+model Case {
+  id                 String     @id @default(uuid())
+  caseRef            String     @unique              // "#1", "#2", … sequential
+  submitterDiscordId String                          // who FILED it — earns the points
+  officerDiscordId   String?                         // the SUBJECT
+  robloxUserId       String?
+  robloxUsername     String?
+  action             String                          // display: "Suspension, Demotion"
+  actions            Json?                           // [{ action, roleId, durationDays }]
+  reason             String
+  notes              String     @default("N/A")
+  caseLink           String?                         // evidence link
+  logMessageId       String?                         // administrative-log webhook message
+  cardMessageId      String?                         // review card in CASES_CHANNEL_ID
+  status             CaseStatus @default(PENDING)
+  reviewedBy         String?
+  reviewedAt         DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  caseActions     CaseAction[]
+  casePunishments CasePunishment[]
+
+  @@map("cases")
+}
+
+model CasePunishment {
+  id           String    @id @default(uuid())
+  caseId       String
+  action       String
+  roleId       String?
+  durationDays Int?
+  expiresAt    DateTime?
+  roleRemoved  Boolean   @default(false)
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([roleRemoved, expiresAt])
+  @@map("case_punishments")
+}
+
+model CaseAction {
+  id          String   @id @default(uuid())
+  caseId      String
+  actionType  String   // CREATED | APPROVED | DENIED | EDITED
+  performedBy String   // Discord user id
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@map("case_actions")
+}
+
+model CaseCounter {
+  id    Int @id @default(1)
+  count Int @default(0)
+
+  @@map("case_counter")
+}
+model TicketCounter {
+  id    Int @id @default(1)
+  count Int @default(0)
+
+  @@map("ticket_counter")
+}
+
+enum TicketType {
+  GENERAL_SUPPORT
+  HICOMM
+  OFFICER_REPORT
+  APPEAL
+}
+enum TicketStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+model Ticket {
+  id             String       @id @default(uuid())
+  ticketRef      String       @unique              // "TKT-0001"
+  filerDiscordId String                            // who logged it — earns the +2
+  robloxUsername String
+  ticketType     TicketType
+  submittedAt    String
+  timezone       String
+  conclusion     String
+  transcriptLink String?
+  proofImages    Json?
+  cardMessageId  String?                           // review card in TICKETS_CHANNEL_ID
+  status         TicketStatus @default(PENDING)
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@map("tickets")
+}
+
+model QuotaAward {
+  id             String   @id @default(uuid())
+  refType        String   // 'case' | 'ticket'
+  refId          String
+  discordId      String?
+  robloxUsername String?
+  points         Int
+  label          String?
+  status         String   @default("PENDING") // PENDING | DONE | FAILED
+  attempts       Int      @default(0)
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([refType, refId])
+  @@index([status])
+  @@map("quota_awards")
+}
+
+// Cached Discord→Roblox links, so RoVer is a last resort rather than a per-call
+// dependency. Refreshed opportunistically; never authoritative on its own.
+model RobloxLink {
+  discordId      String   @id
+  robloxUserId   String?
+  robloxUsername String?
+  updatedAt      DateTime @updatedAt
+
+  @@map("roblox_links")
+}
