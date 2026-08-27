@@ -25,6 +25,11 @@ const COMMANDS = [
   require('./commands/pendingjoin'),
   require('./commands/promote'),
   require('./commands/ia'),
+  require('./commands/submit-case'),
+  require('./commands/leaderboard'),
+  require('./commands/sync'),
+  require('./commands/qp').addQp,
+  require('./commands/qp').removeQp,
 ];
 client.commands = new Collection(COMMANDS.map(c => [c.data.name, c]));
 
@@ -139,6 +144,8 @@ client.on('interactionCreate', async (interaction) => {
     else await interaction.reply(body).catch(() => {});
   }
 });
+
+client.bot = bot;   // some commands reach helpers via interaction.client.bot
 
 client.once('clientReady', async () => {
   ready = true;

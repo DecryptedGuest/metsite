@@ -28,14 +28,27 @@ model Case {
   logMessageId       String?                         // administrative-log webhook message
   cardMessageId      String?                         // review card in CASES_CHANNEL_ID
   status             CaseStatus @default(PENDING)
-  reviewedBy         String?
+  reviewedBy         String?                         // Discord user id
+  reviewedByRaw      String?                         // reviewer as written on a synced card
   reviewedAt         DateTime?
+
+  // Provenance — set when a case was rebuilt from channel history by /sync
+  // rather than filed through the bot.
+  docUrl             String?                         // the case document
+  blacklistCode      String?                         // e.g. "PL-M304"
+  blacklistReason    String?                         // e.g. "General Misconduct"
+  pointsAwarded      Int?                            // as recorded on the card
+  sourceMessageId    String?     @unique             // the card it came from
+  sourceUrl          String?
+  syncedAt           DateTime?
+  syncNotes          String?                         // anything that needed a human eye
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
   caseActions     CaseAction[]
   casePunishments CasePunishment[]
 
+  @@index([status])
   @@map("cases")
 }
 

@@ -15,6 +15,11 @@ const commands = [
   require('./commands/pendingjoin'),
   require('./commands/promote'),
   require('./commands/ia'),
+  require('./commands/submit-case'),
+  require('./commands/leaderboard'),
+  require('./commands/sync'),
+  require('./commands/qp').addQp,
+  require('./commands/qp').removeQp,
 ].map(c => c.data.toJSON());
 
 (async () => {

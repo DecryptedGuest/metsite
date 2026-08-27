@@ -8,6 +8,9 @@ const prisma = require('./db');
 const { env } = require('./env');
 const { isSupervisor, isHicomm, DENIED_REVIEW } = require('./perms');
 const { caseHasHicommOnlyPunishment } = require('./actions');
+const { canReview, canApproveActions, rankOf } = require('./iaRanks');
+const { e } = require('./emoji');
+const { announceApproval } = require('./notify');
 const { approveCase, denyCase } = require('./discipline');
 const { enqueueQuotaAward } = require('./quota');
 
@@ -94,7 +97,8 @@ async function handleReviewButton(interaction, bot) {
   const [, kind, verb, recordId] = interaction.customId.split(':');
   const member = interaction.member;
 
-  if (!isSupervisor(member)) {
+  // Either ladder may authorise: the IA rank roles, or the site-style tiers.
+  if (!canReview(member) && !isSupervisor(member)) {
     return interaction.reply({ content: DENIED_REVIEW, flags: MessageFlags.Ephemeral });
   }
 
@@ -116,8 +120,18 @@ async function handleReviewButton(interaction, bot) {
     if (c.submitterDiscordId === interaction.user.id) {
       return interaction.editReply('❌ You cannot review your own submission.');
     }
-    if (verb === 'approve' && !isHicomm(member) && caseHasHicommOnlyPunishment(c.actions || [])) {
-      return interaction.editReply('Only HICOMM can approve a case involving a Blacklist or Termination.');
+    if (verb === 'approve') {
+      const names = (c.actions || []).map(a => a.action || a);
+      const verdict = canApproveActions(member, names);
+      if (!verdict.ok && !isHicomm(member)) {
+        return interaction.editReply(
+          `${e('DENIED_MARK')} **${verdict.blocking}** needs **${verdict.required.abbr} — ${verdict.required.name}** or above. ` +
+          `You are ${rankOf(member)?.abbr || 'unranked'}.`);
+      }
+      // The site-tier rule still stands on top of the ladder.
+      if (!isHicomm(member) && caseHasHicommOnlyPunishment(c.actions || [])) {
+        return interaction.editReply('Only HICOMM can approve a case involving a Blacklist or Termination.');
+      }
     }
 
     const result = verb === 'approve'
@@ -126,7 +140,19 @@ async function handleReviewButton(interaction, bot) {
     if (!result.ok) return interaction.editReply(`❌ ${result.error}`);
 
     await finaliseCard(interaction, { approved: verb === 'approve', actor });
-    return interaction.editReply(`✅ Case ${c.caseRef} ${verb === 'approve' ? 'approved' : 'denied'}.`);
+
+    if (verb !== 'approve') {
+      return interaction.editReply(`${e('DENY')} Case ${c.caseRef} denied.`);
+    }
+
+    // DM the subject, post the MET notice. Roles/exile/demotion already ran
+    // inside approveCase; this is the announcement half.
+    const fresh = await prisma.case.findUnique({ where: { id: c.id } });
+    const sent = await announceApproval(interaction.client, fresh);
+    return interaction.editReply(
+      `${e('APPROVE')} Case ${c.caseRef} approved.\n` +
+      `${sent.dm ? e('APPROVE') : e('WARNING')} DM to subject ${sent.dm ? 'sent' : 'not delivered (DMs closed or no Discord link)'}\n` +
+      `${sent.notice ? e('APPROVE') : e('WARNING')} MET notice ${sent.notice ? 'posted' : 'skipped (MET_NOTICES_CHANNEL_ID unset)'}`);
   }
 
   if (kind === 'ticket') {
