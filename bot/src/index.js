@@ -21,9 +21,11 @@ const { ALL: COMMANDS } = require('./lib/commands');
 client.commands = new Collection(COMMANDS.map(c => [c.data.name, c]));
 
 /** Which guild a scope belongs to. */
-const guildForScope = (scope) => scope === 'met'
-  ? (env('MET_GUILD_ID') || env('DISCORD_GUILD_ID'))
-  : (env('IA_GUILD_ID')  || env('DISCORD_GUILD_ID'));
+const guildForScope = (scope) => {
+  if (scope === 'met') return env('MET_GUILD_ID') || env('DISCORD_GUILD_ID');
+  if (scope === 'cid') return env('CID_GUILD_ID');
+  return env('IA_GUILD_ID') || env('DISCORD_GUILD_ID');
+};
 
 /**
  * Defence in depth: even if a stale registration survives in the wrong server,
@@ -33,9 +35,8 @@ const guildForScope = (scope) => scope === 'met'
 function wrongGuild(interaction, cmd) {
   const expected = guildForScope(cmd.scope);
   if (!expected || interaction.guildId === expected) return null;
-  return cmd.scope === 'met'
-    ? '⛔ This is a MET server command and cannot be used here.'
-    : '⛔ This is an Internal Affairs command and cannot be used here.';
+  const where = { met: 'MET server', cid: 'CID server', ia: 'Internal Affairs' }[cmd.scope];
+  return `⛔ This is a ${where} command and cannot be used here.`;
 }
 
 // ── Guild helpers ─────────────────────────────────────────────────
@@ -161,12 +162,19 @@ client.bot = bot;   // some commands reach helpers via interaction.client.bot
 client.once('clientReady', async () => {
   ready = true;
   console.log(`🤖  Discord bot online as ${client.user.tag}`);
-  const { IA, MET } = require('./lib/commands');
+  const { IA, MET, CID } = require('./lib/commands');
   console.log(`    IA  server ${env('IA_GUILD_ID')  || '(unset!)'} — ${IA.length} commands`);
   console.log(`    MET server ${env('MET_GUILD_ID') || '(unset!)'} — ${MET.length} commands`);
+  if (env('CID_GUILD_ID')) console.log(`    CID server ${env('CID_GUILD_ID')} — ${CID.length} commands`);
   await roblox.initCsrf();
   startExpiryWorker(bot);
   startQuotaWorker();
+
+  // Mirror Discord roles into the in-game panels, if Open Cloud is set up.
+  if (require('./lib/openCloud').isConfigured() && env('CID_GUILD_ID')) {
+    require('./lib/panelSync').startPanelWatcher(client);
+    console.log('    Panel sync active — role changes push to Roblox');
+  }
 });
 
 client.on('error', err => console.error('Discord client error:', err.message));

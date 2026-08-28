@@ -3,6 +3,7 @@
 //   npm run deploy            both servers
 //   npm run deploy -- ia      just Internal Affairs
 //   npm run deploy -- met     just MET
+//   npm run deploy -- cid     just CID
 //
 // Guild-scoped registration is instant. Registering a guild's exact set also
 // REMOVES anything previously registered there that is no longer in the set,
@@ -10,7 +11,7 @@
 require('dotenv').config();
 const { REST, Routes } = require('discord.js');
 const { assertEnv, env } = require('./lib/env');
-const { IA, MET } = require('./lib/commands');
+const { IA, MET, CID } = require('./lib/commands');
 
 assertEnv();
 
@@ -19,6 +20,7 @@ const only = (process.argv[2] || '').toLowerCase();
 const TARGETS = [
   { scope: 'ia',  label: 'Internal Affairs', guildId: env('IA_GUILD_ID'),  commands: IA  },
   { scope: 'met', label: 'MET',              guildId: env('MET_GUILD_ID'), commands: MET },
+  { scope: 'cid', label: 'CID',              guildId: env('CID_GUILD_ID'), commands: CID },
 ];
 
 (async () => {
@@ -28,6 +30,8 @@ const TARGETS = [
   for (const t of TARGETS) {
     if (only && only !== t.scope) continue;
     if (!t.guildId) {
+      // CID is optional — skip it quietly rather than failing the whole deploy.
+      if (t.scope === 'cid') { console.log(`➖ ${t.label}: CID_GUILD_ID unset — skipped`); continue; }
       console.error(`❌ ${t.label}: no guild id set — fill in ${t.scope.toUpperCase()}_GUILD_ID`);
       failed = true;
       continue;

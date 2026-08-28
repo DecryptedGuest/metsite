@@ -17,16 +17,19 @@ const ALL = [
   require('../commands/qp').removeQp,
   require('../commands/pendingjoin'),
   require('../commands/promote'),
+  require('../commands/panel'),
 ];
+
+const SCOPES = ['ia', 'met', 'cid'];
 
 // A missing scope is a programming error, not a default — fail at boot rather
 // than silently registering something in the wrong server.
 for (const c of ALL) {
-  if (c.scope !== 'ia' && c.scope !== 'met') {
-    throw new Error(`Command /${c.data?.name} has no valid scope ('ia' or 'met')`);
+  if (!SCOPES.includes(c.scope)) {
+    throw new Error(`Command /${c.data?.name} has no valid scope (${SCOPES.join(' / ')})`);
   }
 }
 
 const forScope = (scope) => ALL.filter(c => c.scope === scope);
 
-module.exports = { ALL, forScope, IA: forScope('ia'), MET: forScope('met') };
+module.exports = { ALL, forScope, SCOPES, IA: forScope('ia'), MET: forScope('met'), CID: forScope('cid') };
