@@ -488,17 +488,41 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 // ticket log is worth TICKET_POINTS (2) to whoever closed the ticket.
 const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
 const TICKET_POINTS = () => { const n = parseInt(process.env.IA_TICKET_POINTS || '2', 10); return Number.isFinite(n) ? n : 2; };
+// The IA sheet's own point system has a THIRD rate, which the flat
+// TICKET_POINTS missed entirely:
+//
+//   TICKET/S · Approved Appeal Logs / Suspension / ZT Logs ... 3p
+//             · Ticket Logs .............................. 2p
+//   CASE/S ..................................................... 4p
+//
+// So an appeal is worth more than an ordinary ticket, and paying every ticket
+// 2p quietly underpaid whoever handled the appeals.
+const TICKET_POINTS_APPEAL = () => {
+  const n = parseInt(process.env.IA_TICKET_POINTS_APPEAL || '3', 10);
+  return Number.isFinite(n) ? n : 3;
+};
+
+/**
+ * What one approved ticket log is worth, by its type.
+ * APPEAL is the 3-point tier; everything else is the base rate.
+ */
+function ticketPointsFor(ticketType) {
+  const t = String(ticketType || '').toUpperCase();
+  return t === 'APPEAL' ? TICKET_POINTS_APPEAL() : TICKET_POINTS();
+}
 
 function quotaForRank(rank) {
   const r = (rank || '').toString().trim().toLowerCase();
   if (!r) return { exempt: false, target: null, tier: null };
   if (r === 'loa')                                          return { exempt: true,  target: 0,  tier: 'LOA' };
   if (/director/.test(r))                                   return { exempt: true,  target: 0,  tier: 'High Command' };
+  // MIDDLE COMMAND on the sheet is Supervisor and Senior Investigator only.
   if (/senior\s*investigator|supervisor/.test(r))           return { exempt: false, target: 20, tier: 'Middle Command' };
-  if (/junior\s*investigator|probationary\s*investigator/.test(r)) return { exempt: false, target: 30, tier: 'Low Command' };
-  // A plain "Investigator" sits with Middle Command rather than falling through
-  // as an unknown rank with no target at all.
-  if (/investigator/.test(r))                               return { exempt: false, target: 20, tier: 'Middle Command' };
+  // LOW COMMAND is everyone else who investigates: Investigator, Junior
+  // Investigator, Probationary Investigator. A plain "Investigator" belongs
+  // HERE — the sheet lists them under LOW COMMAND, so scoring them against the
+  // middle target of 20 marked them as meeting quota 10 points early.
+  if (/investigator/.test(r))                               return { exempt: false, target: 30, tier: 'Low Command' };
   return { exempt: false, target: null, tier: null }; // unknown rank
 
 }
@@ -1161,7 +1185,7 @@ module.exports = {
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter, sheetRef,
-  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
+  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS, TICKET_POINTS_APPEAL, ticketPointsFor,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
   buildMembersFromRows,

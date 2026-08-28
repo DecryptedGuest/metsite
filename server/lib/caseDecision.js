@@ -331,7 +331,7 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
   // somebody who is not on the IA sheet. `closerIsIa` was resolved at ingest.
   const payable = ticket.closerIsIa !== false;
   if (status === 'APPROVED' && payable && (ticket.closerDiscordId || ticket.closerUserId)) {
-    const { enqueueQuotaAward, TICKET_POINTS } = require('./quota');
+    const { enqueueQuotaAward, ticketPointsFor } = require('./quota');
     let closer = null;
     if (ticket.closerUserId) {
       closer = await prisma.user.findUnique({
@@ -347,7 +347,7 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
         // Only the matched site account's Roblox name — NEVER
         // creatorRobloxUsername, which is the person who OPENED the ticket.
         robloxUsername: (closer && closer.robloxUsername) || null,
-        points: TICKET_POINTS(),
+        points: ticketPointsFor(ticket.ticketType),
         label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
       }).catch(() => {});
     }
