@@ -8,7 +8,7 @@
 // Command officer on 25 and a High Command officer on 25 are not in the same
 // position, and one list would imply they were.
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
-const { e } = require('./emoji');
+const { e, startLoading } = require('./emoji');
 const { getAllMembersPoints } = require('./quota');
 
 function buildCommand() {
@@ -27,7 +27,9 @@ function buildCommand() {
 
 // Rendered in this order whatever order the sheet returns.
 const GROUP_ORDER = ['High Command', 'Middle Command', 'Low Command', 'LOA', 'Exempt', 'Unranked'];
-const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
+// Top three. met_trophy is the manifest's own mark; the lower two fall back to
+// unicode medals, which is what e() does when a name is not in the set.
+const MEDALS = ['met_trophy', 'met_star', 'met_rank'];
 
 /** A short text meter. Discord has no progress bar and this reads at a glance. */
 function meter(total, target) {
@@ -38,7 +40,9 @@ function meter(total, target) {
 }
 
 function line(m, i) {
-  const place = i < 3 && !m.quota.exempt ? MEDALS[i] : `\`${String(i + 1).padStart(2)}\``;
+  const place = i < 3 && !m.quota.exempt
+    ? (e(MEDALS[i]) || `\`${String(i + 1).padStart(2)}\``)
+    : `\`${String(i + 1).padStart(2)}\``;
   if (m.quota.exempt) {
     const tag = m.quota.tier === 'LOA'
       ? `${e('met_calendar')} LOA`
@@ -53,13 +57,16 @@ function line(m, i) {
 async function handleLeaderboard(interaction) {
   const isPublic = interaction.options.getBoolean('public') || false;
   await interaction.deferReply(isPublic ? {} : { flags: MessageFlags.Ephemeral });
+  const loader = startLoading(interaction, 'Reading the quota sheet');
 
   let members;
   try {
     members = await getAllMembersPoints('IA');
   } catch (err) {
+    loader.stop();
     return interaction.editReply(`${e('met_cross')} Could not read the quota sheet: ${err.message}`);
   }
+  loader.stop();
 
   if (members === null) return interaction.editReply(`${e('met_cross')} The quota sheet is not configured.`);
   if (!members.length)  return interaction.editReply(`${e('met_warn')} No members found on the sheet.`);

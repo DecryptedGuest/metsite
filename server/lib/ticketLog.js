@@ -47,8 +47,20 @@ function normalizeUrl(u) {
 // "officer-complaint-kis7ua", "Appeal-someone". Maps to the TicketType enum:
 //   GENERAL_SUPPORT | HICOMM | OFFICER_REPORT | APPEAL
 function ticketTypeFromName(name) {
-  const s = String(name || '').toLowerCase();
-  if (!s) return 'GENERAL_SUPPORT';
+  const full = String(name || '').toLowerCase();
+  if (!full) return 'GENERAL_SUPPORT';
+
+  // Classify on the TYPE, not on the opener's username.
+  //
+  // Tickety names a ticket "<type>-<username>", and matching anywhere in the
+  // whole string meant the username decided the type: a general-support ticket
+  // opened by somebody called "appealing" was filed as an APPEAL, and paid at
+  // the appeal rate. So the trailing "-<username>" is dropped first and the
+  // type is read from what is left; the full string stays as a fallback for the
+  // names that do not follow the pattern.
+  const head = full.includes('-') ? full.slice(0, full.lastIndexOf('-')) : full;
+  const s = head || full;
+
   if (/appeal/.test(s))                                   return 'APPEAL';
   // An "IA Complaint" is a complaint about Internal Affairs itself — a HICOMM
   // matter. Match it (and plain "hicomm"/"high command") before officer reports.
@@ -259,9 +271,14 @@ function parseTicketLogEmbed(embed, extraText) {
   // so each one is tested after cleaning rather than before. That is the other
   // half of the same bug: "<@id> closed a ticket" cleaned down to "" and was
   // still accepted as the answer.
+  // Markdown, but NOT underscores. Discord usernames contain them constantly
+  // ("no_onee_01", "minigun543_257"), and stripping them stored the handler
+  // under a name that does not exist — which then matched nobody on the sheet
+  // and paid nobody. Tickety does not italicise the executor, so there is no
+  // underscore-italic to strip here anyway.
   const clean = (v) => String(v == null ? '' : v)
     .replace(/<@[!&]?\d+>/g, '')
-    .replace(/[*_`~]/g, '')
+    .replace(/[*`~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 

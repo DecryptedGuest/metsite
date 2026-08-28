@@ -11,7 +11,7 @@
 // member: the outbox de-duplicates on the ref, so a per-member ref would make
 // the second adjustment of the week a no-op.
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
-const { e } = require('./emoji');
+const { e, startLoading } = require('./emoji');
 const { enqueueQuotaAward, getMemberPoints } = require('./quota');
 const { resolveAuthority, isReviewer } = require('./iaAuthority');
 const journal = require('./actionJournal');
@@ -32,11 +32,13 @@ const buildCommands = () => [buildCommand('add-qp', 'Add'), buildCommand('remove
 
 async function handleQp(interaction, sign) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const loader = startLoading(interaction, sign > 0 ? 'Adding points' : 'Removing points');
 
   // Supervisor and above. Same gate the site uses to approve a case, because
   // handing somebody points is the same kind of decision.
   const auth = await resolveAuthority(interaction);
   if (!auth.ok || !isReviewer(auth)) {
+    loader.stop();
     return interaction.editReply(
       `${e('met_denied')} ${auth.why || 'Supervisor and above only.'}`);
   }
@@ -47,6 +49,7 @@ async function handleQp(interaction, sign) {
 
   // The sheet is keyed by Roblox username, so an unlinked member has no row to
   // adjust. Say that rather than queueing an award that can never apply.
+  loader.update('Resolving their Roblox account');
   let robloxUsername = null;
   try {
     const rbxId = await roblox.getRobloxIdFromDiscord(member.id);
@@ -57,10 +60,12 @@ async function handleQp(interaction, sign) {
   } catch (err) { /* fall through to the refusal below */ }
 
   if (!robloxUsername) {
+    loader.stop();
     return interaction.editReply(
       `${e('met_denied')} ${member} has no linked Roblox account, so there is no sheet row to adjust.`);
   }
 
+  loader.update('Queueing the adjustment');
   const refId = `manual:${interaction.id}`;
   await enqueueQuotaAward({
     refType: 'manual', refId,
@@ -80,11 +85,13 @@ async function handleQp(interaction, sign) {
 
   // Give the outbox a moment to land before reading the total back, so the
   // reply shows the number the sheet actually holds rather than the one before.
+  loader.update('Reading the sheet back');
   await new Promise(r => setTimeout(r, 1500));
   let after = null;
   try { after = await getMemberPoints({ discordId: member.id, robloxUsername }, 'IA'); }
   catch (err) { after = null; }
 
+  loader.stop();
   const embed = new EmbedBuilder()
     .setColor(sign > 0 ? 0x2ed896 : 0xf5b730)
     .setTitle(`${e('met_chart')} Quota ${sign > 0 ? 'credited' : 'deducted'}`)

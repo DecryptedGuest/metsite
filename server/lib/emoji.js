@@ -348,8 +348,59 @@ function startEmojiSync(client) {
   setInterval(() => { syncEmoji(client).catch(() => {}); }, 60 * 60 * 1000);
 }
 
+
+// ── Loading ───────────────────────────────────────────────────────
+//
+// The manifest carries four spinner frames (met_load1..4). The bot does not use
+// animated emoji, so a "spinner" is the ephemeral reply being edited frame by
+// frame; with no custom emoji uploaded it degrades to a plain hourglass, which
+// is exactly what the manifest's fallback is for.
+//
+// Every IA command that does real work (a sheet read, a Roblox lookup, a Discord
+// post) uses this, because those take seconds and a command that sits there
+// looking dead is one people run twice.
+const LOAD_FRAMES = ['met_load1', 'met_load2', 'met_load3', 'met_load4'];
+
+/**
+ * Start a spinner on an already-deferred interaction.
+ *
+ * @param {object} interaction  must already be deferred — this edits the reply
+ * @param {string} label        what is happening, in the present participle
+ * @returns {{update(label:string):void, stop():void}}
+ *
+ * Never throws and never rejects: a spinner that breaks a command is worse than
+ * no spinner. `stop()` is idempotent, and MUST be called before the final
+ * editReply or the last frame can land after it.
+ */
+function startLoading(interaction, label) {
+  let i = 0;
+  let text = String(label || 'Working');
+  let live = true;
+
+  const draw = () => {
+    if (!live) return;
+    const frame = e(LOAD_FRAMES[i % LOAD_FRAMES.length]) || '';
+    i++;
+    interaction.editReply({ content: `${frame} ${text}…`, embeds: [], components: [] })
+      .catch(() => { /* the interaction may already have been answered */ });
+  };
+
+  draw();
+  const timer = setInterval(draw, 1200);
+  // Never let a forgotten stop() leave a timer running for the life of the
+  // process: Discord's own interaction token expires in 15 minutes anyway.
+  const cutoff = setTimeout(() => { live = false; clearInterval(timer); }, 14 * 60 * 1000);
+  if (typeof timer.unref === 'function') { timer.unref(); cutoff.unref(); }
+
+  return {
+    update(next) { text = String(next || text); draw(); },
+    stop() { live = false; clearInterval(timer); clearTimeout(cutoff); },
+  };
+}
+
 module.exports = {
   e, reactionFor, buttonEmoji, urlFor, isSynced, status,
+  startLoading, LOAD_FRAMES,
   byGuildName, firstGuildEmoji,
   syncEmoji, syncGuildEmoji, startEmojiSync,
   findGuildStrays, purgeGuildEmoji,

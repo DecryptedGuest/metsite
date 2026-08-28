@@ -963,9 +963,15 @@ async function findExistingRow(data) {
   let row = await prisma.ticketLog.findUnique({ where: { messageId: data.messageId } });
   if (row) return { row, by: 'messageId' };
 
+  // VOIDED rows are excluded, and that exclusion is load-bearing. A row voided
+  // by a backlog clear (or as a non-close) keeps its ticketRef, so without this
+  // it goes on owning that ticket for ever: the genuine close matches it, is
+  // folded in as a patch, and never becomes a row or a card. The ticket simply
+  // disappears, silently, on the strength of a row somebody deliberately
+  // retired.
   if (data.ticketRef) {
     row = await prisma.ticketLog.findFirst({
-      where: { ticketRef: data.ticketRef },
+      where: { ticketRef: data.ticketRef, voidedAt: null },
       orderBy: { createdAt: 'asc' },
     });
     if (row) return { row, by: 'ticketRef' };
@@ -974,7 +980,7 @@ async function findExistingRow(data) {
   // No ticket id on the log — fall back to the transcript, which is per-ticket.
   if (data.transcriptUrl) {
     row = await prisma.ticketLog.findFirst({
-      where: { transcriptUrl: data.transcriptUrl },
+      where: { transcriptUrl: data.transcriptUrl, voidedAt: null },
       orderBy: { createdAt: 'asc' },
     });
     if (row) return { row, by: 'transcriptUrl' };
@@ -984,9 +990,12 @@ async function findExistingRow(data) {
 
 // Upsert one message. Returns 'created' | 'updated' | 'unchanged' | null.
 async function ingestMessage(msg) {
-  const data = await rowFromMessage(msg);
-  if (!data) return null;
+  // INSIDE the try. rowFromMessage does Roblox and RoVer lookups and a Discord
+  // member fetch; a throw from any of them used to escape this function
+  // entirely, so the message was dropped with no row and nothing said about it.
   try {
+    const data = await rowFromMessage(msg);
+    if (!data) return null;
     const { row: existing, by } = await findExistingRow(data);
     if (existing) {
       // Matched on the TICKET rather than on this message: the ticket is already
@@ -1060,9 +1069,21 @@ async function ingestMessage(msg) {
     }
     return 'created';
   } catch (err) {
-    // A concurrent insert of the same message is harmless.
-    if (err && err.code === 'P2002') return 'unchanged';
-    console.error('[TicketLogs] ingest error:', err.message);
+    // A concurrent insert of the SAME MESSAGE is harmless: two paths raced and
+    // one won. Anything else colliding is not — a ticketNo collision means the
+    // sequence has fallen behind the column, and swallowing it as 'unchanged'
+    // meant every insert failed while the sweep reported a clean run.
+    const target = err && err.meta && err.meta.target;
+    const fields = Array.isArray(target) ? target : (target ? [String(target)] : []);
+    if (err && err.code === 'P2002' && fields.some(f => String(f).includes('messageId'))) {
+      return 'unchanged';
+    }
+    if (err && err.code === 'P2002') {
+      console.error(`[TicketLogs] insert collided on ${fields.join(', ') || 'an unknown column'}`
+        + ` for message ${msg && msg.id} · ${err.message}`);
+      return null;
+    }
+    console.error(`[TicketLogs] ingest error on message ${msg && msg.id}: ${err.message}`);
     return null;
   }
 }
@@ -1251,9 +1272,15 @@ async function queueCard(row) {
     return false;
   }
   console.log(`[TicketLogs] review card posted for ${label} in ${cards.ticketsChannelId()}`);
-  await prisma.ticketLog.update({
-    where: { id: row.id }, data: { cardMessageId: messageId },
-  }).catch(() => {});
+  try {
+    await prisma.ticketLog.update({ where: { id: row.id }, data: { cardMessageId: messageId } });
+  } catch (err) {
+    // The card is up but nothing records where. Left unsaid, the retry above
+    // posts it again on the next sweep and the reviewer gets duplicates.
+    console.error(`[TicketLogs] card posted for ${label} but the id could not be saved`
+      + ` · ${err.message} · it may be posted again`);
+    return false;
+  }
   return true;
 }
 
@@ -1478,6 +1505,49 @@ async function removeStaleCards(limit = 25) {
 }
 
 
+
+/**
+ * Retry cards for tickets that should have one and do not.
+ *
+ * Removing the old unbounded catch-up left no backstop at all: a card lost to a
+ * momentary Discord error was lost for ever, because the only thing that ever
+ * posted one was the instant of insert.
+ *
+ * Bounded by the SAME line that gates the live path, so it can only ever pick up
+ * tickets closed since this deployment started watching. That is what makes it
+ * safe: it cannot reach back into history, which is what made the last version
+ * of this a flood.
+ */
+async function retryMissingCards(limit = 5) {
+  const out = { posted: 0, waiting: 0 };
+  const cards = require('./iaReviewCards');
+  if (!cards.ticketsChannelId()) return out;
+
+  const line = await cardingStartedAt();
+  let rows;
+  try {
+    rows = await prisma.ticketLog.findMany({
+      where: {
+        status: 'PENDING', voidedAt: null, cardMessageId: null,
+        closedAt: { gte: line },
+      },
+      orderBy: { closedAt: 'asc' },
+      take: limit * 4,
+    });
+  } catch (err) { return out; }
+
+  const todo = rows.filter(queueable);
+  out.waiting = todo.length;
+  for (const row of todo.slice(0, limit)) {
+    try { if (await queueCard(row)) out.posted++; }
+    catch (err) {
+      console.warn(`[TicketLogs] retry card failed for ticket ${row.ticketNo ?? row.id} · ${err.message}`);
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return out;
+}
+
 /**
  * Re-render the card of any pending ticket whose card is out of date.
  *
@@ -1586,6 +1656,16 @@ async function sweep(client, opts) {
 
     // Anything queueable that has no card yet — the backlog that was ingested
     // before review cards shipped, plus anything a transient channel error lost.
+    // Anything closed since the line that still has no card. Bounded by that
+    // line, so it can never reach into history.
+    try {
+      const r = await retryMissingCards();
+      if (r.posted)  s.cardsPosted  = r.posted;
+      if (r.waiting) s.cardsWaiting = r.waiting;
+    } catch (err) {
+      console.warn('[TicketLogs] card retry skipped:', err.message);
+    }
+
     // A card posted before its handler resolved is now out of date. Editing is
     // cheap, so bring those up to what the database actually knows.
     try {
@@ -1595,9 +1675,11 @@ async function sweep(client, opts) {
       console.warn('[TicketLogs] card refresh skipped:', err.message);
     }
 
-    if (s.created || s.updated || s.error || s.handlersFixed || s.cardsRefreshed) {
+    if (s.created || s.updated || s.error || s.handlersFixed
+        || s.cardsRefreshed || s.cardsPosted) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
+        + (s.cardsPosted ? `, cards posted ${s.cardsPosted}` : '')
         + (s.cardsRefreshed ? `, cards refreshed ${s.cardsRefreshed}` : '')
 
         + (s.error ? `, error: ${s.error}` : ''));
@@ -1861,7 +1943,7 @@ module.exports = {
   // Multi-division sources: MET, CID and SCO-19.
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
-  queueCard, refreshStaleCards, removeStaleCards, cardingStartedAt, worthCarding,
+  queueCard, retryMissingCards, refreshStaleCards, removeStaleCards, cardingStartedAt, worthCarding,
   cardTicketsSince,
   refreshCloserIsIa,
   voidNonCloseRows,

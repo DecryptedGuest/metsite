@@ -435,7 +435,10 @@ async function handleReviewButton(interaction) {
 
   const authority = require('./iaAuthority');
   const auth = await authority.resolveAuthority(interaction);
-  if (!auth.ok) return interaction.editReply(`⛔ ${auth.why || 'You are not authorised to review this.'}`);
+  const { e } = require('./emoji');
+  if (!auth.ok) {
+    return interaction.editReply(`${e('met_denied')} ${auth.why || 'You are not authorised to review this.'}`);
+  }
 
   const actor = {
     id: auth.userId,                 // User.id — what performedBy is a key to
@@ -455,7 +458,7 @@ async function handleReviewButton(interaction) {
         return interaction.editReply(`Already ${String(row.status).toLowerCase()}.`);
       }
       const may = authority.canReviewTicket(auth, row);
-      if (!may.allowed) return interaction.editReply(`⛔ ${may.reason}`);
+      if (!may.allowed) return interaction.editReply(`${e('met_denied')} ${may.reason}`);
       // Nobody signs off their own work.
       if (row.closerDiscordId && row.closerDiscordId === interaction.user.id) {
         return interaction.editReply('You cannot review a ticket you handled yourself.');
@@ -476,7 +479,7 @@ async function handleReviewButton(interaction) {
 
       // Say what was actually paid and to whom. "Points queued" left the
       // reviewer to guess how many and for which of the two people on the card.
-      let line = approved ? 'Approved.' : 'Denied.';
+      let line = approved ? `${e('met_tick')} Approved.` : `${e('met_cross')} Denied.`;
       if (approved) {
         const t = out.ticket;
         const handler = t.closerDiscordId ? `<@${t.closerDiscordId}>` : (t.closerUsername || 'the handler');
@@ -507,7 +510,7 @@ async function handleReviewButton(interaction) {
       // Blacklist. canDecideCase reads the applied punishments as well as the
       // listed ones, so one edited off the case cannot launder it past here.
       const mayDecide = authority.canDecideCase(auth, row);
-      if (!mayDecide.allowed) return interaction.editReply(`⛔ ${mayDecide.reason}`);
+      if (!mayDecide.allowed) return interaction.editReply(`${e('met_denied')} ${mayDecide.reason}`);
 
       // Cases carry consequences (roles, exile, demotion, points), so the real
       // pipeline decides — this button only triggers it.
@@ -526,12 +529,14 @@ async function handleReviewButton(interaction) {
       const review = parseInt(process.env.IA_CASE_REVIEW_POINTS || '1', 10) || 0;
       const mine = review ? ` ${review} quota ${review === 1 ? 'point' : 'points'} queued for you.` : '';
       const line = approved
-        ? `Approved ${fresh.caseRef || ''}.`.trim() + ` 4 quota points queued for the submitter.${mine}`
-        : `Denied ${fresh.caseRef || ''}.`.trim() + `${mine} The submitter gets nothing.`;
+        ? `${e('met_tick')} ` + `Approved ${fresh.caseRef || ''}.`.trim()
+          + ` 4 quota points queued for the submitter.${mine}`
+        : `${e('met_cross')} ` + `Denied ${fresh.caseRef || ''}.`.trim()
+          + `${mine} The submitter gets nothing.`;
       return interaction.editReply(line);
     }
 
-    return interaction.editReply('Unknown review action.');
+    return interaction.editReply(`${e('met_warn')} Unknown review action.`);
   } catch (err) {
     console.error('[IA] review button failed:', err.message);
     return interaction.editReply('That did not go through: ' + err.message);

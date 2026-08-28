@@ -7,6 +7,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder,
         StringSelectMenuBuilder, MessageFlags } = require('discord.js');
 const journal = require('./actionJournal');
+const { e } = require('./emoji');
 
 function buildCommand() {
   return new SlashCommandBuilder()
@@ -28,7 +29,7 @@ async function handleUndo(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(0x4a8fff)
-    .setTitle('Undo')
+    .setTitle(`${e('met_return')} Undo`)
     .setDescription(entries.map((e, i) =>
       `**${i + 1}.** ${e.summary || e.action} · ${when(e.createdAt)}`).join('\n'))
     .setFooter({ text: `Your actions from the last ${journal.WINDOW_HOURS()} hours` });
@@ -52,7 +53,8 @@ async function handleUndo(interaction) {
 async function handleUndoComponent(interaction) {
   const [, , ownerId] = String(interaction.customId || '').split(':');
   if (ownerId && interaction.user.id !== ownerId) {
-    return interaction.reply({ content: '⛔ That menu is not yours.', flags: MessageFlags.Ephemeral });
+    return interaction.reply({
+      content: `${e('met_denied')} That menu is not yours.`, flags: MessageFlags.Ephemeral });
   }
 
   await interaction.deferUpdate();
@@ -67,7 +69,8 @@ async function handleUndoComponent(interaction) {
   // Re-check ownership against the record, not just the menu: a stale message
   // could otherwise be reused by whoever can see it.
   if (entry.actorId !== interaction.user.id) {
-    return interaction.editReply({ content: '⛔ You can only undo your own actions.', embeds: [], components: [] });
+    return interaction.editReply({
+      content: `${e('met_denied')} You can only undo your own actions.`, embeds: [], components: [] });
   }
 
   const actor = {

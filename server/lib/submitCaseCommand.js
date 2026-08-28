@@ -12,7 +12,7 @@
 // in once" is a fix and "not authorised" is not.
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const prisma = require('./db');
-const { e } = require('./emoji');
+const { e, startLoading } = require('./emoji');
 const { ACTION_NAMES, parseActions, isTimed, roleIdForAction } = require('./actions');
 const { generateCaseRef } = require('./caseRef');
 const { HICOMM_ONLY_ACTIONS } = require('./iaRank');
@@ -84,17 +84,20 @@ async function handleSubmitCase(interaction) {
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const loader = startLoading(interaction, 'Filing the case');
 
   const auth = await resolveAuthority(interaction);
   const view = canView(auth);
-  if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
+  if (!view.allowed) { loader.stop(); return interaction.editReply(`${e('met_denied')} ${view.reason}`); }
   if (!auth.userId) {
+    loader.stop();
     return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord, then file this again.`
       + ' A case has to be recorded against an account, and you do not have one yet.');
   }
 
   // Resolve the subject's Roblox identity. Best-effort: a case against somebody
   // whose account cannot be resolved is still a case worth filing.
+  loader.update('Resolving the subject');
   let robloxUserId = null;
   let robloxUsername = robloxName || null;
   try {
@@ -121,6 +124,7 @@ async function handleSubmitCase(interaction) {
     ...(a === 'Blacklist' && blCode ? { code: blCode } : {}),
   }));
 
+  loader.update('Writing the record');
   let created;
   try {
     created = await prisma.case.create({
@@ -140,6 +144,7 @@ async function handleSubmitCase(interaction) {
       },
     });
   } catch (err) {
+    loader.stop();
     return interaction.editReply(`${e('met_cross')} Could not file the case: ${err.message}`);
   }
 
@@ -152,6 +157,7 @@ async function handleSubmitCase(interaction) {
 
   // The card. Losing it must never undo the record, so a failure here downgrades
   // the reply rather than throwing: the case exists and is visible on the site.
+  loader.update('Posting it for review');
   let messageId = null;
   try {
     const filer = interaction.member || interaction.user;
@@ -164,6 +170,7 @@ async function handleSubmitCase(interaction) {
     console.warn('[IA] /submit-case card not posted:', err.message);
   }
 
+  loader.stop();
   const needsHicomm = enriched.some(a => HICOMM_ONLY_ACTIONS.includes(a.action));
   const gate = needsHicomm ? 'High Command' : 'Supervisor and above';
 
