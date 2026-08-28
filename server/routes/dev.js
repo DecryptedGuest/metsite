@@ -286,7 +286,10 @@ router.get('/db-targets', async (req, res) => {
 //             right one before anything is created.
 router.post('/case-log-import', async (req, res) => {
   const body = req.body || {};
-  const channelId = String(body.channelId || process.env.CASE_LOG_CHANNEL_ID || '').trim();
+  // The MET administrative-log channel, hardcoded: it is where the case logs
+  // live and it is not moving, so it should not need setting up.
+  const channelId = String(
+    body.channelId || process.env.CASE_LOG_CHANNEL_ID || '1458943564456399091').trim();
   const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
   if (!channelId) {
     return res.status(400).json({

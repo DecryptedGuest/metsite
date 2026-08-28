@@ -17,6 +17,9 @@
 const prisma = require('./db');
 const { parseTicketLogEmbed, transcriptUrlFromComponents } = require('./ticketLog');
 
+// The MET ticket-log channel. Hardcoded on purpose: this is where Tickety posts
+// and it is not moving, so making it an env var only created a way for it to be
+// unset. The override remains for a test that needs to point somewhere else.
 const TICKET_LOG_GUILD_ID   = () => process.env.TICKET_LOG_GUILD_ID   || '1191048287315304470';
 const TICKET_LOG_CHANNEL_ID = () => process.env.TICKET_LOG_CHANNEL_ID || '1455877424582492264';
 
@@ -1028,12 +1031,20 @@ async function ingestMessage(msg) {
     // regardless of who closed them, because that IS the IA queue.
     const divisional = String(created.division || 'MET').toUpperCase() !== 'MET';
     const queueable  = !divisional || created.closerIsIa === true;
+    // NEW in the channel is not the same as newly CLOSED. A sweep walking back
+    // through history stores rows it has never seen before, and every one of
+    // them is `created` here — which is exactly how eleven tickets from last
+    // week arrived in the queue at once.
+    const isNew = await worthCarding(created);
 
-    if (created.status === 'PENDING' && queueable) {
+    if (created.status === 'PENDING' && queueable && isNew) {
       // Never let a card failure undo the row: the ticket is stored either way.
       // queueCard records the message id, which is what lets the sweep below
       // find a queueable ticket that never got one.
       await queueCard(created).catch(() => {});
+    } else if (created.status === 'PENDING' && !isNew) {
+      console.log(`[TicketLogs] ticket ${created.ticketNo ?? created.id} stored but not queued `
+        + '· closed before this deployment started watching');
     } else if (created.status === 'PENDING' && divisional) {
       console.log(`[TicketLogs] ${created.division} ticket ${created.ticketNo ?? created.id} not queued `
         + '· closed by a non-IA handler');
@@ -1212,86 +1223,94 @@ async function queueCard(row) {
   return true;
 }
 
-// How recently a ticket must have been closed for a card to be worth posting.
-// A review queue is a to-do list, and a to-do list that reaches back for ever is
-// one nobody works. 14 days by default.
-const CARD_MAX_AGE_DAYS = () => {
-  const n = parseInt(process.env.IA_TICKET_CARD_MAX_AGE_DAYS || '14', 10);
-  return Number.isFinite(n) && n > 0 ? n : 14;
-};
+// ── When carding started ──────────────────────────────────────────
+//
+// A review card is a request to do something NOW. A ticket closed last week is
+// not that, and eleven of them arriving at once, each pinging the reviewer role,
+// is worse than useless.
+//
+// The first version of this reached back through the whole table. The second
+// bounded it to fourteen days, which was still wrong: it posted eleven cards for
+// tickets closed eleven days ago. There is no age window that makes a past log
+// worth a ping, so there is no age window. Cards are for tickets closed AFTER
+// this deployment started watching, full stop, and the line is written down the
+// first time it is asked for so that a restart does not move it forwards and
+// lose the tickets closed while the bot was down.
+const CARDING_KEY = 'tickets.cardingStartedAt';
+let _cardLine = null;
 
-/**
- * The earliest close time still worth putting in front of a reviewer.
- *
- * The later of two lines: whenever somebody last cleared the backlog, and the
- * age window. Either one alone is not enough — a deployment that has never
- * cleared a backlog still should not be posting a ticket from June.
- */
-async function cardCutoff() {
-  const byAge = new Date(Date.now() - CARD_MAX_AGE_DAYS() * 24 * 3600 * 1000);
-  const line  = await backlogClearedAt();
-  return (line && line > byAge) ? line : byAge;
+async function cardingStartedAt() {
+  if (_cardLine) return _cardLine;
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: CARDING_KEY } });
+    const t = row && Date.parse(row.value);
+    if (Number.isFinite(t)) { _cardLine = new Date(t); return _cardLine; }
+
+    // `update: {}` so a line already written by another instance wins: the
+    // earliest line is the right one, and moving it forward would skip whatever
+    // closed in between.
+    const now = new Date();
+    const saved = await prisma.systemSetting.upsert({
+      where:  { key: CARDING_KEY },
+      update: {},
+      create: { key: CARDING_KEY, value: now.toISOString() },
+    });
+    const savedAt = Date.parse(saved && saved.value);
+    _cardLine = Number.isFinite(savedAt) ? new Date(savedAt) : now;
+    console.log(`[TicketLogs] review cards start from ${now.toISOString()} · nothing closed before that is queued`);
+    return _cardLine;
+  } catch (err) {
+    // Cannot read the line, so cannot know what is new. Post nothing rather than
+    // risk another flood.
+    return new Date(Date.now() + 60 * 1000);
+  }
 }
 
+/** Is this ticket new enough to be worth putting in front of a reviewer? */
+async function worthCarding(row) {
+  if (!row || !row.closedAt) return false;
+  const line = await cardingStartedAt();
+  return new Date(row.closedAt) >= line;
+}
+
+
 /**
- * Put any queueable ticket that has never been carded in front of a reviewer.
+ * Re-answer "is the handler IA?" for rows that were stored as a flat false.
  *
- * Bounded by age, which the first version of this was not, and that was a real
- * mistake: it selected every PENDING row with no card and worked oldest first,
- * so switching it on dredged three-month-old tickets out of the table one by
- * one and pinged the reviewer role for each. The queue is for work somebody is
- * actually expected to do; anything older than the cutoff is history and is
- * counted, not posted.
+ * closerIsIa used to default to false and to answer false for "could not tell",
+ * so rows whose handler was plainly IA — the nickname literally begins "IA-" —
+ * are stored as not-IA. On a card that reads "None · the handler is not
+ * Internal Affairs" about a Supervisor, and on the site it means approving the
+ * ticket pays them nothing.
  *
- * Small batches because posting is rate-limited: a cap of 10 per sweep drains a
- * genuine backlog over a few cycles instead of getting the bot throttled into
- * posting nothing at all.
+ * Only ever turns a false into true or null; a row that was correctly false
+ * stays false, and nothing that has already been reviewed is touched.
  */
-async function queueMissingCards(limit = 10) {
-  const out = { posted: 0, pending: 0, tooOld: 0 };
-  const cards = require('./iaReviewCards');
-  if (!cards.ticketsChannelId()) return out;
-
-  const cutoff = await cardCutoff();
-
+async function refreshCloserIsIa(limit = 500) {
+  const out = { checked: 0, fixed: 0 };
   let rows;
   try {
     rows = await prisma.ticketLog.findMany({
-      where: {
-        status: 'PENDING', voidedAt: null, cardMessageId: null,
-        closedAt: { gte: cutoff },
-      },
-      // Oldest FIRST within the window, so a real backlog drains in the order
-      // the tickets were closed rather than newest-first.
-      orderBy: { closedAt: 'asc' },
-      take: limit * 4,   // over-fetch: most of a divisional batch is not queueable
+      where: { closerIsIa: false, status: 'PENDING' },
+      select: { id: true, closerDiscordId: true, closerRank: true, closerRaw: true, closerUsername: true },
+      take: limit,
     });
-  } catch (err) {
-    console.warn('[TicketLogs] could not look for uncarded tickets:', err.message);
-    return out;
-  }
+  } catch (err) { return out; }
 
-  // Reported rather than posted, so a queue that is quietly enormous is visible
-  // without anybody being pinged about it.
-  try {
-    out.tooOld = await prisma.ticketLog.count({
-      where: {
-        status: 'PENDING', voidedAt: null, cardMessageId: null,
-        closedAt: { lt: cutoff },
-      },
-    });
-  } catch (err) { /* a count is not worth failing the sweep over */ }
-
-  const todo = rows.filter(queueable);
-  out.pending = todo.length;
-  for (const row of todo.slice(0, limit)) {
-    try {
-      if (await queueCard(row)) out.posted++;
-    } catch (err) {
-      console.warn('[TicketLogs] card not posted for ticket', row.ticketNo ?? row.id, '·', err.message);
+  for (const row of rows) {
+    out.checked++;
+    const rank = row.closerRank || rankFromRaw(row.closerRaw) || rankFromRaw(row.closerUsername) || null;
+    let siteRole = null;
+    if (row.closerDiscordId) {
+      const u = await prisma.user.findUnique({
+        where: { discordId: String(row.closerDiscordId) }, select: { role: true },
+      }).catch(() => null);
+      siteRole = (u && u.role) || null;
     }
-    // Gentle on the channel: cards are posted with a reviewer ping.
-    await new Promise(r => setTimeout(r, 400));
+    const answer = await resolveCloserIsIa({ discordId: row.closerDiscordId, siteRole, rank });
+    if (answer === false) continue;          // still a real no
+    await prisma.ticketLog.update({ where: { id: row.id }, data: { closerIsIa: answer } }).catch(() => {});
+    out.fixed++;
   }
   return out;
 }
@@ -1299,10 +1318,10 @@ async function queueMissingCards(limit = 10) {
 /**
  * Take down the cards that should never have been posted.
  *
- * The unbounded first version of queueMissingCards posted review cards for
- * tickets closed months ago, each one pinging the reviewer role. Tightening the
- * rule stops more going up; it does nothing about the ones already in the
- * channel, which are still sitting there with live Approve and Deny buttons.
+ * The earlier catch-up passes posted review cards for tickets closed weeks and
+ * months ago, each one pinging the reviewer role. Removing that stops more going
+ * up; it does nothing about the ones already in the channel, which are still
+ * sitting there with live Approve and Deny buttons.
  *
  * So: delete the card, and clear the id so the row is simply uncarded again.
  * Only ever a PENDING row outside the cutoff — a ticket somebody has already
@@ -1318,7 +1337,7 @@ async function removeStaleCards(limit = 25) {
   const client = getClient();
   if (!client) return out;
 
-  const cutoff = await cardCutoff();
+  const cutoff = await cardingStartedAt();
   let rows;
   try {
     rows = await prisma.ticketLog.findMany({
@@ -1460,16 +1479,7 @@ async function sweep(client, opts) {
 
     // Anything queueable that has no card yet — the backlog that was ingested
     // before review cards shipped, plus anything a transient channel error lost.
-    try {
-      const q = await queueMissingCards();
-      if (q.posted)  s.cardsPosted  = q.posted;
-      if (q.pending) s.cardsPending = q.pending;
-      if (q.tooOld)  s.cardsTooOld  = q.tooOld;
-    } catch (err) {
-      console.warn('[TicketLogs] card catch-up skipped:', err.message);
-    }
-
-    // Take down anything the old unbounded catch-up put up.
+    // Take down anything the earlier unbounded catch-up put up.
     try {
       const r = await removeStaleCards();
       if (r.removed) s.cardsRemoved = r.removed;
@@ -1487,13 +1497,12 @@ async function sweep(client, opts) {
     }
 
     if (s.created || s.updated || s.error || s.handlersFixed
-        || s.cardsPosted || s.cardsRefreshed || s.cardsRemoved) {
+        || s.cardsRefreshed || s.cardsRemoved) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
-        + (s.cardsPosted ? `, cards posted ${s.cardsPosted}/${s.cardsPending}` : '')
         + (s.cardsRefreshed ? `, cards refreshed ${s.cardsRefreshed}` : '')
         + (s.cardsRemoved ? `, stale cards taken down ${s.cardsRemoved}` : '')
-        + (s.cardsTooOld ? `, ${s.cardsTooOld} pending ticket(s) too old to queue` : '')
+
         + (s.error ? `, error: ${s.error}` : ''));
     }
     return s;
@@ -1654,7 +1663,10 @@ const REPAIR_KEY = 'ticketLogRepairVersion';
 //     duplicates are merged, or the bogus row (always the older one, and so
 //     always the merge keeper) swallows the genuine close and the ticket ends up
 //     recorded as handled by whoever opened it.
-const REPAIR_VERSION = '5';
+// 6 — re-answer closerIsIa for rows stored as a flat false. It used to mean
+//     both "not IA" and "could not tell", so tickets closed by people whose
+//     nickname begins "IA-" are recorded as not IA and pay nothing on approval.
+const REPAIR_VERSION = '6';
 
 async function repairOnce(client) {
   let done = null;
@@ -1693,6 +1705,8 @@ async function repairOnce(client) {
 
   // Last, because merging duplicates removes rows and voiding takes them out of
   // the queue; the numbers have to be contiguous over what survives.
+  const isIa = await refreshCloserIsIa(2000).catch(e => ({ error: e.message }));
+
   const numbers = await renumberTickets().catch(e => ({ error: e.message }));
 
   try {
@@ -1710,8 +1724,9 @@ async function repairOnce(client) {
         ? `, ${nonCloses.released} decided row(s) left alone but made to release their ticket id` : '')
     + (nonCloses.reviewedNotTouched
         ? ` (${nonCloses.reviewedNotTouched} already reviewed)` : '')
+    + (isIa.fixed ? `, ${isIa.fixed} handler(s) re-recognised as Internal Affairs` : '')
     + `, ${numbers.renumbered || 0} log(s) renumbered oldest-first`);
-  return { duplicates, handlers, nonCloses, numbers };
+  return { duplicates, handlers, nonCloses, isIa, numbers };
 }
 
 function startTicketLogWorker(client) {
@@ -1740,6 +1755,7 @@ module.exports = {
   // Multi-division sources: MET, CID and SCO-19.
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
-  queueCard, queueMissingCards, refreshStaleCards, removeStaleCards, cardCutoff,
+  queueCard, refreshStaleCards, removeStaleCards, cardingStartedAt, worthCarding,
+  refreshCloserIsIa,
   voidNonCloseRows,
 };

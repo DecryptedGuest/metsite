@@ -267,9 +267,10 @@
         if (!r) { note(out2(), 'ok', 'A sweep is already running · try again in a moment.'); return; }
         // Cards posted is the number people actually care about: it is how many
         // closed tickets have just been put in front of a reviewer.
-        const cards = r.cardsPosted
-          ? ` · review cards posted ${r.cardsPosted}${r.cardsPending ? ` of ${r.cardsPending} waiting` : ''}`
-          : (r.cardsPending ? ` · ${r.cardsPending} still waiting for a card` : '');
+        // Cards are only ever posted for tickets closed since the bot started
+        // watching, so a sweep reports what it TOOK DOWN, not what it put up.
+        const cards = (r.cardsRemoved ? ` · ${r.cardsRemoved} stale card(s) taken down` : '')
+                    + (r.cardsRefreshed ? ` · ${r.cardsRefreshed} card(s) refreshed` : '');
         note(out2(), r.error ? 'warn' : 'ok',
           `Scanned ${r.scanned ?? '?'} · new ${r.created ?? r.new ?? 0} · refreshed ${r.updated ?? r.refreshed ?? 0}${cards}.`
           + (r.error ? ` ${esc(r.error)}` : ''));
