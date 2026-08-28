@@ -71,11 +71,23 @@
     (document.head || document.documentElement).appendChild(st);
   }
 
-  root.classList.add(CLOAK_CLASS);              // hidden by default, always
+  // ── Where the cloak starts ──────────────────────────────────────
+  // Hidden by default everywhere the developer tools sit ALONGSIDE ordinary
+  // ones, which is the case this exists for: a developer opens their normal
+  // dashboard and the visitor IPs are not on screen.
+  //
+  // NOT on /dev itself. That page is nothing but the developer tools, and you
+  // only reach it by deliberately going there, so starting it cloaked hides
+  // every panel on it and leaves an empty dashboard with no clue why — which
+  // reads, correctly, as the dev dashboard simply not working. The hotkey still
+  // works here, for when somebody walks in.
+  var startCloaked = !isDevContext();
+
+  if (startCloaked) root.classList.add(CLOAK_CLASS);
   if (isWholePageDev()) root.classList.add('dev-cloak-whole');
   ensureStyle();
 
-  var cloaked = true;
+  var cloaked = startCloaked;
 
   // ── Restoring the ordinary dashboard underneath ─────────────────
   // On /dev/dashboard the dev context hides the Internal Affairs nav and rebrands
