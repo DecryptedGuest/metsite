@@ -214,14 +214,17 @@ function ticketCard(ticket, extra = {}) {
     ? `<@${ticket.creatorDiscordId}>${ticket.creatorRobloxUsername ? `\n\`${ticket.creatorRobloxUsername}\`` : ''}`
     : (ticket.creatorUsername || ticket.creatorRobloxUsername || '*not identified*');
 
+  // Just the person. The rank used to hang on a second line under the mention
+  // ("<@id>" then "SGT"), which read as a label on the card rather than a name,
+  // and a reviewer does not need it to decide a ticket. It is still parsed and
+  // still stored on the row — closerRank is what decides whether the handler
+  // counts as Internal Affairs — it simply is not printed here.
   const handlerName = ticket.closerUsername || ticket.closerRaw || null;
   const handled = ticket.closerDiscordId
-    ? `<@${ticket.closerDiscordId}>${ticket.closerRank ? `\n${ticket.closerRank}` : ''}`
-    : (handlerName
-        ? `${handlerName}${ticket.closerRank ? `\n${ticket.closerRank}` : ''}`
-        // Not a dead end: the sweep re-reads the log and fills this in, and the
-        // card is re-rendered when it does.
-        : '*being identified*');
+    ? `<@${ticket.closerDiscordId}>`
+    // Not a dead end: the sweep re-reads the log and fills this in, and the
+    // card is re-rendered when it does.
+    : (handlerName || '*being identified*');
 
   const closedAt = ticket.closedAt && !isNaN(new Date(ticket.closedAt).getTime())
     ? Math.floor(new Date(ticket.closedAt).getTime() / 1000) : null;
