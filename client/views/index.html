@@ -100,10 +100,10 @@
   <img src="/img/metbanner.png" alt="Metropolitan Police" onerror="this.style.display='none'"
        style="width:100%;border-radius:14px;border:1px solid rgba(60,110,255,.25);box-shadow:0 10px 34px rgba(0,0,0,.45);display:block;" />
   <div class="signin-crest">
-    <img id="signin-logo" src="/img/logo.png" alt="MET Police" />
+    <img id="signin-logo" src="/img/divisions/met.png" alt="Metropolitan Police Service" />
     <div class="signin-crest-text">
       <div class="signin-title">Metropolitan Police Service</div>
-      <div class="signin-sub">Officer Dashboard</div>
+      <div class="signin-sub">MET Dashboard</div>
     </div>
   </div>
 
@@ -176,9 +176,6 @@
       .then(r => { if (r.ok) location.replace('/dashboard'); })
       .catch(() => {});
   }
-  // Use the MET group icon as the crest if it's reachable (falls back to logo.png).
-  fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null)
-    .then(d => { if (d && d.metIcon) document.getElementById('signin-logo').src = d.metIcon; }).catch(() => {});
 })();
 </script>
 <div id="toast-container"></div>
