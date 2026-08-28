@@ -362,32 +362,44 @@ async function registerCommands(c) {
     }
   }
 
-  // Global commands appear in EVERY server the bot is in, which defeats the
-  // per-server split entirely — that is how MET commands ended up visible in
-  // CID. Never fall back to it automatically: a command that failed to register
-  // is a loud, fixable problem, whereas one that silently appears everywhere is
-  // not. Opt in explicitly if you really want global.
-  const wantGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1';
-  if (!anyGuildOk && !wantGlobal) {
+  // Guild commands and global commands STACK: the same command registered both
+  // ways renders twice in the picker. So the rule is not "prefer guild" — it is
+  // that the two can never coexist.
+  //
+  // Global is therefore only ever a fallback for a total failure, and
+  // REGISTER_GLOBAL_COMMANDS cannot override that. Setting it while guild
+  // registration works would put every command in every server AND duplicate
+  // each one, which is never what anybody wants.
+  const askedGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1';
+  const wantGlobal  = askedGlobal && !anyGuildOk;
+
+  if (askedGlobal && anyGuildOk) {
+    console.warn('[Bot] REGISTER_GLOBAL_COMMANDS=1 is set but guild registration worked · '
+      + 'ignoring it. Registering the same command globally AND per guild shows it '
+      + 'twice in every server · unset the variable.');
+  }
+  if (!anyGuildOk && !askedGlobal) {
     console.error('[Bot] NO guild registration succeeded and the global fallback is off · '
       + 'check IA_GUILD_ID / MET_GUILD_ID and that the bot was invited with the '
       + '"applications.commands" scope. No slash commands are registered.');
   }
+
   if (wantGlobal && api.application) {
     try {
       await api.application.commands.set(global);
       out.global = global.map(c => c.name);
-      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY`);
+      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY `
+        + '(no guild registration succeeded · these can take up to an hour to appear)');
     } catch (err) {
       out.errors.push(`global: ${err.message}`);
       console.error('[Bot] global command registration failed:', err.message);
     }
   } else if (api.application) {
-    // Discord keeps a command until something deletes it, so commands from an
-    // older deploy outlive the code that registered them. A leftover GLOBAL
-    // registration is the worst case: it shows up in every server the bot has
-    // joined, and alongside the guild copy it renders as a DUPLICATE of each
-    // command. Clear them whenever global mode is off.
+    // Discord keeps a command until something deletes it, so anything an older
+    // deploy registered outlives the code that put it there. Clear the global
+    // set on EVERY boot that is not deliberately global-only: it is the copy
+    // that duplicates the guild ones and leaks commands into servers the plan
+    // never mentioned.
     try {
       const stale = await api.application.commands.fetch();
       if (stale.size) {
@@ -396,6 +408,8 @@ async function registerCommands(c) {
           + `${[...stale.values()].map(c => '/' + c.name).join(' ')} `
           + '· clients can take up to an hour to stop showing them');
         out.clearedGlobal = [...stale.values()].map(c => c.name);
+      } else {
+        console.log('[Bot] no global commands registered · nothing to clear');
       }
     } catch (err) {
       console.warn('[Bot] could not clear global commands:', err.message);
@@ -407,16 +421,31 @@ async function registerCommands(c) {
   // Without this, commands registered there by an earlier deploy stay forever.
   try {
     const planned = new Set([...byGuild.keys()].map(String));
+    const summary = [];
     for (const [, guild] of api.guilds.cache) {
-      if (planned.has(String(guild.id))) continue;
-      const existing = await guild.commands.fetch().catch(() => null);
-      if (!existing || !existing.size) continue;
-      await guild.commands.set([]);
-      console.log(`[Bot] cleared ${existing.size} leftover command(s) from "${guild.name}" `
-        + `(${guild.id}) · not in the command plan`);
-      out.cleared = out.cleared || [];
-      out.cleared.push({ guildId: guild.id, name: guild.name, removed: existing.size });
+      const isPlanned = planned.has(String(guild.id));
+      let existing = null;
+      try { existing = await guild.commands.fetch(); }
+      catch (err) {
+        summary.push(`${guild.name} (${guild.id}): cannot read commands · ${err.message}`);
+        continue;
+      }
+      if (!isPlanned && existing.size) {
+        await guild.commands.set([]);
+        console.log(`[Bot] cleared ${existing.size} leftover command(s) from "${guild.name}" `
+          + `(${guild.id}) · not in the command plan`);
+        out.cleared = out.cleared || [];
+        out.cleared.push({ guildId: guild.id, name: guild.name, removed: existing.size });
+        summary.push(`${guild.name}: none (cleared ${existing.size})`);
+      } else {
+        summary.push(`${guild.name}: ${existing.size
+          ? [...existing.values()].map(c => '/' + c.name).join(' ')
+          : 'none'}`);
+      }
     }
+    // One line per server, so "why is this command here" is answerable from the
+    // boot log alone rather than by asking Discord.
+    console.log('[Bot] command layout now:\n    ' + summary.join('\n    '));
   } catch (err) {
     console.warn('[Bot] leftover-command sweep failed:', err.message);
   }
