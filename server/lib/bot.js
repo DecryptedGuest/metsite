@@ -168,20 +168,37 @@ client = buildClient(WANT_MESSAGE_CONTENT);
 // nothing — who may actually run them is decided in code, not by where they
 // appear — and it removes a whole class of "the command isn't there" that is
 // invisible from the outside.
-function metGuildIds(specific) {
-  return [...new Set([
-    process.env[specific],
-    process.env.MET_GUILD_ID,
-    process.env.DISCORD_GUILD_ID,
-  ].filter(Boolean).map(String))];
+/**
+ * Which guild a command belongs in.
+ *
+ * This used to union the command's own guild with MET_GUILD_ID and
+ * DISCORD_GUILD_ID, so every command landed in every configured server — IA
+ * tooling showed up in the MET server and vice versa. Commands are now scoped
+ * to exactly one server, because who can SEE a command is part of the
+ * permission model, not just a convenience.
+ *
+ * `specific` still wins when set, so a one-off override is possible without
+ * moving the whole set.
+ */
+function guildFor(specific, fallbackEnv) {
+  const id = process.env[specific]
+    || process.env[fallbackEnv]
+    || process.env.DISCORD_GUILD_ID;
+  return id ? [String(id)] : [];
 }
-const DISCIPLINE_GUILD_IDS = () => metGuildIds('DISCIPLINE_GUILD_ID');
-const XP_GUILD_IDS         = () => metGuildIds('XP_GUILD_ID');
-const IA_GUILD_IDS         = () => metGuildIds('IA_PANEL_GUILD_ID');
-const PROMOTE_GUILD_IDS    = () => metGuildIds('PROMOTE_GUILD_ID');
-const LOA_GUILD_IDS        = () => metGuildIds('LOA_GUILD_ID');
-const MET_GUILD_IDS        = () => metGuildIds('MET_INFO_GUILD_ID');
-const PENDINGJOIN_GUILD_IDS = () => metGuildIds('PENDINGJOIN_GUILD_ID');
+
+// Internal Affairs server: cases, tickets, quota, discipline, LOA.
+const iaGuild  = (specific) => guildFor(specific, 'IA_GUILD_ID');
+// MET server: Roblox group administration and MET-wide info.
+const metGuild = (specific) => guildFor(specific, 'MET_GUILD_ID');
+
+const DISCIPLINE_GUILD_IDS  = () => iaGuild('DISCIPLINE_GUILD_ID');
+const XP_GUILD_IDS          = () => iaGuild('XP_GUILD_ID');
+const IA_GUILD_IDS          = () => iaGuild('IA_PANEL_GUILD_ID');
+const LOA_GUILD_IDS         = () => iaGuild('LOA_GUILD_ID');
+const PROMOTE_GUILD_IDS     = () => metGuild('PROMOTE_GUILD_ID');
+const MET_GUILD_IDS         = () => metGuild('MET_INFO_GUILD_ID');
+const PENDINGJOIN_GUILD_IDS = () => metGuild('PENDINGJOIN_GUILD_ID');
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -349,7 +366,17 @@ async function registerCommands(c) {
   // put them; global ones take up to an hour to propagate but appear EVERYWHERE
   // the bot is. If every guild attempt failed, a slow command beats no command.
   // REGISTER_GLOBAL_COMMANDS=1 forces this on even when a guild worked.
-  const wantGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1' || (!anyGuildOk && global.length);
+  // Global commands appear in EVERY server the bot is in, which defeats the
+  // per-server split entirely — that is how MET commands ended up visible in
+  // CID. Never fall back to it automatically: a command that failed to register
+  // is a loud, fixable problem, whereas one that silently appears everywhere is
+  // not. Opt in explicitly if you really want global.
+  const wantGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1';
+  if (!anyGuildOk && !wantGlobal) {
+    console.error('[Bot] NO guild registration succeeded and the global fallback is off · '
+      + 'check IA_GUILD_ID / MET_GUILD_ID and that the bot was invited with the '
+      + '"applications.commands" scope. No slash commands are registered.');
+  }
   if (wantGlobal && api.application) {
     try {
       await api.application.commands.set(global);
