@@ -314,6 +314,12 @@ model TicketLog {
   // Case.cardMessageId exists: rewrite it in place on a decision, and find the
   // rows that were ingested before cards existed and never got queued.
   cardMessageId String?
+  // When this row was last checked against its original Discord message to see
+  // whether it is really a ticket CLOSE. The check re-reads Discord, so it is
+  // done once per row and the stamp is what makes that true across restarts —
+  // without it the pass re-read the whole table on every boot and never
+  // finished.
+  closeChecked  DateTime?
 
   raw       Json?
   createdAt DateTime @default(now())

@@ -290,6 +290,7 @@ const RESOLVED_FIELDS = [
 // Whether we have already tried to create the sequence this process. One
 // attempt is enough — retrying per row would hammer the database.
 let _seqChecked = false;
+let _seqLastTry = 0;
 
 async function nextTicketNo() {
   try {
@@ -301,8 +302,11 @@ async function nextTicketNo() {
     // SQL, so a deployment done that way has the ticketNo COLUMN and no
     // sequence to fill it — which is how nine thousand rows ended up numbered
     // null. Create it once, seeded past whatever is already stored, then retry.
+    // The flag is set AFTER the attempt succeeds. Setting it first meant one
+    // transient failure (a connection blip during boot) disabled ticket
+    // numbering for the whole life of the process, and every row after it was
+    // stored with a null number.
     if (!_seqChecked) {
-      _seqChecked = true;
       try {
         const top = await prisma.ticketLog.aggregate({ _max: { ticketNo: true } });
         const start = (top && top._max && top._max.ticketNo ? top._max.ticketNo : 0) + 1;
@@ -310,9 +314,15 @@ async function nextTicketNo() {
           `CREATE SEQUENCE IF NOT EXISTS ticket_log_no_seq START WITH ${Math.max(1, start)}`);
         console.warn('[TicketLogs] ticket_log_no_seq was missing · created it, starting at ' + start);
         const again = await prisma.$queryRaw`SELECT nextval('ticket_log_no_seq')::int AS n`;
+        _seqChecked = true;
         return again && again[0] ? Number(again[0].n) : null;
       } catch (e2) {
+        // Left unset so a later call can retry, but rate-limited so a genuinely
+        // broken database is not hammered once per ingested message.
         console.error('[TicketLogs] could not create ticket_log_no_seq:', e2.message);
+        const now = Date.now();
+        if (now - _seqLastTry < 60000) _seqChecked = true;
+        _seqLastTry = now;
       }
     }
     // Still no sequence. A log without a number is still worth storing.
@@ -1607,9 +1617,22 @@ async function refreshStaleCards(limit = 25) {
 
 // ── Workers ───────────────────────────────────────────────────────
 let _sweeping = false;
+let _sweepStartedAt = 0;
+// How long a sweep may hold the latch before a later one is allowed past it. A
+// sweep is a network job: one call that never settles used to hold this flag
+// for the life of the process, and every sweep after it returned immediately
+// having done nothing — silently, because the early return says nothing.
+const SWEEP_STUCK_MS = 20 * 60 * 1000;
+
 async function sweep(client, opts) {
-  if (_sweeping) return null;
+  if (_sweeping) {
+    const held = Date.now() - _sweepStartedAt;
+    if (held < SWEEP_STUCK_MS) return null;
+    console.warn(`[TicketLogs] the previous sweep has been running for ${Math.round(held / 60000)}m`
+      + ' · starting another rather than stalling for ever');
+  }
   _sweeping = true;
+  _sweepStartedAt = Date.now();
   try {
     const s = await backfill(client, opts);
 
@@ -1656,6 +1679,19 @@ async function sweep(client, opts) {
 
     // Anything queueable that has no card yet — the backlog that was ingested
     // before review cards shipped, plus anything a transient channel error lost.
+    // A slice of the close-check backlog. Bounded and paced, so it shares the
+    // REST queue with the card posts rather than starving them.
+    try {
+      const nc = await voidNonCloseRows({ limit: 40 });
+      if (nc.voided || nc.released) {
+        s.nonClosesVoided = nc.voided;
+        s.nonClosesReleased = nc.released;
+      }
+      if (nc.remaining) s.closeCheckRemaining = nc.remaining;
+    } catch (err) {
+      console.warn('[TicketLogs] close check skipped:', err.message);
+    }
+
     // Anything closed since the line that still has no card. Bounded by that
     // line, so it can never reach into history.
     try {
@@ -1676,9 +1712,11 @@ async function sweep(client, opts) {
     }
 
     if (s.created || s.updated || s.error || s.handlersFixed
-        || s.cardsRefreshed || s.cardsPosted) {
+        || s.cardsRefreshed || s.cardsPosted || s.nonClosesVoided) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
+        + (s.nonClosesVoided ? `, non-closes voided ${s.nonClosesVoided}` : '')
+        + (s.closeCheckRemaining ? `, ${s.closeCheckRemaining} row(s) left to close-check` : '')
         + (s.cardsPosted ? `, cards posted ${s.cardsPosted}` : '')
         + (s.cardsRefreshed ? `, cards refreshed ${s.cardsRefreshed}` : '')
 
@@ -1715,42 +1753,50 @@ async function sweep(client, opts) {
  * close" — that would void the whole table the first time a permission lapsed.
  */
 async function voidNonCloseRows(opts = {}) {
-  const limit = opts.limit || 5000;
-  // `voided` is a row taken out of the queue; `released` is one left exactly as
-  // it is but made to let go of the ticket id it was holding. Either means a
-  // genuine close may now need ingesting, which is what the re-sweep keys off.
-  const out = { checked: 0, voided: 0, released: 0, unreadable: 0, reviewedNotTouched: 0, error: null };
+  // BOUNDED, and newest-first.
+  //
+  // The first version took 5000 rows oldest-first and re-read every one of them
+  // from Discord, serially. That is thousands of REST calls in a single pass:
+  // it never finished, so repairOnce never reached its stamp, so the whole job
+  // restarted on the next boot and ran for ever — which is exactly what a deploy
+  // log showing "repairing stored rows" with no "repair done" after it means.
+  //
+  // Newest-first because the rows that shadow a live close are the recent ones.
+  // Oldest-first put them last, behind thousands of ancient rows nobody is
+  // waiting on.
+  const limit = Math.min(Number(opts.limit) || 150, 500);
+  const out = { checked: 0, voided: 0, released: 0, unreadable: 0,
+                reviewedNotTouched: 0, remaining: 0, error: null };
 
   let rows;
   try {
     rows = await prisma.ticketLog.findMany({
-      where: { voidedAt: null },
+      where: { voidedAt: null, closeChecked: null },
       select: {
         id: true, messageId: true, channelId: true, status: true, ticketNo: true,
         ticketRef: true, transcriptUrl: true,
       },
-      orderBy: { closedAt: 'asc' },
+      orderBy: { closedAt: 'desc' },
       take: limit,
     });
   } catch (err) { out.error = err.message; return out; }
 
   for (const row of rows) {
+    // Stamped whatever the outcome, so a row is examined ONCE. Without this the
+    // pass re-reads the same rows from Discord every time it runs.
+    const done = () => prisma.ticketLog.update({
+      where: { id: row.id }, data: { closeChecked: new Date() },
+    }).catch(() => {});
+
     let data;
     try { data = await rowFromMessageId(row.messageId, row.channelId); }
-    catch (err) { out.unreadable++; continue; }
+    catch (err) { out.unreadable++; continue; }   // NOT stamped: try again later
 
-    // Either it still parses as a close, or the message could not be read. Both
-    // mean "leave it".
-    if (data) { out.checked++; continue; }
+    if (data) { out.checked++; await done(); continue; }
     if (!(await messageStillExists(row))) { out.unreadable++; continue; }
 
     out.checked++;
 
-    // Already decided. The verdict is somebody's, and any points it paid are
-    // somebody's, so neither is this pass's to reverse — it is reported instead.
-    // But the row must still let go of the ticket id it is holding, or the
-    // genuine close for that ticket can never be stored at all and the ticket
-    // vanishes on the strength of a decision made about the wrong log.
     if (row.status !== 'PENDING') {
       out.reviewedNotTouched++;
       if (row.ticketRef || row.transcriptUrl) {
@@ -1759,6 +1805,7 @@ async function voidNonCloseRows(opts = {}) {
         }).catch(() => {});
         out.released++;
       }
+      await done();
       continue;
     }
 
@@ -1770,32 +1817,28 @@ async function voidNonCloseRows(opts = {}) {
         // a denial would put a verdict in the record that nobody reached.
         //
         // ticketRef and transcriptUrl are RELEASED, which is the half that
-        // actually matters. findExistingRow matches a log to a row by ticket id
-        // and then by transcript, so a "User Added to Ticket" log ingested at
-        // 14:03 owns that ticket's id, and the genuine close at 14:23 matches it
-        // and is folded in as a patch rather than stored as itself. The patch
-        // only fills columns that are still null, so the row keeps naming
-        // whoever added a user as the person who closed the ticket. Voiding
-        // alone would make that permanent: the close would keep matching the
-        // voided row and never become one of its own. Letting the id go is what
-        // frees the real close to be ingested properly.
+        // actually matters: findExistingRow matches a log to a row by ticket id,
+        // so a dead row holding one goes on swallowing that ticket's real close.
         data: {
           voidedAt: new Date(), status: 'VOID',
           reviewedByName: 'Not a ticket close',
           ticketRef: null, transcriptUrl: null,
+          closeChecked: new Date(),
         },
       });
       out.voided++;
     } catch (err) {
       console.warn('[TicketLogs] could not void row', row.ticketNo ?? row.id, '·', err.message);
     }
+    // Paced. This shares Discord's REST queue with the card posts, and a flat
+    // out re-read starves them.
+    await new Promise(r => setTimeout(r, 120));
   }
 
-  // A voided row has just released a ticket id that a genuine close was being
-  // folded into. That close is somewhere back in the channel's history and the
-  // routine sweep only reaches back a few hundred messages, so clear the
-  // full-sweep marks: the next sweep walks the whole channel again and stores
-  // those closes as the rows they always should have been.
+  try {
+    out.remaining = await prisma.ticketLog.count({ where: { voidedAt: null, closeChecked: null } });
+  } catch (err) { /* a count is not worth failing the pass over */ }
+
   if (out.voided || out.released) {
     for (const src of ticketSources()) {
       try {
@@ -1873,7 +1916,9 @@ async function repairOnce(client) {
   // Voiding the non-closes first takes those rows out of contention, so the
   // group that gets merged is made only of real close logs and the keeper names
   // whoever actually closed the ticket.
-  const nonCloses = await voidNonCloseRows({ limit: 5000 }).catch(e => ({ error: e.message }));
+  // A SLICE. The rest is worked through by the sweep, a slice at a time, so this
+  // one-shot repair can actually reach its stamp instead of running for ever.
+  const nonCloses = await voidNonCloseRows({ limit: 150 }).catch(e => ({ error: e.message }));
 
   const duplicates = await mergeDuplicates({ limit: 5000 }).catch(e => ({ error: e.message }));
 
@@ -1889,9 +1934,6 @@ async function repairOnce(client) {
   // the queue; the numbers have to be contiguous over what survives.
   const isIa = await refreshCloserIsIa(2000).catch(e => ({ error: e.message }));
 
-  // Once, not every sweep. The flood of cards for old tickets was a one-time
-  // event, and a pass that keeps running would delete any card somebody
-  // deliberately posted for an older ticket from the dev dashboard.
   const staleCards = await removeStaleCards(200).catch(e => ({ error: e.message }));
 
   const numbers = await renumberTickets().catch(e => ({ error: e.message }));

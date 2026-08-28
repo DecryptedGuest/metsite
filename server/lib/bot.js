@@ -152,7 +152,14 @@ function buildClient(withMessageContent) {
   // non-privileged intent, so it's always safe to request.
   const intents  = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
   const partials = [Partials.GuildMember];
-  if (withMessageContent) intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+  // GuildMessages is NOT privileged and never needs enabling in the portal.
+  // MessageContent is. Requesting them together meant that losing the privileged
+  // one lost the unprivileged one too, and with it the messageCreate event
+  // itself — so the fallback login below came up with NO live ingest at all,
+  // for tickets, patrols, suggestions and logs alike, while reporting only that
+  // "forum + ticket-transcript reads" were affected.
+  intents.push(GatewayIntentBits.GuildMessages);
+  if (withMessageContent) intents.push(GatewayIntentBits.MessageContent);
   if (WANT_REACTIONS) {
     // GuildMessageReactions is NOT privileged, so requesting it can't fail login
     // the way MessageContent can. The partials are what let us see a reaction on
@@ -170,7 +177,17 @@ function buildClient(withMessageContent) {
   c.once('clientReady', boot);
   c.once('ready', boot);
   c.on('interactionCreate', onInteraction);
-  if (withMessageContent) c.on('messageCreate', onPatrolMessage);
+  // Attached unconditionally. The gateway delivers messageCreate on the
+  // unprivileged GuildMessages intent; MessageContent only decides whether the
+  // CONTENT of somebody else's message is populated. Gating the listener on it
+  // meant a fallback login silently ingested nothing at all, which is
+  // indistinguishable from the bot not running.
+  c.on('messageCreate', onPatrolMessage);
+  if (!withMessageContent) {
+    console.warn('[Bot] running WITHOUT the Message Content intent · embeds posted by other bots '
+      + '(Tickety ticket logs included) will arrive empty and cannot be parsed. '
+      + 'Enable "Message Content Intent" in the Discord Developer Portal.');
+  }
   if (WANT_REACTIONS) {
     // Ticking or crossing a patrol/event log IS the sign-off, whoever does it.
     const onReaction = added => (reaction, user) =>
@@ -877,7 +894,10 @@ function startBot() {
   client.login(token).catch(err => {
     const disallowed = err && (/disallowed intent/i.test(err.message || '') || err.code === 'DisallowedIntents');
     if (WANT_MESSAGE_CONTENT && disallowed) {
-      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal · starting the bot WITHOUT it. Role assignment still works, but forum + ticket-transcript reads are disabled until you enable "Message Content Intent" in the portal.');
+      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal · '
+        + 'starting the bot WITHOUT it. Roles, commands and slash interactions still work, but every '
+        + 'embed posted by another bot arrives EMPTY — so ticket logs, forum reads and transcript '
+        + 'reads all stop producing anything. Enable "Message Content Intent" in the portal.');
       client = buildClient(false);
       client.login(token).catch(e => console.error('Bot login failed (fallback):', e.message));
     } else {

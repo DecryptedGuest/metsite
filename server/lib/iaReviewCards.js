@@ -73,7 +73,11 @@ const field = (name, value, inline = false) => {
 
 /** Add only the fields that are actually renderable, capped at Discord's 25. */
 function addFields(embed, ...fields) {
-  const usable = fields.filter(Boolean).slice(0, 25 - (embed.data.fields || []).length);
+  // Math.max, because `slice(0, -1)` is not "add nothing" — it is "all but the
+  // last", so an already-full embed would have gone on ADDING fields past the
+  // limit that this exists to enforce.
+  const room = Math.max(0, 25 - (embed.data.fields || []).length);
+  const usable = fields.filter(Boolean).slice(0, room);
   if (usable.length) embed.addFields(usable);
   return embed;
 }
@@ -150,25 +154,25 @@ function caseCard(kase, extra = {}) {
   const subject = kase.officerDiscordId
     ? `<@${kase.officerDiscordId}>${kase.robloxUsername ? ` · \`${kase.robloxUsername}\`` : ''}`
     : (kase.robloxUsername ? `\`${kase.robloxUsername}\`` : '*not identified*');
-  embed.addFields({ name: 'Officer', value: subject, inline: false });
-
-  const punishments = punishmentLines(kase.actions, kase.action);
-  if (punishments) embed.addFields({ name: 'Punishment', value: trim(punishments, 1024), inline: false });
-
-  if (kase.reason) embed.addFields({ name: 'Reason', value: trim(kase.reason, 1024), inline: false });
-  if (kase.notes && kase.notes !== 'N/A') {
-    embed.addFields({ name: 'Notes', value: trim(kase.notes, 1024), inline: false });
-  }
-  if (kase.blacklistCode) {
-    embed.addFields({
-      name: 'Blacklist code',
-      value: `\`${kase.blacklistCode}\`${kase.blacklistReason ? ` · ${kase.blacklistReason}` : ''}`,
-      inline: true,
-    });
-  }
+  // Through field()/addFields(), like the ticket card. Adding these raw meant an
+  // empty or oversized column threw while BUILDING the embed, and a case card
+  // that throws is a case nobody can approve.
+  addFields(embed,
+    field('Officer', subject),
+    field('Punishment', punishmentLines(kase.actions, kase.action)),
+    field('Reason', kase.reason),
+    (kase.notes && kase.notes !== 'N/A') ? field('Notes', kase.notes) : null,
+    kase.blacklistCode
+      ? field('Blacklist code',
+          `\`${trim(kase.blacklistCode, 90)}\``
+          + (kase.blacklistReason ? ` · ${trim(kase.blacklistReason, 300)}` : ''), true)
+      : null,
+  );
 
   const filer = actorName(extra.filer) || kase.reviewedByRaw || null;
-  if (filer) embed.setAuthor({ name: `Filed by ${filer}`, iconURL: extra.filer?.avatarURL || undefined });
+  if (filer) {
+    embed.setAuthor({ name: trim(`Filed by ${filer}`, 256), iconURL: extra.filer?.avatarURL || undefined });
+  }
 
   const decided = actorName(extra.decidedBy);
   embed.setFooter({
