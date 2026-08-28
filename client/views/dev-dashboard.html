@@ -479,6 +479,36 @@
           <div id="ia-sync-out2" style="margin-top:1rem;"></div>
         </div>
       </div>
+
+      <div class="card fade-up">
+        <div class="card-head"><h2 class="card-title">Import a leaderboard screenshot</h2></div>
+        <div class="card-body">
+          <p class="muted" style="margin-top:0;">
+            The weekly leaderboard is drawn by a bot this site does not own, so the
+            picture is the only record there is. Drop it here (or paste it with
+            Ctrl+V) and it is read into rows you can check before anything is
+            written. The whole total goes into today's column: a leaderboard is a
+            week's total and carries no day breakdown, so splitting it across the
+            week would be inventing figures.
+          </p>
+          <div id="ia-shot-drop" tabindex="0"
+               style="border:2px dashed var(--border,#333);border-radius:10px;padding:1.6rem;
+                      text-align:center;cursor:pointer;transition:border-color .15s;">
+            <i class="ti ti-photo-up" style="font-size:1.6rem;"></i>
+            <div style="margin-top:.4rem;">Drop the screenshot, click to choose, or paste it</div>
+            <input type="file" id="ia-shot-file" accept="image/*" style="display:none;" />
+          </div>
+          <div class="btn-row" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.8rem;">
+            <button class="btn btn-primary" id="ia-shot-apply" disabled>
+              <i class="ti ti-database-import"></i> Write to the sheet
+            </button>
+            <label class="muted" style="display:flex;align-items:center;gap:.35rem;">
+              <input type="checkbox" id="ia-shot-borders" checked /> black borders
+            </label>
+          </div>
+          <div id="ia-shot-out" style="margin-top:1rem;"></div>
+        </div>
+      </div>
     </section>
 
     <section class="page" id="page-my-cases">
@@ -2549,7 +2579,7 @@
 <script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
-<script src="/js/ia-sync.js?v=2"></script>
+<script src="/js/ia-sync.js?v=3"></script>
 <script>initMetTopbar('DEVELOPER');</script>
 </body>
 </html>

@@ -375,6 +375,63 @@ router.post('/ia-sync/tickets', async (req, res) => {
   }
 });
 
+// ── Quota leaderboard screenshot ──────────────────────────────────
+//
+// The weekly leaderboard is rendered by a bot this codebase does not own, so
+// there is no API behind it: the picture is the record. Read it once, show what
+// was read, and write only what was approved.
+
+// POST /api/dev/quota-shot/preview — read an image, write nothing.
+// Body: { image: "<base64, with or without a data: prefix>", mediaType }
+router.post('/quota-shot/preview', async (req, res) => {
+  try {
+    const body = req.body || {};
+    let image = String(body.image || '');
+    let mediaType = String(body.mediaType || 'image/png');
+    // A data: URL from a paste or a file picker carries its own type. Trust the
+    // one in the URL over anything the client claimed alongside it.
+    const m = /^data:([^;,]+);base64,(.*)$/s.exec(image);
+    if (m) { mediaType = m[1]; image = m[2]; }
+    if (!image) return res.status(400).json({ error: 'Send the screenshot as { image: "<base64>" }.' });
+    if (!/^image\/(png|jpeg|jpg|webp|gif)$/i.test(mediaType)) {
+      return res.status(400).json({ error: `Unsupported image type: ${mediaType}` });
+    }
+
+    const shot = require('../lib/quotaScreenshot');
+    const read = await shot.readLeaderboard(image, mediaType.toLowerCase().replace('image/jpg', 'image/jpeg'));
+    if (!read.ok) return res.status(422).json({ error: read.reason });
+
+    const plan = shot.planFromRows(read.rows);
+    res.json({ ...plan, trackingSince: read.trackingSince });
+  } catch (err) {
+    console.error('[Dev] quota screenshot preview failed:', err.message);
+    res.status(500).json({ error: 'Could not read that screenshot: ' + err.message });
+  }
+});
+
+// POST /api/dev/quota-shot/apply — write the plan that was previewed.
+// Takes the PLAN, never the image, so what lands is what was approved.
+router.post('/quota-shot/apply', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const plan = body.plan;
+    if (!plan || !Array.isArray(plan.rows)) {
+      return res.status(400).json({ error: 'Send the plan from the preview as { plan: ... }.' });
+    }
+    const shot = require('../lib/quotaScreenshot');
+    const out = await shot.applyPlan({ ...plan, ok: true }, { borders: body.borders !== false });
+    if (out.ok) {
+      audit.log(req.user, { category: 'SECURITY', action: 'QUOTA_SCREENSHOT_IMPORT',
+        summary: `Imported a quota leaderboard screenshot into the ${plan.dayKey} column: `
+               + `${out.updated} row(s) updated` });
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] quota screenshot apply failed:', err.message);
+    res.status(500).json({ error: 'The import failed: ' + err.message });
+  }
+});
+
 // GET /api/dev/case-audit — is the case archive coherent?
 //
 // Read-only, and meant to be run either side of an import. Duplicate references, rows

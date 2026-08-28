@@ -73,6 +73,121 @@
     $('ia-sync-apply').disabled = false;
   }
 
+
+  // ── Leaderboard screenshot ──────────────────────────────────────
+  // Read, show, then write. The apply posts back the PLAN rather than the
+  // image, so what lands on the sheet is exactly what was on screen.
+  let shotPlan = null;
+
+  function renderShot(plan) {
+    const out = $('ia-shot-out');
+    if (!plan.ok) return note(out, 'bad', esc(plan.reason || 'That image could not be read.'));
+
+    const since = plan.trackingSince ? ` · leaderboard tracking since ${esc(plan.trackingSince)}` : '';
+    let html = `<p class="muted" style="margin:0 0 .8rem;">
+      Writing into the <strong>${esc(plan.dayKey)}</strong> column ·
+      ${plan.counts.counted} counted, ${plan.counts.exempt} exempt, ${plan.counts.loa} on leave${since}</p>`;
+
+    html += `<table class="data-table"><thead><tr><th>Member</th><th>Rank</th>
+      <th>Group</th><th style="text-align:right;">Writes</th><th>Target</th></tr></thead><tbody>`;
+    for (const r of plan.rows) {
+      const val = r.days[plan.dayKey];
+      const colour = r.status !== 'counted' ? 'var(--text-muted)'
+                   : (r.target != null && r.points >= r.target) ? 'var(--green,#2ed896)' : 'var(--amber,#f5b730)';
+      html += `<tr><td>${esc(r.username)}</td><td class="muted">${esc(r.rank || '')}</td>
+        <td class="muted">${esc(r.group || '')}</td>
+        <td style="text-align:right;color:${colour};"><strong>${esc(val)}</strong></td>
+        <td class="muted">${r.target == null ? 'None' : esc(r.target)}${
+          r.targetNote ? ` <span style="color:var(--amber,#f5b730);">(${esc(r.targetNote)})</span>` : ''}</td></tr>`;
+    }
+    html += '</tbody></table>';
+
+    // What it could NOT use is the half worth reading.
+    if (plan.skipped && plan.skipped.length) {
+      html += `<p style="color:var(--amber,#f5b730);margin-top:.9rem;">
+        ${plan.skipped.length} row(s) could not be used: ${
+          esc(plan.skipped.map(x => `${x.nickname || '?'} (${x.why})`).join(', '))}</p>`;
+    }
+    out.innerHTML = html;
+    shotPlan = plan;
+    $('ia-shot-apply').disabled = false;
+  }
+
+  async function readShot(file) {
+    if (!file || !/^image\//.test(file.type || '')) {
+      return note($('ia-shot-out'), 'bad', 'That is not an image.');
+    }
+    shotPlan = null;
+    $('ia-shot-apply').disabled = true;
+    busy($('ia-shot-out'), `Reading ${esc(file.name || 'the screenshot')}`);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(new Error('could not read that file'));
+        fr.readAsDataURL(file);
+      });
+      renderShot(await api('/api/dev/quota-shot/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      }));
+    } catch (err) { note($('ia-shot-out'), 'bad', esc(err.message)); }
+  }
+
+  function wireShot() {
+    const drop = $('ia-shot-drop');
+    if (!drop || drop.dataset.wired) return;
+    drop.dataset.wired = '1';
+
+    const picker = $('ia-shot-file');
+    drop.addEventListener('click', () => picker.click());
+    drop.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); }
+    });
+    picker.addEventListener('change', () => { if (picker.files[0]) readShot(picker.files[0]); });
+
+    drop.addEventListener('dragover', (e) => {
+      e.preventDefault(); drop.style.borderColor = 'var(--accent,#4a8fff)';
+    });
+    drop.addEventListener('dragleave', () => { drop.style.borderColor = ''; });
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault(); drop.style.borderColor = '';
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) readShot(f);
+    });
+
+    // Paste straight from the clipboard, which is how a screenshot usually
+    // arrives. Only while this page is the one on screen.
+    document.addEventListener('paste', (e) => {
+      const page = document.getElementById('page-ia-sync');
+      if (!page || !page.classList.contains('active')) return;
+      for (const item of ((e.clipboardData && e.clipboardData.items) || [])) {
+        if (item.type && item.type.startsWith('image/')) {
+          const f = item.getAsFile();
+          if (f) { e.preventDefault(); readShot(f); return; }
+        }
+      }
+    });
+
+    $('ia-shot-apply').addEventListener('click', async () => {
+      if (!shotPlan) return;
+      busy($('ia-shot-out'), 'Writing to the sheet');
+      try {
+        const r = await api('/api/dev/quota-shot/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: shotPlan, borders: $('ia-shot-borders').checked }),
+        });
+        if (!r.ok) return note($('ia-shot-out'), 'bad', esc(r.reason || (r.errors || []).join('; ')));
+        let msg = `Wrote <strong>${r.updated}</strong> row(s) into the ${esc(shotPlan.dayKey)} column.`;
+        if (r.missing && r.missing.length) {
+          msg += `<br><span style="color:var(--amber,#f5b730);">Not on the sheet: ${esc(r.missing.join(', '))}</span>`;
+        }
+        note($('ia-shot-out'), r.missing && r.missing.length ? 'warn' : 'ok', msg);
+        $('ia-shot-apply').disabled = true;
+      } catch (err) { note($('ia-shot-out'), 'bad', esc(err.message)); }
+    });
+  }
+
   function wire() {
     const plan = $('ia-sync-plan');
     if (!plan || plan.dataset.wired) return;
@@ -114,8 +229,20 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ channelId: ch, dry }),
         });
+        // How much of the channel it WALKED, not just what it recognised. A run
+        // that stopped early and one that read to the first message look
+        // identical from a "parsed N" line, and that is the difference between
+        // "the channel holds N cases" and "N is where it gave up".
         let msg = `Parsed <strong>${r.parsed ?? 0}</strong> log(s): `
-                + `${r.created ?? 0} created, ${r.updated ?? 0} filled in.`;
+                + `${r.created ?? 0} created, ${r.updated ?? 0} filled in.`
+                + `<br><span class="muted">Read ${r.scanned ?? '?'} message(s) over ${r.pages ?? '?'} page(s) · `
+                + (r.reachedStart
+                    ? 'reached the start of the channel.'
+                    : '<strong>stopped before the start of the channel</strong> · there is more to read.')
+                + '</span>';
+        if (r.errors && r.errors.length) {
+          msg += `<br><span style="color:var(--red,#f04f5e);">${esc(r.errors.slice(0, 3).join('; '))}</span>`;
+        }
         // The census is the point: what it could NOT read is what needs a parser.
         const un = r.unmatched || r.unparsed || r.samples;
         if (un && un.length) {
@@ -128,6 +255,8 @@
 
     $('ia-sync-cases-dry').addEventListener('click', () => runImport(true));
     $('ia-sync-cases').addEventListener('click', () => runImport(false));
+
+    wireShot();
 
     $('ia-sync-tickets').addEventListener('click', async () => {
       busy(out2(), 'Sweeping the ticket-log channel');
