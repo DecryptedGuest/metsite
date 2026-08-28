@@ -192,6 +192,29 @@ const iaGuild  = (specific) => guildFor(specific, 'IA_GUILD_ID');
 // MET server: Roblox group administration and MET-wide info.
 const metGuild = (specific) => guildFor(specific, 'MET_GUILD_ID');
 
+/**
+ * Which commands the IA server actually shows.
+ *
+ * Everything IA-scoped is BUILT; this decides what is registered. Kept as a
+ * list rather than scattered per-command flags so the answer to "why can I see
+ * this" is one line, and trimming the set never means editing the plan.
+ *
+ * Default is the IA working set: file a case, see the table, adjust points,
+ * check priors, put a mistake back. Anything built but not listed simply is not
+ * registered there, so trimming the server is a variable change rather than a
+ * deploy — and a name in the list that is not built yet is harmless.
+ *
+ * Override with IA_COMMANDS as a comma-separated list, or "*" for everything.
+ */
+const IA_COMMAND_ALLOWLIST = () => {
+  const raw = (process.env.IA_COMMANDS || '').trim();
+  if (raw === '*') return null;                       // null = no filtering
+  const list = raw
+    ? raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
+    : ['submit-case', 'leaderboard', 'add-qp', 'remove-qp', 'check-record', 'undo'];
+  return new Set(list);
+};
+
 const DISCIPLINE_GUILD_IDS  = () => iaGuild('DISCIPLINE_GUILD_ID');
 const XP_GUILD_IDS          = () => iaGuild('XP_GUILD_ID');
 const IA_GUILD_IDS          = () => iaGuild('IA_PANEL_GUILD_ID');
@@ -214,7 +237,16 @@ const PENDINGJOIN_GUILD_IDS = () => metGuild('PENDINGJOIN_GUILD_ID');
  */
 function buildCommandPlan() {
   const byGuild = new Map();
+  const iaAllow = IA_COMMAND_ALLOWLIST();
+  const iaGuildId = process.env.IA_GUILD_ID || process.env.DISCORD_GUILD_ID;
+
   const add = (guildIds, json) => {
+    // Filter only the IA server: the MET set is small and deliberate already.
+    if (iaAllow && json && json.name && iaGuildId
+        && (guildIds || []).some(g => String(g) === String(iaGuildId))
+        && !iaAllow.has(String(json.name).toLowerCase())) {
+      return;
+    }
     for (const guildId of (Array.isArray(guildIds) ? guildIds : [guildIds])) {
       if (!guildId) continue;
       if (!byGuild.has(guildId)) byGuild.set(guildId, []);
@@ -294,6 +326,15 @@ function buildCommandPlan() {
   // /loa — leave of absence. Everyone can request and manage their own; the
   // reviewing half is gated in code to the LOA admin role, not by a Discord
   // permission bit, for the same reason /discipline is.
+  // /undo — reverse one of your own recent actions (see lib/actionJournal).
+  try {
+    const cmd = require('./undoCommand').buildCommand();
+    add(iaGuild('UNDO_GUILD_ID'), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /undo:', err.message);
+  }
+
   try {
     const cmd = require('./loaCommand').buildCommand();
     add(LOA_GUILD_IDS(), cmd);
@@ -514,6 +555,10 @@ async function onInteraction(interaction) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
     }
     // IA case/ticket review cards.
+    if (cid.startsWith('undo:')) {
+      return require('./undoCommand').handleUndoComponent(interaction)
+        .catch(e => console.error('[Bot] undo component error:', e.message));
+    }
     if (cid.startsWith('iareview:')) {
       return require('./iaReviewCards').handleReviewButton(interaction)
         .catch(e => console.error('[Bot] IA review button error:', e.message));
@@ -567,6 +612,11 @@ async function onInteraction(interaction) {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'undo') {
+    return require('./undoCommand').handleUndo(interaction)
+      .catch(e => console.error('[Bot] /undo error:', e.message));
+  }
 
   if (interaction.commandName === 'xp') {
     return require('./xpCommand').handleXpCommand(interaction)

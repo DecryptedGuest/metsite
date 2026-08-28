@@ -269,6 +269,14 @@ async function approveCase({ caseId, actor, note } = {}) {
     }).catch(() => {});
   }
 
+  await require('./actionJournal').record({
+    kind: 'CASE_APPROVE',
+    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
+    targetType: 'case', targetId: existing.id,
+    summary: `Approved case ${existing.caseRef}`,
+    payload: { caseRef: existing.caseRef, officerDiscordId: existing.officerDiscordId },
+  });
+
   return { ok: true, status: 200, case: updated };
 }
 
@@ -289,6 +297,15 @@ async function denyCase({ caseId, actor, note } = {}) {
   await prisma.caseAction.create({
     data: { caseId: existing.id, actionType: 'DENIED', performedBy: actor.id, notes: note || 'Denied by HICOMM/Developer' },
   });
+
+  await require('./actionJournal').record({
+    kind: 'CASE_DENY',
+    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
+    targetType: 'case', targetId: existing.id,
+    summary: `Denied case ${existing.caseRef}`,
+    payload: { caseRef: existing.caseRef },
+  });
+
   return { ok: true, status: 200, case: updated };
 }
 
@@ -352,6 +369,16 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
       }).catch(() => {});
     }
   }
+
+  // Journalled so /undo can put it back — including cancelling an award that
+  // has not reached the sheet yet.
+  await require('./actionJournal').record({
+    kind: 'TICKET_REVIEW',
+    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
+    targetType: 'ticket', targetId: ticket.id,
+    summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketNo != null ? '#' + ticket.ticketNo : ticket.id}`,
+    payload: { decision: status },
+  });
 
   return { ok: true, status: 200, ticket: updated, decision: status };
 }
