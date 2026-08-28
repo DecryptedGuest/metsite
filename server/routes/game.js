@@ -416,15 +416,33 @@ function parseLockState(body) {
 
 // Take a tryout LIVE-facing: post its announcement + DM the host. Returns
 // { tryoutId, dmed, announced }. Best-effort on the Discord side (never throws).
-async function announceAndDm(tryout, { edit = false } = {}) {
+/**
+ * DM the host that their tryout is live. Does NOT announce it.
+ *
+ * Starting a tryout no longer posts anything to the announcement channel. The
+ * host decides when their tryout is announced, using the "Send Announcement"
+ * button on the DM this sends — which already exists, already refuses to post
+ * before a manual-link division has set its private-server link, and already
+ * makes the post update itself from then on.
+ *
+ * An announcement that ALREADY exists is still edited. That is not announcing:
+ * it is keeping a post somebody deliberately made accurate now the tryout has
+ * actually started, and leaving it saying "scheduled" while the tryout is
+ * running would be worse than either.
+ */
+async function announceAndDm(tryout) {
   const bot = require('../lib/bot');
-  let announced;
-  if (edit && tryout.announcementMsgId) announced = await bot.editTryoutAnnouncement(tryout).catch(() => false);
-  else announced = await bot.postTryoutAnnouncement(tryout).then(id => !!id).catch(() => false);
+
+  let announced = false;
+  if (tryout.announcementMsgId) {
+    announced = await bot.editTryoutAnnouncement(tryout).catch(() => false);
+  }
+
   const fresh = (await prisma.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null)) || tryout;
   // DM the host and record the DM message id so it can be edited on lock change.
   const dmId = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl(fresh) }).catch(() => null);
   if (dmId) await prisma.tryout.update({ where: { id: tryout.id }, data: { hostDmMessageId: dmId } }).catch(() => {});
+
   return { tryoutId: tryout.id, dmed: !!dmId, announced: !!announced };
 }
 
@@ -627,7 +645,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       hostLastSeenAt:  new Date(),
       inGamePlayers:   normInGamePlayers(body.inGamePlayers) || t.inGamePlayers || undefined,
     } });
-    res.json(await announceAndDm(updated, { edit: true }));
+    res.json(await announceAndDm(updated));
   } catch (err) {
     console.error('[Game] start-scheduled failed:', err.message);
     res.status(500).json({ error: 'Failed to start scheduled tryout.' });

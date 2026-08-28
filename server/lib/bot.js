@@ -1601,9 +1601,10 @@ function tryoutHostDmButtons(tryout) {
   row.addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
   );
-  // No manual "Update Announcement" — once posted, the announcement updates
-  // itself automatically on any change (co-host, lock state, join link). We only
-  // offer a one-time "Send Announcement" when it hasn't gone out yet.
+  // Announcing is the host's call: starting a tryout posts nothing, so this
+  // button is the only thing that does. Once it has been pressed the post keeps
+  // itself current on any change (co-host, lock state, join link), which is why
+  // there is no manual "Update Announcement" and why this drops off afterwards.
   if (!announced) {
     row.addComponents(new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success));
   }
@@ -2026,8 +2027,11 @@ async function dmTicketAlert(discordId, opts) {
   }
 }
 
-// DM the host that their tryout was created + announced. Returns the DM message
-// id (so it can be edited in real time when the lock state changes), or null.
+// DM the host that their tryout is live. Returns the DM message id (so it can be
+// edited in real time when the lock state changes), or null.
+//
+// Starting a tryout does NOT announce it — this DM, and its "Send Announcement"
+// button, is how the host announces it when they are ready.
 async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   if (!ready || !tryout || !tryout.hostDiscordId) return null;
   try {
