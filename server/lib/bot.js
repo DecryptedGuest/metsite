@@ -484,6 +484,11 @@ async function onInteraction(interaction) {
     if (cid.startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
     }
+    // IA case/ticket review cards.
+    if (cid.startsWith('iareview:')) {
+      return require('./iaReviewCards').handleReviewButton(interaction)
+        .catch(e => console.error('[Bot] IA review button error:', e.message));
+    }
     if (cid.startsWith('disc_')) {
       return require('./disciplineCommand').handleDisciplineButton(interaction)
         .catch(e => console.error('[Bot] discipline button error:', e.message));

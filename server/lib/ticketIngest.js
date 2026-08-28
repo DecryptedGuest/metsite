@@ -985,9 +985,27 @@ async function ingestMessage(msg) {
     // it is searchable, it just never joins the queue — otherwise re-syncing
     // the channel rebuilds the exact wall somebody just cleared.
     const cleared = await statusForNewRow(data.closedAt);
-    await prisma.ticketLog.create({
+    const created = await prisma.ticketLog.create({
       data: { ...data, ...(cleared || {}), ticketNo: await nextTicketNo() },
     });
+
+    // Put it in front of a reviewer straight away. Until now the queue only
+    // existed on the site, so a closed ticket sat unseen until somebody
+    // remembered to look — which is why tickets went unpaid. A ticket that
+    // arrived already voided (backlog clear) is history and is not re-queued.
+    if (created.status === 'PENDING') {
+      try {
+        const cards = require('./iaReviewCards');
+        if (cards.ticketsChannelId()) {
+          const { getClient } = require('./bot');
+          const client = getClient();
+          if (client) await cards.postTicketCard(client, created);
+        }
+      } catch (err) {
+        // The row is stored; a missing card is cosmetic and must never undo it.
+        console.warn('[TicketLogs] review card not posted:', err.message);
+      }
+    }
     return 'created';
   } catch (err) {
     // A concurrent insert of the same message is harmless.

@@ -47,7 +47,9 @@
 // SUGGESTIONS_THREADS=off     keep the reactions, stop opening threads
 // SUGGESTIONS_THREAD_OPENER=off  open the thread without a first message in it
 
-const CHANNEL_ID = () => process.env.SUGGESTIONS_CHANNEL_ID || '1533870983251755109';
+// The IA server's suggestions channel. The previous default pointed at a
+// channel the bot cannot see, so every boot logged 'Missing Access'.
+const CHANNEL_ID = () => process.env.SUGGESTIONS_CHANNEL_ID || '1537076389659017262';
 const MODE = () => {
   const m = String(process.env.SUGGESTIONS_MODE || 'on').toLowerCase();
   return ['on', 'observe', 'off'].includes(m) ? m : 'on';
