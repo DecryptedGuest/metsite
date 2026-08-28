@@ -362,10 +362,6 @@ async function registerCommands(c) {
     }
   }
 
-  // Last resort. Guild commands appear instantly but only where we were told to
-  // put them; global ones take up to an hour to propagate but appear EVERYWHERE
-  // the bot is. If every guild attempt failed, a slow command beats no command.
-  // REGISTER_GLOBAL_COMMANDS=1 forces this on even when a guild worked.
   // Global commands appear in EVERY server the bot is in, which defeats the
   // per-server split entirely — that is how MET commands ended up visible in
   // CID. Never fall back to it automatically: a command that failed to register
@@ -381,12 +377,48 @@ async function registerCommands(c) {
     try {
       await api.application.commands.set(global);
       out.global = global.map(c => c.name);
-      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY`
-        + (anyGuildOk ? '' : ' (no guild registration succeeded · these can take up to an hour to show up)'));
+      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY`);
     } catch (err) {
       out.errors.push(`global: ${err.message}`);
       console.error('[Bot] global command registration failed:', err.message);
     }
+  } else if (api.application) {
+    // Discord keeps a command until something deletes it, so commands from an
+    // older deploy outlive the code that registered them. A leftover GLOBAL
+    // registration is the worst case: it shows up in every server the bot has
+    // joined, and alongside the guild copy it renders as a DUPLICATE of each
+    // command. Clear them whenever global mode is off.
+    try {
+      const stale = await api.application.commands.fetch();
+      if (stale.size) {
+        await api.application.commands.set([]);
+        console.log(`[Bot] cleared ${stale.size} stale GLOBAL command(s): `
+          + `${[...stale.values()].map(c => '/' + c.name).join(' ')} `
+          + '· clients can take up to an hour to stop showing them');
+        out.clearedGlobal = [...stale.values()].map(c => c.name);
+      }
+    } catch (err) {
+      console.warn('[Bot] could not clear global commands:', err.message);
+    }
+  }
+
+  // Any server the bot is in that the plan does not mention should have NO
+  // commands — the CID server, for instance, is joined only to read a role.
+  // Without this, commands registered there by an earlier deploy stay forever.
+  try {
+    const planned = new Set([...byGuild.keys()].map(String));
+    for (const [, guild] of api.guilds.cache) {
+      if (planned.has(String(guild.id))) continue;
+      const existing = await guild.commands.fetch().catch(() => null);
+      if (!existing || !existing.size) continue;
+      await guild.commands.set([]);
+      console.log(`[Bot] cleared ${existing.size} leftover command(s) from "${guild.name}" `
+        + `(${guild.id}) · not in the command plan`);
+      out.cleared = out.cleared || [];
+      out.cleared.push({ guildId: guild.id, name: guild.name, removed: existing.size });
+    }
+  } catch (err) {
+    console.warn('[Bot] leftover-command sweep failed:', err.message);
   }
 
   return out;
