@@ -272,8 +272,18 @@ async function postCard(client, channelId, embed, components, { ping = false } =
     });
     return msg.id;
   } catch (err) {
-    console.error(`[IA] could not post to channel ${channelId}: ${err.message}`
-      + ' · check the id and that the bot can View Channel + Send Messages there');
+    // Name the actual cause. "Missing Access" on a channel fetch almost always
+    // means the bot is not in that SERVER at all, not that one channel is
+    // locked down — and telling somebody to check channel permissions when the
+    // bot was never invited sends them looking in the wrong place.
+    const why = /Missing Access|50001/i.test(err.message)
+      ? 'the bot cannot see that channel · usually this means it is not in that server at all'
+        + ' · re-invite it with the "bot" and "applications.commands" scopes, then give it'
+        + ' View Channel + Send Messages there'
+      : /Unknown Channel|10003/i.test(err.message)
+        ? 'there is no such channel · the id is wrong or the channel was deleted'
+        : err.message;
+    console.error(`[IA] could not post to channel ${channelId} · ${why}`);
     return null;
   }
 }

@@ -85,6 +85,35 @@ async function onReady() {
   try { require('./ticketIngest').startTicketLogWorker(client); }
   catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
 
+  // Which configured servers the bot can actually SEE. A card that cannot be
+  // posted, a command that will not register and a suggestions channel that
+  // cannot be read are all one cause — the bot is not in that server — and
+  // reported as three unrelated errors nobody connects.
+  try {
+    const invite = (id) => {
+      const appId = process.env.DISCORD_CLIENT_ID || process.env.DISCORD_APPLICATION_ID
+        || (client.application && client.application.id) || null;
+      return appId
+        ? `https://discord.com/oauth2/authorize?client_id=${appId}`
+          + '&scope=bot%20applications.commands&permissions=277025508352'
+        : 'https://discord.com/developers/applications (invite it with bot + applications.commands)';
+    };
+    const configured = [
+      ['MET', process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID],
+      ['IA',  process.env.IA_GUILD_ID],
+      ['CID', process.env.CID_GUILD_ID],
+    ].filter(([, id]) => id);
+    for (const [name, id] of configured) {
+      const guild = client.guilds.cache.get(String(id))
+        || await client.guilds.fetch(String(id)).catch(() => null);
+      if (guild) console.log(`[Bot] ${name} server ${id} · in it ("${guild.name}")`);
+      else {
+        console.error(`[Bot] ${name} server ${id} · NOT IN IT. Nothing can be posted or registered there.`);
+        console.error(`[Bot]   invite: ${invite(id)}`);
+      }
+    }
+  } catch (e) { console.warn('[Bot] could not check server membership:', e.message); }
+
   // Say where the review cards are going, at boot, every boot. An unset channel
   // used to mean cards were built and then quietly dropped, which looks exactly
   // like the ingest never running — and cost a whole deploy cycle to find.
