@@ -141,56 +141,79 @@ function caseCard(kase, extra = {}) {
   return embed;
 }
 
-/** The ticket card. Same grammar, different substance. */
+/**
+ * The ticket card.
+ *
+ * A reviewer approving this is deciding whether somebody gets paid for it, so
+ * the card has to carry everything that decision needs WITHOUT opening the
+ * transcript: which ticket, who opened it, who handled it and at what rank,
+ * when it closed, why it closed, and what approving it is worth. A card that
+ * only says "a ticket exists" makes the reviewer do the lookup every time.
+ */
 function ticketCard(ticket, extra = {}) {
   const status = String(ticket.status || 'PENDING').toUpperCase();
   const colour = status === 'APPROVED' ? GREEN : status === 'DENIED' ? RED : AMBER;
   const state  = status === 'APPROVED' ? 'Approved' : status === 'DENIED' ? 'Denied' : 'Awaiting review';
 
-  // ticketNo is the short readable number the site shows; ticketRef is
-  // Tickety's own unreadable id, so it is only a fallback.
   const ref = ticket.ticketNo != null ? `#${String(ticket.ticketNo).padStart(4, '0')}`
             : (ticket.ticketRef || ticket.ticketName || '');
+
   const embed = new EmbedBuilder()
     .setColor(colour)
     .setTitle(`Ticket ${ref}`.trim())
     .setTimestamp(ticket.closedAt || ticket.createdAt || new Date());
 
+  // The channel name is how people actually refer to a ticket ("that
+  // no_onee_01 one"), so it belongs above the fold, not in a footer.
+  if (ticket.ticketName) embed.setDescription(`\`${ticket.ticketName}\``);
   if (ticket.transcriptUrl) embed.setURL(ticket.transcriptUrl);
 
-  // Who OPENED it — never confuse this with the handler.
-  const who = ticket.creatorDiscordId
-    ? `<@${ticket.creatorDiscordId}>${ticket.creatorRobloxUsername ? ` · \`${ticket.creatorRobloxUsername}\`` : ''}`
+  const opened = ticket.creatorDiscordId
+    ? `<@${ticket.creatorDiscordId}>${ticket.creatorRobloxUsername ? `\n\`${ticket.creatorRobloxUsername}\`` : ''}`
     : (ticket.creatorUsername || ticket.creatorRobloxUsername || '*not identified*');
-  embed.addFields({ name: 'Opened by', value: String(who), inline: true });
-  if (ticket.ticketType) {
-    embed.addFields({ name: 'Type', value: String(ticket.ticketType).replace(/_/g, ' '), inline: true });
-  }
-  if (ticket.division) embed.addFields({ name: 'Division', value: String(ticket.division), inline: true });
+
+  const handlerName = ticket.closerUsername || ticket.closerRaw || null;
+  const handled = ticket.closerDiscordId
+    ? `<@${ticket.closerDiscordId}>${ticket.closerRank ? `\n${ticket.closerRank}` : ''}`
+    : (handlerName ? `${handlerName}${ticket.closerRank ? `\n${ticket.closerRank}` : ''}` : '*not identified*');
+
+  embed.addFields(
+    { name: 'Opened by',  value: String(opened),  inline: true },
+    { name: 'Handled by', value: String(handled), inline: true },
+    { name: 'Closed',     value: ticket.closedAt
+        ? `<t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:f>\n<t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:R>`
+        : '*unknown*', inline: true },
+    { name: 'Type',       value: String(ticket.ticketType || 'GENERAL_SUPPORT').replace(/_/g, ' '), inline: true },
+    { name: 'Division',   value: String(ticket.division || 'MET'), inline: true },
+  );
+
+  // What approving it is worth, stated up front. The rate is per type (appeals
+  // pay more), and a non-IA handler is paid nothing at all — a reviewer should
+  // not have to know that rule to read the card.
+  let worth = '—';
+  try {
+    const { ticketPointsFor } = require('./quota');
+    worth = ticket.closerIsIa === false
+      ? 'No points · handler is not IA'
+      : `+${ticketPointsFor(ticket.ticketType)} pts on approval`;
+  } catch { /* quota not loaded — leave the dash */ }
+  embed.addFields({ name: 'Worth', value: worth, inline: true });
+
+  // The close reason is the substance of the decision.
   if (ticket.reason) {
     embed.addFields({ name: 'Close reason', value: trim(ticket.reason, 1024), inline: false });
   }
 
-  // The handler is who gets paid, so name them plainly, with the rank their
-  // nickname carried at the time.
-  const handlerName = ticket.closerUsername || ticket.closerRaw || null;
-  if (ticket.closerDiscordId || handlerName) {
-    embed.addFields({
-      name: 'Handled by',
-      value: `${ticket.closerDiscordId ? `<@${ticket.closerDiscordId}>` : handlerName}`
-           + `${ticket.closerRank ? ` · ${ticket.closerRank}` : ''}`
-           + `${ticket.closerIsIa === false ? ' · *not IA — no points*' : ''}`,
-      inline: false,
-    });
+  // Tickety's own id, kept last: unreadable, but it is what you search with
+  // when somebody disputes a decision.
+  if (ticket.ticketRef && ticket.ticketNo != null) {
+    embed.addFields({ name: 'Ticket ID', value: `\`${trim(ticket.ticketRef, 90)}\``, inline: false });
   }
 
-  const handler = actorName(extra.filer) || handlerName || null;
-  if (handler) embed.setAuthor({ name: `Handled by ${handler}`, iconURL: extra.filer?.avatarURL || undefined });
-
-  const decided = actorName(extra.decidedBy);
+  const decided = actorName(extra.decidedBy) || ticket.reviewedByName;
   embed.setFooter({
     text: status === 'PENDING'
-      ? `${state}${ticket.closerIsIa === false ? '' : ' · points on approval'} · Internal Affairs`
+      ? `${state} · Internal Affairs`
       : `${state}${decided ? ` by ${decided}` : ''} · Internal Affairs`,
     iconURL: extra.decidedBy?.avatarURL || undefined,
   });
@@ -224,9 +247,18 @@ const postCaseCard = (client, kase, extra) =>
   postCard(client, casesChannelId(), caseCard(kase, extra),
     reviewButtons('case', kase.id), { ping: true });
 
+function ticketComponents(ticket) {
+  const row = reviewButtons('ticket', ticket.id);
+  if (ticket.transcriptUrl) {
+    row.addComponents(new ButtonBuilder()
+      .setLabel('Transcript').setStyle(ButtonStyle.Link).setURL(ticket.transcriptUrl));
+  }
+  return row;
+}
+
 const postTicketCard = (client, ticket, extra) =>
   postCard(client, ticketsChannelId(), ticketCard(ticket, extra),
-    reviewButtons('ticket', ticket.id), { ping: true });
+    ticketComponents(ticket), { ping: true });
 
 /** Rewrite a card in place once it has been decided, and take the buttons away. */
 async function finaliseCard(client, channelId, messageId, embed) {

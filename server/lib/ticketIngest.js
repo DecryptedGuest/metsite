@@ -993,7 +993,14 @@ async function ingestMessage(msg) {
     // existed on the site, so a closed ticket sat unseen until somebody
     // remembered to look — which is why tickets went unpaid. A ticket that
     // arrived already voided (backlog clear) is history and is not re-queued.
-    if (created.status === 'PENDING') {
+    // A divisional ticket (CID, SCO) closed by that division's own officer is
+    // not IA's to review and pays nothing, so putting it in the queue is pure
+    // noise -- the row is still stored and searchable. MET tickets queue
+    // regardless of who closed them, because that IS the IA queue.
+    const divisional = String(created.division || 'MET').toUpperCase() !== 'MET';
+    const queueable  = !divisional || created.closerIsIa === true;
+
+    if (created.status === 'PENDING' && queueable) {
       try {
         const cards = require('./iaReviewCards');
         if (cards.ticketsChannelId()) {
@@ -1005,6 +1012,9 @@ async function ingestMessage(msg) {
         // The row is stored; a missing card is cosmetic and must never undo it.
         console.warn('[TicketLogs] review card not posted:', err.message);
       }
+    } else if (created.status === 'PENDING' && divisional) {
+      console.log(`[TicketLogs] ${created.division} ticket ${created.ticketNo ?? created.id} not queued `
+        + '· closed by a non-IA handler');
     }
     return 'created';
   } catch (err) {
