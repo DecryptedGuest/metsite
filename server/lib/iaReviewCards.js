@@ -236,7 +236,7 @@ function ticketCard(ticket, extra = {}) {
     field('Opened by',  opened,  true),
     field('Handled by', handled, true),
     field('Closed', closedAt ? `<t:${closedAt}:f>\n<t:${closedAt}:R>` : '*unknown*', true),
-    field('Type',     String(ticket.ticketType || 'GENERAL_SUPPORT').replace(/_/g, ' '), true),
+    field('Type',     require('./ticketLog').ticketTypeLabel(ticket.ticketType), true),
     field('Division', String(ticket.division || 'MET'), true),
   );
 
@@ -256,7 +256,7 @@ function ticketCard(ticket, extra = {}) {
   let points = 'Not known';
   try {
     const { ticketPointsFor } = require('./quota');
-    const n = ticketPointsFor(ticket.ticketType);
+    const n = ticketPointsFor();
     const word = n === 1 ? 'point' : 'points';
     if (!identified) {
       points = `**${n}** quota ${word}, once the handler is identified`;
@@ -493,7 +493,7 @@ async function handleReviewButton(interaction) {
           line += ` No points: ${handler} is not Internal Affairs.`;
         } else {
           const { ticketPointsFor } = require('./quota');
-          const n = ticketPointsFor(t.ticketType);
+          const n = ticketPointsFor();
           line += ` ${n} quota ${n === 1 ? 'point' : 'points'} queued for ${handler}.`;
         }
       }

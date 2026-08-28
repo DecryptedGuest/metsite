@@ -1,6 +1,14 @@
 /* ia-profiles.js — IA oversight "IA Profiles" tab.
    HICOMM / MET HICOMM search IA members and open a full record: Discord + Roblox
    identity, and every case investigated + ticket filed/reviewed, with statuses. */
+// Kept in step with TICKET_TYPE_LABEL in server/lib/ticketLog.js.
+const TICKET_TYPE_LABEL = {
+  GENERAL_SUPPORT: 'General Support',
+  HICOMM:          'IA Complaint',
+  OFFICER_REPORT:  'Officer Complaint',
+  APPEAL:          'Disciplinary Action Appeal',
+};
+
 (function () {
   const esc = window.escapeHtml || (s => String(s == null ? '' : s));
   const $ = id => document.getElementById(id);
@@ -108,7 +116,7 @@
       ? ` onclick="iapOpenTicket('${esc(t.id)}')" style="cursor:pointer;" title="Open this ticket log"` : '';
     return `<tr class="iap-clickable"${open}>
       <td><span class="case-ref">${esc(t.ticketRef || (t.ticketNo ? '#' + String(t.ticketNo).padStart(4, '0') : '·'))}</span></td>
-      <td>${esc(t.ticketType || '·')}</td>
+      <td>${esc(TICKET_TYPE_LABEL[t.ticketType] || t.ticketType || '·')}</td>
       <td>${esc(t.creatorRobloxUsername || '·')}</td>
       <td>${statusBadge(t.status)}</td>
       <td class="date-cell">${esc(fmtDate(t.closedAt))}</td>

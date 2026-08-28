@@ -414,7 +414,7 @@ router.get('/officer/:id/timeline', async (req, res) => {
     for (const p of punishments) events.push({ at: p.issuedAt, kind: 'punishment', refId: p.id, icon: 'ti-alert-triangle', color: '#e8842a', title: `${p.type || 'Punishment'}${p.active ? '' : ' (expired)'}`, detail: p.reason, status: p.active ? 'ACTIVE' : 'ENDED' });
     for (const l of hosted) events.push({ at: l.createdAt, kind: 'tryout', refId: l.id, icon: 'ti-clipboard-check', color: '#3b82f6', title: `Hosted ${l.division} tryout`, detail: `${l.totalAttendees} attended · ${l.passedCount} passed`, status: l.status });
     for (const p of patrols) events.push({ at: p.createdAt, kind: 'patrol', refId: p.id, icon: 'ti-shield', color: '#14b8a6', title: p.type === 'EVENT' ? 'Event log' : 'Patrol log', detail: p.totalMinutes != null ? `${p.totalMinutes} min` : '', status: p.status });
-    for (const t of tickets) events.push({ at: t.closedAt, kind: 'ticket', refId: t.id, icon: 'ti-lifebuoy', color: '#8b93a1', title: `Closed ticket ${t.ticketRef || ''} (${t.ticketType})`.trim(), detail: '', status: t.status });
+    for (const t of tickets) events.push({ at: t.closedAt, kind: 'ticket', refId: t.id, icon: 'ti-lifebuoy', color: '#8b93a1', title: `Closed ticket ${t.ticketRef || ''} (${require('../lib/ticketLog').ticketTypeLabel(t.ticketType)})`.trim(), detail: '', status: t.status });
     for (const a of auditRows) events.push({ at: a.createdAt, kind: 'audit', refId: a.id, icon: 'ti-history', color: '#6b7280', title: a.summary || `${a.category}/${a.action}`, detail: a.actorId === u.id ? `by them` : `on them · by ${a.actorName}`, status: a.action });
 
     events.sort((a, b) => new Date(b.at) - new Date(a.at));
@@ -451,7 +451,9 @@ router.get('/entity/:kind/:id', async (req, res) => {
     if (kind === 'ticket') {
       const t = await prisma.ticketLog.findUnique({ where: { id } });
       if (!t) return res.status(404).json({ error: 'Ticket not found' });
-      out = { kind, title: `Ticket ${t.ticketRef || ''} · ${t.ticketType}`.trim(), status: t.status,
+      out = { kind,
+        title: `Ticket ${t.ticketRef || ''} · ${require('../lib/ticketLog').ticketTypeLabel(t.ticketType)}`.trim(),
+        status: t.status,
         link: t.transcriptUrl || null,
         fields: [
           ['Type', t.ticketType], ['Ticket', t.ticketName || t.ticketRef || '·'],

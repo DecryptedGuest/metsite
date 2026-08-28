@@ -490,24 +490,14 @@ const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   ||
 const TICKET_POINTS = () => { const n = parseInt(process.env.IA_TICKET_POINTS || '2', 10); return Number.isFinite(n) ? n : 2; };
 // A ticket is worth 2 points. Every ticket, whatever type it is.
 //
-// This used to pay appeals 3, read off a line in the sheet's own key. That is
-// not the rule: the rule is 2, and paying appeals more meant a card promising
-// "3 quota points on approval" for work worth 2, on the busiest ticket type
-// there is. IA_TICKET_POINTS_APPEAL still exists so the split can be brought
-// back deliberately, but it now defaults to the ordinary rate rather than
-// quietly overriding it.
-const TICKET_POINTS_APPEAL = () => {
-  const raw = process.env.IA_TICKET_POINTS_APPEAL;
-  if (raw == null || raw === '') return TICKET_POINTS();
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) ? n : TICKET_POINTS();
-};
+// There used to be a third rate paying appeals 3, read off a line in the sheet's
+// own key. It was wrong: an appeal is just an appeal ticket, and it is the
+// busiest type there is, so the effect was to overpay the most common work by
+// 50%. There is no per-type rate and no environment variable to bring one back;
+// a rate that can be resurrected by setting a variable is a rate that will be.
 
-/** What one approved ticket log is worth. 2, unless an appeal rate is set. */
-function ticketPointsFor(ticketType) {
-  const t = String(ticketType || '').toUpperCase();
-  return t === 'APPEAL' ? TICKET_POINTS_APPEAL() : TICKET_POINTS();
-}
+/** What one approved ticket log is worth. The same for every type. */
+function ticketPointsFor() { return TICKET_POINTS(); }
 
 function quotaForRank(rank) {
   const r = (rank || '').toString().trim().toLowerCase();
@@ -1183,7 +1173,7 @@ module.exports = {
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter, sheetRef,
-  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS, TICKET_POINTS_APPEAL, ticketPointsFor,
+  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS, ticketPointsFor,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
   buildMembersFromRows,

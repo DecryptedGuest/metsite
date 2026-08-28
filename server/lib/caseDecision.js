@@ -416,7 +416,7 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
         // Only the matched site account's Roblox name — NEVER
         // creatorRobloxUsername, which is the person who OPENED the ticket.
         robloxUsername: (closer && closer.robloxUsername) || null,
-        points: ticketPointsFor(ticket.ticketType),
+        points: ticketPointsFor(),
         label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
       }).catch(() => {});
     }

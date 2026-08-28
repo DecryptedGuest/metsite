@@ -42,6 +42,30 @@ function normalizeUrl(u) {
   return s.toLowerCase();
 }
 
+
+// ── What a ticket type is CALLED ──────────────────────────────────
+//
+// The enum names are database identifiers, and printing them raw put
+// "OFFICER REPORT" and "APPEAL" on cards and panels — neither of which is what
+// anybody in the department calls those tickets. These are the names on the
+// tickets themselves.
+const TICKET_TYPE_LABEL = {
+  GENERAL_SUPPORT: 'General Support',
+  OFFICER_REPORT:  'Officer Complaint',
+  APPEAL:          'Disciplinary Action Appeal',
+  HICOMM:          'IA Complaint',
+};
+
+/** The human name for a ticket type, or a tidied version of an unknown one. */
+function ticketTypeLabel(type) {
+  const key = String(type || '').toUpperCase();
+  if (TICKET_TYPE_LABEL[key]) return TICKET_TYPE_LABEL[key];
+  // An unknown type is still readable rather than shouted.
+  return key
+    ? key.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    : 'General Support';
+}
+
 // ── Ticket-type classification from the ticket name ───────────────
 // Names look like "general-support-noirn", "IA Complaint-lkblaze31",
 // "officer-complaint-kis7ua", "Appeal-someone". Maps to the TicketType enum:
@@ -369,6 +393,7 @@ function transcriptUrlFromComponents(components) {
 }
 
 module.exports = {
+  TICKET_TYPE_LABEL, ticketTypeLabel,
   normalizeUrl,
   ticketTypeFromName,
   flattenEmbed,

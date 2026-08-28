@@ -449,7 +449,7 @@ async function ticketsView(subject) {
   const opened = tickets.filter(t => mine && String(t.creatorDiscordId) === mine);
   const closed = tickets.filter(t => !(mine && String(t.creatorDiscordId) === mine));
   const fmt = t => `${statusMark(t.status)} \`${short(t.ticketRef || t.ticketName || '·', 16)}\` `
-    + `${short(String(t.ticketType || '').replace(/_/g, ' ').toLowerCase(), 22)} · ${when(t.closedAt)}`;
+    + `${short(require('./ticketLog').ticketTypeLabel(t.ticketType), 26)} · ${when(t.closedAt)}`;
 
   if (opened.length) embed.addFields({ name: `Opened (${opened.length})`, value: short(opened.slice(0, 8).map(fmt).join('\n'), 1000), inline: false });
   if (closed.length) embed.addFields({ name: `Closed by them (${closed.length})`, value: short(closed.slice(0, 8).map(fmt).join('\n'), 1000), inline: false });
