@@ -157,4 +157,4 @@ async function execute(interaction, bot) {
   }
 }
 
-module.exports = { data, execute, autocomplete };
+module.exports = { scope: 'ia', data, execute, autocomplete };

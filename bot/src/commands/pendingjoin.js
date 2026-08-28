@@ -47,4 +47,4 @@ async function execute(interaction) {
   }
 }
 
-module.exports = { data, execute };
+module.exports = { scope: 'met', data, execute };

@@ -121,4 +121,4 @@ async function execute(interaction) {
   }
 }
 
-module.exports = { data, execute, autocomplete };
+module.exports = { scope: 'ia', data, execute, autocomplete };

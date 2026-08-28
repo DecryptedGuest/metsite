@@ -74,10 +74,12 @@ async function adjust(interaction, sign) {
 
 module.exports = {
   addQp: {
+    scope: 'ia',
     data: build('add-qp', 'Add'),
     execute: (i) => adjust(i, +1),
   },
   removeQp: {
+    scope: 'ia',
     data: build('remove-qp', 'Remove'),
     execute: (i) => adjust(i, -1),
   },

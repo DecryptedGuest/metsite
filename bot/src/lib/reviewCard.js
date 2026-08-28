@@ -97,6 +97,15 @@ async function handleReviewButton(interaction, bot) {
   const [, kind, verb, recordId] = interaction.customId.split(':');
   const member = interaction.member;
 
+  // Review cards are an IA-server artefact; a card copied elsewhere is inert.
+  const iaGuild = env('IA_GUILD_ID') || env('DISCORD_GUILD_ID');
+  if (iaGuild && interaction.guildId !== iaGuild) {
+    return interaction.reply({
+      content: '⛔ Case review only happens in the Internal Affairs server.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   // Either ladder may authorise: the IA rank roles, or the site-style tiers.
   if (!canReview(member) && !isSupervisor(member)) {
     return interaction.reply({ content: DENIED_REVIEW, flags: MessageFlags.Ephemeral });

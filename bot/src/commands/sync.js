@@ -221,4 +221,4 @@ async function execute(interaction) {
   return interaction.editReply({ content: '', embeds: [embed], files });
 }
 
-module.exports = { data, execute };
+module.exports = { scope: 'ia', data, execute };

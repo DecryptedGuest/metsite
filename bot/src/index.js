@@ -17,21 +17,26 @@ const client = new Client({
 });
 
 // ── Command registry ──────────────────────────────────────────────
-const COMMANDS = [
-  require('./commands/discipline'),
-  require('./commands/check-record'),
-  require('./commands/xp'),
-  require('./commands/loa'),
-  require('./commands/pendingjoin'),
-  require('./commands/promote'),
-  require('./commands/ia'),
-  require('./commands/submit-case'),
-  require('./commands/leaderboard'),
-  require('./commands/sync'),
-  require('./commands/qp').addQp,
-  require('./commands/qp').removeQp,
-];
+const { ALL: COMMANDS } = require('./lib/commands');
 client.commands = new Collection(COMMANDS.map(c => [c.data.name, c]));
+
+/** Which guild a scope belongs to. */
+const guildForScope = (scope) => scope === 'met'
+  ? (env('MET_GUILD_ID') || env('DISCORD_GUILD_ID'))
+  : (env('IA_GUILD_ID')  || env('DISCORD_GUILD_ID'));
+
+/**
+ * Defence in depth: even if a stale registration survives in the wrong server,
+ * refuse to run it there. Deploying fixes registration; this stops the damage
+ * in the meantime.
+ */
+function wrongGuild(interaction, cmd) {
+  const expected = guildForScope(cmd.scope);
+  if (!expected || interaction.guildId === expected) return null;
+  return cmd.scope === 'met'
+    ? '⛔ This is a MET server command and cannot be used here.'
+    : '⛔ This is an Internal Affairs command and cannot be used here.';
+}
 
 // ── Guild helpers ─────────────────────────────────────────────────
 // Every one of these fails soft: a not-ready client or a missing role must
@@ -42,7 +47,8 @@ const roleHolderCache = new Map();   // `${guildId}:${roleId}` -> { at, set }
 const bot = {
   async assignRole(discordUserId, roleId) {
     if (!ready) { console.warn('Bot not ready — cannot assign role'); return false; }
-    const guildId = env('DISCORD_GUILD_ID');
+    // Punishment roles belong to the MET server — that is where officers are.
+    const guildId = env('MET_GUILD_ID') || env('DISCORD_GUILD_ID');
     if (!guildId || !roleId) return false;
     try {
       const guild  = await client.guilds.fetch(guildId);
@@ -58,7 +64,7 @@ const bot = {
 
   async removeRole(discordUserId, roleId) {
     if (!ready) { console.warn('Bot not ready — cannot remove role'); return false; }
-    const guildId = env('DISCORD_GUILD_ID');
+    const guildId = env('MET_GUILD_ID') || env('DISCORD_GUILD_ID');
     if (!guildId || !roleId) return false;
     try {
       const guild  = await client.guilds.fetch(guildId);
@@ -122,7 +128,8 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isAutocomplete()) {
       const cmd = client.commands.get(interaction.commandName);
-      if (cmd?.autocomplete) await cmd.autocomplete(interaction);
+      if (cmd?.autocomplete && !wrongGuild(interaction, cmd)) await cmd.autocomplete(interaction);
+      else await interaction.respond([]).catch(() => {});
       return;
     }
 
@@ -136,6 +143,10 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     const cmd = client.commands.get(interaction.commandName);
     if (!cmd) return;
+
+    const refusal = wrongGuild(interaction, cmd);
+    if (refusal) return interaction.reply({ content: refusal, flags: MessageFlags.Ephemeral });
+
     await cmd.execute(interaction, bot);
   } catch (err) {
     console.error(`[interaction] ${interaction.commandName || interaction.customId} failed:`, err);
@@ -150,6 +161,9 @@ client.bot = bot;   // some commands reach helpers via interaction.client.bot
 client.once('clientReady', async () => {
   ready = true;
   console.log(`🤖  Discord bot online as ${client.user.tag}`);
+  const { IA, MET } = require('./lib/commands');
+  console.log(`    IA  server ${env('IA_GUILD_ID')  || '(unset!)'} — ${IA.length} commands`);
+  console.log(`    MET server ${env('MET_GUILD_ID') || '(unset!)'} — ${MET.length} commands`);
   await roblox.initCsrf();
   startExpiryWorker(bot);
   startQuotaWorker();

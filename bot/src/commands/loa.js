@@ -33,4 +33,4 @@ async function execute(interaction) {
   return interaction.editReply(`✅ **${username}** is now marked **LOA** — exempt from quota until the marker is cleared.`);
 }
 
-module.exports = { data, execute };
+module.exports = { scope: 'ia', data, execute };

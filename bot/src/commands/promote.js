@@ -65,4 +65,4 @@ async function execute(interaction) {
   }
 }
 
-module.exports = { data, execute, autocomplete };
+module.exports = { scope: 'met', data, execute, autocomplete };

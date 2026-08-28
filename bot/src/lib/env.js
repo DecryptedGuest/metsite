@@ -3,7 +3,8 @@
 const REQUIRED = [
   ['DISCORD_BOT_TOKEN', 'the bot token from the Discord Developer Portal'],
   ['DISCORD_CLIENT_ID', "the application's client id (Developer Portal → General Information)"],
-  ['DISCORD_GUILD_ID',  'the MET server id — commands register here'],
+  ['IA_GUILD_ID',       'the Internal Affairs server id — IA commands register here'],
+  ['MET_GUILD_ID',      'the MET server id — group-admin commands and punishment roles'],
   ['DATABASE_URL',      'the PostgreSQL connection string'],
 ];
 

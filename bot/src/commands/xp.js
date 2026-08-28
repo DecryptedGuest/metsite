@@ -152,4 +152,4 @@ async function handleButton(interaction) {
     : `❌ ${result.error}`);
 }
 
-module.exports = { data, execute, handleButton };
+module.exports = { scope: 'ia', data, execute, handleButton };

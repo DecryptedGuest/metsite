@@ -6,15 +6,37 @@ website, no HTTP server, and nothing to host beyond the bot process itself.
 
 ## Commands
 
+Commands are split across two servers and are **never registered in both**.
+
+### Internal Affairs server (`IA_GUILD_ID`)
+
 | Command | Subcommands | Who |
 |---|---|---|
+| `/submit-case` | — | IA+ |
 | `/discipline` | `file` `approve` `deny` `lookup` | IA files · Supervisor+ reviews |
+| `/ia` | `case` `ticket` | IA+ files · Supervisor+ reviews via buttons |
 | `/check-record` | — | IA+ |
 | `/xp` | `me` `check` `review` `reset` `exempt` `iotw` | `me` anyone · `check` IA+ · rest HICOMM |
+| `/leaderboard` | — | anyone in IA |
+| `/add-qp` `/remove-qp` | — | HR (Deputy Director+) |
 | `/loa` | `set` | HICOMM |
+| `/sync` | `cases` `status` | developer only |
+
+### MET server (`MET_GUILD_ID`)
+
+| Command | Subcommands | Who |
+|---|---|---|
 | `/pendingjoin` | `list` `approve` `decline` | HICOMM |
 | `/promote` | — | HICOMM |
-| `/ia` | `case` `ticket` | IA+ files · Supervisor+ reviews via buttons |
+
+Punishment roles are assigned in the **MET** server (that is where officers
+are), and approved cases are announced there. Everything about reviewing a case
+happens in **IA**.
+
+`npm run deploy` registers each server's exact set, which also removes anything
+stale left in that server from an earlier deploy — that is what clears MET
+commands out of IA. It also wipes any global registrations, since a global
+command appears in every server and would defeat the split.
 
 ### How discipline works
 
@@ -83,7 +105,9 @@ skipped with a logged warning instead of failing.
 
 ### 5. Register the commands and start
 ```bash
-npm run deploy    # registers the 7 commands in DISCORD_GUILD_ID (instant)
+npm run deploy         # both servers (instant)
+# npm run deploy -- ia   # or one at a time
+# npm run deploy -- met
 npm start
 ```
 Re-run `npm run deploy` after changing any command's name, description or

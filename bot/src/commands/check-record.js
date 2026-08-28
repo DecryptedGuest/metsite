@@ -108,4 +108,4 @@ async function execute(interaction) {
   return interaction.editReply({ embeds: [embed] });
 }
 
-module.exports = { data, execute };
+module.exports = { scope: 'ia', data, execute };

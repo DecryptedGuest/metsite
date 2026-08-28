@@ -102,4 +102,4 @@ async function execute(interaction, bot) {
   }
 }
 
-module.exports = { data, execute };
+module.exports = { scope: 'ia', data, execute };
