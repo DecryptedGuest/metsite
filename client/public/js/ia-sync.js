@@ -258,6 +258,26 @@
 
     wireShot();
 
+    // The whole path, step by step, with the fix for whatever is broken.
+    $('ia-ticket-check').addEventListener('click', async () => {
+      busy(out2(), 'Checking the ticket pipeline');
+      try {
+        const r = await api('/api/dev/ticket-diagnose');
+        let html = `<p style="margin:0 0 .8rem;color:${r.ok
+          ? 'var(--green,#2ed896)' : 'var(--red,#f04f5e)'};"><strong>${
+          r.ok ? 'Every step passes.' : 'Something in the path is broken.'}</strong></p>`;
+        html += '<table class="data-table"><tbody>';
+        for (const c of r.checks) {
+          html += `<tr><td style="width:1.6rem;">${c.ok ? '\u2713' : '\u2717'}</td>
+            <td><strong>${esc(c.step)}</strong></td>
+            <td>${esc(c.detail || '')}${c.fix
+              ? `<br><span style="color:var(--amber,#f5b730);">${esc(c.fix)}</span>` : ''}</td></tr>`;
+        }
+        html += '</tbody></table>';
+        note(out2(), r.ok ? 'ok' : 'bad', html);
+      } catch (err) { note(out2(), 'bad', esc(err.message)); }
+    });
+
     // Cards for tickets closed in the gap around a restart. Bounded on the
     // server to a window and a count, so it cannot become another flood.
     $('ia-cards-since').addEventListener('click', async () => {

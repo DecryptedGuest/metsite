@@ -378,6 +378,20 @@ router.post('/ia-sync/tickets', async (req, res) => {
   }
 });
 
+// GET /api/dev/ticket-diagnose — why did nothing appear in the tickets channel?
+//
+// Walks the whole path (read the source channel, store the row, post the card)
+// and reports each step with the fix. Read-only: posts nothing, writes nothing.
+router.get('/ticket-diagnose', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    res.json(await require('../lib/ticketDiagnose').diagnose(getClient()));
+  } catch (err) {
+    console.error('[Dev] ticket diagnose failed:', err.message);
+    res.status(500).json({ error: 'The check failed: ' + err.message });
+  }
+});
+
 // POST /api/dev/ticket-cards/since — card the tickets closed since a moment.
 //
 // The automatic path only cards what closed after the bot started watching, so a
