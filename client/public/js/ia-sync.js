@@ -258,6 +258,24 @@
 
     wireShot();
 
+    // Cards for tickets closed in the gap around a restart. Bounded on the
+    // server to a window and a count, so it cannot become another flood.
+    $('ia-cards-since').addEventListener('click', async () => {
+      busy(out2(), 'Posting review cards');
+      try {
+        const r = await api('/api/dev/ticket-cards/since', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        });
+        let msg = `Posted <strong>${r.posted}</strong> card(s) of ${r.considered} pending ticket(s) `
+                + `closed since ${esc(new Date(r.since).toLocaleString())}.`;
+        if (r.skipped && r.skipped.length) {
+          msg += `<br><span class="muted">Skipped: ${esc(r.skipped
+            .map(x => `#${x.ticketNo ?? '?'} (${x.why})`).join(', '))}</span>`;
+        }
+        note(out2(), r.posted ? 'ok' : 'warn', msg);
+      } catch (err) { note(out2(), 'bad', esc(err.message)); }
+    });
+
     $('ia-sync-tickets').addEventListener('click', async () => {
       busy(out2(), 'Sweeping the ticket-log channel');
       try {

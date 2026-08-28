@@ -1043,8 +1043,9 @@ async function ingestMessage(msg) {
       // find a queueable ticket that never got one.
       await queueCard(created).catch(() => {});
     } else if (created.status === 'PENDING' && !isNew) {
+      const line = await cardingStartedAt();
       console.log(`[TicketLogs] ticket ${created.ticketNo ?? created.id} stored but not queued `
-        + '· closed before this deployment started watching');
+        + `· closed ${new Date(created.closedAt).toISOString()}, cards start ${line.toISOString()}`);
     } else if (created.status === 'PENDING' && divisional) {
       console.log(`[TicketLogs] ${created.division} ticket ${created.ticketNo ?? created.id} not queued `
         + '· closed by a non-IA handler');
@@ -1266,18 +1267,27 @@ async function cardingStartedAt() {
     const t = row && Date.parse(row.value);
     if (Number.isFinite(t)) { _cardLine = new Date(t); return _cardLine; }
 
-    // `update: {}` so a line already written by another instance wins: the
-    // earliest line is the right one, and moving it forward would skip whatever
-    // closed in between.
-    const now = new Date();
+    // PROCESS_START, never `new Date()`.
+    //
+    // This line is written lazily, the first time anything asks — and the first
+    // thing to ask is the boot sweep, ingesting the most recent message in the
+    // channel. Stamping "now" at that moment meant the very ticket that caused
+    // the line to be created was, by construction, closed BEFORE it, and was
+    // skipped. A ticket closed a minute before the bot finished starting is
+    // exactly the ticket somebody is waiting on.
+    //
+    // `update: {}` so a line already written by an earlier boot or another
+    // instance wins: the earliest line is the right one, and moving it forward
+    // would skip whatever closed in between.
     const saved = await prisma.systemSetting.upsert({
       where:  { key: CARDING_KEY },
       update: {},
-      create: { key: CARDING_KEY, value: now.toISOString() },
+      create: { key: CARDING_KEY, value: PROCESS_START.toISOString() },
     });
     const savedAt = Date.parse(saved && saved.value);
-    _cardLine = Number.isFinite(savedAt) ? new Date(savedAt) : now;
-    console.log(`[TicketLogs] review cards start from ${now.toISOString()} · nothing closed before that is queued`);
+    _cardLine = Number.isFinite(savedAt) ? new Date(savedAt) : PROCESS_START;
+    console.log(`[TicketLogs] review cards start from ${_cardLine.toISOString()}`
+      + ' · nothing closed before that is queued');
     return _cardLine;
   } catch (err) {
     // The line could not be read or written. Fall back to when this process
@@ -1336,6 +1346,64 @@ async function refreshCloserIsIa(limit = 500) {
     if (answer === false) continue;          // still a real no
     await prisma.ticketLog.update({ where: { id: row.id }, data: { closerIsIa: answer } }).catch(() => {});
     out.fixed++;
+  }
+  return out;
+}
+
+
+/**
+ * Post review cards for tickets closed since a given moment, on request.
+ *
+ * The automatic path only ever cards tickets closed after the bot started
+ * watching, which is right — but it means a ticket closed in the gap around a
+ * restart is stored and never queued, and there was no way to ask for it
+ * without re-carding history.
+ *
+ * This is that way: explicit, bounded, and driven from the dev dashboard. The
+ * caller names the window, so nothing is dredged up that nobody asked for.
+ */
+async function cardTicketsSince(since, { limit = 25 } = {}) {
+  const out = { ok: true, posted: 0, considered: 0, skipped: [], since: null };
+  const from = since instanceof Date ? since : new Date(since);
+  if (!(from instanceof Date) || isNaN(from.getTime())) {
+    return { ok: false, reason: 'Give a valid date and time to card from.' };
+  }
+  out.since = from.toISOString();
+
+  const cards = require('./iaReviewCards');
+  if (!cards.ticketsChannelId()) {
+    return { ok: false, reason: 'No tickets channel is configured, so there is nowhere to post.' };
+  }
+
+  let rows;
+  try {
+    rows = await prisma.ticketLog.findMany({
+      where: {
+        status: 'PENDING', voidedAt: null, cardMessageId: null,
+        closedAt: { gte: from },
+      },
+      orderBy: { closedAt: 'asc' },
+      take: Math.min(Math.max(parseInt(limit, 10) || 25, 1), 100),
+    });
+  } catch (err) {
+    return { ok: false, reason: `Could not read the tickets: ${err.message}` };
+  }
+
+  out.considered = rows.length;
+  for (const row of rows) {
+    // The same divisional rule the automatic path uses: a CID or SCO ticket
+    // closed by that division's own officer is not IA's to review.
+    if (!queueable(row)) {
+      out.skipped.push({ ticketNo: row.ticketNo, why: `${row.division} ticket closed by a non-IA handler` });
+      continue;
+    }
+    try {
+      if (await queueCard(row)) out.posted++;
+      else out.skipped.push({ ticketNo: row.ticketNo, why: 'the card could not be posted' });
+    } catch (err) {
+      out.skipped.push({ ticketNo: row.ticketNo, why: err.message });
+    }
+    await new Promise(r => setTimeout(r, 400));
   }
   return out;
 }
@@ -1504,14 +1572,6 @@ async function sweep(client, opts) {
 
     // Anything queueable that has no card yet — the backlog that was ingested
     // before review cards shipped, plus anything a transient channel error lost.
-    // Take down anything the earlier unbounded catch-up put up.
-    try {
-      const r = await removeStaleCards();
-      if (r.removed) s.cardsRemoved = r.removed;
-    } catch (err) {
-      console.warn('[TicketLogs] stale card removal skipped:', err.message);
-    }
-
     // A card posted before its handler resolved is now out of date. Editing is
     // cheap, so bring those up to what the database actually knows.
     try {
@@ -1521,12 +1581,10 @@ async function sweep(client, opts) {
       console.warn('[TicketLogs] card refresh skipped:', err.message);
     }
 
-    if (s.created || s.updated || s.error || s.handlersFixed
-        || s.cardsRefreshed || s.cardsRemoved) {
+    if (s.created || s.updated || s.error || s.handlersFixed || s.cardsRefreshed) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
         + (s.cardsRefreshed ? `, cards refreshed ${s.cardsRefreshed}` : '')
-        + (s.cardsRemoved ? `, stale cards taken down ${s.cardsRemoved}` : '')
 
         + (s.error ? `, error: ${s.error}` : ''));
     }
@@ -1688,10 +1746,13 @@ const REPAIR_KEY = 'ticketLogRepairVersion';
 //     duplicates are merged, or the bogus row (always the older one, and so
 //     always the merge keeper) swallows the genuine close and the ticket ends up
 //     recorded as handled by whoever opened it.
+// 7 — take down the flood of review cards for old tickets, once. It used to run
+//     every sweep, which would have deleted any card deliberately posted for an
+//     older ticket from the dev dashboard.
 // 6 — re-answer closerIsIa for rows stored as a flat false. It used to mean
 //     both "not IA" and "could not tell", so tickets closed by people whose
 //     nickname begins "IA-" are recorded as not IA and pay nothing on approval.
-const REPAIR_VERSION = '6';
+const REPAIR_VERSION = '7';
 
 async function repairOnce(client) {
   let done = null;
@@ -1732,6 +1793,11 @@ async function repairOnce(client) {
   // the queue; the numbers have to be contiguous over what survives.
   const isIa = await refreshCloserIsIa(2000).catch(e => ({ error: e.message }));
 
+  // Once, not every sweep. The flood of cards for old tickets was a one-time
+  // event, and a pass that keeps running would delete any card somebody
+  // deliberately posted for an older ticket from the dev dashboard.
+  const staleCards = await removeStaleCards(200).catch(e => ({ error: e.message }));
+
   const numbers = await renumberTickets().catch(e => ({ error: e.message }));
 
   try {
@@ -1750,8 +1816,9 @@ async function repairOnce(client) {
     + (nonCloses.reviewedNotTouched
         ? ` (${nonCloses.reviewedNotTouched} already reviewed)` : '')
     + (isIa.fixed ? `, ${isIa.fixed} handler(s) re-recognised as Internal Affairs` : '')
+    + (staleCards.removed ? `, ${staleCards.removed} stale review card(s) taken down` : '')
     + `, ${numbers.renumbered || 0} log(s) renumbered oldest-first`);
-  return { duplicates, handlers, nonCloses, isIa, numbers };
+  return { duplicates, handlers, nonCloses, isIa, staleCards, numbers };
 }
 
 function startTicketLogWorker(client) {
@@ -1781,6 +1848,7 @@ module.exports = {
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
   queueCard, refreshStaleCards, removeStaleCards, cardingStartedAt, worthCarding,
+  cardTicketsSince,
   refreshCloserIsIa,
   voidNonCloseRows,
 };

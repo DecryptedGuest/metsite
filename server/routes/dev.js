@@ -378,6 +378,34 @@ router.post('/ia-sync/tickets', async (req, res) => {
   }
 });
 
+// POST /api/dev/ticket-cards/since — card the tickets closed since a moment.
+//
+// The automatic path only cards what closed after the bot started watching, so a
+// ticket closed in the gap around a restart is stored and never queued. This
+// asks for those by name, with a window the caller chooses, rather than
+// re-carding history.
+router.post('/ticket-cards/since', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { getClient } = require('../lib/bot');
+    if (!getClient()) return res.status(503).json({ error: 'The Discord bot is not connected yet.' });
+
+    // Default to the last two hours: long enough to cover a restart, short
+    // enough that a mistyped request cannot flood the channel.
+    const since = body.since ? new Date(body.since) : new Date(Date.now() - 2 * 3600 * 1000);
+    const out = await require('../lib/ticketIngest')
+      .cardTicketsSince(since, { limit: body.limit });
+    if (!out.ok) return res.status(422).json({ error: out.reason });
+
+    audit.log(req.user, { category: 'SECURITY', action: 'TICKET_CARDS_POSTED',
+      summary: `Posted ${out.posted} review card(s) for tickets closed since ${out.since}` });
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] ticket carding failed:', err.message);
+    res.status(500).json({ error: 'Could not post the cards: ' + err.message });
+  }
+});
+
 // ── Quota leaderboard screenshot ──────────────────────────────────
 //
 // The weekly leaderboard is rendered by a bot this codebase does not own, so
