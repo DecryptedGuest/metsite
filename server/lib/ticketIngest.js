@@ -157,6 +157,24 @@ async function rowFromMessage(msg) {
   let closerUserId = null, closerUsername = null, closerSiteRole = null;
   const closerRaw = parsed.executorRaw || null;
 
+  // ── The closer is not the opener ────────────────────────────────
+  // A creation or "user added" log names the person who did THAT as its
+  // executor, and that person is the ticket's creator. Those logs are rejected
+  // outright now, but the same shape turns up inside a genuine close whose
+  // prose the parser has to guess at, and the guess lands on the creator. A
+  // ticket recorded as handled by the person who opened it is worse than one
+  // recorded as handled by nobody: the second is visibly unfinished, the first
+  // looks finished and pays the wrong person.
+  //
+  // Only applied to a GUESSED executor. When the log carries a labelled
+  // Executor field saying the creator closed their own ticket, that is a fact
+  // about a real thing that happens, and it stands.
+  if (parsed.executorId && !parsed.executorLabelled
+      && parsed.creatorId && String(parsed.executorId) === String(parsed.creatorId)) {
+    parsed.executorId = null;
+    parsed.executorRaw = null;
+  }
+
   // The log named nobody. One more place to look before giving up: if the log was
   // posted in response to somebody running a command or pressing a button, the
   // gateway tells us who that was, and that person is who closed the ticket.
@@ -1194,24 +1212,57 @@ async function queueCard(row) {
   return true;
 }
 
+// How recently a ticket must have been closed for a card to be worth posting.
+// A review queue is a to-do list, and a to-do list that reaches back for ever is
+// one nobody works. 14 days by default.
+const CARD_MAX_AGE_DAYS = () => {
+  const n = parseInt(process.env.IA_TICKET_CARD_MAX_AGE_DAYS || '14', 10);
+  return Number.isFinite(n) && n > 0 ? n : 14;
+};
+
+/**
+ * The earliest close time still worth putting in front of a reviewer.
+ *
+ * The later of two lines: whenever somebody last cleared the backlog, and the
+ * age window. Either one alone is not enough — a deployment that has never
+ * cleared a backlog still should not be posting a ticket from June.
+ */
+async function cardCutoff() {
+  const byAge = new Date(Date.now() - CARD_MAX_AGE_DAYS() * 24 * 3600 * 1000);
+  const line  = await backlogClearedAt();
+  return (line && line > byAge) ? line : byAge;
+}
+
 /**
  * Put any queueable ticket that has never been carded in front of a reviewer.
  *
- * Runs on every sweep, in small batches. Small because posting is rate-limited
- * and a first run has a whole channel's backlog to work through: a cap of 10 per
- * sweep clears it over a few cycles instead of getting the bot throttled and
- * posting nothing at all. Oldest first, so the queue drains in the order the
- * tickets were actually closed.
+ * Bounded by age, which the first version of this was not, and that was a real
+ * mistake: it selected every PENDING row with no card and worked oldest first,
+ * so switching it on dredged three-month-old tickets out of the table one by
+ * one and pinged the reviewer role for each. The queue is for work somebody is
+ * actually expected to do; anything older than the cutoff is history and is
+ * counted, not posted.
+ *
+ * Small batches because posting is rate-limited: a cap of 10 per sweep drains a
+ * genuine backlog over a few cycles instead of getting the bot throttled into
+ * posting nothing at all.
  */
 async function queueMissingCards(limit = 10) {
-  const out = { posted: 0, pending: 0 };
+  const out = { posted: 0, pending: 0, tooOld: 0 };
   const cards = require('./iaReviewCards');
   if (!cards.ticketsChannelId()) return out;
+
+  const cutoff = await cardCutoff();
 
   let rows;
   try {
     rows = await prisma.ticketLog.findMany({
-      where: { status: 'PENDING', voidedAt: null, cardMessageId: null },
+      where: {
+        status: 'PENDING', voidedAt: null, cardMessageId: null,
+        closedAt: { gte: cutoff },
+      },
+      // Oldest FIRST within the window, so a real backlog drains in the order
+      // the tickets were closed rather than newest-first.
       orderBy: { closedAt: 'asc' },
       take: limit * 4,   // over-fetch: most of a divisional batch is not queueable
     });
@@ -1219,6 +1270,17 @@ async function queueMissingCards(limit = 10) {
     console.warn('[TicketLogs] could not look for uncarded tickets:', err.message);
     return out;
   }
+
+  // Reported rather than posted, so a queue that is quietly enormous is visible
+  // without anybody being pinged about it.
+  try {
+    out.tooOld = await prisma.ticketLog.count({
+      where: {
+        status: 'PENDING', voidedAt: null, cardMessageId: null,
+        closedAt: { lt: cutoff },
+      },
+    });
+  } catch (err) { /* a count is not worth failing the sweep over */ }
 
   const todo = rows.filter(queueable);
   out.pending = todo.length;
@@ -1230,6 +1292,61 @@ async function queueMissingCards(limit = 10) {
     }
     // Gentle on the channel: cards are posted with a reviewer ping.
     await new Promise(r => setTimeout(r, 400));
+  }
+  return out;
+}
+
+/**
+ * Take down the cards that should never have been posted.
+ *
+ * The unbounded first version of queueMissingCards posted review cards for
+ * tickets closed months ago, each one pinging the reviewer role. Tightening the
+ * rule stops more going up; it does nothing about the ones already in the
+ * channel, which are still sitting there with live Approve and Deny buttons.
+ *
+ * So: delete the card, and clear the id so the row is simply uncarded again.
+ * Only ever a PENDING row outside the cutoff — a ticket somebody has already
+ * decided keeps its card, because that card is the record of the decision.
+ */
+async function removeStaleCards(limit = 25) {
+  const out = { removed: 0 };
+  const cards = require('./iaReviewCards');
+  const channelId = cards.ticketsChannelId();
+  if (!channelId) return out;
+
+  const { getClient } = require('./bot');
+  const client = getClient();
+  if (!client) return out;
+
+  const cutoff = await cardCutoff();
+  let rows;
+  try {
+    rows = await prisma.ticketLog.findMany({
+      where: {
+        status: 'PENDING', voidedAt: null,
+        cardMessageId: { not: null },
+        closedAt: { lt: cutoff },
+      },
+      select: { id: true, cardMessageId: true, ticketNo: true },
+      take: limit,
+    });
+  } catch (err) { return out; }
+
+  for (const row of rows) {
+    try {
+      const channel = await client.channels.fetch(String(channelId));
+      const msg = await channel.messages.fetch(String(row.cardMessageId)).catch(() => null);
+      if (msg) await msg.delete();
+    } catch (err) {
+      // A card already gone is the state we wanted anyway.
+    }
+    // Cleared whether or not the delete worked, so a card that cannot be
+    // reached does not keep this pass returning to it every five minutes.
+    await prisma.ticketLog.update({
+      where: { id: row.id }, data: { cardMessageId: null },
+    }).catch(() => {});
+    out.removed++;
+    await new Promise(r => setTimeout(r, 250));
   }
   return out;
 }
@@ -1347,8 +1464,17 @@ async function sweep(client, opts) {
       const q = await queueMissingCards();
       if (q.posted)  s.cardsPosted  = q.posted;
       if (q.pending) s.cardsPending = q.pending;
+      if (q.tooOld)  s.cardsTooOld  = q.tooOld;
     } catch (err) {
       console.warn('[TicketLogs] card catch-up skipped:', err.message);
+    }
+
+    // Take down anything the old unbounded catch-up put up.
+    try {
+      const r = await removeStaleCards();
+      if (r.removed) s.cardsRemoved = r.removed;
+    } catch (err) {
+      console.warn('[TicketLogs] stale card removal skipped:', err.message);
     }
 
     // A card posted before its handler resolved is now out of date. Editing is
@@ -1360,11 +1486,14 @@ async function sweep(client, opts) {
       console.warn('[TicketLogs] card refresh skipped:', err.message);
     }
 
-    if (s.created || s.updated || s.error || s.handlersFixed || s.cardsPosted || s.cardsRefreshed) {
+    if (s.created || s.updated || s.error || s.handlersFixed
+        || s.cardsPosted || s.cardsRefreshed || s.cardsRemoved) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
         + (s.cardsPosted ? `, cards posted ${s.cardsPosted}/${s.cardsPending}` : '')
         + (s.cardsRefreshed ? `, cards refreshed ${s.cardsRefreshed}` : '')
+        + (s.cardsRemoved ? `, stale cards taken down ${s.cardsRemoved}` : '')
+        + (s.cardsTooOld ? `, ${s.cardsTooOld} pending ticket(s) too old to queue` : '')
         + (s.error ? `, error: ${s.error}` : ''));
     }
     return s;
@@ -1521,7 +1650,11 @@ const REPAIR_KEY = 'ticketLogRepairVersion';
 // 4 — void the rows that were never a closed ticket at all. Every stage Tickety
 //     logs (opened, claimed, renamed, transferred, reopened) parsed as a close,
 //     so each was stored, numbered, queued and on approval paid.
-const REPAIR_VERSION = '4';
+// 5 — same passes, correct order. Voiding the non-closes has to happen BEFORE
+//     duplicates are merged, or the bogus row (always the older one, and so
+//     always the merge keeper) swallows the genuine close and the ticket ends up
+//     recorded as handled by whoever opened it.
+const REPAIR_VERSION = '5';
 
 async function repairOnce(client) {
   let done = null;
@@ -1531,8 +1664,25 @@ async function repairOnce(client) {
   } catch (e) { return { skipped: 'could not read the stamp' }; }
   if (done === REPAIR_VERSION) return { skipped: 'already done' };
 
-  console.log('[TicketLogs] repairing stored rows · merging duplicates, then filling in handlers');
+  console.log('[TicketLogs] repairing stored rows · dropping non-closes, merging duplicates, filling in handlers');
+
+  // ── Order matters, and it used to be wrong ──────────────────────
+  // Duplicates were merged FIRST, which is what put the wrong name in the
+  // Handled by column. Merging keeps the oldest row of a group and copies into
+  // it whatever it is missing. A "Ticket Created" log arrives before the close
+  // does, so the bogus row was always the older one and always the keeper — and
+  // the keeper already had a closer (the person who OPENED the ticket, because
+  // that is who a creation log names as its executor). Nothing was missing, so
+  // nothing was copied, and the genuine close was deleted into it. That is why
+  // a ticket ended up "handled by" the person who opened it.
+  //
+  // Voiding the non-closes first takes those rows out of contention, so the
+  // group that gets merged is made only of real close logs and the keeper names
+  // whoever actually closed the ticket.
+  const nonCloses = await voidNonCloseRows({ limit: 5000 }).catch(e => ({ error: e.message }));
+
   const duplicates = await mergeDuplicates({ limit: 5000 }).catch(e => ({ error: e.message }));
+
   // The refetch is what actually fixes a handler: the stored columns never had
   // the executor, so it has to be re-read off the original message with the
   // parser as it is now. `force` because this repair EXISTS to carry a parser
@@ -1541,12 +1691,8 @@ async function repairOnce(client) {
   const handlers = await backfillHandlers(8000, { refetch: true, force: true })
     .catch(e => ({ error: e.message }));
 
-  // Before renumbering, because voiding takes rows out of the queue and the
-  // numbers have to be contiguous over what is left.
-  const nonCloses = await voidNonCloseRows({ limit: 5000 }).catch(e => ({ error: e.message }));
-
-  // Last, because merging duplicates removes rows and the numbers have to be
-  // contiguous over what survives.
+  // Last, because merging duplicates removes rows and voiding takes them out of
+  // the queue; the numbers have to be contiguous over what survives.
   const numbers = await renumberTickets().catch(e => ({ error: e.message }));
 
   try {
@@ -1594,6 +1740,6 @@ module.exports = {
   // Multi-division sources: MET, CID and SCO-19.
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
-  queueCard, queueMissingCards, refreshStaleCards,
+  queueCard, queueMissingCards, refreshStaleCards, removeStaleCards, cardCutoff,
   voidNonCloseRows,
 };

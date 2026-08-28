@@ -488,24 +488,22 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 // ticket log is worth TICKET_POINTS (2) to whoever closed the ticket.
 const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
 const TICKET_POINTS = () => { const n = parseInt(process.env.IA_TICKET_POINTS || '2', 10); return Number.isFinite(n) ? n : 2; };
-// The IA sheet's own point system has a THIRD rate, which the flat
-// TICKET_POINTS missed entirely:
+// A ticket is worth 2 points. Every ticket, whatever type it is.
 //
-//   TICKET/S · Approved Appeal Logs / Suspension / ZT Logs ... 3p
-//             · Ticket Logs .............................. 2p
-//   CASE/S ..................................................... 4p
-//
-// So an appeal is worth more than an ordinary ticket, and paying every ticket
-// 2p quietly underpaid whoever handled the appeals.
+// This used to pay appeals 3, read off a line in the sheet's own key. That is
+// not the rule: the rule is 2, and paying appeals more meant a card promising
+// "3 quota points on approval" for work worth 2, on the busiest ticket type
+// there is. IA_TICKET_POINTS_APPEAL still exists so the split can be brought
+// back deliberately, but it now defaults to the ordinary rate rather than
+// quietly overriding it.
 const TICKET_POINTS_APPEAL = () => {
-  const n = parseInt(process.env.IA_TICKET_POINTS_APPEAL || '3', 10);
-  return Number.isFinite(n) ? n : 3;
+  const raw = process.env.IA_TICKET_POINTS_APPEAL;
+  if (raw == null || raw === '') return TICKET_POINTS();
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : TICKET_POINTS();
 };
 
-/**
- * What one approved ticket log is worth, by its type.
- * APPEAL is the 3-point tier; everything else is the base rate.
- */
+/** What one approved ticket log is worth. 2, unless an appeal rate is set. */
 function ticketPointsFor(ticketType) {
   const t = String(ticketType || '').toUpperCase();
   return t === 'APPEAL' ? TICKET_POINTS_APPEAL() : TICKET_POINTS();

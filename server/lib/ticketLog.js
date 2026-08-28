@@ -220,6 +220,19 @@ function parseTicketLogEmbed(embed, extraText) {
   // labelled reader needs a colon, so this shape was invisible to it.
   const closedByPhrase = /clos(?:ed|ing)\s+by\s*:?\s*([^\n]+)/i.exec(text);
 
+  // Where the executor came from matters. An explicitly labelled Executor /
+  // Closer / Closed By field is the log telling us outright; the sentence at the
+  // top is an inference from prose. Only the labelled fields are strong enough
+  // to overrule the "that is the creator" test below.
+  const labelledExecutorId =
+       labelled(text, 'Executor ID')
+    || labelled(text, 'Closer ID')
+    || labelled(text, 'Staff ID')
+    || firstMentionId(labelled(text, 'Executor')  || '')
+    || firstMentionId(labelled(text, 'Closed By') || '')
+    || firstMentionId(labelled(text, 'Handled By')|| '')
+    || null;
+
   const executorId =
        labelled(text, 'Executor ID')
     || labelled(text, 'Closer ID')
@@ -294,6 +307,10 @@ function parseTicketLogEmbed(embed, extraText) {
     creatorId,
     executorId,
     executorRaw,
+    // True when the id came from a labelled Executor/Closer field rather than
+    // from the prose sentence. The ingest uses this to refuse a "closer" who is
+    // really the creator.
+    executorLabelled: !!labelledExecutorId,
     ticketType: ticketTypeFromName(effectiveName),
     // Everything the log said, kept so a row that named nobody can be looked at
     // later without another round trip to Discord. "Not recorded" is only worth
