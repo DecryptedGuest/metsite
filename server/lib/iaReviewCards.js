@@ -28,9 +28,22 @@ const AMBER = 0xf5b730;   // awaiting review
 const GREEN = 0x2ed896;   // approved
 const RED   = 0xf04f5e;   // denied
 
-const casesChannelId   = () => process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || null;
-const ticketsChannelId = () => process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || null;
-const reviewerRoleId   = () => process.env.IA_REVIEWER_ROLE_ID || null;
+// The Internal Affairs review channels and the role that reviews them.
+//
+// Hardcoded, deliberately. These were env-only, and unset, which meant every
+// card was built, found no channel to post to, and was dropped: a ticket closed
+// in the MET server produced nothing at all, silently. A channel id that never
+// changes should not be a thing you can forget to configure.
+//
+// IA_REVIEWER_ROLE_iD is read too. Environment variable names are
+// case-sensitive on Linux, so a var set with that lower-case "i" never matched
+// the lookup and the ping silently did nothing.
+const casesChannelId   = () =>
+  process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1537076390829101057';
+const ticketsChannelId = () =>
+  process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1537076390829101058';
+const reviewerRoleId   = () =>
+  process.env.IA_REVIEWER_ROLE_ID || process.env.IA_REVIEWER_ROLE_iD || '1537076386198716439';
 
 /** The reviewer ping, or nothing if no role is configured. */
 function reviewerPing() {

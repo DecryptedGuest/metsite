@@ -1207,16 +1207,35 @@ function queueable(row) {
   return !divisional || row.closerIsIa === true;
 }
 
-/** Post the review card for one ticket and remember where it went. */
+/**
+ * Post the review card for one ticket and remember where it went.
+ *
+ * Every way this can decline says so. It used to return a bare false when there
+ * was no channel configured and no client yet, so a ticket closed in the MET
+ * server produced no card, no error, and no log line — indistinguishable from
+ * the ingest never having run at all.
+ */
 async function queueCard(row) {
   const cards = require('./iaReviewCards');
-  if (!cards.ticketsChannelId()) return false;
+  const label = `ticket ${row && (row.ticketNo ?? row.id)}`;
+
+  if (!cards.ticketsChannelId()) {
+    console.warn(`[TicketLogs] no card for ${label} · no tickets channel is configured`);
+    return false;
+  }
   const { getClient } = require('./bot');
   const client = getClient();
-  if (!client) return false;
+  if (!client) {
+    console.warn(`[TicketLogs] no card for ${label} · the Discord client is not ready`);
+    return false;
+  }
 
   const messageId = await cards.postTicketCard(client, row);
-  if (!messageId) return false;
+  if (!messageId) {
+    console.warn(`[TicketLogs] no card for ${label} · the channel could not be posted to`);
+    return false;
+  }
+  console.log(`[TicketLogs] review card posted for ${label} in ${cards.ticketsChannelId()}`);
   await prisma.ticketLog.update({
     where: { id: row.id }, data: { cardMessageId: messageId },
   }).catch(() => {});
@@ -1237,6 +1256,7 @@ async function queueCard(row) {
 // first time it is asked for so that a restart does not move it forwards and
 // lose the tickets closed while the bot was down.
 const CARDING_KEY = 'tickets.cardingStartedAt';
+const PROCESS_START = new Date();
 let _cardLine = null;
 
 async function cardingStartedAt() {
@@ -1260,9 +1280,14 @@ async function cardingStartedAt() {
     console.log(`[TicketLogs] review cards start from ${now.toISOString()} · nothing closed before that is queued`);
     return _cardLine;
   } catch (err) {
-    // Cannot read the line, so cannot know what is new. Post nothing rather than
-    // risk another flood.
-    return new Date(Date.now() + 60 * 1000);
+    // The line could not be read or written. Fall back to when this process
+    // started: it is the honest answer to "since when have we been watching",
+    // and it keeps live closes flowing. Returning a future time here would have
+    // blocked every card for as long as the failure lasted, silently.
+    console.warn('[TicketLogs] could not read the carding start line ·', err.message,
+      '· falling back to this process start');
+    _cardLine = PROCESS_START;
+    return _cardLine;
   }
 }
 

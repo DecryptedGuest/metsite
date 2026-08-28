@@ -84,6 +84,21 @@ async function onReady() {
   // Mirror the closed-ticket logs onto the site (All Tickets / My Tickets).
   try { require('./ticketIngest').startTicketLogWorker(client); }
   catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
+
+  // Say where the review cards are going, at boot, every boot. An unset channel
+  // used to mean cards were built and then quietly dropped, which looks exactly
+  // like the ingest never running — and cost a whole deploy cycle to find.
+  try {
+    const cards = require('./iaReviewCards');
+    const ingest = require('./ticketIngest');
+    const where = (id) => id ? id : 'NOT SET · cards will be dropped';
+    console.log(`[IA] review cards · tickets → ${where(cards.ticketsChannelId())}`
+      + ` · cases → ${where(cards.casesChannelId())}`
+      + ` · reviewer ping → ${cards.reviewerRoleId() || 'none'}`);
+    for (const src of ingest.ticketSources()) {
+      console.log(`[TicketLogs] reading ${src.division} from channel ${src.channelId} in guild ${src.guildId}`);
+    }
+  } catch (e) { console.warn('[IA] could not report the card channels:', e.message); }
   // Re-read tick/cross reactions on recent patrol/event logs. Gateway events
   // are not replayed after a disconnect, so without this a sign-off made while
   // the bot was restarting would never reach the site.
