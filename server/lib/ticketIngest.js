@@ -70,19 +70,30 @@ const IA_SITE_ROLES = new Set(['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER']);
  * Quota points belong to IA, so a ticket a CID or SCO-19 officer handled is
  * still logged and still reviewed — it just pays nobody. Cheapest signal first:
  * their dashboard account, then the rank their own nickname printed, then a live
- * resolve. Never throws; unknown means "not IA", which only costs points that a
- * re-ingest can correct.
+ * resolve.
+ *
+ * Returns true, false, or NULL for "could not tell". The null is the whole
+ * point. This used to answer false for unknown, so a ticket whose handler had
+ * not been resolved yet was reported on its card as "No points · handler is not
+ * IA" — a rule being announced about somebody nobody had identified, on a card
+ * whose own Handled by field said "not identified". Unknown is now carried as
+ * unknown all the way to the card and to the payment decision, and a later
+ * handler backfill can turn it into a real answer.
  */
 async function resolveCloserIsIa({ discordId, siteRole, rank }) {
   if (siteRole && IA_SITE_ROLES.has(siteRole)) return true;
   // "IA | DCI | White_Bullet8" — the department is in the nickname itself.
   if (rank && /(^|\|)\s*ia\b/i.test(rank)) return true;
-  if (!discordId) return false;
+  // Nobody to look up. Not an answer, so do not give one.
+  if (!discordId) return null;
   try {
     const { resolveSiteRoleDetailed } = require('./roleResolver');
     const live = await resolveSiteRoleDetailed({ discordId: String(discordId), memberRoles: [] });
-    return !!(live && live.role && IA_SITE_ROLES.has(live.role));
-  } catch (e) { return false; }
+    // A resolve that came back with no role at all did not say "not IA", it said
+    // nothing; only a resolved role that is not an IA one is a real false.
+    if (!live || !live.role) return null;
+    return IA_SITE_ROLES.has(live.role);
+  } catch (e) { return null; }
 }
 
 // How far back the first (empty-table) backfill reaches. Later sweeps stop as
@@ -1223,6 +1234,64 @@ async function queueMissingCards(limit = 10) {
   return out;
 }
 
+
+/**
+ * Re-render the card of any pending ticket whose card is out of date.
+ *
+ * The card is posted the moment the row is stored, which is often before the
+ * handler has been resolved — so it goes up saying "being identified", the
+ * backfill fills the handler in a minute later, and the card keeps showing the
+ * old text forever because nothing ever went back to it. A reviewer then decides
+ * a ticket whose handler the database knows and the card does not.
+ *
+ * Cheap: only pending rows that HAVE a card, and only ones whose handler is now
+ * known. Editing a message costs nothing like posting one, so this can run every
+ * sweep.
+ */
+async function refreshStaleCards(limit = 25) {
+  const out = { refreshed: 0 };
+  const cards = require('./iaReviewCards');
+  const channelId = cards.ticketsChannelId();
+  if (!channelId) return out;
+
+  const { getClient } = require('./bot');
+  const client = getClient();
+  if (!client) return out;
+
+  let rows;
+  try {
+    rows = await prisma.ticketLog.findMany({
+      where: {
+        status: 'PENDING', voidedAt: null,
+        cardMessageId: { not: null },
+        // The handler is known now. If it still is not, the card already says so
+        // and there is nothing new to show.
+        OR: [{ closerDiscordId: { not: null } }, { closerUserId: { not: null } }],
+      },
+      orderBy: { closedAt: 'desc' },
+      take: limit,
+    });
+  } catch (err) { return out; }
+
+  for (const row of rows) {
+    try {
+      const channel = await client.channels.fetch(String(channelId));
+      const msg = await channel.messages.fetch(String(row.cardMessageId));
+      const next = cards.ticketCard(row);
+      // Only write when the rendering actually differs, so a sweep does not edit
+      // the same twenty messages every five minutes for nothing.
+      const before = JSON.stringify(msg.embeds?.[0]?.fields || []);
+      const after  = JSON.stringify(next.data.fields || []);
+      if (before === after) continue;
+      await msg.edit({ embeds: [next] });
+      out.refreshed++;
+    } catch (err) {
+      // A card somebody deleted is not worth a log line every five minutes.
+    }
+  }
+  return out;
+}
+
 // ── Workers ───────────────────────────────────────────────────────
 let _sweeping = false;
 async function sweep(client, opts) {
@@ -1282,10 +1351,20 @@ async function sweep(client, opts) {
       console.warn('[TicketLogs] card catch-up skipped:', err.message);
     }
 
-    if (s.created || s.updated || s.error || s.handlersFixed || s.cardsPosted) {
+    // A card posted before its handler resolved is now out of date. Editing is
+    // cheap, so bring those up to what the database actually knows.
+    try {
+      const r = await refreshStaleCards();
+      if (r.refreshed) s.cardsRefreshed = r.refreshed;
+    } catch (err) {
+      console.warn('[TicketLogs] card refresh skipped:', err.message);
+    }
+
+    if (s.created || s.updated || s.error || s.handlersFixed || s.cardsPosted || s.cardsRefreshed) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
         + (s.cardsPosted ? `, cards posted ${s.cardsPosted}/${s.cardsPending}` : '')
+        + (s.cardsRefreshed ? `, cards refreshed ${s.cardsRefreshed}` : '')
         + (s.error ? `, error: ${s.error}` : ''));
     }
     return s;
@@ -1515,6 +1594,6 @@ module.exports = {
   // Multi-division sources: MET, CID and SCO-19.
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
-  queueCard, queueMissingCards,
+  queueCard, queueMissingCards, refreshStaleCards,
   voidNonCloseRows,
 };

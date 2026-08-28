@@ -291,7 +291,13 @@ model TicketLog {
   // ticket handled by a division officer is logged and reviewed but pays
   // nobody. Resolved at ingest and stored, so a later rank change cannot
   // silently rewrite who was owed for work already done.
-  closerIsIa Boolean @default(false)
+  //
+  // NULLABLE, and the null matters: it means "we could not tell", which is a
+  // different thing from "not IA". It used to default to false, so a ticket
+  // whose handler simply had not been resolved yet was reported on its card as
+  // "No points · handler is not IA" — a rule being announced about somebody
+  // nobody had identified.
+  closerIsIa Boolean?
 
   // Supervisor sign-off. Nobody logs a ticket by hand any more — the row is
   // ingested from Discord — but a supervisor still approves or denies it on the

@@ -175,7 +175,11 @@ function ticketCard(ticket, extra = {}) {
   const handlerName = ticket.closerUsername || ticket.closerRaw || null;
   const handled = ticket.closerDiscordId
     ? `<@${ticket.closerDiscordId}>${ticket.closerRank ? `\n${ticket.closerRank}` : ''}`
-    : (handlerName ? `${handlerName}${ticket.closerRank ? `\n${ticket.closerRank}` : ''}` : '*not identified*');
+    : (handlerName
+        ? `${handlerName}${ticket.closerRank ? `\n${ticket.closerRank}` : ''}`
+        // Not a dead end: the sweep re-reads the log and fills this in, and the
+        // card is re-rendered when it does.
+        : '*being identified*');
 
   embed.addFields(
     { name: 'Opened by',  value: String(opened),  inline: true },
@@ -193,17 +197,26 @@ function ticketCard(ticket, extra = {}) {
   // button is the person awarding them. The rate is per type (an appeal pays
   // more), and a non-IA handler is paid nothing at all — nobody should have to
   // know that rule to read the card.
+  //
+  // Three distinct answers, and they used to be two. A ticket whose handler had
+  // not been resolved said "No points · handler is not IA", which read as a
+  // decision about a named person on a card whose Handled by field said "not
+  // identified". Not knowing who closed it is its own state, and it is
+  // temporary: the handler backfill fills it in and the card is re-rendered.
+  const identified = !!(ticket.closerDiscordId || ticket.closerUserId || ticket.closerRaw);
   let points = 'Not known';
   try {
     const { ticketPointsFor } = require('./quota');
-    if (ticket.closerIsIa === false) {
+    const n = ticketPointsFor(ticket.ticketType);
+    const word = n === 1 ? 'point' : 'points';
+    if (!identified) {
+      points = `**${n}** quota ${word}, once the handler is identified`;
+    } else if (ticket.closerIsIa === false) {
       points = 'None · the handler is not Internal Affairs';
     } else {
-      const n = ticketPointsFor(ticket.ticketType);
-      const already = String(ticket.status || 'PENDING').toUpperCase() === 'APPROVED';
-      points = already
-        ? `**${n}** quota ${n === 1 ? 'point' : 'points'} awarded`
-        : `**${n}** quota ${n === 1 ? 'point' : 'points'} on approval`;
+      points = String(ticket.status || 'PENDING').toUpperCase() === 'APPROVED'
+        ? `**${n}** quota ${word} awarded`
+        : `**${n}** quota ${word} on approval`;
     }
   } catch { /* quota not loaded — leave the placeholder */ }
   embed.addFields({ name: 'Quota points', value: points, inline: true });
@@ -305,22 +318,34 @@ async function handleReviewButton(interaction) {
   const { MessageFlags } = require('discord.js');
   const ephemeral = { flags: MessageFlags.Ephemeral };
 
-  // Reviewing is a Supervisor-and-above job; iaAuthority owns that rule so it
-  // cannot drift from the rest of IA.
-  let allowed = true;
-  try {
-    const auth = require('./iaAuthority');
-    if (typeof auth.canReview === 'function') allowed = !!auth.canReview(interaction.member);
-  } catch { /* authority module absent — fall through to the role check below */ }
-  if (!allowed) {
-    return interaction.reply({ content: '⛔ You are not authorised to review this.', ...ephemeral });
-  }
-
+  // ── Who is pressing this? ───────────────────────────────────────
+  // This used to build an actor out of the Discord user and guess at the gate,
+  // and got three things wrong at once:
+  //
+  //   * it looked for `auth.canReview`, which does not exist on iaAuthority
+  //     (the real names are canReviewTicket and canDecideCase), so the check
+  //     silently evaluated to "allowed" and ANYBODY could press Approve;
+  //   * it passed no `role`, so the Supervisor guard on a Termination or
+  //     Blacklist never fired from Discord;
+  //   * it passed the Discord id as `actor.id`, but CaseAction.performedBy is a
+  //     foreign key to User.id, so approving from a card threw on the audit row
+  //     AFTER the case had already been claimed as approved.
+  //
+  // resolveAuthority answers all three: it maps the Discord user to their
+  // dashboard account and IA standing, which is what every gate is written
+  // against, and it is the same resolver the /ia dashboard uses.
   await interaction.deferReply(ephemeral);
 
+  const authority = require('./iaAuthority');
+  const auth = await authority.resolveAuthority(interaction);
+  if (!auth.ok) return interaction.editReply(`⛔ ${auth.why || 'You are not authorised to review this.'}`);
+
   const actor = {
-    id: interaction.user.id,
+    id: auth.userId,                 // User.id — what performedBy is a key to
+    role: auth.role,                 // what the punishment-tier gate reads
+    discordId: String(interaction.user.id),
     displayName: interaction.member?.displayName || interaction.user.username,
+    discordUsername: interaction.user.username,
     avatarURL: interaction.user.displayAvatarURL({ extension: 'png', size: 64 }),
   };
 
@@ -332,6 +357,8 @@ async function handleReviewButton(interaction) {
         await interaction.message.edit({ components: [] }).catch(() => {});
         return interaction.editReply(`Already ${String(row.status).toLowerCase()}.`);
       }
+      const may = authority.canReviewTicket(auth, row);
+      if (!may.allowed) return interaction.editReply(`⛔ ${may.reason}`);
       // Nobody signs off their own work.
       if (row.closerDiscordId && row.closerDiscordId === interaction.user.id) {
         return interaction.editReply('You cannot review a ticket you handled yourself.');
@@ -350,31 +377,61 @@ async function handleReviewButton(interaction) {
         embeds: [ticketCard(out.ticket, { decidedBy: actor })], components: [],
       }).catch(() => {});
 
-      const paid = approved && out.ticket.closerIsIa !== false && out.ticket.closerDiscordId;
-      return interaction.editReply(
-        `${approved ? 'Approved' : 'Denied'}.${paid ? ' Points queued for the handler.' : ''}`);
+      // Say what was actually paid and to whom. "Points queued" left the
+      // reviewer to guess how many and for which of the two people on the card.
+      let line = approved ? 'Approved.' : 'Denied.';
+      if (approved) {
+        const t = out.ticket;
+        const handler = t.closerDiscordId ? `<@${t.closerDiscordId}>` : (t.closerUsername || 'the handler');
+        if (!(t.closerDiscordId || t.closerUserId)) {
+          line += ' No points yet: the handler is still being identified.';
+        } else if (t.closerIsIa === false) {
+          line += ` No points: ${handler} is not Internal Affairs.`;
+        } else {
+          const { ticketPointsFor } = require('./quota');
+          const n = ticketPointsFor(t.ticketType);
+          line += ` ${n} quota ${n === 1 ? 'point' : 'points'} queued for ${handler}.`;
+        }
+      }
+      return interaction.editReply({ content: line, allowedMentions: { parse: [] } });
     }
 
     if (kind === 'case') {
-      const row = await prisma.case.findUnique({ where: { id: recordId } }).catch(() => null);
+      const row = await prisma.case.findUnique({
+        where: { id: recordId },
+        include: { casePunishments: { select: { action: true } } },
+      }).catch(() => null);
       if (!row) return interaction.editReply('That case is no longer in the database.');
       if (row.status && row.status !== 'PENDING') {
         await interaction.message.edit({ components: [] }).catch(() => {});
         return interaction.editReply(`Already ${String(row.status).toLowerCase()}.`);
       }
+      // Supervisor and above, and NOT a Supervisor on a Termination or
+      // Blacklist. canDecideCase reads the applied punishments as well as the
+      // listed ones, so one edited off the case cannot launder it past here.
+      const mayDecide = authority.canDecideCase(auth, row);
+      if (!mayDecide.allowed) return interaction.editReply(`⛔ ${mayDecide.reason}`);
 
       // Cases carry consequences (roles, exile, demotion, points), so the real
       // pipeline decides — this button only triggers it.
       const decision = require('./caseDecision');
       const fn = approved ? decision.approveCase : decision.denyCase;
-      const out = await fn({ caseId: recordId, actor: { ...actor, member: interaction.member } });
+      const out = await fn({ caseId: recordId, actor });
       if (out && out.ok === false) return interaction.editReply(out.error || out.reason || 'Refused.');
 
       const fresh = await prisma.case.findUnique({ where: { id: recordId } });
       await interaction.message.edit({
         embeds: [caseCard(fresh, { decidedBy: actor })], components: [],
       }).catch(() => {});
-      return interaction.editReply(`${approved ? 'Approved' : 'Denied'} ${fresh.caseRef || ''}.`.trim());
+      // Both halves of the award, stated, because they differ by decision:
+      // an approval pays the submitter and the reviewer, a denial pays only the
+      // reviewer.
+      const review = parseInt(process.env.IA_CASE_REVIEW_POINTS || '1', 10) || 0;
+      const mine = review ? ` ${review} quota ${review === 1 ? 'point' : 'points'} queued for you.` : '';
+      const line = approved
+        ? `Approved ${fresh.caseRef || ''}.`.trim() + ` 4 quota points queued for the submitter.${mine}`
+        : `Denied ${fresh.caseRef || ''}.`.trim() + `${mine} The submitter gets nothing.`;
+      return interaction.editReply(line);
     }
 
     return interaction.editReply('Unknown review action.');
