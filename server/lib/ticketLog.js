@@ -155,6 +155,35 @@ function parseTicketLogEmbed(embed, extraText) {
     footer.includes('tickety');
   if (!looksLikeTickety) return null;
 
+  // ── ...and it has to be a CLOSE ─────────────────────────────────
+  // Tickety logs a ticket's whole life into the same channel with the same
+  // layout: opened, claimed, renamed, transferred, reopened, closed. Every one
+  // of those carries "Ticket Name:" and a Tickety footer, so the test above
+  // matches all of them — and each was being stored as a closed ticket, given a
+  // ticket number, queued for review and, on approval, PAID. One ticket could
+  // be worth points several times over just by being renamed.
+  //
+  // The TicketLog table means "a ticket that was closed" everywhere it is read:
+  // the site's All Tickets and My Tickets, the weekly count, the review queue.
+  // So the parser has to mean it too.
+  //
+  // Decided on the embed alone, like the test above, and stated as an explicit
+  // NO before a YES: a log that says both (a close whose reason mentions
+  // reopening) is a close, but a log that only says "Ticket Opened" must never
+  // be read as one because it happens to carry the word "closed" in a
+  // transcript link.
+  const notAClose =
+    /\bticket\s+(?:opened|created|claimed|unclaimed|renamed|reopened|re-opened|transferred|locked|unlocked|deleted)\b/i
+      .test(title || embedText.split('\n')[0] || '');
+  const isAClose =
+    /clos(?:ed|ing)\s+(?:a|this|the)\s+ticket/i.test(embedText) ||
+    /clos(?:ed|ing)\s+by\b/i.test(embedText) ||
+    /\bclose\s+information\b/i.test(embedText) ||
+    /\bclosed\s*(?:at|on|reason)\s*:/i.test(embedText) ||
+    /\bticket\s+closed\b/i.test(embedText) ||
+    (/ticket/i.test(title) && /clos/i.test(title));
+  if (notAClose || !isAClose) return null;
+
   // Everything belonging to this log, embed and message content alike. Field
   // extraction reads this; the classifier above did not.
   const outside = String(extraText == null ? '' : extraText).trim();

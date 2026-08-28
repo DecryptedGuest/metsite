@@ -121,7 +121,7 @@ function caseCard(kase, extra = {}) {
   if (kase.blacklistCode) {
     embed.addFields({
       name: 'Blacklist code',
-      value: `\`${kase.blacklistCode}\`${kase.blacklistReason ? ` — ${kase.blacklistReason}` : ''}`,
+      value: `\`${kase.blacklistCode}\`${kase.blacklistReason ? ` · ${kase.blacklistReason}` : ''}`,
       inline: true,
     });
   }
@@ -187,17 +187,26 @@ function ticketCard(ticket, extra = {}) {
     { name: 'Division',   value: String(ticket.division || 'MET'), inline: true },
   );
 
-  // What approving it is worth, stated up front. The rate is per type (appeals
-  // pay more), and a non-IA handler is paid nothing at all — a reviewer should
-  // not have to know that rule to read the card.
-  let worth = '—';
+  // What approving it pays, stated up front and in the word people use for it.
+  // "Worth: +2 pts" read like a score the ticket already had; these are quota
+  // points, they are only awarded on approval, and the reviewer pressing the
+  // button is the person awarding them. The rate is per type (an appeal pays
+  // more), and a non-IA handler is paid nothing at all — nobody should have to
+  // know that rule to read the card.
+  let points = 'Not known';
   try {
     const { ticketPointsFor } = require('./quota');
-    worth = ticket.closerIsIa === false
-      ? 'No points · handler is not IA'
-      : `+${ticketPointsFor(ticket.ticketType)} pts on approval`;
-  } catch { /* quota not loaded — leave the dash */ }
-  embed.addFields({ name: 'Worth', value: worth, inline: true });
+    if (ticket.closerIsIa === false) {
+      points = 'None · the handler is not Internal Affairs';
+    } else {
+      const n = ticketPointsFor(ticket.ticketType);
+      const already = String(ticket.status || 'PENDING').toUpperCase() === 'APPROVED';
+      points = already
+        ? `**${n}** quota ${n === 1 ? 'point' : 'points'} awarded`
+        : `**${n}** quota ${n === 1 ? 'point' : 'points'} on approval`;
+    }
+  } catch { /* quota not loaded — leave the placeholder */ }
+  embed.addFields({ name: 'Quota points', value: points, inline: true });
 
   // The close reason is the substance of the decision.
   if (ticket.reason) {

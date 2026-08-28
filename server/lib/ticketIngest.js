@@ -1294,6 +1294,88 @@ async function sweep(client, opts) {
   }
 }
 
+
+/**
+ * Void the rows that were never a closed ticket.
+ *
+ * Until the parser learned to insist on a CLOSE, every stage of a ticket's life
+ * that Tickety logs — opened, claimed, renamed, transferred, reopened — parsed
+ * as one, because they all carry "Ticket Name:" and the same footer. Each became
+ * a row, took a ticket number, joined the review queue and, once approved, PAID.
+ * A single ticket that got renamed twice could be worth points three times.
+ *
+ * The rows are already there, so the parser fix alone does not clear them. This
+ * re-reads each pending row's original message with the parser as it is now and
+ * voids the ones that are not closes.
+ *
+ * VOIDS rather than deletes, and only ever touches a row that is still PENDING:
+ *   * a reviewed row is somebody's decision and a paid row is somebody's points,
+ *     and neither is this function's to reverse — those are listed instead,
+ *   * voiding leaves the row searchable, which is what you want when somebody
+ *     asks why their ticket count changed.
+ *
+ * A message that can no longer be fetched (deleted, or a channel the bot lost
+ * access to) is LEFT ALONE. "I could not check" must never read as "it was not a
+ * close" — that would void the whole table the first time a permission lapsed.
+ */
+async function voidNonCloseRows(opts = {}) {
+  const limit = opts.limit || 5000;
+  const out = { checked: 0, voided: 0, unreadable: 0, reviewedNotTouched: 0, error: null };
+
+  let rows;
+  try {
+    rows = await prisma.ticketLog.findMany({
+      where: { voidedAt: null },
+      select: { id: true, messageId: true, channelId: true, status: true, ticketNo: true },
+      orderBy: { closedAt: 'asc' },
+      take: limit,
+    });
+  } catch (err) { out.error = err.message; return out; }
+
+  for (const row of rows) {
+    let data;
+    try { data = await rowFromMessageId(row.messageId, row.channelId); }
+    catch (err) { out.unreadable++; continue; }
+
+    // Either it still parses as a close, or the message could not be read. Both
+    // mean "leave it".
+    if (data) { out.checked++; continue; }
+    if (!(await messageStillExists(row))) { out.unreadable++; continue; }
+
+    out.checked++;
+    if (row.status !== 'PENDING') { out.reviewedNotTouched++; continue; }
+
+    try {
+      await prisma.ticketLog.update({
+        where: { id: row.id },
+        // VOID, never DENIED. DENIED is a decision somebody made about a real
+        // ticket; this row was never a ticket close at all, and labelling it as
+        // a denial would put a verdict in the record that nobody reached.
+        data: {
+          voidedAt: new Date(), status: 'VOID',
+          reviewedByName: 'Not a ticket close',
+        },
+      });
+      out.voided++;
+    } catch (err) {
+      console.warn('[TicketLogs] could not void row', row.ticketNo ?? row.id, '·', err.message);
+    }
+  }
+  return out;
+}
+
+/** Is the log message still there? Distinguishes "not a close" from "cannot read". */
+async function messageStillExists(row) {
+  try {
+    const { getClient } = require('./bot');
+    const client = typeof getClient === 'function' ? getClient() : null;
+    if (!client) return false;
+    const channel = await client.channels.fetch(String(row.channelId || TICKET_LOG_CHANNEL_ID()));
+    const msg = await channel.messages.fetch(String(row.messageId));
+    return !!msg;
+  } catch (err) { return false; }
+}
+
 // The one-off repair of what is already stored.
 //
 // Both bugs it fixes are historic — one closed ticket logged twice became two
@@ -1309,7 +1391,10 @@ const REPAIR_KEY = 'ticketLogRepairVersion';
 //     first, because that is the order the channel is read in) and re-read the
 //     logs that still name nobody, now that the parser also looks at the embed
 //     author line and the message's own text.
-const REPAIR_VERSION = '3';
+// 4 — void the rows that were never a closed ticket at all. Every stage Tickety
+//     logs (opened, claimed, renamed, transferred, reopened) parsed as a close,
+//     so each was stored, numbered, queued and on approval paid.
+const REPAIR_VERSION = '4';
 
 async function repairOnce(client) {
   let done = null;
@@ -1329,6 +1414,10 @@ async function repairOnce(client) {
   const handlers = await backfillHandlers(8000, { refetch: true, force: true })
     .catch(e => ({ error: e.message }));
 
+  // Before renumbering, because voiding takes rows out of the queue and the
+  // numbers have to be contiguous over what is left.
+  const nonCloses = await voidNonCloseRows({ limit: 5000 }).catch(e => ({ error: e.message }));
+
   // Last, because merging duplicates removes rows and the numbers have to be
   // contiguous over what survives.
   const numbers = await renumberTickets().catch(e => ({ error: e.message }));
@@ -1343,8 +1432,11 @@ async function repairOnce(client) {
 
   console.log(`[TicketLogs] repair done · ${duplicates.removed || 0} duplicate row(s) removed, `
     + `${handlers.fixed || 0} handler(s) filled in, ${handlers.stillBlank || 0} still blank, `
-    + `${numbers.renumbered || 0} log(s) renumbered oldest-first`);
-  return { duplicates, handlers, numbers };
+    + `${nonCloses.voided || 0} non-close log(s) voided`
+    + (nonCloses.reviewedNotTouched
+        ? ` (${nonCloses.reviewedNotTouched} already reviewed and left alone)` : '')
+    + `, ${numbers.renumbered || 0} log(s) renumbered oldest-first`);
+  return { duplicates, handlers, nonCloses, numbers };
 }
 
 function startTicketLogWorker(client) {
@@ -1374,4 +1466,5 @@ module.exports = {
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
   queueCard, queueMissingCards,
+  voidNonCloseRows,
 };

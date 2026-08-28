@@ -47,7 +47,7 @@
         ${esc(s.title)}</h3><table class="data-table"><thead><tr>
         <th>Member</th><th>Rank</th><th style="text-align:right;">Total</th><th>Target</th></tr></thead><tbody>`;
       for (const r of s.rows) {
-        const target = r.exempt ? 'Exempt' : (r.target == null ? '—' : r.target);
+        const target = r.exempt ? 'Exempt' : (r.target == null ? 'None' : r.target);
         const colour = r.exempt ? 'var(--text-muted)'
                      : r.met ? 'var(--green,#2ed896)' : 'var(--amber,#f5b730)';
         html += `<tr><td>${esc(r.username)}</td><td class="muted">${esc(r.rankAbbr || r.rank)}</td>
