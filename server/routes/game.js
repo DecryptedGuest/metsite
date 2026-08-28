@@ -469,6 +469,69 @@ router.get('/tryout/joincode', requireGameSecret, async (req, res) => {
   }
 });
 
+// ── GET /api/game/tryout/linkstatus?robloxId=<id> ──────────────────
+//
+// Is this Roblox user linked to a portal account? Read-only, and deliberately
+// so: it creates nothing, changes nothing, schedules nothing.
+//
+// It exists because the only way to find out used to be to TRY to start a
+// tryout and get a 422 back, which happens in front of the cadets. The
+// instructor panel can now ask first.
+//
+// The answer has to be the SAME answer /tryout/create would give, or the panel
+// says "linked" and the create still fails. So it calls resolveGameHost — the
+// very function create calls — rather than reimplementing the lookup. That
+// includes the RoVer reverse lookup and the stored-username fallback.
+//
+// An unlinked user is a normal answer, not an error: 200 with linked:false.
+// Only a malformed request is a 4xx.
+router.get('/tryout/linkstatus', requireGameSecret, async (req, res) => {
+  const raw = req.query.robloxId;
+  if (raw == null || String(raw).trim() === '') {
+    return res.status(400).json({ error: 'robloxId is required.' });
+  }
+  // Strict: a Roblox user id is a positive integer. Number() alone would accept
+  // "12e3", " 12 " and "0x1f", and Roblox ids that came back from a coercion
+  // like that would silently look up the wrong person.
+  const text = String(raw).trim();
+  if (!/^[0-9]+$/.test(text) || text === '0') {
+    return res.status(400).json({ error: 'robloxId must be a positive integer.' });
+  }
+
+  try {
+    // The direct read first, and deliberately WITHOUT a catch.
+    //
+    // resolveHostUser wraps every query in `.catch(() => null)`, which is right
+    // for starting a tryout (fall through to the next strategy) and wrong here:
+    // it makes a database outage indistinguishable from "not linked", and this
+    // endpoint's whole job is to tell a host whether they need to go and link.
+    // Sending a correctly-linked person away to re-link is a worse failure than
+    // saying "ask again in a minute".
+    let user = await prisma.user.findFirst({ where: { robloxId: text } });
+
+    // Not found by the stored id is not the end of it: the create route also
+    // tries RoVer's reverse lookup and the stored Roblox username. Use the same
+    // resolver so this answer cannot disagree with what create would do.
+    if (!user) user = await resolveGameHost({ robloxId: text });
+
+    if (!user) {
+      return res.json({ linked: false, reason: 'no linked account for this Roblox id' });
+    }
+    return res.json({
+      linked: true,
+      username: user.displayName || user.discordUsername || user.robloxUsername || 'Unknown',
+      discordId: user.discordId ? String(user.discordId) : null,
+    });
+  } catch (err) {
+    // A lookup that fell over is NOT "not linked" — saying so would send the
+    // host away to re-link an account that is already linked fine.
+    console.error('[Game] linkstatus failed:', err.message);
+    // 503, not 500: this is "ask again", not "your request was wrong". The panel
+    // should say the check is unavailable, never that the host is unlinked.
+    return res.status(503).json({ error: 'Could not check the link right now · try again shortly.' });
+  }
+});
+
 // POST /api/game/tryout/create — start an unscheduled tryout instantly.
 // body: { host:{robloxId,username,discordId?}, coHost?, privateServerId?, startedAt? }
 router.post('/tryout/create', requireGameSecret, async (req, res) => {
