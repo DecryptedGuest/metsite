@@ -8,7 +8,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Metropolitan Police Service" />
   <meta property="og:title" content="Metropolitan Police Service" />
-  <meta property="og:description" content="Officer portal — quota, disciplinary record, divisions and more." />
+  <meta property="og:description" content="MET Dashboard — quota, disciplinary record, divisions and more." />
   <meta name="theme-color" content="#4a8fff" />
 
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
@@ -36,10 +36,10 @@
 
 <div class="signin-wrap">
   <div class="signin-crest">
-    <img id="signin-logo" src="/img/logo.png" alt="MET Police" />
+    <img id="signin-logo" src="/img/divisions/met.png" alt="Metropolitan Police Service" />
     <div>
       <div class="signin-title">Metropolitan Police Service</div>
-      <div class="signin-sub">Officer Portal</div>
+      <div class="signin-sub">MET Dashboard</div>
     </div>
   </div>
 
@@ -80,9 +80,6 @@
       .then(r => { if (r.ok) location.replace('/dashboard'); })
       .catch(() => {});
   }
-  // Use the MET group icon as the crest if it's reachable (falls back to logo.png).
-  fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null)
-    .then(d => { if (d && d.metIcon) document.getElementById('signin-logo').src = d.metIcon; }).catch(() => {});
 })();
 </script>
 </body>
