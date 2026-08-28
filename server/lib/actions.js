@@ -62,4 +62,47 @@ const ALL_ACTION_NAMES = Object.keys(ACTION_CONFIG);
 // The Discord role for an action right now (env-resolved), or null.
 function roleIdForAction(action) { return ACTION_CONFIG[action] ? ACTION_CONFIG[action].roleId : null; }
 
-module.exports = { ACTION_CONFIG, ACTION_NAMES, ALL_ACTION_NAMES, roleIdForAction };
+
+// Is this action one that expires? Suspensions, Zero Tolerance and strikes all
+// carry a duration; a warning does not. Reading this before storing a duration
+// is what stops "Strike(s) [2]" being filed as a two-day strike.
+function isTimed(action) { return !!(ACTION_CONFIG[action] && ACTION_CONFIG[action].timed); }
+
+/**
+ * Parse a comma-separated punishment list into canonical action names.
+ *
+ * Matching is case- and space-insensitive, and tolerates the shorthand people
+ * actually type ("ws" / "written", "zt", "strike 1"), because a filer who has
+ * to reproduce the exact catalogue string will get it wrong and lose the case
+ * they just wrote up. Retired actions are never matched: nothing new is filed
+ * against one.
+ *
+ * @returns {{actions: string[], invalid: string[]}}
+ */
+function parseActions(input) {
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const byNorm = new Map(ACTION_NAMES.map(n => [norm(n), n]));
+  const ALIASES = {
+    ww: 'Written Warning', written: 'Written Warning', warning: 'Written Warning',
+    zt: 'Zero Tolerance', zerotolerance: 'Zero Tolerance',
+    susp: 'Suspension', suspend: 'Suspension',
+    as: 'Activity Strike', activitystrike: 'Activity Strike',
+    strike1: 'Disciplinary Strike 1', ds1: 'Disciplinary Strike 1', s1: 'Disciplinary Strike 1',
+    strike2: 'Disciplinary Strike 2', ds2: 'Disciplinary Strike 2', s2: 'Disciplinary Strike 2',
+    demote: 'Demotion', term: 'Termination', terminate: 'Termination',
+    bl: 'Blacklist',
+  };
+
+  const actions = [], invalid = [];
+  for (const raw of String(input || '').split(',')) {
+    const t = raw.trim();
+    if (!t) continue;
+    const k = norm(t);
+    const hit = byNorm.get(k) || ALIASES[k] || null;
+    if (!hit) invalid.push(t);
+    else if (!actions.includes(hit)) actions.push(hit);
+  }
+  return { actions, invalid };
+}
+
+module.exports = { ACTION_CONFIG, ACTION_NAMES, ALL_ACTION_NAMES, roleIdForAction, isTimed, parseActions };

@@ -164,6 +164,10 @@ model Case {
   suspectRobloxDisplayName    String?
   punishmentsSummary          String?
   logMessageId                String?
+  // The review card posted into the IA cases channel. Stored so a card can be
+  // rewritten in place when the case is decided, and so a case that never got
+  // one can be spotted and given one rather than sitting unseen forever.
+  cardMessageId               String?
   reviewNote                  String?
   reviewChanges               Json?
   // Snapshot of the case's editable fields taken the moment a reviewer requested
@@ -299,6 +303,11 @@ model TicketLog {
   // Set when the queue was reset: a log nobody is being asked to decide on any
   // more. Distinct from DENIED, which is a decision somebody made.
   voidedAt       DateTime?
+
+  // The review card posted into the IA tickets channel, for the same reasons
+  // Case.cardMessageId exists: rewrite it in place on a decision, and find the
+  // rows that were ingested before cards existed and never got queued.
+  cardMessageId String?
 
   raw       Json?
   createdAt DateTime @default(now())

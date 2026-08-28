@@ -135,7 +135,15 @@
         const r = await api('/api/dev/ia-sync/tickets', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
         });
-        note(out2(), 'ok', `Scanned ${r.scanned ?? '?'} · new ${r.created ?? r.new ?? 0} · refreshed ${r.updated ?? r.refreshed ?? 0}.`);
+        if (!r) { note(out2(), 'ok', 'A sweep is already running · try again in a moment.'); return; }
+        // Cards posted is the number people actually care about: it is how many
+        // closed tickets have just been put in front of a reviewer.
+        const cards = r.cardsPosted
+          ? ` · review cards posted ${r.cardsPosted}${r.cardsPending ? ` of ${r.cardsPending} waiting` : ''}`
+          : (r.cardsPending ? ` · ${r.cardsPending} still waiting for a card` : '');
+        note(out2(), r.error ? 'warn' : 'ok',
+          `Scanned ${r.scanned ?? '?'} · new ${r.created ?? r.new ?? 0} · refreshed ${r.updated ?? r.refreshed ?? 0}${cards}.`
+          + (r.error ? ` ${esc(r.error)}` : ''));
       } catch (err) { note(out2(), 'bad', esc(err.message)); }
     });
   }

@@ -215,10 +215,14 @@ const IA_COMMAND_ALLOWLIST = () => {
   return new Set(list);
 };
 
-const DISCIPLINE_GUILD_IDS  = () => iaGuild('DISCIPLINE_GUILD_ID');
-const XP_GUILD_IDS          = () => iaGuild('XP_GUILD_ID');
+// /discipline, /xp and /loa are MET commands. They used to resolve through
+// iaGuild(), which meant that with only IA_GUILD_ID set they targeted the IA
+// server -- where the allowlist below then removed them again, so they
+// registered nowhere at all. They are MET's, and they go to MET's server.
+const DISCIPLINE_GUILD_IDS  = () => metGuild('DISCIPLINE_GUILD_ID');
+const XP_GUILD_IDS          = () => metGuild('XP_GUILD_ID');
 const IA_GUILD_IDS          = () => iaGuild('IA_PANEL_GUILD_ID');
-const LOA_GUILD_IDS         = () => iaGuild('LOA_GUILD_ID');
+const LOA_GUILD_IDS         = () => metGuild('LOA_GUILD_ID');
 const PROMOTE_GUILD_IDS     = () => metGuild('PROMOTE_GUILD_ID');
 const MET_GUILD_IDS         = () => metGuild('MET_INFO_GUILD_ID');
 const PENDINGJOIN_GUILD_IDS = () => metGuild('PENDINGJOIN_GUILD_ID');
@@ -333,6 +337,33 @@ function buildCommandPlan() {
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /undo:', err.message);
+  }
+
+  // The four Internal Affairs commands. All IA-server only: quota points and
+  // case filing have no meaning in the MET or CID servers.
+  try {
+    for (const cmd of require('./qpCommand').buildCommands()) {
+      add(iaGuild('QP_GUILD_ID'), cmd);
+      global.push(cmd);
+    }
+  } catch (err) {
+    console.error('[Bot] could not build /add-qp + /remove-qp:', err.message);
+  }
+
+  try {
+    const cmd = require('./leaderboardCommand').buildCommand();
+    add(iaGuild('LEADERBOARD_GUILD_ID'), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /leaderboard:', err.message);
+  }
+
+  try {
+    const cmd = require('./submitCaseCommand').buildCommand();
+    add(iaGuild('SUBMIT_CASE_GUILD_ID'), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /submit-case:', err.message);
   }
 
   try {
@@ -542,6 +573,10 @@ async function onInteraction(interaction) {
       return require('./promoteCommand').handlePromoteAutocomplete(interaction)
         .catch(e => console.error('[Bot] promote autocomplete error:', e.message));
     }
+    if (interaction.commandName === 'submit-case') {
+      return require('./submitCaseCommand').handleAutocomplete(interaction)
+        .catch(e => console.error('[Bot] submit-case autocomplete error:', e.message));
+    }
     return;
   }
 
@@ -612,6 +647,22 @@ async function onInteraction(interaction) {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'add-qp' || interaction.commandName === 'remove-qp') {
+    return require('./qpCommand')
+      .handleQp(interaction, interaction.commandName === 'add-qp' ? +1 : -1)
+      .catch(e => console.error(`[Bot] /${interaction.commandName} error:`, e.message));
+  }
+
+  if (interaction.commandName === 'leaderboard') {
+    return require('./leaderboardCommand').handleLeaderboard(interaction)
+      .catch(e => console.error('[Bot] /leaderboard error:', e.message));
+  }
+
+  if (interaction.commandName === 'submit-case') {
+    return require('./submitCaseCommand').handleSubmitCase(interaction)
+      .catch(e => console.error('[Bot] /submit-case error:', e.message));
+  }
 
   if (interaction.commandName === 'undo') {
     return require('./undoCommand').handleUndo(interaction)

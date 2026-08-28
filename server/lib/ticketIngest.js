@@ -1001,17 +1001,10 @@ async function ingestMessage(msg) {
     const queueable  = !divisional || created.closerIsIa === true;
 
     if (created.status === 'PENDING' && queueable) {
-      try {
-        const cards = require('./iaReviewCards');
-        if (cards.ticketsChannelId()) {
-          const { getClient } = require('./bot');
-          const client = getClient();
-          if (client) await cards.postTicketCard(client, created);
-        }
-      } catch (err) {
-        // The row is stored; a missing card is cosmetic and must never undo it.
-        console.warn('[TicketLogs] review card not posted:', err.message);
-      }
+      // Never let a card failure undo the row: the ticket is stored either way.
+      // queueCard records the message id, which is what lets the sweep below
+      // find a queueable ticket that never got one.
+      await queueCard(created).catch(() => {});
     } else if (created.status === 'PENDING' && divisional) {
       console.log(`[TicketLogs] ${created.division} ticket ${created.ticketNo ?? created.id} not queued `
         + '· closed by a non-IA handler');
@@ -1158,6 +1151,78 @@ async function backfillSource(client, src, opts = {}) {
   return stats;
 }
 
+
+// ── Review cards ──────────────────────────────────────────────────
+//
+// Storing the card's message id is the whole point of this pair. Without it
+// nothing could tell "this ticket has been put in front of a reviewer" from
+// "this ticket was ingested before cards existed and nobody has ever seen it" —
+// and the second was true of every MET ticket already in the table. They were
+// logged; they were simply never shown to anybody, which from the outside looks
+// exactly like not being logged at all.
+
+/** Is this row IA's to review? MET always; a divisional ticket only if IA closed it. */
+function queueable(row) {
+  const divisional = String(row.division || 'MET').toUpperCase() !== 'MET';
+  return !divisional || row.closerIsIa === true;
+}
+
+/** Post the review card for one ticket and remember where it went. */
+async function queueCard(row) {
+  const cards = require('./iaReviewCards');
+  if (!cards.ticketsChannelId()) return false;
+  const { getClient } = require('./bot');
+  const client = getClient();
+  if (!client) return false;
+
+  const messageId = await cards.postTicketCard(client, row);
+  if (!messageId) return false;
+  await prisma.ticketLog.update({
+    where: { id: row.id }, data: { cardMessageId: messageId },
+  }).catch(() => {});
+  return true;
+}
+
+/**
+ * Put any queueable ticket that has never been carded in front of a reviewer.
+ *
+ * Runs on every sweep, in small batches. Small because posting is rate-limited
+ * and a first run has a whole channel's backlog to work through: a cap of 10 per
+ * sweep clears it over a few cycles instead of getting the bot throttled and
+ * posting nothing at all. Oldest first, so the queue drains in the order the
+ * tickets were actually closed.
+ */
+async function queueMissingCards(limit = 10) {
+  const out = { posted: 0, pending: 0 };
+  const cards = require('./iaReviewCards');
+  if (!cards.ticketsChannelId()) return out;
+
+  let rows;
+  try {
+    rows = await prisma.ticketLog.findMany({
+      where: { status: 'PENDING', voidedAt: null, cardMessageId: null },
+      orderBy: { closedAt: 'asc' },
+      take: limit * 4,   // over-fetch: most of a divisional batch is not queueable
+    });
+  } catch (err) {
+    console.warn('[TicketLogs] could not look for uncarded tickets:', err.message);
+    return out;
+  }
+
+  const todo = rows.filter(queueable);
+  out.pending = todo.length;
+  for (const row of todo.slice(0, limit)) {
+    try {
+      if (await queueCard(row)) out.posted++;
+    } catch (err) {
+      console.warn('[TicketLogs] card not posted for ticket', row.ticketNo ?? row.id, '·', err.message);
+    }
+    // Gentle on the channel: cards are posted with a reviewer ping.
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return out;
+}
+
 // ── Workers ───────────────────────────────────────────────────────
 let _sweeping = false;
 async function sweep(client, opts) {
@@ -1207,9 +1272,20 @@ async function sweep(client, opts) {
       console.warn('[TicketLogs] handler repair skipped:', e.message);
     }
 
-    if (s.created || s.updated || s.error || s.handlersFixed) {
+    // Anything queueable that has no card yet — the backlog that was ingested
+    // before review cards shipped, plus anything a transient channel error lost.
+    try {
+      const q = await queueMissingCards();
+      if (q.posted)  s.cardsPosted  = q.posted;
+      if (q.pending) s.cardsPending = q.pending;
+    } catch (err) {
+      console.warn('[TicketLogs] card catch-up skipped:', err.message);
+    }
+
+    if (s.created || s.updated || s.error || s.handlersFixed || s.cardsPosted) {
       console.log(`[TicketLogs] sweep · scanned ${s.scanned}, new ${s.created}, refreshed ${s.updated}`
         + (s.handlersFixed ? `, handlers filled ${s.handlersFixed}` : '')
+        + (s.cardsPosted ? `, cards posted ${s.cardsPosted}/${s.cardsPending}` : '')
         + (s.error ? `, error: ${s.error}` : ''));
     }
     return s;
@@ -1296,4 +1372,6 @@ module.exports = {
   TICKET_LOG_GUILD_ID,
   // Multi-division sources: MET, CID and SCO-19.
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
+  // Review-card queueing, exposed for the dev dashboard's ticket sweep.
+  queueCard, queueMissingCards,
 };
