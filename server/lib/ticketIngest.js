@@ -1020,6 +1020,10 @@ async function ingestMessage(msg) {
     const created = await prisma.ticketLog.create({
       data: { ...data, ...(cleared || {}), ticketNo: await nextTicketNo() },
     });
+    console.log(`[TicketLogs] stored ${created.division} ticket ${created.ticketNo ?? created.id}`
+      + ` · ${created.ticketName || created.ticketRef || 'unnamed'}`
+      + ` · closed ${new Date(created.closedAt).toISOString()}`
+      + ` by ${created.closerUsername || 'nobody named'}`);
 
     // Put it in front of a reviewer straight away. Until now the queue only
     // existed on the site, so a closed ticket sat unseen until somebody
@@ -1039,9 +1043,13 @@ async function ingestMessage(msg) {
 
     if (created.status === 'PENDING' && queueable && isNew) {
       // Never let a card failure undo the row: the ticket is stored either way.
-      // queueCard records the message id, which is what lets the sweep below
-      // find a queueable ticket that never got one.
-      await queueCard(created).catch(() => {});
+      // But SAY SO. This used to be `.catch(() => {})`, which swallowed a card
+      // that threw while being built and produced no log line at all — the exact
+      // shape of "the bot did nothing and said nothing".
+      await queueCard(created).catch((err) => {
+        console.error(`[TicketLogs] card failed for ticket ${created.ticketNo ?? created.id}`
+          + ` · ${err && err.message ? err.message : err}`);
+      });
     } else if (created.status === 'PENDING' && !isNew) {
       const line = await cardingStartedAt();
       console.log(`[TicketLogs] ticket ${created.ticketNo ?? created.id} stored but not queued `
@@ -1231,7 +1239,13 @@ async function queueCard(row) {
     return false;
   }
 
-  const messageId = await cards.postTicketCard(client, row);
+  let messageId = null;
+  try {
+    messageId = await cards.postTicketCard(client, row);
+  } catch (err) {
+    console.error(`[TicketLogs] no card for ${label} · building or posting it threw · ${err.message}`);
+    return false;
+  }
   if (!messageId) {
     console.warn(`[TicketLogs] no card for ${label} · the channel could not be posted to`);
     return false;

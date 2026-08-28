@@ -58,6 +58,33 @@ const trim = (s, n) => {
 };
 
 /**
+ * A field value Discord will accept.
+ *
+ * An embed field value must be 1..1024 characters. An EMPTY one is rejected with
+ * a throw, and a record with a blank column produces one easily — `trim(' ')` is
+ * the empty string, and the guard around it was a truthiness check on the raw
+ * value, which " " passes. Every field goes through here now, so no single blank
+ * column can take the whole card down.
+ */
+const field = (name, value, inline = false) => {
+  const v = trim(value, 1024);
+  return v ? { name: trim(name, 256) || 'Field', value: v, inline } : null;
+};
+
+/** Add only the fields that are actually renderable, capped at Discord's 25. */
+function addFields(embed, ...fields) {
+  const usable = fields.filter(Boolean).slice(0, 25 - (embed.data.fields || []).length);
+  if (usable.length) embed.addFields(usable);
+  return embed;
+}
+
+/** A date Discord will accept, or now. setTimestamp throws on an invalid one. */
+function safeDate(value) {
+  const d = value ? new Date(value) : null;
+  return d && !isNaN(d.getTime()) ? d : new Date();
+}
+
+/**
  * Punishments, one per line, showing only what was actually applied.
  *
  * `actions` may be the enriched JSON ([{ action, durationDays, code }]) or the
@@ -112,10 +139,11 @@ function caseCard(kase, extra = {}) {
   const embed = new EmbedBuilder()
     .setColor(colour)
     .setTitle(`Case ${kase.caseRef || ''}`.trim())
-    .setTimestamp(kase.createdAt || new Date());
+    .setTimestamp(safeDate(kase.createdAt));
 
   // The document, when there is one, is the most-clicked thing on the card.
-  if (kase.caseLink || kase.docUrl) embed.setURL(kase.caseLink || kase.docUrl);
+  const caseLink = safeUrl(kase.caseLink || kase.docUrl);
+  if (caseLink) embed.setURL(caseLink);
 
   // WHO, first. A card whose subject you have to hunt for is the main
   // complaint about the old layout.
@@ -174,12 +202,13 @@ function ticketCard(ticket, extra = {}) {
   const embed = new EmbedBuilder()
     .setColor(colour)
     .setTitle(`Ticket ${ref}`.trim())
-    .setTimestamp(ticket.closedAt || ticket.createdAt || new Date());
+    .setTimestamp(safeDate(ticket.closedAt || ticket.createdAt));
 
   // The channel name is how people actually refer to a ticket ("that
   // no_onee_01 one"), so it belongs above the fold, not in a footer.
   if (ticket.ticketName) embed.setDescription(`\`${ticket.ticketName}\``);
-  if (ticket.transcriptUrl) embed.setURL(ticket.transcriptUrl);
+  const ticketLink = safeUrl(ticket.transcriptUrl);
+  if (ticketLink) embed.setURL(ticketLink);
 
   const opened = ticket.creatorDiscordId
     ? `<@${ticket.creatorDiscordId}>${ticket.creatorRobloxUsername ? `\n\`${ticket.creatorRobloxUsername}\`` : ''}`
@@ -194,14 +223,14 @@ function ticketCard(ticket, extra = {}) {
         // card is re-rendered when it does.
         : '*being identified*');
 
-  embed.addFields(
-    { name: 'Opened by',  value: String(opened),  inline: true },
-    { name: 'Handled by', value: String(handled), inline: true },
-    { name: 'Closed',     value: ticket.closedAt
-        ? `<t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:f>\n<t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:R>`
-        : '*unknown*', inline: true },
-    { name: 'Type',       value: String(ticket.ticketType || 'GENERAL_SUPPORT').replace(/_/g, ' '), inline: true },
-    { name: 'Division',   value: String(ticket.division || 'MET'), inline: true },
+  const closedAt = ticket.closedAt && !isNaN(new Date(ticket.closedAt).getTime())
+    ? Math.floor(new Date(ticket.closedAt).getTime() / 1000) : null;
+  addFields(embed,
+    field('Opened by',  opened,  true),
+    field('Handled by', handled, true),
+    field('Closed', closedAt ? `<t:${closedAt}:f>\n<t:${closedAt}:R>` : '*unknown*', true),
+    field('Type',     String(ticket.ticketType || 'GENERAL_SUPPORT').replace(/_/g, ' '), true),
+    field('Division', String(ticket.division || 'MET'), true),
   );
 
   // What approving it pays, stated up front and in the word people use for it.
@@ -232,17 +261,15 @@ function ticketCard(ticket, extra = {}) {
         : `**${n}** quota ${word} on approval`;
     }
   } catch { /* quota not loaded — leave the placeholder */ }
-  embed.addFields({ name: 'Quota points', value: points, inline: true });
+  addFields(embed, field('Quota points', points, true));
 
   // The close reason is the substance of the decision.
-  if (ticket.reason) {
-    embed.addFields({ name: 'Close reason', value: trim(ticket.reason, 1024), inline: false });
-  }
+  addFields(embed, field('Close reason', ticket.reason));
 
   // Tickety's own id, kept last: unreadable, but it is what you search with
   // when somebody disputes a decision.
   if (ticket.ticketRef && ticket.ticketNo != null) {
-    embed.addFields({ name: 'Ticket ID', value: `\`${trim(ticket.ticketRef, 90)}\``, inline: false });
+    addFields(embed, field('Ticket ID', `\`${trim(ticket.ticketRef, 90)}\``));
   }
 
   const decided = actorName(extra.decidedBy) || ticket.reviewedByName;
@@ -288,22 +315,66 @@ async function postCard(client, channelId, embed, components, { ping = false } =
   }
 }
 
+/**
+ * Build a card and post it, with the BUILD inside the guard.
+ *
+ * postCaseCard and postTicketCard used to pass `caseCard(...)` and
+ * `ticketComponents(...)` as ARGUMENTS to postCard. Arguments are evaluated
+ * before the call, so a throw while building the embed happened OUTSIDE
+ * postCard's try/catch. It escaped into queueCard, which had no catch, and
+ * landed on `queueCard(created).catch(() => {})` in the ingest — swallowed
+ * whole, with no log line anywhere.
+ *
+ * So a single bad value (a transcript link that is not a URL, an empty field
+ * value, an unparseable date) made the review card vanish in complete silence,
+ * which is indistinguishable from the ingest never having run.
+ */
+async function buildAndPost(client, channelId, build, what) {
+  if (!client || !channelId) return null;
+  let embed, components;
+  try {
+    ({ embed, components } = build());
+  } catch (err) {
+    console.error(`[IA] could not BUILD the ${what} card · ${err.message}`
+      + ' · the record is stored; this is a card-rendering fault, not a lost record');
+    return null;
+  }
+  return postCard(client, channelId, embed, components, { ping: true });
+}
+
 const postCaseCard = (client, kase, extra) =>
-  postCard(client, casesChannelId(), caseCard(kase, extra),
-    reviewButtons('case', kase.id), { ping: true });
+  buildAndPost(client, casesChannelId(),
+    () => ({ embed: caseCard(kase, extra), components: reviewButtons('case', kase.id) }), 'case');
+
+/**
+ * A link discord.js will actually accept, or null.
+ *
+ * ButtonBuilder.setURL and EmbedBuilder.setURL both THROW on anything that is not
+ * a valid http(s) URL, and that throw happened while the card was being BUILT —
+ * see postTicketCard below for why that was fatal and silent.
+ */
+function safeUrl(value) {
+  const v = String(value == null ? '' : value).trim();
+  if (!v) return null;
+  try {
+    const u = new URL(v);
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? v : null;
+  } catch { return null; }
+}
 
 function ticketComponents(ticket) {
   const row = reviewButtons('ticket', ticket.id);
-  if (ticket.transcriptUrl) {
+  const link = safeUrl(ticket.transcriptUrl);
+  if (link) {
     row.addComponents(new ButtonBuilder()
-      .setLabel('Transcript').setStyle(ButtonStyle.Link).setURL(ticket.transcriptUrl));
+      .setLabel('Transcript').setStyle(ButtonStyle.Link).setURL(link));
   }
   return row;
 }
 
 const postTicketCard = (client, ticket, extra) =>
-  postCard(client, ticketsChannelId(), ticketCard(ticket, extra),
-    ticketComponents(ticket), { ping: true });
+  buildAndPost(client, ticketsChannelId(),
+    () => ({ embed: ticketCard(ticket, extra), components: ticketComponents(ticket) }), 'ticket');
 
 /** Rewrite a card in place once it has been decided, and take the buttons away. */
 async function finaliseCard(client, channelId, messageId, embed) {
