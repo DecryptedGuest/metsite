@@ -100,4 +100,6 @@ async function execute(interaction) {
   }
 }
 
-module.exports = { scope: 'cid', data, execute };
+// Runs in the MET server alongside the other administration commands. The
+// CID server holds the role we read, but has no commands of its own.
+module.exports = { scope: 'met', data, execute };

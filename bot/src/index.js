@@ -23,7 +23,6 @@ client.commands = new Collection(COMMANDS.map(c => [c.data.name, c]));
 /** Which guild a scope belongs to. */
 const guildForScope = (scope) => {
   if (scope === 'met') return env('MET_GUILD_ID') || env('DISCORD_GUILD_ID');
-  if (scope === 'cid') return env('CID_GUILD_ID');
   return env('IA_GUILD_ID') || env('DISCORD_GUILD_ID');
 };
 
@@ -35,7 +34,7 @@ const guildForScope = (scope) => {
 function wrongGuild(interaction, cmd) {
   const expected = guildForScope(cmd.scope);
   if (!expected || interaction.guildId === expected) return null;
-  const where = { met: 'MET server', cid: 'CID server', ia: 'Internal Affairs' }[cmd.scope];
+  const where = { met: 'MET server', ia: 'Internal Affairs' }[cmd.scope];
   return `⛔ This is a ${where} command and cannot be used here.`;
 }
 
@@ -162,10 +161,10 @@ client.bot = bot;   // some commands reach helpers via interaction.client.bot
 client.once('clientReady', async () => {
   ready = true;
   console.log(`🤖  Discord bot online as ${client.user.tag}`);
-  const { IA, MET, CID } = require('./lib/commands');
+  const { IA, MET } = require('./lib/commands');
   console.log(`    IA  server ${env('IA_GUILD_ID')  || '(unset!)'} — ${IA.length} commands`);
   console.log(`    MET server ${env('MET_GUILD_ID') || '(unset!)'} — ${MET.length} commands`);
-  if (env('CID_GUILD_ID')) console.log(`    CID server ${env('CID_GUILD_ID')} — ${CID.length} commands`);
+  if (env('CID_GUILD_ID')) console.log(`    CID server ${env('CID_GUILD_ID')} — no commands (role sync only)`);
   await roblox.initCsrf();
   startExpiryWorker(bot);
   startQuotaWorker();

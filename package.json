@@ -1,7 +1,7 @@
 {
   "name": "metsite",
   "version": "1.0.0",
-  "description": "Metropolitan Police Service Portal — CID, SCO-19, Internal Affairs, FLP, Hendon Police College",
+  "description": "Metropolitan Police Service Portal \u2014 CID, SCO-19, Internal Affairs, FLP, Hendon Police College",
   "main": "server/index.js",
   "scripts": {
     "start": "node scripts/start.js",
@@ -16,7 +16,9 @@
     "test": "node --test test/cad/units.service.test.js test/cad/dispatch.service.test.js",
     "test:cad": "node --test test/cad/units.service.test.js test/cad/dispatch.service.test.js",
     "postinstall": "npx prisma generate",
-    "start:strict": "prisma db push --skip-generate && node server/index.js"
+    "start:strict": "prisma db push --skip-generate && node server/index.js",
+    "commands:check": "node scripts/reconcile-commands.js --dry",
+    "commands:reconcile": "node scripts/reconcile-commands.js"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",

@@ -20,7 +20,7 @@ const ALL = [
   require('../commands/panel'),
 ];
 
-const SCOPES = ['ia', 'met', 'cid'];
+const SCOPES = ['ia', 'met'];
 
 // A missing scope is a programming error, not a default — fail at boot rather
 // than silently registering something in the wrong server.
@@ -32,4 +32,4 @@ for (const c of ALL) {
 
 const forScope = (scope) => ALL.filter(c => c.scope === scope);
 
-module.exports = { ALL, forScope, SCOPES, IA: forScope('ia'), MET: forScope('met'), CID: forScope('cid') };
+module.exports = { ALL, forScope, SCOPES, IA: forScope('ia'), MET: forScope('met') };
