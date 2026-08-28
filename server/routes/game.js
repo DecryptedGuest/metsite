@@ -13,8 +13,29 @@ const prisma  = require('../lib/db');
 
 const router = express.Router();
 
-function gameSecret()        { return process.env.TRYOUT_GAME_SECRET || null; }
-function gameSigningSecret() { return process.env.TRYOUT_GAME_SIGNING_SECRET || null; }
+// The shared secret, under either name.
+//
+// The Roblox side calls its config value GAME_SECRET, and the server only ever
+// read TRYOUT_GAME_SECRET. Setting the obvious one therefore configured
+// nothing: gameSecret() stayed null, so requireGameSecret took its "not
+// configured" branch and answered 503 to EVERY /api/game route — create,
+// commands, ack, conclude, all of it. The game sees a server that is up and
+// refusing to talk, and the env var is sitting right there looking correct.
+//
+// So both names work. TRYOUT_GAME_SECRET wins when both are set, because it is
+// the specific one.
+function gameSecret() {
+  return process.env.TRYOUT_GAME_SECRET || process.env.GAME_SECRET || null;
+}
+function gameSigningSecret() {
+  return process.env.TRYOUT_GAME_SIGNING_SECRET || process.env.GAME_SIGNING_SECRET || null;
+}
+/** Which variable the secret was actually found in, for /health. */
+function gameSecretSource() {
+  if (process.env.TRYOUT_GAME_SECRET) return 'TRYOUT_GAME_SECRET';
+  if (process.env.GAME_SECRET)        return 'GAME_SECRET';
+  return null;
+}
 // Tryout "test mode" (announce without pinging) is DISABLED by default so every
 // tryout actually pings its notification roles. Set TRYOUT_TEST_MODE=1 to honour
 // the game's suppressPings flag again.
@@ -43,7 +64,9 @@ function hasValidSignature(req) {
 // endpoint is disabled (503) rather than left open.
 function requireGameSecret(req, res, next) {
   if (!gameSecret() && !gameSigningSecret()) {
-    return res.status(503).json({ error: 'Game callback not configured (set TRYOUT_GAME_SECRET).' });
+    return res.status(503).json({
+      error: 'Game callback not configured · set TRYOUT_GAME_SECRET (GAME_SECRET is also accepted).',
+    });
   }
   if (hasValidSignature(req)) return next();
   const provided = req.get('x-game-secret') || (req.body && req.body.secret) || '';
@@ -111,6 +134,9 @@ router.get('/health', async (req, res) => {
   const out = {
     ok: true,
     secretSet:          !!gameSecret(),
+    // WHICH variable it came from. "secretSet: false while I have clearly set a
+    // secret" is the exact confusion this avoids.
+    secretSource:       gameSecretSource(),
     signingSet:         !!gameSigningSecret(),
     roverConfigured:    !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID),
     announceChannelSet: !!process.env.TRYOUT_ANNOUNCE_CHANNEL_ID,
