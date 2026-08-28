@@ -1320,13 +1320,19 @@ async function sweep(client, opts) {
  */
 async function voidNonCloseRows(opts = {}) {
   const limit = opts.limit || 5000;
-  const out = { checked: 0, voided: 0, unreadable: 0, reviewedNotTouched: 0, error: null };
+  // `voided` is a row taken out of the queue; `released` is one left exactly as
+  // it is but made to let go of the ticket id it was holding. Either means a
+  // genuine close may now need ingesting, which is what the re-sweep keys off.
+  const out = { checked: 0, voided: 0, released: 0, unreadable: 0, reviewedNotTouched: 0, error: null };
 
   let rows;
   try {
     rows = await prisma.ticketLog.findMany({
       where: { voidedAt: null },
-      select: { id: true, messageId: true, channelId: true, status: true, ticketNo: true },
+      select: {
+        id: true, messageId: true, channelId: true, status: true, ticketNo: true,
+        ticketRef: true, transcriptUrl: true,
+      },
       orderBy: { closedAt: 'asc' },
       take: limit,
     });
@@ -1343,7 +1349,22 @@ async function voidNonCloseRows(opts = {}) {
     if (!(await messageStillExists(row))) { out.unreadable++; continue; }
 
     out.checked++;
-    if (row.status !== 'PENDING') { out.reviewedNotTouched++; continue; }
+
+    // Already decided. The verdict is somebody's, and any points it paid are
+    // somebody's, so neither is this pass's to reverse — it is reported instead.
+    // But the row must still let go of the ticket id it is holding, or the
+    // genuine close for that ticket can never be stored at all and the ticket
+    // vanishes on the strength of a decision made about the wrong log.
+    if (row.status !== 'PENDING') {
+      out.reviewedNotTouched++;
+      if (row.ticketRef || row.transcriptUrl) {
+        await prisma.ticketLog.update({
+          where: { id: row.id }, data: { ticketRef: null, transcriptUrl: null },
+        }).catch(() => {});
+        out.released++;
+      }
+      continue;
+    }
 
     try {
       await prisma.ticketLog.update({
@@ -1351,14 +1372,41 @@ async function voidNonCloseRows(opts = {}) {
         // VOID, never DENIED. DENIED is a decision somebody made about a real
         // ticket; this row was never a ticket close at all, and labelling it as
         // a denial would put a verdict in the record that nobody reached.
+        //
+        // ticketRef and transcriptUrl are RELEASED, which is the half that
+        // actually matters. findExistingRow matches a log to a row by ticket id
+        // and then by transcript, so a "User Added to Ticket" log ingested at
+        // 14:03 owns that ticket's id, and the genuine close at 14:23 matches it
+        // and is folded in as a patch rather than stored as itself. The patch
+        // only fills columns that are still null, so the row keeps naming
+        // whoever added a user as the person who closed the ticket. Voiding
+        // alone would make that permanent: the close would keep matching the
+        // voided row and never become one of its own. Letting the id go is what
+        // frees the real close to be ingested properly.
         data: {
           voidedAt: new Date(), status: 'VOID',
           reviewedByName: 'Not a ticket close',
+          ticketRef: null, transcriptUrl: null,
         },
       });
       out.voided++;
     } catch (err) {
       console.warn('[TicketLogs] could not void row', row.ticketNo ?? row.id, '·', err.message);
+    }
+  }
+
+  // A voided row has just released a ticket id that a genuine close was being
+  // folded into. That close is somewhere back in the channel's history and the
+  // routine sweep only reaches back a few hundred messages, so clear the
+  // full-sweep marks: the next sweep walks the whole channel again and stores
+  // those closes as the rows they always should have been.
+  if (out.voided || out.released) {
+    for (const src of ticketSources()) {
+      try {
+        await prisma.systemSetting.deleteMany({ where: { key: fullSweepKeyFor(src.division) } });
+      } catch (err) {
+        console.warn('[TicketLogs] could not clear the full-sweep mark for', src.division, '·', err.message);
+      }
     }
   }
   return out;
@@ -1433,8 +1481,10 @@ async function repairOnce(client) {
   console.log(`[TicketLogs] repair done · ${duplicates.removed || 0} duplicate row(s) removed, `
     + `${handlers.fixed || 0} handler(s) filled in, ${handlers.stillBlank || 0} still blank, `
     + `${nonCloses.voided || 0} non-close log(s) voided`
+    + (nonCloses.released
+        ? `, ${nonCloses.released} decided row(s) left alone but made to release their ticket id` : '')
     + (nonCloses.reviewedNotTouched
-        ? ` (${nonCloses.reviewedNotTouched} already reviewed and left alone)` : '')
+        ? ` (${nonCloses.reviewedNotTouched} already reviewed)` : '')
     + `, ${numbers.renumbered || 0} log(s) renumbered oldest-first`);
   return { duplicates, handlers, nonCloses, numbers };
 }
