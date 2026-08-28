@@ -316,6 +316,65 @@ router.post('/case-log-import', async (req, res) => {
   }
 });
 
+// ── IA Database sync ──────────────────────────────────────────────
+//
+// One place to reconcile the sheet with what the site knows. Split into a plan
+// and an apply so the destructive half is never the first thing that happens:
+// a sync you cannot preview is one nobody runs on a Sunday night.
+
+// GET /api/dev/ia-sync/plan — what WOULD be written. Reads only.
+router.get('/ia-sync/plan', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    const plan = await require('../lib/iaSheetSync').planSync(getClient());
+    res.json(plan);
+  } catch (err) {
+    console.error('[Dev] IA sync plan failed:', err.message);
+    res.status(500).json({ error: 'Could not build the plan: ' + err.message });
+  }
+});
+
+// POST /api/dev/ia-sync/apply — write the roster and this week's points.
+router.post('/ia-sync/apply', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet · try again shortly.' });
+
+    const body = req.body || {};
+    const out = await require('../lib/iaSheetSync').applySync(client, {
+      addMissing: body.addMissing !== false,
+      borders:    body.borders    !== false,
+    });
+    if (out.ok) {
+      audit.log(req.user, { category: 'SECURITY', action: 'IA_SHEET_SYNC',
+        summary: `IA sheet sync: ${out.updated} rows updated, ${out.added.length} added` });
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] IA sync apply failed:', err.message);
+    res.status(500).json({ error: 'The sync failed: ' + err.message });
+  }
+});
+
+// POST /api/dev/ia-sync/tickets — pull the MET ticket-log channel again.
+router.post('/ia-sync/tickets', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet.' });
+    const ingest = require('../lib/ticketIngest');
+    const fn = ingest.sweepTicketLogs || ingest.sweep || ingest.runSweep;
+    if (typeof fn !== 'function') {
+      return res.status(501).json({ error: 'No ticket sweep entry point is exported.' });
+    }
+    res.json(await fn(client, { full: req.body && req.body.full === true }));
+  } catch (err) {
+    console.error('[Dev] ticket sync failed:', err.message);
+    res.status(500).json({ error: 'The ticket sync failed: ' + err.message });
+  }
+});
+
 // GET /api/dev/case-audit — is the case archive coherent?
 //
 // Read-only, and meant to be run either side of an import. Duplicate references, rows

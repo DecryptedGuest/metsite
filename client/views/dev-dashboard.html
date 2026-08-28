@@ -138,6 +138,9 @@
         <button class="nav-item dev-only" data-page="admin" style="display:none;">
           <i class="ti ti-shield-cog nav-icon"></i><span>Dev Panel</span><span class="nav-tag">DEV</span>
         </button>
+        <button class="nav-item dev-only" data-page="ia-sync" style="display:none;">
+          <i class="ti ti-refresh nav-icon"></i><span>IA Sync</span>
+        </button>
         <button class="nav-item dev-only" data-page="group" style="display:none;">
           <i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-tag">DEV</span>
         </button>
@@ -417,6 +420,67 @@
     </section>
 
     <!-- MY CASES -->
+    <!-- ── IA Sync ──────────────────────────────────────────── -->
+    <section class="page" id="page-ia-sync">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title">IA Sync</h1>
+          <p class="page-sub">Reconcile the Internal Affairs Database with what the site knows</p>
+        </div>
+      </div>
+
+      <div class="card fade-up" style="margin-bottom:1rem;">
+        <div class="card-head"><h2 class="card-title">This week's quota</h2></div>
+        <div class="card-body">
+          <p class="muted" style="margin-top:0;">
+            Builds the roster from Discord roles, totals every point credited this
+            week, and writes it to the sheet. Preview first &mdash; nothing is
+            written until you press Apply.
+          </p>
+          <div class="btn-row" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+            <button class="btn btn-secondary" id="ia-sync-plan">
+              <i class="ti ti-eye"></i> Preview
+            </button>
+            <button class="btn btn-primary" id="ia-sync-apply" disabled>
+              <i class="ti ti-upload"></i> Apply to sheet
+            </button>
+            <label class="muted" style="display:flex;align-items:center;gap:.4rem;">
+              <input type="checkbox" id="ia-sync-borders" checked /> black borders
+            </label>
+            <label class="muted" style="display:flex;align-items:center;gap:.4rem;">
+              <input type="checkbox" id="ia-sync-add" checked /> add missing members
+            </label>
+          </div>
+          <div id="ia-sync-out" style="margin-top:1rem;"></div>
+        </div>
+      </div>
+
+      <div class="card fade-up">
+        <div class="card-head"><h2 class="card-title">Rebuild from Discord</h2></div>
+        <div class="card-body">
+          <p class="muted" style="margin-top:0;">
+            The channels are the durable copy. These re-read them and fill the
+            database back in; both are safe to run again, and update what they
+            already created rather than duplicating it.
+          </p>
+          <div class="btn-row" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+            <input class="input" id="ia-sync-case-channel" placeholder="Administrative log channel id"
+                   style="max-width:280px;" />
+            <button class="btn btn-secondary" id="ia-sync-cases-dry">
+              <i class="ti ti-search"></i> Preview cases
+            </button>
+            <button class="btn btn-secondary" id="ia-sync-cases">
+              <i class="ti ti-database-import"></i> Import cases
+            </button>
+            <button class="btn btn-secondary" id="ia-sync-tickets">
+              <i class="ti ti-ticket"></i> Sweep ticket logs
+            </button>
+          </div>
+          <div id="ia-sync-out2" style="margin-top:1rem;"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="page" id="page-my-cases">
       <div class="page-header fade-up">
         <div><h1 class="page-title">My Cases</h1><p class="page-sub">Your submitted case history</p></div>
@@ -2485,6 +2549,7 @@
 <script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
+<script src="/js/ia-sync.js"></script>
 <script>initMetTopbar('DEVELOPER');</script>
 </body>
 </html>
