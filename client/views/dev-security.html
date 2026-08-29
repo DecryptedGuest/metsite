@@ -4,8 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · Dev Security</title>
-  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
-<!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
        script can call met.e() without ordering games. -->
   <script src="/js/emoji-map.js?v=1"></script>
@@ -13,16 +14,16 @@
   <!-- The developer cloak. Loaded in <head> and BEFORE anything renders, so the
        dev tab is never painted and then taken away. Ctrl+Shift+Alt+D toggles. -->
   <script src="/js/dev-cloak.js?v=2"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
-<link rel="stylesheet" href="/css/system.css?v=1" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     .sec-stat{padding:14px 16px;border-radius:13px;border:1px solid var(--border,#2a2a2a);background:var(--panel,rgba(255,255,255,.02));}
     .sec-stat .v{font-size:26px;font-weight:800;line-height:1;} .sec-stat .l{font-size:11px;color:var(--text-muted);margin-top:5px;text-transform:uppercase;letter-spacing:.05em;}
     .dev-accent{color:#f5c518;}
   </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body>
 <div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
@@ -124,7 +125,7 @@
       <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:22px;text-align:center;">
         <div id="sec-lockdown-state" style="font-size:15px;margin-bottom:18px;">Loading…</div>
         <button class="btn btn-danger" id="sec-lockdown-btn" onclick="secToggleLockdown()" style="min-width:220px;"><i class="ti ti-lock"></i> …</button>
-        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site, including the login page, is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site — including the login page — is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
       </div></div>
     </section>
 

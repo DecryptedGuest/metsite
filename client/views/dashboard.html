@@ -4,8 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IACMS · Dashboard</title>
-<script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
-<!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+<script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css?v=77" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
        script can call met.e() without ordering games. -->
   <script src="/js/emoji-map.js?v=1"></script>
@@ -13,11 +14,11 @@
   <!-- The developer cloak. Loaded in <head> and BEFORE anything renders, so the
        dev tab is never painted and then taken away. Ctrl+Shift+Alt+D toggles. -->
   <script src="/js/dev-cloak.js?v=2"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
-<link rel="stylesheet" href="/css/system.css?v=1" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=72" />
+  <link rel="stylesheet" href="/css/aurora.css?v=72" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body class="div-ia">
 <div class="bg-canvas">

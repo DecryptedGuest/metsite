@@ -4,17 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET Dashboard · Page Not Found</title>
-  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
-<!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
        script can call met.e() without ordering games. -->
   <script src="/js/emoji-map.js?v=1"></script>
   <script src="/js/emoji.js?v=1"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
-<link rel="stylesheet" href="/css/system.css?v=1" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .nf-wrap { position: relative; z-index: 1; max-width: 460px; width: 100%; padding: 1rem;
@@ -26,11 +24,13 @@
       box-shadow: 0 0 46px rgba(30, 80, 220, 0.22);
     }
     .nf-code { font-family: var(--font-mono); font-size: 44px; font-weight: 800; letter-spacing: 0.04em;
-      color: var(--text-strong); line-height: 1; }
+      background: linear-gradient(120deg, var(--text-primary) 0%, #8db4ff 55%, var(--purple, #9d7dff) 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; line-height: 1; }
     .nf-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
     .nf-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
     .nf-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
   </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body>
 <div class="bg-canvas">
@@ -55,7 +55,7 @@
       <span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span>
     </div>
     <div class="met-strap-underline"></div>
-    <div style="font-size:11px;color: var(--text-muted);letter-spacing:.14em;text-transform:uppercase;margin-top:.7rem;opacity:0;animation:met-splash-tag-in .55s ease 1s forwards;">Working together for a safer London</div>
+    <div style="font-size:11px;color:var(--text-tiny);letter-spacing:.14em;text-transform:uppercase;margin-top:.7rem;opacity:0;animation:met-splash-tag-in .55s ease 1s forwards;">Working together for a safer London</div>
   </div>
 </div>
 

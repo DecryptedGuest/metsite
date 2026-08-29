@@ -20,17 +20,17 @@
   <meta name="twitter:description" content="Internal Affairs Case Management System" />
   <meta name="twitter:image" content="https://metia.uk/img/logo.png" />
   <!-- ───────────────────────────────────────────────────────────────── -->
-  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
-<!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css?v=77" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
        script can call met.e() without ordering games. -->
   <script src="/js/emoji-map.js?v=1"></script>
   <script src="/js/emoji.js?v=1"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
-<link rel="stylesheet" href="/css/system.css?v=1" />
+  <link rel="stylesheet" href="/css/aurora.css?v=72" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     body { display:flex; align-items:center; justify-content:center; min-height:100vh; overflow-x:hidden; overflow-y:auto; padding:24px 0; box-sizing:border-box; }
 
@@ -75,11 +75,11 @@
     .btn-discord-full { width:100%; justify-content:center; padding:0.8rem 1.4rem; font-size:14px; font-weight:500; letter-spacing:0.02em; border-radius:var(--radius-md); gap:10px; display:flex; align-items:center; }
     .btn-roblox { background:rgba(255,255,255,0.06); color:var(--text-primary); border:1px solid var(--border-mid); }
     .btn-roblox:hover { background:rgba(255,255,255,0.11); color:#fff; border-color:var(--border-bright); }
-    .header-title { color: var(--text-strong); }
-    .btn-hint { text-align:center; font-size:11px; color:var(--text-muted); }
+    .header-title { background:linear-gradient(120deg,#cfe0ff 0%,#8db4ff 55%,var(--purple,#9d7dff) 100%); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:transparent !important; }
+    .btn-hint { text-align:center; font-size:11px; color:var(--text-tiny); }
 
     .login-card-footer { padding:0.9rem 1.8rem; border-top:1px solid var(--border-dim); display:flex; align-items:center; justify-content:space-between; }
-    .footer-badge { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--text-muted); letter-spacing:0.06em; text-transform:uppercase; }
+    .footer-badge { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--text-tiny); letter-spacing:0.06em; text-transform:uppercase; }
     .footer-dot { width:5px; height:5px; border-radius:50%; background:var(--green); box-shadow:0 0 5px var(--green); }
 
     .error-banner { width:100%; padding:0.7rem 1rem; background:rgba(180,20,40,0.15); border:1px solid rgba(200,40,60,0.3); border-radius:var(--radius-md); font-size:12px; color:#f07080; display:flex; align-items:center; gap:8px; animation: fadeUp 0.4s ease both; }
@@ -88,13 +88,7 @@
     .corner-tl,.corner-br { position:fixed; width:80px; height:80px; pointer-events:none; z-index:0; }
     .corner-tl { top:1.5rem; left:1.5rem; border-top:1px solid rgba(40,80,200,0.2); border-left:1px solid rgba(40,80,200,0.2); }
     .corner-br { bottom:1.5rem; right:1.5rem; border-bottom:1px solid rgba(40,80,200,0.2); border-right:1px solid rgba(40,80,200,0.2); }
-    .system-id { position:fixed; bottom:0; left:0; right:0; padding:0.85rem 1rem; text-align:center;
-                 font-family:var(--font-mono); font-size:9px; color:var(--text-muted); letter-spacing:0.12em;
-                 text-transform:uppercase; z-index:1; pointer-events:none;
-                 background:linear-gradient(transparent, var(--canvas) 55%); }
-    /* Room for the strip, so the last control is reachable rather than sitting
-       under it on a short screen. */
-    body { padding-bottom: 4rem; }
+    .system-id { position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%); font-family:var(--font-mono); font-size:9px; color:var(--text-tiny); letter-spacing:0.12em; text-transform:uppercase; z-index:1; }
   </style>
 </head>
 <body>
@@ -146,12 +140,12 @@
           <i class="ti ti-brand-roblox" style="font-size:18px;"></i>
           Continue with Roblox
         </a>
-        <div class="btn-hint">Either signs you into the same account: we link your Roblox &amp; Discord automatically.</div>
+        <div class="btn-hint">Either signs you into the same account — we link your Roblox &amp; Discord automatically.</div>
       </div>
     </div>
     <div class="login-card-footer">
       <div class="footer-badge"><div class="footer-dot pulse-anim"></div>System Online</div>
-      <div style="font-size:10px;color:var(--text-muted);letter-spacing:0.06em;">IACMS v2.0</div>
+      <div style="font-size:10px;color:var(--text-tiny);letter-spacing:0.06em;">IACMS v2.0</div>
     </div>
   </div>
 </div>

@@ -5,46 +5,11 @@
 // Applied on every page load (ui.js is loaded almost everywhere).
 function applyAccent(hex) {
   const r = document.documentElement;
-  // The whole accent FAMILY, not just one variable. The design system builds
-  // buttons, the selected nav item, focus rings, meters and links out of
-  // --accent-500/600/weak; setting only --blue changed the odd status colour
-  // and left every one of those on the default, so picking a colour appeared
-  // to do nothing at all.
-  const CLEAR = ['--accent-500','--accent-600','--accent-400','--accent-weak','--ring',
-                 '--blue','--blue-dim','--blue-glow'];
-  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) { CLEAR.forEach(v => r.style.removeProperty(v)); return; }
-
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) { r.style.removeProperty('--blue'); r.style.removeProperty('--blue-dim'); r.style.removeProperty('--blue-glow'); return; }
   const n = parseInt(hex.slice(1), 16), R = (n >> 16) & 255, G = (n >> 8) & 255, B = n & 255;
-  const mix = (pct, towards) => `color-mix(in srgb, ${hex} ${pct}%, ${towards})`;
-  // Every theme but light sits on a dark ground, midnight included, so ask
-  // what the ground IS rather than whether it is the one named "dark".
-  const theme = document.documentElement.getAttribute('data-theme');
-  const dark  = theme !== 'light';
-  const ground = theme === 'midnight' ? '#000000' : (dark ? '#0f141a' : '#ffffff');
-
-  r.style.setProperty('--accent-500', hex);
-  r.style.setProperty('--accent-600', mix(82, '#000'));      // hover: the same hue, pressed
-  r.style.setProperty('--accent-400', mix(72, '#fff'));      // dark-theme text on a dark ground
-  // The tint behind a selected row. Mixed toward the page, not toward white,
-  // so it stays a tint in both themes rather than a wash in one of them.
-  r.style.setProperty('--accent-weak', mix(dark ? 22 : 12, ground));
-  r.style.setProperty('--ring', `0 0 0 3px rgba(${R},${G},${B},0.25)`);
-
-  // Legacy names, still referenced by inline styles across the views.
   r.style.setProperty('--blue', hex);
   r.style.setProperty('--blue-dim', `rgba(${R},${G},${B},0.18)`);
-  r.style.setProperty('--blue-glow', 'transparent');
-}
-
-// Re-derive the accent when the theme flips: --accent-weak is mixed toward the
-// page colour, so a tint computed for light is wrong on dark.
-if (typeof window !== 'undefined' && typeof MutationObserver === 'function') {
-  try {
-    new MutationObserver(() => {
-      const a = localStorage.getItem('iacms_accent');
-      if (a) applyAccent(a);
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  } catch (e) { /* the accent simply will not re-tint on a theme change */ }
+  r.style.setProperty('--blue-glow', `rgba(${R},${G},${B},0.25)`);
 }
 if (typeof window !== 'undefined') {
   window.applyAccent = applyAccent;
@@ -1029,101 +994,40 @@ function emptyRow(colspan, message = 'No cases found') {
 }
 
 // ── Theme Management ─────────────────────────────────────────────
-// There are two different things here and conflating them is what makes
-// theme switching feel broken:
-//
-//   the PREFERENCE  what the member picked: system, light, dark, midnight
-//   the THEME       what is actually painted: light, dark, midnight
-//
-// Only the theme reaches the CSS, on data-theme. The preference is stored
-// and mirrored onto data-theme-pref so the picker can show what is selected
-// without having to guess it back from the painted result. "System" is the
-// only preference that is not also a theme; it resolves against the OS.
-const THEME_KEY  = 'iacms_theme';
-const THEMES     = ['light', 'dark', 'midnight'];
-const PREFS      = ['system'].concat(THEMES);
+// Persists to localStorage so the user's choice survives page loads.
+const THEME_KEY = 'iacms_theme';
 
-function prefersDark() {
-  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
-  catch (e) { return true; }   // no matchMedia: dark is the house default
-}
-
-function readThemePref() {
-  let p = 'dark';
-  try { p = localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) {}
-  return PREFS.indexOf(p) === -1 ? 'dark' : p;
-}
-
-function resolveTheme(pref) {
-  if (pref === 'system') return prefersDark() ? 'dark' : 'light';
-  return THEMES.indexOf(pref) === -1 ? 'dark' : pref;
-}
-
-// True for every theme painted on a dark ground, which is what callers
-// actually want to know — asking `=== "dark"` misses midnight.
-function isDarkTheme() {
-  return document.documentElement.getAttribute('data-theme') !== 'light';
-}
-window.isDarkTheme = isDarkTheme;
-
-function applyTheme(pref) {
-  const theme = resolveTheme(pref);
-  const root  = document.documentElement;
-  root.setAttribute('data-theme', theme);
-  root.setAttribute('data-theme-pref', pref);
-
-  // The toggle button shows where it will take you, not where you are.
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
   const icon = document.getElementById('theme-icon');
-  if (icon) icon.className = theme === 'light' ? 'ti ti-moon' : 'ti ti-sun';
+  if (icon) {
+    icon.className = theme === 'light' ? 'ti ti-moon' : 'ti ti-sun';
+  }
   const btn = document.getElementById('btn-theme-toggle');
   if (btn) btn.title = theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
-
-  // Keep the browser chrome (address bar, task switcher) on the same ground
-  // as the page, so the app does not sit in a differently coloured frame.
-  try {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) {
-      meta.setAttribute('content',
-        getComputedStyle(root).getPropertyValue('--canvas').trim() || '#0f141a');
-    }
-  } catch (e) {}
-  return theme;
 }
-window.applyTheme = applyTheme;
 
-function setThemePref(pref) {
-  if (PREFS.indexOf(pref) === -1) pref = 'dark';
-  try { localStorage.setItem(THEME_KEY, pref); } catch (e) {}
-  return applyTheme(pref);
-}
-window.setThemePref = setThemePref;
-window.getThemePref = readThemePref;
-
-// The topbar button stays a plain two-way switch: whatever is painted now,
-// go to the other ground. Picking system or midnight is done in Appearance.
 function toggleTheme() {
-  setThemePref(isDarkTheme() ? 'light' : 'dark');
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next    = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
 }
-window.toggleTheme = toggleTheme;
 
-// Follow the OS while, and only while, the member is on "system".
-try {
-  if (window.matchMedia) {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onOsChange = () => { if (readThemePref() === 'system') applyTheme('system'); };
-    if (mq.addEventListener) mq.addEventListener('change', onOsChange);
-    else if (mq.addListener) mq.addListener(onOsChange);
-  }
-} catch (e) { /* the OS simply will not be followed */ }
+// Apply saved theme immediately (before paint to avoid flash)
+(function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY) || 'dark';
+  applyTheme(saved);
+})();
 
-// The inline boot script in each view has already painted the right theme
-// before this file parsed. This re-run is for the button title and the
-// theme-colour meta, and it must not change what is on screen.
-applyTheme(readThemePref());
+// Wire up the toggle button once the DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('btn-theme-toggle');
   if (btn) btn.addEventListener('click', toggleTheme);
-  applyTheme(readThemePref());
+
+  // Re-apply so the icon matches (DOMContentLoaded runs after the inline script)
+  const saved = localStorage.getItem(THEME_KEY) || 'dark';
+  applyTheme(saved);
 });
 
 // ── Global fetch hardening ───────────────────────────────────────────

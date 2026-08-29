@@ -3,18 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
   <title>MET Dashboard · Access Denied</title>
-<!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+  <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
        script can call met.e() without ordering games. -->
   <script src="/js/emoji-map.js?v=1"></script>
   <script src="/js/emoji.js?v=1"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
-<link rel="stylesheet" href="/css/system.css?v=1" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <style>
     body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .denied-wrap { position: relative; z-index: 1; max-width: 440px; width: 100%; padding: 1rem;
@@ -24,7 +21,7 @@
       border-radius: 50%; display: flex; align-items: center; justify-content: center;
       font-size: 36px; color: var(--red); box-shadow: 0 0 40px rgba(180, 20, 40, 0.2);
     }
-    .denied-code { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+    .denied-code { font-family: var(--font-mono); font-size: 11px; color: var(--text-tiny);
       letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.3rem; }
     .denied-title { font-family: var(--font-display); font-size: 30px; font-weight: 700; color: var(--red);
       letter-spacing: 0.06em; text-transform: uppercase; }
@@ -36,6 +33,7 @@
     .reason-row i { color: var(--red); margin-top: 1px; font-size: 15px; flex-shrink: 0; }
     .denied-actions { display: flex; gap: 10px; }
   </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body>
 <div class="bg-canvas">
@@ -70,7 +68,7 @@
     <a href="/" class="btn btn-ghost"><i class="ti ti-arrow-left"></i> Back to Hub</a>
     <a href="/auth/discord" class="btn btn-discord"><i class="ti ti-refresh"></i> Try Again</a>
   </div>
-  <div class="met-strap" style="color:var(--text-muted);font-size:10px;letter-spacing:.16em;opacity:.6;margin-top:4px;">
+  <div class="met-strap" style="color:var(--text-tiny);font-size:10px;letter-spacing:.16em;opacity:.6;margin-top:4px;">
     <span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span>
   </div>
 </div>
