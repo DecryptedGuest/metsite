@@ -272,7 +272,10 @@ const IA_COMMAND_ALLOWLIST = () => {
   if (raw === '*') return null;                       // null = no filtering
   const list = raw
     ? raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
-    : ['submit-case', 'leaderboard', 'add-qp', 'remove-qp', 'check-record', 'undo'];
+    // The Internal Affairs server's whole command set. Everything else lives in
+    // the MET server, including /check-record and /ia, which are about IA but
+    // are used by MET High Command.
+    : ['submit-case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
   return new Set(list);
 };
 
@@ -282,7 +285,18 @@ const IA_COMMAND_ALLOWLIST = () => {
 // registered nowhere at all. They are MET's, and they go to MET's server.
 const DISCIPLINE_GUILD_IDS  = () => metGuild('DISCIPLINE_GUILD_ID');
 const XP_GUILD_IDS          = () => metGuild('XP_GUILD_ID');
-const IA_GUILD_IDS          = () => iaGuild('IA_PANEL_GUILD_ID');
+// /check-record and /ia are MET commands, not IA ones.
+//
+// They resolved through iaGuild(), so with IA_GUILD_ID set they targeted the IA
+// server — where /check-record was then also filtered out by the allowlist, and
+// /ia was not on that list at all, so it registered NOWHERE. Meanwhile the
+// people who need them, MET High Command, are in the MET server and could not
+// see either.
+//
+// They look up and act on a record. That is MET work, gated in code by rank
+// exactly as /infract is — being about Internal Affairs is not the same as
+// belonging in the Internal Affairs server.
+const IA_GUILD_IDS          = () => metGuild('IA_PANEL_GUILD_ID');
 const LOA_GUILD_IDS         = () => metGuild('LOA_GUILD_ID');
 const PROMOTE_GUILD_IDS     = () => metGuild('PROMOTE_GUILD_ID');
 const MET_GUILD_IDS         = () => metGuild('MET_INFO_GUILD_ID');
@@ -357,9 +371,10 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /xp:', err.message);
   }
 
-  // /check-record — the Internal Affairs panel. Visible to everyone, gated in code
-  // to the same people /infract is, because it shows the same material. It was
-  // called /ia, which named the department rather than the thing it does.
+  // /check-record — the record lookup panel. In the MET server: it is what MET
+  // High Command uses to see somebody's disciplinary history. Visible to
+  // everyone, gated in code to the same people /infract is, because it shows the
+  // same material.
   try {
     const cmd = require('./iaPanel').buildCommand();
     add(IA_GUILD_IDS(), cmd);
@@ -368,9 +383,9 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /check-record:', err.message);
   }
 
-  // /ia — the Internal Affairs dashboard. Registered in the MET server (and the
-  // IA panel guild) like /check-record; who may actually use it, and what they
-  // may decide, is settled in code by lib/iaAuthority.
+  // /ia — the Internal Affairs dashboard. In the MET server alongside
+  // /check-record; who may actually use it, and what they may decide, is settled
+  // in code by lib/iaAuthority, not by which server it appears in.
   try {
     const cmd = require('./iaDashboard').buildCommand();
     add(IA_GUILD_IDS(), cmd);
