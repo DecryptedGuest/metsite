@@ -284,7 +284,7 @@ async function loadOfficer(discordId, guild) {
     ? await withTimeout(guild.members.fetch(discordId), t, null)
     : null;
 
-  // The same resolver /discipline uses — RoVer, then their MET Dashboard
+  // The same resolver /infract uses — RoVer, then their MET Dashboard
   // account, then their MET nickname. A missing Roblox link here means no rank,
   // which means no XP placement at all.
   const link = await withTimeout(
@@ -602,7 +602,7 @@ async function handleXpCommand(interaction) {
   let frame = 0;
   let lastEdit = 0;
   const draw = async (embed) => {
-    // Same pacing rule as /discipline: a floor between edits so a fast step
+    // Same pacing rule as /infract: a floor between edits so a fast step
     // still renders as a frame, and no burst can reach a rate limit.
     const wait = 420 - (Date.now() - lastEdit);
     if (wait > 0) await new Promise(r => setTimeout(r, wait));

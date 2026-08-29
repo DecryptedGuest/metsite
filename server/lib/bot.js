@@ -225,7 +225,7 @@ client = buildClient(WANT_MESSAGE_CONTENT);
 // in a deployment where those two are different servers, registering against
 // DISCORD_GUILD_ID puts the commands somewhere nobody is looking.
 //
-// So take BOTH, deduplicated. Registering /xp and /discipline in each costs
+// So take BOTH, deduplicated. Registering /xp and /infract in each costs
 // nothing — who may actually run them is decided in code, not by where they
 // appear — and it removes a whole class of "the command isn't there" that is
 // invisible from the outside.
@@ -276,7 +276,7 @@ const IA_COMMAND_ALLOWLIST = () => {
   return new Set(list);
 };
 
-// /discipline, /xp and /loa are MET commands. They used to resolve through
+// /infract, /xp and /loa are MET commands. They used to resolve through
 // iaGuild(), which meant that with only IA_GUILD_ID set they targeted the IA
 // server -- where the allowlist below then removed them again, so they
 // registered nowhere at all. They are MET's, and they go to MET's server.
@@ -335,7 +335,7 @@ function buildCommandPlan() {
       .toJSON());
   }
 
-  // /discipline is visible to everyone; who may actually run it is decided in
+  // /infract is visible to everyone; who may actually run it is decided in
   // code (Internal Affairs, or Deputy Commissioner and above). Gating it with
   // Discord's own default_member_permissions would tie it to a permission bit
   // rather than to rank, which is not the same thing at all.
@@ -345,7 +345,7 @@ function buildCommandPlan() {
     add(DISCIPLINE_GUILD_IDS(), cmd);
     global.push(cmd);
   } catch (err) {
-    console.error('[Bot] could not build /discipline:', err.message);
+    console.error('[Bot] could not build /infract:', err.message);
   }
 
   // /xp — everyone can look; who may change XP is decided in code.
@@ -358,7 +358,7 @@ function buildCommandPlan() {
   }
 
   // /check-record — the Internal Affairs panel. Visible to everyone, gated in code
-  // to the same people /discipline is, because it shows the same material. It was
+  // to the same people /infract is, because it shows the same material. It was
   // called /ia, which named the department rather than the thing it does.
   try {
     const cmd = require('./iaPanel').buildCommand();
@@ -390,7 +390,7 @@ function buildCommandPlan() {
 
   // /loa — leave of absence. Everyone can request and manage their own; the
   // reviewing half is gated in code to the LOA admin role, not by a Discord
-  // permission bit, for the same reason /discipline is.
+  // permission bit, for the same reason /infract is.
   // /undo — reverse one of your own recent actions (see lib/actionJournal).
   try {
     const cmd = require('./undoCommand').buildCommand();
@@ -741,10 +741,10 @@ async function onInteraction(interaction) {
       });
   }
 
-  if (interaction.commandName === 'discipline') {
+  if (interaction.commandName === 'infract') {
     return require('./disciplineCommand').handleDisciplineCommand(interaction)
       .catch(async (err) => {
-        console.error('[Bot] /discipline failed:', err.message);
+        console.error('[Bot] /infract failed:', err.message);
         // The panel is ephemeral and already deferred by this point, so the
         // issuer would otherwise be left staring at "thinking…" forever.
         const msg = { content: `${e('met_cross')} Something went wrong running that · nothing was issued. (${err.message})`, embeds: [], components: [] };

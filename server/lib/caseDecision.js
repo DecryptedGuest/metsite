@@ -279,7 +279,7 @@ async function approveCase({ caseId, actor, note } = {}) {
       }).catch(() => {});
     }
 
-    // Tell the OFFICER their record changed — the same notice /discipline sends.
+    // Tell the OFFICER their record changed — the same notice /infract sends.
     if (existing.officerDiscordId) {
       const timed = actions.find(a => ACTION_CONFIG[a.action]?.timed && a.durationDays);
       require('./officerNotice').notifyPunished({

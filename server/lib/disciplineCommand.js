@@ -1,5 +1,5 @@
 // server/lib/disciplineCommand.js
-// The /discipline panel — the bit the issuer actually sees.
+// The /infract panel — the bit the issuer actually sees.
 //
 // Three screens, all ephemeral, all in the same message:
 //
@@ -40,7 +40,7 @@ const COLOR = {
 // Discord caps a slash command at 25 choices; we have well under that.
 function buildCommand() {
   return new SlashCommandBuilder()
-    .setName('discipline')
+    .setName('infract')
     .setDescription('Discipline an officer')
     .addUserOption(o => o
       .setName('officer').setDescription('Who').setRequired(true))
@@ -389,7 +389,7 @@ async function handleDisciplineButton(interaction) {
     return interaction.update({
       embeds: [new EmbedBuilder().setColor(COLOR.fail)
         .setTitle(`${e('met_warn')} This panel has expired`)
-        .setDescription('Run `/discipline` again · nothing was issued.')],
+        .setDescription('Run `/infract` again · nothing was issued.')],
       components: [],
     }).catch(() => {});
   }

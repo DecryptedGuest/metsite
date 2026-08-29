@@ -13,7 +13,7 @@ Commands are split across two servers and are **never registered in both**.
 | Command | Subcommands | Who |
 |---|---|---|
 | `/submit-case` | — | IA+ |
-| `/discipline` | `file` `approve` `deny` `lookup` | IA files · Supervisor+ reviews |
+| `/infract` | `file` `approve` `deny` `lookup` | IA files · Supervisor+ reviews |
 | `/ia` | `case` `ticket` | IA+ files · Supervisor+ reviews via buttons |
 | `/check-record` | — | IA+ |
 | `/xp` | `me` `check` `review` `reset` `exempt` `iotw` | `me` anyone · `check` IA+ · rest HICOMM |
@@ -40,7 +40,7 @@ command appears in every server and would defeat the split.
 
 ### How discipline works
 
-`/discipline file` (or `/ia case`) creates a PENDING case and posts a **review
+`/infract file` (or `/ia case`) creates a PENDING case and posts a **review
 card** into the cases channel with Approve / Deny buttons. On approval the bot,
 in order: posts the Administrative Log notice to the webhook, assigns each
 punishment's Discord role, records expiry rows for timed ones, exiles the

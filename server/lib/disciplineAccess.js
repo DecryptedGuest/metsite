@@ -1,5 +1,5 @@
 // server/lib/disciplineAccess.js
-// Who is allowed to run /discipline.
+// Who is allowed to run /infract.
 //
 // Two groups, as asked for: Internal Affairs, and Deputy Commissioner or above
 // in the MET group.

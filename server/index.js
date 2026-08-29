@@ -925,7 +925,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
       discordId: req.user.discordId, robloxId: req.user.robloxId, robloxUsername: req.user.robloxUsername,
     });
   } catch (e) { casePunishments = []; }
-  // A /discipline action exists as BOTH a MetPunishment (what the bot reads)
+  // A /infract action exists as BOTH a MetPunishment (what the bot reads)
   // and a case (what the dashboard reads); they share a case ref. Show it once,
   // preferring the case, which carries the detail and the appeal state.
   const caseRefs = new Set(casePunishments.map(p => p.caseRef).filter(Boolean));

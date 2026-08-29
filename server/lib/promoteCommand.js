@@ -2,7 +2,7 @@
 // /promote — move somebody up exactly one rank in the MET group.
 //
 // The XP system promotes automatically when somebody crosses a threshold, and
-// /discipline demotes. Between them there was no way to simply promote a person
+// /infract demotes. Between them there was no way to simply promote a person
 // — the one thing supervisors do most often — without opening Roblox.
 //
 // One rank up, deliberately. Not "to a rank you pick": a picker invites

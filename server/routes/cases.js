@@ -22,7 +22,7 @@ const router = express.Router();
 // logic rather than a copy of it that drifts.
 const { approveCase, denyCase, resolveCaseAvatars, resolveOfficerDiscordId } = require('../lib/caseDecision');
 
-// Case-number allocation lives in lib/caseRef.js so /discipline draws from the
+// Case-number allocation lives in lib/caseRef.js so /infract draws from the
 // same sequence — two allocators would eventually collide on the unique index.
 const { highestCaseNumber, generateCaseRef } = require('../lib/caseRef');
 

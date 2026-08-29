@@ -5,7 +5,7 @@
 // every punishment role is a suggestion: pick up a strike, leave, come back,
 // and the strike is gone from the server even though it is still on the record.
 //
-// That has always mattered. It matters MORE now that /discipline treats the
+// That has always mattered. It matters MORE now that /infract treats the
 // role as the truth — a strike the officer isn't wearing is discounted, and
 // their next Strike 1 goes through as a Strike 1. Which is right when the role
 // was taken off deliberately, and wrong if it vanished because they rejoined
@@ -46,7 +46,7 @@ function punishmentGuildIds() {
  *
  * Deduplicated by role id, because one role can be owed by several rows (two
  * separate cases, or the MetPunishment and CasePunishment halves of the same
- * /discipline action) and adding it twice is a wasted API call. The reasons are
+ * /infract action) and adding it twice is a wasted API call. The reasons are
  * merged rather than dropped so the audit line names every claim on the role.
  *
  * @returns {Promise<Array<{ roleId: string, action: string, why: string, claims: number }>>}
@@ -63,7 +63,7 @@ async function rolesOwedTo(discordId) {
     if (!prev.why.includes(why)) prev.why += `, ${why}`;
   };
 
-  // Direct actions (/discipline, the Discord infraction ingest).
+  // Direct actions (/infract, the Discord infraction ingest).
   try {
     const rows = await prisma.metPunishment.findMany({
       where: {
@@ -200,7 +200,7 @@ async function reapplyOnJoin(member) {
 
   // Confirm rather than assume. The API returning 2xx and the member actually
   // wearing the role are different claims, and this one is worth checking:
-  // /discipline reads the role as proof, so a role we only THINK we restored
+  // /infract reads the role as proof, so a role we only THINK we restored
   // silently clears a strike.
   try {
     const fresh = await member.fetch(true).catch(() => null);

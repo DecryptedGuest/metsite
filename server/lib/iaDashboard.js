@@ -331,7 +331,7 @@ async function caseDetailView(caseId, auth) {
   if (k.status === 'PENDING' && !decide.allowed) {
     embed.addFields({ name: `${e('met_ia_locked')} You cannot decide this`, value: decide.reason, inline: false });
   }
-  embed.setFooter({ text: `Internal Affairs · ${k.origin === 'DISCIPLINE' ? 'filed by /discipline' : 'filed on the dashboard'}` });
+  embed.setFooter({ text: `Internal Affairs · ${k.origin === 'DISCIPLINE' ? 'filed by /infract' : 'filed on the dashboard'}` });
   return { embed, kase: k, decide };
 }
 

@@ -132,7 +132,7 @@ IA already ships penal-code / offense libraries (`server/lib/penalCodes.js`,
   in `server/lib/hpcExam.js`.
 - ❓ HPC rank ladder (group `35685825`) to make the "and above" tiers exact.
 
-## `/discipline` (Discord) ✅
+## `/infract` (Discord) ✅
 
 Direct disciplinary action, no case attached — the IA case pipeline with the
 case removed and the case link demoted to an optional field.

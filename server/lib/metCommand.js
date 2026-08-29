@@ -27,7 +27,7 @@
 //   * no rank names people do not have yet, no jargon, no "kindly be advised".
 //
 // Who may run it: Internal Affairs and MET High Command (the same test
-// /discipline uses), or anybody with Administrator in the server. It posts a
+// /infract uses), or anybody with Administrator in the server. It posts a
 // message to everyone in the channel, so it is not for everyone to run.
 
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder,
@@ -232,7 +232,7 @@ function buttons() {
 }
 
 // ── Who may run it ────────────────────────────────────────────────
-// Internal Affairs and MET High Command, by the same test /discipline uses — or
+// Internal Affairs and MET High Command, by the same test /infract uses — or
 // anybody with Administrator in the server. It posts to everyone in the channel,
 // which is not something everyone should be able to do.
 async function mayPost(interaction) {

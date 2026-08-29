@@ -37,7 +37,7 @@ const ACTION_CONFIG = {
   // role back when it lapses — and the case builder has always defaulted them
   // to 14 or 21 days off the penal-code class in the Reason field. Saying
   // timed: false here did not make them permanent; it only made the officer's
-  // notice claim they were, and hid the length from /discipline.
+  // notice claim they were, and hid the length from /infract.
   'Disciplinary Strike 1': { get roleId() { return env('ROLE_STRIKE_1', '1191048287361433738'); },        exile: false, timed: true },
   'Disciplinary Strike 2': { get roleId() { return env('ROLE_STRIKE_2', '1191048287361433739'); },        exile: false, timed: true },
   // RETIRED. There is no third strike — two strikes and the next step is

@@ -59,9 +59,9 @@ is a complete specification of it. Build exactly what it says.
 
 ### The whole bot in one paragraph
 
-A staff member runs `/discipline file` against someone, picking punishments from
+A staff member runs `/infract file` against someone, picking punishments from
 a fixed catalog of eleven. That creates a PENDING case. A reviewer runs
-`/discipline approve`, and the bot then: posts a formal Administrative Log embed
+`/infract approve`, and the bot then: posts a formal Administrative Log embed
 to a Discord webhook, assigns the Discord role for each punishment, records an
 expiry for the timed ones (a background worker strips those roles when they
 lapse), removes the subject from the Roblox group if any punishment is
@@ -77,7 +77,7 @@ leave-of-absence marker.
 
 | Command | Subcommands | Who can run it |
 |---|---|---|
-| `/discipline` | `file`, `approve`, `deny`, `lookup` | IA files; Supervisor+ approves/denies |
+| `/infract` | `file`, `approve`, `deny`, `lookup` | IA files; Supervisor+ approves/denies |
 | `/check-record` | *(none)* | IA and above |
 | `/xp` | `me`, `check`, `review`, `reset`, `exempt`, `iotw` | `me` anyone; rest per §3.7 |
 | `/loa` | `set` | HICOMM only |
@@ -87,7 +87,7 @@ leave-of-absence marker.
 
 ---
 
-# 1. `/discipline`
+# 1. `/infract`
 
 ## 1.1 The punishment catalog (exact)
 
@@ -120,7 +120,7 @@ A single case may carry **multiple** punishments at once.
 containing either gets exactly:
 `Only HICOMM can approve a case involving a Blacklist or Termination.`
 
-## 1.2 `/discipline file`
+## 1.2 `/infract file`
 
 Options:
 - `subject` (user) — the Discord member the case is against. *Either* this or
@@ -142,7 +142,7 @@ exile and demotion are simply skipped later. Store the case as `PENDING`, write
 a `CaseAction` audit row (`CREATED`, notes `Case submitted`), and reply with the
 case ref.
 
-## 1.3 `/discipline approve <ref>` — the pipeline, in this exact order
+## 1.3 `/infract approve <ref>` — the pipeline, in this exact order
 
 1. Guards: 404-equivalent if no such case; `Case is not pending` if its status
    is not PENDING; the Supervisor + Blacklist/Termination refusal from §1.1.
@@ -170,12 +170,12 @@ case ref.
 10. **Award +4 points** to the member who **filed** the case (never the
     subject), through the outbox in §3.2, label `case #<n>`.
 
-## 1.4 `/discipline deny <ref> [note]`
+## 1.4 `/infract deny <ref> [note]`
 
 Set `DENIED`, write a `CaseAction` audit row carrying the note. No roles, no
 exile, no points, no webhook post.
 
-## 1.5 `/discipline lookup <user>`
+## 1.5 `/infract lookup <user>`
 
 That member's **approved** case history, and which punishments are still active:
 `active = !roleRemoved && (!expiresAt || expiresAt > now)`. List pending and
@@ -467,12 +467,12 @@ TICKETS_CHANNEL_ID   = 1537076390829101058
 
 ## 7.1 `/ia case` — file a disciplinary case
 
-Same fields and the same eleven-punishment catalog as `/discipline file`
+Same fields and the same eleven-punishment catalog as `/infract file`
 (§1.1–§1.2). The difference is **where it goes**: instead of sitting invisibly
 in a database as PENDING, the bot posts a **review card** into
 `CASES_CHANNEL_ID` and replies to the filer ephemerally with the case ref.
 
-`/discipline` and `/ia case` write to the **same `Case` table** and share the
+`/infract` and `/ia case` write to the **same `Case` table** and share the
 same `CaseCounter`, so refs never collide.
 
 ## 7.2 `/ia ticket` — log a ticket
@@ -839,9 +839,9 @@ Nobody may review their own case.
    change rank, list/resolve join requests. Test the CSRF retry.
 4. `lib/webhook.js` — `buildCaseEmbed`, post, edit. Check the embed against §1.6 field by field.
 5. `lib/quota.js` — sheet read/write, column discovery, row matching, targets, markers, the outbox.
-6. `lib/discipline.js` — the approval pipeline, in the order given in §1.3.
+6. `lib/infract.js` — the approval pipeline, in the order given in §1.3.
 7. The expiry worker and the outbox worker; start both from `index.js`.
-8. `commands/discipline.js`, `commands/check-record.js`, `commands/xp.js`,
+8. `commands/infract.js`, `commands/check-record.js`, `commands/xp.js`,
    `commands/loa.js`, `commands/pendingjoin.js`, `commands/promote.js`,
    `commands/ia.js`; register them, plus the button handler for the review
    cards (`lib/reviewCard.js`).
@@ -878,7 +878,7 @@ Nobody may review their own case.
 
 # 13. Deliverables
 
-1. The bot: `index.js`, `lib/actions.js`, `lib/discipline.js`, `lib/quota.js`,
+1. The bot: `index.js`, `lib/actions.js`, `lib/infract.js`, `lib/quota.js`,
    `lib/roblox.js`, `lib/webhook.js`, `commands/*.js`, `prisma/schema.prisma`,
    and `scripts/quota-webhook.gs`.
 2. A `README.md`: creating the bot application, enabling the Server Members

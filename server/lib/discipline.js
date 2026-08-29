@@ -1,5 +1,5 @@
-// server/lib/discipline.js
-// The engine behind /discipline — direct disciplinary action, no case attached.
+// server/lib/infract.js
+// The engine behind /infract — direct disciplinary action, no case attached.
 //
 // The IA case system already does all of this, but only at the end of a case:
 // somebody files it, somebody reviews it, and approval fires the side effects.
@@ -118,7 +118,7 @@ async function currentStrikeLevel({ discordId, roleIds, guildRoleIds }) {
   const claimed = new Map();
   const claim = (n, why) => { if (n > 0 && !claimed.has(n)) claimed.set(n, why); };
 
-  // 1. Punishment history (/discipline and the Discord infraction ingest).
+  // 1. Punishment history (/infract and the Discord infraction ingest).
   //    Only rows that are still live: an inactive or expired punishment is over,
   //    and counting it would hold somebody to a strike they have served.
   try {
@@ -277,7 +277,7 @@ async function loadRecord(discordId, limit = 6) {
 
   out.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 
-  // A /discipline action exists in both tables by design — the bot reads one,
+  // A /infract action exists in both tables by design — the bot reads one,
   // the dashboard reads the other — and they share a case ref. Show it once.
   const seen = new Set();
   const merged = out.filter(en => {
@@ -393,7 +393,7 @@ async function fileCase(o) {
       caseId: row.id,
       actionType: 'APPROVED',
       performedBy: owner.id,
-      notes: `Issued directly with /discipline by ${o.issuerName || o.issuerDiscordId} · no review required.`,
+      notes: `Issued directly with /infract by ${o.issuerName || o.issuerDiscordId} · no review required.`,
     },
   }).catch(() => {});
 
