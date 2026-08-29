@@ -13,6 +13,9 @@
   <!-- The developer cloak. Loaded in <head> and BEFORE anything renders, so the
        dev tab is never painted and then taken away. Ctrl+Shift+Alt+D toggles. -->
   <script src="/js/dev-cloak.js?v=2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
 <link rel="stylesheet" href="/css/system.css?v=1" />
   <style>
@@ -121,7 +124,7 @@
       <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:22px;text-align:center;">
         <div id="sec-lockdown-state" style="font-size:15px;margin-bottom:18px;">Loading…</div>
         <button class="btn btn-danger" id="sec-lockdown-btn" onclick="secToggleLockdown()" style="min-width:220px;"><i class="ti ti-lock"></i> …</button>
-        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site — including the login page — is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site, including the login page, is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
       </div></div>
     </section>
 

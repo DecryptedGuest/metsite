@@ -23,6 +23,9 @@
        script can call met.e() without ordering games. -->
   <script src="/js/emoji-map.js?v=1"></script>
   <script src="/js/emoji.js?v=1"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Archivo:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
 <link rel="stylesheet" href="/css/system.css?v=1" />
   <style>
@@ -42,8 +45,7 @@
        with loose display leading making the two halves look unrelated. */
     .signin-title { font-family: var(--font-display); font-size: clamp(17px, 4.6vw, 23px); line-height: 1.2;
       font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; text-align: center; text-wrap: balance;
-      background: linear-gradient(120deg, var(--text-primary) 0%, #8db4ff 52%, var(--purple, #9d7dff) 100%);
-      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+      color: var(--text-strong); }
     .signin-trust { display:flex; flex-wrap:wrap; gap:8px 18px; justify-content:center; margin-top:1.3rem; font-size:11px; color:var(--text-muted); }
     .signin-trust i { margin-right:4px; }
     .signin-sub { font-size: 12px; color: var(--text-muted); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; }
@@ -63,12 +65,12 @@
       .signin-strap-group .met-strap .seg + .seg::before { display: none; }
     }
     .signin-card { width: 100%; padding: 1.9rem 1.8rem 1.6rem; animation: fadeUp 0.6s ease 0.1s both; }
-    .signin-card .hint { text-align: center; font-size: 11px; color: var(--text-tiny); margin-top: 1.2rem; line-height: 1.6; }
+    .signin-card .hint { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 1.2rem; line-height: 1.6; }
     .btn-discord-full { width: 100%; justify-content: center; padding: 0.85rem 1.4rem; font-size: 14px; border-radius: var(--radius-md); }
     .signin-btns { display: flex; flex-direction: column; gap: 12px; }
     .btn-roblox { background:rgba(255,255,255,0.06); color:var(--text-primary); border:1px solid var(--border-mid); }
     .btn-roblox:hover { background:rgba(255,255,255,0.11); color:#fff; border-color:var(--border-bright); }
-    .signin-or { display:flex; align-items:center; gap:12px; margin:4px 0; color:var(--text-tiny); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
+    .signin-or { display:flex; align-items:center; gap:12px; margin:4px 0; color: var(--text-muted); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; }
     .signin-or::before, .signin-or::after { content:""; flex:1; height:1px; background:rgba(255,255,255,0.08); }
     .try-another-btn { display:block; width:100%; margin-top:1.4rem; background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
     .try-another-btn:hover { color:var(--text-secondary); }
@@ -85,7 +87,7 @@
     .alt-back:hover { color:var(--text-secondary); }
     .alt-code-input { width:100%; text-align:center; letter-spacing:0.4em; font-size:26px; font-weight:700; font-family:var(--font-mono,monospace); padding:0.7rem; }
     .alt-qr { display:block; width:220px; max-width:80%; margin:0.4rem auto 0.8rem; border-radius:12px; }
-    .signin-footer { font-family: var(--font-mono); font-size: 9px; color: var(--text-tiny); letter-spacing: 0.12em; text-transform: uppercase; }
+    .signin-footer { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); letter-spacing: 0.12em; text-transform: uppercase; }
   </style>
 </head>
 <body>

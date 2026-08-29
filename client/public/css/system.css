@@ -100,8 +100,13 @@
   /* ── Type ──────────────────────────────────────────────────────────────
      One family for the interface, one for anything that must line up
      column-wise: references, ids, timestamps, counts. */
-  --font: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font: "Inter", ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* A second face, for headings and for anything set in caps. It is a
+     grotesque with squarer terminals than Inter, which is what stops a
+     page of uppercase labels reading as the body font shouted. Every use
+     is a heading or a label — never running text. */
+  --font-display: "Archivo", "Inter", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
 
   --text-2xs: 11px;
   --text-xs:  12px;
@@ -273,7 +278,7 @@
   --dc:var(--accent-500);
   --discord:#5865f2; --discord-dim:#4752c4; --discord-border:#4752c4;
 
-  --font-body:var(--font); --font-display:var(--font);
+  --font-body:var(--font);   /* --font-display is a real second face now, set above */
 
   --radius-sm:var(--r-sm); --radius-md:var(--r-md);
   --radius-lg:var(--r-lg); --radius-xl:var(--r-xl);
@@ -1748,3 +1753,202 @@ a.hub-card:hover, a.div-tile:hover, .met-tile[onclick]:hover, .stat-card[onclick
 /* Reduced motion is handled once, at the top of this file, with
    !important on duration and iteration count — so everything above
    degrades to an instant state change rather than needing its own opt-out. */
+
+/* ==========================================================================
+   14. REFINEMENT
+   ==========================================================================
+   The layer that gives the system a voice. Everything above decides where
+   things go; nothing here moves any of it. These rules only change colour,
+   texture, weight and type, because the layout is the part that is working
+   and the part worth protecting.
+
+   The rule for the whole layer: an effect has to carry information. A
+   heading set in the display face says "heading". A figure set in tabular
+   numerals says "compare me with the one below". A tinted panel header says
+   "this bar is chrome, the thing under it is content". Anything that only
+   looks nice gets cut. */
+
+/* ── Type ────────────────────────────────────────────────────────────────
+   Two faces doing two jobs. Inter runs the interface; Archivo takes the
+   headings and the uppercase labels, where its squarer shapes keep a page
+   of caps from reading as the body font shouted. */
+h1, h2, h3, .page-title, .panel-title, .stat-value,
+.section-title, .met-topbar-title, .modal-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.011em;
+}
+/* Caps want the opposite treatment: opened up, never tightened. */
+.field-label, .stat-label, .kicker, .section-label, .data-table th,
+.met-topbar-division, .brand-sub, .nav-section-label {
+  font-family: var(--font-display);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  font-weight: var(--weight-semi);
+}
+/* A subtitle sits UNDER a title and must not compete with it: same caps
+   treatment, a step down in size and colour. */
+.brand-sub, .met-topbar-division {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+}
+
+.page-title { font-size: var(--text-2xl); font-weight: var(--weight-bold); letter-spacing: -0.02em; }
+
+/* Numbers that sit in a column must line up in that column. Tabular figures
+   are the whole reason a table of counts can be read down instead of across. */
+.stat-value, .data-table td, .metric, .count, .quota-num, .xp-num,
+.case-ref, .ticket-seq, .mono, td.num, .num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ── Ground ──────────────────────────────────────────────────────────────
+   A single very soft wash from the top of the canvas. It is not decoration:
+   it separates the page from the browser chrome above it and gives the
+   topbar something to sit against. One gradient, fixed, no repeat. */
+body {
+  background-image:
+    radial-gradient(1200px 400px at 50% -160px,
+      color-mix(in srgb, var(--accent-500) 7%, transparent) 0%,
+      transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* ── Surfaces ────────────────────────────────────────────────────────────
+   A panel gains a hairline of light along its top edge. That single line is
+   what makes a surface read as raised rather than as a rectangle drawn on
+   the page, and it costs nothing: no blur, no layer, no repaint. */
+.panel, .card, .stat-card, .modal, .met-menu-wide, .met-switcher-menu {
+  position: relative;
+}
+.panel::after, .card::after, .stat-card::after {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    transparent, color-mix(in srgb, var(--text-strong) 12%, transparent) 18%,
+    color-mix(in srgb, var(--text-strong) 12%, transparent) 82%, transparent);
+  pointer-events: none;
+}
+
+/* The header bar of a panel is chrome, so it is tinted like chrome. The
+   content below it stays on the plain surface, and the boundary between
+   the two stops needing to be explained. */
+.panel-header {
+  background: linear-gradient(
+    color-mix(in srgb, var(--surface-sunken) 70%, var(--surface)),
+    var(--surface));
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+
+/* ── The accent, used once per surface ───────────────────────────────────
+   A short accent rule under a page title. One per page: it marks where the
+   content starts, and a second one on the same screen would mark nothing. */
+.page-header { position: relative; padding-bottom: var(--s-4); }
+.page-header::after {
+  content: ""; position: absolute; left: 0; bottom: 0;
+  width: 44px; height: 2px; border-radius: var(--r-full);
+  background: var(--accent-500);
+}
+
+/* ── Figures ─────────────────────────────────────────────────────────────
+   A stat card is a number and its name. Give the number the room and the
+   weight, set the name in small caps beneath it, and the card needs no
+   border treatment of its own to read as a unit. */
+.stat-value {
+  font-size: var(--text-3xl); font-weight: var(--weight-bold);
+  line-height: 1.05; letter-spacing: -0.025em;
+  color: var(--text-strong);
+}
+.stat-label {
+  font-size: var(--text-2xs); color: var(--text-muted);
+  margin-top: var(--s-1);
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────
+   The header is a tinted band that stays put while the body scrolls under
+   it, so the column names are still there forty rows down. */
+.data-table th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface-sunken);
+  font-size: var(--text-2xs); color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.data-table tbody tr:hover { background: var(--surface-hover); }
+.data-table tbody tr + tr td { border-top: 1px solid var(--border-subtle); }
+
+/* ── Status ──────────────────────────────────────────────────────────────
+   A status is a tint, a hairline and a dot in its own hue, never a solid
+   block of colour: solid reads as a button and invites a click that does
+   not exist. */
+.badge, .pill, .status-badge, .tag {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  font-size: var(--text-2xs); font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-wide);
+  padding: 3px var(--s-2); border-radius: var(--r-sm);
+  border: 1px solid transparent;
+}
+.badge::before, .pill::before, .status-badge::before {
+  content: ""; width: 5px; height: 5px; border-radius: var(--r-full);
+  background: currentColor; flex-shrink: 0;
+}
+.badge-ok,   .pill-ok,   .status-ok    { color: var(--ok-500);   background: var(--ok-weak);   border-color: color-mix(in srgb, var(--ok-500) 28%, transparent); }
+.badge-warn, .pill-warn, .status-warn  { color: var(--warn-500); background: var(--warn-weak); border-color: color-mix(in srgb, var(--warn-500) 28%, transparent); }
+.badge-bad,  .pill-bad,  .status-bad   { color: var(--bad-500);  background: var(--bad-weak);  border-color: color-mix(in srgb, var(--bad-500) 28%, transparent); }
+.badge-info, .pill-info, .status-info  { color: var(--info-500); background: var(--info-weak); border-color: color-mix(in srgb, var(--info-500) 28%, transparent); }
+.badge-note, .pill-note, .status-note  { color: var(--note-500); background: var(--note-weak); border-color: color-mix(in srgb, var(--note-500) 28%, transparent); }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────
+   The primary button is the one thing on a page allowed a gradient, and it
+   is a two-percent one: just enough that the eye reads a surface with a
+   light on it rather than a filled rectangle. */
+.btn-primary {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--accent-400) 34%, var(--accent-500)),
+    var(--accent-500));
+  border-color: var(--accent-600);
+  box-shadow: var(--shadow-raised);
+}
+.btn-primary:hover:not(:disabled) {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--accent-400) 22%, var(--accent-500)),
+    var(--accent-600));
+}
+.btn { font-weight: var(--weight-medium); }
+
+/* ── Chrome ──────────────────────────────────────────────────────────────
+   The topbar and the sidebar are frame, not content, so they sit a step
+   back from the surfaces they hold. */
+.met-topbar, .topbar {
+  background: color-mix(in srgb, var(--surface) 88%, var(--canvas));
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: saturate(1.4) blur(8px);
+  -webkit-backdrop-filter: saturate(1.4) blur(8px);
+}
+.sidebar, .nav-sidebar {
+  background: color-mix(in srgb, var(--surface-sunken) 60%, var(--canvas));
+  border-right: 1px solid var(--border);
+}
+.nav-item.active { background: var(--accent-weak); color: var(--accent-500); font-weight: var(--weight-semi); }
+
+/* ── Hairlines that mean something ───────────────────────────────────────
+   A divider between sections of the same panel is subtle; a divider between
+   two different things is not. Using one weight for both is what makes a
+   dense page read as undifferentiated. */
+.divider-strong { border-top: 1px solid var(--border-strong); }
+
+/* A column of figures is compared down the column, so it is set to the
+   right: the units line up under the units and the eye can read magnitude
+   from the shape alone. Tabular numerals above do the rest. */
+.data-table th.num, .data-table td.num,
+.data-table th.right, .data-table td.right { text-align: right; }
+
+/* Small print stays small print: a hint under a control is secondary text,
+   not body text, and it had no rule at all in this system. */
+.hint, .help-text, .form-hint {
+  font-size: var(--text-xs); color: var(--text-muted);
+  line-height: var(--leading);
+}
