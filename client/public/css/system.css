@@ -1100,13 +1100,13 @@ input[type="checkbox"], input[type="radio"] {
 /* ── Lists that behave like rows ─────────────────────────────────────── */
 .attention-items, .join-request-list, .metdb-list, .met-mnav-list,
 .xp-hist, .ev-roll, .appeal-lift-list, .action-checklist, .met-cd-chips,
-.mem-actions, .admin-actions, .sk-cards, .hc-off-row, .bc-section {
+.mem-actions, .admin-actions, .sk-cards {
   display: flex; flex-direction: column; gap: var(--s-2);
 }
 .mem-action-row, .hc-off-row, .metdb-summary, .ev-sug-main, .idv-stack,
 .ticket-id-stack, .investigator-cell, .officer-card-display, .join-request-display,
 .join-request-info, .siu-meta, .met-topbar-brand, .met-topbar-user, .met-switcher,
-.ev-picker-wrap, .met-mnav-foot, .app-promo-body, .met-cd-foot, .cc-stat, .bc-div {
+.ev-picker-wrap, .met-mnav-foot, .app-promo-body, .met-cd-foot, .cc-stat {
   display: flex; align-items: center; gap: var(--s-3); min-width: 0;
 }
 .app-promo-actions, .met-empty-cta, .join-request-actions, .ev-drop-btn { display: flex; gap: var(--s-2); flex-wrap: wrap; }
@@ -1150,6 +1150,25 @@ input[type="checkbox"], input[type="radio"] {
 .bc-sep      { color: var(--text-muted); }
 .met-strap-underline { height: 2px; background: var(--accent-500); width: 40px; margin-top: var(--s-2); }
 .met-strap-hero { font-size: var(--text-xl); font-weight: var(--weight-semi); color: var(--text-strong); }
+
+/* The motto strap. Its segments share a class name with the segmented
+   control above, so reset that control's chrome here and separate the
+   words with a middot instead of three touching boxes. */
+.met-strap {
+  display: inline-flex; align-items: center; flex-wrap: wrap;
+  justify-content: center; gap: 0;
+  padding: 0; background: none; border: 0; border-radius: 0;
+}
+.met-strap .seg {
+  display: inline; padding: 0 var(--s-3);
+  background: none; border: 0; border-radius: 0;
+  font: inherit; color: inherit;
+}
+.met-strap .seg + .seg { position: relative; }
+.met-strap .seg + .seg::before {
+  content: "\00b7"; position: absolute; left: -2px;
+  color: var(--text-muted); font-weight: var(--weight-normal);
+}
 .met-splash-skip, .met-mnav-signout, .met-mnav-x, .ev-drop-btn { cursor: pointer; }
 .met-splash-crest-txt { font-weight: var(--weight-semi); }
 .row-btn-review-elsewhere:hover { border-color: var(--note-500); color: var(--note-500); }
@@ -1163,3 +1182,363 @@ input[type="checkbox"], input[type="radio"] {
 
 .ev-suggest { position: relative; }
 /* ti-lock and ti-brand-roblox come from the Tabler icon font, not from here. */
+
+/* ==========================================================================
+   12. OVERLAYS
+   ==========================================================================
+   Everything that leaves the document flow: drawers, popovers, floating
+   buttons, the splash. These are NOT decoration — an overlay without its
+   positioning renders inline, and the whole page stacks on top of itself.
+   Each one is hidden by default and revealed by the class its JavaScript
+   already toggles. */
+
+/* ── Screen-reader only ──────────────────────────────────────────────── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* ── The intro splash ────────────────────────────────────────────────── */
+.met-splash {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: var(--s-5);
+  background: var(--canvas);
+  transition: opacity var(--slow) var(--ease);
+}
+.met-splash.hide { opacity: 0; pointer-events: none; }
+.met-splash-crest {
+  width: 82px; height: 82px; border-radius: var(--r-xl);
+  overflow: hidden; display: grid; place-items: center;
+  background: var(--accent-500);
+}
+.met-splash-crest img { width: 100%; height: 100%; object-fit: cover; }
+.met-splash-tag { color: var(--text-muted); font-size: var(--text-sm); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+.met-splash-skip {
+  position: absolute; bottom: var(--s-6); right: var(--s-6);
+  border: 0; background: none; padding: var(--s-2);
+  color: var(--text-muted); font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide); text-transform: uppercase; cursor: pointer;
+}
+.met-moment { position: fixed; inset: 0; z-index: 99998; display: grid; place-items: center; background: var(--canvas); }
+.met-moment-icon { width: 92px; height: 92px; border-radius: var(--r-full); display: grid; place-items: center; font-size: 44px; color: #fff; background: var(--accent-500); }
+.met-moment-title { font-size: var(--text-3xl); font-weight: var(--weight-semi); color: var(--text-strong); text-align: center; }
+
+/* ── Mobile navigation drawer ────────────────────────────────────────── */
+.met-mnav {
+  position: fixed; top: 0; left: 0;
+  height: 100dvh; width: min(84vw, 320px);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  transform: translateX(-100%);
+  transition: transform var(--slow) var(--ease);
+  z-index: 1200;
+}
+.met-mnav.open { transform: none; box-shadow: var(--shadow-modal); }
+.met-mnav-scrim {
+  position: fixed; inset: 0; z-index: 1199;
+  background: rgba(15,20,26,.5);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--slow) var(--ease);
+}
+.met-mnav-scrim.open, .nav-open .met-mnav-scrim { opacity: 1; pointer-events: auto; }
+.met-mnav-head { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-4); border-bottom: 1px solid var(--border); }
+.met-mnav-list { flex: 1; overflow-y: auto; padding: var(--s-2); gap: 0; }
+.met-mnav-foot { padding: var(--s-4); border-top: 1px solid var(--border); }
+.met-mnav-x { margin-left: auto; border: 0; background: none; color: var(--text-muted); font-size: 18px; cursor: pointer; }
+
+.sidebar-scrim {
+  position: fixed; inset: 0; z-index: 55;
+  background: rgba(15,20,26,.5);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--slow) var(--ease);
+}
+.app-layout.nav-open .sidebar-scrim { opacity: 1; pointer-events: auto; }
+
+/* The drawer belongs to small screens only. On a desktop the sidebar is
+   already on the page, and leaving the drawer in the flow is what stacked
+   the whole navigation down the middle of the dashboard. */
+.met-mnav, .met-mnav-scrim, #met-mnav-toggle, .met-nav-toggle, .sidebar-scrim { display: none; }
+@media (max-width: 820px) {
+  .met-mnav, .met-mnav-scrim, .sidebar-scrim { display: flex; }
+  .met-mnav-scrim, .sidebar-scrim { display: block; }
+  #met-mnav-toggle, .met-nav-toggle { display: inline-flex; }
+}
+
+/* ── Popovers ────────────────────────────────────────────────────────────
+   Anchored to whatever the JavaScript positions them under, hidden until it
+   adds `.open`. */
+.met-switcher, .met-cd-trigger, .ev-suggest, .met-menu-wrap, .search-box { position: relative; }
+
+.met-switcher-menu, .met-cd-list, .met-cd-pop, .ev-drop, .met-menu-wide,
+.suggestions-dropdown, .ev-suggest {
+  position: absolute; z-index: var(--z-menu);
+  display: none;
+  min-width: 220px; max-height: 320px; overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+  padding: var(--s-2);
+}
+.met-switcher-menu { top: calc(100% + var(--s-2)); right: 0; }
+.met-cd-list, .met-cd-pop, .ev-drop, .met-menu-wide,
+.suggestions-dropdown, .ev-suggest { top: calc(100% + var(--s-1)); left: 0; right: 0; }
+/* Every class the JavaScript uses to reveal one of these. */
+.met-switcher-menu.open, .met-switcher-menu.show, .met-switcher-menu.active,
+.met-cd-list.open, .met-cd-list.show, .met-cd-pop.open,
+.ev-drop.open, .ev-drop.show, .met-menu-wide.open,
+.suggestions-dropdown.open, .suggestions-dropdown.show,
+.ev-suggest.open, .ev-suggest.show { display: block; }
+
+.rc-ac {
+  position: fixed; z-index: 2000;
+  min-width: 220px; max-width: 300px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-menu);
+  padding: var(--s-1); overflow: hidden;
+}
+
+/* ── Floating buttons ────────────────────────────────────────────────── */
+.met-to-top {
+  position: fixed; right: var(--s-6); bottom: var(--s-12); z-index: 70;
+  width: 42px; height: 42px; border-radius: var(--r-full);
+  display: grid; place-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-secondary);
+  box-shadow: var(--shadow-menu);
+  opacity: 0; pointer-events: none; cursor: pointer;
+  transition: opacity var(--base) var(--ease), background var(--fast) var(--ease);
+}
+.met-to-top.show { opacity: 1; pointer-events: auto; }
+.met-to-top:hover { background: var(--surface-hover); color: var(--text-strong); }
+
+.met-chat-fab {
+  position: fixed; right: var(--s-5); bottom: var(--s-5); z-index: 71;
+  width: 56px; height: 56px; border-radius: var(--r-full);
+  display: grid; place-items: center;
+  border: 0; background: var(--accent-500); color: #fff;
+  font-size: 24px; cursor: pointer;
+  box-shadow: var(--shadow-menu);
+}
+.met-chat-fab.dragging { cursor: grabbing; transition: none; }
+.met-chat-pop {
+  position: fixed; right: var(--s-5); bottom: 84px; z-index: 71;
+  width: min(300px, 88vw); padding: var(--s-4);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-modal);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--base) var(--ease);
+}
+.met-chat-pop.open { opacity: 1; pointer-events: auto; }
+body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
+
+/* ── Bits that must sit ON something ─────────────────────────────────── */
+.proof-thumb, .ev-shot { position: relative; }
+.proof-thumb-remove {
+  position: absolute; top: 2px; right: 2px;
+  width: 20px; height: 20px; border-radius: var(--r-full);
+  display: grid; place-items: center;
+  border: 0; background: rgba(15,20,26,.72); color: #fff;
+  font-size: 11px; cursor: pointer; opacity: 0;
+  transition: opacity var(--fast) var(--ease);
+}
+.proof-thumb:hover .proof-thumb-remove { opacity: 1; }
+
+#toast-container {
+  position: fixed; right: var(--s-6); bottom: var(--s-6); z-index: var(--z-toast);
+  display: flex; flex-direction: column; gap: var(--s-2);
+  pointer-events: none;
+}
+.toast { max-width: 320px; pointer-events: auto; opacity: 0; transform: translateX(16px); transition: opacity var(--base) var(--ease), transform var(--base) var(--ease); }
+.toast.show { opacity: 1; transform: none; }
+.toast.hide { opacity: 0; transform: translateX(16px); }
+
+/* ── Things hidden on the desktop layout ─────────────────────────────── */
+#met-user-name { display: none; }
+@media (max-width: 900px) {
+  .met-topbar-brand { display: none; }
+  #met-cmdk-btn { display: none; }
+  .met-topbar-right .cmdk-kbd { display: none; }
+}
+
+.rc-editor {
+  flex: 1 1 auto; min-height: 44px; max-height: 180px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-word; line-height: var(--leading); cursor: text;
+}
+.rc-editor:empty::before { content: attr(data-placeholder); color: var(--text-muted); pointer-events: none; }
+
+.sup-panel { position: relative; }
+.sup-panel[class*="tkt-"]::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--div-accent, var(--accent-500)); border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+
+/* ── Breadcrumb ──────────────────────────────────────────────────────────
+   A horizontal trail. These are inline spans inside one line of topbar, and
+   giving them a column layout stacked the division above the section. */
+.met-bc, .bc-trail { display: inline-flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.bc-div, .bc-section {
+  display: inline; font-size: var(--text-sm); color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bc-div { color: var(--text-muted); }
+.bc-sep { color: var(--text-muted); font-size: 14px; margin: 0 2px; }
+
+/* ── Sidebar search trigger ──────────────────────────────────────────────
+   A button that looks like the input it opens. It had padding and nothing
+   else, so it rendered as an unstyled control overflowing the sidebar. */
+.nav-search {
+  display: flex; align-items: center; gap: var(--s-2);
+  width: 100%; height: var(--control-h);
+  margin: 0 0 var(--s-2);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-sunken); color: var(--text-muted);
+  font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.nav-search:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text-secondary); }
+.nav-search span { flex: 1; }
+.nav-search kbd, .nav-search .cmdk-kbd {
+  font-family: var(--font-mono); font-size: var(--text-2xs);
+  padding: 2px var(--s-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--surface); color: var(--text-muted);
+}
+
+/* ── Brand block ─────────────────────────────────────────────────────────
+   Name over sub, neither wrapping. Without a min-width of 0 the flex child
+   refuses to shrink and the two lines break mid-word. */
+.sidebar-brand, .met-topbar-brand, .brand-text { min-width: 0; }
+.brand-name, .brand-sub, .met-topbar-title, .met-topbar-division {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.met-topbar-brand { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+
+/* ==========================================================================
+   13. MOTION
+   ==========================================================================
+   Animation with a job. Every transition below answers one of three
+   questions and nothing else asks for one:
+
+     "did that register?"   press, hover, focus
+     "where did that come from?"  entrance, expand, the tab indicator
+     "is something happening?"    loading, progress
+
+   The house rules: nothing longer than 240ms, nothing that moves further
+   than 8px, nothing that loops except a genuine progress indicator, and
+   nothing that delays the reader getting to the content. The whole layer
+   is switched off by prefers-reduced-motion at the top of this file. */
+
+/* ── Press ───────────────────────────────────────────────────────────────
+   The single most useful piece of motion in an interface: proof the click
+   landed, on the frame it landed. */
+.btn, .row-btn, .nav-item, .filter-tab, .seg-btn, .met-switcher-item,
+.cmdk-row, .theme-toggle, .met-cd-opt, .met-to-top, .met-chat-fab {
+  transition: background var(--fast) var(--ease),
+              border-color var(--fast) var(--ease),
+              color var(--fast) var(--ease),
+              transform var(--fast) var(--ease),
+              box-shadow var(--fast) var(--ease);
+}
+.btn:active:not(:disabled), .row-btn:active, .theme-toggle:active,
+.met-chat-fab:active, .met-to-top:active { transform: scale(.97); }
+.nav-item:active, .filter-tab:active, .seg-btn:active,
+.met-switcher-item:active, .cmdk-row:active { transform: scale(.99); }
+
+/* ── Hover ───────────────────────────────────────────────────────────────
+   A card that can be opened says so by lifting a little. A card that only
+   displays does NOT — a lift that leads nowhere is a promise the interface
+   does not keep. So this is scoped to genuinely clickable surfaces. */
+a.stat-card, a.met-tile, a.profile-div-card, a.hub-card, a.div-tile,
+.row-clickable, [role="button"].panel, .met-tile[onclick], .stat-card[onclick] {
+  transition: transform var(--base) var(--ease),
+              border-color var(--base) var(--ease),
+              box-shadow var(--base) var(--ease);
+}
+a.stat-card:hover, a.met-tile:hover, a.profile-div-card:hover,
+a.hub-card:hover, a.div-tile:hover, .met-tile[onclick]:hover, .stat-card[onclick]:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-raised);
+}
+
+/* Rows highlight rather than move: a table row that shifts under the cursor
+   makes a long list feel unstable to read down. */
+.data-table tbody tr { transition: background var(--fast) var(--ease); }
+
+/* ── Entrance ────────────────────────────────────────────────────────────
+   One short rise, once, on the container. Not on every row: a list that
+   animates in row by row cannot be read until it has finished. */
+@keyframes rise  { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fade  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop   { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes slidein { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+
+.page.active   { animation: rise var(--base) var(--ease) both; }
+.panel.fade-up { animation: rise var(--base) var(--ease) both; }
+.modal         { animation: pop var(--base) var(--ease) both; }
+.modal-overlay { animation: fade var(--fast) var(--ease) both; }
+
+/* Menus grow from the edge they are anchored to, so the eye is told where
+   they came from rather than having to find them. */
+.met-switcher-menu, .met-cd-list, .met-cd-pop, .ev-drop,
+.met-menu-wide, .suggestions-dropdown, .ev-suggest {
+  transform-origin: top right;
+  animation: pop var(--fast) var(--ease) both;
+}
+.met-cd-list, .met-cd-pop, .ev-drop, .met-menu-wide,
+.suggestions-dropdown, .ev-suggest { transform-origin: top left; }
+
+/* ── The selected tab ────────────────────────────────────────────────────
+   The raised surface behind the active tab is what moves, and it moves
+   because the browser is transitioning the same property on a new element.
+   Cheap, and it reads as the indicator sliding across. */
+.filter-tab, .seg-btn { transition: background var(--base) var(--ease), color var(--fast) var(--ease), box-shadow var(--base) var(--ease); }
+
+/* ── Loading ─────────────────────────────────────────────────────────────
+   The only looping animation in the system, and it loops because the thing
+   it describes is genuinely still going. */
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes pulse   { 0%,100% { opacity: 1 } 50% { opacity: .5 } }
+@keyframes shimmer { from { background-position: -320px 0; } to { background-position: 320px 0; } }
+
+/* A skeleton sweeps rather than blinks: a sweep reads as "arriving", a
+   blink reads as "broken". */
+.skeleton, .sk, .sk-line, .sk-av, .sk-kpi, .sk-row, .sk-card, .sk-body {
+  background: linear-gradient(90deg,
+    var(--surface-active) 0%, var(--surface-hover) 42%, var(--surface-active) 84%);
+  background-size: 320px 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+.table-loading { animation: pulse 1.5s var(--ease) infinite; }
+
+/* ── Progress ────────────────────────────────────────────────────────────
+   Meters ease to their new value so a number that changed is noticed. */
+.quota-hero-fill, .xp-bar-fill, .stat-bar > * {
+  transition: width var(--slow) var(--ease), background var(--base) var(--ease);
+}
+
+/* ── Toasts and drawers ──────────────────────────────────────────────── */
+.toast { animation: slidein var(--base) var(--ease) both; }
+.met-mnav { will-change: transform; }
+
+/* ── Icons ───────────────────────────────────────────────────────────────
+   A very small nudge on the icon inside a hovered row. Enough to feel
+   responsive, small enough that a column of them does not jitter. */
+.nav-item .nav-icon, .cmdk-row i, .met-switcher-item i {
+  transition: transform var(--fast) var(--ease);
+}
+.nav-item:hover .nav-icon, .cmdk-row:hover i { transform: translateX(1px); }
+
+/* ── The one deliberate flourish ─────────────────────────────────────────
+   The accent underline beneath a section strap draws itself in. It runs
+   once, on a single element, and nothing waits for it. */
+.met-strap-underline { transform-origin: left; animation: draw var(--slow) var(--ease) both; }
+@keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Reduced motion is handled once, at the top of this file, with
+   !important on duration and iteration count — so everything above
+   degrades to an instant state change rather than needing its own opt-out. */
