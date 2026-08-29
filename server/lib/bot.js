@@ -519,10 +519,12 @@ function buildCommandPlan() {
  * Push the plan to Discord.
  * @param {object} [c] a client to use instead of the live one (tests)
  */
+let lastRegistration = null;   // what the last registerCommands() actually did
+
 async function registerCommands(c) {
   const api = c || client;
   const { byGuild, global } = buildCommandPlan();
-  const out = { guilds: [], global: null, errors: [] };
+  const out = { guilds: [], global: null, errors: [], at: new Date().toISOString() };
 
   if (!byGuild.size) {
     console.warn('[Bot] no guild configured for slash commands · set MET_GUILD_ID or DISCORD_GUILD_ID.');
@@ -652,6 +654,7 @@ async function registerCommands(c) {
     console.warn('[Bot] leftover-command sweep failed:', err.message);
   }
 
+  lastRegistration = out;
   return out;
 }
 
@@ -668,13 +671,27 @@ async function listRegisteredCommands() {
   const out = { guilds: [], global: [], botGuilds: [], resolved: {} };
   out.resolved = {
     MET_GUILD_ID: process.env.MET_GUILD_ID || null,
+    IA_GUILD_ID: process.env.IA_GUILD_ID || null,
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID || null,
+    IA_COMMANDS: process.env.IA_COMMANDS || null,
     disciplineTargets: DISCIPLINE_GUILD_IDS(),
     xpTargets: XP_GUILD_IDS(),
     iaTargets: IA_GUILD_IDS(),
     promoteTargets: PROMOTE_GUILD_IDS(),
     loaTargets:     LOA_GUILD_IDS(),
+    // The Internal Affairs server's own commands. Every target above resolves
+    // through metGuild(), so without these the one server whose commands were
+    // missing was the one server this could not report on.
+    undoTarget:       iaGuild('UNDO_GUILD_ID'),
+    qpTarget:         iaGuild('QP_GUILD_ID'),
+    leaderboardTarget: iaGuild('LEADERBOARD_GUILD_ID'),
+    submitCaseTarget: iaGuild('SUBMIT_CASE_GUILD_ID'),
   };
+  out.lastRegistration = lastRegistration;
+  out.plan = {};
+  try {
+    for (const [gid, cmds] of buildCommandPlan().byGuild) out.plan[gid] = cmds.map(c => c.name);
+  } catch (e) { out.plan = { error: e.message }; }
   try {
     for (const g of client.guilds.cache.values()) out.botGuilds.push({ id: g.id, name: g.name });
   } catch (e) { /* cache only */ }
@@ -682,7 +699,10 @@ async function listRegisteredCommands() {
     const g = await client.application.commands.fetch();
     out.global = [...g.values()].map(c => c.name);
   } catch (e) { out.global = { error: e.message }; }
-  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), ...LOA_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
+  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), ...LOA_GUILD_IDS(),
+                                 ...iaGuild('UNDO_GUILD_ID'), ...iaGuild('QP_GUILD_ID'),
+                                 ...iaGuild('LEADERBOARD_GUILD_ID'), ...iaGuild('SUBMIT_CASE_GUILD_ID'),
+                                 IMPORT_GUILD_ID].filter(Boolean))) {
     try {
       const guild = await client.guilds.fetch(guildId);
       const cmds = await guild.commands.fetch();

@@ -1557,6 +1557,20 @@ app.get(['/healthz', '/api/healthz'], async (req, res) => {
   });
 });
 
+// Why a server is showing no slash commands, answerable from a URL instead of
+// from a deploy log. Reports what the plan targets at each guild, what Discord
+// actually has, and the reason the last registration failed where it failed.
+// No secrets: guild ids and command names only.
+app.get(['/healthz/commands', '/api/healthz/commands'], async (req, res) => {
+  try {
+    const bot = require('./lib/bot');
+    if (!bot.isReady()) return res.status(200).json({ ok: false, error: 'Bot not connected yet.' });
+    res.status(200).json({ ok: true, ...(await bot.listRegisteredCommands()) });
+  } catch (e) {
+    res.status(200).json({ ok: false, error: String(e && e.message || e).slice(0, 300) });
+  }
+});
+
 // ── 404 / Error ─────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404);
