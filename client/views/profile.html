@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · Dashboard</title>
-  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
   <link rel="manifest" href="/manifest.json" />
   <meta name="theme-color" content="#0b0f1a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -204,12 +204,16 @@
   <div class="panel glass fade-up stagger-3" id="p-appearance-panel">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Appearance</div></div>
     <div class="profile-section">
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">Pick an accent colour — it's saved to this device and applied across the site.</p>
-      <div id="p-accent-current" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"></div>
-      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Choose a colour</div>
-      <div id="p-accent-swatches" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"></div>
-      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-ghost btn-sm" onclick="toggleTheme()"><i class="ti ti-brightness"></i> Toggle light / dark</button>
+      <p class="appearance-note">These settings are saved to this device and applied across the site.</p>
+
+      <div class="field-label">Theme</div>
+      <div id="p-theme-options" class="theme-options"></div>
+
+      <div class="field-label">Accent colour</div>
+      <div id="p-accent-current" class="accent-current"></div>
+      <div id="p-accent-swatches" class="accent-swatches"></div>
+
+      <div class="appearance-actions">
         <button id="p-reduce-motion-btn" class="btn btn-ghost btn-sm" onclick="toggleReduceMotion()"><i class="ti ti-accessible"></i> Reduce motion</button>
         <button id="p-density-btn" class="btn btn-ghost btn-sm" onclick="toggleDensity()"><i class="ti ti-layout-rows"></i> Compact</button>
         <button class="btn btn-ghost btn-sm" onclick="downloadMyData()"><i class="ti ti-download"></i> Download my data</button>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · SCO-19 Dashboard</title>
-  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
 <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
        script can call met.e() without ordering games. -->

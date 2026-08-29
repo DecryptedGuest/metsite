@@ -730,17 +730,23 @@ function renderAccents() {
   const curEl = document.getElementById('p-accent-current');
   if (curEl) {
     const curAccent = ACCENTS.find(a => (a.hex || '') === cur) || ACCENTS[0];
-    const curBg = curAccent.hex || 'var(--blue,#4a8fff)';
+    const curBg = curAccent.hex || 'var(--accent-500,#2f7ef0)';
     curEl.innerHTML =
-      `<span style="width:26px;height:26px;border-radius:50%;background:${curBg};border:2px solid var(--border,#2a2a2a);flex-shrink:0;"></span>` +
+      `<span class="accent-current-dot" style="--sw:${curBg};"></span>` +
       `<div><div style="font-size:13px;font-weight:700;">${escHtml(curAccent.name)}</div>` +
       `<div style="font-size:11px;color:var(--text-muted);">Current accent colour</div></div>`;
   }
 
   wrap.innerHTML = ACCENTS.map(a => {
     const active = (a.hex || '') === cur;
-    const bg = a.hex || 'var(--blue,#4a8fff)';
-    return `<button title="${escHtml(a.name)}" onclick="setAccent('${a.hex}')" style="width:34px;height:34px;border-radius:50%;cursor:pointer;background:${bg};border:2px solid ${active ? 'var(--text-primary)' : 'transparent'};box-shadow:${active ? '0 0 0 2px var(--bg,#0a0a0a)' : 'none'};position:relative;">${active ? '<i class="ti ti-check" style="color:#fff;font-size:16px;"></i>' : ''}</button>`;
+    const bg = a.hex || 'var(--accent-500,#2f7ef0)';
+    // The selected ring is drawn against the CANVAS, so it reads as a gap
+    // around the swatch in every theme. It used to reference --bg, which this
+    // system does not define, so it fell back to near-black on a light page.
+    return `<button class="accent-swatch${active ? ' is-active' : ''}" aria-pressed="${active}" `
+      + `title="${escHtml(a.name)}" aria-label="${escHtml(a.name)}" `
+      + `onclick="setAccent('${a.hex}')" style="--sw:${bg};">`
+      + `${active ? '<i class="ti ti-check"></i>' : ''}</button>`;
   }).join('');
 }
 window.setAccent = function (hex) {
@@ -749,12 +755,39 @@ window.setAccent = function (hex) {
   renderAccents();
   if (window.showToast) showToast('Accent updated.', 'success');
 };
-window.toggleTheme = function () {
-  let t = 'dark'; try { t = localStorage.getItem('iacms_theme') || 'dark'; } catch (e) {}
-  const next = t === 'dark' ? 'light' : 'dark';
-  try { localStorage.setItem('iacms_theme', next); } catch (e) {}
-  document.documentElement.setAttribute('data-theme', next);
-  if (window.showToast) showToast(next === 'dark' ? 'Dark mode' : 'Light mode', 'info');
+// ── Theme picker ─────────────────────────────────────────────────────
+// The topbar button is a two-way switch; this is where the other two
+// choices live. Every option is a real preference, "System" included: it
+// is stored as itself and re-resolved whenever the OS changes, rather
+// than being flattened to whatever the OS happened to say once.
+const THEME_OPTIONS = [
+  { pref: 'system',   label: 'System',   icon: 'ti-device-desktop', hint: 'Follow this device' },
+  { pref: 'light',    label: 'Light',    icon: 'ti-sun',            hint: 'Bright, for daylight' },
+  { pref: 'dark',     label: 'Dark',     icon: 'ti-moon',           hint: 'The house default' },
+  { pref: 'midnight', label: 'Midnight', icon: 'ti-moon-stars',     hint: 'True black, for OLED' },
+];
+
+function renderThemePicker() {
+  const wrap = document.getElementById('p-theme-options');
+  if (!wrap) return;
+  const cur = window.getThemePref ? window.getThemePref() : 'dark';
+  wrap.innerHTML = THEME_OPTIONS.map(o => `
+    <button class="theme-option${o.pref === cur ? ' is-active' : ''}"
+            aria-pressed="${o.pref === cur}"
+            onclick="setTheme('${o.pref}')">
+      <span class="theme-option-swatch" data-swatch="${o.pref}"><i class="ti ${o.icon}"></i></span>
+      <span class="theme-option-text">
+        <span class="theme-option-name">${o.label}</span>
+        <span class="theme-option-hint">${escHtml(o.hint)}</span>
+      </span>
+    </button>`).join('');
+}
+
+window.setTheme = function (pref) {
+  if (window.setThemePref) window.setThemePref(pref);
+  renderThemePicker();
+  const o = THEME_OPTIONS.find(x => x.pref === pref);
+  if (window.showToast && o) showToast(`${o.label} theme`, 'info');
 };
 
 function reduceMotionOn() {
@@ -868,5 +901,6 @@ loadProfile();
 loadActivity();
 renderNotifPanel();
 renderAccents();
+renderThemePicker();
 renderReduceMotionBtn();
 renderDensityBtn();
