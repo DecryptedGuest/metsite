@@ -105,7 +105,7 @@ function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, viewerM
       ? `${e('met_star')} <@${viewerId}> · **${viewerXp}** XP · top of the ladder`
       : viewerPos
         ? `\`${viewerPos}\` <@${viewerId}> · **${viewerXp}** XP`
-        : `<@${viewerId}> · *no XP yet. Attend an event and you're on the board.*`;
+        : `<@${viewerId}> · *no XP yet.*`;
     embed.addFields({ name: 'You', value: mine, inline: false });
   }
   return embed;
