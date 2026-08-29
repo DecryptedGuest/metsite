@@ -180,8 +180,14 @@
 
 /* ── Dark ────────────────────────────────────────────────────────────────
    The same system with the ink ramp inverted. Only tokens change; not one
-   component rule below is aware of the theme. */
-:root[data-theme="dark"] {
+   component rule below is aware of the theme.
+
+   `data-theme` on the root is always a CONCRETE theme: light, dark, or
+   midnight. "System" is a stored preference, not a value that reaches the
+   CSS: the boot script resolves it against prefers-color-scheme before the
+   first paint. That keeps every rule below a single flat selector rather
+   than a copy of itself inside a media query. */
+:root[data-theme="dark"], :root[data-theme="midnight"] {
   --canvas:         #0f141a;
   --surface:        #171d25;
   --surface-sunken: #12171e;
@@ -213,6 +219,28 @@
   --shadow-menu:  0 4px 14px rgba(0,0,0,.44), 0 1px 3px rgba(0,0,0,.3);
   --shadow-modal: 0 18px 52px rgba(0,0,0,.58), 0 2px 8px rgba(0,0,0,.4);
   --ring: 0 0 0 3px rgba(74,144,247,.3);
+}
+
+/* ── Midnight ────────────────────────────────────────────────────────────
+   Dark, taken further: a true-black canvas for OLED screens and for the
+   people who find our ordinary dark still too bright. It inherits every
+   dark token above and moves only the surfaces, the hairlines and the
+   shadow, because those are the only things a deeper ground changes. */
+:root[data-theme="midnight"] {
+  --canvas:         #000000;
+  --surface:        #0b0e12;
+  --surface-sunken: #05070a;
+  --surface-raised: #11161c;
+  --surface-hover:  #161c23;
+  --surface-active: #1d242c;
+
+  --border:         #1f272f;
+  --border-strong:  #2f3944;
+  --border-subtle:  #141a20;
+
+  --shadow-raised:0 1px 2px rgba(0,0,0,.6);
+  --shadow-menu:  0 4px 14px rgba(0,0,0,.7), 0 1px 3px rgba(0,0,0,.5);
+  --shadow-modal: 0 18px 52px rgba(0,0,0,.8), 0 2px 8px rgba(0,0,0,.6);
 }
 
 /* ── Legacy token names ──────────────────────────────────────────────────
@@ -316,7 +344,9 @@ code, pre, .mono, .case-ref, .ticket-seq, .cmdk-kbd {
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;      /* or a stagger becomes a plain wait */
     transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 }
@@ -450,15 +480,44 @@ code, pre, .mono, .case-ref, .ticket-seq, .cmdk-kbd {
   border-bottom: 1px solid var(--border-subtle);
 }
 .panel-title {
+  display: flex; align-items: center; gap: var(--s-2);
   font-size: var(--text-md); font-weight: var(--weight-semi);
-  color: var(--text-strong); margin: 0;
+  color: var(--text-strong); margin: 0; min-width: 0;
 }
 .panel-tools { margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }
-/* The dot was a decorative glow. It is a plain status mark now. */
+/* The dot was a decorative glow. It is a plain status mark now. It is
+   inline-BLOCK, not inline: a bare inline span ignores width and height, so
+   the dot was painting nothing at all wherever its parent was not a flex
+   container. */
 .panel-dot {
+  display: inline-block;
   width: 6px; height: 6px; border-radius: var(--r-full);
   background: var(--accent-500); flex-shrink: 0; box-shadow: none;
 }
+.panel-dot.blue   { background: var(--info-500); }
+.panel-dot.green  { background: var(--ok-500); }
+.panel-dot.amber  { background: var(--warn-500); }
+.panel-dot.red    { background: var(--bad-500); }
+.panel-dot.purple { background: var(--note-500); }
+
+/* The minimise control. panel-collapse.js creates this button on every
+   panel, and the system had no rule for it, so it was rendering as a raw
+   browser button in the middle of the header. It sits at the end of the
+   header and turns to point at what it will do. */
+.panel-collapse-btn {
+  margin-left: auto; flex-shrink: 0;
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: 0; border-radius: var(--r-md);
+  color: var(--text-muted); cursor: pointer; font-size: 16px;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease), transform var(--base) var(--ease);
+}
+.panel-collapse-btn:hover { background: var(--surface-hover); color: var(--text); }
+.panel-collapse-btn[aria-expanded="false"] { transform: rotate(180deg); }
+/* With the button claiming the auto margin, a panel carrying both it and a
+   tools group needs the tools pushed first. */
+.panel-header .panel-tools ~ .panel-collapse-btn { margin-left: var(--s-2); }
+
 .panel-collapsed .panel-header { margin-bottom: calc(var(--s-5) * -1); border-bottom: 0; }
 
 /* Panels that carry a table go edge to edge: a table inset inside padding
@@ -1417,6 +1476,82 @@ body.nav-locked .met-chat-fab, body.nav-locked .met-chat-pop { display: none; }
 }
 .met-topbar-brand { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 
+/* ── Appearance settings ─────────────────────────────────────────────────
+   The theme picker and the accent swatches. Both are choices about how the
+   interface looks, so both show the result rather than describing it: each
+   theme option carries a swatch painted in that theme's own canvas and
+   surface, and each accent swatch is simply the colour itself. */
+.appearance-note { font-size: var(--text-sm); color: var(--text-secondary); margin: 0 0 var(--s-5); }
+
+.field-label {
+  font-size: var(--text-2xs); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-muted);
+  font-weight: var(--weight-semi); margin: var(--s-6) 0 var(--s-3);
+}
+.field-label:first-of-type { margin-top: 0; }
+
+.theme-options {
+  display: grid; gap: var(--s-2);
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+.theme-option {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-3); text-align: left; cursor: pointer;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+}
+.theme-option:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.theme-option.is-active { border-color: var(--accent-500); background: var(--accent-weak); }
+.theme-option-swatch {
+  width: 34px; height: 34px; flex: 0 0 34px;
+  display: grid; place-items: center;
+  border-radius: var(--r-md); border: 1px solid var(--border-strong);
+  font-size: 16px;
+}
+/* Each swatch is painted in the ground it is offering, so the choice is
+   visible before it is made. */
+.theme-option-swatch[data-swatch="light"]    { background: #f5f7f9; color: #353d49; border-color: #dfe3e9; }
+.theme-option-swatch[data-swatch="dark"]     { background: #171d25; color: #dfe4ea; border-color: #2a333f; }
+.theme-option-swatch[data-swatch="midnight"] { background: #000;    color: #dfe4ea; border-color: #1f272f; }
+.theme-option-swatch[data-swatch="system"] {
+  background: linear-gradient(105deg, #f5f7f9 0 50%, #171d25 50% 100%);
+  color: var(--accent-500); border-color: var(--border-strong);
+}
+.theme-option-text { display: flex; flex-direction: column; min-width: 0; }
+.theme-option-name { font-size: var(--text-sm); font-weight: var(--weight-semi); color: var(--text-strong); }
+.theme-option-hint {
+  font-size: var(--text-2xs); color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.accent-current { display: flex; align-items: center; gap: var(--s-3); margin-bottom: var(--s-4); }
+.accent-current-dot {
+  width: 26px; height: 26px; flex: 0 0 26px; border-radius: var(--r-full);
+  background: var(--sw); border: 1px solid var(--border-strong);
+}
+.accent-swatches { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; }
+.accent-swatch {
+  width: 34px; height: 34px; border-radius: var(--r-full); cursor: pointer;
+  background: var(--sw); border: 1px solid rgba(0,0,0,.18);
+  display: grid; place-items: center; padding: 0;
+}
+.accent-swatch i { color: #fff; font-size: 16px; }
+/* The selected ring is a gap cut in the CANVAS colour, then an accent
+   circle outside it, so it works on light, dark and midnight alike. */
+.accent-swatch.is-active {
+  box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-500);
+}
+.accent-swatch:hover { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--border-strong); }
+.accent-swatch.is-active:hover {
+  box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-500);
+}
+
+.appearance-actions {
+  margin-top: var(--s-6); padding-top: var(--s-5);
+  border-top: 1px solid var(--border-subtle);
+  display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;
+}
+
 /* ==========================================================================
    13. MOTION
    ==========================================================================
@@ -1475,7 +1610,6 @@ a.hub-card:hover, a.div-tile:hover, .met-tile[onclick]:hover, .stat-card[onclick
 @keyframes rise  { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes fade  { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop   { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
-@keyframes slidein { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 
 .page.active   { animation: rise var(--base) var(--ease) both; }
 .panel.fade-up { animation: rise var(--base) var(--ease) both; }
@@ -1521,8 +1655,11 @@ a.hub-card:hover, a.div-tile:hover, .met-tile[onclick]:hover, .stat-card[onclick
   transition: width var(--slow) var(--ease), background var(--base) var(--ease);
 }
 
-/* ── Toasts and drawers ──────────────────────────────────────────────── */
-.toast { animation: slidein var(--base) var(--ease) both; }
+/* ── Toasts and drawers ──────────────────────────────────────────────────
+   The toast's own enter and exit live in the overlay layer above, as a
+   .show / .hide transition pair that showToast already drives. A keyframe
+   animation here would win over that transition and freeze the toast at
+   its end state, so there isn't one. */
 .met-mnav { will-change: transform; }
 
 /* ── Icons ───────────────────────────────────────────────────────────────
@@ -1538,6 +1675,75 @@ a.hub-card:hover, a.div-tile:hover, .met-tile[onclick]:hover, .stat-card[onclick
    once, on a single element, and nothing waits for it. */
 .met-strap-underline { transform-origin: left; animation: draw var(--slow) var(--ease) both; }
 @keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ── Entrance, in order ──────────────────────────────────────────────────
+   A short stagger down a column of panels, so the page assembles in the
+   order it is meant to be read instead of arriving all at once. It is
+   capped at six steps and 150ms total: past that a stagger stops reading
+   as sequence and starts reading as lag. The existing stagger-N classes
+   across the views are what drive it. */
+.stagger-1 { animation-delay: 0ms;   }
+.stagger-2 { animation-delay: 30ms;  }
+.stagger-3 { animation-delay: 60ms;  }
+.stagger-4 { animation-delay: 90ms;  }
+.stagger-5 { animation-delay: 120ms; }
+.stagger-6 { animation-delay: 150ms; }
+[class*="stagger-"] { animation-fill-mode: both; }
+
+/* ── Focus ───────────────────────────────────────────────────────────────
+   The ring grows into place rather than snapping on, which makes keyboard
+   navigation legible to follow across a form. Only :focus-visible, so a
+   mouse click never draws one. */
+.btn, .input, .select, .textarea, .nav-item, .filter-tab, .seg-btn,
+.accent-swatch, .theme-option, .row-btn {
+  transition: box-shadow var(--fast) var(--ease),
+              border-color var(--fast) var(--ease),
+              background var(--fast) var(--ease),
+              color var(--fast) var(--ease),
+              transform var(--fast) var(--ease);
+}
+/* The reset above already draws a real outline on :focus-visible. An outline
+   is not clipped by an overflow:hidden ancestor the way a box-shadow ring is,
+   so it stays the focus indicator; only its transition belongs here. */
+
+/* ── The active nav item ─────────────────────────────────────────────────
+   A bar on the leading edge that grows from nothing when the item becomes
+   current. It marks position in the sidebar without another block of
+   colour competing with the accent tint already there. */
+.nav-item { position: relative; }
+.nav-item::before {
+  content: ""; position: absolute; left: 0; top: 50%;
+  width: 3px; height: 0; transform: translateY(-50%);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--accent-500);
+  transition: height var(--base) var(--ease);
+}
+.nav-item.active::before { height: 60%; }
+
+/* ── A button that is working ────────────────────────────────────────────
+   The label stays put and a spinner takes the place of the icon, so the
+   button does not change width and the row does not reflow mid-click. */
+.btn.is-busy { pointer-events: none; opacity: .75; }
+/* The spinner is a flex item in the icon's place, not an overlay: on a
+   button that has an icon the width does not change at all, and on one
+   that doesn't it grows by exactly one icon. Either way nothing lands on
+   top of the label. */
+.btn.is-busy > i { display: none; }
+.btn.is-busy::before {
+  content: ""; flex: 0 0 auto;
+  width: 14px; height: 14px;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: var(--r-full);
+  animation: spin 700ms linear infinite;
+}
+
+/* ── Disclosure ──────────────────────────────────────────────────────────
+   A caret that turns is the cheapest possible "this opened downward". */
+.acc-caret, .collapse-caret, [data-caret] {
+  transition: transform var(--base) var(--ease);
+}
+.is-open > .acc-caret, .is-open > .collapse-caret,
+.open > [data-caret], [aria-expanded="true"] > [data-caret] { transform: rotate(90deg); }
 
 /* Reduced motion is handled once, at the top of this file, with
    !important on duration and iteration count — so everything above
