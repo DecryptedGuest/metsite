@@ -1,6 +1,10 @@
 // sw.js — MET Dashboard service worker: push notifications + PWA install/offline.
-var CACHE = 'met-dashboard-v3';
-var SHELL = ['/img/divisions/met.png', '/css/main.css', '/css/dashboard.css', '/js/ui.js'];
+// Bumped with the design system: the old cache holds the previous
+// stylesheets, and a returning visitor served those would see the old look
+// over the new markup. The activate handler below deletes every cache whose
+// name is not this one.
+var CACHE = 'met-dashboard-v4';
+var SHELL = ['/img/divisions/met.png', '/css/system.css', '/js/ui.js'];
 
 self.addEventListener('install', function (e) {
   self.skipWaiting();
