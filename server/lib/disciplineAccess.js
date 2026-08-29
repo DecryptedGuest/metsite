@@ -14,6 +14,14 @@
 //   1. their dashboard account's IA role                (no network calls)
 //   2. a configured Discord role in the MET server   (no network calls)
 //   3. their live MET group rank via RoVer + Roblox  (two API calls, cached)
+//   4. their live INTERNAL AFFAIRS group rank         (one more call, cached)
+//
+// Route 4 exists because the first three can all miss a real IA member at once:
+// route 2 needs IA_COMMAND_ROLE_IDS configured and the role present in the MET
+// server, where IA's own ranks are not; route 1 needs a dashboard account they
+// may never have made; route 3 is about MET rank, not IA. An investigator who
+// had done neither was refused outright while the IA group said plainly what
+// they were.
 //
 // Env:
 //   IA_COMMAND_ROLE_IDS  comma-separated Discord roles that count as IA
@@ -142,6 +150,32 @@ async function evaluate(discordId, roleIds) {
   if (metHicomm) {
     return { ok: true, via: 'met-rank', label: metLabel, name, why: null, isDeveloper: false, isMetHicomm: true };
   }
+
+  // 4. Their live Internal Affairs rank, read from the IA Roblox group.
+  //
+  // The three routes above all have a way to miss a real IA member:
+  // IA_COMMAND_ROLE_IDS has to be configured AND the role has to exist in the
+  // server the command was run in — which is the MET server, where IA's own
+  // ranks are not — and the dashboard route needs an account they may never
+  // have made. An investigator who has done neither was refused outright, even
+  // though the IA group says plainly what they are.
+  //
+  // This is the same resolver login uses, so what it says here and what the
+  // site says about the same person cannot disagree. It is last because it
+  // costs a Roblox call; the whole verdict is cached for five minutes.
+  try {
+    const { resolveSiteRoleDetailed } = require('./roleResolver');
+    const live = await resolveSiteRoleDetailed({ discordId, memberRoles: roleIds });
+    if (live && live.role && IA_SITE_ROLES.has(live.role)) {
+      const isDev = live.role === 'DEVELOPER';
+      return {
+        ok: true, via: isDev ? 'developer' : 'ia-group-rank',
+        label: isDev ? 'Developer' : (live.iaRankName || 'Internal Affairs'),
+        name, why: null,
+        isDeveloper: isDev, isMetHicomm: isDev,
+      };
+    }
+  } catch (e) { /* a resolver failure must not become a permanent refusal */ }
 
   return {
     ok: false, via: null, label: '', name, isDeveloper: false, isMetHicomm: false,
