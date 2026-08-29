@@ -267,6 +267,13 @@ const metGuild = (specific) => guildFor(specific, 'MET_GUILD_ID');
  *
  * Override with IA_COMMANDS as a comma-separated list, or "*" for everything.
  */
+// The commands that are actually registered in the Internal Affairs server.
+// Kept beside the allowlist so a command moving servers updates one place.
+const UNDO_GUILD_ID_NAMES        = 'undo';
+const QP_GUILD_ID_NAMES          = 'add-qp';
+const LEADERBOARD_GUILD_ID_NAMES = 'leaderboard';
+const SUBMIT_CASE_GUILD_ID_NAMES = 'submit-case';
+
 const IA_COMMAND_ALLOWLIST = () => {
   const raw = (process.env.IA_COMMANDS || '').trim();
   if (raw === '*') return null;                       // null = no filtering
@@ -316,8 +323,41 @@ const PENDINGJOIN_GUILD_IDS = () => metGuild('PENDINGJOIN_GUILD_ID');
  */
 function buildCommandPlan() {
   const byGuild = new Map();
-  const iaAllow = IA_COMMAND_ALLOWLIST();
-  const iaGuildId = process.env.IA_GUILD_ID || process.env.DISCORD_GUILD_ID;
+  let   iaAllow = IA_COMMAND_ALLOWLIST();
+
+  // ONLY an explicit IA_GUILD_ID. This used to fall back to DISCORD_GUILD_ID,
+  // which meant that with IA_GUILD_ID unset the allowlist was applied to
+  // whatever DISCORD_GUILD_ID pointed at -- normally the MET server -- and
+  // stripped /infract, /xp, /check-record, /ia, /promote, /loa, /met and
+  // /pendingjoin out of it, leaving MET with only the five IA commands. The
+  // allowlist describes the Internal Affairs server; with no IA server
+  // configured there is nothing for it to describe and it must not run.
+  const iaGuildId = process.env.IA_GUILD_ID;
+  if (!iaGuildId) {
+    if (process.env.IA_COMMANDS) {
+      console.warn('[Bot] IA_COMMANDS is set but IA_GUILD_ID is not · the allowlist '
+        + 'only ever applies to the Internal Affairs server, so it is being ignored. '
+        + 'Set IA_GUILD_ID to the IA server id.');
+    }
+    iaAllow = null;
+  }
+
+  // A list that filters out everything is always stale config, never an
+  // intention: nobody configures a server to show no commands. It happens when
+  // IA_COMMANDS still names commands that have since moved to the MET server,
+  // and the result was an IA server with nothing in it and not one line in the
+  // log, because a guild with no commands never reaches the registration loop.
+  if (iaAllow && iaGuildId) {
+    const iaTargets = [UNDO_GUILD_ID_NAMES, QP_GUILD_ID_NAMES,
+                       LEADERBOARD_GUILD_ID_NAMES, SUBMIT_CASE_GUILD_ID_NAMES];
+    if (!iaTargets.some(n => iaAllow.has(n))) {
+      console.warn(`[Bot] IA_COMMANDS ("${process.env.IA_COMMANDS}") does not name a single `
+        + 'command that is registered in the Internal Affairs server, so it would leave that '
+        + 'server empty · ignoring it and using the default set instead. The commands it names '
+        + 'may have moved to the MET server; unset IA_COMMANDS to silence this.');
+      iaAllow = null;
+    }
+  }
 
   const add = (guildIds, json) => {
     // Filter only the IA server: the MET set is small and deliberate already.
@@ -486,6 +526,20 @@ async function registerCommands(c) {
 
   if (!byGuild.size) {
     console.warn('[Bot] no guild configured for slash commands · set MET_GUILD_ID or DISCORD_GUILD_ID.');
+  }
+
+  // A guild that is configured but ended up with no commands never enters
+  // byGuild, so the loop below never touches it and never reports it. That is
+  // the shape of this failure: the server is simply empty and the log says
+  // nothing at all. Name it here, before the loop, so it cannot happen quietly.
+  for (const [envName, label] of [['IA_GUILD_ID', 'Internal Affairs'], ['MET_GUILD_ID', 'MET']]) {
+    const id = process.env[envName];
+    if (id && !byGuild.has(String(id))) {
+      console.error(`[Bot] ${envName}=${id} (${label}) is configured but NO command is `
+        + 'registered there · that server will show an empty command list. Check IA_COMMANDS '
+        + 'and that the commands you expect are targeted at that guild.');
+      out.errors.push(`${id}: configured (${envName}) but no commands were planned for it`);
+    }
   }
 
   let anyGuildOk = false;
