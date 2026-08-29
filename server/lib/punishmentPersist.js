@@ -51,7 +51,62 @@ function punishmentGuildIds() {
  *
  * @returns {Promise<Array<{ roleId: string, action: string, why: string, claims: number }>>}
  */
-async function rolesOwedTo(discordId) {
+/**
+ * Every Discord account this person is known on.
+ *
+ * Punishments are stored against a Discord id, but the person is a ROBLOX
+ * account. Looking up by Discord id alone means a punished member who comes back
+ * on a second Discord account, re-verified to the same Roblox user, is a
+ * stranger with a clean slate — the record was real, it was just filed under a
+ * key nobody checked.
+ *
+ * Never throws and never returns an empty list: the account being asked about is
+ * always in it, so a failure here degrades to exactly the old behaviour.
+ */
+async function linkedAccounts(discordId) {
+  const ids = new Set([String(discordId)]);
+  try {
+    // Their Roblox id, from RoVer or our own link.
+    let robloxId = null;
+    try {
+      const link = await require('./robloxLink').resolveRoblox(String(discordId));
+      if (link && link.robloxId) robloxId = String(link.robloxId);
+    } catch (e) { /* unresolved */ }
+    if (!robloxId) {
+      const me = await prisma.user.findUnique({
+        where: { discordId: String(discordId) }, select: { robloxId: true },
+      }).catch(() => null);
+      if (me && me.robloxId) robloxId = String(me.robloxId);
+    }
+    if (!robloxId) return [...ids];
+
+    // Every dashboard account on that Roblox id.
+    const users = await prisma.user.findMany({
+      where: { robloxId }, select: { discordId: true },
+    }).catch(() => []);
+    for (const u of users) if (u.discordId) ids.add(String(u.discordId));
+
+    // And every account a case has ever been filed against for it. A punished
+    // person may never have signed in, so the case table is the other half of
+    // the identity.
+    const cases = await prisma.case.findMany({
+      where: { robloxUserId: robloxId, officerDiscordId: { not: null } },
+      select: { officerDiscordId: true }, take: 100,
+    }).catch(() => []);
+    for (const c of cases) if (c.officerDiscordId) ids.add(String(c.officerDiscordId));
+  } catch (e) { /* the caller's own id is always enough to carry on with */ }
+  return [...ids];
+}
+
+/**
+ * @param {string} discordId
+ * @param {object} [opts]
+ * @param {string[]} [opts.accounts] every Discord id this person is known on.
+ *   Defaults to just `discordId`; pass the linked set to make the lookup follow
+ *   the person rather than the account.
+ */
+async function rolesOwedTo(discordId, { accounts } = {}) {
+  const ids = (accounts && accounts.length) ? accounts.map(String) : [String(discordId)];
   const owed = new Map();   // roleId → { roleId, action, why, claims }
   const now = new Date();
 
@@ -67,7 +122,7 @@ async function rolesOwedTo(discordId) {
   try {
     const rows = await prisma.metPunishment.findMany({
       where: {
-        discordId: String(discordId),
+        discordId: { in: ids },
         active: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
@@ -87,7 +142,7 @@ async function rolesOwedTo(discordId) {
         roleRemoved: false,
         roleId: { not: null },
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-        case: { officerDiscordId: String(discordId), status: 'APPROVED' },
+        case: { officerDiscordId: { in: ids }, status: 'APPROVED' },
       },
       select: { action: true, roleId: true, case: { select: { caseRef: true } } },
     });
@@ -139,7 +194,13 @@ async function reapplyOnJoin(member) {
   if (!guilds.length || !guilds.includes(here)) return out;
 
   let owed;
-  try { owed = await rolesOwedTo(member.id); } catch (e) { owed = []; }
+  try {
+    // Follow the PERSON, not the account: a punished member returning on a
+    // second Discord account verified to the same Roblox user is owed the same
+    // roles as the account that was punished.
+    const accounts = await linkedAccounts(member.id).catch(() => [String(member.id)]);
+    owed = await rolesOwedTo(member.id, { accounts });
+  } catch (e) { owed = []; }
   if (!owed.length) return out;
 
   // Split what's actually applicable from what isn't, BEFORE touching the API.
@@ -234,4 +295,4 @@ function report(member, out) {
   }
 }
 
-module.exports = { rolesOwedTo, reapplyOnJoin, punishmentGuildIds };
+module.exports = { rolesOwedTo, reapplyOnJoin, punishmentGuildIds, linkedAccounts };
