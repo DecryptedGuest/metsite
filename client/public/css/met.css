@@ -1,0 +1,698 @@
+/* ==========================================================================
+   MET · the interface
+   ==========================================================================
+   One stylesheet, one theme. Near-black ground, coloured light bleeding in
+   from off-screen, hairline borders, large tightly-tracked display type, and
+   a lot of air. The accent is used as LIGHT -- a glow, an edge, a one-pixel
+   rule -- and almost never as a fill.
+
+   It loads after the older sheets and overrides them. That is deliberate:
+   those sheets carry the positioning, the overlay stacking and the
+   page-specific layout, all of which work. Replacing them outright is what
+   broke the interface last time. This file changes how everything LOOKS and
+   leaves where everything IS alone.
+
+   Because every view's inline CSS and every runtime-generated style reference
+   the palette by token name, redefining the tokens in section 1 restyles all
+   of it at once, without editing nineteen views.
+   ========================================================================== */
+
+/* ==========================================================================
+   1. PALETTE
+   ========================================================================== */
+:root, :root[data-theme], :root[data-theme="dark"], :root[data-theme="light"] {
+  /* The ground. Near-black, not navy: navy is what made the old interface
+     read as heavy, because a mid-tone blue leaves no room for light. */
+  --met-bg:      #08090B;
+  --met-panel:   #0E0F13;
+  --met-panel-2: #121419;
+  --met-raised:  #161920;
+
+  /* Borders are hairlines: visible only where the eye needs a boundary. */
+  --met-line:   rgba(255,255,255,.07);
+  --met-line-2: rgba(255,255,255,.12);
+  --met-line-3: rgba(255,255,255,.18);
+
+  --met-fg:   #F7F8F8;
+  --met-fg-2: #9DA3A9;
+  --met-fg-3: #6A7076;
+
+  --met-a:      #5B8DEF;
+  --met-a-2:    #7FA8FF;
+  --met-a-dim:  rgba(91,141,239,.12);
+  --met-a-glow: rgba(91,141,239,.45);
+
+  --met-ok:   #3ECF8E;
+  --met-warn: #E5A03F;
+  --met-bad:  #F0616F;
+  --met-note: #A78BFA;
+
+  /* ---- The legacy names, re-pointed. Every view's inline CSS and all the
+     runtime markup ask for these, so this block is what actually restyles
+     the site. Nothing new should use them. ---- */
+  --bg: var(--met-bg);              --bg-base: var(--met-bg);
+  --bg-deep: var(--met-bg);         --bg-card: var(--met-panel);
+  --bg-panel: var(--met-panel);     --bg-panel-hover: var(--met-panel-2);
+  --bg-elevated: var(--met-raised); --bg-input: rgba(255,255,255,.035);
+  --panel: var(--met-panel);        --panel-solid: var(--met-panel);
+  --panel-2: var(--met-panel-2);
+  --surface: var(--met-panel);      --surface-1: var(--met-panel-2);
+  --surface-2: var(--met-raised);
+  --hover: rgba(255,255,255,.045);
+
+  --text-primary: var(--met-fg);    --text: var(--met-fg);
+  --text-secondary: var(--met-fg-2);
+  --text-muted: var(--met-fg-3);    --text-tiny: var(--met-fg-3);
+
+  --border: var(--met-line);        --border-dim: var(--met-line);
+  --border-mid: var(--met-line-2);  --border-bright: var(--met-line-3);
+
+  --blue: var(--met-a);             --blue-dim: var(--met-a-dim);
+  --green: var(--met-ok);           --green-dim: rgba(62,207,142,.12);
+  --amber: var(--met-warn);         --amber-dim: rgba(229,160,63,.12);
+  --red: var(--met-bad);            --red-dim: rgba(240,97,111,.12);
+  --purple: var(--met-note);        --purple-dim: rgba(167,139,250,.12);
+  --violet: var(--met-note);
+  --accent: var(--met-a);           --dc: var(--met-a);
+  --discord: #5865F2;
+  --status-approved: var(--met-ok); --status-denied: var(--met-bad);
+
+  /* The old decorative variables. Kept, and painted with nothing: any rule
+     still asking for a glow or an aurora gets transparency rather than a
+     browser default. */
+  --blue-glow: transparent; --amber-glow: transparent; --aurora: transparent;
+
+  --font-body:    "Inter", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-sm: 8px;  --radius-md: 11px;
+  --radius-lg: 14px; --radius-xl: 18px;
+
+  --transition: 160ms cubic-bezier(.2,.6,.3,1);
+  --transition-slow: 260ms cubic-bezier(.2,.6,.3,1);
+  --ease: cubic-bezier(.2,.6,.3,1);
+}
+
+/* ==========================================================================
+   2. GROUND
+   ========================================================================== */
+html, body { background: var(--met-bg); }
+body {
+  font-family: var(--font-body);
+  color: var(--met-fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.006em;
+}
+
+/* Grain. A flat near-black field bands on a real monitor and reads cheap;
+   three percent of noise is what stops it. Fixed, so it does not travel with
+   the scroll and turn into texture-in-motion. */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 9998;
+  pointer-events: none; opacity: .028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* The existing decorative layer, repurposed. The grid and the scanline were
+   the two things that dated the old look most, so they are switched off and
+   the two glows are enlarged into the ambient light the whole design rests
+   on. The markup does not change; only what it paints. */
+.bg-grid, .bg-scanline { display: none !important; }
+.bg-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.bg-glow-1 {
+  position: absolute; top: -30%; left: -6%;
+  width: 900px; height: 620px; border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(91,141,239,.26) 0%, transparent 66%);
+  filter: none;
+}
+.bg-glow-2 {
+  position: absolute; top: -22%; right: -8%; left: auto;
+  width: 780px; height: 560px; border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(167,139,250,.17) 0%, transparent 64%);
+  filter: none;
+}
+
+/* ==========================================================================
+   3. TYPE
+   ==========================================================================
+   Two faces and a monospace. Inter runs the interface. Space Grotesk takes
+   the headings, tracked in hard -- that tight tracking at size is most of
+   what separates a considered page from a default one. The monospace is for
+   small uppercase labels and for anything with a reference number in it. */
+h1, h2, h3, .page-title, .panel-title, .modal-title, .stat-value,
+.met-topbar-title, .card-t, .section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--met-fg);
+}
+.page-title { font-size: 42px; line-height: 1.05; margin: 0 0 10px; }
+.panel-title, .modal-title { font-size: 15px; letter-spacing: -0.015em; }
+
+.page-header { margin-bottom: 34px; }
+.page-sub {
+  color: var(--met-fg-2); font-size: 14.5px; line-height: 1.6;
+  max-width: 62ch; margin: 0;
+}
+
+/* Small uppercase labels are set in the monospace with wide tracking. It is
+   the signature of this kind of interface and it does real work: it marks a
+   label as machine-ish metadata rather than as something to read. */
+.nav-section-label, .stat-label, .form-label, .detail-field-label,
+.met-topbar-division, .brand-sub, .data-table th, .cad-lbl, .kicker {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--met-fg-3);
+  font-weight: 400;
+}
+.mono, .case-ref, .ticket-seq, code, pre, kbd { font-family: var(--font-mono); }
+
+/* Figures line up in a column or they cannot be compared down one. */
+.stat-value, .data-table td, .metric, .count, .date-cell, .case-ref { font-variant-numeric: tabular-nums; }
+
+.text-muted, .muted { color: var(--met-fg-3); }
+a { color: var(--met-a-2); }
+
+/* ==========================================================================
+   4. SURFACES
+   ==========================================================================
+   A panel is a near-black card on a near-black page, so what separates it is
+   a hairline and a single lit edge along the top -- the same trick a physical
+   object uses. No blur, no glass, no shadow at rest. */
+.glass, .glass-bright, .panel, .modal, .stat-card, .card {
+  background: var(--met-panel) !important;
+  border: 1px solid var(--met-line) !important;
+  border-radius: var(--radius-lg);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none;
+  position: relative;
+}
+.panel, .glass, .stat-card, .card { overflow: hidden; }
+.panel::before, .glass::before, .stat-card::before, .card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.13) 20%,
+                                     rgba(255,255,255,.13) 80%, transparent);
+  pointer-events: none; z-index: 1;
+}
+.panel { padding: 0; }
+
+.panel-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 17px 22px;
+  border-bottom: 1px solid var(--met-line);
+  background: rgba(255,255,255,.012);
+  margin: 0;
+}
+.panel-title { display: flex; align-items: center; gap: 10px; margin: 0; min-width: 0; }
+.panel-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.panel-dot {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--met-a); box-shadow: 0 0 8px var(--met-a-glow); flex-shrink: 0;
+}
+.panel-dot.blue { background: var(--met-a);    box-shadow: 0 0 8px var(--met-a-glow); }
+.panel-dot.green{ background: var(--met-ok);   box-shadow: 0 0 8px rgba(62,207,142,.5); }
+.panel-dot.amber{ background: var(--met-warn); box-shadow: 0 0 8px rgba(229,160,63,.5); }
+.panel-dot.red  { background: var(--met-bad);  box-shadow: 0 0 8px rgba(240,97,111,.5); }
+.panel-dot.purple{background: var(--met-note); box-shadow: 0 0 8px rgba(167,139,250,.5); }
+
+/* Everything that is not the header gets the panel's padding. */
+.panel > *:not(.panel-header):not(.table-wrap):not(.data-table):not(::before) { padding-left: 22px; padding-right: 22px; }
+.panel > *:not(.panel-header):not(.table-wrap):not(.data-table):last-child { padding-bottom: 20px; }
+.panel > .panel-header + * { padding-top: 18px; }
+.profile-section { padding: 20px 22px; }
+
+/* The minimise control panel-collapse.js puts on every panel. */
+.panel-collapse-btn {
+  margin-left: auto; flex-shrink: 0;
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: 0; border-radius: var(--radius-sm);
+  color: var(--met-fg-3); cursor: pointer; font-size: 15px;
+  transition: color var(--transition), background var(--transition), transform var(--transition-slow);
+}
+.panel-collapse-btn:hover { background: rgba(255,255,255,.05); color: var(--met-fg); }
+.panel-collapse-btn[aria-expanded="false"] { transform: rotate(180deg); }
+.panel-header .panel-tools ~ .panel-collapse-btn { margin-left: 8px; }
+
+/* ==========================================================================
+   5. CHROME
+   ========================================================================== */
+.met-topbar, .topbar {
+  background: rgba(8,9,11,.72);
+  border-bottom: 1px solid var(--met-line);
+  backdrop-filter: saturate(1.6) blur(14px);
+  -webkit-backdrop-filter: saturate(1.6) blur(14px);
+}
+.met-topbar-title { font-size: 14px; }
+.met-topbar-division, .brand-sub { font-size: 9.5px; margin-top: 2px; }
+
+.sidebar, .nav-sidebar {
+  background: rgba(0,0,0,.24);
+  border-right: 1px solid var(--met-line);
+}
+.sidebar-divider { border-color: var(--met-line); background: var(--met-line); }
+.brand-logo, .met-topbar-logo, .met-user-avatar, .user-avatar-fallback, .met-user-avatar-fallback {
+  border-radius: var(--radius-md); border: 1px solid var(--met-line-2);
+}
+.brand-name { font-family: var(--font-display); font-weight: 600; letter-spacing: -.015em; }
+
+.nav-item {
+  position: relative;
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 11px; border-radius: var(--radius-sm);
+  color: var(--met-fg-2); font-size: 13.5px; font-weight: 400;
+  background: none; border: 0;
+  transition: color var(--transition), background var(--transition);
+}
+.nav-item:hover { color: var(--met-fg); background: rgba(255,255,255,.04); }
+.nav-item.active {
+  color: var(--met-fg); font-weight: 500;
+  background: linear-gradient(90deg, rgba(91,141,239,.15), rgba(91,141,239,.02));
+  box-shadow: inset 0 0 0 1px rgba(91,141,239,.20);
+}
+/* The lit edge that marks position. */
+.nav-item.active::after {
+  content: ""; position: absolute; left: -14px; top: 50%; transform: translateY(-50%);
+  width: 2px; height: 17px; border-radius: 0 2px 2px 0;
+  background: var(--met-a); box-shadow: 0 0 10px var(--met-a-glow);
+}
+.nav-icon { opacity: .75; font-size: 15px; }
+.nav-item.active .nav-icon { opacity: 1; color: var(--met-a-2); }
+.nav-badge, .nav-tag {
+  margin-left: auto; font-family: var(--font-mono); font-size: 9.5px;
+  letter-spacing: .06em; padding: 2px 7px; border-radius: 999px;
+  background: rgba(255,255,255,.06); color: var(--met-fg-3); border: 1px solid var(--met-line);
+}
+
+/* ==========================================================================
+   6. BUTTONS
+   ========================================================================== */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 9px 15px; border-radius: var(--radius-md);
+  border: 1px solid var(--met-line-2);
+  background: rgba(255,255,255,.045);
+  color: var(--met-fg); cursor: pointer; white-space: nowrap;
+  letter-spacing: -.005em;
+  transition: background var(--transition), border-color var(--transition),
+              color var(--transition), transform 90ms var(--ease), filter var(--transition);
+}
+.btn:hover:not(:disabled) { background: rgba(255,255,255,.085); border-color: var(--met-line-3); }
+.btn:active:not(:disabled) { transform: scale(.975); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-sm { font-size: 12px; padding: 7px 12px; border-radius: var(--radius-sm); }
+
+/* The primary button is the only filled thing on a page, and it is lit from
+   above rather than flat, with the accent's own glow under it. */
+.btn-primary {
+  background: linear-gradient(180deg, var(--met-a-2), var(--met-a));
+  border-color: rgba(255,255,255,.20); color: #fff;
+  box-shadow: 0 5px 20px rgba(91,141,239,.28);
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); background: linear-gradient(180deg, var(--met-a-2), var(--met-a)); }
+.btn-ghost { background: none; border-color: transparent; color: var(--met-fg-2); }
+.btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.055); color: var(--met-fg); border-color: transparent; }
+.btn-danger  { background: linear-gradient(180deg,#F4838E,var(--met-bad)); border-color: rgba(255,255,255,.18); color:#fff; box-shadow: 0 5px 20px rgba(240,97,111,.24); }
+.btn-success { background: linear-gradient(180deg,#5FDCA4,var(--met-ok));  border-color: rgba(255,255,255,.18); color:#06231a; box-shadow: 0 5px 20px rgba(62,207,142,.22); }
+.btn-discord { background: linear-gradient(180deg,#6B7BF0,#5865F2); border-color: rgba(255,255,255,.18); color:#fff; box-shadow: 0 5px 20px rgba(88,101,242,.30); }
+.btn-icon { padding: 8px; width: 34px; height: 34px; }
+.row-btn { font-size: 12px; padding: 6px 11px; border-radius: var(--radius-sm); }
+.row-btn-approve:hover { border-color: var(--met-ok); color: var(--met-ok); }
+.row-btn-deny:hover    { border-color: var(--met-bad); color: var(--met-bad); }
+
+/* Segmented controls and filter tabs: a quiet trough, a lit selection. */
+.filter-tabs, .seg {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  background: rgba(255,255,255,.03); border: 1px solid var(--met-line);
+  border-radius: var(--radius-md); flex-wrap: wrap;
+}
+.filter-tab, .seg-btn {
+  font-size: 12.5px; font-weight: 500; padding: 7px 13px;
+  border-radius: var(--radius-sm); border: 0; background: none;
+  color: var(--met-fg-3); cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.filter-tab:hover, .seg-btn:hover { color: var(--met-fg); }
+.filter-tab.active, .seg-btn.active {
+  background: rgba(255,255,255,.075); color: var(--met-fg);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+
+/* ==========================================================================
+   7. FORMS
+   ========================================================================== */
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; margin-bottom: 7px; }
+.form-control, input[type="text"], input[type="number"], input[type="search"],
+input[type="email"], input[type="password"], input[type="date"], select, textarea {
+  width: 100%; font-family: var(--font-body); font-size: 13.5px;
+  padding: 10px 13px; border-radius: var(--radius-md);
+  background: rgba(255,255,255,.035);
+  border: 1px solid var(--met-line);
+  color: var(--met-fg);
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+}
+.form-control::placeholder, input::placeholder, textarea::placeholder { color: var(--met-fg-3); }
+.form-control:focus, input:focus, select:focus, textarea:focus {
+  outline: none; border-color: rgba(91,141,239,.55);
+  background: rgba(255,255,255,.05);
+  box-shadow: 0 0 0 3px rgba(91,141,239,.14);
+}
+.search-box { background: rgba(255,255,255,.035); border: 1px solid var(--met-line); border-radius: var(--radius-md); }
+:focus-visible { outline: 2px solid var(--met-a); outline-offset: 2px; border-radius: 4px; }
+
+/* ==========================================================================
+   8. TABLES
+   ==========================================================================
+   No vertical rules and no zebra: a hairline between rows and a lift on hover
+   is enough, and it lets a wide table stay quiet. */
+.table-wrap { border-radius: 0; border: 0; overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  text-align: left; padding: 12px 22px; font-weight: 400;
+  background: rgba(255,255,255,.016);
+  border-bottom: 1px solid var(--met-line);
+  position: sticky; top: 0; z-index: 2;
+}
+.data-table td {
+  padding: 14px 22px; font-size: 13.5px; color: var(--met-fg-2);
+  border-top: 1px solid var(--met-line);
+  transition: background var(--transition), color var(--transition);
+}
+.data-table tbody tr:hover td { background: rgba(255,255,255,.022); color: var(--met-fg); }
+.data-table td.num, .data-table th.num, .data-table td.right, .data-table th.right { text-align: right; }
+.case-ref { color: var(--met-fg); font-size: 12px; }
+.date-cell { color: var(--met-fg-3); font-size: 12.5px; }
+.table-empty, .table-loading { padding: 44px 22px; text-align: center; color: var(--met-fg-3); }
+.table-empty-text { color: var(--met-fg-3); font-size: 13px; }
+
+/* ==========================================================================
+   9. STATUS
+   ==========================================================================
+   A tint, a hairline and a lit dot in the status's own hue. Never a solid
+   block: solid reads as a button and invites a click that is not there. */
+.badge, .met-chip, .ac-badge, .tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-body); font-size: 11px; font-weight: 500;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--met-line-2);
+  background: rgba(255,255,255,.045);
+  color: var(--met-fg-2); letter-spacing: 0;
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; flex-shrink: 0; }
+.badge-approved, .badge.green  { color: var(--met-ok);   border-color: rgba(62,207,142,.30);  background: rgba(62,207,142,.10); }
+.badge-pending,  .badge-amber, .badge.amber { color: var(--met-warn); border-color: rgba(229,160,63,.30); background: rgba(229,160,63,.10); }
+.badge-denied,   .badge.red    { color: var(--met-bad);  border-color: rgba(240,97,111,.30);  background: rgba(240,97,111,.10); }
+.badge.blue                    { color: var(--met-a-2);  border-color: rgba(91,141,239,.30);  background: rgba(91,141,239,.10); }
+.badge.purple                  { color: var(--met-note); border-color: rgba(167,139,250,.30); background: rgba(167,139,250,.10); }
+.badge-muted { color: var(--met-fg-3); }
+
+/* ==========================================================================
+   10. FIGURES
+   ========================================================================== */
+.stats-grid { display: grid; gap: 14px; }
+.stat-card { padding: 20px; }
+.stat-card-inner { display: flex; align-items: flex-start; gap: 14px; }
+.stat-value {
+  font-size: 36px; line-height: 1; letter-spacing: -.035em;
+  color: var(--met-fg); margin-top: 12px;
+}
+.stat-label { display: block; }
+.stat-icon {
+  width: 34px; height: 34px; border-radius: var(--radius-sm);
+  display: grid; place-items: center; flex-shrink: 0;
+  background: rgba(255,255,255,.05); border: 1px solid var(--met-line);
+  color: var(--met-a-2); font-size: 16px;
+}
+.stat-bar { height: 3px; border-radius: 999px; background: rgba(255,255,255,.07); overflow: hidden; margin-top: 12px; }
+.stat-bar > * { background: var(--met-a); box-shadow: 0 0 10px var(--met-a-glow); transition: width var(--transition-slow); }
+.cc-stat { color: var(--met-fg); }
+
+.detail-field { padding: 11px 0; border-bottom: 1px solid var(--met-line); }
+.detail-field-label { display: block; margin-bottom: 5px; }
+.detail-field-value { color: var(--met-fg); font-size: 13.5px; }
+.detail-divider { border-color: var(--met-line); }
+
+/* ==========================================================================
+   11. OVERLAYS
+   ==========================================================================
+   Positioning is inherited from the older sheets; only the surface changes. */
+.modal-overlay { background: rgba(4,5,7,.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.modal { border-radius: var(--radius-xl); box-shadow: 0 30px 90px rgba(0,0,0,.7); }
+.modal-header { padding: 20px 24px; border-bottom: 1px solid var(--met-line); }
+.modal-body   { padding: 22px 24px; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--met-line); display: flex; gap: 9px; justify-content: flex-end; }
+.modal-close  { color: var(--met-fg-3); background: none; border: 0; cursor: pointer; border-radius: var(--radius-sm); }
+.modal-close:hover { color: var(--met-fg); background: rgba(255,255,255,.06); }
+.met-switcher-menu, .met-menu-wide, .suggestions-dropdown, .ev-drop {
+  background: var(--met-panel-2) !important; border: 1px solid var(--met-line-2) !important;
+  border-radius: var(--radius-lg); box-shadow: 0 20px 60px rgba(0,0,0,.65);
+  backdrop-filter: none !important;
+}
+.error-banner {
+  background: rgba(240,97,111,.09); border: 1px solid rgba(240,97,111,.28);
+  color: var(--met-bad); border-radius: var(--radius-md);
+}
+
+/* ==========================================================================
+   12. WAITING
+   ========================================================================== */
+.spinner {
+  border: 2px solid rgba(255,255,255,.12);
+  border-top-color: var(--met-a);
+  border-radius: 50%;
+  animation: met-spin 700ms linear infinite;
+}
+@keyframes met-spin { to { transform: rotate(360deg); } }
+.skeleton, .sk, .sk-line {
+  background: linear-gradient(90deg, rgba(255,255,255,.035) 0%, rgba(255,255,255,.075) 45%, rgba(255,255,255,.035) 90%);
+  background-size: 300px 100%;
+  animation: met-sweep 1.3s linear infinite;
+  border-radius: 6px;
+}
+@keyframes met-sweep { from { background-position: -300px 0; } to { background-position: 300px 0; } }
+
+/* ==========================================================================
+   13. MOTION
+   ==========================================================================
+   Entrance only, short, and once. The staggers already exist in the markup. */
+@keyframes met-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: met-rise 260ms var(--ease) both; }
+.stagger-1 { animation-delay: 0ms }   .stagger-2 { animation-delay: 40ms }
+.stagger-3 { animation-delay: 80ms }  .stagger-4 { animation-delay: 120ms }
+.stagger-5 { animation-delay: 160ms } .stagger-6 { animation-delay: 200ms }
+.pulse-anim { animation: met-pulse 2s var(--ease) infinite; }
+@keyframes met-pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important; transition-duration: .01ms !important;
+  }
+}
+
+/* Themes are not offered, so the controls that changed them are not either. */
+#btn-theme-toggle, .theme-toggle, #p-accent-swatches, #p-accent-current,
+#p-theme-options, .accent-swatches { display: none !important; }
+
+/* ==========================================================================
+   14. CORRECTIONS
+   ==========================================================================
+   Rules in the older sheets that are more specific than section 1, or that
+   set a property section 1 has no opinion on, and so survive it. Each one is
+   a deliberate re-assertion rather than a blanket override. */
+
+/* division-theme.css re-points --blue and all three border tokens at the
+   division's own hue on html[data-division], which outranks :root and washed
+   the entire High Command page gold. The division accent is real identity and
+   is kept -- but as a MARK, on dots, chips and bars, not as the colour of
+   every border and every link on the page. */
+html[data-division], html[data-division][data-theme], :root[data-division] {
+  --blue:      var(--met-a);
+  --blue-dim:  var(--met-a-dim);
+  --blue-glow: var(--met-a-glow);
+  --border-dim:    var(--met-line);
+  --border-mid:    var(--met-line-2);
+  --border-bright: var(--met-line-3);
+  --dc: var(--met-a);
+}
+/* Where a division mark is genuinely wanted, it still has its own colour. */
+.div-chip, .met-chip.div-chip, [data-division] .panel-dot.div {
+  color: var(--div-accent, var(--met-a));
+  border-color: color-mix(in srgb, var(--div-accent, var(--met-a)) 34%, transparent);
+  background: color-mix(in srgb, var(--div-accent, var(--met-a)) 11%, transparent);
+}
+
+/* dashboard.css sets the page title in caps with wide tracking. The whole
+   point of the display face is the opposite: sentence case, set large, tracked
+   in. Nothing here sets text-transform, so that rule survived section 3. */
+.page-title, h1.page-title, .dash .page-title {
+  text-transform: none !important;
+  letter-spacing: -.03em !important;
+  font-family: var(--font-display) !important;
+  font-size: 42px !important;
+  font-weight: 600 !important;
+  color: var(--met-fg) !important;
+}
+.panel-title, body[class*="div-"] .panel-title, [data-division] .panel-title {
+  text-transform: none !important;
+  letter-spacing: -.015em !important;
+  color: var(--met-fg) !important;
+  font-size: 15px !important;
+  font-family: var(--font-display) !important;
+}
+.page-sub, .dash .page-sub { text-transform: none; letter-spacing: 0; color: var(--met-fg-2); }
+
+/* aurora.css paints the page title as a clipped gradient, which is the one
+   effect that read as "AI made this" and the first thing to go. */
+html[data-ui="aurora"] .page-title {
+  background: none !important; -webkit-text-fill-color: var(--met-fg) !important;
+  color: var(--met-fg) !important;
+}
+
+/* The division ambient wash, and every leftover glow, aurora and vignette.
+   The ground is lit by the two orbs in section 2 and by nothing else. */
+.aurora, .aurora-layer, .bg-aurora, .glow, .glow-ring, .vignette { display: none !important; }
+[data-division] .bg-glow-1, [data-division] .bg-glow-2 { filter: none; }
+
+/* Light mode is not offered any more, so the light overrides in main.css must
+   not half-apply if a stale data-theme="light" is still in localStorage. */
+html[data-theme="light"] body, html[data-theme="light"] { background: var(--met-bg) !important; color: var(--met-fg); }
+html[data-theme="light"] .page-title, html[data-theme="light"] .page-sub { color: inherit !important; }
+
+/* Old inline styles reach for a hard-coded near-black or navy in a few
+   places; keep those surfaces on the system's panel instead. */
+.met-topbar, .sidebar, .app-layout, .main-content { background-color: transparent; }
+.app-layout { background: var(--met-bg); }
+
+/* enhance.css assigns each division a --dc on a BODY class (.div-hicomm is
+   gold, .div-cid orange, and so on) and division-theme.css paints the active
+   nav item, the brand and several row buttons with it. That is what kept the
+   High Command page gold after section 1. Every division keeps its own hue in
+   --div-brand for the places identity genuinely belongs; the interface itself
+   is one accent, everywhere, as designed. */
+body[class*="div-"], body[data-division] {
+  --div-brand: var(--dc);
+  --dc: var(--met-a);
+}
+html[data-division] .nav-item.active,
+body[class*="div-"] .nav-item.active {
+  background: linear-gradient(90deg, rgba(91,141,239,.15), rgba(91,141,239,.02)) !important;
+  border-color: transparent !important;
+  color: var(--met-fg) !important;
+  box-shadow: inset 0 0 0 1px rgba(91,141,239,.20) !important;
+}
+.nav-item.active::before {
+  background: var(--met-a) !important;
+  box-shadow: 0 0 10px var(--met-a-glow) !important;
+  width: 2px !important; left: 0 !important; border-radius: 0 2px 2px 0 !important;
+}
+.nav-item.active::after { display: none; }   /* enhance.css already draws the rail */
+body[class*="div-"] .brand-name, html[data-division] .brand-name,
+body[class*="div-"] .met-topbar-title { color: var(--met-fg) !important; }
+body[class*="div-"] .met-topbar-division, .met-topbar-division { color: var(--met-fg-3) !important; }
+html[data-division] .row-btn-view {
+  background: rgba(255,255,255,.045) !important; border-color: var(--met-line-2) !important;
+  color: var(--met-fg) !important;
+}
+
+/* enhance.css paints the sidebar and the topbar with hard-coded navy
+   gradients under !important, and edges them in a bright blue border. Those
+   two surfaces are most of what made the whole page read navy rather than
+   near-black, and a background shorthand alone does not clear a
+   background-image set this way. Matched specificity, later in the cascade. */
+html:not([data-theme="light"]) .sidebar,
+html[data-theme="light"] .sidebar, .sidebar {
+  background: rgba(0,0,0,.24) !important;
+  background-image: none !important;
+  border-right: 1px solid var(--met-line) !important;
+  box-shadow: none !important;
+}
+html:not([data-theme="light"]) .met-topbar,
+html[data-theme="light"] .met-topbar, .met-topbar {
+  background: rgba(8,9,11,.72) !important;
+  background-image: none !important;
+  border-bottom: 1px solid var(--met-line) !important;
+  box-shadow: none !important;
+}
+html:not([data-theme="light"]) .met-topbar-brand { color: var(--met-fg) !important; }
+
+/* The crest tile, and anything else still set in the old navy. */
+.brand-icon, .brand-logo, .met-topbar-logo {
+  background-image: none !important;
+  background-color: rgba(255,255,255,.05) !important;
+  border: 1px solid var(--met-line-2) !important;
+}
+
+/* ==========================================================================
+   15. THE FRONT DOOR
+   ==========================================================================
+   The sign-in page is the only page most members see before they are members,
+   so it gets the full treatment: the display face at size, a lot of air, and
+   the ambient light doing the work no border should. */
+.signin-title, .header-title, .nf-code {
+  background: none !important;
+  -webkit-text-fill-color: var(--met-fg) !important;
+  color: var(--met-fg) !important;
+  font-family: var(--font-display) !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: -.03em !important;
+  font-size: clamp(26px, 5vw, 38px) !important;
+  line-height: 1.08 !important;
+}
+.nf-code { font-family: var(--font-mono) !important; font-size: 46px !important; letter-spacing: -.02em !important; }
+.signin-sub, .nf-title {
+  font-family: var(--font-mono) !important; font-size: 10px !important;
+  letter-spacing: .18em !important; text-transform: uppercase !important;
+  color: var(--met-fg-3) !important; font-weight: 400 !important;
+}
+.signin-card, .login-card {
+  background: var(--met-panel) !important; border: 1px solid var(--met-line) !important;
+  border-radius: var(--radius-xl) !important; backdrop-filter: none !important;
+  box-shadow: 0 26px 80px rgba(0,0,0,.6) !important;
+}
+.signin-card .hint, .btn-hint { color: var(--met-fg-3) !important; font-size: 11.5px !important; }
+.signin-footer, .system-id, .footer-badge {
+  font-family: var(--font-mono) !important; font-size: 9.5px !important;
+  letter-spacing: .16em !important; color: var(--met-fg-3) !important;
+}
+.signin-or { color: var(--met-fg-3) !important; font-family: var(--font-mono) !important; letter-spacing: .18em !important; }
+
+/* The motto strap: three words separated by a middot, not three boxes with
+   pipes between them. .seg collides with the segmented-control class, so the
+   control's chrome has to be cleared off it here. */
+.met-strap {
+  display: inline-flex !important; flex-wrap: wrap; justify-content: center;
+  align-items: center; gap: 0 !important;
+  padding: 0 !important; background: none !important; border: 0 !important;
+  font-family: var(--font-display); font-weight: 500;
+  letter-spacing: .01em; color: var(--met-fg-2);
+}
+.met-strap .seg {
+  display: inline !important; padding: 0 12px !important;
+  background: none !important; border: 0 !important; border-radius: 0 !important;
+  font: inherit !important; color: inherit !important; box-shadow: none !important;
+}
+.met-strap .seg + .seg { position: relative; }
+/* enhance.css draws the separator as a 1.5px vertical BAR, not a character,
+   so overriding `content` alone leaves the bar in place. Clear its geometry
+   too, then draw the middot the house style actually uses. */
+.met-strap .seg + .seg::before {
+  content: "\00b7" !important;
+  position: absolute !important; left: -3px !important; top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: auto !important; height: auto !important;
+  background: none !important; opacity: 1 !important;
+  color: var(--met-fg-3) !important;
+}
+.met-strap-underline {
+  height: 1px !important; width: 40px !important; border-radius: 0 !important;
+  background: var(--met-a) !important; box-shadow: 0 0 10px var(--met-a-glow);
+}
