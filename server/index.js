@@ -438,6 +438,14 @@ app.use('/api/dev', requireAuth, require('./routes/dev'));
 app.use('/api/cad', requireAuth, require('./routes/cad'));
 // MET HICOMM oversight — Command Center, analytics, audit trail, officer 360°.
 app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm'));
+
+// The Adonis command bridge. Two mounts, because it has two audiences: the
+// Roblox game authenticates with the shared game secret and is NOT a
+// logged-in user, while the dashboard side is behind the normal session.
+// Queuing a command is gated to High Command inside the router itself.
+app.use('/api/adonis', require('./routes/adonis').router);
+app.use('/api/adonis', requireAuth, require('./routes/adonis').site);
+try { require('./lib/adonis').start(); } catch (e) { console.warn('[Adonis] sweeper not started:', e.message); }
 // "Install on your phone" QR handoff — mint one-time session-transfer tokens.
 app.use('/api/app', requireAuth, require('./routes/app'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.

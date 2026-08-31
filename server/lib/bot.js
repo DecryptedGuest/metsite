@@ -455,6 +455,17 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /undo:', err.message);
   }
 
+  // /adonis — the Roblox game bridge. MET-wide: seeing who is in which server
+  // is ordinary supervision, and running a command is gated in code to High
+  // Command rather than by which server the command appears in.
+  try {
+    const cmd = require('./adonisCommand').buildCommand();
+    add(MET_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /adonis:', err.message);
+  }
+
   // The four Internal Affairs commands. All IA-server only: quota points and
   // case filing have no meaning in the MET or CID servers.
   try {
@@ -719,6 +730,10 @@ async function onInteraction(interaction) {
   // Autocomplete (the /promote rank picker). Answered separately from the
   // command itself · it only ever suggests, it never runs anything.
   if (interaction.isAutocomplete && interaction.isAutocomplete()) {
+    if (interaction.commandName === require('./adonisCommand').COMMAND) {
+      return require('./adonisCommand').handleAutocomplete(interaction)
+        .catch(e => console.error('[Bot] adonis autocomplete error:', e.message));
+    }
     if (interaction.commandName === 'promote') {
       return require('./promoteCommand').handlePromoteAutocomplete(interaction)
         .catch(e => console.error('[Bot] promote autocomplete error:', e.message));
@@ -802,6 +817,11 @@ async function onInteraction(interaction) {
     return require('./qpCommand')
       .handleQp(interaction, interaction.commandName === 'add-qp' ? +1 : -1)
       .catch(e => console.error(`[Bot] /${interaction.commandName} error:`, e.message));
+  }
+
+  if (interaction.commandName === require('./adonisCommand').COMMAND) {
+    return require('./adonisCommand').handle(interaction)
+      .catch(e => console.error('[Bot] /adonis error:', e.message));
   }
 
   if (interaction.commandName === 'leaderboard') {
