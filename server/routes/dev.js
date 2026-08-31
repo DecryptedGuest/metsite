@@ -764,6 +764,8 @@ router.post('/emergency-alert', async (req, res) => {
       // The bold line at the top of the alert. Optional: the client falls back
       // to a generic headline when it is not set.
       title: String(body.title || '').trim().slice(0, 90),
+      // The label in the red band. Anything else falls back to the top level.
+      level: ['emergency', 'severe', 'test'].includes(body.level) ? body.level : 'emergency',
       by: req.user.displayName || req.user.discordUsername || 'Developer',
       at: new Date().toISOString(),
     };

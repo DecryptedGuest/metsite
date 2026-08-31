@@ -2917,7 +2917,8 @@ async function sendEmergencyAlert() {
   if (!message) { showToast('Enter an alert message.', 'error'); return; }
   const target = eaTarget();
   const title = (document.getElementById('ea-title')?.value || '').trim();
-  const payload = { target, message, title };
+  const level = (document.getElementById('ea-level')?.value || 'emergency');
+  const payload = { target, message, title, level };
   if (target === 'divisions') {
     payload.divisions = Array.from(document.querySelectorAll('.ea-div')).filter(c => c.checked).map(c => c.value);
     if (!payload.divisions.length) { showToast('Pick at least one division.', 'error'); return; }

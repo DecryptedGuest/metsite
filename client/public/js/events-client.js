@@ -202,39 +202,80 @@
   // the snooze and the mute.
   var _sirenStop = null;
 
+  // The Common Audio Attention Signal, to the letter of the specification the
+  // UK's alerts share with Wireless Emergency Alerts in the US and EU-Alert.
+  // 47 CFR 10.520:
+  //
+  //   "For devices that have polyphonic capabilities, the audio attention
+  //    signal must consist of the fundamental frequencies of 853 Hz and
+  //    960 Hz transmitted simultaneously."
+  //
+  //   "The audio attention signal must have a temporal pattern of one long
+  //    tone of two (2) seconds, followed by two short tones of one (1) second
+  //    each, with a half (0.5) second interval between each tone. The entire
+  //    sequence must be repeated twice with a half (0.5) second interval
+  //    between each repetition."
+  //
+  // Which lays out as 2 + 0.5 + 1 + 0.5 + 1 = 5s per sequence, two sequences
+  // half a second apart, so 10.5s in total. That is the check that this is
+  // right: it lands exactly on the "about ten seconds" every UK source gives
+  // for how long a real alert sounds.
+  //
+  // The pair is chosen to be unpleasant, not audible: 853 and 960 are close
+  // enough to beat against each other at about 107 Hz, and that roughness is
+  // the whole point. Sine waves, because the beating does the work and square
+  // waves would only pile harmonics on top of it.
+  var WEA_TONES = [853, 960];
+  var WEA_SEQUENCE = [                 // [start, duration] within one sequence
+    [0.0, 2.0],                        // one long tone of two seconds
+    [2.5, 1.0],                        // half-second interval, then a short tone
+    [4.0, 1.0]                         // half-second interval, then a short tone
+  ];
+  var WEA_SEQ_LEN = 5.0;               // 4.0 + 1.0
+  var WEA_REPEATS = 2;                 // the sequence, repeated
+  var WEA_GAP     = 0.5;               // between repetitions
+  var WEA_TOTAL   = WEA_REPEATS * WEA_SEQ_LEN + (WEA_REPEATS - 1) * WEA_GAP;   // 10.5s
+
   function emergencySiren() {
     var ctx = ensureAudio(); if (!ctx) return;
     stopSiren();
-    var now = ctx.currentTime;
-    var dur = 9.0;                 // about as long as the real thing runs
+    var t0 = ctx.currentTime + 0.02;
     try {
       var g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.55, now + 0.015);   // no fade-in: it starts loud
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
 
-      // The pulse. On for 0.28s, off for 0.22s, for the whole run.
-      var t = now + 0.015, on = true;
-      while (t < now + dur) {
-        g.gain.setValueAtTime(on ? 0.55 : 0.0006, t);
-        t += on ? 0.28 : 0.22; on = !on;
+      // Gate the gain to the pattern. A 6ms edge on each side, because a tone
+      // switched on instantly clicks, and the click is louder than the tone.
+      var EDGE = 0.006, LEVEL = 0.5;
+      for (var r = 0; r < WEA_REPEATS; r++) {
+        var base = t0 + r * (WEA_SEQ_LEN + WEA_GAP);
+        for (var i = 0; i < WEA_SEQUENCE.length; i++) {
+          var on = base + WEA_SEQUENCE[i][0], off = on + WEA_SEQUENCE[i][1];
+          g.gain.setValueAtTime(0.0001, on);
+          g.gain.exponentialRampToValueAtTime(LEVEL, on + EDGE);
+          g.gain.setValueAtTime(LEVEL, off - EDGE);
+          g.gain.exponentialRampToValueAtTime(0.0001, off);
+        }
       }
-      g.gain.setValueAtTime(0.0001, now + dur);
 
-      // Two sine tones together. Sine rather than square: the beat between
-      // 853 and 960 does the work, and squares just add mush on top of it.
-      var oscs = [853, 960].map(function (f) {
-        var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; return o;
+      // Both fundamentals, sounded together, running continuously underneath:
+      // the gate above is what shapes them into the pattern.
+      var end = t0 + WEA_TOTAL + 0.05;
+      var oscs = WEA_TONES.map(function (f) {
+        var o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(g); o.start(t0 - 0.01); o.stop(end);
+        return o;
       });
-      oscs.forEach(function (o) { o.connect(g); o.start(now); o.stop(now + dur); });
       g.connect(ctx.destination);
 
       _sirenStop = function () {
         try {
           var n = ctx.currentTime;
           g.gain.cancelScheduledValues(n);
-          g.gain.setValueAtTime(g.gain.value, n);
-          g.gain.exponentialRampToValueAtTime(0.0001, n + 0.08);
-          oscs.forEach(function (o) { try { o.stop(n + 0.1); } catch (e) {} });
+          g.gain.setValueAtTime(Math.max(g.gain.value, 0.0001), n);
+          g.gain.exponentialRampToValueAtTime(0.0001, n + 0.06);
+          oscs.forEach(function (o) { try { o.stop(n + 0.08); } catch (e) {} });
         } catch (e) {}
         _sirenStop = null;
       };
@@ -262,7 +303,8 @@
       + '.met-emerg .me-head{font-size:23px;line-height:1.25;font-weight:700;color:#0b0c0c;margin:0 0 12px;letter-spacing:-.01em;}'
       + '.met-emerg .me-msg{font-size:16px;line-height:1.55;color:#0b0c0c;white-space:pre-wrap;word-wrap:break-word;margin:0;}'
       + '.met-emerg .me-from{margin-top:18px;padding-top:16px;border-top:1px solid #b1b4b6;font-size:14px;color:#505a5f;line-height:1.5;}'
-      + '.met-emerg .me-time{margin-top:6px;font-size:13px;color:#505a5f;}'
+      + '.met-emerg .me-check{margin-top:10px;font-size:13px;line-height:1.5;color:#505a5f;}'
+      + '.met-emerg .me-time{margin-top:10px;font-size:13px;color:#505a5f;}'
       + '.met-emerg .me-actions{padding:0 22px 22px;}'
       + '.met-emerg .me-dismiss{width:100%;padding:14px;border:0;border-radius:6px;background:#00703c;color:#fff;'
       + 'font-family:inherit;font-weight:700;font-size:16px;cursor:pointer;box-shadow:0 2px 0 #002d18;}'
@@ -281,18 +323,25 @@
     ensureEmergencyCss();
     var old = document.getElementById('met-emergency'); if (old) { try { old.remove(); } catch (e) {} }
     var ov = document.createElement('div'); ov.id = 'met-emergency'; ov.className = 'met-emerg';
-    var when = new Date().toLocaleString('en-GB',
+    // Real alerts are titled by severity: an Emergency alert is the top level,
+    // a Severe alert the one below it. Both are red; the label is the
+    // difference, and it is the label people are told to look for.
+    var LEVELS = { emergency: 'Emergency alert', severe: 'Severe alert', test: 'Test alert' };
+    var band = LEVELS[String(d.level || 'emergency').toLowerCase()] || LEVELS.emergency;
+    var when = new Date(d.at || Date.now()).toLocaleString('en-GB',
       { weekday: 'long', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'long' });
     ov.innerHTML =
       '<div class="me-card" role="alertdialog" aria-label="Emergency alert">'
       +   '<div class="me-band">'
       +     '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm0 5 7.5 12.9h-15L12 7zm-1 4v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>'
-      +     '<span>Emergency alert</span>'
+      +     '<span>' + esc(band) + '</span>'
       +   '</div>'
       +   '<div class="me-body">'
       +     '<h2 class="me-head">' + esc(d.title || 'Severe alert') + '</h2>'
       +     '<p class="me-msg">' + esc(d.message) + '</p>'
       +     '<div class="me-from">This is a message from the Metropolitan Police Service.</div>'
+      +     '<div class="me-check">Other than acknowledging this alert, you do not need to take any '
+      +       'action on this site. You can check whether an alert is genuine with High Command.</div>'
       +     '<div class="me-time">' + esc(when) + '</div>'
       +   '</div>'
       +   '<div class="me-actions"><button class="me-dismiss" type="button">OK</button></div>'

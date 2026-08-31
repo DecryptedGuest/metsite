@@ -1225,6 +1225,15 @@
         <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Message</div></div>
         <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
           <div class="form-group" style="margin:0;">
+            <label class="form-label">Alert level</label>
+            <select class="form-control" id="ea-level" style="width:auto;">
+              <option value="emergency" selected>Emergency alert</option>
+              <option value="severe">Severe alert</option>
+              <option value="test">Test alert</option>
+            </select>
+            <div class="hint" style="margin-top:6px;">The label in the red band, as on a real alert.</div>
+          </div>
+          <div class="form-group" style="margin:0;">
             <label class="form-label">Headline</label>
             <input class="form-control" id="ea-title" type="text" maxlength="90"
                    placeholder="e.g. Severe staffing shortage" />
