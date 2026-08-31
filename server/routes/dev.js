@@ -761,6 +761,9 @@ router.post('/emergency-alert', async (req, res) => {
     const events = require('../lib/events');
     const payload = {
       message,
+      // The bold line at the top of the alert. Optional: the client falls back
+      // to a generic headline when it is not set.
+      title: String(body.title || '').trim().slice(0, 90),
       by: req.user.displayName || req.user.discordUsername || 'Developer',
       at: new Date().toISOString(),
     };

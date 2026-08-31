@@ -189,67 +189,118 @@
     }
     return _popupWrap;
   }
-  // ── Emergency alert (full-screen takeover) ────────────────────────────
-  // A harsh, LOUD two-tone alarm modelled on a UK radio "panic button" / broadcast
-  // emergency warble — a rapidly alternating hi-lo square-wave tone that reads as
-  // "this is a real emergency." DELIBERATELY ignores the snooze/mute.
+  // ── Emergency alert ───────────────────────────────────────────────────
+  // Styled after a UK Government Emergency Alert as it appears on a phone: a
+  // red band, a white card, black text set large, and a single acknowledge
+  // button. The point of that design is that it is unmistakable and cannot be
+  // confused with an ordinary notification, which is exactly what this is for.
+  //
+  // The tone is synthesised, not a recording: it is the standard cell-broadcast
+  // attention signal, 853 Hz and 960 Hz sounded TOGETHER, which is what gives
+  // that pair its harsh beating quality rather than a musical chord. It is
+  // gated on and off about twice a second for the pulse. DELIBERATELY ignores
+  // the snooze and the mute.
+  var _sirenStop = null;
+
   function emergencySiren() {
     var ctx = ensureAudio(); if (!ctx) return;
+    stopSiren();
     var now = ctx.currentTime;
-    var dur = 3.6, step = 0.26;      // ~3.6s of alternating tone, ~0.26s per tone
-    // Two slightly-detuned square oscillators through one gain → a grating,
-    // penetrating alarm rather than a clean beep.
-    function voice(detune) {
-      var o = ctx.createOscillator(); o.type = 'square'; o.detune.value = detune;
-      var t = now, hi = true;
-      while (t < now + dur) { o.frequency.setValueAtTime(hi ? 1000 : 760, t); hi = !hi; t += step; }
-      return o;
-    }
+    var dur = 9.0;                 // about as long as the real thing runs
     try {
       var g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.5, now + 0.02);   // snap to loud immediately
-      g.gain.setValueAtTime(0.5, now + dur - 0.12);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; // tame the very top edge
-      var o1 = voice(0), o2 = voice(9);
-      o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ctx.destination);
-      o1.start(now); o2.start(now); o1.stop(now + dur); o2.stop(now + dur);
+      g.gain.exponentialRampToValueAtTime(0.55, now + 0.015);   // no fade-in: it starts loud
+
+      // The pulse. On for 0.28s, off for 0.22s, for the whole run.
+      var t = now + 0.015, on = true;
+      while (t < now + dur) {
+        g.gain.setValueAtTime(on ? 0.55 : 0.0006, t);
+        t += on ? 0.28 : 0.22; on = !on;
+      }
+      g.gain.setValueAtTime(0.0001, now + dur);
+
+      // Two sine tones together. Sine rather than square: the beat between
+      // 853 and 960 does the work, and squares just add mush on top of it.
+      var oscs = [853, 960].map(function (f) {
+        var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; return o;
+      });
+      oscs.forEach(function (o) { o.connect(g); o.start(now); o.stop(now + dur); });
+      g.connect(ctx.destination);
+
+      _sirenStop = function () {
+        try {
+          var n = ctx.currentTime;
+          g.gain.cancelScheduledValues(n);
+          g.gain.setValueAtTime(g.gain.value, n);
+          g.gain.exponentialRampToValueAtTime(0.0001, n + 0.08);
+          oscs.forEach(function (o) { try { o.stop(n + 0.1); } catch (e) {} });
+        } catch (e) {}
+        _sirenStop = null;
+      };
     } catch (e) {}
   }
+  function stopSiren() { if (_sirenStop) _sirenStop(); }
+
   function ensureEmergencyCss() {
     if (document.getElementById('met-emergency-css')) return;
     var st = document.createElement('style'); st.id = 'met-emergency-css';
     st.textContent =
-      '@keyframes mePulse{0%,100%{box-shadow:0 0 0 0 rgba(226,35,26,.5),0 24px 80px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 14px rgba(226,35,26,0),0 24px 80px rgba(0,0,0,.7)}}'
-      + '@keyframes meIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}'
+      '@keyframes meIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}'
       + '@keyframes meBg{from{opacity:0}to{opacity:1}}'
-      + '@keyframes meThrob{0%,100%{transform:scale(1);filter:drop-shadow(0 0 10px rgba(255,68,56,.45))}50%{transform:scale(1.12);filter:drop-shadow(0 0 22px rgba(255,68,56,.75))}}'
-      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;padding:24px;'
-      + 'background:radial-gradient(circle at 50% 40%,rgba(120,10,10,.86),rgba(6,8,12,.94));backdrop-filter:blur(6px);animation:meBg .18s ease both;}'
-      + '.met-emerg .me-card{max-width:560px;width:100%;text-align:center;background:#14171d;border:2px solid #e2231a;border-radius:20px;padding:34px 30px 28px;animation:meIn .22s ease both,mePulse 1.6s ease-in-out infinite;}'
-      + '.met-emerg .me-icon{font-size:66px;color:#ff4438;line-height:1;animation:meThrob 1.4s ease-in-out infinite;}'
-      + '.met-emerg .me-title{margin-top:10px;font-size:13px;letter-spacing:.28em;text-transform:uppercase;font-weight:800;color:#ff6a5e;}'
-      + '.met-emerg .me-msg{margin-top:16px;font-size:20px;line-height:1.5;font-weight:600;color:#f4f6fa;white-space:pre-wrap;word-wrap:break-word;}'
-      + '.met-emerg .me-by{margin-top:14px;font-size:12px;color:#9aa3b2;}'
-      + '.met-emerg .me-dismiss{margin-top:24px;padding:12px 26px;border:none;border-radius:11px;background:#e2231a;color:#fff;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.02em;}'
-      + '.met-emerg .me-dismiss:hover{filter:brightness(1.1);}';
+      + '@keyframes meFlash{0%,100%{background:#d4351c}50%{background:#aa2b16}}'
+      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;'
+      + 'padding:20px;background:rgba(4,5,7,.86);backdrop-filter:blur(8px);animation:meBg .16s ease both;}'
+      + '.met-emerg .me-card{max-width:460px;width:100%;background:#fff;border-radius:14px;overflow:hidden;'
+      + 'box-shadow:0 30px 90px rgba(0,0,0,.7);animation:meIn .24s cubic-bezier(.2,.7,.3,1) both;'
+      + "font-family:'Inter',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;}"
+      + '.met-emerg .me-band{display:flex;align-items:center;gap:10px;padding:13px 20px;background:#d4351c;'
+      + 'animation:meFlash 1.1s steps(1,end) infinite;}'
+      + '.met-emerg .me-band svg{width:20px;height:20px;flex:0 0 20px;}'
+      + '.met-emerg .me-band span{color:#fff;font-size:14px;font-weight:700;letter-spacing:.01em;}'
+      + '.met-emerg .me-body{padding:24px 22px 20px;}'
+      + '.met-emerg .me-head{font-size:23px;line-height:1.25;font-weight:700;color:#0b0c0c;margin:0 0 12px;letter-spacing:-.01em;}'
+      + '.met-emerg .me-msg{font-size:16px;line-height:1.55;color:#0b0c0c;white-space:pre-wrap;word-wrap:break-word;margin:0;}'
+      + '.met-emerg .me-from{margin-top:18px;padding-top:16px;border-top:1px solid #b1b4b6;font-size:14px;color:#505a5f;line-height:1.5;}'
+      + '.met-emerg .me-time{margin-top:6px;font-size:13px;color:#505a5f;}'
+      + '.met-emerg .me-actions{padding:0 22px 22px;}'
+      + '.met-emerg .me-dismiss{width:100%;padding:14px;border:0;border-radius:6px;background:#00703c;color:#fff;'
+      + 'font-family:inherit;font-weight:700;font-size:16px;cursor:pointer;box-shadow:0 2px 0 #002d18;}'
+      + '.met-emerg .me-dismiss:hover{background:#005a30;}'
+      + '.met-emerg .me-dismiss:active{transform:translateY(2px);box-shadow:none;}'
+      // GOV.UK's own focus style: a yellow block with a black underline. The
+      // site's blue ring is invisible discipline on a white card like this one.
+      + '.met-emerg .me-dismiss:focus-visible{outline:3px solid #ffdd00;outline-offset:0;'
+      + 'box-shadow:0 4px 0 #0b0c0c;background:#00703c;}'
+      + '@media (prefers-reduced-motion:reduce){.met-emerg .me-band{animation:none!important}}';
     document.head.appendChild(st);
   }
+
   function showEmergencyAlert(d) {
     if (!d || !d.message) return;
     ensureEmergencyCss();
     var old = document.getElementById('met-emergency'); if (old) { try { old.remove(); } catch (e) {} }
     var ov = document.createElement('div'); ov.id = 'met-emergency'; ov.className = 'met-emerg';
+    var when = new Date().toLocaleString('en-GB',
+      { weekday: 'long', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'long' });
     ov.innerHTML =
-      '<div class="me-card" role="alertdialog" aria-label="Emergency Alert">'
-      +   '<div class="me-icon"><i class="ti ti-alert-triangle"></i></div>'
-      +   '<div class="me-title">Emergency Alert</div>'
-      +   '<div class="me-msg">' + esc(d.message) + '</div>'
-      +   '<button class="me-dismiss" type="button"><i class="ti ti-check"></i> Dismiss</button>'
+      '<div class="me-card" role="alertdialog" aria-label="Emergency alert">'
+      +   '<div class="me-band">'
+      +     '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm0 5 7.5 12.9h-15L12 7zm-1 4v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>'
+      +     '<span>Emergency alert</span>'
+      +   '</div>'
+      +   '<div class="me-body">'
+      +     '<h2 class="me-head">' + esc(d.title || 'Severe alert') + '</h2>'
+      +     '<p class="me-msg">' + esc(d.message) + '</p>'
+      +     '<div class="me-from">This is a message from the Metropolitan Police Service.</div>'
+      +     '<div class="me-time">' + esc(when) + '</div>'
+      +   '</div>'
+      +   '<div class="me-actions"><button class="me-dismiss" type="button">OK</button></div>'
       + '</div>';
     document.body.appendChild(ov);
-    ov.querySelector('.me-dismiss').addEventListener('click', function () { try { ov.remove(); } catch (e) {} });
+    var btn = ov.querySelector('.me-dismiss');
+    btn.addEventListener('click', function () { stopSiren(); try { ov.remove(); } catch (e) {} });
+    try { btn.focus(); } catch (e) {}
     emergencySiren();
   }
   window.metShowEmergencyAlert = showEmergencyAlert;

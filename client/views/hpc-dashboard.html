@@ -368,6 +368,7 @@
 <script src="/js/events-client.js"></script>
 <script src="/js/hpc-dashboard.js?v=82"></script>
 <script src="/js/division-quota.js"></script>
+<script src="/js/met-select.js?v=1"></script>
 <script>(function(){var DIV='HPC';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('HPC');</script>
 </body>

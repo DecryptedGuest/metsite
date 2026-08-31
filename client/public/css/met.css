@@ -696,3 +696,100 @@ html:not([data-theme="light"]) .met-topbar-brand { color: var(--met-fg) !importa
   height: 1px !important; width: 40px !important; border-radius: 0 !important;
   background: var(--met-a) !important; box-shadow: 0 0 10px var(--met-a-glow);
 }
+
+/* ==========================================================================
+   16. SELECTS
+   ==========================================================================
+   The native popup is drawn by the browser, on its own white ground, and no
+   stylesheet reaches inside it. With a light option colour on this
+   interface's dark surfaces the list rendered white-on-white and was simply
+   unreadable. met-select.js replaces the popup with one we draw; these are
+   the rules for it.
+
+   The fallback below still matters: a select that has not been enhanced yet
+   (the split second before the script runs, or if it fails) must be legible
+   on its own. Both the control and its options get an OPAQUE dark ground,
+   because a translucent one composites against the browser's white. */
+select, select.form-control {
+  background-color: #12141a !important;
+  color: var(--met-fg) !important;
+  -webkit-appearance: none; appearance: none;
+}
+select option, select optgroup {
+  background-color: #12141a !important;
+  color: var(--met-fg) !important;
+}
+select option:disabled { color: var(--met-fg-3) !important; }
+
+/* The real control, kept for its value and its events, taken out of sight. */
+.msel { position: relative; display: inline-block; max-width: 100%; }
+.msel > select.msel-native {
+  position: absolute !important; opacity: 0 !important;
+  width: 100% !important; height: 100% !important;
+  inset: 0 !important; margin: 0 !important; padding: 0 !important;
+  pointer-events: none !important; border: 0 !important;
+  -webkit-appearance: none; appearance: none;
+}
+
+.msel-btn {
+  display: inline-flex; align-items: center; gap: 10px; width: 100%;
+  font-family: var(--font-body); font-size: 13.5px; font-weight: 400;
+  text-align: left; cursor: pointer;
+  padding: 10px 13px; border-radius: var(--radius-md);
+  background: rgba(255,255,255,.035);
+  border: 1px solid var(--met-line);
+  color: var(--met-fg);
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+}
+.msel-btn:hover:not(.is-disabled) { background: rgba(255,255,255,.06); border-color: var(--met-line-2); }
+.msel-btn[aria-expanded="true"] {
+  border-color: rgba(91,141,239,.55);
+  box-shadow: 0 0 0 3px rgba(91,141,239,.14);
+}
+.msel-btn.is-disabled { opacity: .5; cursor: not-allowed; }
+.msel-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msel-val.is-empty::after { content: "Select…"; color: var(--met-fg-3); }
+/* The caret is drawn, not an icon font, so it is there whether or not the
+   icon sheet loaded. */
+.msel-caret {
+  flex: 0 0 auto; width: 7px; height: 7px; margin-left: auto;
+  border-right: 1.5px solid var(--met-fg-3); border-bottom: 1.5px solid var(--met-fg-3);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--transition), border-color var(--transition);
+}
+.msel-btn[aria-expanded="true"] .msel-caret { transform: translateY(1px) rotate(225deg); border-color: var(--met-a-2); }
+
+/* The list is drawn in a fixed layer on the body, not inside the control:
+   nearly every panel on this site is overflow:hidden, which would clip it. */
+.msel-layer { position: fixed; inset: 0; pointer-events: none; z-index: 4000; }
+.msel-list {
+  position: fixed; pointer-events: auto;
+  min-width: 180px; max-width: min(92vw, 460px); overflow-y: auto;
+  padding: 5px; border-radius: var(--radius-md);
+  background: var(--met-panel-2);
+  border: 1px solid var(--met-line-2);
+  box-shadow: 0 22px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(0,0,0,.4);
+  animation: msel-in 130ms var(--ease) both;
+  scrollbar-width: thin;
+}
+@keyframes msel-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.msel-opt {
+  padding: 9px 11px; border-radius: var(--radius-sm);
+  font-size: 13.5px; color: var(--met-fg-2); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background var(--transition), color var(--transition);
+}
+.msel-opt:hover, .msel-opt.is-cur { background: rgba(255,255,255,.06); color: var(--met-fg); }
+.msel-opt.is-on {
+  color: var(--met-fg); font-weight: 500;
+  background: linear-gradient(90deg, rgba(91,141,239,.18), rgba(91,141,239,.05));
+  box-shadow: inset 0 0 0 1px rgba(91,141,239,.22);
+}
+/* A disabled option is shown, because its absence would be more confusing
+   than its presence, but it is plainly not choosable. */
+.msel-opt.is-disabled {
+  color: var(--met-fg-3); opacity: .55; cursor: not-allowed;
+  background: none; box-shadow: none;
+}
+.msel-list::-webkit-scrollbar { width: 8px; }
+.msel-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 8px; }

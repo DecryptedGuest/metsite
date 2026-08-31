@@ -2916,7 +2916,8 @@ async function sendEmergencyAlert() {
   const message = (document.getElementById('ea-message')?.value || '').trim();
   if (!message) { showToast('Enter an alert message.', 'error'); return; }
   const target = eaTarget();
-  const payload = { target, message };
+  const title = (document.getElementById('ea-title')?.value || '').trim();
+  const payload = { target, message, title };
   if (target === 'divisions') {
     payload.divisions = Array.from(document.querySelectorAll('.ea-div')).filter(c => c.checked).map(c => c.value);
     if (!payload.divisions.length) { showToast('Pick at least one division.', 'error'); return; }
@@ -2930,6 +2931,7 @@ async function sendEmergencyAlert() {
     const r = await api('/api/dev/emergency-alert', { method: 'POST', body: JSON.stringify(payload) });
     showToast(`Emergency alert sent to ${r.recipients} recipient(s).`, 'success');
     const m = document.getElementById('ea-message'); if (m) m.value = '';
+    const ti = document.getElementById('ea-title'); if (ti) ti.value = '';
   } catch (e) { showToast(e.message || 'Failed to send.', 'error'); }
 }
 
