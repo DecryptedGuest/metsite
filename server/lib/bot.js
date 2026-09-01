@@ -73,12 +73,6 @@ let client;
 async function onReady() {
   ready = true;
   console.log(`[Bot] online as ${client.user.tag}`);
-  // The anti-nuke guardian goes on FIRST, before the slower start-up work: a
-  // takeover during the thirty seconds the bot spends syncing emoji is exactly
-  // when nobody is watching.
-  try { require('./guardian').start(client); }
-  catch (e) { console.error('[Guardian] FAILED TO START:', e.message); }
-
   // Upload the MET emoji set to the guild (or adopt what's already there) so
   // e('met_tick') resolves to our artwork instead of falling back to unicode.
   try { require('./emoji').startEmojiSync(client); }
@@ -156,12 +150,7 @@ function buildClient(withMessageContent) {
   // GuildVoiceStates is REQUIRED by @discordjs/voice — without it a voice
   // connection can't complete its handshake and churns connect→drop. It's a
   // non-privileged intent, so it's always safe to request.
-  // GuildModeration is what carries GUILD_AUDIT_LOG_ENTRY_CREATE, which the
-  // anti-nuke guardian is built on. Without it the guardian receives nothing
-  // at all and reports no error, because there is no error: the events simply
-  // never arrive. It is NOT privileged, so requesting it cannot fail login.
-  const intents  = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers,
-                    GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildModeration];
+  const intents  = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
   const partials = [Partials.GuildMember];
   // GuildMessages is NOT privileged and never needs enabling in the portal.
   // MessageContent is. Requesting them together meant that losing the privileged
@@ -464,19 +453,6 @@ function buildCommandPlan() {
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /undo:', err.message);
-  }
-
-  // /guardian — the anti-nuke. In the MET server, where the thing it protects
-  // is; gated to High Command in code.
-  //
-  // Also kept off `global`, for the same reason: /guardian can lock down a
-  // whole server, and a fallback that put it in every server the bot is in is
-  // not a safety net.
-  try {
-    const cmd = require('./guardianCommand').buildCommand();
-    add(MET_GUILD_IDS(), cmd);
-  } catch (err) {
-    console.error('[Bot] could not build /guardian:', err.message);
   }
 
   // /adonis — the Roblox game bridge. ONE server, hardcoded, and deliberately
@@ -846,11 +822,6 @@ async function onInteraction(interaction) {
     return require('./qpCommand')
       .handleQp(interaction, interaction.commandName === 'add-qp' ? +1 : -1)
       .catch(e => console.error(`[Bot] /${interaction.commandName} error:`, e.message));
-  }
-
-  if (interaction.commandName === require('./guardianCommand').COMMAND) {
-    return require('./guardianCommand').handle(interaction)
-      .catch(e => console.error('[Bot] /guardian error:', e.message));
   }
 
   if (interaction.commandName === require('./adonisCommand').COMMAND) {
