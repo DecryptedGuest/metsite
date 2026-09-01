@@ -2988,7 +2988,12 @@ const EA_TEMPLATES = [
 function renderEmergencyTemplates() {
   const sel = document.getElementById('ea-template');
   if (!sel) return;
-  sel.innerHTML = EA_TEMPLATES.map(t => `<option value="${t.id}">${escHtml(t.name)}</option>`).join('');
+  // Built as real Option nodes rather than an innerHTML string. new Option sets
+  // TEXT, so there is no escaping to get right and no helper to depend on: the
+  // first version of this called escHtml, which exists in profile.js and not in
+  // this file, so it threw and left the dropdown empty with nothing in the
+  // console to say why.
+  sel.replaceChildren(...EA_TEMPLATES.map(t => new Option(t.name, t.id)));
 }
 
 window.applyEmergencyTemplate = function (id) {
