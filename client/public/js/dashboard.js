@@ -2888,6 +2888,7 @@ function toggleDevRecipientList() {
 // ── Emergency alert (dev) ───────────────────────────────────────────────
 let eaOnline = { users: [], divisions: [] };
 async function loadEmergencyAlert() {
+  renderEmergencyTemplates();
   try { eaOnline = await api('/api/dev/online'); } catch { eaOnline = { users: [], divisions: ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'] }; }
   renderEmergencyTarget();
 }
@@ -2912,6 +2913,140 @@ function renderEmergencyTarget() {
     : '<p style="color:var(--text-secondary);">Nobody is on the site right now.</p>';
   if (note) note.textContent = `${users.length} ${users.length === 1 ? 'person is' : 'people are'} on the site right now.`;
 }
+// ── Emergency alert templates ────────────────────────────────────────
+// The kinds of emergency the UK system is actually used for, with wording
+// modelled on the alerts that have really been sent: the Plymouth evacuation,
+// Storm Eowyn, the 2026 wildfire alert, the flooding alerts and the national
+// tests. Adapted to MET, and every one editable after it is picked.
+//
+// On sounds: there is ONE tone. The UK uses the same attention signal for
+// every kind of emergency, so a picker offering a different noise per
+// disaster would be inventing something. What changes between them is the
+// level, which is what decides whether somebody can opt out.
+const EA_TEMPLATES = [
+  { id: 'custom', name: 'Custom · write your own', level: 'emergency', title: '', message: '' },
+
+  { id: 'test', name: 'Test of the alert system', level: 'test',
+    title: 'This is a test',
+    message: 'This is a test of the MET emergency alert system. You do not need to take any action. '
+           + 'The alert will clear when you press OK.' },
+
+  { id: 'flood', name: 'Severe flooding', level: 'emergency',
+    title: 'Severe flooding in this area',
+    message: 'Flood waters are expected to rise rapidly and flooding is likely to cut off the area. '
+           + 'Floodwater is a threat to life: do not enter it, and do not attempt to drive through it. '
+           + 'Move to higher ground and stay there.' },
+
+  { id: 'wildfire', name: 'Wildfire risk', level: 'emergency',
+    title: 'Very high risk of wildfires',
+    message: 'There is a very high risk of wildfires in this area. Do not undertake any activity that could '
+           + 'start a fire, including barbecues, firepits or fireworks. Even a small flame can rapidly become '
+           + 'a major wildfire. Report any sign of fire immediately by calling 999.' },
+
+  { id: 'storm', name: 'Extreme weather · red warning', level: 'emergency',
+    title: 'Danger to life: extreme winds',
+    message: 'Extremely strong winds are expected to cause significant disruption. Strong winds present a '
+           + 'danger to life through flying debris, falling trees and large waves in coastal areas. '
+           + 'Stay indoors and do not travel unless it is essential.' },
+
+  { id: 'evacuate', name: 'Evacuation · clear the area', level: 'emergency',
+    title: 'Evacuate this area now',
+    message: 'You must leave this area immediately. Follow the directions of officers on scene and do not '
+           + 'return until you are told it is safe. Do not stop to collect belongings.' },
+
+  { id: 'ordnance', name: 'Unexploded ordnance', level: 'emergency',
+    title: 'Unexploded device: clear the area',
+    message: 'A suspected explosive device has been found in this area. A cordon is in place. If you live or '
+           + 'work within it you must leave now and stay clear until you are told otherwise.' },
+
+  { id: 'fire', name: 'Major fire', level: 'emergency',
+    title: 'Major fire: stay away',
+    message: 'A major fire is burning in this area. Keep away, close all doors and windows, and do not '
+           + 'travel towards the scene. Follow the directions of emergency services.' },
+
+  { id: 'security', name: 'Security incident', level: 'emergency',
+    title: 'Security incident: run, hide, tell',
+    message: 'There is an ongoing security incident in this area. If you can escape, do. If you cannot, hide '
+           + 'and silence your phone. Call 999 when it is safe to do so. Do not approach the area.' },
+
+  { id: 'health', name: 'Public health', level: 'severe',
+    title: 'Public health warning',
+    message: 'A public health incident is affecting this area. Follow the advice of health officials, and do '
+           + 'not travel to the affected area unless it is essential.' },
+
+  { id: 'missing', name: 'Missing person appeal', level: 'severe',
+    title: 'Missing person: urgent appeal',
+    message: 'Officers are searching for a missing person in this area. If you have seen them or have any '
+           + 'information, call 999 immediately and do not approach.' },
+
+  { id: 'recall', name: 'MET · all units recall', level: 'severe',
+    title: 'All units: return to base',
+    message: 'All available officers are to return to the main server immediately. Patrols are suspended '
+           + 'until further notice. Await instructions from High Command.' },
+];
+
+function renderEmergencyTemplates() {
+  const sel = document.getElementById('ea-template');
+  if (!sel) return;
+  sel.innerHTML = EA_TEMPLATES.map(t => `<option value="${t.id}">${escHtml(t.name)}</option>`).join('');
+}
+
+window.applyEmergencyTemplate = function (id) {
+  const t = EA_TEMPLATES.find(x => x.id === id);
+  if (!t) return;
+  const lvl = document.getElementById('ea-level');
+  const ti  = document.getElementById('ea-title');
+  const msg = document.getElementById('ea-message');
+  if (lvl) lvl.value = t.level;
+  if (ti)  ti.value  = t.title;
+  if (msg) msg.value = t.message;
+};
+
+/** What is currently in the form, as the alert payload. */
+function emergencyDraft() {
+  return {
+    level:   document.getElementById('ea-level')?.value || 'emergency',
+    title:   (document.getElementById('ea-title')?.value || '').trim(),
+    message: (document.getElementById('ea-message')?.value || '').trim(),
+  };
+}
+
+window.previewEmergencyAlert = function () {
+  const d = emergencyDraft();
+  if (!d.message) { showToast('Write the message first.', 'error'); return; }
+  if (typeof window.metEmergencyPreview !== 'function') {
+    showToast('The alert renderer has not loaded on this page.', 'error'); return;
+  }
+  // Deliberately silent. The preview is for the WORDING; the tone has its own
+  // button, and nobody wants a ten-second siren every time they fix a typo.
+  window.metEmergencyPreview(d);
+};
+
+// ── The tone, previewed ──────────────────────────────────────────────
+// Plays the same generator the real alert uses, so this cannot drift from it.
+let _eaToneTimer = null;
+function setToneButton(playing) {
+  const b = document.getElementById('ea-sound-btn');
+  if (!b) return;
+  b.innerHTML = playing
+    ? '<i class="ti ti-player-stop"></i> Stop'
+    : '<i class="ti ti-volume"></i> Play the tone';
+  b.classList.toggle('btn-danger', playing);
+  b.classList.toggle('btn-ghost', !playing);
+}
+window.toggleEmergencyTone = function () {
+  const tone = window.metEmergencyTone;
+  if (!tone) { showToast('The alert tone has not loaded on this page.', 'error'); return; }
+  if (_eaToneTimer) {                       // playing → stop
+    tone.stop(); clearTimeout(_eaToneTimer); _eaToneTimer = null; setToneButton(false); return;
+  }
+  tone.play();
+  setToneButton(true);
+  // Put the button back by itself when the signal finishes on its own.
+  _eaToneTimer = setTimeout(() => { _eaToneTimer = null; setToneButton(false); },
+    Math.round((tone.seconds || 10.5) * 1000) + 200);
+};
+
 async function sendEmergencyAlert() {
   const message = (document.getElementById('ea-message')?.value || '').trim();
   if (!message) { showToast('Enter an alert message.', 'error'); return; }

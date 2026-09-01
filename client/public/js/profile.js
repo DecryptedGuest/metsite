@@ -36,6 +36,39 @@ function tierBadge(d) {
     : '<span class="badge badge-pending"><span class="badge-dot"></span>Member</span>';
 }
 
+// The name to call somebody, best first.
+//
+//   1. their Roblox username, which is who they are in the community
+//   2. the name half of a "RANK | RobloxUsername" nickname
+//   3. their Discord username
+//   4. their display name, first word only, as a last resort
+//
+// Never the rank. A greeting that says the rank rather than the name reads as
+// the site not knowing who it is talking to.
+function parseRankNick(nick) {
+  if (!nick) return { rank: null, robloxUsername: null };
+  const s = String(nick).trim();
+  const i = s.indexOf('|');
+  if (i >= 0) {
+    return { rank: s.slice(0, i).trim() || null,
+             robloxUsername: s.slice(i + 1).trim().replace(/\s+/g, '') || null };
+  }
+  return { rank: null, robloxUsername: s.replace(/\s+/g, '') || null };
+}
+
+function whoToGreet(u, metNickname) {
+  if (u && u.robloxUsername) return u.robloxUsername;
+  for (const nick of [metNickname, u && u.displayName]) {
+    if (!nick) continue;
+    const parsed = parseRankNick(nick);
+    // Only trust the parse when there WAS a separator: without one the whole
+    // string is the candidate, and "DEV" on its own is still a rank.
+    if (String(nick).includes('|') && parsed.robloxUsername) return parsed.robloxUsername;
+  }
+  if (u && u.discordUsername) return u.discordUsername;
+  return String((u && u.displayName) || '').trim().split(/\s+/)[0] || '';
+}
+
 async function loadProfile() {
   let data;
   try {
@@ -50,12 +83,17 @@ async function loadProfile() {
   const name = data.metNickname || u.displayName || u.discordUsername;
   document.getElementById('p-name').textContent = name;
 
-  // Time-of-day greeting with the member's Roblox username.
+  // Time-of-day greeting, addressed to the PERSON.
+  //
+  // The fallback used to take the first word of the display name, and MET
+  // nicknames are "RANK | RobloxUsername", so it greeted people by their rank:
+  // "Good afternoon, DEV". The rank is the one part of that string that is not
+  // their name. Parsed the same way the bot parses it, so the two agree.
   const gEl = document.getElementById('p-greeting');
   if (gEl) {
     const h = new Date().getHours();
     const part = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
-    const who = u.robloxUsername || String(name || '').trim().split(/\s+/)[0] || '';
+    const who = whoToGreet(u, data.metNickname);
     gEl.textContent = who ? `${part}, ${who}` : part;
     gEl.style.display = '';
   }

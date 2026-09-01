@@ -1225,25 +1225,35 @@
         <div class="panel-header"><div class="panel-title"><span class="panel-dot" style="background:#e2231a;box-shadow:0 0 7px #e2231a;"></span>Message</div></div>
         <div style="padding:1.4rem;display:flex;flex-direction:column;gap:1rem;">
           <div class="form-group" style="margin:0;">
+            <label class="form-label">Emergency</label>
+            <select class="form-control" id="ea-template" onchange="applyEmergencyTemplate(this.value)"></select>
+            <div class="hint" style="margin-top:6px;">Picks the level and fills the wording. Every one is editable afterwards.</div>
+          </div>
+          <div class="form-group" style="margin:0;">
             <label class="form-label">Alert level</label>
             <select class="form-control" id="ea-level" style="width:auto;">
               <option value="emergency" selected>Emergency alert</option>
               <option value="severe">Severe alert</option>
               <option value="test">Test alert</option>
             </select>
-            <div class="hint" style="margin-top:6px;">The label in the red band, as on a real alert.</div>
+            <div class="hint" style="margin-top:6px;">Emergency is the top level. The tone is the same either way: the UK uses one attention signal for all of them.</div>
           </div>
           <div class="form-group" style="margin:0;">
             <label class="form-label">Headline</label>
             <input class="form-control" id="ea-title" type="text" maxlength="90"
-                   placeholder="e.g. Severe staffing shortage" />
-            <div class="hint" style="margin-top:6px;">The bold line at the top of the alert. Keep it short.</div>
+                   placeholder="e.g. Severe flooding in this area" />
           </div>
           <div class="form-group" style="margin:0;">
             <label class="form-label">Alert message</label>
-            <textarea class="form-control" id="ea-message" rows="3" placeholder="e.g. All units return to the main server immediately." maxlength="1000"></textarea>
+            <textarea class="form-control" id="ea-message" rows="5" placeholder="What is happening, and what people should do about it." maxlength="1000"></textarea>
+            <div class="hint" style="margin-top:6px;">Any https:// link becomes clickable in the alert.</div>
           </div>
-          <p style="margin:0;font-size:12px;color:var(--text-secondary);">This takes over the whole screen with a warning icon, plays a loud klaxon (overrides mute), and shows exactly this text. It reaches only people with the site open <strong>right now</strong>.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="previewEmergencyAlert()"><i class="ti ti-eye"></i> Preview</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="ea-sound-btn" onclick="toggleEmergencyTone()"><i class="ti ti-volume"></i> Play the tone</button>
+            <span class="hint" id="ea-sound-note">The real attention signal, 853 Hz and 960 Hz together.</span>
+          </div>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">This takes over the whole screen, plays the alert tone (overriding mute), and shows exactly this text. It reaches only people with the site open <strong>right now</strong>.</p>
         </div>
       </div>
 

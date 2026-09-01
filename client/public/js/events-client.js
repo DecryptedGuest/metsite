@@ -286,36 +286,71 @@
   function ensureEmergencyCss() {
     if (document.getElementById('met-emergency-css')) return;
     var st = document.createElement('style'); st.id = 'met-emergency-css';
+    // Modelled on the iOS system alert a real emergency alert arrives in: a
+    // small, centred, translucent card on a dimmed screen, title and message
+    // centred, a hairline, and one full-width button. Nothing animates once it
+    // is on screen. A flashing banner is the sort of thing that reads as a
+    // scam page rather than as a system alert, and the tone is what makes
+    // somebody look up anyway.
     st.textContent =
-      '@keyframes meIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}'
+      '@keyframes meIn{from{opacity:0;transform:scale(1.14)}to{opacity:1;transform:none}}'
       + '@keyframes meBg{from{opacity:0}to{opacity:1}}'
-      + '@keyframes meFlash{0%,100%{background:#d4351c}50%{background:#aa2b16}}'
-      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;'
-      + 'padding:20px;background:rgba(4,5,7,.86);backdrop-filter:blur(8px);animation:meBg .16s ease both;}'
-      + '.met-emerg .me-card{max-width:460px;width:100%;background:#fff;border-radius:14px;overflow:hidden;'
-      + 'box-shadow:0 30px 90px rgba(0,0,0,.7);animation:meIn .24s cubic-bezier(.2,.7,.3,1) both;'
-      + "font-family:'Inter',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;}"
-      + '.met-emerg .me-band{display:flex;align-items:center;gap:10px;padding:13px 20px;background:#d4351c;'
-      + 'animation:meFlash 1.1s steps(1,end) infinite;}'
-      + '.met-emerg .me-band svg{width:20px;height:20px;flex:0 0 20px;}'
-      + '.met-emerg .me-band span{color:#fff;font-size:14px;font-weight:700;letter-spacing:.01em;}'
-      + '.met-emerg .me-body{padding:24px 22px 20px;}'
-      + '.met-emerg .me-head{font-size:23px;line-height:1.25;font-weight:700;color:#0b0c0c;margin:0 0 12px;letter-spacing:-.01em;}'
-      + '.met-emerg .me-msg{font-size:16px;line-height:1.55;color:#0b0c0c;white-space:pre-wrap;word-wrap:break-word;margin:0;}'
-      + '.met-emerg .me-from{margin-top:18px;padding-top:16px;border-top:1px solid #b1b4b6;font-size:14px;color:#505a5f;line-height:1.5;}'
-      + '.met-emerg .me-check{margin-top:10px;font-size:13px;line-height:1.5;color:#505a5f;}'
-      + '.met-emerg .me-time{margin-top:10px;font-size:13px;color:#505a5f;}'
-      + '.met-emerg .me-actions{padding:0 22px 22px;}'
-      + '.met-emerg .me-dismiss{width:100%;padding:14px;border:0;border-radius:6px;background:#00703c;color:#fff;'
-      + 'font-family:inherit;font-weight:700;font-size:16px;cursor:pointer;box-shadow:0 2px 0 #002d18;}'
-      + '.met-emerg .me-dismiss:hover{background:#005a30;}'
-      + '.met-emerg .me-dismiss:active{transform:translateY(2px);box-shadow:none;}'
-      // GOV.UK's own focus style: a yellow block with a black underline. The
-      // site's blue ring is invisible discipline on a white card like this one.
-      + '.met-emerg .me-dismiss:focus-visible{outline:3px solid #ffdd00;outline-offset:0;'
-      + 'box-shadow:0 4px 0 #0b0c0c;background:#00703c;}'
-      + '@media (prefers-reduced-motion:reduce){.met-emerg .me-band{animation:none!important}}';
+      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;'
+      + 'justify-content:center;padding:20px;background:rgba(0,0,0,.5);'
+      + '-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:meBg .18s ease both;}'
+      + '.met-emerg .me-card{width:270px;max-width:100%;border-radius:14px;overflow:hidden;text-align:center;'
+      + 'background:rgba(42,42,44,.82);-webkit-backdrop-filter:blur(26px) saturate(1.7);'
+      + 'backdrop-filter:blur(26px) saturate(1.7);box-shadow:0 12px 44px rgba(0,0,0,.55);'
+      + "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','Segoe UI',Roboto,sans-serif;"
+      + 'color:#fff;animation:meIn .22s cubic-bezier(.2,.8,.3,1) both;}'
+      + '.met-emerg .me-body{padding:19px 16px 15px;}'
+      + '.met-emerg .me-kicker{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;'
+      + 'color:#FF453A;margin:0 0 7px;}'
+      + '.met-emerg .me-head{font-size:17px;font-weight:600;line-height:1.29;margin:0;letter-spacing:-.01em;}'
+      + '.met-emerg .me-msg{font-size:13px;line-height:1.38;margin:5px 0 0;white-space:pre-wrap;'
+      + 'word-wrap:break-word;overflow-wrap:anywhere;color:rgba(255,255,255,.94);}'
+      + '.met-emerg .me-msg a{color:#0A84FF;text-decoration:none;}'
+      + '.met-emerg .me-msg a:hover{text-decoration:underline;}'
+      + '.met-emerg .me-actions{border-top:.5px solid rgba(255,255,255,.22);}'
+      + '.met-emerg .me-dismiss{display:block;width:100%;padding:11px 8px;border:0;background:none;'
+      + 'color:#0A84FF;font-family:inherit;font-size:17px;font-weight:600;cursor:pointer;}'
+      + '.met-emerg .me-dismiss:hover{background:rgba(255,255,255,.06);}'
+      + '.met-emerg .me-dismiss:active{background:rgba(255,255,255,.11);}'
+      + '@media (max-width:360px){.met-emerg .me-card{width:100%;}}';
     document.head.appendChild(st);
+  }
+
+  // Escape first, THEN linkify. Doing it the other way round would let a
+  // crafted message put markup into the page, and this is an innerHTML sink
+  // that fires without anybody clicking anything.
+  function linkify(text) {
+    var safe = esc(String(text == null ? '' : text));
+    return safe.replace(/\b(https?:\/\/[^\s<>"']+)/g, function (url) {
+      // A trailing full stop or bracket is almost always sentence punctuation
+      // rather than part of the address.
+      var tail = '';
+      var m = url.match(/[.,;:!?)\]]+$/);
+      if (m) { tail = m[0]; url = url.slice(0, -tail.length); }
+      return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>' + tail;
+    });
+  }
+
+  var LEVELS = { emergency: 'Emergency alert', severe: 'Severe alert', test: 'Test alert' };
+
+  function buildAlertCard(d) {
+    var level = String((d && d.level) || 'emergency').toLowerCase();
+    var card = document.createElement('div');
+    card.className = 'me-card';
+    card.setAttribute('role', 'alertdialog');
+    card.setAttribute('aria-label', LEVELS[level] || LEVELS.emergency);
+    card.innerHTML =
+      '<div class="me-body">'
+      +   '<p class="me-kicker">' + esc(LEVELS[level] || LEVELS.emergency) + '</p>'
+      +   '<h2 class="me-head">' + esc((d && d.title) || 'Severe alert') + '</h2>'
+      +   '<p class="me-msg">' + linkify(d && d.message) + '</p>'
+      + '</div>'
+      + '<div class="me-actions"><button class="me-dismiss" type="button">OK</button></div>';
+    return card;
   }
 
   function showEmergencyAlert(d) {
@@ -323,35 +358,30 @@
     ensureEmergencyCss();
     var old = document.getElementById('met-emergency'); if (old) { try { old.remove(); } catch (e) {} }
     var ov = document.createElement('div'); ov.id = 'met-emergency'; ov.className = 'met-emerg';
-    // Real alerts are titled by severity: an Emergency alert is the top level,
-    // a Severe alert the one below it. Both are red; the label is the
-    // difference, and it is the label people are told to look for.
-    var LEVELS = { emergency: 'Emergency alert', severe: 'Severe alert', test: 'Test alert' };
-    var band = LEVELS[String(d.level || 'emergency').toLowerCase()] || LEVELS.emergency;
-    var when = new Date(d.at || Date.now()).toLocaleString('en-GB',
-      { weekday: 'long', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'long' });
-    ov.innerHTML =
-      '<div class="me-card" role="alertdialog" aria-label="Emergency alert">'
-      +   '<div class="me-band">'
-      +     '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm0 5 7.5 12.9h-15L12 7zm-1 4v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>'
-      +     '<span>' + esc(band) + '</span>'
-      +   '</div>'
-      +   '<div class="me-body">'
-      +     '<h2 class="me-head">' + esc(d.title || 'Severe alert') + '</h2>'
-      +     '<p class="me-msg">' + esc(d.message) + '</p>'
-      +     '<div class="me-from">This is a message from the Metropolitan Police Service.</div>'
-      +     '<div class="me-check">Other than acknowledging this alert, you do not need to take any '
-      +       'action on this site. You can check whether an alert is genuine with High Command.</div>'
-      +     '<div class="me-time">' + esc(when) + '</div>'
-      +   '</div>'
-      +   '<div class="me-actions"><button class="me-dismiss" type="button">OK</button></div>'
-      + '</div>';
+    ov.appendChild(buildAlertCard(d));
     document.body.appendChild(ov);
     var btn = ov.querySelector('.me-dismiss');
     btn.addEventListener('click', function () { stopSiren(); try { ov.remove(); } catch (e) {} });
     try { btn.focus(); } catch (e) {}
     emergencySiren();
   }
+
+  // The preview and the sound test in the dev dashboard use THESE, so what is
+  // previewed is the same code that runs for real rather than a lookalike.
+  window.metEmergencyPreview = function (d) {
+    ensureEmergencyCss();
+    var old = document.getElementById('met-emergency-preview');
+    if (old) { try { old.remove(); } catch (e) {} }
+    var ov = document.createElement('div'); ov.id = 'met-emergency-preview'; ov.className = 'met-emerg';
+    ov.appendChild(buildAlertCard(d || {}));
+    document.body.appendChild(ov);
+    ov.querySelector('.me-dismiss').addEventListener('click', function () {
+      stopSiren(); try { ov.remove(); } catch (e) {}
+    });
+    return ov;
+  };
+  window.metEmergencyTone = { play: emergencySiren, stop: stopSiren, seconds: WEA_TOTAL };
+
   window.metShowEmergencyAlert = showEmergencyAlert;
 
   function connect() {
