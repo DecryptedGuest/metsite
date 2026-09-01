@@ -19,7 +19,7 @@
 // guardian is the thing malfunctioning, not the server.
 'use strict';
 
-const { AuditLogEvent, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { AuditLogEvent, PermissionFlagsBits, EmbedBuilder, UserFlags } = require('discord.js');
 
 // ── Where it shouts ──────────────────────────────────────────────────────
 const ALERT_CHANNEL = () => process.env.GUARDIAN_ALERT_CHANNEL_ID || '1458943564456399091';
@@ -74,6 +74,33 @@ const DANGEROUS = [
   ['MentionEveryone',  PermissionFlagsBits.MentionEveryone],
 ];
 
+// ── Verified bots ────────────────────────────────────────────────────────
+// A verified bot is one Discord has checked and approved: the big utility bots
+// a server actually runs on. Stripping the roles off one of those because it
+// did something in bulk would break the server far more thoroughly than most
+// attacks, and a bot that has been through Discord's verification is not the
+// throwaway application somebody spins up to nuke a server with.
+//
+// So a verified bot is detected and shouted about exactly as loudly, and never
+// actioned automatically. An UNVERIFIED bot or app is: that is the shape of the
+// threat, and it is also the one whose roles nobody will miss for ten minutes.
+//
+// The flag lives on the User, and it is not always populated on a cached user,
+// so the caller force-fetches when it is missing rather than reading `false`
+// off an incomplete object and acting on it.
+function isVerifiedBot(user) {
+  if (!user || !user.bot) return false;
+  try { return !!(user.flags && user.flags.has(UserFlags.VerifiedBot)); }
+  catch (e) { return false; }
+}
+
+/** The user, with flags actually loaded, so verification can be read honestly. */
+async function fetchWithFlags(client, userId, cached) {
+  if (cached && cached.flags) return cached;
+  try { return await client.users.fetch(userId, { force: true }); }
+  catch (e) { return cached || null; }
+}
+
 // ── The circuit breaker ──────────────────────────────────────────────────
 // If the guardian would act against more than this many distinct actors inside
 // this window, it stops acting and only alerts. Acting on many people at once
@@ -123,7 +150,7 @@ async function alert(client, inc) {
     .setColor(colour)
     .setDescription(inc.summary)
     .addFields(
-      { name: 'Who',    value: `<@${inc.actorId}>${inc.actorIsBot ? ' · a bot' : ''}\n\`${inc.actorId}\``, inline: true },
+      { name: 'Who',    value: `<@${inc.actorId}>${inc.actorIsBot ? (inc.actorVerified ? ' · a **verified** bot' : ' · an **unverified** bot/app') : ''}\n\`${inc.actorId}\``, inline: true },
       { name: 'What',   value: inc.detail || inc.what || 'unknown', inline: true },
       { name: 'Action', value: inc.action || 'alert only', inline: true },
     )
@@ -152,8 +179,17 @@ async function alert(client, inc) {
 // human this is their dangerous roles: they keep their account, their identity
 // and their history, and somebody can put it back in thirty seconds if this was
 // wrong. For a bot it is every role, which stops it dead.
-async function contain(guild, actorId, isBot) {
+async function contain(guild, actorId, isBot, isVerified) {
   const out = { removed: [], failed: [] };
+  // A verified bot is never stripped. Whatever it just did, taking its roles
+  // away is more damaging than leaving it alone for the minute it takes a
+  // person to look.
+  if (isBot && isVerified) {
+    return { ...out, skipped: 'verified-bot',
+      note: 'This is a **verified** bot, so its roles were left alone. Verified bots are the ones a server '
+          + 'runs on, and stripping one does more damage than most attacks. Check it yourself and remove it '
+          + 'from Server Settings → Integrations if it really is the problem.' };
+  }
   const member = await guild.members.fetch(actorId).catch(() => null);
   if (!member) return { ...out, note: 'that account is no longer in the server' };
 
@@ -197,14 +233,17 @@ async function onAuditEntry(client, entry, guild) {
   if (actorId === guild.ownerId) return;                    // the owner, always
   if (trustedIds().has(actorId)) return;
 
-  const executor = entry.executor || await client.users.fetch(actorId).catch(() => null);
+  let executor = entry.executor || await client.users.fetch(actorId).catch(() => null);
   const actorIsBot = !!(executor && executor.bot);
+  // Only worth a force-fetch for a bot, and only when the flags are missing.
+  if (actorIsBot) executor = await fetchWithFlags(client, actorId, executor);
+  const actorVerified = isVerifiedBot(executor);
 
   // 1. A dangerous permission being granted. No burst: one is the attack.
   const escalation = permissionEscalation(entry);
   if (escalation) {
     return handle(client, guild, {
-      actorId, actorIsBot, severity: 'critical',
+      actorId, actorIsBot, actorVerified, severity: 'critical',
       what: 'granted dangerous permissions',
       detail: escalation,
       summary: `<@${actorId}> granted **${escalation}**. That is the permission set a takeover needs, so it was contained immediately.`,
@@ -219,7 +258,7 @@ async function onAuditEntry(client, entry, guild) {
   if (count < limit) return;
 
   return handle(client, guild, {
-    actorId, actorIsBot, severity: rule.severity,
+    actorId, actorIsBot, actorVerified, severity: rule.severity,
     what: rule.what,
     detail: `${count} × ${rule.what} in ${Math.round(rule.windowMs / 1000)}s`,
     summary: `<@${actorId}> ${rule.what} **${count} times in ${Math.round(rule.windowMs / 1000)} seconds**. `
@@ -256,11 +295,13 @@ async function handle(client, guild, inc) {
     return;
   }
 
-  const res = await contain(guild, inc.actorId, inc.actorIsBot);
+  const res = await contain(guild, inc.actorId, inc.actorIsBot, inc.actorVerified);
   inc.contained = res.removed.length > 0;
-  inc.action = res.removed.length
-    ? `removed ${res.removed.length} role(s): ${res.removed.slice(0, 6).join(', ')}`
-    : 'could not remove any role';
+  inc.action = res.skipped === 'verified-bot'
+    ? 'none · verified bot, left alone deliberately'
+    : res.removed.length
+      ? `removed ${res.removed.length} role(s): ${res.removed.slice(0, 6).join(', ')}`
+      : 'could not remove any role';
   if (res.failed.length) inc.note = `Could not remove: ${res.failed.slice(0, 4).join(', ')}`;
   if (res.note) inc.note = res.note;
 
@@ -300,12 +341,22 @@ function start(client) {
   client.on('guildMemberAdd', async member => {
     try {
       if (!member.user.bot) return;
+      const user = await fetchWithFlags(client, member.id, member.user);
+      const verified = isVerifiedBot(user);
       const inc = {
-        actorId: member.id, actorIsBot: true, severity: 'high',
-        what: 'a bot joined the server', detail: 'bot added',
+        actorId: member.id, actorIsBot: true, actorVerified: verified,
+        // An unverified app appearing is the more alarming of the two by some
+        // distance: it is what somebody spins up to do this, and it is the one
+        // the guardian will act against if it starts deleting things.
+        severity: verified ? 'medium' : 'critical',
+        what: 'a bot joined the server', detail: verified ? 'verified bot added' : 'UNVERIFIED app added',
         action: 'alert only',
-        summary: `A bot, <@${member.id}>, was just added to **${member.guild.name}**. `
-               + 'If you did not add it, remove it now.',
+        summary: verified
+          ? `A **verified** bot, <@${member.id}>, was just added to **${member.guild.name}**. `
+            + 'If you did not add it, remove it in Server Settings → Integrations.'
+          : `An **UNVERIFIED** app, <@${member.id}>, was just added to **${member.guild.name}**. `
+            + 'This is the shape of the threat: unverified apps are what get spun up to take a server. '
+            + 'If you did not add it, remove it now.',
       };
       record(inc);
       await alert(client, inc);
@@ -336,7 +387,7 @@ function status() {
 }
 
 module.exports = {
-  start, status, setLockdown, RULES, DANGEROUS,
+  start, status, setLockdown, isVerifiedBot, RULES, DANGEROUS,
   // exported for the tests
-  _internals: { bump, permissionEscalation, breakerOk, windows, RULES },
+  _internals: { bump, permissionEscalation, breakerOk, windows, RULES, contain, isVerifiedBot },
 };
