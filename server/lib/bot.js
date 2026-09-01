@@ -1378,10 +1378,42 @@ async function removeRole(discordUserId, roleId) {
  * @param {string} [opts.reason]
  * @returns {Promise<{ ok, removed, kept, skipped, guilds:Array }>}
  */
+// Roles a discipline must never take, matched by NAME as well as by id.
+//
+// A blacklist is a MET punishment: it removes somebody's rank and their access
+// to MET. It is not a statement about who they are in the wider community, so
+// it has no business removing their verification or their citizenship. Losing
+// Verified in particular is disproportionate and annoying to undo, because it
+// is what RoVer and the onboarding flow hang off.
+//
+// Matched by name because these role ids are not configured anywhere, and
+// asking somebody to hunt down every id before a blacklist behaves properly is
+// how it ends up never being set. Names are normalised first: real role names
+// carry decoration, and "✅ Verified" and "🇬🇧 British Citizen" have to match.
+const DEFAULT_KEEP_ROLE_NAMES = ['verified', 'british citizen', 'citizen'];
+
+function normaliseRoleName(name) {
+  return String(name || '').toLowerCase()
+    .replace(/[^a-z ]+/g, ' ')     // strip emoji, punctuation, digits
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function keptRoleNames() {
+  const extra = String(process.env.DISCIPLINE_KEEP_ROLE_NAMES || '')
+    .split(',').map(normaliseRoleName).filter(Boolean);
+  return new Set([...DEFAULT_KEEP_ROLE_NAMES, ...extra]);
+}
+
 async function stripMetRoles(discordUserId, opts = {}) {
-  const out = { ok: false, removed: 0, kept: 0, skipped: 0, guilds: [] };
+  const out = { ok: false, removed: 0, kept: 0, skipped: 0, keptNames: [], guilds: [] };
   if (!ready) { console.warn('Bot not ready · cannot strip roles'); return out; }
   const keep = new Set((opts.keepRoleIds || []).filter(Boolean).map(String));
+  // The identity roles, by id where one is configured and by name always.
+  if (process.env.BRITISH_CITIZEN_ROLE_ID) keep.add(String(process.env.BRITISH_CITIZEN_ROLE_ID));
+  for (const r of String(process.env.DISCIPLINE_KEEP_ROLE_IDS || '')
+    .split(',').map(x => x.trim()).filter(Boolean)) keep.add(r);
+  const keepNames = keptRoleNames();
   const reason = opts.reason || 'MET discipline';
   for (const gid of DISCIPLINE_GUILD_IDS()) {
     const g = { guildId: gid, removed: 0, kept: 0, skipped: 0 };
@@ -1395,7 +1427,10 @@ async function stripMetRoles(discordUserId, opts = {}) {
       const remove = [];
       for (const role of member.roles.cache.values()) {
         if (role.id === guild.id) continue;            // @everyone
-        if (keep.has(role.id)) { g.kept++; continue; } // deliberately preserved
+        if (keep.has(role.id)) { g.kept++; out.keptNames.push(role.name); continue; }   // by id
+        if (keepNames.has(normaliseRoleName(role.name))) {                                // by name
+          g.kept++; out.keptNames.push(role.name); continue;
+        }
         if (role.managed || role.position >= myTop) { g.skipped++; continue; } // the bot cannot touch these
         remove.push(role.id);
       }
@@ -2812,7 +2847,7 @@ async function listGuildVoiceChannels(guildId) {
 }
 
 module.exports = {
-  startBot, assignRole, removeRole, stripMetRoles, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, stripMetRoles, normaliseRoleName, keptRoleNames, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
   listBotGuilds, listGuildVoiceChannels,
   findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
