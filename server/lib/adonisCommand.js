@@ -17,6 +17,20 @@ const adonis = require('./adonis');
 
 const COMMAND = 'adonis';
 
+// The ONE server this command belongs in. Hardcoded on purpose: it drives live
+// Roblox game servers, and it appearing anywhere else causes real damage, so
+// this must not depend on an environment variable being right.
+const GUILD_ID = '1521248995882696838';
+
+// Registration is the first line and this is the second. Discord keeps a guild
+// command until something deletes it, so a copy registered by an earlier deploy
+// outlives the code that put it there and can still be invoked. Every entry
+// point below therefore checks where it is being run, and refuses anywhere
+// else, rather than trusting that the command list is already correct.
+function wrongGuild(interaction) {
+  return String(interaction.guildId || '') !== GUILD_ID;
+}
+
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName(COMMAND)
@@ -44,6 +58,7 @@ function buildCommand() {
 
 // ── Autocomplete: the live server list ───────────────────────────────────
 async function handleAutocomplete(interaction) {
+  if (wrongGuild(interaction)) return interaction.respond([]);
   const focused = String(interaction.options.getFocused() || '').toLowerCase();
   const list = adonis.listServers();
   const choices = list
@@ -85,6 +100,11 @@ function fmtServer(s) {
 }
 
 async function handle(interaction) {
+  if (wrongGuild(interaction)) {
+    console.warn(`[Adonis] /adonis was invoked in ${interaction.guildId}, which is not the bridge server · refused`);
+    return interaction.reply({ ephemeral: true,
+      content: 'This command does not belong in this server and will not run here.' });
+  }
   const sub = interaction.options.getSubcommand();
 
   if (sub === 'status') {
@@ -164,4 +184,4 @@ async function handle(interaction) {
   }
 }
 
-module.exports = { COMMAND, buildCommand, handle, handleAutocomplete };
+module.exports = { COMMAND, GUILD_ID, buildCommand, handle, handleAutocomplete };

@@ -468,21 +468,29 @@ function buildCommandPlan() {
 
   // /guardian — the anti-nuke. In the MET server, where the thing it protects
   // is; gated to High Command in code.
+  //
+  // Also kept off `global`, for the same reason: /guardian can lock down a
+  // whole server, and a fallback that put it in every server the bot is in is
+  // not a safety net.
   try {
     const cmd = require('./guardianCommand').buildCommand();
     add(MET_GUILD_IDS(), cmd);
-    global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /guardian:', err.message);
   }
 
-  // /adonis — the Roblox game bridge. MET-wide: seeing who is in which server
-  // is ordinary supervision, and running a command is gated in code to High
-  // Command rather than by which server the command appears in.
+  // /adonis — the Roblox game bridge. ONE server, hardcoded, and deliberately
+  // not the MET one: this command drives live game servers, and it appearing
+  // anywhere else causes real damage.
+  //
+  // It is NOT pushed onto `global`. The global set is the fallback used when no
+  // guild registration succeeds at all, and it registers a command in EVERY
+  // server the bot is in. For most commands that is a harmless safety net; for
+  // this one it is the exact outcome being guarded against, so the fallback is
+  // worse than the command being missing.
   try {
     const cmd = require('./adonisCommand').buildCommand();
-    add(MET_GUILD_IDS(), cmd);
-    global.push(cmd);
+    add([require('./adonisCommand').GUILD_ID], cmd);
   } catch (err) {
     console.error('[Bot] could not build /adonis:', err.message);
   }
