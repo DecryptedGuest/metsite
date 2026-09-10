@@ -398,7 +398,7 @@
 
     es.addEventListener('tryout_live', function (ev) {
       var d = parse(ev);
-      toast(d.message || 'A MET tryout is now live!', 'info');
+      toast(d.message || 'A MET tryout has started', 'info');
       window.metSound('tryout_live');
       call('loadTryouts');      // profile page — refresh the tryouts panel if present
     });

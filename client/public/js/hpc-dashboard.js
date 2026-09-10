@@ -399,7 +399,7 @@ async function voidExam(id, who) {
 
 // ── Tryouts ──────────────────────────────────────────────────────────
 const TRYOUT_STATUS = {
-  SCHEDULED: ['badge-pending', 'Scheduled'], LIVE: ['badge-approved', '<i class="ti ti-broadcast"></i> Live'],
+  SCHEDULED: ['badge-pending', 'Scheduled'], LIVE: ['badge-approved', '<i class="ti ti-broadcast"></i> Running'],
   COMPLETED: ['badge', 'Completed'], CANCELLED: ['badge-denied', 'Cancelled'],
 };
 let hpcTryoutsById = {};   // id -> tryout, for the clickable detail view
@@ -742,7 +742,7 @@ async function loadLive() {
   if (status) status.outerHTML = `<span class="badge ${live.length ? 'badge-approved' : 'badge-pending'}" id="hpc-live-status"><span class="badge-dot"></span>${live.length ? 'Live · ' + live.length : 'No live tryouts'}</span>`;
 
   if (!live.length) {
-    const EMPTY = window.metEmpty ? window.metEmpty({ icon: 'ti-broadcast', title: 'No live tryouts', sub: 'This page updates automatically when a tryout goes live.' }) : '<div class="table-empty-text">No tryouts are running right now. This page updates automatically when one goes live.</div>';
+    const EMPTY = window.metEmpty ? window.metEmpty({ icon: 'ti-broadcast', title: 'No live tryouts', sub: '' }) : '<div class="table-empty-text">No tryouts are running right now.</div>';
     wrap.innerHTML = `<div class="panel glass"><div class="profile-section">${EMPTY}</div></div>`;
     return;
   }
@@ -781,7 +781,7 @@ async function loadLive() {
           <tbody>${rows}</tbody>
         </table></div>
         ${manage ? '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Actions are sent to the in-game panel and apply on its next sync.</div>' : ''}
-        ${s.at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Last update ${formatDateTime(s.at)}</div>` : '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">No live snapshot yet · the in-game panel sends these while the tryout runs.</div>'}
+        ${s.at ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Last update ${formatDateTime(s.at)}</div>` : '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Nothing to show yet.</div>'}
       </div>
     </div>`;
   }).join('');

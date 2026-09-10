@@ -421,7 +421,7 @@ async function rebaselineAudit(btn) {
               + '<td><span class="date-cell">' + esc(ago(s.lastSeenAt)) + '</span></td>'
               + '<td>' + (s.revoked ? '<span class="badge badge-muted"><span class="badge-dot"></span>Revoked</span>'
                         : s.expired ? '<span class="badge badge-muted"><span class="badge-dot"></span>Expired</span>'
-                        : s.live    ? '<span class="badge badge-approved"><span class="badge-dot"></span>Live</span>'
+                        : s.live    ? '<span class="badge badge-approved"><span class="badge-dot"></span>Running</span>'
                                     : '<span class="badge badge-pending"><span class="badge-dot"></span>Idle</span>') + '</td>'
               + '<td>' + (!s.revoked && !s.expired
                   ? '<button class="row-btn row-btn-deny" data-mem-kill="' + esc(s.id) + '" title="Kill this session"><i class="ti ti-plug-off"></i></button>'

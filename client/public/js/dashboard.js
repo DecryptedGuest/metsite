@@ -4055,7 +4055,7 @@ function openDetail(caseId) {
     const go = document.createElement('button');
     go.className = 'btn btn-ghost';
     go.innerHTML = '<i class="ti ti-clipboard-check"></i> Review in Pending';
-    go.title = 'Approve, deny and request-changes all live on the Pending tab.';
+    go.title = 'Approve, deny and request changes on the Pending tab.';
     go.onclick = async () => { closeModal('modal-detail'); await goReviewCase(c.id); };
     const why = document.createElement('span');
     why.style.cssText = 'font-size:12px;color:var(--text-secondary);align-self:center;margin-right:auto;';

@@ -564,7 +564,7 @@ async function loadTryouts() {
 
   const liveHtml = (data.live || []).map(t => `
     <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-dim);">
-      <span class="badge badge-approved"><span class="badge-dot"></span>Live now</span>
+      <span class="badge badge-approved"><span class="badge-dot"></span>Running</span>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;">Hosted by ${escHtml(t.hostName)}${t.coHostName ? ' · Co-host ' + escHtml(t.coHostName) : ''}</div>
         <div style="font-size:11px;color:var(--text-muted);">${['UNLOCKED', 'UNSLOCKED'].includes(String(t.lockState).toUpperCase()) ? '<i class="ti ti-lock-open"></i> Server unlocked' : '<i class="ti ti-lock"></i> Server locked'}</div>

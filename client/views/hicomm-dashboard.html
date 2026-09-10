@@ -88,13 +88,13 @@
     <!-- COMMAND CENTER -->
     <section class="page active" id="page-command">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Command Center</h1><p class="page-sub">Live MET operations · <span class="cc-live"><span class="dot"></span>live</span></p></div>
+        <div><h1 class="page-title">Command Center</h1><p class="page-sub">MET operations · <span class="cc-live"><span class="dot"></span>live</span></p></div>
         <button class="btn btn-ghost btn-sm" onclick="hcLoadOverview()"><i class="ti ti-refresh"></i> Refresh</button>
       </div>
       <div class="cc-grid fade-up stagger-1" id="hc-counters"></div>
       <div style="display:flex;flex-direction:column;gap:18px;margin-top:18px;" id="hc-cc-cols">
         <div class="panel glass fade-up stagger-2">
-          <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Live Tryouts</div></div>
+          <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Tryouts</div></div>
           <div id="hc-live" style="padding:10px 6px;min-height:120px;"><div class="table-loading"><div class="spinner"></div></div></div>
         </div>
         <div class="panel glass fade-up stagger-3">
@@ -171,7 +171,7 @@
       </div>
       <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot green"></span>Live Feed</div>
+          <div class="panel-title"><span class="panel-dot green"></span>Activity</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <select class="form-control" id="hc-gl-source" onchange="hcLoadGameLogs()" style="height:30px;font-size:12px;width:130px;">
               <option value="">All types</option>

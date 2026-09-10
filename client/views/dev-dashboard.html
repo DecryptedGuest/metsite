@@ -1111,7 +1111,6 @@
           <div class="form-group" style="margin:0;">
             <label class="form-label">Emergency</label>
             <select class="form-control" id="ea-template" onchange="applyEmergencyTemplate(this.value)"></select>
-            <div class="hint" style="margin-top:6px;">Picks the level and fills the wording. Every one is editable afterwards.</div>
           </div>
           <div class="form-group" style="margin:0;">
             <label class="form-label">Alert level</label>
@@ -1120,7 +1119,6 @@
               <option value="severe">Severe alert</option>
               <option value="test">Test alert</option>
             </select>
-            <div class="hint" style="margin-top:6px;">Emergency is the top level. The tone is the same either way: the UK uses one attention signal for all of them.</div>
           </div>
           <div class="form-group" style="margin:0;">
             <label class="form-label">Headline</label>
@@ -1130,14 +1128,12 @@
           <div class="form-group" style="margin:0;">
             <label class="form-label">Alert message</label>
             <textarea class="form-control" id="ea-message" rows="5" placeholder="What is happening, and what people should do about it." maxlength="1000"></textarea>
-            <div class="hint" style="margin-top:6px;">Any https:// link becomes clickable in the alert.</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <button class="btn btn-ghost btn-sm" type="button" onclick="previewEmergencyAlert()"><i class="ti ti-eye"></i> Preview</button>
             <button class="btn btn-ghost btn-sm" type="button" id="ea-sound-btn" onclick="toggleEmergencyTone()"><i class="ti ti-volume"></i> Play the tone</button>
-            <span class="hint" id="ea-sound-note">The real attention signal, 853 Hz and 960 Hz together.</span>
           </div>
-          <p style="margin:0;font-size:12px;color:var(--text-secondary);">This takes over the whole screen, plays the alert tone (overriding mute), and shows exactly this text. It reaches only people with the site open <strong>right now</strong>.</p>
+          <p style="margin:0;font-size:12px;color:var(--text-secondary);">Only reaches people with the site open <strong>right now</strong>.</p>
         </div>
       </div>
 
@@ -1605,7 +1601,7 @@
       </div>
       <div class="panel glass fade-up stagger-1">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot green"></span>Live Feed</div>
+          <div class="panel-title"><span class="panel-dot green"></span>Activity</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <select class="form-control" id="dev-gl-source" onchange="loadDevGameLogs()" style="height:30px;font-size:12px;width:130px;">
               <option value="">All types</option>
