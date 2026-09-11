@@ -9,8 +9,8 @@ const LOG_CHANNEL = () =>
   || null;
 
 const RANKER_ROLE = () => process.env.TRYOUT_RANKER_ROLE_ID || '1426660644093952281';
-const HPC_GROUP   = () => String(process.env.GROUP_HPC_COLLEGE || '14201396');
-const MET_GROUP   = () => String(process.env.GROUP_MET || '17275620');
+const HPC_GROUP   = () => String(require('./divisions').explicitGroupId('HPC') || '35685825');
+const MET_GROUP   = () => String(require('./divisions').metGroupId());
 const INSTRUCTOR_MIN_RANK = () => Number(process.env.HPC_INSTRUCTOR_MIN_RANK || 100);
 const CREST = () => process.env.MET_CREST_URL || null;
 

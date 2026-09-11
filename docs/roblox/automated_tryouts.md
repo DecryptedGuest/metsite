@@ -112,8 +112,9 @@ action, so the embed carries no buttons.
 * `Approve and rank` ranks the trainee to the MET entry rank
 * `Reject` marks it not actioned
 
-Both are gated to role `1426660644093952281`, or Instructor and above in HPC
-group `14201396`, or a portal developer. Anyone else gets an ephemeral refusal
+Both are gated to role `1426660644093952281`, or Instructor and above in the
+HPC group, or a portal developer. The HPC group id comes from the portal's own
+division config, so it is `35685825` unless `GROUP_HPC` overrides it. Anyone else gets an ephemeral refusal
 and nothing changes. The first click wins: the record stores who clicked and
 when, the embed is edited to name them, and both buttons go disabled, so the
 same pass cannot be ranked twice.
@@ -143,7 +144,6 @@ Nothing is required. Every value below has a working default.
 ```
 AUTOMATED_TRYOUT_LOG_CHANNEL_ID=   falls back to HPC_TRYOUT_LOG_CHANNEL_ID
 TRYOUT_RANKER_ROLE_ID=             defaults to 1426660644093952281
-GROUP_HPC_COLLEGE=                 defaults to 14201396
 HPC_INSTRUCTOR_MIN_RANK=           defaults to 100
 MET_ENTRY_RANK_NAME=               defaults to PCSO
 MET_CREST_URL=                     no thumbnail when unset
