@@ -756,6 +756,10 @@ async function onInteraction(interaction) {
       || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())
       || (interaction.isModalSubmit && interaction.isModalSubmit())) {
     const cid = interaction.customId || '';
+    if (cid.startsWith('atr_')) {
+      return require('./automatedTryout').handleButton(interaction)
+        .catch(e => console.error('[Bot] automated tryout button error:', e.message));
+    }
     if (cid.startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
     }

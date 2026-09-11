@@ -445,6 +445,7 @@ app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm')
 // Queuing a command is gated to High Command inside the router itself.
 app.use('/api/adonis', require('./routes/adonis').router);
 app.use('/api/adonis', requireAuth, require('./routes/adonis').site);
+app.use('/api/tryout', requireAuth, require('./routes/tryoutPublic'));
 try { require('./lib/adonis').start(); } catch (e) { console.warn('[Adonis] sweeper not started:', e.message); }
 // "Install on your phone" QR handoff — mint one-time session-transfer tokens.
 app.use('/api/app', requireAuth, require('./routes/app'));
@@ -1502,6 +1503,7 @@ app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
 // ── PWA install + phone handoff ──
 // /app — the install page (QR to hand off to a phone, install + notification opt-in).
 app.get('/app', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'app.html')));
+app.get('/tryout', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'tryout.html')));
 // /mobile/:token — a phone opened the handoff link: consume the one-time token
 // and transfer the session to this device (sets the same JWT cookie as a normal
 // login). NOTE: must not be "/m/:token" — that path is the media-embed route.

@@ -354,6 +354,15 @@ router.post('/tryout/heartbeat', requireGameSecret, async (req, res) => {
 // ── Tryout lifecycle driven from the in-game panel ────────────────────
 // Resolve a { robloxId, username, discordId? } host payload to a site user
 // (must have signed in — same rule as /tryout/conclude's 422).
+function isNpcHost(host) {
+  return !!(host && String(host.type || '').toLowerCase() === 'npc');
+}
+
+function npcHostName(host) {
+  const n = host && host.name ? String(host.name).trim().slice(0, 40) : '';
+  return n || 'INSTRUCTOR';
+}
+
 async function resolveGameHost(host) {
   if (!host) return null;
   const { resolveHostUser } = require('../lib/tryoutLogs');
@@ -439,8 +448,11 @@ async function announceAndDm(tryout) {
   }
 
   const fresh = (await prisma.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null)) || tryout;
-  // DM the host and record the DM message id so it can be edited on lock change.
-  const dmId = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl(fresh) }).catch(() => null);
+  // An automated tryout has nobody to DM, so it is skipped rather than left to
+  // fail quietly against a null recipient.
+  const dmId = fresh.hostDiscordId
+    ? await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl(fresh) }).catch(() => null)
+    : null;
   if (dmId) await prisma.tryout.update({ where: { id: tryout.id }, data: { hostDmMessageId: dmId } }).catch(() => {});
 
   return { tryoutId: tryout.id, dmed: !!dmId, announced: !!announced };
@@ -578,11 +590,72 @@ router.get('/tryout/linkstatus', requireGameSecret, async (req, res) => {
 
 // POST /api/game/tryout/create — start an unscheduled tryout instantly.
 // body: { host:{robloxId,username,discordId?}, coHost?, privateServerId?, startedAt? }
+router.post('/tryout/automated', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const a = body.attendee || {};
+    if (!a.userId) return res.status(400).json({ ok: false, error: 'attendee.userId is required.' });
+    if (!['passed', 'failed', 'kicked'].includes(String(a.result || '').toLowerCase())) {
+      return res.status(400).json({ ok: false, error: 'attendee.result must be passed, failed or kicked.' });
+    }
+
+    const sessionId = body.sessionId || body.privateServerId || null;
+    if (sessionId) {
+      const seen = await prisma.automatedTryout.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
+      if (seen) return res.status(200).json({ ok: true, id: seen.id, existing: true });
+    }
+
+    const row = await prisma.automatedTryout.create({ data: {
+      gameSessionId:    sessionId ? String(sessionId) : null,
+      tryoutId:         body.tryoutId ? String(body.tryoutId) : null,
+      division:         String(body.division || 'HPC').toUpperCase(),
+      hostName:         (body.host && body.host.name) ? String(body.host.name).slice(0, 40) : 'INSTRUCTOR',
+      coHostName:       body.coHost && body.coHost.name ? String(body.coHost.name).slice(0, 40) : null,
+      attendeeRobloxId: String(a.userId),
+      attendeeName:     String(a.username || a.userId).slice(0, 40),
+      result:           String(a.result).toLowerCase(),
+      strikes:          Number.isFinite(Number(a.strikes)) ? Number(a.strikes) : 0,
+      quizScore:        Number.isFinite(Number(a.quizScore)) ? Number(a.quizScore) : null,
+      quizTotal:        Number.isFinite(Number(a.quizTotal)) ? Number(a.quizTotal) : null,
+      flags:            Array.isArray(a.flags) && a.flags.length ? a.flags.join(',') : null,
+      placeId:          body.placeId ? String(body.placeId) : null,
+      privateServerId:  body.privateServerId ? String(body.privateServerId) : null,
+      startedAt:        body.startedAt ? new Date(body.startedAt) : null,
+      endedAt:          body.endedAt ? new Date(body.endedAt) : null,
+      payload:          JSON.stringify(body).slice(0, 20000),
+    } });
+
+    const posted = await require('../lib/automatedTryout').post({ ...body, id: row.id });
+    if (posted.posted) {
+      await prisma.automatedTryout.update({
+        where: { id: row.id },
+        data: { logChannelId: posted.channelId, logMessageId: posted.messageId },
+      }).catch(() => {});
+    }
+
+    res.status(201).json({ ok: true, id: row.id, logged: !!posted.posted, why: posted.why || null });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Could not record the tryout.' });
+  }
+});
+
+router.get('/tryout/eligibility', requireGameSecret, async (req, res) => {
+  try {
+    const { checkEligibility } = require('../lib/tryoutEligibility');
+    const out = await checkEligibility(req.query.userId, { username: req.query.username || null });
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: 'Eligibility check failed.' });
+  }
+});
+
 router.post('/tryout/create', requireGameSecret, async (req, res) => {
   try {
     const body = req.body || {};
-    const hostUser = await resolveGameHost(body.host);
-    if (!hostUser) return hostNotFound(res, body.host);
+    const npc = isNpcHost(body.host);
+    const hostUser = npc ? null : await resolveGameHost(body.host);
+    if (!npc && !hostUser) return hostNotFound(res, body.host);
 
     const existing = await ongoingTryout(body.division);
     if (existing) return res.status(409).json({ error: 'A tryout is already ongoing.', tryoutId: existing.id });
@@ -590,11 +663,14 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
     const coHost = body.coHost || {};
     const t = await prisma.tryout.create({ data: {
       division:          normDivision(body.division),
-      hostId:            hostUser.id,
-      hostDiscordId:     hostUser.discordId,
-      hostName:          hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host',
-      hostRobloxId:      (body.host && body.host.robloxId) ? String(body.host.robloxId) : hostUser.robloxId,
-      hostRobloxName:    (body.host && body.host.username) || hostUser.robloxUsername || null,
+      hostId:            hostUser ? hostUser.id : null,
+      hostDiscordId:     hostUser ? hostUser.discordId : null,
+      hostName:          npc ? npcHostName(body.host)
+                             : (hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host'),
+      hostRobloxId:      npc ? null : ((body.host && body.host.robloxId) ? String(body.host.robloxId) : hostUser.robloxId),
+      hostRobloxName:    npc ? null : ((body.host && body.host.username) || hostUser.robloxUsername || null),
+      automated:         npc,
+      hostKind:          npc ? 'npc' : 'human',
       coHostName:        coHost.username || coHost.name || null,
       scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
       status:            'LIVE',

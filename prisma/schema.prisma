@@ -361,6 +361,36 @@ model CasePunishment {
   @@map("case_punishments")
 }
 
+model AutomatedTryout {
+  id                String   @id @default(uuid())
+  gameSessionId     String?  @unique
+  tryoutId          String?
+  division          String   @default("HPC")
+  hostName          String   @default("INSTRUCTOR")
+  coHostName        String?
+  attendeeRobloxId  String
+  attendeeName      String
+  result            String
+  strikes           Int      @default(0)
+  quizScore         Int?
+  quizTotal         Int?
+  flags             String?
+  placeId           String?
+  privateServerId   String?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  payload           String
+  logChannelId      String?
+  logMessageId      String?
+  actionedById      String?
+  actionedAt        DateTime?
+  actionKind        String?
+  createdAt         DateTime @default(now())
+
+  @@index([attendeeRobloxId])
+  @@map("automated_tryouts")
+}
+
 model CaseCounter {
   id    Int @id @default(1)
   count Int @default(0)
@@ -872,9 +902,11 @@ model HpcExamSubmission {
 // citizens can see upcoming/live tryouts and join the live one from the site.
 model Tryout {
   id                String    @id @default(uuid())
-  hostId            String // creator (User.id)
-  hostDiscordId     String
+  hostId            String? // creator (User.id); null when the host is the automated instructor
+  hostDiscordId     String?
   hostName          String
+  automated         Boolean   @default(false)
+  hostKind          String    @default("human") // human | npc
   hostRobloxId      String? // the host's Roblox id (for the in-game TryoutTV board)
   hostRobloxName    String? // the host's Roblox username
   coHostDiscordId   String?
@@ -902,7 +934,7 @@ model Tryout {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  host User @relation(fields: [hostId], references: [id])
+  host User? @relation(fields: [hostId], references: [id])
 
   @@index([scheduledAt])
   @@index([status])
