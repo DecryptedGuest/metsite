@@ -184,7 +184,7 @@ async function syncIdentity(opts = {}) {
     nickname: ok ? want : null,
     via: ok ? 'bot' : 'none',
     note: ok ? (push.attempted ? `RoVer did not apply it (${push.why || 'no change seen'}); set directly`
-                               : 'set directly (RoVer update server not configured)')
+                               : `set directly (${push.why || 'RoVer update server not configured'})`)
              : 'could not set the nickname (the bot may be below them)',
   };
 }
