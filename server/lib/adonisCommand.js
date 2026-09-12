@@ -34,13 +34,13 @@ function wrongGuild(interaction) {
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName(COMMAND)
-    .setDescription('The Roblox game bridge: live servers, players and Adonis commands')
+    .setDescription('Roblox servers, who is in them, and Adonis commands')
     .addSubcommand(s => s.setName('servers')
-      .setDescription('Every Roblox server that is live right now'))
+      .setDescription('Every Roblox server that is online right now'))
     .addSubcommand(s => s.setName('players')
       .setDescription('Who is in a server, by team')
       .addStringOption(o => o.setName('server')
-        .setDescription('Leave empty for every live server').setRequired(false).setAutocomplete(true)))
+        .setDescription('Leave empty for every server that is online').setRequired(false).setAutocomplete(true)))
     .addSubcommand(s => s.setName('whereis')
       .setDescription('Find which server somebody is in')
       .addStringOption(o => o.setName('player')
@@ -50,9 +50,9 @@ function buildCommand() {
       .addStringOption(o => o.setName('command')
         .setDescription('The Adonis command, without the prefix, e.g. m Hello everyone').setRequired(true))
       .addStringOption(o => o.setName('server')
-        .setDescription('Leave empty to run it on every live server').setRequired(false).setAutocomplete(true)))
+        .setDescription('Leave empty to run it on every server that is online').setRequired(false).setAutocomplete(true)))
     .addSubcommand(s => s.setName('status')
-      .setDescription('Bridge status: servers, players and the command queue'))
+      .setDescription('How many servers and players are online, and what is queued'))
     .toJSON();
 }
 
@@ -68,7 +68,7 @@ async function handleAutocomplete(interaction) {
       name: `${s.placeName ? s.placeName + ' · ' : ''}${s.serverId.slice(0, 18)} (${s.playerCount} player${s.playerCount === 1 ? '' : 's'})`.slice(0, 100),
       value: s.serverId,
     }));
-  if (!focused) choices.unshift({ name: `All live servers (${list.length})`, value: '' });
+  if (!focused) choices.unshift({ name: `Every server online (${list.length})`, value: '' });
   return interaction.respond(choices.slice(0, 25));
 }
 
@@ -110,10 +110,10 @@ async function handle(interaction) {
   if (sub === 'status') {
     const st = adonis.stats();
     return interaction.reply({ ephemeral: true, content:
-      `**Adonis bridge**\n`
-      + `Live servers: **${st.servers}**\n`
+      `**Adonis**\n`
+      + `Servers online: **${st.servers}**\n`
       + `Players online: **${st.players}**\n`
-      + `Commands waiting to be collected: **${st.queued}**`
+      + `Commands waiting to run: **${st.queued}**`
     });
   }
 
@@ -123,7 +123,8 @@ async function handle(interaction) {
     const lines = list.slice(0, 20).map((s, i) => `${i + 1}. ${fmtServer(s)}`);
     const more = list.length > 20 ? `\n…and ${list.length - 20} more.` : '';
     return interaction.reply({ ephemeral: true, content:
-      `**Live servers (${list.length}) · ${list.reduce((n, s) => n + s.playerCount, 0)} players**\n${lines.join('\n')}${more}` });
+      `**Servers online (${list.length}) · ${list.reduce((n, s) => n + s.playerCount, 0)} players**\n${lines.join('\n')}${more}`
+        .slice(0, 1950) });
   }
 
   if (sub === 'players') {
@@ -135,7 +136,7 @@ async function handle(interaction) {
     if (!groups.length) {
       return interaction.reply({ ephemeral: true, content: serverId ? 'That server is empty.' : 'Nobody is online.' });
     }
-    const head = serverId ? `**Players in \`${serverId.slice(0, 24)}\`**` : '**Players across every live server**';
+    const head = serverId ? `**Players in \`${serverId.slice(0, 24)}\`**` : '**Players across every server**';
     const body = groups.slice(0, 10).map(g => {
       const names = g.members.slice(0, 25).map(m => m.displayName || m.name || m.userId).join(', ');
       const extra = g.members.length > 25 ? ` …+${g.members.length - 25}` : '';
@@ -147,11 +148,12 @@ async function handle(interaction) {
   if (sub === 'whereis') {
     const q = interaction.options.getString('player');
     const hits = adonis.findPlayer(q);
-    if (!hits.length) return interaction.reply({ ephemeral: true, content: `No live player matches "${q}".` });
+    if (!hits.length) return interaction.reply({ ephemeral: true, content: `Nobody online matches "${q}".` });
     const lines = hits.slice(0, 15).map(p =>
       `**${p.displayName || p.name}**${p.name && p.displayName && p.name !== p.displayName ? ` (@${p.name})` : ''}`
       + ` · \`${p.serverId.slice(0, 20)}\`${p.team ? ` · ${p.team}` : ''}${p.rank ? ` · ${p.rank}` : ''}`);
-    return interaction.reply({ ephemeral: true, content: `**${hits.length} match(es) for "${q}"**\n${lines.join('\n')}`.slice(0, 1950) });
+    const plural = hits.length === 1 ? 'match' : 'matches';
+    return interaction.reply({ ephemeral: true, content: `**${hits.length} ${plural} for "${q}"**\n${lines.join('\n')}`.slice(0, 1950) });
   }
 
   if (sub === 'run') {
@@ -172,16 +174,18 @@ async function handle(interaction) {
         action: 'ADONIS_COMMAND', category: 'game',
         actorId: gate.user.id, actorName: by.name, actorRole: gate.user.role,
         targetType: 'roblox_server', targetId: serverId || 'ALL',
-        summary: `Ran "${command}" on ${serverId || 'every live server'} (${r.targets} server(s)) from Discord`,
+        summary: `Ran "${command}" on ${serverId || 'every server online'} (${r.targets} ${r.targets === 1 ? 'server' : 'servers'}) from Discord`,
         metadata: { command, serverId: serverId || null, targets: r.targets, commandId: r.id },
       });
     } catch (e) {}
-    console.log(`[Adonis] ${by.name} queued "${command}" for ${r.targets} server(s) from Discord`);
+    console.log(`[Adonis] ${by.name} queued "${command}" for ${r.targets} ${r.targets === 1 ? 'server' : 'servers'} from Discord`);
 
     return interaction.reply({ ephemeral: true, content:
-      `Queued \`${command}\`\nOn: ${serverId ? `\`${serverId.slice(0, 24)}\`` : `every live server (${r.targets})`}\n`
+      `Queued \`${command}\`\nOn: ${serverId ? `\`${serverId.slice(0, 24)}\`` : `every server online (${r.targets})`}\n`
       + `It runs the next time each server checks in, within about fifteen seconds.` });
   }
+
+  return interaction.reply({ ephemeral: true, content: 'That option is not available.' });
 }
 
 module.exports = { COMMAND, GUILD_ID, buildCommand, handle, handleAutocomplete };
