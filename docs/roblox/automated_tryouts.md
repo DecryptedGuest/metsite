@@ -123,6 +123,20 @@ gives you) or epoch milliseconds, as a number or a string. Anything unreadable
 is stored as null and the embed shows the time as unknown: a stamp we cannot
 parse never costs you the record it came with.
 
+### Keep the tryout alive while it runs
+
+A tryout that sends no callback at all for `tryoutAbsenceMinutes` (twenty by
+default, and reported by `GET /api/game/health`) is treated as abandoned: it is
+set to CANCELLED, its Discord announcement is deleted and its scheduled event is
+removed. That check does not care whether the host is a person or an NPC, so an
+automated tryout has to keep checking in the same way a hosted one does.
+
+Any of the existing callbacks resets the clock, so a live snapshot, a serverlock
+update or a heartbeat all count. Send one every few minutes and a long tryout
+will never be cancelled out from under itself. For an NPC host there is no
+Roblox id to look for in the roster, so the callback alone is taken as proof the
+server is still there.
+
 ## 5. The log embed
 
 Title, trainee with id, result, quiz score, host, co host, strike count,

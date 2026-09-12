@@ -158,6 +158,14 @@ router.get('/health', async (req, res) => {
     announceChannelSet: !!process.env.TRYOUT_ANNOUNCE_CHANNEL_ID,
     publicBaseUrlSet:   !!process.env.PUBLIC_BASE_URL,
     botReady,
+    // How long a tryout can go without any callback before it is treated as
+    // abandoned and cancelled. The game needs this to pace its own callbacks,
+    // and an automated tryout with nobody to notice is exactly the one that
+    // would otherwise be cancelled out from under itself.
+    tryoutAbsenceMinutes: (() => {
+      const m = parseInt(process.env.TRYOUT_HOST_ABSENCE_MINUTES, 10);
+      return Number.isFinite(m) && m > 0 ? m : 20;
+    })(),
   };
   // Secret-gated host check (so account lookups aren't public).
   const provided = req.get('x-game-secret') || req.query.secret || '';
