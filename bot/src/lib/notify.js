@@ -11,7 +11,7 @@ const APPEAL_NOTE = 'If you believe this is a mistake, open an appeal ticket wit
 
 function punishmentLines(actions) {
   return (actions || []).map(a => {
-    const dur  = a.durationDays ? ` — **${a.durationDays} day${a.durationDays === 1 ? '' : 's'}**` : '';
+    const dur  = a.durationDays ? ` · **${a.durationDays} day${a.durationDays === 1 ? '' : 's'}**` : '';
     const code = a.code ? ` \`${a.code}\`` : '';
     return `${e('BULLET')} **${a.action}**${dur}${code}`;
   }).join('\n') || '*None recorded*';
@@ -21,7 +21,7 @@ function punishmentLines(actions) {
 function buildNoticeEmbed(c, { forDm }) {
   const embed = new EmbedBuilder()
     .setColor(0xf04f5e)
-    .setTitle(`${e('CASE')} Disciplinary Action — ${c.caseRef}`)
+    .setTitle(`${e('CASE')} Disciplinary Action · ${c.caseRef}`)
     .addFields(
       { name: 'Punishment(s)', value: punishmentLines(c.actions), inline: false },
       { name: 'Reason',        value: c.reason || 'N/A', inline: false },
@@ -33,7 +33,7 @@ function buildNoticeEmbed(c, { forDm }) {
   if (c.blacklistCode) {
     embed.addFields({
       name: `${e('BLACKLIST')} Blacklist code`,
-      value: `\`${c.blacklistCode}\`${c.blacklistReason ? ` — ${c.blacklistReason}` : ''}`,
+      value: `\`${c.blacklistCode}\`${c.blacklistReason ? ` · ${c.blacklistReason}` : ''}`,
       inline: true,
     });
   }

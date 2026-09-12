@@ -86,7 +86,7 @@ async function execute(interaction, bot) {
     });
     if (cardId) await prisma.case.update({ where: { id: created.id }, data: { cardMessageId: cardId } }).catch(() => {});
 
-    return interaction.editReply(`✅ Filed case **${created.caseRef}** — awaiting review.`);
+    return interaction.editReply(`✅ Filed case **${created.caseRef}**, awaiting review.`);
   }
 
   if (sub === 'approve' || sub === 'deny') {
@@ -136,14 +136,14 @@ async function execute(interaction, bot) {
       for (const p of c.casePunishments) {
         const active = !p.roleRemoved && (!p.expiresAt || p.expiresAt > now);
         if (active) {
-          activeLines.push(`• ${p.action}${p.expiresAt ? ` — until <t:${Math.floor(p.expiresAt / 1000)}:R>` : ' — permanent'}`);
+          activeLines.push(`• ${p.action}${p.expiresAt ? ` · until <t:${Math.floor(p.expiresAt / 1000)}:R>` : ' · permanent'}`);
         }
       }
     }
 
     const embed = new EmbedBuilder()
       .setColor(0x2f3136)
-      .setTitle(`Case history — ${user.tag}`)
+      .setTitle(`Case history · ${user.tag}`)
       .addFields(
         { name: `Approved (${approved.length})`,
           value: approved.length ? approved.map(c => `${c.caseRef} · ${c.action}`).join('\n').slice(0, 1000) : '*None*' },

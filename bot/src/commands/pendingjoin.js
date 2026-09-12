@@ -26,14 +26,14 @@ async function execute(interaction) {
 
       const lines = requests.map(r =>
         `\`${r.userId}\` **${r.username}**${r.displayName !== r.username ? ` (${r.displayName})` : ''}` +
-        `${r.requestedAt ? ` — <t:${Math.floor(new Date(r.requestedAt) / 1000)}:R>` : ''}`);
+        `${r.requestedAt ? ` · <t:${Math.floor(new Date(r.requestedAt) / 1000)}:R>` : ''}`);
 
       const embed = new EmbedBuilder()
         .setColor(0x4a8fff)
         .setTitle(`Pending join requests (${requests.length})`)
         .setDescription(lines.join('\n').slice(0, 3900))
         .setFooter({ text: nextPageToken
-          ? 'More pages — re-run with the cursor below'
+          ? 'More pages: re-run with the cursor below'
           : 'End of list' });
       if (nextPageToken) embed.addFields({ name: 'Next cursor', value: `\`${nextPageToken}\`` });
       return interaction.editReply({ embeds: [embed] });

@@ -86,12 +86,12 @@ async function execute(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(warning ? 0xf5b730 : 0x2f3136)
-    .setTitle(`Record — ${robloxUsername}`)
+    .setTitle(`Record · ${robloxUsername}`)
     .setURL(`https://www.roblox.com/users/${robloxId}/profile`)
     .addFields(
       { name: 'Roblox',   value: `${robloxUsername}${displayName && displayName !== robloxUsername ? ` (${displayName})` : ''}`, inline: true },
       { name: 'Discord',  value: discordId ? `<@${discordId}>` : '*not linked*', inline: true },
-      { name: 'In group', value: membership ? `Yes — ${membership.role?.name || 'unknown rank'}` : 'No', inline: true },
+      { name: 'In group', value: membership ? `Yes · ${membership.role?.name || 'unknown rank'}` : 'No', inline: true },
       { name: `Approved actions (${approvedActions.length})`,
         value: approvedActions.length ? approvedActions.map(a => `• ${a}`).join('\n').slice(0, 1000) : '*Clean record*' },
       { name: `History (${approvedCases.length})`,
@@ -103,7 +103,7 @@ async function execute(interaction) {
   const avatar = await roblox.getRobloxAvatarHeadshot(robloxId);
   if (avatar) embed.setThumbnail(avatar);
   if (suggestedAction) {
-    embed.addFields({ name: '⚠️ Suggested next step', value: `**${suggestedAction}** — ${warning}` });
+    embed.addFields({ name: '⚠️ Suggested next step', value: `**${suggestedAction}** · ${warning}` });
   }
   return interaction.editReply({ embeds: [embed] });
 }

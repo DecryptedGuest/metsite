@@ -29,13 +29,13 @@ function line(m, i) {
   const medal = i < 3 && !m.quota.exempt ? e(MEDALS[i]) : `\`${String(i + 1).padStart(2)}\``;
   if (m.quota.exempt) {
     const tag = m.quota.tier === 'LOA' ? `${e('LOA')} LOA` : `${e('EXEMPT')} Exempt`;
-    return `${medal} **${m.username}** — ${tag}`;
+    return `${medal} **${m.username}** · ${tag}`;
   }
   const met = m.met ? e('APPROVE') : e('PENDING');
   const target = m.quota.target != null
     ? `${m.total}/${m.quota.target}${m.quota.reducedBy ? ` ${e('IOTW')}` : ''}`
     : `${m.total}`;
-  return `${medal} ${met} **${m.username}** — ${target}${meter(m.total, m.quota.target)}`;
+  return `${medal} ${met} **${m.username}** · ${target}${meter(m.total, m.quota.target)}`;
 }
 
 async function execute(interaction, bot) {
@@ -69,7 +69,7 @@ async function execute(interaction, bot) {
 
     const embed = new EmbedBuilder()
       .setColor(0x4a8fff)
-      .setTitle(`${e('POINTS')} Weekly quota${only ? ` — ${only}` : ''}`)
+      .setTitle(`${e('POINTS')} Weekly quota${only ? ` · ${only}` : ''}`)
       .setDescription(counted.length
         ? `**${metCount}/${counted.length}** on target · ${members.length - counted.length} exempt`
         : '*Everyone listed is exempt.*')

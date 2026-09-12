@@ -54,7 +54,7 @@ async function execute(interaction, bot) {
 
     if (r === null) return interaction.editReply('❌ The quota sheet is not configured.');
     if (!r.found)   return interaction.editReply(`❌ ${user} was not found on the quota sheet.`);
-    return interaction.editReply({ embeds: [pointsEmbed(`Quota — ${info?.name || user.username}`, r)] });
+    return interaction.editReply({ embeds: [pointsEmbed(`Quota · ${info?.name || user.username}`, r)] });
   }
 
   if (sub === 'review') {
@@ -81,7 +81,7 @@ async function execute(interaction, bot) {
       iotwUsername: null,
     });
     return interaction.editReply(ok
-      ? `✅ Posted the weekly review — ${results.filter(r => r.status === 'pass').length} passed, ${results.filter(r => r.status === 'fail').length} failed.`
+      ? `✅ Posted the weekly review: ${results.filter(r => r.status === 'pass').length} passed, ${results.filter(r => r.status === 'fail').length} failed.`
       : '❌ The quota results webhook is not configured or failed to send.');
   }
 
@@ -143,12 +143,12 @@ async function handleButton(interaction) {
     return interaction.reply({ content: '⛔ That confirmation is not yours.', flags: MessageFlags.Ephemeral });
   }
   if (verb === 'cancel') {
-    return interaction.update({ content: 'Cancelled — nothing was changed.', components: [] });
+    return interaction.update({ content: 'Cancelled. Nothing was changed.', components: [] });
   }
   await interaction.update({ content: '⏳ Resetting…', components: [] });
   const result = await resetAllQuota();
   return interaction.editReply(result.ok
-    ? `✅ Weekly quota reset — ${result.cleared ?? 'all'} cell(s) cleared.`
+    ? `✅ Weekly quota reset: ${result.cleared ?? 'all'} cell(s) cleared.`
     : `❌ ${result.error}`);
 }
 

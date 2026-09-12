@@ -8,7 +8,7 @@ const roblox = require('../lib/roblox');
 
 // "HR" here means IA Deputy Director and above (or the developer).
 const allowed = (member) => isHR(member) || isDeveloper(member);
-const HR_DENIED = '⛔ This is an HR command — Deputy Director and above.';
+const HR_DENIED = '⛔ This is an HR command: Deputy Director and above.';
 
 function build(name, verb) {
   return new SlashCommandBuilder()
@@ -16,7 +16,7 @@ function build(name, verb) {
     .setDescription(`[HR] ${verb} quota points ${verb === 'Add' ? 'to' : 'from'} a member`)
     .addUserOption(o => o.setName('member').setDescription('The member').setRequired(true))
     .addIntegerOption(o => o.setName('points').setDescription('How many points').setRequired(true).setMinValue(1).setMaxValue(1000))
-    .addStringOption(o => o.setName('reason').setDescription('Why — recorded in the audit trail').setRequired(true));
+    .addStringOption(o => o.setName('reason').setDescription('Why, recorded in the audit trail').setRequired(true));
 }
 
 async function adjust(interaction, sign) {
@@ -61,7 +61,7 @@ async function adjust(interaction, sign) {
       .setDescription(`${sign > 0 ? '**+' : '**−'}${Math.abs(points)} pts** for ${member}`)
       .addFields(
         { name: 'Roblox',  value: `\`${robloxUsername}\``, inline: true },
-        { name: 'New total', value: after?.found ? `**${after.total}**${after.quota?.target != null ? ` / ${after.quota.target}` : ''}` : '*queued — sheet not read back*', inline: true },
+        { name: 'New total', value: after?.found ? `**${after.total}**${after.quota?.target != null ? ` / ${after.quota.target}` : ''}` : '*queued, sheet not read back*', inline: true },
         { name: 'By',      value: `${interaction.user}`, inline: true },
         { name: 'Reason',  value: reason, inline: false },
       )

@@ -59,7 +59,7 @@ async function execute(interaction) {
     const roles  = await cachedRoles();
     const target = roles.find(r => String(r.id) === String(roleId).split('/').pop());
     return interaction.editReply(
-      `✅ **${username}** — ${before?.role?.name || 'unknown'} → **${target?.name || roleId}**`);
+      `✅ **${username}** · ${before?.role?.name || 'unknown'} → **${target?.name || roleId}**`);
   } catch (err) {
     return interaction.editReply(`❌ ${err.message}`);
   }

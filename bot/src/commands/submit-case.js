@@ -33,7 +33,7 @@ async function autocomplete(interaction) {
         const v = (prefix ? `${prefix.trim()}, ${a}` : a).slice(0, 100);
         // Show what rank each punishment needs, so the filer isn't surprised.
         const need = IA_RANKS[APPROVAL_MIN[a]]?.abbr;
-        return { name: `${a}${need ? `  —  needs ${need}` : ''}`.slice(0, 100), value: v };
+        return { name: `${a}${need ? `  ·  needs ${need}` : ''}`.slice(0, 100), value: v };
       })
       .slice(0, 25),
   ).catch(() => {});
@@ -126,13 +126,13 @@ async function execute(interaction) {
       .addFields(
         { name: 'Subject', value: subject ? `${subject}${robloxUsername ? ` (\`${robloxUsername}\`)` : ''}` : `\`${robloxUsername}\``, inline: false },
         { name: 'Punishment(s)', value: enriched.map(a =>
-            `${e('BULLET')} **${a.action}**${a.durationDays ? ` — ${a.durationDays}d` : ''}${a.code ? ` \`${a.code}\`` : ''}`).join('\n'), inline: false },
+            `${e('BULLET')} **${a.action}**${a.durationDays ? ` · ${a.durationDays}d` : ''}${a.code ? ` \`${a.code}\`` : ''}`).join('\n'), inline: false },
         { name: 'Reason', value: interaction.options.getString('reason').slice(0, 1000), inline: false },
-        { name: 'Investigating Officer', value: filerRank ? `${filerRank.abbr} — ${interaction.user}` : `${interaction.user}`, inline: true },
+        { name: 'Investigating Officer', value: filerRank ? `${filerRank.abbr} · ${interaction.user}` : `${interaction.user}`, inline: true },
         { name: 'Requires', value: `**${needRank.abbr}**+`, inline: true },
         { name: 'Status', value: `${e('PENDING')} Awaiting review`, inline: true },
       )
-      .setFooter({ text: 'Internal Affairs — Case Review' })
+      .setFooter({ text: 'Internal Affairs · Case Review' })
       .setTimestamp();
 
     if (robloxUserId) {
@@ -154,7 +154,7 @@ async function execute(interaction) {
     const channel = await interaction.client.channels.fetch(env('CASES_CHANNEL_ID')).catch(() => null);
     if (!channel) {
       loader.stop();
-      return interaction.editReply(`${e('WARNING')} Filed **${caseRef}**, but the cases channel is unreachable — check \`CASES_CHANNEL_ID\`.`);
+      return interaction.editReply(`${e('WARNING')} Filed **${caseRef}**, but the cases channel is unreachable. Check \`CASES_CHANNEL_ID\`.`);
     }
 
     const reviewerPing = env('IA_REVIEWER_ROLE_ID');
@@ -166,7 +166,7 @@ async function execute(interaction) {
 
     loader.stop();
     return interaction.editReply(
-      `${e('APPROVE')} Filed **${caseRef}** — [review card posted](${msg.url}). Needs **${needRank.abbr}**+ to approve.`);
+      `${e('APPROVE')} Filed **${caseRef}**, [review card posted](${msg.url}). Needs **${needRank.abbr}**+ to approve.`);
   } catch (err) {
     loader.stop();
     return interaction.editReply(`${e('DENY')} ${err.message}`);

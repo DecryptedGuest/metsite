@@ -29,12 +29,12 @@ async function execute(interaction) {
   if (sub === 'status') {
     const res = await openCloud.getEntry(panel.key());
     if (!res.ok) return interaction.editReply(`${e('DENY')} ${res.error}`);
-    if (!res.value) return interaction.editReply(`${e('WARNING')} Nothing stored yet for \`${panel.key()}\` — run \`/panel sync\`.`);
+    if (!res.value) return interaction.editReply(`${e('WARNING')} Nothing stored yet for \`${panel.key()}\`. Run \`/panel sync\`.`);
 
     const v = res.value;
     return interaction.editReply({ embeds: [new EmbedBuilder()
       .setColor(0x4a8fff)
-      .setTitle(`${e('SYNC')} ${panel.label} — live value`)
+      .setTitle(`${e('SYNC')} ${panel.label} · current value`)
       .addFields(
         { name: 'Members in game', value: String(v.userIds?.length ?? 0), inline: true },
         { name: 'Last synced', value: v.syncedAt ? `<t:${Math.floor(new Date(v.syncedAt) / 1000)}:R>` : 'unknown', inline: true },
@@ -64,7 +64,7 @@ async function execute(interaction) {
 
     const embed = new EmbedBuilder()
       .setColor(r.unlinked.length ? 0xf5b730 : 0x2ed896)
-      .setTitle(`${e('SYNC')} ${panel.label} ${dry ? '— dry run' : 'synced'}`)
+      .setTitle(`${e('SYNC')} ${panel.label} ${dry ? '· dry run' : 'synced'}`)
       .setDescription(dry
         ? 'Nothing was written. Re-run without `dry` to push.'
         : `Pushed to \`${r.write.datastore}\` → \`${panel.key()}\`.`)
@@ -80,7 +80,7 @@ async function execute(interaction) {
 
     if (r.unlinked.length) {
       embed.addFields({
-        name: `${e('WARNING')} No Roblox link — excluded (${r.unlinked.length})`,
+        name: `${e('WARNING')} No Roblox link, excluded (${r.unlinked.length})`,
         value: r.unlinked.slice(0, 15).join('\n').slice(0, 1000)
              + (r.unlinked.length > 15 ? `\n…and ${r.unlinked.length - 15} more` : '')
              + '\n\nThese members hold the role but are not verified, so the game cannot identify them.',

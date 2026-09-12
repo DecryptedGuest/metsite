@@ -12,7 +12,7 @@ const data = new SlashCommandBuilder()
   .addSubcommand(s => s.setName('cases').setDescription('[DEV] Scan the cases channel and store every case found')
     .addChannelOption(o => o.setName('channel').setDescription('Channel to scan (default: CASES_CHANNEL_ID)'))
     .addIntegerOption(o => o.setName('limit').setDescription('Stop after this many messages').setMinValue(1).setMaxValue(50000))
-    .addBooleanOption(o => o.setName('dry').setDescription('Report only — write nothing'))
+    .addBooleanOption(o => o.setName('dry').setDescription('Report only, write nothing'))
     .addBooleanOption(o => o.setName('force').setDescription('Re-parse and overwrite cases already synced')))
   .addSubcommand(s => s.setName('status').setDescription('[DEV] What is currently stored'));
 
@@ -90,7 +90,7 @@ async function execute(interaction) {
   const channel = interaction.options.getChannel('channel')
     || await interaction.client.channels.fetch(env('CASES_CHANNEL_ID')).catch(() => null);
   if (!channel?.messages) {
-    return interaction.editReply(`${e('DENY')} No readable channel — pass one, or set \`CASES_CHANNEL_ID\`.`);
+    return interaction.editReply(`${e('DENY')} No readable channel. Pass one, or set \`CASES_CHANNEL_ID\`.`);
   }
 
   const limit = interaction.options.getInteger('limit') || 5000;
@@ -198,13 +198,13 @@ async function execute(interaction) {
     .setDescription(`Scanned **${stats.scanned}** messages in ${channel}.`)
     .addFields(
       { name: 'Cases found',  value: String(stats.parsed), inline: true },
-      { name: 'Created',      value: dry ? '—' : String(stats.created), inline: true },
-      { name: 'Updated',      value: dry ? '—' : String(stats.updated), inline: true },
+      { name: 'Created',      value: dry ? '·' : String(stats.created), inline: true },
+      { name: 'Updated',      value: dry ? '·' : String(stats.updated), inline: true },
       { name: 'Skipped',      value: String(stats.skipped), inline: true },
       { name: 'Punishments',  value: String(stats.punishments), inline: true },
       { name: 'Embeds unread', value: String(stats.unparsed), inline: true },
     )
-    .setFooter({ text: dry ? 'Nothing was written — re-run without dry' : 'Case counter advanced past the highest ref' })
+    .setFooter({ text: dry ? 'Nothing was written, re-run without dry' : 'Case counter advanced past the highest ref' })
     .setTimestamp();
 
   if (problems.length) {

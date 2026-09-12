@@ -103,9 +103,9 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
     const icon = r.status === 'pass' ? '✅' : '❌';
     const pts  = r.exempt ? 'Exempt'
       : `${r.total != null ? r.total : '?'}${r.target != null ? '/' + r.target : ''} pts`;
-    const reason = (r.status === 'fail' && r.reason) ? ` — ${String(r.reason).slice(0, 120)}` : '';
-    const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ' — ⭐ IOTW' : '';
-    return `${icon} **${r.username}**${r.rank ? ` · ${r.rank}` : ''} — ${pts}${reason}${iotw}`;
+    const reason = (r.status === 'fail' && r.reason) ? ` · ${String(r.reason).slice(0, 120)}` : '';
+    const iotw   = (iotwLc && String(r.username).trim().toLowerCase() === iotwLc) ? ' · ⭐ IOTW' : '';
+    return `${icon} **${r.username}**${r.rank ? ` · ${r.rank}` : ''} · ${pts}${reason}${iotw}`;
   };
 
   let desc = results.map(line).join('\n');
@@ -113,7 +113,7 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
 
   const embed = {
     color: 0x4a8fff,
-    title: `Weekly Quota Review${weekLabel ? ` — ${weekLabel}` : ''}`,
+    title: `Weekly Quota Review${weekLabel ? ` · ${weekLabel}` : ''}`,
     description: desc || '*No members.*',
     fields: [
       { name: 'Reviewed by', value: reviewerId ? `<@${reviewerId}>` : (reviewerName || 'Unknown'), inline: true },

@@ -134,7 +134,7 @@ async function handleReviewButton(interaction, bot) {
       const verdict = canApproveActions(member, names);
       if (!verdict.ok && !isHicomm(member)) {
         return interaction.editReply(
-          `${e('DENIED_MARK')} **${verdict.blocking}** needs **${verdict.required.abbr} — ${verdict.required.name}** or above. ` +
+          `${e('DENIED_MARK')} **${verdict.blocking}** needs **${verdict.required.abbr} · ${verdict.required.name}** or above. ` +
           `You are ${rankOf(member)?.abbr || 'unranked'}.`);
       }
       // The site-tier rule still stands on top of the ladder.

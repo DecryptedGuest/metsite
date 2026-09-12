@@ -30,7 +30,7 @@ async function execute(interaction) {
 
   const result = await setMemberLOA(username);
   if (!result.ok) return interaction.editReply(`❌ ${result.error}`);
-  return interaction.editReply(`✅ **${username}** is now marked **LOA** — exempt from quota until the marker is cleared.`);
+  return interaction.editReply(`✅ **${username}** is now marked **LOA**, exempt from quota until the marker is cleared.`);
 }
 
 module.exports = { scope: 'ia', data, execute };

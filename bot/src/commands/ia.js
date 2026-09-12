@@ -9,7 +9,7 @@ const TICKET_TYPES = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
 
 const data = new SlashCommandBuilder()
   .setName('ia')
-  .setDescription('Internal Affairs — file cases and log tickets')
+  .setDescription('Internal Affairs: file cases and log tickets')
   .addSubcommand(s => s.setName('case').setDescription('File a disciplinary case for review')
     .addStringOption(o => o.setName('punishments')
       .setDescription('Comma-separated punishments').setRequired(true).setAutocomplete(true))
@@ -85,7 +85,7 @@ async function execute(interaction) {
     const cardId = await postCaseCard(interaction.client, created, filer);
     if (cardId) await prisma.case.update({ where: { id: created.id }, data: { cardMessageId: cardId } }).catch(() => {});
     return interaction.editReply(cardId
-      ? `✅ Filed case **${created.caseRef}** — posted to the cases channel for review.`
+      ? `✅ Filed case **${created.caseRef}**, posted to the cases channel for review.`
       : `✅ Filed case **${created.caseRef}**, but the review card could not be posted (check \`CASES_CHANNEL_ID\`).`);
   }
 
@@ -116,7 +116,7 @@ async function execute(interaction) {
     const cardId = await postTicketCard(interaction.client, created, filer);
     if (cardId) await prisma.ticket.update({ where: { id: created.id }, data: { cardMessageId: cardId } }).catch(() => {});
     return interaction.editReply(cardId
-      ? `✅ Logged ticket **${ticketRef}** — posted to the tickets channel for review.`
+      ? `✅ Logged ticket **${ticketRef}**, posted to the tickets channel for review.`
       : `✅ Logged ticket **${ticketRef}**, but the review card could not be posted (check \`TICKETS_CHANNEL_ID\`).`);
   }
 }
