@@ -79,21 +79,10 @@ function requireGameSecret(req, res, next) {
 // each other's rows.
 function normDivision(v) { const d = String(v || '').toUpperCase(); return (d === 'CID' || d === 'SCO19') ? d : 'HPC'; }
 
-// Timestamps off the game arrive as ISO strings, but Lua's os.time() gives epoch
-// SECONDS, and either can come through as a number or a string. Anything Prisma
-// would reject becomes null: a stamp we cannot read must not throw away the whole
-// record it was attached to.
-function gameDate(v) {
-  if (v == null || v === '') return null;
-  if (v instanceof Date) return Number.isFinite(v.getTime()) ? v : null;
-  const n = Number(v);
-  if (Number.isFinite(n) && n > 0) {
-    const d = new Date(n > 1e11 ? n : n * 1000);
-    return Number.isFinite(d.getTime()) ? d : null;
-  }
-  const d = new Date(String(v));
-  return Number.isFinite(d.getTime()) ? d : null;
-}
+// One implementation, shared with the tryout log path, so a stamp the game sends
+// is read the same way whichever endpoint it arrives on. Required lazily to keep
+// this route file free of a load-time dependency on the log module.
+function gameDate(v) { return require('../lib/tryoutLogs').gameDate(v); }
 function reqDivision(req) { return normDivision((req.body && req.body.division) || req.query.division); }
 
 // Resolve which tryout the callback refers to, scoped to its division:
