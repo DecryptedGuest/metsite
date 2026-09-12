@@ -240,7 +240,7 @@ async function handleButton(interaction) {
   }).catch(() => {});
 
   await interaction.followUp({
-    content: approve ? `Done. ${note || ''}`.trim() : 'Marked as not actioned.',
+    content: approve ? `Done. ${note || ''}`.trim() : 'Marked as rejected.',
     flags: 64,
   }).catch(() => {});
   return true;
