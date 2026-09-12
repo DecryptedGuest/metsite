@@ -82,24 +82,38 @@ function aiWritingSignals(text) {
   const lower = t.toLowerCase();
 
   // 1) Phrases strongly associated with LLM output / essay register.
+  // Only register that policing prose does NOT share. Words like "de-escalate",
+  // "maintain composure" and "ensure the safety and wellbeing of the public" are
+  // ordinary police vocabulary, and this paper is literally about
+  // professionalism, so a cadet using them is answering well, not cheating.
+  // Flagging the vocabulary the exam asks for is how a detector ends up
+  // punishing its best candidates.
   const tells = [
     /\bas an ai\b/, /\blanguage model\b/, /\bit(?:'|’| i)s important to (?:note|remember|understand)\b/,
     /\bfurthermore\b/, /\bmoreover\b/, /\bin conclusion\b/, /\bit is worth noting\b/,
-    /\bensure(?:s|d)? the safety and well-?being\b/, /\bde-?escalat/, /\bmaintain(?:ing)? (?:composure|professionalism)\b/,
     /\bfirstly\b[\s\S]*\bsecondly\b/, /\bin accordance with (?:established )?protocol/,
   ];
   const hit = tells.filter(re => re.test(lower));
-  if (hit.length >= 2) { score += 2; reasons.push(`${hit.length} essay/LLM-style phrases`); }
+  if (hit.length >= 3) { score += 3; reasons.push(`${hit.length} essay/LLM-style phrases`); }
+  else if (hit.length === 2) { score += 2; reasons.push('2 essay/LLM-style phrases'); }
   else if (hit.length === 1) { score += 1; reasons.push('an essay/LLM-style phrase'); }
 
   // 2) Typographic tells not produced by plain textarea typing: em-dashes,
   //    curly quotes — usually copied from a word processor or AI output.
-  if (/[—]/.test(t)) { score += 1; reasons.push('em-dashes (·)'); }
-  if (/[‘’“”]/.test(t)) { score += 1; reasons.push('curly quotes'); }
+  // Worth one point between them, never two: iOS and Android smart punctuation
+  // turn a plain apostrophe into a curly one and a double hyphen into a long
+  // dash automatically, so a cadet answering on a phone produces both without
+  // touching a word processor. Typography alone must not reach a flag.
+  const typo = [];
+  if (/[—]/.test(t)) typo.push('long dashes');
+  if (/[‘’“”]/.test(t)) typo.push('curly quotes');
+  if (typo.length) { score += 1; reasons.push(typo.join(' and ')); }
 
   // 3) Low burstiness: AI produces uniform sentence lengths; humans vary a lot.
+  // Four sentences minimum: across three short answers the spread is noise, and
+  // three tidy sentences of a similar length is what a careful cadet writes.
   const sentences = t.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
-  if (sentences.length >= 3) {
+  if (sentences.length >= 4) {
     const lens = sentences.map(s => s.split(/\s+/).length);
     const mean = lens.reduce((a, b) => a + b, 0) / lens.length;
     const variance = lens.reduce((a, b) => a + (b - mean) * (b - mean), 0) / lens.length;

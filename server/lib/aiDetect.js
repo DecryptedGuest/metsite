@@ -72,25 +72,31 @@ async function zerogpt(text) {
   return { aiProbability: pct, aiSentences: aiSentences.filter(Boolean) };
 }
 
-// Local heuristic — no network. Tuned for the formal "police-report" register
-// ChatGPT produces: it scores the DENSITY of formal/LLM phrasing plus structural
-// tells (em-dashes, triadic "A, B, and C" lists, repetitive sentence openers,
-// long uniform sentences, no contractions). Density — not a single hit — drives
-// the score, so a genuinely tidy human answer with one such phrase stays low
-// while stacked AI prose climbs high.
+// Local heuristic, no network. It scores DISCOURSE register only: the
+// connectives and meta-framing an LLM reaches for regardless of subject.
+//
+// It deliberately does not score police vocabulary. An earlier version keyed on
+// phrases like "de-escalate", "proportionate", "seek cover", "preserve the
+// scene" and "members of the public", which is not the register of ChatGPT, it
+// is the register of the job, and most of that list was simply the marking
+// scheme. Measured, it scored an excellent human answer at 66% and an actual
+// ChatGPT answer at 66%, while a weak casual answer scored 10%: the only thing
+// it really detected was whether the candidate answered well.
+//
+// The same reasoning removed the structural tells that just punish formality.
+// Absent contractions, long sentences and triadic "A, B, and C" lists are what
+// careful formal writing looks like, human or not.
 const AI_PHRASE_RES = [
-  /\bfurthermore\b/, /\bmoreover\b/, /\badditionally\b/, /\bin conclusion\b/, /\bin summary\b/, /\bto summari[sz]e\b/,
-  /\bit is (important|worth|essential|crucial) to (note|remember|understand|mention)\b/, /\bdelve into\b/,
-  /\bsituational awareness\b/, /\bde-?escalat/, /\bin accordance with\b/, /\bproportionate\b/,
-  /\bnecessary,? (and )?proportionate\b/, /\breasonable in the circumstances\b/, /\bprotect(ing)? life\b/,
-  /\bmembers of the public\b/, /\brequest (urgent )?backup\b/, /\bcontrol room\b/, /\bpost-?incident\b/,
-  /\bpreserve (evidence|the scene)\b/, /\buse[- ]of[- ]force\b/, /\bforce policy\b/, /\blawful (commands|instructions|justification|orders)\b/,
-  /\bimmediate threat\b/, /\bmedical (assistance|attention)\b/, /\bassess (the )?(situation|threat|level of threat|risk)\b/,
-  /\b(if|where) it is safe to do so\b/, /\bidentify myself as a\b/, /\bnotify (dispatch|control|other officers|the control room)\b/,
-  /\bfollowing (department|departmental|standard) (procedures|policy|protocol)\b/,
-  /\bmaintain(ing)? (cover|composure|situational awareness|professionalism)\b/, /\bmy (first )?priority\b/, /\bseek cover\b/,
-  /\bprioriti[sz]e\b/, /\bensure (the )?(safety|scene|well-?being)\b/, /\bwhere appropriate\b/, /\bthreat to (life|the public)\b/,
-  /\btake appropriate action\b/, /\bin an attempt to\b/, /\bprovide (accurate )?information\b/, /\bin line with (my|the) training\b/,
+  /\bas an ai\b/, /\blanguage model\b/, /\bi do not have personal\b/,
+  /\bfurthermore\b/, /\bmoreover\b/, /\badditionally\b/, /\bin conclusion\b/, /\bin summary\b/,
+  /\bto summari[sz]e\b/, /\boverall,/, /\bultimately,/,
+  /\bit is (important|worth|essential|crucial) to (note|remember|understand|mention)\b/,
+  /\bit should be noted\b/, /\bdelve into\b/, /\bin this (scenario|situation|case),/,
+  /\bfirstly\b/, /\bsecondly\b/, /\bthirdly\b/, /\blastly,/,
+  /\bplays? a (crucial|vital|key|significant) role\b/, /\bit is imperative\b/,
+  /\bby (doing so|following these steps)\b/, /\bthis ensures that\b/,
+  /\bnot only\b[\s\S]{0,60}\bbut also\b/, /\bcan be attributed to\b/,
+  /\bwhen it comes to\b/, /\bin today['’]s\b/, /\ba testament to\b/,
 ];
 function heuristicDetect(text) {
   const t = String(text || '');
@@ -107,27 +113,26 @@ function heuristicDetect(text) {
     if (hits >= 1) flagged.push(s);
   }
 
-  let score = Math.min(48, (phraseHits / (wc / 100)) * 10); // density: hits per 100 words
-  if (/[—–]/.test(t)) score += 12;   // em/en dashes — from a word processor / AI
-  if (/[“”‘’]/.test(t)) score += 6;  // curly quotes
+  // Density of discourse markers, hits per 100 words. This carries the score:
+  // one connective in a long answer is a tidy writer, four in a short one is a
+  // register no cadet writes in unprompted.
+  let score = Math.min(70, (phraseHits / (wc / 100)) * 14);
 
-  const triads = (t.match(/\b[\w'-]+,\s+[\w'-]+,\s+and\s+[\w'-]+/gi) || []).length;
-  if (triads >= 1) score += Math.min(16, triads * 8);
+  // Typography is worth a little between them and never more. Phone keyboards
+  // insert long dashes and curly quotes on their own, so an answer written on a
+  // phone must not climb on punctuation alone.
+  if (/[—–]/.test(t) || /[“”‘’]/.test(t)) score += 6;
 
-  if (sentences.length >= 3) {
+  if (sentences.length >= 4) {
     const openers = {};
     sentences.forEach(s => { const k = s.split(/\s+/).slice(0, 2).join(' ').toLowerCase(); openers[k] = (openers[k] || 0) + 1; });
-    if (Math.max(0, ...Object.values(openers)) >= 3) score += 10; // repetitive "I would…" openers
+    if (Math.max(0, ...Object.values(openers)) >= 4) score += 8;
     const lens = sentences.map(s => s.split(/\s+/).filter(Boolean).length);
     const mean = lens.reduce((a, b) => a + b, 0) / lens.length;
     const variance = lens.reduce((a, b) => a + (b - mean) ** 2, 0) / lens.length;
     const cv = mean ? Math.sqrt(variance) / mean : 1;
-    if (mean >= 16) score += 8;  // long formal sentences
-    if (cv < 0.4) score += 10;   // uniform lengths (low burstiness)
+    if (cv < 0.25) score += 8;
   }
-
-  const contractions = (t.match(/\b\w+['’](s|re|ve|ll|d|t|m)\b/gi) || []).length;
-  if (wc > 45 && contractions === 0) score += 8;
 
   return { aiProbability: Math.max(0, Math.min(100, Math.round(score))), aiSentences: flagged };
 }
