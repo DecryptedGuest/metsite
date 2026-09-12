@@ -316,7 +316,25 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
     // The paper the cadet actually sat, not whichever one is current. maxScore is
     // stored on the submission for exactly this reason: change the paper between
     // somebody sitting it and somebody marking it, and scoring against the new
-    // total either flatters or fails them for questions they never saw.
+    // total fails them over questions they were never shown.
+    //
+    // That only holds while every question they answered is still markable. If a
+    // question has been removed since, its marks cannot be counted (there is no
+    // question to score) while its points are still inside the stored total, so
+    // the cadet silently loses them. There is no honest way to score that, so it
+    // is refused rather than guessed at, and restoring the question resolves it.
+    const answered = s.answers && typeof s.answers === 'object' ? Object.keys(s.answers) : [];
+    const current  = new Set(hpcExam.QUESTIONS.map(q => q.id));
+    const dropped  = answered.filter(id => !current.has(id));
+    if (dropped.length) {
+      return res.status(409).json({
+        error: 'This exam was sat on a different paper: '
+             + `${dropped.length} question(s) they answered are no longer on it, so a fair score cannot be worked out. `
+             + 'Put those questions back to mark this submission.',
+        droppedQuestions: dropped,
+      });
+    }
+
     const maxScore   = Number.isFinite(s.maxScore) && s.maxScore > 0 ? s.maxScore : hpcExam.totalPoints();
     const percentage = Math.round((total / maxScore) * 100);
     const passed     = percentage >= hpcExam.PASS_PERCENT;
