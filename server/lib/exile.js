@@ -136,12 +136,21 @@ async function stripDiscordRolesForExile(discordUserId, actionNames = []) {
     keepRoleIds: keep,
     reason: `MET ${isBlacklist ? 'blacklist' : 'termination'}: roles stripped`,
   });
-  const parts = [`removed ${res.removed} role(s)`];
-  // Name what survived, so the administrative log shows that verification and
-  // citizenship were left alone rather than leaving somebody to wonder.
+  // Name both sides in the administrative log: what survived, so it is plain
+  // that verification and citizenship were left alone, and what went, so "why
+  // did it take that one" has an answer without anybody digging.
+  const listed = (names, limit) => {
+    const uniq = [...new Set(names || [])];
+    if (!uniq.length) return '';
+    const shown = uniq.slice(0, limit).join(', ');
+    return uniq.length > limit ? `${shown} and ${uniq.length - limit} more` : shown;
+  };
+
+  const removedList = listed(res.removedNames, 6);
+  const parts = [`removed ${res.removed} ${res.removed === 1 ? 'role' : 'roles'}${removedList ? ` (${removedList})` : ''}`];
   if (res.kept) {
-    const names = [...new Set(res.keptNames || [])];
-    parts.push(names.length ? `kept ${res.kept} (${names.slice(0, 5).join(', ')})` : `kept ${res.kept}`);
+    const keptList = listed(res.keptNames, 5);
+    parts.push(keptList ? `kept ${res.kept} (${keptList})` : `kept ${res.kept}`);
   }
   if (res.skipped) parts.push(`${res.skipped} above the bot or managed`);
   return { stripped: res.removed, keptBlacklist: isBlacklist, summary: parts.join(' · ') };
