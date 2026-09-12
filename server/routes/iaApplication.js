@@ -430,6 +430,36 @@ router.post('/submit', async (req, res) => {
     }
     if (!row) return res.status(500).json({ error: 'Could not submit the application.' });
 
+    // "One live application at a time" is checked in eligibility() and then not
+    // enforced between that check and this insert, so two requests arriving
+    // together both find nothing pending and both file. appRef being unique does
+    // not help: the retry loop simply hands the second one the next number.
+    // The one that came second stands down, leaving the applicant exactly one
+    // application and the markers exactly one copy of the work. The comparison
+    // is a total order, submittedAt then id, so exactly one survives even when
+    // both rows land on the same instant. A submit that reused a draft cannot
+    // collide with itself: both requests update the same row, so the ids match.
+    const earlier = await prisma.iaApplication.findFirst({
+      where: {
+        applicantId: req.user.id,
+        status: 'SUBMITTED',
+        id: { not: row.id },
+        OR: [
+          { submittedAt: { lt: row.submittedAt } },
+          { submittedAt: row.submittedAt, id: { lt: row.id } },
+        ],
+      },
+      select: { appRef: true, submittedAt: true },
+    }).catch(() => null);
+
+    if (earlier) {
+      await prisma.iaApplication.delete({ where: { id: row.id } }).catch(() => {});
+      return res.status(409).json({
+        error: `Your application ${earlier.appRef} is with Internal Affairs. You will hear back on it before you can send another.`,
+        pending: earlier,
+      });
+    }
+
     audit.record({
       req, action: 'IA_APP_SUBMIT', category: 'ia',
       targetType: 'iaApplication', targetId: row.id,
