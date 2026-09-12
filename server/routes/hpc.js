@@ -313,7 +313,11 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
       clean[q.id] = pts;
       total += pts;
     }
-    const maxScore   = hpcExam.totalPoints();
+    // The paper the cadet actually sat, not whichever one is current. maxScore is
+    // stored on the submission for exactly this reason: change the paper between
+    // somebody sitting it and somebody marking it, and scoring against the new
+    // total either flatters or fails them for questions they never saw.
+    const maxScore   = Number.isFinite(s.maxScore) && s.maxScore > 0 ? s.maxScore : hpcExam.totalPoints();
     const percentage = Math.round((total / maxScore) * 100);
     const passed     = percentage >= hpcExam.PASS_PERCENT;
 
