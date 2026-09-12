@@ -39,7 +39,7 @@ function vehicleResult(callsign, vrm, res) {
   if (r.stolen) flags.push('reported STOLEN');
   const markers = (r.markers || []).length ? ` Markers: ${r.markers.join(', ')}.` : '';
   const head = `${callsign}, that VRM shows as a ${r.colour} ${r.make} ${r.model}, registered keeper ${r.registeredKeeper}.`;
-  const tail = flags.length ? ` Be aware — vehicle ${flags.join(', ')}.` : ' Vehicle shows all in order — taxed, MOT and insurance valid.';
+  const tail = flags.length ? ` Be aware, vehicle ${flags.join(', ')}.` : ' Vehicle shows all in order: taxed, MOT and insurance valid.';
   return head + tail + markers;
 }
 
@@ -47,14 +47,14 @@ function personResult(callsign, res) {
   if (!res.found || !res.records.length) return `${callsign}, negative trace, no person record held on that name.`;
   if (res.records.length > 1) {
     const names = res.records.slice(0, 4).map(p => `${p.forename} ${p.surname}`).join(', ');
-    return `${callsign}, multiple records on that surname — ${names}. Confirm a forename to narrow it down.`;
+    return `${callsign}, multiple records on that surname: ${names}. Confirm a forename to narrow it down.`;
   }
   const p = res.records[0];
   const flags = [];
   if (p.wanted) flags.push('subject is WANTED');
   if ((p.warningMarkers || []).length) flags.push(`warning markers: ${p.warningMarkers.join(', ')}`);
-  const head = `${callsign}, one record — ${p.forename} ${p.surname}, date of birth ${p.dob}, last known address ${p.address}.`;
-  const tail = flags.length ? ` Caution — ${flags.join('; ')}.` : ' No markers or warnings held.';
+  const head = `${callsign}, one record: ${p.forename} ${p.surname}, date of birth ${p.dob}, last known address ${p.address}.`;
+  const tail = flags.length ? ` Caution: ${flags.join('; ')}.` : ' No markers or warnings held.';
   return head + tail;
 }
 
@@ -65,15 +65,15 @@ function ackAssign(callsign, inc) {
   return `${callsign}, assigned to ${inc.cadRef}, ${inc.category} at ${inc.location}. You are shown en route.`;
 }
 function ackClose(inc) {
-  return `All units, ${inc.cadRef} is now closed${inc.closedOutcome ? ` — ${inc.closedOutcome}` : ''}. Units are released and shown available.`;
+  return `All units, ${inc.cadRef} is now closed${inc.closedOutcome ? `: ${inc.closedOutcome}` : ''}. Units are released and shown available.`;
 }
 // "All units, urgent assistance required from MP-1, last known location
 //  Trafalgar Square. Any unit free to attend."
 function backupAlert(callsign, location) {
-  return `All units, all units — urgent assistance required from ${callsign}, last known location ${location}. Any unit free to attend, make your way.`;
+  return `All units, all units, urgent assistance required from ${callsign}, last known location ${location}. Any unit free to attend, make your way.`;
 }
 function repeat(callsign) {
-  return `${callsign || 'Last unit'}, control, you were unreadable — say again your last.`;
+  return `${callsign || 'Last unit'}, control, you were unreadable. Say again your last.`;
 }
 
 module.exports = {

@@ -156,7 +156,7 @@ class DispatchVoice {
         this.diag.lastError = 'voice disconnected (close code ' + code + ')';
         if (code === 4014) { try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; return; }
         if ((this._rejoins || 0) >= 3) {
-          this.diag.lastError = 'voice kept disconnecting (close code ' + code + ') — giving up. Usually a network/UDP or session issue, not permissions.';
+          this.diag.lastError = 'voice kept disconnecting (close code ' + code + '), giving up. Usually a network/UDP or session issue, not permissions.';
           try { conn.destroy(); } catch (_) {} if (this.connection === conn) this.connection = null; return;
         }
         this._rejoins = (this._rejoins || 0) + 1;
@@ -175,7 +175,7 @@ class DispatchVoice {
       return this.connection;
     } catch (e) {
       const st = this.connection && this.connection.state ? this.connection.state.status : 'unknown';
-      this.diag.lastError = `voice never became ready (attempt ${attempt}, stuck in "${st}") — the UDP voice handshake didn't complete. This is a network/host issue, not permissions.`;
+      this.diag.lastError = `voice never became ready (attempt ${attempt}, stuck in "${st}"): the UDP voice handshake didn't complete. This is a network/host issue, not permissions.`;
       this._ev(`timeout waiting for READY, stuck in ${st}`);
       try { this.connection.destroy(); } catch (_) {}
       this.connection = null;

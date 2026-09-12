@@ -90,7 +90,7 @@ async function handleUndoComponent(interaction) {
     .setColor(0x2ed896)
     .setTitle('Undone')
     .setDescription(`**${entry.summary || entry.action}**`)
-    .addFields({ name: 'What changed', value: result.notes.map(n => `› ${n}`).join('\n') || '—' })
+    .addFields({ name: 'What changed', value: result.notes.map(n => `› ${n}`).join('\n') || 'nothing' })
     .setFooter({ text: `Reversed by ${actor.displayName}` })
     .setTimestamp();
 

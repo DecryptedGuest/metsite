@@ -1014,7 +1014,7 @@ function startBot() {
     if (WANT_MESSAGE_CONTENT && disallowed) {
       console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal · '
         + 'starting the bot WITHOUT it. Roles, commands and slash interactions still work, but every '
-        + 'embed posted by another bot arrives EMPTY — so ticket logs, forum reads and transcript '
+        + 'embed posted by another bot arrives EMPTY, so ticket logs, forum reads and transcript '
         + 'reads all stop producing anything. Enable "Message Content Intent" in the portal.');
       client = buildClient(false);
       client.login(token).catch(e => console.error('Bot login failed (fallback):', e.message));

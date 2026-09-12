@@ -303,7 +303,7 @@ app.post('/api/security/bot-signal', botSignalLimiter, (req, res) => {
     try { detail = JSON.stringify(b.detail || {}).slice(0, 200); } catch (e) { detail = ''; }
     require('./lib/audit').record({
       req, action: 'BOT_SIGNAL', category: 'SECURITY', targetType: 'request',
-      summary: `Behavioural bot signal: ${type}${path ? ` on ${path}` : ''}${detail && detail !== '{}' ? ` — ${detail}` : ''}`,
+      summary: `Behavioural bot signal: ${type}${path ? ` on ${path}` : ''}${detail && detail !== '{}' ? `: ${detail}` : ''}`,
       metadata: { type, detail: b.detail || {}, reportedPath: path },
     }).catch(() => {});
   } catch (e) { /* best-effort */ }
@@ -562,7 +562,7 @@ app.get('/m/:id', async (req, res) => {
    <meta name="twitter:image" content="${escHtml(raw)}">`;
     } else {
       og = `<meta property="og:type" content="website">
-   <meta property="og:title" content="&#128274; Restricted ${escHtml(isVideo ? 'video' : 'image')} — ${escHtml(title)}">
+   <meta property="og:title" content="&#128274; Restricted ${escHtml(isVideo ? 'video' : 'image')} · ${escHtml(title)}">
    <meta property="og:description" content="This ${escHtml(isVideo ? 'video' : 'image')} is restricted to ${escHtml(audience)}. Sign in on metia.uk to view.">
    <meta property="og:image" content="${escHtml(base + '/img/logo.png')}">
    <meta name="twitter:card" content="summary">`;
@@ -1158,12 +1158,12 @@ app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
     legacyRoles:      legacy.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
     derivedPerms:     chips.map(p => p.label),
     error,
-    hint: !rid ? 'No Roblox id stored — log out and back in to link it (needs DISCORD_GUILD_ID + RoVer).'
-      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set — legacy endpoint returns only ONE role. Set an Open Cloud API key.'
-      : (rawOpenCloud.status && rawOpenCloud.status >= 400 ? `Open Cloud returned ${rawOpenCloud.status} — the API key lacks group-membership read scope for this group (or wrong group). Body: ${rawOpenCloud.body || ''}`
-      : (!rawOpenCloud.rolePaths.length ? 'Open Cloud returned 200 but no roles — this Roblox account holds no roles in the perms group (check the id is actually in the group).'
+    hint: !rid ? 'No Roblox id stored. Log out and back in to link it (needs DISCORD_GUILD_ID + RoVer).'
+      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set, so the legacy endpoint returns only ONE role. Set an Open Cloud API key.'
+      : (rawOpenCloud.status && rawOpenCloud.status >= 400 ? `Open Cloud returned ${rawOpenCloud.status}: the API key lacks group-membership read scope for this group (or wrong group). Body: ${rawOpenCloud.body || ''}`
+      : (!rawOpenCloud.rolePaths.length ? 'Open Cloud returned 200 but no roles, so this Roblox account holds no roles in the perms group (check the id is actually in the group).'
       : (!chips.length ? 'You hold roles but all were filtered (rank <2 / >99 / divider / Member).'
-      : 'Perms resolved OK — they should show on your profile.')))),
+      : 'Perms resolved OK. They should show on your profile.')))),
   });
 });
 
@@ -1338,7 +1338,7 @@ function linkPreview(division) {
       + brandMeta(division, originOf(req))
       + `<meta name="robots" content="noindex" />`
       + `</head><body><h1>${esc(b.fullName)}</h1>`
-      + `<p>${esc(b.tagline || '')} — sign in to continue.</p></body></html>`);
+      + `<p>${esc(b.tagline || '')}. Sign in to continue.</p></body></html>`);
   };
 }
 

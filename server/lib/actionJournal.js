@@ -175,7 +175,7 @@ async function undo(entry, actor) {
         }
       }
       // Things that cannot be taken back, said out loud.
-      if (kase.logMessageId) notes.push('the administrative log stays posted — edit or delete it by hand');
+      if (kase.logMessageId) notes.push('the administrative log stays posted, so edit or delete it by hand');
       notes.push('any DM already delivered cannot be recalled');
     }
     return { ok: true, notes };

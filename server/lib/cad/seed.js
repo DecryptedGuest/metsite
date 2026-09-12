@@ -21,15 +21,15 @@ const VEHICLES = [
   { vrm: 'GX14HND', make: 'Ford',        model: 'Transit',   colour: 'Blue',   registeredKeeper: 'Thameside Plumbing', taxStatus: 'Taxed', motStatus: 'Valid',  insuranceStatus: 'Insured',   markers: [],                         stolen: false },
   { vrm: 'MP69CAD', make: 'BMW',         model: 'X5',        colour: 'Black',  registeredKeeper: 'Metropolitan Police (marked)', taxStatus: 'Taxed', motStatus: 'Valid', insuranceStatus: 'Insured', markers: ['Police vehicle'], stolen: false },
   { vrm: 'OU12KWE', make: 'Suzuki',      model: 'Swift',     colour: 'Yellow', registeredKeeper: 'F. Delacroix',   taxStatus: 'Taxed',   motStatus: 'Valid',   insuranceStatus: 'Insured',   markers: [],                         stolen: false },
-  { vrm: 'PL15VNB', make: 'Land Rover',  model: 'Defender',  colour: 'Green',  registeredKeeper: 'H. Ashcombe',    taxStatus: 'Taxed',   motStatus: 'Valid',   insuranceStatus: 'Insured',   markers: ['Firearms — registered keeper certificate holder'], stolen: false },
+  { vrm: 'PL15VNB', make: 'Land Rover',  model: 'Defender',  colour: 'Green',  registeredKeeper: 'H. Ashcombe',    taxStatus: 'Taxed',   motStatus: 'Valid',   insuranceStatus: 'Insured',   markers: ['Firearms: registered keeper certificate holder'], stolen: false },
   { vrm: 'DA20QRS', make: 'Tesla',       model: 'Model 3',   colour: 'White',  registeredKeeper: 'V. Ramanathan',  taxStatus: 'Taxed',   motStatus: 'Valid',   insuranceStatus: 'Insured',   markers: [],                         stolen: false },
-  { vrm: 'RK66STV', make: 'Vauxhall',    model: 'Astra',     colour: 'Red',    registeredKeeper: 'G. Mbeki',       taxStatus: 'Untaxed', motStatus: 'Expired', insuranceStatus: 'Uninsured', markers: ['STOLEN — do not stop, follow'], stolen: true },
+  { vrm: 'RK66STV', make: 'Vauxhall',    model: 'Astra',     colour: 'Red',    registeredKeeper: 'G. Mbeki',       taxStatus: 'Untaxed', motStatus: 'Expired', insuranceStatus: 'Uninsured', markers: ['STOLEN: do not stop, follow'], stolen: true },
   { vrm: 'TN18ABX', make: 'Skoda',       model: 'Octavia',   colour: 'Grey',   registeredKeeper: 'W. Kowalski',    taxStatus: 'Taxed',   motStatus: 'Valid',   insuranceStatus: 'Insured',   markers: [],                         stolen: false },
 ];
 
 const PERSONS = [
   { forename: 'Aaron',    surname: 'Whitfield',   dob: '1994-03-12', address: '14 Bermondsey Street, London SE1',        warningMarkers: [],                              wanted: false },
-  { forename: 'Rita',     surname: 'Okafor',      dob: '1988-11-02', address: '5 Deptford High Street, London SE8',       warningMarkers: ['Alerts — mental health'],      wanted: false },
+  { forename: 'Rita',     surname: 'Okafor',      dob: '1988-11-02', address: '5 Deptford High Street, London SE8',       warningMarkers: ['Alerts: mental health'],      wanted: false },
   { forename: 'Marta',    surname: 'Petrova',     dob: '1996-07-21', address: '22 Hackney Road, London E2',               warningMarkers: ['Violence'],                    wanted: true  },
   { forename: 'Simran',   surname: 'Kaur',        dob: '2000-01-30', address: '9 Southall Broadway, London UB1',          warningMarkers: [],                              wanted: false },
   { forename: 'Tobi',     surname: 'Nkemelu',     dob: '1991-05-16', address: '31 Peckham Rye, London SE15',              warningMarkers: ['Drugs'],                       wanted: false },
@@ -38,7 +38,7 @@ const PERSONS = [
   { forename: 'Peter',    surname: 'Adeyemi',     dob: '1979-06-25', address: '47 Brixton Hill, London SW2',              warningMarkers: [],                              wanted: false },
   { forename: 'Luca',     surname: 'Marchetti',   dob: '1990-02-14', address: '8 Clerkenwell Road, London EC1',           warningMarkers: ['Wanted on recall to prison'],  wanted: true  },
   { forename: 'Jack',     surname: "O'Sullivan",  dob: '1997-08-19', address: '60 Kilburn High Road, London NW6',         warningMarkers: [],                              wanted: false },
-  { forename: 'Bilal',    surname: 'Haddad',      dob: '1993-04-27', address: '11 Whitechapel Road, London E1',           warningMarkers: ['Alerts — self-harm'],          wanted: false },
+  { forename: 'Bilal',    surname: 'Haddad',      dob: '1993-04-27', address: '11 Whitechapel Road, London E1',           warningMarkers: ['Alerts: self-harm'],          wanted: false },
   { forename: 'Nadia',    surname: 'Ellison',     dob: '1986-10-10', address: '3 Greenwich Church Street, London SE10',   warningMarkers: [],                              wanted: false },
   { forename: 'Femi',     surname: 'Delacroix',   dob: '2001-03-03', address: '25 Dalston Lane, London E8',               warningMarkers: ['Drugs'],                       wanted: false },
   { forename: 'Harriet',  surname: 'Ashcombe',    dob: '1975-07-07', address: 'The Coach House, Richmond Hill, TW10',     warningMarkers: ['Firearms certificate holder'], wanted: false },
@@ -46,7 +46,7 @@ const PERSONS = [
   { forename: 'George',   surname: 'Mbeki',       dob: '1992-11-29', address: '16 Tottenham High Road, London N17',       warningMarkers: ['Violence', 'Fails to stop'],   wanted: true  },
   { forename: 'Wiktor',   surname: 'Kowalski',    dob: '1984-05-05', address: '7 Ealing Broadway, London W5',             warningMarkers: [],                              wanted: false },
   { forename: 'Amara',    surname: 'Boateng',     dob: '1998-09-22', address: '19 Lewisham Way, London SE4',              warningMarkers: [],                              wanted: false },
-  { forename: 'Sofia',    surname: 'Ricci',       dob: '1995-06-30', address: '12 Islington Green, London N1',            warningMarkers: ['Alerts — missing person history'], wanted: false },
+  { forename: 'Sofia',    surname: 'Ricci',       dob: '1995-06-30', address: '12 Islington Green, London N1',            warningMarkers: ['Alerts: missing person history'], wanted: false },
   { forename: 'Callum',   surname: 'Fraser',      dob: '1983-02-11', address: '9 Wandsworth High Street, London SW18',    warningMarkers: [],                              wanted: false },
 ];
 

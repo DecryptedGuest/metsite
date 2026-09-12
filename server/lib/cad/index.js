@@ -114,7 +114,7 @@ async function actOnScene({ callsign, discordUserId, ref = null }) {
 }
 async function actUpdate({ ref, message, callsign = null }) {
   const r = await services.dispatch.updateIncident({ ref, message, callsign });
-  if (r.ok) await transmit(`${r.incident.cadRef}, control, update noted — ${message}.`);
+  if (r.ok) await transmit(`${r.incident.cadRef}, control, update noted: ${message}.`);
   return r;
 }
 async function actClose({ ref, outcome }) {
@@ -235,7 +235,7 @@ async function status() {
   } else if (mode === 'gateway') {
     const gs = gateway.getState();
     wh = gs.health || (gs.connected ? { ok: true, connected: false } : null);
-    if (!gs.connected) wh = { ok: false, error: 'voice worker not connected yet — deploy it and it will dial in.' };
+    if (!gs.connected) wh = { ok: false, error: 'voice worker not connected yet. Deploy it and it will dial in.' };
     workerInfo = { enabled: true, transport: 'websocket', connected: gs.connected, lastSeenAt: gs.lastSeenAt, health: gs.health };
   }
   const external = mode !== 'inprocess';
@@ -267,12 +267,12 @@ async function setVoiceChannel(guildId, channelId) {
   // HTTP worker mode: the Fly.io worker owns the actual voice connection.
   if (mode === 'worker') {
     const r = await worker.join(String(guildId), String(channelId));
-    if (r.ok) return { ok: true, joined: !!r.connected, note: r.connected ? undefined : (r.error || 'Saved — worker is connecting.') };
+    if (r.ok) return { ok: true, joined: !!r.connected, note: r.connected ? undefined : (r.error || 'Saved. The worker is connecting.') };
     return { ok: true, joined: false, note: r.error ? ('Saved, but the voice worker said: ' + r.error) : 'Saved, but could not reach the voice worker.' };
   }
   // Gateway mode: push a join to the worker that dialled in.
   if (mode === 'gateway') {
-    if (!gateway.hasWorker()) return { ok: true, joined: false, note: 'Saved. Waiting for the voice worker to connect — check it is deployed and running.' };
+    if (!gateway.hasWorker()) return { ok: true, joined: false, note: 'Saved. Waiting for the voice worker to connect, so check it is deployed and running.' };
     gateway.join(String(guildId), String(channelId));
     return { ok: true, joined: true, note: 'Sent to the voice worker.' };
   }
