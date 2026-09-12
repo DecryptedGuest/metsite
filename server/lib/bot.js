@@ -1394,7 +1394,15 @@ async function removeRole(discordUserId, roleId) {
 // asking somebody to hunt down every id before a blacklist behaves properly is
 // how it ends up never being set. Names are normalised first: real role names
 // carry decoration, and "✅ Verified" and "🇬🇧 British Citizen" have to match.
-const DEFAULT_KEEP_ROLE_NAMES = ['verified', 'british citizen', 'citizen'];
+// Plurals and the common "Verified Member" spelling are here because the name a
+// server actually uses is not something we get to choose, and the failure is
+// silent: the role goes, nobody sees why, and it is annoying to undo. No MET
+// rank is called any of these, so widening the net costs nothing.
+const DEFAULT_KEEP_ROLE_NAMES = [
+  'verified', 'verified member', 'verified members',
+  'british citizen', 'british citizens',
+  'citizen', 'citizens',
+];
 
 function normaliseRoleName(name) {
   return String(name || '').toLowerCase()
@@ -1410,7 +1418,7 @@ function keptRoleNames() {
 }
 
 async function stripMetRoles(discordUserId, opts = {}) {
-  const out = { ok: false, removed: 0, kept: 0, skipped: 0, keptNames: [], guilds: [] };
+  const out = { ok: false, removed: 0, kept: 0, skipped: 0, keptNames: [], removedNames: [], guilds: [] };
   if (!ready) { console.warn('Bot not ready · cannot strip roles'); return out; }
   const keep = new Set((opts.keepRoleIds || []).filter(Boolean).map(String));
   // The identity roles, by id where one is configured and by name always.
@@ -1437,6 +1445,8 @@ async function stripMetRoles(discordUserId, opts = {}) {
         }
         if (role.managed || role.position >= myTop) { g.skipped++; continue; } // the bot cannot touch these
         remove.push(role.id);
+        // Recorded so "why did it take that one" has an answer afterwards.
+        if (out.removedNames.length < 60) out.removedNames.push(role.name);
       }
       if (remove.length) await member.roles.remove(remove, reason);
       g.removed = remove.length;
