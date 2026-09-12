@@ -147,7 +147,7 @@ Buttons appear on a pass only. On a fail or a removal there is nothing to
 action, so the embed carries no buttons.
 
 * `Approve and rank` ranks the trainee to the MET entry rank
-* `Reject` marks it not actioned
+* `Reject` records it as rejected and names who did it
 
 Both are gated to role `1426660644093952281`, or Instructor and above in the
 HPC group, or a portal developer. The HPC group id comes from the portal's own
@@ -176,17 +176,30 @@ Add `c` and `t` yourself if you would rather the portal pre allocated.
 
 ## 7. Environment
 
-Nothing is required. Every value below has a working default.
+Two of these decide whether the feature does anything visible. The rest have
+working defaults.
 
 ```
 AUTOMATED_TRYOUT_LOG_CHANNEL_ID=   falls back to HPC_TRYOUT_LOG_CHANNEL_ID
+ROBLOX_COOKIE=                     a MET group cookie
 TRYOUT_RANKER_ROLE_ID=             defaults to 1426660644093952281
 HPC_INSTRUCTOR_MIN_RANK=           defaults to 100
 MET_ENTRY_RANK_NAME=               defaults to PCSO
 MET_CREST_URL=                     no thumbnail when unset
 TRYOUT_JOIN_PLACE_ID=              defaults to 111602481402239
-ROBLOX_COOKIE=                     without it the pending half of metPending is null
+TRYOUT_HOST_ABSENCE_MINUTES=       defaults to 20
 ```
+
+With no log channel set, in either variable, the tryout is still recorded and
+the response says `logged: false` with the reason, but no embed and no buttons
+appear anywhere. That reads exactly like the feature being broken, so set it
+first.
+
+The group cookie does two jobs. Without it the join request half of
+`metPending` cannot be read, so a trainee who has applied but not been accepted
+comes back `null` rather than `false` and stays eligible. And `Approve and rank`
+cannot move anybody: it answers with the reason, records nothing, and leaves the
+buttons live so it can be pressed again once the cookie is set.
 
 ## 8. Migrations
 
