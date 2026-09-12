@@ -119,6 +119,13 @@ router.post('/submit', async (req, res) => {
 
   const flags = hpcExam.computeFlags(clean, detection || {});
 
+  // The telemetry blob is whatever the page sends, so it is bounded before it
+  // is stored. Answers are already capped at 5000 characters each.
+  let telemetry = detection && typeof detection === 'object' ? detection : {};
+  if (JSON.stringify(telemetry).length > 200000) {
+    telemetry = { truncated: true, blurCount: telemetry.blurCount, blurMs: telemetry.blurMs, totalMs: telemetry.totalMs };
+  }
+
   try {
     const sub = await prisma.hpcExamSubmission.create({
       data: {
@@ -127,12 +134,36 @@ router.post('/submit', async (req, res) => {
         discordUsername: req.user.discordUsername,
         robloxUsername:  req.user.robloxUsername || clean.roblox_username || null,
         answers:         clean,
-        detection:       detection || {},
+        detection:       telemetry,
         flags,
         maxScore:        hpcExam.totalPoints(),
         status:          'PENDING',
       },
     });
+    // Two submissions can pass the check above at the same time (a double click
+    // on a slow connection is enough), and there is no unique index to stop the
+    // second insert. Rather than leave a cadet with two exams awaiting marking,
+    // the one that came second stands itself down. The comparison is a total
+    // order, createdAt then id, so exactly one survives even when both rows land
+    // on the same timestamp.
+    const earlier = await prisma.hpcExamSubmission.findFirst({
+      where: {
+        userId: req.user.id,
+        id: { not: sub.id },
+        status: 'PENDING',
+        OR: [
+          { createdAt: { lt: sub.createdAt } },
+          { createdAt: sub.createdAt, id: { lt: sub.id } },
+        ],
+      },
+      select: { id: true },
+    }).catch(() => null);
+
+    if (earlier) {
+      await prisma.hpcExamSubmission.delete({ where: { id: sub.id } }).catch(() => {});
+      return res.status(409).json({ error: 'You already have an exam awaiting marking.' });
+    }
+
     try {
       require('../lib/audit').record({
         req, action: 'EXAM_SUBMIT', category: 'exam', targetType: 'submission', targetId: sub.id,
