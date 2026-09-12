@@ -49,7 +49,8 @@ router.post('/request', async (req, res) => {
     if (!elig.ok || !elig.eligible) {
       return res.status(403).json({ ok: false, error: 'You are not eligible right now.', reasons: elig.reasons || [] });
     }
-    const division = String(req.body && req.body.division ? req.body.division : 'HPC').toUpperCase();
+    const asked = String(req.body && req.body.division ? req.body.division : 'HPC').toUpperCase();
+    const division = ['HPC', 'CID'].includes(asked) ? asked : 'HPC';
     res.json({
       ok: true,
       placeId: PLACE_ID(),

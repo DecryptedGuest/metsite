@@ -49,12 +49,18 @@
 
   <script src="/js/ui.js"></script>
   <script>
+    var esc = window.escapeHtml || function (v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+      });
+    };
+
     function row(state, title, sub) {
       var icon = state === true ? '<i class="ti ti-circle-check ok"></i>'
                : state === false ? '<i class="ti ti-circle-x no"></i>'
                : '<i class="ti ti-help-circle un"></i>';
-      return '<div class="check">' + icon + '<div><div class="check-t">' + title + '</div>'
-           + (sub ? '<div class="check-s">' + sub + '</div>' : '') + '</div></div>';
+      return '<div class="check">' + icon + '<div><div class="check-t">' + esc(title) + '</div>'
+           + (sub ? '<div class="check-s">' + esc(sub) + '</div>' : '') + '</div></div>';
     }
 
     async function load() {
@@ -64,7 +70,7 @@
       try { d = await (await fetch('/api/tryout/me')).json(); }
       catch (e) { panel.innerHTML = '<div style="padding:24px;">Could not load this just now. Try again shortly.</div>'; return; }
 
-      if (!d.ok && d.error) { panel.innerHTML = '<div style="padding:24px;">' + d.error + '</div>'; return; }
+      if (!d.ok && d.error) { panel.innerHTML = '<div style="padding:24px;">' + esc(d.error) + '</div>'; return; }
 
       var c = d.checks || {};
       var html = '<div style="padding:6px 20px;">';
@@ -85,7 +91,7 @@
 
       if (d.reasons && d.reasons.length) {
         var ul = '<ul class="reasons" style="list-style:none;padding-left:17px;">';
-        d.reasons.forEach(function (r) { ul += '<li>' + r + '</li>'; });
+        d.reasons.forEach(function (r) { ul += '<li>' + esc(r) + '</li>'; });
         panel.insertAdjacentHTML('afterend', ul + '</ul>');
       }
 
