@@ -44,10 +44,15 @@ GET /api/game/tryout/eligibility?userId=<robloxUserId>
     "multiAccount": false,
     "multiAccountDetail": null
   },
-  "undetermined": ["metPending"],
+  "undetermined": [],
   "reasons": []
 }
 ```
+
+A trainee who has linked Discord but is not in the MET group yet, on a portal
+with no group cookie set, gets the same shape with `"metPending": null`,
+`"undetermined": ["metPending"]`, `"eligible": true` and no reasons: we cannot
+see their join request, so we do not turn them away over it.
 
 `reasons` is plain English and safe to show verbatim.
 
@@ -55,15 +60,25 @@ What is genuinely determinable:
 
 | check | determinable | how |
 |---|---|---|
-| discordLinked | always | portal records plus a RoVer reverse lookup |
+| discordLinked | when the portal database answers | portal records plus a RoVer reverse lookup |
 | blacklisted | always | cases, MET punishments and account flags, resolved across every Discord account linked to the Roblox id |
-| metPending, accepted half | always | public group membership |
-| metPending, pending half | only with a group cookie | join requests need `ROBLOX_COOKIE`. Without it this half is `null` |
-| multiAccount | always | see below |
+| metPending | group membership always, join requests only with a group cookie | public group membership, plus the MET join request list when `ROBLOX_COOKIE` is set |
+| multiAccount | when the portal database answers | see below |
 
-`undetermined` lists any check that came back `null`, so you can decide per
-check whether to block or warn. `metPending` is `null` only when both halves
-fail, which means the Roblox API was unreachable.
+Every check is three valued: `true`, `false`, or `null` for "could not tell".
+`undetermined` lists the key of each check that came back `null`, using the same
+names as `checks`, so `undetermined` and `checks` can never disagree and
+`undetermined.includes("metPending")` means exactly `checks.metPending == nil`.
+
+`metPending` is `true` if the trainee is in the MET group or has a pending join
+request, `false` only when both halves definitively say no, and `null`
+otherwise. With no `ROBLOX_COOKIE` set, a trainee who is not yet in the group
+reads as `null`, never `false`: we cannot see join requests without the cookie,
+so we do not claim they have none.
+
+`discordLinked` is `false` only when the portal database answered and held no
+link. If that lookup fails, it is `null` rather than `false`, because a database
+blip must not send a correctly linked trainee away to re-link.
 
 `eligible` is computed so that `null` never fails a trainee. It is true unless
 something is definitely wrong.
@@ -74,6 +89,9 @@ something is definitely wrong.
 
 * this Roblox account is linked to more than one Discord account
 * the Discord account linked here is also linked to another Roblox account
+
+It is `false` when both lookups ran and found nothing, and `null` when a lookup
+failed, so a clean account and an unreadable one stay distinguishable.
 
 `multiAccountDetail` is a sentence naming which. It never affects `eligible`,
 it travels through to the tryout log as a flag, and a human decides.
@@ -99,6 +117,11 @@ offline. The record is still stored, so nothing is lost.
 
 Rejected with 400: a missing `attendee.userId`, or a `result` that is not
 `passed`, `failed` or `kicked`.
+
+`startedAt` and `endedAt` accept an ISO string, epoch seconds (what `os.time()`
+gives you) or epoch milliseconds, as a number or a string. Anything unreadable
+is stored as null and the embed shows the time as unknown: a stamp we cannot
+parse never costs you the record it came with.
 
 ## 5. The log embed
 

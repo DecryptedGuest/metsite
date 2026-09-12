@@ -7,30 +7,32 @@ const MET_GROUP = () => String(process.env.GROUP_MET || '17275620');
 function nullable(v) { return v === undefined ? null : v; }
 
 async function linkedAccounts(robloxId) {
-  const out = { users: [], viaRover: [] };
+  const out = { users: [], viaRover: [], portalOk: false, roverOk: false };
   try {
     out.users = await prisma.user.findMany({
       where: { robloxId: String(robloxId) },
       select: { id: true, discordId: true, discordUsername: true, robloxUsername: true },
     });
+    out.portalOk = true;
   } catch (e) { out.users = []; }
   try {
     const { getDiscordFromRoblox } = require('./roblox');
     const m = await getDiscordFromRoblox(String(robloxId));
     out.viaRover = Array.isArray(m) ? m.map(x => String(x.discordId || x.id)).filter(Boolean) : [];
+    out.roverOk = true;
   } catch (e) { out.viaRover = []; }
   return out;
 }
 
 async function otherRobloxOnSameDiscord(discordIds, robloxId) {
-  if (!discordIds.length) return [];
+  if (!discordIds.length) return { rows: [], ok: true };
   try {
     const rows = await prisma.user.findMany({
       where: { discordId: { in: discordIds }, robloxId: { not: null } },
       select: { discordId: true, robloxId: true, robloxUsername: true },
     });
-    return rows.filter(r => String(r.robloxId) !== String(robloxId));
-  } catch (e) { return []; }
+    return { rows: rows.filter(r => String(r.robloxId) !== String(robloxId)), ok: true };
+  } catch (e) { return { rows: [], ok: false }; }
 }
 
 async function metStanding(robloxId) {
@@ -102,12 +104,17 @@ async function checkEligibility(robloxUserId, opts = {}) {
     ...links.viaRover,
   ].filter(Boolean))];
 
-  const discordLinked = discordIds.length > 0;
+  const discordLinked = discordIds.length > 0 ? true
+                      : links.portalOk ? false
+                      : null;
 
-  const otherRoblox = await otherRobloxOnSameDiscord(discordIds, robloxId);
+  const others = await otherRobloxOnSameDiscord(discordIds, robloxId);
+  const otherRoblox = others.rows;
   const manyDiscord = discordIds.length > 1;
   const manyRoblox  = otherRoblox.length > 0;
-  const multiAccount = (manyDiscord || manyRoblox) || null;
+  const multiAccount = (manyDiscord || manyRoblox) ? true
+                     : (links.portalOk && others.ok) ? false
+                     : null;
 
   let multiAccountDetail = null;
   if (manyDiscord && manyRoblox) {
@@ -119,11 +126,12 @@ async function checkEligibility(robloxUserId, opts = {}) {
     multiAccountDetail = `The Discord account linked here is also linked to another Roblox account (${names}).`;
   }
 
-  const metPending = met.pending === null && met.accepted === null ? null
-                   : !!(met.pending || met.accepted);
+  const metPending = (met.accepted === true || met.pending === true) ? true
+                   : (met.accepted === false && met.pending === false) ? false
+                   : null;
 
   const reasons = [];
-  if (!discordLinked) {
+  if (discordLinked === false) {
     reasons.push('You have not linked a Discord account to the portal yet. Sign in at the portal once, then try again.');
   }
   if (metPending === false) {
@@ -133,7 +141,7 @@ async function checkEligibility(robloxUserId, opts = {}) {
     reasons.push('You are blacklisted from the MET. You cannot attend a tryout.');
   }
 
-  const eligible = discordLinked && metPending !== false && bl.blacklisted !== true;
+  const eligible = discordLinked !== false && metPending !== false && bl.blacklisted !== true;
 
   return {
     ok: true,
@@ -148,9 +156,10 @@ async function checkEligibility(robloxUserId, opts = {}) {
       multiAccountDetail,
     },
     undetermined: [
-      met.accepted === null ? 'metAccepted' : null,
-      met.pending === null ? 'metPending' : null,
+      discordLinked === null ? 'discordLinked' : null,
+      metPending === null ? 'metPending' : null,
       bl.blacklisted === null ? 'blacklisted' : null,
+      multiAccount === null ? 'multiAccount' : null,
     ].filter(Boolean),
     reasons,
   };

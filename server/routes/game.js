@@ -78,6 +78,22 @@ function requireGameSecret(req, res, next) {
 // (body) or ?division=CID (query); default HPC. HPC and CID never resolve to
 // each other's rows.
 function normDivision(v) { const d = String(v || '').toUpperCase(); return (d === 'CID' || d === 'SCO19') ? d : 'HPC'; }
+
+// Timestamps off the game arrive as ISO strings, but Lua's os.time() gives epoch
+// SECONDS, and either can come through as a number or a string. Anything Prisma
+// would reject becomes null: a stamp we cannot read must not throw away the whole
+// record it was attached to.
+function gameDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return Number.isFinite(v.getTime()) ? v : null;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 0) {
+    const d = new Date(n > 1e11 ? n : n * 1000);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  const d = new Date(String(v));
+  return Number.isFinite(d.getTime()) ? d : null;
+}
 function reqDivision(req) { return normDivision((req.body && req.body.division) || req.query.division); }
 
 // Resolve which tryout the callback refers to, scoped to its division:
@@ -605,27 +621,39 @@ router.post('/tryout/automated', requireGameSecret, async (req, res) => {
       if (seen) return res.status(200).json({ ok: true, id: seen.id, existing: true });
     }
 
-    const row = await prisma.automatedTryout.create({ data: {
-      gameSessionId:    sessionId ? String(sessionId) : null,
-      tryoutId:         body.tryoutId ? String(body.tryoutId) : null,
-      division:         String(body.division || 'HPC').toUpperCase(),
-      hostName:         (body.host && body.host.name) ? String(body.host.name).slice(0, 40) : 'INSTRUCTOR',
-      coHostName:       body.coHost && body.coHost.name ? String(body.coHost.name).slice(0, 40) : null,
-      attendeeRobloxId: String(a.userId),
-      attendeeName:     String(a.username || a.userId).slice(0, 40),
-      result:           String(a.result).toLowerCase(),
-      strikes:          Number.isFinite(Number(a.strikes)) ? Number(a.strikes) : 0,
-      quizScore:        Number.isFinite(Number(a.quizScore)) ? Number(a.quizScore) : null,
-      quizTotal:        Number.isFinite(Number(a.quizTotal)) ? Number(a.quizTotal) : null,
-      flags:            Array.isArray(a.flags) && a.flags.length ? a.flags.join(',') : null,
-      placeId:          body.placeId ? String(body.placeId) : null,
-      privateServerId:  body.privateServerId ? String(body.privateServerId) : null,
-      startedAt:        body.startedAt ? new Date(body.startedAt) : null,
-      endedAt:          body.endedAt ? new Date(body.endedAt) : null,
-      payload:          JSON.stringify(body).slice(0, 20000),
-    } });
+    let row;
+    try {
+      row = await prisma.automatedTryout.create({ data: {
+        gameSessionId:    sessionId ? String(sessionId) : null,
+        tryoutId:         body.tryoutId ? String(body.tryoutId) : null,
+        division:         String(body.division || 'HPC').toUpperCase(),
+        hostName:         (body.host && body.host.name) ? String(body.host.name).slice(0, 40) : 'INSTRUCTOR',
+        coHostName:       body.coHost && body.coHost.name ? String(body.coHost.name).slice(0, 40) : null,
+        attendeeRobloxId: String(a.userId),
+        attendeeName:     String(a.username || a.userId).slice(0, 40),
+        result:           String(a.result).toLowerCase(),
+        strikes:          Number.isFinite(Number(a.strikes)) ? Number(a.strikes) : 0,
+        quizScore:        Number.isFinite(Number(a.quizScore)) ? Number(a.quizScore) : null,
+        quizTotal:        Number.isFinite(Number(a.quizTotal)) ? Number(a.quizTotal) : null,
+        flags:            Array.isArray(a.flags) && a.flags.length ? a.flags.join(',') : null,
+        placeId:          body.placeId ? String(body.placeId) : null,
+        privateServerId:  body.privateServerId ? String(body.privateServerId) : null,
+        startedAt:        gameDate(body.startedAt),
+        endedAt:          gameDate(body.endedAt),
+        payload:          JSON.stringify(body).slice(0, 20000),
+      } });
+    } catch (err) {
+      // Two retries of the same submission can both pass the check above and
+      // race into the insert. The unique index on gameSessionId is what settles
+      // it, so treat the loser exactly like the duplicate it is.
+      if (err && err.code === 'P2002' && sessionId) {
+        const seen = await prisma.automatedTryout.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
+        if (seen) return res.status(200).json({ ok: true, id: seen.id, existing: true });
+      }
+      throw err;
+    }
 
-    const posted = await require('../lib/automatedTryout').post({ ...body, id: row.id });
+    const posted = await require('../lib/automatedTryout').post(row, body);
     if (posted.posted) {
       await prisma.automatedTryout.update({
         where: { id: row.id },
@@ -635,6 +663,7 @@ router.post('/tryout/automated', requireGameSecret, async (req, res) => {
 
     res.status(201).json({ ok: true, id: row.id, logged: !!posted.posted, why: posted.why || null });
   } catch (err) {
+    console.error('[Game] automated tryout failed:', err.message);
     res.status(500).json({ ok: false, error: 'Could not record the tryout.' });
   }
 });
@@ -646,6 +675,7 @@ router.get('/tryout/eligibility', requireGameSecret, async (req, res) => {
     if (!out.ok) return res.status(400).json(out);
     res.json(out);
   } catch (err) {
+    console.error('[Game] eligibility check failed:', err.message);
     res.status(500).json({ ok: false, error: 'Eligibility check failed.' });
   }
 });
@@ -672,7 +702,7 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
       automated:         npc,
       hostKind:          npc ? 'npc' : 'human',
       coHostName:        coHost.username || coHost.name || null,
-      scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
+      scheduledAt:       gameDate(body.startedAt) || new Date(),
       status:            'LIVE',
       lockState:         parseLockState(body) || 'UNLOCKED', // reflect the real state now (default: open)
       suppressPings:     tryoutTestMode() && !!body.suppressPings, // test mode disabled → always ping

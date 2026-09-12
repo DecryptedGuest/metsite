@@ -25,9 +25,39 @@ function safe(v, max) {
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
-function stamp(iso) {
-  const t = iso ? Date.parse(iso) : NaN;
+function stamp(v) {
+  const t = v instanceof Date ? v.getTime() : (v ? Date.parse(v) : NaN);
   return Number.isFinite(t) ? `<t:${Math.floor(t / 1000)}:f>` : 'unknown';
+}
+
+function parseJson(text) {
+  try { const o = JSON.parse(text || '{}'); return (o && typeof o === 'object') ? o : {}; }
+  catch (e) { return {}; }
+}
+
+function viewFromRow(row, payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const pa = (p.attendee && typeof p.attendee === 'object') ? p.attendee : {};
+  return {
+    id: row.id,
+    division: row.division,
+    hostName: row.hostName,
+    coHostName: row.coHostName,
+    startedAt: row.startedAt,
+    endedAt: row.endedAt,
+    attendee: {
+      userId: row.attendeeRobloxId,
+      username: row.attendeeName,
+      result: row.result,
+      strikes: row.strikes,
+      quizScore: row.quizScore,
+      quizTotal: row.quizTotal,
+      flags: Array.isArray(pa.flags) ? pa.flags
+           : (row.flags ? String(row.flags).split(',').map(f => f.trim()).filter(Boolean) : []),
+      strikeReasons: Array.isArray(pa.strikeReasons) ? pa.strikeReasons : [],
+      failReason: pa.failReason || null,
+    },
+  };
 }
 
 function buildEmbed(row, actioned) {
@@ -66,7 +96,7 @@ function buildEmbed(row, actioned) {
   }
 
   if (CREST()) e.setThumbnail(CREST());
-  e.setFooter({ text: 'Automated tryout · hosted by the instructor' });
+  e.setFooter({ text: 'Automated tryout' });
   e.setTimestamp(new Date());
   return e;
 }
@@ -99,19 +129,20 @@ async function mayRank(interaction) {
   return false;
 }
 
-async function post(row) {
+async function post(row, payload) {
+  const view = payload === undefined ? row : viewFromRow(row, payload);
   const bot = require('./bot');
   const channelId = LOG_CHANNEL();
   if (!channelId) return { posted: false, why: 'no automated tryout log channel is configured' };
   const client = bot.getClient && bot.getClient();
   if (!client) return { posted: false, why: 'the bot is not connected' };
 
-  const passed = String(row.attendee && row.attendee.result).toLowerCase() === 'passed';
+  const passed = String(view.attendee && view.attendee.result).toLowerCase() === 'passed';
   try {
     const ch = await client.channels.fetch(channelId);
     const msg = await ch.send({
-      embeds: [buildEmbed(row, null)],
-      components: passed ? [buildRow(row.id, false)] : [],
+      embeds: [buildEmbed(view, null)],
+      components: passed ? [buildRow(view.id, false)] : [],
     });
     return { posted: true, messageId: msg.id, channelId };
   } catch (e) {
@@ -149,6 +180,33 @@ async function handleButton(interaction) {
 
   await interaction.deferUpdate().catch(() => {});
 
+  const claim = await prisma.automatedTryout.updateMany({
+    where: { id: logId, actionedById: null },
+    data: {
+      actionedById: String(interaction.user.id),
+      actionedAt: new Date(),
+      actionKind: approve ? 'approve' : 'reject',
+    },
+  }).catch(() => null);
+
+  if (!claim) {
+    await interaction.followUp({
+      content: 'Could not record that just now. Nothing was changed, so please try again.',
+      flags: 64,
+    }).catch(() => {});
+    return true;
+  }
+  if (claim.count !== 1) {
+    const now = await prisma.automatedTryout.findUnique({ where: { id: logId } }).catch(() => null);
+    await interaction.followUp({
+      content: now && now.actionedById
+        ? `Already actioned by <@${now.actionedById}>.`
+        : 'That tryout record no longer exists.',
+      flags: 64,
+    }).catch(() => {});
+    return true;
+  }
+
   let note = null;
   if (approve) {
     try {
@@ -162,6 +220,10 @@ async function handleButton(interaction) {
       if (r && r.ok === false) throw new Error(r.reason || 'the rank change was rejected');
       note = `Ranked to ${role.name}.`;
     } catch (e) {
+      await prisma.automatedTryout.updateMany({
+        where: { id: logId, actionedById: String(interaction.user.id) },
+        data: { actionedById: null, actionedAt: null, actionKind: null },
+      }).catch(() => {});
       await interaction.followUp({
         content: `Could not rank them: ${e.message}. Nothing was recorded, so you can try again.`,
         flags: 64,
@@ -170,19 +232,10 @@ async function handleButton(interaction) {
     }
   }
 
-  const saved = await prisma.automatedTryout.update({
-    where: { id: logId },
-    data: {
-      actionedById: String(interaction.user.id),
-      actionedAt: new Date(),
-      actionKind: approve ? 'approve' : 'reject',
-    },
-  }).catch(() => null);
-
-  const payload = saved ? JSON.parse(saved.payload || '{}') : JSON.parse(row.payload || '{}');
-  payload.id = logId;
+  const saved = await prisma.automatedTryout.findUnique({ where: { id: logId } }).catch(() => null);
+  const view = viewFromRow(saved || row, parseJson((saved || row).payload));
   await interaction.message.edit({
-    embeds: [buildEmbed(payload, { kind: approve ? 'approve' : 'reject', byId: interaction.user.id, reason: note })],
+    embeds: [buildEmbed(view, { kind: approve ? 'approve' : 'reject', byId: interaction.user.id, reason: note })],
     components: [buildRow(logId, true)],
   }).catch(() => {});
 
@@ -193,4 +246,4 @@ async function handleButton(interaction) {
   return true;
 }
 
-module.exports = { post, handleButton, buildEmbed, buildRow, LOG_CHANNEL };
+module.exports = { post, handleButton, buildEmbed, buildRow, viewFromRow, LOG_CHANNEL };
