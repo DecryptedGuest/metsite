@@ -200,11 +200,20 @@ async function blacklistStanding(robloxId, username) {
     const { gatherRecord } = require('./evasion');
     const rec = await gatherRecord({ robloxId: String(robloxId), robloxUsername: username || null });
     const sources = (rec && rec.blacklistSources) || [];
-    return {
-      blacklisted: sources.length > 0,
-      reason: sources.length ? (sources[0].reason || sources[0].ref || null) : null,
-      linkedDiscordIds: (rec && rec.otherAccounts) || [],
-    };
+    if (sources.length) {
+      return {
+        blacklisted: true,
+        reason: sources[0].reason || sources[0].ref || null,
+        linkedDiscordIds: (rec && rec.otherAccounts) || [],
+      };
+    }
+    // No sources found is only a clean record if every lookup actually ran.
+    // gatherRecord never throws, it degrades, so the outer catch below would
+    // never have seen this.
+    if (rec && Array.isArray(rec.degraded) && rec.degraded.length) {
+      return { blacklisted: null, reason: null, linkedDiscordIds: (rec && rec.otherAccounts) || [] };
+    }
+    return { blacklisted: false, reason: null, linkedDiscordIds: (rec && rec.otherAccounts) || [] };
   } catch (e) {
     return { blacklisted: null, reason: null, linkedDiscordIds: [] };
   }
@@ -276,8 +285,16 @@ async function checkEligibility(robloxUserId, opts = {}) {
   if (bl.blacklisted === true) {
     reasons.push('You are blacklisted from the MET. You cannot attend a tryout.');
   }
+  if (bl.blacklisted === null) {
+    reasons.push('We could not check the blacklist just now. Try again shortly.');
+  }
 
-  const eligible = inMetServer !== false && metPending !== false && bl.blacklisted !== true;
+  // The blacklist is the one check that fails CLOSED. Everywhere else an
+  // unknown answer waves somebody through, because turning away a legitimate
+  // trainee over a database blip is the worse outcome. Here it is the other way
+  // round: letting a blacklisted person into a tryout is the exact harm this
+  // check exists to prevent, so it has to be a definite no before we say yes.
+  const eligible = inMetServer !== false && metPending !== false && bl.blacklisted === false;
 
   return {
     ok: true,

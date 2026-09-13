@@ -110,3 +110,32 @@ test('undetermined names exactly the checks that came back null', async () => {
     .map(([k]) => k);
   assert.deepEqual(r.undetermined.slice().sort(), nulls.sort());
 });
+
+test('a blacklist check that could not run refuses rather than waving them through', async () => {
+  // The one check that fails CLOSED. gatherRecord degrades rather than throwing,
+  // so an unreadable case table used to come back as "no sources found" and
+  // therefore "not blacklisted", which is the same answer a clean account gets.
+  reset({ portalUsers: LINKED, groupRole: { id: 55, rank: 1, name: 'PCSO' }, blacklistDegraded: ['cases'] });
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
+  assert.equal(r.checks.blacklisted, null, 'unreadable is not the same as clean');
+  assert.equal(r.eligible, false, 'a tryout must not admit somebody whose blacklist was never checked');
+  assert.ok(r.undetermined.includes('blacklisted'));
+  assert.match(r.reasons.join(' '), /could not check the blacklist/);
+});
+
+test('a clean record still reads as clean', async () => {
+  reset({ portalUsers: LINKED, groupRole: { id: 55, rank: 1, name: 'PCSO' } });
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
+  assert.equal(r.checks.blacklisted, false);
+  assert.equal(r.eligible, true);
+});
+
+test('every spoken reason stays free of dashes and markup', async () => {
+  reset({ portalUsers: LINKED, groupRole: { id: 55, rank: 1, name: 'PCSO' }, blacklistDegraded: ['cases'] });
+  const degraded = (await checkEligibility(ID, { username: 'realangeloo' })).reasons;
+  reset({ portalUsers: LINKED, blacklistSources: [{ reason: 'mass exploiting' }] });
+  const listed = (await checkEligibility(ID, { username: 'realangeloo' })).reasons;
+  for (const r of [...degraded, ...listed]) {
+    assert.doesNotMatch(r, /[-–—]/, 'a spoken reason carries no dash: ' + JSON.stringify(r));
+  }
+});

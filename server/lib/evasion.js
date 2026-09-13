@@ -75,7 +75,17 @@ function caseActions(kase) {
  *                          the account that just appeared, and is what "another
  *                          account" is measured against.
  */
+function warnDegraded(which, err) {
+  console.warn(`[Evasion] the ${which} lookup failed, so this record is incomplete:`, err && err.message);
+}
+
 async function gatherRecord(subject) {
+  // Which lookups could not be read. Every source of blacklistSources is one of
+  // three arrays, and each catch used to empty its own array, so a query that
+  // threw produced "no sources found" and therefore "not blacklisted", which is
+  // the same answer a genuinely clean account gets. A caller gating access on
+  // this has to be able to tell those apart.
+  const degraded = [];
   const robloxId = subject.robloxId ? String(subject.robloxId) : null;
   const username = subject.robloxUsername || null;
   const here = subject.discordId ? String(subject.discordId) : null;
@@ -91,7 +101,7 @@ async function gatherRecord(subject) {
       });
       for (const u of users) if (u.discordId) linked.add(String(u.discordId));
       subject._users = users;
-    } catch (e) { subject._users = []; }
+    } catch (e) { subject._users = []; degraded.push('accounts'); warnDegraded('accounts', e); }
   }
 
   // 2. Cases against this identity — by Roblox id, then by username.
@@ -110,7 +120,7 @@ async function gatherRecord(subject) {
         },
         orderBy: { createdAt: 'desc' }, take: 100,
       });
-    } catch (e) { cases = []; }
+    } catch (e) { cases = []; degraded.push('cases'); warnDegraded('cases', e); }
   }
   for (const c of cases) if (c.officerDiscordId) linked.add(String(c.officerDiscordId));
 
@@ -124,7 +134,7 @@ async function gatherRecord(subject) {
         select: { discordId: true, type: true, reason: true, caseRef: true, issuedAt: true, expiresAt: true },
         orderBy: { issuedAt: 'desc' }, take: 100,
       });
-    } catch (e) { punishments = []; }
+    } catch (e) { punishments = []; degraded.push('punishments'); warnDegraded('punishments', e); }
   }
   const now = Date.now();
   punishments = punishments.filter(p => !p.expiresAt || new Date(p.expiresAt).getTime() > now);
@@ -154,6 +164,9 @@ async function gatherRecord(subject) {
     punishments,
     blacklisted: blacklistSources.length > 0,
     blacklistSources,
+    // Empty when every lookup answered. Anything in here means "not blacklisted"
+    // is not a finding, it is the absence of one.
+    degraded,
   };
 }
 

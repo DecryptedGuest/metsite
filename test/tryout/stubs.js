@@ -19,6 +19,7 @@ const state = {
   rover: [],              // RoVer reverse lookup result
   groupRole: null,        // MET group membership, null means not a member
   blacklistSources: [],
+  blacklistDegraded: [],       // which blacklist lookups could not be read
   portalThrows: false,
   roverThrows: false,
 };
@@ -26,7 +27,7 @@ const state = {
 function reset(over) {
   Object.assign(state, {
     portalUsers: [], otherRoblox: [], rover: [], groupRole: null,
-    blacklistSources: [], portalThrows: false, roverThrows: false,
+    blacklistSources: [], blacklistDegraded: [], portalThrows: false, roverThrows: false,
   }, over || {});
 }
 
@@ -54,7 +55,9 @@ function installStubs() {
 
   seed('evasion.js', {
     async gatherRecord() {
-      return { blacklistSources: state.blacklistSources, otherAccounts: [] };
+      // degraded names the lookups that could not be read. A non empty degraded
+      // means "no sources found" is the absence of an answer, not a clean one.
+      return { blacklistSources: state.blacklistSources, otherAccounts: [], degraded: state.blacklistDegraded };
     },
   });
 }
