@@ -203,6 +203,23 @@ router.post('/patrols/:id/:action', async (req, res) => {
 
     const status = action === 'approve' ? 'APPROVED' : 'DENIED';
 
+    // Claim the row BEFORE awarding anything. The status test above is a read
+    // and the button stays live while the sheet write and the XP award run, so
+    // two clicks both passed it and both paid out. Only the request that finds
+    // it still PENDING goes on.
+    const claim = await prisma.patrolLog.updateMany({
+      where: { id: p.id, status: 'PENDING' },
+      data: {
+        status,
+        reviewedById: req.user.id,
+        reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    if (!claim.count) {
+      return res.status(409).json({ error: 'This log has already been reviewed.' });
+    }
+
     // Event logs award +1 to the configured sheet(s) — EVENT_POINT_TARGET =
     // FLP (default) | MET | BOTH. Best-effort; never blocks the review.
     let pointResult = null;
@@ -212,13 +229,7 @@ router.post('/patrols/:id/:action', async (req, res) => {
 
     const updated = await prisma.patrolLog.update({
       where: { id: p.id },
-      data: {
-        status,
-        pointAwarded: !!(pointResult && pointResult.ok),
-        reviewedById: req.user.id,
-        reviewedByName: req.user.displayName || req.user.discordUsername,
-        reviewedAt: new Date(),
-      },
+      data: { pointAwarded: !!(pointResult && pointResult.ok) },
     });
 
     // XP for the people the log names — attendees on an event, the officer on a

@@ -142,15 +142,38 @@ async function awardForLog(log, approver, opts = {}) {
   if (!log) { out.skipped = 'no log'; return out; }
   if (log.xpAwarded) { out.skipped = 'already awarded'; return out; }
 
+  // Two independent paths approve a log: the button on the site and a tick on
+  // the Discord message. Both read xpAwarded and then pay, and the stamp only
+  // lands afterwards, so both could read false and both pay out. Claim it here
+  // instead, at the one point both paths go through. The stamp at the end
+  // writes the real outcome, which releases the claim if nothing was actually
+  // awarded so a later genuine attempt can still pay.
+  if (opts.persist !== false) {
+    const claim = await prisma.patrolLog
+      .updateMany({ where: { id: log.id, xpAwarded: false }, data: { xpAwarded: true } })
+      .catch(() => null);
+    if (!claim || !claim.count) { out.skipped = 'already awarded'; return out; }
+  }
+
+  // Anything that gives up after the claim has to hand it back, or a log that
+  // was never paid stays marked as paid and no later attempt can ever pay it.
+  // Only the holder is in here, so putting it back cannot tread on anybody.
+  const release = async () => {
+    if (opts.persist === false) return;
+    await prisma.patrolLog
+      .updateMany({ where: { id: log.id, xpAwarded: true }, data: { xpAwarded: false } })
+      .catch(() => {});
+  };
+
   const gate = canAward({
     roleIds: approver && approver.roleIds,
     approverId: approver && approver.id,
     log,
   });
-  if (!gate.ok) { out.skipped = gate.why; return out; }
+  if (!gate.ok) { out.skipped = gate.why; await release(); return out; }
 
   const plan = plannedAwards(log);
-  if (!plan.length) { out.skipped = 'nothing to award'; return out; }
+  if (!plan.length) { out.skipped = 'nothing to award'; await release(); return out; }
 
   for (const p of plan) {
     try {

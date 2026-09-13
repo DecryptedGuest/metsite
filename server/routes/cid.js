@@ -248,14 +248,40 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
     const data = { status: 'PENDING' };
     if (typeof notes === 'string') data.notes = notes.slice(0, 3000);
     if (typeof proof === 'string') data.proof = proof.slice(0, 500);
+    // Edits to the attendee list, NOT a replacement for it. The list on the draft
+    // came from the in game panel, which is who was actually in the server, and
+    // this used to overwrite it with whatever the browser sent. The host can
+    // still change anybody's result or strikes; they cannot add people the panel
+    // never saw. HPC has had this barrier for the same reason.
+    let rejectedAttendees = [];
     if (Array.isArray(attendees)) {
-      const clean = tryoutLogsLib.normaliseAttendees(attendees);
-      Object.assign(data, { attendees: clean, ...tryoutLogsLib.countsFor(clean) });
+      const merged = tryoutLogsLib.applyAttendeeEdits(log.attendees, attendees);
+      rejectedAttendees = merged.rejected;
+      Object.assign(data, { attendees: merged.attendees, ...tryoutLogsLib.countsFor(merged.attendees) });
     }
     const updated = await prisma.tryoutLog.update({ where: { id: log.id }, data });
+    if (rejectedAttendees.length) {
+      // Worth a record: somebody submitting names that were never in their
+      // tryout is not a typo.
+      try {
+        require('../lib/audit').record({
+          req, action: 'TRYOUT_LOG_ATTENDEE_REJECTED', category: 'cid',
+          targetType: 'tryout-log', targetId: log.id,
+          summary: `${req.user.displayName || req.user.discordUsername} submitted tryout log ${log.id} `
+                 + `with ${rejectedAttendees.length} name(s) that were not in the tryout: `
+                 + rejectedAttendees.slice(0, 20).join(', '),
+          metadata: { rejected: rejectedAttendees.slice(0, 50) },
+        });
+      } catch (e) { /* never blocks the submit */ }
+    }
     const msgId = await sendTryoutLog(updated, { event: 'submitted' }).catch(() => null);
     if (msgId) await prisma.tryoutLog.update({ where: { id: log.id }, data: { logMessageId: msgId } }).catch(() => {});
-    res.json({ success: true, status: 'PENDING', posted: !!msgId });
+    res.json({ success: true, status: 'PENDING', posted: !!msgId,
+      rejectedAttendees,
+      ...(rejectedAttendees.length ? { warning:
+        `${rejectedAttendees.length} name(s) were not in this tryout and were not added: `
+        + rejectedAttendees.slice(0, 10).join(', ')
+        + '. You can change anybody\'s result or strikes, but not add people the panel did not see.' } : {}) });
   } catch (err) {
     console.error('[CID] submit tryout log failed:', err.message);
     res.status(500).json({ error: 'Failed to submit the tryout log' });
