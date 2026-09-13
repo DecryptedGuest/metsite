@@ -612,7 +612,15 @@ router.post('/tryout/automated', requireGameSecret, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'attendee.result must be passed, failed or kicked.' });
     }
 
-    const sessionId = body.sessionId || body.privateServerId || null;
+    // The key has to identify THIS TRAINEE'S result, not the server it happened
+    // in. One reserved server runs several trainees one after another, so
+    // falling back to privateServerId alone meant the second and third came back
+    // as duplicates of the first: their results were never recorded, nobody
+    // could rank them, and the panel saw a 200 and moved on, so the loss was
+    // invisible on both sides. An explicit sessionId still wins, since the game
+    // controls its uniqueness.
+    const sessionId = body.sessionId
+      || (body.privateServerId && a.userId ? `${body.privateServerId}:${a.userId}` : null);
     if (sessionId) {
       const seen = await prisma.automatedTryout.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
       if (seen) return res.status(200).json({ ok: true, id: seen.id, existing: true });

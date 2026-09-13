@@ -163,9 +163,19 @@ A dedicated endpoint, so the existing conclude contract is untouched.
 POST /api/game/tryout/automated
 ```
 
-Body is exactly the shape in your section 5. `sessionId` is optional and
-defaults to `privateServerId` for idempotency: posting the same session twice
-returns the first record rather than double logging.
+Body is exactly the shape in your section 5.
+
+`sessionId` is optional and identifies THIS TRAINEE'S result, not the server it
+happened in. Left out, it is built from `privateServerId` and
+`attendee.userId`, because one reserved server runs several trainees one after
+another: keying on the server alone made the second and third look like retries
+of the first, so their results were never recorded, nobody could rank them, and
+the panel got a 200 either way. Posting the same trainee's result twice still
+returns the first record rather than logging it again.
+
+Send your own `sessionId` if you want a trainee to be able to sit a second
+tryout in the same reserved server, since the composed key would treat that as
+a repeat.
 
 ```json
 { "ok": true, "id": "uuid", "logged": true, "why": null }

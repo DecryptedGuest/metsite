@@ -250,7 +250,15 @@ async function resolveCoHost(coHost) {
 // or { ok:false, error }.
 async function createFromGamePayload(payload = {}) {
   // ── Idempotency: if this game session already logged, return it. ──
-  const sessionId = payload.sessionId || payload.gameSessionId || null;
+  // gameSessionId is unique but nullable, and Postgres lets any number of rows
+  // hold NULL, so a conclude sent without a sessionId deduped against nothing:
+  // a panel retry after a slow response filed the tryout twice, both logs went
+  // for review, and approving both paid the host twice for one tryout. A tryout
+  // concludes once, so its id is a perfectly good key when the game does not
+  // send one of its own.
+  const sessionId = payload.sessionId
+    || payload.gameSessionId
+    || (payload.tryoutId ? `tryout:${payload.tryoutId}` : null);
   if (sessionId) {
     const existing = await prisma.tryoutLog.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
     if (existing) {
