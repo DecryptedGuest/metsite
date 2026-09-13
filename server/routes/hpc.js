@@ -584,7 +584,28 @@ router.post('/tryouts/:id/complete', async (req, res) => {
     if (!canManageTryout(req.user, t)) {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can end this tryout.' });
     }
-    const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+    // Only a running tryout can be ended, and only once. Every sibling
+    // transition guards the terminal states first: cancel does, the game's
+    // cancel and start do, the conclude close out refuses to overwrite a
+    // terminal row, and the Discord buttons refuse. This one wrote COMPLETED
+    // over whatever was there, so a stale tab could mark a tryout that had
+    // already been auto cancelled as completed, and the host DM would flip from
+    // "cancelled" to "review and post the results" for a tryout with no log.
+    // A SCHEDULED row could jump straight to COMPLETED and never fire.
+    if (['COMPLETED', 'CANCELLED'].includes(t.status)) {
+      return res.status(400).json({ error: 'This tryout is already finished.' });
+    }
+    if (t.status !== 'LIVE') {
+      return res.status(400).json({ error: 'This tryout is not running yet, so it cannot be ended.' });
+    }
+    // Claimed rather than written, so two clicks cannot both tear down the
+    // Discord side.
+    const claim = await prisma.tryout.updateMany({
+      where: { id: t.id, status: 'LIVE' },
+      data: { status: 'COMPLETED' },
+    });
+    if (!claim.count) return res.status(409).json({ error: 'This tryout is already finished.' });
+    const updated = await prisma.tryout.findUnique({ where: { id: t.id } });
     // Now the tryout has concluded: remove its channel announcement, end the
     // Discord scheduled event, and flip the host DM — same as CID's complete.
     try {
@@ -593,6 +614,7 @@ router.post('/tryouts/:id/complete', async (req, res) => {
       await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
       await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* Discord side is best-effort */ }
+    audit.record({ req, action: 'TRYOUT_COMPLETE', category: 'tryout', targetType: 'tryout', targetId: t.id, summary: 'Ended a MET tryout' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to complete tryout' });

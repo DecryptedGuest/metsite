@@ -315,7 +315,41 @@ async function getServerLink(tryout) {
 
 // Fire one tryout: create the server, mark LIVE, DM the host.
 async function fireTryout(t) {
+  // One running tryout per division. Everything downstream assumes it: the
+  // game's create route refuses with a 409 when one is already LIVE, and a
+  // callback that arrives without a tryoutId resolves to the most recent LIVE
+  // row in the division, which is only unambiguous while there is one. The
+  // worker never checked, so a host who started a tryout from the panel at
+  // 19:50 and had one scheduled for 20:00 ended up with two, and the panel's
+  // conclude went to the wrong one.
+  const running = await prisma.tryout
+    .findFirst({ where: { status: 'LIVE', division: t.division }, select: { id: true } })
+    .catch(() => null);
+  if (running && running.id !== t.id) {
+    console.log(`[Tryout] ${t.id} stays scheduled: ${running.id} is already running in ${t.division}`);
+    return null;
+  }
+
   const { link, id } = await getServerLink(t);
+
+  // Claimed, not written. The row has to still be SCHEDULED: it may have been
+  // cancelled while the server was being created, and writing LIVE over that
+  // would resurrect a tryout whose announcement has already been pulled.
+  const claim = await prisma.tryout.updateMany({
+    where: { id: t.id, status: 'SCHEDULED' },
+    data: {
+      status: 'LIVE',
+      lockState: t.lockState || 'UNLOCKED',
+      privateServerLink: link || null,
+      privateServerId: id || null,
+      serverCreatedAt: new Date(),
+    },
+  });
+  if (!claim.count) {
+    console.log(`[Tryout] ${t.id} was not still scheduled when it came up, so it was left alone`);
+    return null;
+  }
+
   const updated = await prisma.tryout.update({
     where: { id: t.id },
     data: {
