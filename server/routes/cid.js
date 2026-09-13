@@ -271,17 +271,41 @@ router.post('/tryout-logs/:id/approve', requireCidLead, async (req, res) => {
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
 
+    // Nobody approves their own tryout. The gate was the CID lead role alone, so
+    // a host who held it could host, submit and approve in three clicks and write
+    // +1 to their OWN row on the CID sheet, unbounded. The HPC twin of this route
+    // has had this check for exactly that reason; CID never got it, and
+    // analytics.js already raises a high severity self approval flag for the
+    // state it produces, so the codebase treated it as a violation while the
+    // route allowed it.
+    if (log.hostId && log.hostId === req.user.id) {
+      return res.status(403).json({
+        error: 'You cannot approve your own tryout log. Ask another approver to review it.',
+      });
+    }
+
+    // Claim it with a conditional update BEFORE awarding anything. The status
+    // test above is a read and the button stays live while it works, so two
+    // clicks both passed it and both wrote +1 to the sheet.
+    const claim = await prisma.tryoutLog.updateMany({
+      where: { id: log.id, status: 'PENDING' },
+      data: {
+        status: 'APPROVED',
+        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
+        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    if (!claim.count) {
+      return res.status(409).json({ error: 'That log has already been reviewed.' });
+    }
+
     // Award the host their +1 CID event (never blocks approval).
     const awarded = await tryoutLogsLib.awardCidEventPoint(log).catch(() => false);
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },
-      data: {
-        status: 'APPROVED', pointAwarded: awarded,
-        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
-        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
-        reviewedAt: new Date(),
-      },
+      data: { pointAwarded: awarded },
     });
     await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
     res.json({ success: true, status: 'APPROVED', pointAwarded: awarded });
@@ -297,6 +321,11 @@ router.post('/tryout-logs/:id/deny', requireCidLead, async (req, res) => {
     const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: DIVISION } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be denied.' });
+    if (log.hostId && log.hostId === req.user.id) {
+      return res.status(403).json({
+        error: 'You cannot review your own tryout log. Ask another approver to look at it.',
+      });
+    }
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },
