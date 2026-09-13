@@ -29,46 +29,98 @@ that changed.
 
 ```
 GET /api/game/tryout/eligibility?userId=<robloxUserId>
+GET /api/game/tryout/eligibility?userId=<robloxUserId>&hint=<urlencoded string>
 ```
 
 ```json
 {
   "ok": true,
   "eligible": true,
-  "robloxId": "123",
-  "username": "EthanCaaden",
+  "robloxId": "3439167760",
+  "username": "realangeloo",
+
+  "identity": {
+    "resolved": true,
+    "matchedBy": "nickname",
+    "discordId": "000000000000000000",
+    "discordUsername": "someone",
+    "discordNickname": "PC 442 | realangeloo"
+  },
+
   "checks": {
-    "discordLinked": true,
+    "inMetServer": true,
     "metPending": true,
     "blacklisted": false,
     "multiAccount": false,
     "multiAccountDetail": null
   },
+
   "undetermined": [],
   "reasons": []
 }
 ```
 
-A trainee who has linked Discord but is not in the MET group yet, on a portal
-with no group cookie set, gets the same shape with `"metPending": null`,
-`"undetermined": ["metPending"]`, `"eligible": true` and no reasons: we cannot
-see their join request, so we do not turn them away over it.
+The rule is membership of the MET Discord server. `checks.discordLinked` is
+gone: nobody has to have signed into the portal.
 
-`reasons` is plain English and safe to show verbatim.
+### How somebody is recognised
 
-What is genuinely determinable:
+We resolve the Roblox username for the id, then look for a member of the MET
+server whose **server nickname** carries that username. Nicknames read
+`PC 442 | realangeloo`, so the username has to be one of the nickname's own
+tokens. Tokens are split on everything that is not a letter, a digit or an
+underscore, because Roblox usernames contain underscores and nothing else.
+
+That token rule is what stops a short username swallowing half the server:
+`bob` does not match `PC 1 | bobby`.
+
+| what we find | identity.resolved | checks.inMetServer |
+|---|---|---|
+| exactly one nickname carries it | `true`, matchedBy `nickname` | `true` |
+| no nickname carries it | `false` | `null`, listed in `undetermined` |
+| more than one carries it | `false` | `null`, listed in `undetermined` |
+| Discord unreachable | `false` | `null`, listed in `undetermined` |
+
+Two of those deserve saying plainly. **No match is not the same as not a
+member**: they may well be in the server under a nickname we cannot read, so it
+is `null` rather than `false` and the game prompts them. And a member with **no
+nickname set at all** cannot be recognised this way, by design; the hint is what
+rescues them.
+
+`inMetServer` is only ever `false` for a signed in portal user we can identify
+exactly and who is genuinely not in the server. The game never sees that case.
+
+### The hint
+
+When `identity.resolved` came back `false`, ask the player who they are on
+Discord and call again with `&hint=`. It takes a username, a global display
+name, a server nickname or a raw user id, is treated as untrusted free text and
+is cut to 64 characters.
+
+The hint finds candidates. **It never vouches for them.** Whoever it finds still
+has to have the caller's Roblox username in their nickname, or anyone could
+name a member and be treated as them. A hint that lands on a member whose
+nickname does not carry it comes back `resolved: false` with:
+
+> That Discord account does not have your Roblox username in its nickname in the MET server.
+
+`matchedBy` is `"hint"` on a hint match, `"nickname"` on a plain one, and
+`"session"` for a signed in portal user, which the game will never see because
+the game never sends a Discord id.
+
+### Three valued checks
+
+Every check is `true`, `false`, or `null` for "could not tell". `undetermined`
+lists the key of each one that came back `null`, using the same names as
+`checks`, so the two can never disagree and `undetermined.includes("metPending")`
+means exactly `checks.metPending == nil`.
 
 | check | determinable | how |
 |---|---|---|
-| discordLinked | when the portal database answers | portal records plus a RoVer reverse lookup |
-| blacklisted | always | cases, MET punishments and account flags, resolved across every Discord account linked to the Roblox id |
+| inMetServer | when the bot can read the member list | nickname match, or the hint path |
+| blacklisted | always | cases, MET punishments and account flags, across every Discord account we can tie to the Roblox id |
 | metPending | group membership always, join requests only with a group cookie | public group membership, plus the MET join request list when `ROBLOX_COOKIE` is set |
 | multiAccount | when the portal database answers | see below |
-
-Every check is three valued: `true`, `false`, or `null` for "could not tell".
-`undetermined` lists the key of each check that came back `null`, using the same
-names as `checks`, so `undetermined` and `checks` can never disagree and
-`undetermined.includes("metPending")` means exactly `checks.metPending == nil`.
 
 `metPending` is `true` if the trainee is in the MET group or has a pending join
 request, `false` only when both halves definitively say no, and `null`
@@ -76,12 +128,19 @@ otherwise. With no `ROBLOX_COOKIE` set, a trainee who is not yet in the group
 reads as `null`, never `false`: we cannot see join requests without the cookie,
 so we do not claim they have none.
 
-`discordLinked` is `false` only when the portal database answered and held no
-link. If that lookup fails, it is `null` rather than `false`, because a database
-blip must not send a correctly linked trainee away to re-link.
+`eligible` is our own verdict, computed so that `null` never fails anybody: it
+is true unless something is definitely wrong. The game is stricter than that on
+purpose and fails closed on anything it could not confirm, which is the right
+way round.
 
-`eligible` is computed so that `null` never fails a trainee. It is true unless
-something is definitely wrong.
+### reasons
+
+Spoken aloud by the instructor, in order, whenever the tryout is refused. Whole
+sentences addressed to the player, plain text, and no dash of any kind anywhere
+in them. A test asserts that last part, so it stays true.
+
+The member list is cached for five minutes, so the two calls a tryout attempt
+makes cost one Discord fetch at most.
 
 ## 3. Multi account
 

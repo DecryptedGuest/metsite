@@ -1527,7 +1527,11 @@ async function getRobloxNameFromNick(discordUserId) {
 let _memberCache = null, _memberCacheAt = 0;
 async function getAllGuildMembers() {
   if (!ready) return null;
-  const guildId = process.env.DISCORD_GUILD_ID;
+  // The MET server, resolved the way the rest of the app resolves it:
+  // MET_GUILD_ID first, DISCORD_GUILD_ID as the single-server fallback. This
+  // used to read DISCORD_GUILD_ID alone, so a deployment that set MET_GUILD_ID
+  // was quietly looking at whichever server DISCORD_GUILD_ID happened to name.
+  const guildId = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
   if (!guildId) return null;
   if (_memberCache && Date.now() - _memberCacheAt < 5 * 60 * 1000) return _memberCache;
   try {
@@ -1634,6 +1638,22 @@ async function getMetMemberProfile(discordUserId, guildId) {
   } catch (e) {
     return null;
   }
+}
+
+// Every member of the MET server, flattened to the fields identity matching
+// needs. Returns null when the answer is unknown (bot not connected, no guild
+// configured, or the fetch failed) so a caller can tell that apart from "nobody
+// matched". Served from the same five minute cache as getAllGuildMembers.
+async function listMetServerMembers() {
+  const members = await getAllGuildMembers();
+  if (!members) return null;
+  return [...members.values()].map(m => ({
+    id:          m.user.id,
+    username:    m.user.username,
+    globalName:  m.user.globalName || null,
+    nickname:    m.nickname || null,
+    displayName: m.displayName || m.user.username,
+  }));
 }
 
 async function findMemberByRobloxNick(robloxUsername) {
@@ -2863,7 +2883,7 @@ async function listGuildVoiceChannels(guildId) {
 module.exports = {
   startBot, assignRole, removeRole, stripMetRoles, normaliseRoleName, keptRoleNames, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
   listBotGuilds, listGuildVoiceChannels,
-  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
+  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick, listMetServerMembers,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript, getClient,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,

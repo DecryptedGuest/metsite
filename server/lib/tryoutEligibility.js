@@ -35,6 +35,138 @@ async function otherRobloxOnSameDiscord(discordIds, robloxId) {
   } catch (e) { return { rows: [], ok: false }; }
 }
 
+// ── Identity: who is this Roblox player in the MET Discord server ──────
+//
+// The rule is membership of the MET server, and we recognise somebody by their
+// Roblox username sitting in their server nickname. Nicknames look like
+// "PC 442 | realangeloo", so the username has to be one of the nickname's own
+// tokens rather than any substring of it: a substring match would let the
+// three letter end of one name swallow half the server.
+//
+// Underscore is NOT a separator, because Roblox usernames contain it.
+function nickTokens(value) {
+  return String(value == null ? '' : value)
+    .split(/[^A-Za-z0-9_]+/)
+    .filter(Boolean)
+    .map(t => t.toLowerCase());
+}
+
+// The server nickname only, deliberately. A member with no nickname set cannot
+// be recognised this way, and the hint prompt is what rescues them.
+function nickCarries(member, robloxUsername) {
+  const want = String(robloxUsername || '').trim().toLowerCase();
+  if (!want) return false;
+  return nickTokens(member && member.nickname).includes(want);
+}
+
+function hintMatches(member, hint) {
+  const h = String(hint || '').trim().replace(/^@/, '').toLowerCase();
+  if (!h) return false;
+  if (/^\d{15,25}$/.test(h)) return String(member.id) === h;
+  const fields = [member.username, member.globalName, member.nickname].filter(Boolean);
+  if (fields.some(v => String(v).toLowerCase() === h)) return true;
+  // A nickname is worth matching token by token too, so "realangeloo" finds
+  // "PC 442 | realangeloo" without the player having to type the rank.
+  return nickTokens(member.nickname).includes(h);
+}
+
+const UNRESOLVED = { resolved: false, matchedBy: null, discordId: null, discordUsername: null, discordNickname: null };
+
+function resolvedFrom(member, matchedBy) {
+  return {
+    resolved: true,
+    matchedBy,
+    discordId: String(member.id),
+    discordUsername: member.username || null,
+    discordNickname: member.nickname || null,
+  };
+}
+
+/**
+ * Work out who this Roblox player is in the MET server.
+ *
+ * @returns {{ identity, inMetServer: boolean|null, reason: string|null }}
+ *   inMetServer is null wherever we could not tell, which is every case except
+ *   a confident match (true) and a portal session whose member is genuinely
+ *   absent (false). "Nobody matched the nickname" is NOT false: the player may
+ *   well be in the server under a nickname we cannot read, which is what the
+ *   hint prompt is for.
+ */
+async function resolveIdentity(robloxUsername, opts = {}) {
+  const bot = require('./bot');
+
+  // The portal already knows who is signed in, so there is nothing to guess at.
+  if (opts.discordId) {
+    let members = null;
+    try { members = await bot.listMetServerMembers(); } catch (e) { members = null; }
+    if (!members) return { identity: UNRESOLVED, inMetServer: null, reason: null };
+    const found = members.find(m => String(m.id) === String(opts.discordId));
+    if (!found) {
+      return {
+        identity: UNRESOLVED,
+        inMetServer: false,
+        reason: 'You are not in the MET Discord server. Join it and then try again.',
+      };
+    }
+    return { identity: resolvedFrom(found, 'session'), inMetServer: true, reason: null };
+  }
+
+  if (!robloxUsername) return { identity: UNRESOLVED, inMetServer: null, reason: null };
+
+  const hint = String(opts.hint == null ? '' : opts.hint).trim().slice(0, 64);
+
+  let members = null;
+  try { members = await bot.listMetServerMembers(); } catch (e) { members = null; }
+  if (!members) {
+    // A hint means the player has already been prompted once and typed
+    // something. Saying nothing leaves them staring at a refusal, and saying we
+    // could not find their account blames them for an outage that is ours.
+    return {
+      identity: UNRESOLVED,
+      inMetServer: null,
+      reason: hint ? 'We cannot check the MET Discord server right now. Try again in a minute.' : null,
+    };
+  }
+
+  if (hint) {
+    // The hint finds candidates. It never vouches for them: the nickname still
+    // has to carry the caller's Roblox username, or anyone could name a member
+    // and be treated as them.
+    const candidates = members.filter(m => hintMatches(m, hint));
+    if (!candidates.length) {
+      return {
+        identity: UNRESOLVED,
+        inMetServer: null,
+        reason: 'We could not find that Discord account in the MET server. Check the spelling and try again.',
+      };
+    }
+    const verified = candidates.filter(m => nickCarries(m, robloxUsername));
+    if (verified.length === 1) {
+      return { identity: resolvedFrom(verified[0], 'hint'), inMetServer: true, reason: null };
+    }
+    if (!verified.length) {
+      return {
+        identity: UNRESOLVED,
+        inMetServer: null,
+        reason: 'That Discord account does not have your Roblox username in its nickname in the MET server.',
+      };
+    }
+    return {
+      identity: UNRESOLVED,
+      inMetServer: null,
+      reason: 'More than one Discord account in the MET server matches that. Tell us your Discord user id instead.',
+    };
+  }
+
+  const matches = members.filter(m => nickCarries(m, robloxUsername));
+  if (matches.length === 1) {
+    return { identity: resolvedFrom(matches[0], 'nickname'), inMetServer: true, reason: null };
+  }
+  // None, or more than one. Either way we cannot say who they are, so the game
+  // asks them rather than us guessing or declaring them absent.
+  return { identity: UNRESOLVED, inMetServer: null, reason: null };
+}
+
 async function metStanding(robloxId) {
   let accepted = null;
   try {
@@ -93,20 +225,23 @@ async function checkEligibility(robloxUserId, opts = {}) {
     } catch (e) { username = null; }
   }
 
-  const [links, met, bl] = await Promise.all([
+  const [links, met, bl, who] = await Promise.all([
     linkedAccounts(robloxId),
     metStanding(robloxId),
     blacklistStanding(robloxId, username),
+    resolveIdentity(username, { hint: opts.hint, discordId: opts.discordId }),
   ]);
 
+  const identity    = who.identity;
+  const inMetServer = who.inMetServer;
+
+  // The alt check still works off whatever Discord accounts we can associate
+  // with this Roblox id, which now includes the member we just identified.
   const discordIds = [...new Set([
     ...links.users.map(u => String(u.discordId)),
     ...links.viaRover,
+    identity.discordId,
   ].filter(Boolean))];
-
-  const discordLinked = discordIds.length > 0 ? true
-                      : links.portalOk ? false
-                      : null;
 
   const others = await otherRobloxOnSameDiscord(discordIds, robloxId);
   const otherRoblox = others.rows;
@@ -115,6 +250,7 @@ async function checkEligibility(robloxUserId, opts = {}) {
   const multiAccount = (manyDiscord || manyRoblox) ? true
                      : (links.portalOk && others.ok) ? false
                      : null;
+
 
   let multiAccountDetail = null;
   if (manyDiscord && manyRoblox) {
@@ -130,10 +266,10 @@ async function checkEligibility(robloxUserId, opts = {}) {
                    : (met.accepted === false && met.pending === false) ? false
                    : null;
 
+  // Spoken aloud by the instructor NPC, so: whole sentences, plain text, and no
+  // dash of any kind anywhere in them.
   const reasons = [];
-  if (discordLinked === false) {
-    reasons.push('You have not linked a Discord account to the portal yet. Sign in at the portal once, then try again.');
-  }
+  if (who.reason) reasons.push(who.reason);
   if (metPending === false) {
     reasons.push('You are not in the MET group and you have no pending join request. Request to join the MET group first.');
   }
@@ -141,22 +277,23 @@ async function checkEligibility(robloxUserId, opts = {}) {
     reasons.push('You are blacklisted from the MET. You cannot attend a tryout.');
   }
 
-  const eligible = discordLinked !== false && metPending !== false && bl.blacklisted !== true;
+  const eligible = inMetServer !== false && metPending !== false && bl.blacklisted !== true;
 
   return {
     ok: true,
     eligible,
     robloxId,
     username,
+    identity,
     checks: {
-      discordLinked,
+      inMetServer,
       metPending,
       blacklisted: nullable(bl.blacklisted),
       multiAccount,
       multiAccountDetail,
     },
     undetermined: [
-      discordLinked === null ? 'discordLinked' : null,
+      inMetServer === null ? 'inMetServer' : null,
       metPending === null ? 'metPending' : null,
       bl.blacklisted === null ? 'blacklisted' : null,
       multiAccount === null ? 'multiAccount' : null,

@@ -9,6 +9,15 @@ const assert = require('node:assert/strict');
 const { installStubs, state, reset } = require('./stubs');
 
 installStubs();
+
+// The MET server membership check, stubbed so these tests are about the group
+// and blacklist rules rather than about identity. identity.test.js covers that.
+const server = { members: [{ id: '111', username: 'ang', globalName: null,
+                             nickname: 'PC 442 | realangeloo', displayName: 'PC 442 | realangeloo' }] };
+const botPath = require.resolve(require('path').join(__dirname, '..', '..', 'server', 'lib', 'bot.js'));
+require.cache[botPath] = { id: botPath, filename: botPath, loaded: true,
+  exports: { listMetServerMembers: async () => server.members } };
+
 delete process.env.ROBLOX_COOKIE;
 delete process.env.ROBLOX_GROUP_COOKIE;
 const { checkEligibility } = require('../../server/lib/tryoutEligibility');
@@ -25,7 +34,7 @@ test('a bad id is refused before any lookup', async () => {
 
 test('an applicant waiting to be accepted is eligible, not refused', async () => {
   reset({ portalUsers: LINKED });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   assert.equal(r.eligible, true);
   assert.equal(r.checks.metPending, null, 'no group cookie means we cannot see join requests');
   assert.ok(r.undetermined.includes('metPending'));
@@ -34,25 +43,32 @@ test('an applicant waiting to be accepted is eligible, not refused', async () =>
 
 test('a member of the MET group is eligible', async () => {
   reset({ portalUsers: LINKED, groupRole: { id: 55, rank: 1, name: 'PCSO' } });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   assert.equal(r.eligible, true);
   assert.equal(r.checks.metPending, true);
+  assert.equal(r.checks.inMetServer, true);
   assert.deepEqual(r.undetermined, []);
 });
 
-test('an unlinked account is refused, with only the reason that applies', async () => {
+test('somebody we cannot identify is undetermined rather than refused', async () => {
+  // The rule is MET server membership now. Nobody carrying this username in a
+  // nickname does not mean they are absent: the game prompts them instead.
   reset();
-  const r = await checkEligibility(ID);
-  assert.equal(r.eligible, false);
-  assert.equal(r.checks.discordLinked, false);
-  assert.equal(r.reasons.length, 1);
-  assert.match(r.reasons[0], /not linked a Discord account/);
+  server.members = [{ id: '222', username: 'other', globalName: null,
+                      nickname: 'CSO 118 | someuser', displayName: 'CSO 118 | someuser' }];
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
+  assert.equal(r.identity.resolved, false);
+  assert.equal(r.checks.inMetServer, null);
+  assert.ok(r.undetermined.includes('inMetServer'));
+  assert.deepEqual(r.reasons, [], 'nothing is asserted about them, so nothing is said to them');
+  server.members = [{ id: '111', username: 'ang', globalName: null,
+                      nickname: 'PC 442 | realangeloo', displayName: 'PC 442 | realangeloo' }];
 });
 
 test('a blacklisted account is refused', async () => {
   reset({ portalUsers: LINKED, groupRole: { id: 55, rank: 1, name: 'PCSO' },
           blacklistSources: [{ reason: 'mass exploiting' }] });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   assert.equal(r.eligible, false);
   assert.equal(r.checks.blacklisted, true);
   assert.match(r.reasons.join(' '), /blacklisted/);
@@ -60,7 +76,7 @@ test('a blacklisted account is refused', async () => {
 
 test('a clean account reports no alt rather than an unknown one', async () => {
   reset({ portalUsers: LINKED, groupRole: { id: 55, rank: 1, name: 'PCSO' } });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   assert.equal(r.checks.multiAccount, false);
   assert.ok(!r.undetermined.includes('multiAccount'));
 });
@@ -71,7 +87,7 @@ test('a second Roblox account on the same Discord is flagged but not barred', as
     otherRoblox: [{ discordId: '111', robloxId: '999', robloxUsername: 'altaccount' }],
     groupRole: { id: 55, rank: 1, name: 'PCSO' },
   });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   assert.equal(r.checks.multiAccount, true);
   assert.match(r.checks.multiAccountDetail, /altaccount/);
   assert.equal(r.eligible, true, 'an alt is for an instructor to judge, not a bar');
@@ -79,17 +95,16 @@ test('a second Roblox account on the same Discord is flagged but not barred', as
 
 test('a database outage asserts nothing and does not turn anyone away', async () => {
   reset({ portalThrows: true });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   assert.equal(r.eligible, true);
-  assert.equal(r.checks.discordLinked, null);
   assert.equal(r.checks.multiAccount, null);
   assert.deepEqual(r.reasons, []);
-  for (const k of ['discordLinked', 'multiAccount']) assert.ok(r.undetermined.includes(k));
+  assert.ok(r.undetermined.includes('multiAccount'));
 });
 
 test('undetermined names exactly the checks that came back null', async () => {
   reset({ portalUsers: LINKED });
-  const r = await checkEligibility(ID);
+  const r = await checkEligibility(ID, { username: 'realangeloo' });
   const nulls = Object.entries(r.checks)
     .filter(([k, v]) => v === null && k !== 'multiAccountDetail')
     .map(([k]) => k);

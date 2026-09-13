@@ -16,7 +16,7 @@ router.get('/me', async (req, res) => {
   try {
     const me = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { robloxId: true, robloxUsername: true, discordUsername: true, displayName: true },
+      select: { robloxId: true, robloxUsername: true, discordId: true, discordUsername: true, displayName: true },
     });
     if (!me || !me.robloxId) {
       return res.json({
@@ -28,7 +28,10 @@ router.get('/me', async (req, res) => {
       });
     }
     const { checkEligibility } = require('../lib/tryoutEligibility');
-    const out = await checkEligibility(me.robloxId, { username: me.robloxUsername });
+    const out = await checkEligibility(me.robloxId, {
+      username: me.robloxUsername,
+      discordId: me.discordId ? String(me.discordId) : null,
+    });
     res.json({ ...out, linked: true, username: me.robloxUsername || out.username });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'Could not check your eligibility just now.' });
@@ -39,13 +42,16 @@ router.post('/request', async (req, res) => {
   try {
     const me = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { robloxId: true, robloxUsername: true },
+      select: { robloxId: true, robloxUsername: true, discordId: true },
     });
     if (!me || !me.robloxId) {
       return res.status(400).json({ ok: false, error: 'Link your Roblox account first.' });
     }
     const { checkEligibility } = require('../lib/tryoutEligibility');
-    const elig = await checkEligibility(me.robloxId, { username: me.robloxUsername });
+    const elig = await checkEligibility(me.robloxId, {
+      username: me.robloxUsername,
+      discordId: me.discordId ? String(me.discordId) : null,
+    });
     if (!elig.ok || !elig.eligible) {
       return res.status(403).json({ ok: false, error: 'You are not eligible right now.', reasons: elig.reasons || [] });
     }

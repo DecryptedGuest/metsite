@@ -77,6 +77,9 @@
       html += row(d.linked === true, 'Roblox account linked',
         d.username ? 'Signed in as ' + d.username : 'Verify with RoVer in the Discord server.');
       if (d.linked) {
+        html += row(c.inMetServer, 'In the MET Discord server',
+          c.inMetServer === false ? 'Join the MET Discord server, then reload this page.'
+            : c.inMetServer === null ? 'This one could not be checked right now.' : '');
         html += row(c.metPending, 'In the MET group, or waiting to join',
           c.metPending === null ? 'This one could not be checked right now.' : '');
         html += row(c.blacklisted === true ? false : c.blacklisted === false ? true : null, 'Not blacklisted',

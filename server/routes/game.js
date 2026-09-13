@@ -668,7 +668,13 @@ router.post('/tryout/automated', requireGameSecret, async (req, res) => {
 router.get('/tryout/eligibility', requireGameSecret, async (req, res) => {
   try {
     const { checkEligibility } = require('../lib/tryoutEligibility');
-    const out = await checkEligibility(req.query.userId, { username: req.query.username || null });
+    // hint is whatever the player typed into the in game prompt: untrusted free
+    // text, bounded here rather than trusted anywhere downstream.
+    const hint = String(req.query.hint == null ? '' : req.query.hint).trim().slice(0, 64);
+    const out = await checkEligibility(req.query.userId, {
+      username: req.query.username || null,
+      hint: hint || null,
+    });
     if (!out.ok) return res.status(400).json(out);
     res.json(out);
   } catch (err) {
