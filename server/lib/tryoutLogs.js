@@ -194,8 +194,18 @@ async function resolveHostUser({ hostDiscordId, hostRobloxId, hostRobloxName } =
     if (u) return u;
   }
   if (hostRobloxId) {
-    const byRoblox = await prisma.user.findFirst({ where: { robloxId: String(hostRobloxId) } }).catch(() => null);
-    if (byRoblox) return byRoblox;
+    // findFirst on a column with no unique index picks an arbitrary row when two
+    // accounts carry the same Roblox id, and whichever it picks becomes the
+    // log's owner: the gate on submitting it, and the gate on approving your
+    // own. Guessing there hands one person's tryout to another, so an ambiguous
+    // answer is treated as no answer. The log then goes to the review queue
+    // unowned, which is the same safe place an unlinked host lands in.
+    const byRoblox = await prisma.user.findMany({ where: { robloxId: String(hostRobloxId) }, take: 2 }).catch(() => []);
+    if (byRoblox.length === 1) return byRoblox[0];
+    if (byRoblox.length > 1) {
+      console.warn(`[TryoutLog] Roblox id ${hostRobloxId} matches more than one account, so the host was left unresolved`);
+      return null;
+    }
     // Fall back to RoVer reverse lookup → discord id → user.
     try {
       const { getDiscordFromRoblox } = require('./roblox');
@@ -209,10 +219,15 @@ async function resolveHostUser({ hostDiscordId, hostRobloxId, hostRobloxName } =
   // Last resort: a signed-in user whose stored Roblox username matches (handles a
   // stale/absent robloxId link when the name is still on record).
   if (hostRobloxName) {
-    const byName = await prisma.user.findFirst({
+    const byName = await prisma.user.findMany({
       where: { robloxUsername: { equals: String(hostRobloxName), mode: 'insensitive' } },
-    }).catch(() => null);
-    if (byName) return byName;
+      take: 2,
+    }).catch(() => []);
+    if (byName.length === 1) return byName[0];
+    if (byName.length > 1) {
+      console.warn(`[TryoutLog] Roblox username ${hostRobloxName} matches more than one account, so the host was left unresolved`);
+      return null;
+    }
   }
   return null;
 }

@@ -522,6 +522,25 @@ router.post('/tryouts', async (req, res) => {
     if (isNaN(when.getTime())) return res.status(400).json({ error: 'A valid date/time is required.' });
     if (when.getTime() < Date.now() - 60 * 1000) return res.status(400).json({ error: 'The scheduled time must be in the future.' });
 
+    // One tryout at a time in a division. The worker refuses to start a second
+    // one, so scheduling into an occupied slot only produces a tryout that
+    // silently never fires. Say so here instead, while somebody is looking at
+    // the screen and can pick another time.
+    const clash = await prisma.tryout.findFirst({
+      where: { division: 'HPC', status: { in: ['LIVE', 'SCHEDULED'] } },
+      orderBy: { scheduledAt: 'asc' },
+      select: { id: true, status: true, scheduledAt: true, hostName: true },
+    }).catch(() => null);
+    if (clash) {
+      return res.status(409).json({
+        error: clash.status === 'LIVE'
+          ? `A tryout hosted by ${clash.hostName} is running right now. Wait for it to finish.`
+          : `A tryout hosted by ${clash.hostName} is already scheduled. Only one runs at a time.`,
+        tryoutId: clash.id,
+        scheduledAt: clash.scheduledAt,
+      });
+    }
+
     const t = await prisma.tryout.create({
       data: {
         hostId: req.user.id,

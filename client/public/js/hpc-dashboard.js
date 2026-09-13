@@ -669,11 +669,16 @@ function collectAttendeeEdits() {
 async function submitTryoutLog(id) {
   if (!(await uiConfirm('Post this tryout log for HICOMM approval? You won\'t be able to edit it after.'))) return;
   try {
-    await api(`/api/hpc/tryout-logs/${id}/submit`, { method: 'POST', body: JSON.stringify({
+    const r = await api(`/api/hpc/tryout-logs/${id}/submit`, { method: 'POST', body: JSON.stringify({
       notes: (document.getElementById('tlog-notes') || {}).value || '',
       attendees: collectAttendeeEdits(),
     }) });
-    showToast('Tryout log posted for approval.', 'success');
+    // The server tells us two things worth passing on: whether the Discord post
+    // actually went out, and whether any names were refused because the panel
+    // never saw them. Saying "posted for approval" regardless hid both.
+    showToast('Tryout log posted for approval.'
+      + (r && r.posted === false ? ' The Discord post did not go out, but it is in the review queue.' : ''), 'success');
+    if (r && r.warning) showToast(r.warning, 'warning');
     closeModal('modal-tryout-log');
     loadMyTryoutLogs();
   } catch (err) { showToast(err.message, 'error'); }

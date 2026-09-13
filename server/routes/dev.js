@@ -610,10 +610,16 @@ router.delete('/tryouts/:id', async (req, res) => {
   try {
     const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
-    // Tidy the Discord side (never blocks the delete).
+    // Tidy the whole Discord side while the ids are still readable, not just the
+    // announcement. A scheduled event left behind outlives the row that knows
+    // its id, so nothing can ever remove it and it sits in the server counting
+    // down to a tryout that no longer exists, and the host DM still reads as an
+    // upcoming tryout. Never blocks the delete.
     try {
       const bot = require('../lib/bot');
       await bot.deleteTryoutAnnouncement(t).catch(() => {});
+      await bot.deleteTryoutScheduledEvent(t, bot.tryoutGuildId(t.division)).catch(() => {});
+      await bot.editTryoutHostDM({ ...t, status: 'CANCELLED' }).catch(() => {});
     } catch (e) { /* bot not ready */ }
     // TryoutCommand rows reference the tryout by id (no FK cascade) — clear them.
     await prisma.tryoutCommand.deleteMany({ where: { tryoutId: t.id } }).catch(() => {});
