@@ -176,6 +176,9 @@ if (RUN_WORKERS) {
   require('./lib/accessControl').startAccessRevalidator();
   require('./lib/quota').startQuotaWorker();
   require('./lib/tryouts').startTryoutWorker();
+  // Roblox moderation takes as long as it takes, so re-hosted avatars are
+  // followed up on a timer rather than inside a request.
+  try { require('./lib/discordAvatar').startAvatarWorker(); } catch (e) { /* optional */ }
   // Optional (MET_DB_AUTO_SYNC=true): keep the MET database sheet in step with
   // the Roblox group — drop members who left, add newly joined constables.
   require('./lib/metDatabase').startMetDatabaseWorker();

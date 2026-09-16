@@ -70,7 +70,10 @@ function hintMatches(member, hint) {
   return nickTokens(member.nickname).includes(h);
 }
 
-const UNRESOLVED = { resolved: false, matchedBy: null, discordId: null, discordUsername: null, discordNickname: null };
+const UNRESOLVED = {
+  resolved: false, matchedBy: null, discordId: null, discordUsername: null, discordNickname: null,
+  discordAvatarAssetId: null, discordAvatarUrl: null,
+};
 
 function resolvedFrom(member, matchedBy) {
   return {
@@ -79,6 +82,9 @@ function resolvedFrom(member, matchedBy) {
     discordId: String(member.id),
     discordUsername: member.username || null,
     discordNickname: member.nickname || null,
+    // The picture is filled in by the caller, which is where the await belongs.
+    discordAvatarAssetId: null,
+    discordAvatarUrl: null,
   };
 }
 
@@ -108,7 +114,7 @@ async function resolveIdentity(robloxUsername, opts = {}) {
         reason: 'You are not in the MET Discord server. Join it and then try again.',
       };
     }
-    return { identity: resolvedFrom(found, 'session'), inMetServer: true, reason: null };
+    return { identity: resolvedFrom(found, 'session'), member: found, inMetServer: true, reason: null };
   }
 
   if (!robloxUsername) return { identity: UNRESOLVED, inMetServer: null, reason: null };
@@ -142,7 +148,7 @@ async function resolveIdentity(robloxUsername, opts = {}) {
     }
     const verified = candidates.filter(m => nickCarries(m, robloxUsername));
     if (verified.length === 1) {
-      return { identity: resolvedFrom(verified[0], 'hint'), inMetServer: true, reason: null };
+      return { identity: resolvedFrom(verified[0], 'hint'), member: verified[0], inMetServer: true, reason: null };
     }
     if (!verified.length) {
       return {
@@ -160,7 +166,7 @@ async function resolveIdentity(robloxUsername, opts = {}) {
 
   const matches = members.filter(m => nickCarries(m, robloxUsername));
   if (matches.length === 1) {
-    return { identity: resolvedFrom(matches[0], 'nickname'), inMetServer: true, reason: null };
+    return { identity: resolvedFrom(matches[0], 'nickname'), member: matches[0], inMetServer: true, reason: null };
   }
   // None, or more than one. Either way we cannot say who they are, so the game
   // asks them rather than us guessing or declaring them absent.
@@ -243,6 +249,20 @@ async function checkEligibility(robloxUserId, opts = {}) {
 
   const identity    = who.identity;
   const inMetServer = who.inMetServer;
+
+  // The Discord picture, for the in game confirmation card. Only an asset id
+  // Roblox has already approved comes back: one still in review renders as
+  // nothing, so handing it over would show a broken image where the game's own
+  // fallback belongs. Anything not held yet is asked for in the background, so
+  // this never holds up an answer and never fails one.
+  if (who.member) {
+    try {
+      const { assetIdFor } = require('./discordAvatar');
+      const pic = await assetIdFor(who.member, require('./bot').metServerGuildId());
+      identity.discordAvatarAssetId = pic.assetId;
+      identity.discordAvatarUrl = pic.url;
+    } catch (e) { /* the card falls back to the Discord logo */ }
+  }
 
   // The alt check still works off whatever Discord accounts we can associate
   // with this Roblox id, which now includes the member we just identified.

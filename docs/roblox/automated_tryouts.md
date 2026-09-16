@@ -108,6 +108,38 @@ nickname does not carry it comes back `resolved: false` with:
 `"session"` for a signed in portal user, which the game will never see because
 the game never sends a Discord id.
 
+### The Discord picture
+
+`identity` also carries two fields for the confirmation card:
+
+| field | type | meaning |
+|---|---|---|
+| discordAvatarAssetId | number or null | a Roblox asset id, ready for `rbxassetid://` |
+| discordAvatarUrl | string or null | the Discord cdn url, for the site's own UI |
+
+`discordAvatarAssetId` is a number **only once Roblox has approved the image**.
+It is null in every other case: nothing held yet, still in review, refused,
+refused by our own checks, or no credential configured. An id that is still in
+review renders as nothing in game, so handing it over would show a broken image
+where your fallback logo belongs. Treat null as "use the logo" and nothing else.
+
+Expect null the first time somebody tries out. The picture is uploaded in the
+background when the eligibility check runs, Roblox moderation takes as long as
+it takes, and the endpoint never waits for it. So the avatar appears on a later
+attempt, not the one that triggered it.
+
+A server specific avatar is preferred over the account one. Animated avatars are
+declined: Discord serves those as a gif and a Decal is a still image.
+
+Not every member gets a picture, on purpose. Re-hosting makes our Roblox account
+the publisher of somebody else's image, and Roblox moderation acts on the
+publisher, so an upload only happens for a member who has been in the MET server
+for at least `DISCORD_AVATAR_MIN_DAYS` (default 7), whose picture is a real png
+under `DISCORD_AVATAR_MAX_BYTES`, while the day's `DISCORD_AVATAR_MAX_PER_DAY`
+ceiling has room. Anything Roblox refuses is never sent again.
+`DISCORD_AVATAR_REHOST=off` stops every upload at once while still serving what
+is already approved.
+
 ### Three valued checks
 
 Every check is `true`, `false`, or `null` for "could not tell". `undetermined`
@@ -257,7 +289,15 @@ MET_ENTRY_RANK_NAME=               defaults to PCSO
 MET_CREST_URL=                     no thumbnail when unset
 TRYOUT_JOIN_PLACE_ID=              defaults to 111602481402239
 TRYOUT_HOST_ABSENCE_MINUTES=       defaults to 20
+DISCORD_AVATAR_REHOST=             set to off to stop re-hosting avatars
+DISCORD_AVATAR_MIN_DAYS=           defaults to 7
+DISCORD_AVATAR_MAX_PER_DAY=        defaults to 25
+DISCORD_AVATAR_MAX_BYTES=          defaults to 1048576
 ```
+
+Re-hosting avatars also needs the Open Cloud credential set in the dev panel,
+with the Assets API granted read AND write, created under whoever owns the
+experience. Without it the two avatar fields simply stay null.
 
 With no log channel set, in either variable, the tryout is still recorded and
 the response says `logged: false` with the reason, but no embed and no buttons
@@ -273,4 +313,6 @@ buttons live so it can be pressed again once the cookie is set.
 ## 8. Migrations
 
 `0081` makes the tryout host nullable and adds `automated` and `hostKind`.
-`0082` adds the `automated_tryouts` table. Run `npm run db:migrate`.
+`0082` adds the `automated_tryouts` table.
+`0083` adds `discord_avatar_assets`, the re-hosted picture cache.
+Run `npm run db:migrate`.

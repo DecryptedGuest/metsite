@@ -1658,3 +1658,32 @@ model EvasionFlag {
   @@index([status])
   @@map("evasion_flags")
 }
+
+// A member's Discord avatar, re-hosted as a Roblox Decal so the in game
+// confirmation card can show it: ImageLabel.Image takes rbxassetid:// and
+// nothing else, so an external CDN url can never render.
+//
+// Keyed on the avatar hash, so a member who never changes their picture is
+// uploaded once and read from here forever after. Roblox upload allowances are
+// tight and pooled per account, so re uploading on every eligibility check
+// would throttle the account within minutes.
+model DiscordAvatarAsset {
+  id          String   @id @default(uuid())
+  discordId   String
+  avatarHash  String // Discord's hash: changes whenever they change the picture
+  source      String   @default("user") // user | guild (a server specific avatar)
+  url         String? // what was fetched, kept for the audit trail
+  assetId     String? // the Roblox asset id, once Roblox has given us one
+  operationId String? // the Open Cloud operation still being polled
+  state       String   @default("PENDING") // PENDING | APPROVED | REJECTED | FAILED | BLOCKED
+  moderation  String? // Roblox's own word: APPROVED | REVIEWING | REJECTED
+  bytes       Int?
+  error       String?
+  requestedAt DateTime @default(now())
+  decidedAt   DateTime?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([discordId, avatarHash])
+  @@index([state])
+  @@map("discord_avatar_assets")
+}

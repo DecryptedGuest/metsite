@@ -429,22 +429,25 @@ const paceMs = () => _paceMs;
  * itself only ever returns an operation — the asset id arrives later, which is
  * why nothing here can be a single request.
  */
-async function uploadViaApiKey({ buffer, displayName, fileName, mimeType, creatorType, creatorId, apiKey }) {
+async function uploadViaApiKey({ buffer, displayName, fileName, mimeType, creatorType, creatorId, apiKey,
+                                 assetType = 'Audio', contentType = null, description = null }) {
   const creator = creatorType === 'group'
     ? { groupId: String(creatorId) }
     : { userId: String(creatorId) };
 
   const form = new FormData();
   form.append('request', JSON.stringify({
-    assetType: 'Audio',
+    assetType,
     displayName: cleanName(displayName, fileName),
-    description: 'Uploaded from the MET dev panel',
+    description: description || 'Uploaded from the MET dev panel',
     creationContext: { creator },
   }));
-  // The part's content type has to be one of the four Roblox names, not whatever
-  // the browser guessed — 'audio/mp3' is a common browser spelling and not one
-  // Roblox accepts, which comes back as an unhelpful parse failure.
-  form.append('fileContent', new Blob([buffer], { type: audioContentType({ fileName, mimeType }) }), fileName);
+  // The part's content type has to be one Roblox names, not whatever the browser
+  // guessed — 'audio/mp3' is a common browser spelling and not one Roblox
+  // accepts, which comes back as an unhelpful parse failure. A caller uploading
+  // something other than audio passes its own.
+  const partType = contentType || audioContentType({ fileName, mimeType });
+  form.append('fileContent', new Blob([buffer], { type: partType }), fileName);
 
   const post = () => fetch(`${OPEN_CLOUD}/assets`, { method: 'POST', headers: { 'x-api-key': apiKey }, body: form });
   let res = await post();
@@ -462,6 +465,10 @@ async function uploadViaApiKey({ buffer, displayName, fileName, mimeType, creato
     // The monthly allowance is the ceiling people actually hit, and it is far
     // tighter on this path than the figure most Roblox documentation quotes.
     if (res.status === 429 || /quota|limit/i.test(msg)) {
+      if (assetType !== 'Audio') {
+        throw new Error(`Roblox says this account's ${assetType} upload allowance is used up. `
+          + `Nothing more will upload until it resets. (Roblox said: ${scrub(msg, apiKey)})`);
+      }
       throw new Error('Roblox says the monthly audio allowance for this account is used up. '
         + 'Through the API it is 10 uploads a month without ID verification, 100 with it. '
         + 'Verifying the account raises it; nothing else will upload until it resets. '
@@ -898,4 +905,5 @@ module.exports = {
   checkAudio, cleanName, scrub, toBuffer, base64Bytes, audioExt, audioContentType,
   assetFromOperation, forgetCsrf, RATE_RETRIES, noteThrottled, easeThrottle, resetThrottle, paceMs,
   uploadAudio, uploadBatch, refreshPending, listUploads, clearUploads,
+  uploadViaApiKey, useCredential, OPEN_CLOUD,
 };

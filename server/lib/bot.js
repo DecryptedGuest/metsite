@@ -1644,6 +1644,10 @@ async function getMetMemberProfile(discordUserId, guildId) {
 // needs. Returns null when the answer is unknown (bot not connected, no guild
 // configured, or the fetch failed) so a caller can tell that apart from "nobody
 // matched". Served from the same five minute cache as getAllGuildMembers.
+function metServerGuildId() {
+  return process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+}
+
 async function listMetServerMembers() {
   const members = await getAllGuildMembers();
   if (!members) return null;
@@ -1653,6 +1657,11 @@ async function listMetServerMembers() {
     globalName:  m.user.globalName || null,
     nickname:    m.nickname || null,
     displayName: m.displayName || m.user.username,
+    // Avatar hashes and join date, for re-hosting the picture as a Roblox asset.
+    // m.avatar is the server specific one, m.user.avatar the account's.
+    avatar:      m.user.avatar || null,
+    guildAvatar: m.avatar || null,
+    joinedAt:    m.joinedAt ? m.joinedAt.toISOString() : null,
   }));
 }
 
@@ -2883,7 +2892,7 @@ async function listGuildVoiceChannels(guildId) {
 module.exports = {
   startBot, assignRole, removeRole, stripMetRoles, normaliseRoleName, keptRoleNames, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
   listBotGuilds, listGuildVoiceChannels,
-  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick, listMetServerMembers,
+  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick, listMetServerMembers, metServerGuildId,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript, getClient,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
