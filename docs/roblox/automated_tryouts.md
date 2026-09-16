@@ -128,17 +128,36 @@ background when the eligibility check runs, Roblox moderation takes as long as
 it takes, and the endpoint never waits for it. So the avatar appears on a later
 attempt, not the one that triggered it.
 
-A server specific avatar is preferred over the account one. Animated avatars are
-declined: Discord serves those as a gif and a Decal is a still image.
+A server specific avatar is preferred over the account one.
+
+**A gif does not lose them their picture.** Animated avatars cannot be uploaded,
+since a Decal is a still image, but switching to one is not treated as taking
+their picture down: the last still picture of theirs Roblox approved keeps being
+served. The same holds if they remove their avatar entirely, and while a newly
+changed picture is still in review.
+
+**The same image is never uploaded twice.** The bytes are hashed, so somebody
+switching back to an old picture, or wearing the same one in the server as on
+their account, adopts the asset that already exists rather than spending another
+upload. Only a genuinely new picture costs allowance.
 
 Not every member gets a picture, on purpose. Re-hosting makes our Roblox account
 the publisher of somebody else's image, and Roblox moderation acts on the
 publisher, so an upload only happens for a member who has been in the MET server
 for at least `DISCORD_AVATAR_MIN_DAYS` (default 7), whose picture is a real png
 under `DISCORD_AVATAR_MAX_BYTES`, while the day's `DISCORD_AVATAR_MAX_PER_DAY`
-ceiling has room. Anything Roblox refuses is never sent again.
+ceiling has room. Anything Roblox refuses is never sent again, and anything that failed for some
+other reason is retried once a day rather than on every check.
 `DISCORD_AVATAR_REHOST=off` stops every upload at once while still serving what
 is already approved.
+
+Optionally, pictures can be screened before they go up, using Google Cloud
+Vision SafeSearch against the project the quota sheets already use. Set
+`AVATAR_VISION_KEY`, or enable the Vision API on the service account in
+`GOOGLE_SERVICE_ACCOUNT_JSON`. Leave both unset and nothing is screened.
+Configured, a picture Vision calls adult, violent or racy at
+`AVATAR_VISION_THRESHOLD` or above (default `LIKELY`) is refused before upload,
+and a screen that cannot be run also means no upload.
 
 ### Three valued checks
 
@@ -293,6 +312,8 @@ DISCORD_AVATAR_REHOST=             set to off to stop re-hosting avatars
 DISCORD_AVATAR_MIN_DAYS=           defaults to 7
 DISCORD_AVATAR_MAX_PER_DAY=        defaults to 25
 DISCORD_AVATAR_MAX_BYTES=          defaults to 1048576
+AVATAR_VISION_KEY=                 unset means no screening
+AVATAR_VISION_THRESHOLD=           defaults to LIKELY
 ```
 
 Re-hosting avatars also needs the Open Cloud credential set in the dev panel,
@@ -315,4 +336,5 @@ buttons live so it can be pressed again once the cookie is set.
 `0081` makes the tryout host nullable and adds `automated` and `hostKind`.
 `0082` adds the `automated_tryouts` table.
 `0083` adds `discord_avatar_assets`, the re-hosted picture cache.
+`0084` adds the content hash to it, so the same image is not uploaded twice.
 Run `npm run db:migrate`.

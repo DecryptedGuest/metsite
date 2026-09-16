@@ -16,6 +16,7 @@
 // Everything is best effort and nothing blocks a tryout: an eligibility check
 // returns whatever is already approved and asks for the rest in the background.
 
+const crypto = require('crypto');
 const prisma = require('./db');
 
 const CDN = 'https://cdn.discordapp.com';
@@ -92,6 +93,46 @@ function isPng(buf) {
     && buf[4] === 0x0D && buf[5] === 0x0A && buf[6] === 0x1A && buf[7] === 0x0A;
 }
 
+function toAssetNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * The last picture of theirs Roblox approved, whatever they are wearing now.
+ *
+ * This is what makes a gif not count as a change. Switching to an animated
+ * avatar leaves us nothing we can upload, and dropping to the fallback logo
+ * would be a worse answer than the still picture of them we already have.
+ */
+async function lastApproved(discordId) {
+  if (!discordId) return null;
+  return prisma.discordAvatarAsset.findFirst({
+    where: { discordId: String(discordId), state: 'APPROVED', assetId: { not: null } },
+    orderBy: { decidedAt: 'desc' },
+  }).catch(() => null);
+}
+
+/** An asset already approved for these exact bytes, whoever it came from. */
+async function approvedByContent(contentHash) {
+  if (!contentHash) return null;
+  return prisma.discordAvatarAsset.findFirst({
+    where: { contentHash, state: 'APPROVED', assetId: { not: null } },
+    orderBy: { decidedAt: 'asc' },
+  }).catch(() => null);
+}
+
+// A picture we failed on is worth another go eventually, but not on every
+// check: a broken key or a CDN blip should cost one attempt a day, not one per
+// tryout. Anything Roblox itself refused is never retried at all.
+const RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
+function retryable(row) {
+  if (!row) return true;
+  if (row.state !== 'FAILED') return false;
+  const at = row.decidedAt || row.requestedAt;
+  return !at || (Date.now() - new Date(at).getTime()) > RETRY_AFTER_MS;
+}
+
 /** What we already hold for this exact picture. Null when we hold nothing. */
 async function cached(discordId, hash) {
   if (!discordId || !hash) return null;
@@ -107,6 +148,99 @@ async function uploadedToday() {
     .catch(() => maxPerDay());   // unknown counts as full, so we hold rather than flood
 }
 
+// ── Screening ────────────────────────────────────────────────────────
+//
+// Optional, and off unless configured. There is no honest way to judge a
+// picture locally: the only cheap signal anyone reaches for is a skin tone
+// ratio, and an avatar is usually a close up face, so it refuses the ordinary
+// case and catches little else.
+//
+// Configured, this is Google Cloud Vision's SafeSearch, which is the same Google
+// Cloud project the quota sheets already use. Either an API key in
+// AVATAR_VISION_KEY, or the service account already in
+// GOOGLE_SERVICE_ACCOUNT_JSON with the Vision API enabled on it.
+const LIKELIHOOD = ['UNKNOWN', 'VERY_UNLIKELY', 'UNLIKELY', 'POSSIBLE', 'LIKELY', 'VERY_LIKELY'];
+
+function screenThreshold() {
+  const want = String(process.env.AVATAR_VISION_THRESHOLD || 'LIKELY').toUpperCase();
+  const i = LIKELIHOOD.indexOf(want);
+  return i > 0 ? i : LIKELIHOOD.indexOf('LIKELY');
+}
+
+function screeningConfigured() {
+  return !!(process.env.AVATAR_VISION_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+}
+
+async function visionToken() {
+  if (process.env.AVATAR_VISION_KEY) return { key: String(process.env.AVATAR_VISION_KEY).trim() };
+  let google = null;
+  try { google = require('googleapis').google; } catch (e) { return null; }
+  if (!google) return null;
+  try {
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const auth = new google.auth.GoogleAuth({
+      credentials: creds,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const client = await auth.getClient();
+    const token = await client.getAccessToken();
+    const value = token && (token.token || token);
+    return value ? { bearer: String(value) } : null;
+  } catch (e) { return null; }
+}
+
+/**
+ * @returns {{ verdict: 'PASS'|'BLOCK'|'ERROR'|'SKIP', why: string|null }}
+ *   SKIP when nothing is configured, which leaves behaviour as it was.
+ */
+async function screenImage(buf) {
+  if (!screeningConfigured()) return { verdict: 'SKIP', why: null };
+
+  const auth = await visionToken();
+  if (!auth) return { verdict: 'ERROR', why: 'no usable Vision credential' };
+
+  const url = 'https://vision.googleapis.com/v1/images:annotate'
+            + (auth.key ? `?key=${encodeURIComponent(auth.key)}` : '');
+  const headers = { 'content-type': 'application/json' };
+  if (auth.bearer) headers.authorization = `Bearer ${auth.bearer}`;
+
+  let j = null;
+  try {
+    const res = await fetch(url, {
+      method: 'POST', headers, signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ requests: [{
+        image: { content: buf.toString('base64') },
+        features: [{ type: 'SAFE_SEARCH_DETECTION' }],
+      }] }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      return { verdict: 'ERROR', why: `Vision answered ${res.status}: ${t.slice(0, 120)}` };
+    }
+    j = await res.json();
+  } catch (e) {
+    return { verdict: 'ERROR', why: e.message };
+  }
+
+  const r = j && Array.isArray(j.responses) ? j.responses[0] : null;
+  if (r && r.error) return { verdict: 'ERROR', why: r.error.message || 'Vision returned an error' };
+  const a = r && r.safeSearchAnnotation;
+  if (!a) return { verdict: 'ERROR', why: 'Vision returned no SafeSearch result' };
+
+  const bar = screenThreshold();
+  // spoof and medical are left out on purpose: neither is a reason to refuse
+  // somebody's profile picture, and medical in particular fires on ordinary
+  // close ups.
+  const hits = ['adult', 'violence', 'racy']
+    .map(k => ({ k, level: LIKELIHOOD.indexOf(String(a[k] || 'UNKNOWN').toUpperCase()) }))
+    .filter(x => x.level >= bar);
+
+  if (hits.length) {
+    return { verdict: 'BLOCK', why: hits.map(h => `${h.k} ${LIKELIHOOD[h.level].toLowerCase()}`).join(', ') };
+  }
+  return { verdict: 'PASS', why: null };
+}
+
 /**
  * Ask for a picture to be re-hosted. Returns nothing and throws nothing: the
  * caller is an eligibility check that must stay fast and must never fail over
@@ -117,7 +251,7 @@ async function requestRehost(member, guildId, src) {
   if (!src || !member) return;
 
   const already = await cached(member.id, src.hash);
-  if (already) return;   // pending, approved, refused or blocked: all mean leave it
+  if (already && !retryable(already)) return;   // pending, approved, refused or blocked
 
   if (!settledEnough(member)) {
     await note(member.id, src, 'BLOCKED', `member has been in the server less than ${minMemberDays()} days`);
@@ -152,7 +286,38 @@ async function requestRehost(member, guildId, src) {
   // a refused upload against our account for no reason.
   if (!isPng(buf)) { await note(member.id, src, 'BLOCKED', 'the picture is not a png'); return; }
 
-  const row = await note(member.id, src, 'PENDING', null, buf.length);
+  // These exact bytes may already be up. Somebody switching back to an older
+  // picture, or wearing the same one in the server as on their account, is the
+  // common case, and Roblox has already approved it once. Reuse costs nothing
+  // and the allowance is the scarce thing here.
+  const contentHash = crypto.createHash('sha256').update(buf).digest('hex');
+  const sameImage = await approvedByContent(contentHash);
+  if (sameImage) {
+    await note(member.id, src, 'APPROVED', null, buf.length, {
+      contentHash, assetId: sameImage.assetId, moderation: 'APPROVED', decidedAt: new Date(),
+    });
+    return;
+  }
+
+  // Optional screening, and only if it is configured. Nothing local can tell a
+  // face from something we would not want published in our name, so the choice
+  // is a real classifier or none: a skin tone heuristic would refuse ordinary
+  // close up faces, which is most avatars.
+  const screen = await screenImage(buf);
+  if (screen.verdict === 'BLOCK') {
+    await note(member.id, src, 'BLOCKED', `screening refused it: ${screen.why}`, buf.length, { contentHash });
+    console.warn(`[Avatar] screening refused the picture for ${member.id}: ${screen.why}`);
+    return;
+  }
+  if (screen.verdict === 'ERROR') {
+    // Configured but not answering. The point of screening is that nothing goes
+    // up unseen, so a screen we cannot run means no upload. Recorded as FAILED,
+    // which is retried tomorrow rather than on every check.
+    await note(member.id, src, 'FAILED', `could not screen the picture: ${screen.why}`, buf.length, { contentHash });
+    return;
+  }
+
+  const row = await note(member.id, src, 'PENDING', null, buf.length, { contentHash });
   if (!row) return;
 
   try {
@@ -192,15 +357,19 @@ function settle(moderation, assetId) {
   return {};
 }
 
-async function note(discordId, src, state, error, bytes) {
+async function note(discordId, src, state, error, bytes, extra) {
+  const common = {
+    state, error: error ? String(error).slice(0, 500) : null, bytes: bytes || null,
+    ...(extra || {}),
+  };
   return prisma.discordAvatarAsset.upsert({
     where: { discordId_avatarHash: { discordId: String(discordId), avatarHash: src.hash } },
     create: {
       discordId: String(discordId), avatarHash: src.hash, source: src.source, url: src.url,
-      state, error: error ? String(error).slice(0, 500) : null, bytes: bytes || null,
       decidedAt: state === 'PENDING' ? null : new Date(),
+      ...common,
     },
-    update: { state, error: error ? String(error).slice(0, 500) : null, bytes: bytes || null },
+    update: common,
   }).catch(() => null);
 }
 
@@ -213,18 +382,27 @@ async function note(discordId, src, state, error, bytes) {
  * returns immediately either way.
  */
 async function assetIdFor(member, guildId) {
+  if (!member || !member.id) return { assetId: null, url: null };
   const src = avatarSourceFor(member, guildId);
-  if (!src) return { assetId: null, url: null };
+
+  // Animated now, or no picture at all. Neither gives us anything to upload, and
+  // neither is a reason to forget the still picture of them we already have.
+  if (!src) {
+    const last = await lastApproved(member.id);
+    return { assetId: last ? toAssetNumber(last.assetId) : null, url: last ? last.url : null };
+  }
 
   const row = await cached(member.id, src.hash);
   if (row && row.state === 'APPROVED' && row.assetId) {
-    const n = Number(row.assetId);
-    return { assetId: Number.isFinite(n) ? n : null, url: src.url };
+    return { assetId: toAssetNumber(row.assetId), url: src.url };
   }
 
-  // Not held, or held but not approved. Ask once, in the background.
-  if (!row) requestRehost(member, guildId, src).catch(() => {});
-  return { assetId: null, url: src.url };
+  // Their current picture is not approved: not held yet, still in review, or
+  // refused. Ask for it if it is worth asking, and meanwhile show the last one
+  // that was approved rather than nothing.
+  if (retryable(row)) requestRehost(member, guildId, src).catch(() => {});
+  const last = await lastApproved(member.id);
+  return { assetId: last ? toAssetNumber(last.assetId) : null, url: src.url };
 }
 
 /**
@@ -293,4 +471,5 @@ function startAvatarWorker() {
 module.exports = {
   avatarSourceFor, assetIdFor, requestRehost, refreshPendingAvatars, startAvatarWorker,
   rehostEnabled, settledEnough, isPng, minMemberDays, maxPerDay, maxBytes,
+  screenImage, screeningConfigured, screenThreshold, lastApproved, approvedByContent, retryable,
 };

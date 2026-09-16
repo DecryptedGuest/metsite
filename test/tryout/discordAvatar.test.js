@@ -14,8 +14,9 @@ function seed(name, exports) {
   const r = require.resolve(path.join(LIB, name));
   require.cache[r] = { id: r, filename: r, loaded: true, exports };
 }
-seed('db.js', { discordAvatarAsset: { findUnique: async () => null, count: async () => 0, upsert: async () => null, update: async () => null, findMany: async () => [] } });
+seed('db.js', { discordAvatarAsset: { findUnique: async () => null, findFirst: async () => null, count: async () => 0, upsert: async () => null, update: async () => null, findMany: async () => [] } });
 
+for (const k of ['AVATAR_VISION_KEY', 'GOOGLE_SERVICE_ACCOUNT_JSON']) delete process.env[k];
 const av = require('../../server/lib/discordAvatar');
 
 const GUILD = '111111111111111111';
@@ -150,6 +151,7 @@ function harness() {
   const dbPath = require.resolve(path.join(LIB, 'db.js'));
   require.cache[dbPath].exports.discordAvatarAsset = {
     findUnique: async () => null,
+    findFirst: async () => null,
     count: async () => 0,
     upsert: async ({ create }) => { const r = { id: 'r', ...create }; rows.push(r); return r; },
     update: async () => null,
@@ -236,4 +238,139 @@ test('without an Open Cloud key nothing is uploaded', async () => {
   require.cache[raPath].exports.useCredential = async () => ({ kind: 'cookie', value: 'c' });
   await av.requestRehost(settled, GUILD, av.avatarSourceFor(settled, GUILD));
   assert.equal(h.uploads.length, 0, 'the cookie path is the account itself, so it is not used for this');
+});
+
+// Reuse, so the Roblox allowance is spent once per picture and not once per
+// check. A gif is not a new picture: it is nothing we can upload, which is not
+// the same as a reason to forget the one we already have.
+test('switching to a gif keeps the still picture we already had approved', async () => {
+  const h = harness();
+  h.db.findFirst = async (q) => (q && q.where && q.where.state === 'APPROVED'
+    ? { assetId: '777', url: 'https://cdn.discordapp.com/avatars/2222/old.png?size=256', decidedAt: new Date() }
+    : null);
+  const nowAnimated = { ...settled, avatar: 'a_moving', guildAvatar: null };
+  const r = await av.assetIdFor(nowAnimated, GUILD);
+  assert.equal(r.assetId, 777, 'the gif must not cost them their picture');
+  assert.match(r.url, /old\.png/);
+});
+
+test('removing the avatar entirely also keeps the last approved one', async () => {
+  const h = harness();
+  h.db.findFirst = async () => ({ assetId: '777', url: 'u', decidedAt: new Date() });
+  const r = await av.assetIdFor({ ...settled, avatar: null, guildAvatar: null }, GUILD);
+  assert.equal(r.assetId, 777);
+});
+
+test('a gif with nothing ever approved is simply no picture', async () => {
+  harness();
+  const r = await av.assetIdFor({ ...settled, avatar: 'a_moving', guildAvatar: null }, GUILD);
+  assert.equal(r.assetId, null);
+  assert.equal(r.url, null);
+});
+
+test('the same bytes are never uploaded twice', async () => {
+  const h = harness(); serve(PNG);
+  // Already approved under a different avatar hash, e.g. they switched away and
+  // switched back, or wear the same picture in the server as on their account.
+  h.db.findFirst = async (q) => (q && q.where && q.where.contentHash ? { assetId: '4242' } : null);
+  await av.requestRehost(settled, GUILD, av.avatarSourceFor(settled, GUILD));
+  assert.equal(h.uploads.length, 0, 'the allowance is the scarce thing, so reuse rather than re-upload');
+  const row = h.rows[h.rows.length - 1];
+  assert.equal(row.state, 'APPROVED');
+  assert.equal(row.assetId, '4242', 'the existing asset is adopted');
+  assert.ok(row.contentHash, 'and the bytes are recorded so it happens again next time');
+});
+
+test('a picture still in review shows the previous approved one, not nothing', async () => {
+  const h = harness();
+  h.db.findUnique = async () => ({ state: 'PENDING', assetId: '999' });
+  h.db.findFirst = async () => ({ assetId: '777', url: 'u', decidedAt: new Date() });
+  const r = await av.assetIdFor(settled, GUILD);
+  assert.equal(r.assetId, 777, 'the one in review is not served, the last good one is');
+});
+
+test('a failed attempt is retried tomorrow, never on every check', () => {
+  const hourAgo = new Date(Date.now() - 3600e3);
+  const weekAgo = new Date(Date.now() - 7 * 864e5);
+  assert.equal(av.retryable(null), true, 'never tried is worth trying');
+  assert.equal(av.retryable({ state: 'FAILED', decidedAt: hourAgo }), false);
+  assert.equal(av.retryable({ state: 'FAILED', decidedAt: weekAgo }), true);
+  assert.equal(av.retryable({ state: 'BLOCKED', decidedAt: weekAgo }), false, 'we refused it, so leave it');
+  assert.equal(av.retryable({ state: 'REJECTED', decidedAt: weekAgo }), false, 'Roblox refused it, so never again');
+  assert.equal(av.retryable({ state: 'APPROVED', decidedAt: weekAgo }), false);
+  assert.equal(av.retryable({ state: 'PENDING', requestedAt: weekAgo }), false, 'still waiting on Roblox');
+});
+
+// Screening. Off unless configured, and when it is configured a screen we
+// cannot run means no upload.
+test('with nothing configured, screening is skipped and behaviour is unchanged', async () => {
+  const r = await av.screenImage(PNG);
+  assert.equal(r.verdict, 'SKIP');
+  assert.equal(av.screeningConfigured(), false);
+});
+
+test('a picture SafeSearch calls adult is refused before it is uploaded', async () => {
+  const h = harness(); serve(PNG);
+  process.env.AVATAR_VISION_KEY = 'k';
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url).includes('vision.googleapis.com')) {
+      return { ok: true, status: 200, json: async () => ({ responses: [{ safeSearchAnnotation: { adult: 'VERY_LIKELY', violence: 'VERY_UNLIKELY', racy: 'UNLIKELY' } }] }) };
+    }
+    return { ok: true, status: 200, headers: { get: () => null },
+             arrayBuffer: async () => PNG.buffer.slice(PNG.byteOffset, PNG.byteOffset + PNG.byteLength) };
+  };
+  try {
+    await av.requestRehost(settled, GUILD, av.avatarSourceFor(settled, GUILD));
+    assert.equal(h.uploads.length, 0, 'nothing reaches Roblox in our name');
+    assert.equal(h.rows[h.rows.length - 1].state, 'BLOCKED');
+    assert.match(h.rows[h.rows.length - 1].error, /adult/);
+  } finally { global.fetch = realFetch; delete process.env.AVATAR_VISION_KEY; }
+});
+
+test('an ordinary picture passes screening and goes up', async () => {
+  const h = harness();
+  process.env.AVATAR_VISION_KEY = 'k';
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url).includes('vision.googleapis.com')) {
+      return { ok: true, status: 200, json: async () => ({ responses: [{ safeSearchAnnotation: { adult: 'VERY_UNLIKELY', violence: 'VERY_UNLIKELY', racy: 'POSSIBLE' } }] }) };
+    }
+    return { ok: true, status: 200, headers: { get: () => null },
+             arrayBuffer: async () => PNG.buffer.slice(PNG.byteOffset, PNG.byteOffset + PNG.byteLength) };
+  };
+  try {
+    await av.requestRehost(settled, GUILD, av.avatarSourceFor(settled, GUILD));
+    assert.equal(h.uploads.length, 1, 'racy POSSIBLE is under the bar, so a normal face is not refused');
+  } finally { global.fetch = realFetch; delete process.env.AVATAR_VISION_KEY; }
+});
+
+test('screening configured but not answering means no upload', async () => {
+  const h = harness();
+  process.env.AVATAR_VISION_KEY = 'k';
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url).includes('vision.googleapis.com')) return { ok: false, status: 503, text: async () => 'unavailable' };
+    return { ok: true, status: 200, headers: { get: () => null },
+             arrayBuffer: async () => PNG.buffer.slice(PNG.byteOffset, PNG.byteOffset + PNG.byteLength) };
+  };
+  try {
+    await av.requestRehost(settled, GUILD, av.avatarSourceFor(settled, GUILD));
+    assert.equal(h.uploads.length, 0, 'the point of screening is that nothing goes up unseen');
+    assert.equal(h.rows[h.rows.length - 1].state, 'FAILED', 'recorded as failed, so it is retried tomorrow');
+  } finally { global.fetch = realFetch; delete process.env.AVATAR_VISION_KEY; }
+});
+
+test('the screening bar is configurable and defaults to likely', () => {
+  assert.equal(av.screenThreshold(), 4);
+  const before = process.env.AVATAR_VISION_THRESHOLD;
+  try {
+    process.env.AVATAR_VISION_THRESHOLD = 'POSSIBLE';
+    assert.equal(av.screenThreshold(), 3, 'a stricter bar refuses more');
+    process.env.AVATAR_VISION_THRESHOLD = 'nonsense';
+    assert.equal(av.screenThreshold(), 4, 'a bad value falls back rather than refusing everything');
+  } finally {
+    if (before === undefined) delete process.env.AVATAR_VISION_THRESHOLD;
+    else process.env.AVATAR_VISION_THRESHOLD = before;
+  }
 });

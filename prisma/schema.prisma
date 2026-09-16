@@ -1673,6 +1673,7 @@ model DiscordAvatarAsset {
   avatarHash  String // Discord's hash: changes whenever they change the picture
   source      String   @default("user") // user | guild (a server specific avatar)
   url         String? // what was fetched, kept for the audit trail
+  contentHash String? // sha256 of the bytes: the same picture is never uploaded twice
   assetId     String? // the Roblox asset id, once Roblox has given us one
   operationId String? // the Open Cloud operation still being polled
   state       String   @default("PENDING") // PENDING | APPROVED | REJECTED | FAILED | BLOCKED
@@ -1685,5 +1686,7 @@ model DiscordAvatarAsset {
 
   @@unique([discordId, avatarHash])
   @@index([state])
+  @@index([contentHash])
+  @@index([discordId, state])
   @@map("discord_avatar_assets")
 }
