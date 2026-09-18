@@ -417,12 +417,15 @@ async function rungForGroupRank(groupRole) {
   const num  = (groupRole && typeof groupRole === 'object') ? groupRole.rank : null;
   if (!name && num == null) return null;
 
-  const matches = ladder().filter(r => r.match.test(String(name || '')));
-  if (matches.length) return matches.reduce((a, b) => (b.at > a.at ? b : a));
+  const nameText = String(name || '');
 
-  // Senior to everything the ladder covers → the top rung, by name alone.
+  // Senior ranks above the XP ladder always cap at the ceiling, regardless of
+  // any lower-rung word that might appear in a longer title.
   const l = ladder();
-  if (name && ABOVE_LADDER.test(String(name))) return l[l.length - 1];
+  if (name && ABOVE_LADDER.test(nameText)) return l[l.length - 1];
+
+  const matches = ladder().filter(r => r.match.test(nameText));
+  if (matches.length) return matches.reduce((a, b) => (b.at > a.at ? b : a));
 
   if (num == null) return null;
 
