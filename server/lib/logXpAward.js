@@ -56,6 +56,48 @@ function patrolXpFor(minutes) {
 }
 
 /**
+ * Verify a patrol duration from its stored Discord content. The database
+ * totalMinutes field is derived/cache data and is never a source of truth
+ * for an XP payout.
+ */
+function verifiedPatrolMinutes(log) {
+  if (!log || log.type === 'EVENT') return { ok: true, minutes: null };
+
+  const raw = String(log.rawContent || '');
+  if (!raw.trim()) return { ok: false, minutes: null, why: 'patrol has no raw Discord content' };
+
+  const { parsePatrolLog } = require('./patrolLog');
+  const parsed = parsePatrolLog(raw);
+
+  // XP must come from a real start/end pair. Never fall back to a user-entered
+  // "Total Time:" field for XP.
+  if (!parsed.shiftStart || !parsed.shiftEnd || parsed.totalMinutes == null) {
+    return { ok: false, minutes: null, why: 'patrol start/end could not be verified' };
+  }
+
+  const stored = Number(log.totalMinutes);
+  const calculated = Number(parsed.totalMinutes);
+  if (!Number.isFinite(calculated) || calculated <= 0) {
+    return { ok: false, minutes: null, why: 'patrol duration is invalid' };
+  }
+
+  // If cached data disagrees with the Discord content, stop the payout rather
+  // than silently paying either value. That turns suspicious/stale logs into
+  // a review item instead of an XP exploit.
+  if (!Number.isFinite(stored) || stored !== calculated) {
+    return {
+      ok: false,
+      minutes: calculated,
+      why: 'patrol duration mismatch (stored ' +
+        (Number.isFinite(stored) ? stored : 'missing') +
+        ' min, Discord content ' + calculated + ' min)',
+    };
+  }
+
+  return { ok: true, minutes: calculated };
+}
+
+/**
  * May this approver's tick move XP?
  *
  * @param {object} o
@@ -113,13 +155,17 @@ function plannedAwards(log) {
     return out;
   }
 
-  // PATROL — the officer who filed it.
-  const amount = patrolXpFor(log.totalMinutes);
+  // PATROL — the officer who filed it. The cached total is only usable when
+  // it exactly matches a duration recomputed from the raw Discord message.
+  const verified = verifiedPatrolMinutes(log);
+  if (!verified.ok) return [];
+  const minutes = verified.minutes;
+  const amount = patrolXpFor(minutes);
   if (!amount || !log.submitterDiscordId) return [];
   return [{
     discordId: String(log.submitterDiscordId),
     amount,
-    reason: `Patrol · ${log.totalMinutes} min`,
+    reason: `Patrol · ${minutes} min`,
     name: log.submitterDisplayName || log.submitterUsername || null,
   }];
 }
@@ -164,6 +210,16 @@ async function awardForLog(log, approver, opts = {}) {
       .updateMany({ where: { id: log.id, xpAwarded: true }, data: { xpAwarded: false } })
       .catch(() => {});
   };
+
+  // Validate the patrol before claiming xpAwarded. An invalid patrol must
+  // remain eligible for a later corrected/reviewed attempt.
+  if (log.type !== 'EVENT') {
+    const verified = verifiedPatrolMinutes(log);
+    if (!verified.ok) {
+      out.skipped = verified.why;
+      return out;
+    }
+  }
 
   const gate = canAward({
     roleIds: approver && approver.roleIds,
