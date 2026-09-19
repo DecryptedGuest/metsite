@@ -32,7 +32,7 @@ const MAX_TARGETS = 20;
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('xp')
-    .setDescription('XP')
+    .setDescription('XP tools')
     .addStringOption(o => o
       .setName('officers')
       .setDescription('Who')
@@ -53,13 +53,9 @@ function buildCommand() {
       .setName('reason')
       .setDescription('Why')
       .setMaxLength(500))
-    // A boolean rather than a `/xp leaderboard` subcommand, because Discord
-    // makes a command either take subcommands or take options — never both —
-    // and a bare `/xp` showing your own card is the thing everyone actually
-    // uses. Typing "lead" in the option picker gets you here in one keystroke.
     .addBooleanOption(o => o
       .setName('leaderboard')
-      .setDescription('Leaderboard'))
+      .setDescription('Top XP'))
     .toJSON();
 }
 

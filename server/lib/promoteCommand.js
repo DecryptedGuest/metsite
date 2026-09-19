@@ -58,7 +58,7 @@ function buildCommand() {
       .setRequired(true))
     .addStringOption(o => o
       .setName('rank')
-      .setDescription('Set them to a specific rank (Deputy Commissioner and above). Leave blank to promote one rank up.')
+      .setDescription('Rank')
       .setAutocomplete(true))
     .addStringOption(o => o
       .setName('reason')
@@ -134,6 +134,29 @@ async function planPromotion(current, issuerRank) {
         + `You can't promote somebody to your level or past it.` };
   }
   return { ok: true, from, to, ceiling, why: null };
+}
+
+async function planDemotion(current, issuerRank) {
+  if (!current || current.rank == null) {
+    return { ok: false, why: 'Their MET Rank could not be read, so there is nothing to demote from.' };
+  }
+
+  let ranks;
+  try { ranks = await promotableRanks(); }
+  catch (err) { return { ok: false, why: `The MET group's ranks could not be read (${err.message}).` }; }
+  if (!ranks.length) return { ok: false, why: "The MET group returned no ranks · refusing to guess at one." };
+
+  const from = ranks.find(r => Number(r.rank) === Number(current.rank))
+    || { id: null, name: current.name, rank: Number(current.rank) };
+  const to = [...ranks].reverse().find(r => Number(r.rank) < Number(current.rank));
+
+  if (!to) return { ok: false, from, why: `**${from.name}** is already the lowest rank on the ladder · there is nothing below it.` };
+  if (issuerRank != null && Number(to.rank) <= Number(issuerRank)) {
+    return { ok: false, from, to,
+      why: `That would lower them to **${to.name}**, which is at or below your own rank. `
+        + `You can't demote somebody to your level or lower.` };
+  }
+  return { ok: true, from, to, why: null };
 }
 
 // ── The rank picker (Deputy Commissioner and above only) ──────────
@@ -455,7 +478,18 @@ async function handlePromoteButton(interaction) {
   const doneTitle = result.group.ok
     ? (down ? 'Rank changed' : 'Promoted')
     : (down ? 'Rank change failed' : 'Promotion failed');
-  const line = (ok, text) => `${ok ? e('met_tick') : e('met_cross')} ${text}`;
+  const line = (ok, text) => `${ok == null ? e('met_warn') : ok ? e('met_tick') : e('met_cross')} ${text}`;
+  const xpText = result.xp.ok
+    ? `XP · set to **${result.xp.value}**`
+    : (result.xp.reason === 'not attempted'
+      ? 'XP · not attempted'
+      : `XP · ${short(result.xp.reason || 'unchanged', 90)}`);
+  const dmText = result.dm == null
+    ? 'Officer notified · not attempted'
+    : (result.dm ? 'Officer notified' : "Couldn't DM them · their DMs are closed");
+  const logText = result.logged == null
+    ? 'XP log · not attempted'
+    : (result.logged ? 'Posted to the XP log' : 'XP log not posted');
   const embed = new EmbedBuilder()
     .setColor(result.group.ok ? COLOR.done : COLOR.fail)
     .setTitle(`${result.group.ok ? e(down ? 'met_edit' : 'met_promote') : e('met_cross')} ${doneTitle}`)
@@ -465,9 +499,9 @@ async function handlePromoteButton(interaction) {
       { name: 'Rank', value: `${short(state.from.name, 40)} → **${short(state.to.name, 40)}**`, inline: false },
       { name: 'Steps', value: [
         line(result.group.ok, `MET Rank · ${result.group.ok ? `now **${state.to.name}**` : short(result.group.reason || 'failed', 90)}`),
-        line(result.xp.ok, `XP · ${result.xp.ok ? `set to **${result.xp.value}**` : short(result.xp.reason || 'unchanged', 90)}`),
-        line(result.dm, result.dm ? 'Officer notified' : "Couldn't DM them · their DMs are closed"),
-        line(result.logged, result.logged ? 'Posted to the XP log' : 'XP log not posted'),
+        line(result.xp.ok, xpText),
+        line(result.dm, dmText),
+        line(result.logged, logText),
       ].join('\n'), inline: false },
     )
     .setFooter({ text: `By ${state.issuerName}` });
@@ -483,8 +517,8 @@ async function handlePromoteButton(interaction) {
 async function applyPromotion(state, client) {
   const out = {
     group: { ok: false, reason: null },
-    xp: { ok: false, value: null, reason: null },
-    dm: false, logged: false,
+    xp: { ok: null, value: null, reason: 'not attempted' },
+    dm: null, logged: null,
   };
 
   // 1. The group. Everything else describes this, so if it fails the rest is a
@@ -495,6 +529,9 @@ async function applyPromotion(state, client) {
     out.group.ok = true;
   } catch (err) {
     out.group.reason = err.message;
+    out.xp = { ok: null, value: null, reason: 'not attempted' };
+    out.dm = null;
+    out.logged = null;
     return out;
   }
 
@@ -585,7 +622,7 @@ async function applyPromotion(state, client) {
 
 module.exports = {
   buildCommand, handlePromoteCommand, handlePromoteButton, handlePromoteAutocomplete,
-  planPromotion, planRankChange, promotableRanks, selectableRanks, selectionCeiling,
+  planPromotion, planDemotion, planRankChange, promotableRanks, selectableRanks, selectionCeiling,
   ceilingFor, canSetRank, applyPromotion, keep, recall,
   PROMOTE_ROLE_IDS,
 };

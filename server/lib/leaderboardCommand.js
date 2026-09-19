@@ -14,14 +14,14 @@ const { getAllMembersPoints } = require('./quota');
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('leaderboard')
-    .setDescription("This week's quota progress by rank group")
-    .addStringOption(o => o.setName('group').setDescription('Only one rank group')
+    .setDescription('Quota leaderboard')
+    .addStringOption(o => o.setName('group').setDescription('Group')
       .addChoices(
         { name: 'High Command',   value: 'High Command' },
         { name: 'Middle Command', value: 'Middle Command' },
         { name: 'Low Command',    value: 'Low Command' },
       ))
-    .addBooleanOption(o => o.setName('public').setDescription('Post visibly instead of just to you'))
+    .addBooleanOption(o => o.setName('public').setDescription('Public'))
     .toJSON();
 }
 

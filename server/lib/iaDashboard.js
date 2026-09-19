@@ -65,10 +65,10 @@ const mark = s => e(STATUS_ICON[String(s || '').toUpperCase()] || 'met_dot_off')
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName(COMMAND)
-    .setDescription('The Internal Affairs dashboard: cases, tickets, the review queue and your quota')
+    .setDescription('IA dashboard')
     .addStringOption(o => o
       .setName('search')
-      .setDescription('Jump straight to a search (case ref, officer, reason, investigator)')
+      .setDescription('Search')
       .setMaxLength(100))
     .toJSON();
 }

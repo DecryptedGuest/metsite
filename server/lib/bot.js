@@ -443,6 +443,16 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /promote:', err.message);
   }
 
+  // /demote — one rank down in the MET group. Same permission model as /promote,
+  // but it works in reverse and keeps the same confirmation flow.
+  try {
+    const cmd = require('./demoteCommand').buildCommand();
+    add(PROMOTE_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /demote:', err.message);
+  }
+
   // /loa — leave of absence. Everyone can request and manage their own; the
   // reviewing half is gated in code to the LOA admin role, not by a Discord
   // permission bit, for the same reason /infract is.
@@ -743,6 +753,10 @@ async function onInteraction(interaction) {
       return require('./promoteCommand').handlePromoteAutocomplete(interaction)
         .catch(e => console.error('[Bot] promote autocomplete error:', e.message));
     }
+    if (interaction.commandName === 'demote') {
+      return require('./demoteCommand').handleDemoteAutocomplete(interaction)
+        .catch(e => console.error('[Bot] demote autocomplete error:', e.message));
+    }
     if (interaction.commandName === 'submit-case') {
       return require('./submitCaseCommand').handleAutocomplete(interaction)
         .catch(e => console.error('[Bot] submit-case autocomplete error:', e.message));
@@ -793,6 +807,10 @@ async function onInteraction(interaction) {
     if (cid.startsWith('prom_')) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
+    }
+    if (cid.startsWith('dem_')) {
+      return require('./demoteCommand').handleDemoteButton(interaction)
+        .catch(e => console.error('[Bot] demote button error:', e.message));
     }
     if (cid.startsWith('evade_')) {
       return require('./evasion').handleEvasionButton(interaction)
@@ -876,6 +894,17 @@ async function onInteraction(interaction) {
     return require('./promoteCommand').handlePromoteCommand(interaction)
       .catch(async (err) => {
         console.error('[Bot] /promote failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'demote') {
+    return require('./demoteCommand').handleDemoteCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /demote failed:', err.message);
         const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)

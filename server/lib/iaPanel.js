@@ -102,14 +102,14 @@ const COMMAND = 'check-record';
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName(COMMAND)
-    .setDescription("Look up an officer's record, or open a case by number")
+    .setDescription('Check a record')
     .addStringOption(o => o
       .setName('officer')
-      .setDescription('Who · a mention, a Discord id, or a Roblox username')
+      .setDescription('Who')
       .setMaxLength(120))
     .addStringOption(o => o
       .setName('case_number')
-      .setDescription('Case number, e.g. 618')
+      .setDescription('Case')
       .setMaxLength(40))
     .toJSON();
 }

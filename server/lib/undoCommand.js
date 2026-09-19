@@ -12,7 +12,7 @@ const { e } = require('./emoji');
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('undo')
-    .setDescription('Reverse one of your recent actions')
+    .setDescription('Undo recent action')
     .toJSON();
 }
 

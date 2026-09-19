@@ -41,7 +41,7 @@ const COLOR = {
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('infract')
-    .setDescription('Discipline an officer')
+    .setDescription('Issue discipline')
     .addUserOption(o => o
       .setName('officer').setDescription('Who').setRequired(true))
     .addStringOption(o => o
@@ -53,7 +53,7 @@ function buildCommand() {
     .addStringOption(o => o
       .setName('notes').setDescription('Notes').setMaxLength(900))
     .addStringOption(o => o
-      .setName('case').setDescription('Case link').setMaxLength(300))
+      .setName('case').setDescription('Case').setMaxLength(300))
     .addIntegerOption(o => o
       .setName('days').setDescription('Days')
       .setMinValue(1).setMaxValue(3650))

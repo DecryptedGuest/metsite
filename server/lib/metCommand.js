@@ -98,10 +98,10 @@ function bannerUrl(name) {
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('met')
-    .setDescription('Post how to join the Metropolitan Police')
+    .setDescription('Join MET')
     .addBooleanOption(o => o
       .setName('quiet')
-      .setDescription('Show it only to you, instead of posting it in the channel'))
+      .setDescription('Private'))
     .toJSON();
 }
 

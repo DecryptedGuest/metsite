@@ -23,16 +23,16 @@ const roblox = require('./roblox');
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('submit-case')
-    .setDescription('File a disciplinary case for review')
-    .addStringOption(o => o.setName('document').setDescription('Link to the case document').setRequired(true))
+    .setDescription('Submit a case')
+    .addStringOption(o => o.setName('document').setDescription('Document').setRequired(true))
     .addStringOption(o => o.setName('punishments')
-      .setDescription('Comma-separated punishments').setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName('reason').setDescription('Summary of the misconduct').setRequired(true))
-    .addUserOption(o => o.setName('subject').setDescription('The Discord member being punished'))
-    .addStringOption(o => o.setName('roblox').setDescription("The subject's Roblox username"))
-    .addIntegerOption(o => o.setName('duration').setDescription('Days, for a timed punishment').setMinValue(1))
-    .addStringOption(o => o.setName('blacklist_code').setDescription('Blacklist code, e.g. PL-M304'))
-    .addStringOption(o => o.setName('notes').setDescription('Anything else the reviewer should know'))
+      .setDescription('Punishments').setRequired(true).setAutocomplete(true))
+    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(true))
+    .addUserOption(o => o.setName('subject').setDescription('Subject'))
+    .addStringOption(o => o.setName('roblox').setDescription('Roblox'))
+    .addIntegerOption(o => o.setName('duration').setDescription('Days').setMinValue(1))
+    .addStringOption(o => o.setName('blacklist_code').setDescription('Blacklist'))
+    .addStringOption(o => o.setName('notes').setDescription('Notes'))
     .toJSON();
 }
 
