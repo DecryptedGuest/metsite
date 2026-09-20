@@ -103,7 +103,7 @@ const HPC_HICOMM_ROLE = '1398071632207151184';
 const PENDINGJOIN_ACCEPT_ROLE = '1507077818251743373';
 const EXTRA_ROLE_IDS = () => {
   const raw = process.env.PENDING_JOIN_ROLE_IDS;
-  const list = String(raw == null ? [HPC_HICOMM_ROLE, PENDINGJOIN_ACCEPT_ROLE].join(',') : raw)
+  const list = String(raw == null ? HPC_HICOMM_ROLE : raw)
     .split(',').map(s => s.trim()).filter(Boolean);
   return list;
 };
