@@ -2,12 +2,16 @@ const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js'
 const { isHicomm, DENIED } = require('../lib/perms');
 const { listJoinRequests, resolveJoinRequest } = require('../lib/roblox');
 
+const PENDINGJOIN_ACCEPT_ROLE_ID = '1507077818251743373';
+
 const data = new SlashCommandBuilder()
   .setName('pendingjoin')
   .setDescription('Roblox group join requests')
   .addSubcommand(s => s.setName('list').setDescription('Show pending join requests')
     .addStringOption(o => o.setName('cursor').setDescription('Next-page cursor from a previous listing')))
   .addSubcommand(s => s.setName('approve').setDescription('Approve a join request')
+    .addStringOption(o => o.setName('roblox_user_id').setDescription('The requester\'s Roblox user id').setRequired(true)))
+  .addSubcommand(s => s.setName('accept').setDescription('Accept a join request')
     .addStringOption(o => o.setName('roblox_user_id').setDescription('The requester\'s Roblox user id').setRequired(true)))
   .addSubcommand(s => s.setName('decline').setDescription('Decline a join request')
     .addStringOption(o => o.setName('roblox_user_id').setDescription('The requester\'s Roblox user id').setRequired(true)));
@@ -16,8 +20,9 @@ async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
   // This role may approve/accept join requests without granting it access to
   // listing or declining requests.
-  const canAccept = interaction.member?.roles?.cache?.has('1507077818251743373');
-  if (!isHicomm(interaction.member) && !(sub === 'approve' && canAccept)) {
+  const canAccept = interaction.member?.roles?.cache?.has(PENDINGJOIN_ACCEPT_ROLE_ID);
+  const isAcceptAction = sub === 'approve' || sub === 'accept';
+  if (!isHicomm(interaction.member) && !(isAcceptAction && canAccept)) {
     return interaction.reply({ content: DENIED, flags: MessageFlags.Ephemeral });
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -43,8 +48,8 @@ async function execute(interaction) {
     }
 
     const userId = interaction.options.getString('roblox_user_id').trim();
-    await resolveJoinRequest(userId, sub === 'approve' ? 'approve' : 'decline');
-    return interaction.editReply(`✅ Join request for \`${userId}\` ${sub === 'approve' ? 'approved' : 'declined'}.`);
+    await resolveJoinRequest(userId, isAcceptAction ? 'approve' : 'decline');
+    return interaction.editReply(`✅ Join request for \`${userId}\` ${isAcceptAction ? 'approved' : 'declined'}.`);
   } catch (err) {
     return interaction.editReply(`❌ ${err.message}`);
   }
