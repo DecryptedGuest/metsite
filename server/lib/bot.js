@@ -957,6 +957,17 @@ async function onInteraction(interaction) {
       });
   }
 
+  if (interaction.commandName === 'exile') {
+    return require('./exileCommand').handleExileCommand(interaction)
+      .catch(async (err) => {
+        console.error('[/exile] handler failed:', err.message);
+        const msg = { content: `${e('met_cross')} Exile failed · nothing else was changed. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
   if (interaction.commandName === 'pendingjoin') {
     return require('./pendingJoinCommand').handlePendingJoinCommand(interaction)
       .catch(async (err) => {
