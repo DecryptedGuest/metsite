@@ -13,10 +13,13 @@ const data = new SlashCommandBuilder()
     .addStringOption(o => o.setName('roblox_user_id').setDescription('The requester\'s Roblox user id').setRequired(true)));
 
 async function execute(interaction) {
-  if (!isHicomm(interaction.member)) {
+  const sub = interaction.options.getSubcommand();
+  // This role may approve/accept join requests without granting it access to
+  // listing or declining requests.
+  const canAccept = interaction.member?.roles?.cache?.has('1507077818251743373');
+  if (!isHicomm(interaction.member) && !(sub === 'approve' && canAccept)) {
     return interaction.reply({ content: DENIED, flags: MessageFlags.Ephemeral });
   }
-  const sub = interaction.options.getSubcommand();
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
