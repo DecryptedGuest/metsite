@@ -527,6 +527,16 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /met:', err.message);
   }
 
+  // /exile — immediate MET termination. Reuses the /infract discipline engine
+  // so the Roblox exile, punishment record, dashboard case and admin log agree.
+  try {
+    const cmd = require('./exileCommand').buildCommand();
+    add(PENDINGJOIN_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /exile:', err.message);
+  }
+
   // /pendingjoin — the MET group's join-request queue. Gated in code to MET High
   // Command and administrators, because letting somebody into the group is a
   // Roblox action with no undo from here.
