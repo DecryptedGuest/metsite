@@ -97,9 +97,13 @@ function buildCommand() {
 // HPC High Command recruit into MET as part of running training, so they are in
 // by default; the env exists so another role can be added without a deploy.
 const HPC_HICOMM_ROLE = '1398071632207151184';
+// Explicit MET recruitment role requested for /pendingjoin accept.
+// This is checked before the Roblox/dashboard identity lookup so holders can
+// accept a join request even when their Discord is not linked to RoVer.
+const PENDINGJOIN_ACCEPT_ROLE = '1507077818251743373';
 const EXTRA_ROLE_IDS = () => {
   const raw = process.env.PENDING_JOIN_ROLE_IDS;
-  const list = String(raw == null ? HPC_HICOMM_ROLE : raw)
+  const list = String(raw == null ? [HPC_HICOMM_ROLE, PENDINGJOIN_ACCEPT_ROLE].join(',') : raw)
     .split(',').map(s => s.trim()).filter(Boolean);
   return list;
 };
