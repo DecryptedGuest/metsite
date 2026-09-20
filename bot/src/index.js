@@ -2,7 +2,7 @@
 // Discipline, quota points, LOA, Roblox group admin, and IA cases/tickets.
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, MessageFlags, REST, Routes } = require('discord.js');
 const { assertEnv, env } = require('./lib/env');
 const perms  = require('./lib/perms');
 const roblox = require('./lib/roblox');
@@ -25,6 +25,30 @@ const guildForScope = (scope) => {
   if (scope === 'met') return env('MET_GUILD_ID') || env('DISCORD_GUILD_ID');
   return env('IA_GUILD_ID') || env('DISCORD_GUILD_ID');
 };
+
+/** Keep guild slash-command definitions in sync whenever the bot starts.
+ * This avoids a successful code deploy leaving Discord with a stale command
+ * definition because `npm run deploy` was not run separately.
+ */
+async function syncGuildCommands() {
+  const rest = new REST({ version: '10' }).setToken(env('DISCORD_BOT_TOKEN'));
+  const { IA, MET } = require('./lib/commands');
+  const targets = [
+    { scope: 'ia', guildId: env('IA_GUILD_ID'), commands: IA },
+    { scope: 'met', guildId: env('MET_GUILD_ID'), commands: MET },
+  ];
+  for (const target of targets) {
+    if (!target.guildId) continue;
+    await rest.put(
+      Routes.applicationGuildCommands(env('DISCORD_CLIENT_ID'), target.guildId),
+      { body: target.commands.map(c => c.data.toJSON()) },
+    );
+    console.log(`    Synced ${target.commands.length} ${target.scope.toUpperCase()} slash commands`);
+  }
+  // Remove stale global commands so they cannot bypass the guild split.
+  const globals = await rest.get(Routes.applicationCommands(env('DISCORD_CLIENT_ID')));
+  if (globals.length) await rest.put(Routes.applicationCommands(env('DISCORD_CLIENT_ID')), { body: [] });
+}
 
 /**
  * Defence in depth: even if a stale registration survives in the wrong server,
@@ -165,6 +189,13 @@ client.once('clientReady', async () => {
   console.log(`    IA  server ${env('IA_GUILD_ID')  || '(unset!)'} — ${IA.length} commands`);
   console.log(`    MET server ${env('MET_GUILD_ID') || '(unset!)'} — ${MET.length} commands`);
   if (env('CID_GUILD_ID')) console.log(`    CID server ${env('CID_GUILD_ID')} — no commands (role sync only)`);
+  try {
+    await syncGuildCommands();
+  } catch (err) {
+    // A registration outage must not take the running bot offline; the next
+    // restart will retry the sync automatically.
+    console.error('[commands] startup sync failed:', err.message);
+  }
   await roblox.initCsrf();
   startExpiryWorker(bot);
   startQuotaWorker();
