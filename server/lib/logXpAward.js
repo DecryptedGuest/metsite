@@ -34,10 +34,10 @@
 const prisma = require('./db');
 const XP = require('./xp');
 
-const EVENT_ATTENDEE_XP = () => {
-  const n = parseInt(process.env.EVENT_ATTENDEE_XP || '1', 10);
-  return Number.isFinite(n) ? n : 1;
-};
+// Event attendance is always exactly 1 XP. This is deliberately NOT
+// configurable: a mass-patrol/event log must never turn an attendee list into
+// a bulk XP payout because a deployment environment contains a bad value.
+const EVENT_ATTENDEE_XP = () => 1;
 const PATROL_XP_MINUTES = () => {
   const n = parseInt(process.env.PATROL_XP_MINUTES || '30', 10);
   return Number.isFinite(n) && n > 0 ? n : 30;
