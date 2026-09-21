@@ -109,7 +109,8 @@ async function sendApprovalWebhook(data) {
   const embed = buildCaseEmbed(data);
   if (data.edited) embed.title = 'Staff Consequences & Discipline (updated)';
 
-  const body = { embeds: [embed] };
+  // Keep the webhook profile image aligned with the IA signature shown in the embed.
+  const body = { embeds: [embed], avatar_url: SIGN_AUTHOR_ICON };
   if (data.officerDiscordId) body.content = `<@${data.officerDiscordId}>`;
 
   try {
