@@ -1,7 +1,7 @@
 // server/lib/caseRef.js
 // Allocating the next case number.
 //
-// Lifted out of routes/cases.js so /discipline can file a case with a ref from
+// Lifted out of routes/cases.js so /infract can file a case with a ref from
 // the SAME sequence. Two allocators would eventually hand out the same number
 // and one of the two writes would die on the unique index — which, for a
 // disciplinary record, means the punishment lands and the record doesn't.

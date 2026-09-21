@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · FLP Dashboard</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
   <link rel="stylesheet" href="/css/main.css" />
   <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
@@ -16,6 +19,7 @@
   <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
+  <link rel="stylesheet" href="/css/met.css?v=1" />
 </head>
 <body class="div-flp">
 <div class="bg-canvas">
@@ -163,7 +167,7 @@
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail, optional)</th></tr></thead>
             <tbody id="flpq-FLP-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
@@ -190,7 +194,7 @@
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail, optional)</th></tr></thead>
             <tbody id="flpq-MET-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
           </table>
         </div>
@@ -210,7 +214,7 @@
         <div style="padding:1rem 1.2rem;">
           <p style="margin:0 0 .8rem;font-size:12px;color:var(--text-secondary);line-height:1.6;">
             Compares the <strong>MET database</strong> against the MET Roblox group. Anyone no longer in
-            the group is removed, and newly joined constables are written into the rows that frees up —
+            the group is removed, and newly joined constables are written into the rows that frees up,
             with their Discord ID filled in where it can be resolved. Timezone, WTBT and anything else
             the sheet carries are left blank rather than guessed at. Always run <strong>Check</strong>
             first: it shows exactly what will change before anything is written.
@@ -235,7 +239,7 @@
             tab, who is in the group but on no tab, who is on the sheet but has left, duplicate rows,
             blank day cells and anything in a day column that isn't a number. <strong>Fill blanks</strong>
             writes 0 into empty or unreadable day cells. <strong>Reset all points</strong> zeroes every
-            day cell so counting starts clean — the weekly quota is
+            day cell so counting starts clean. The weekly quota is
             <strong id="metaudit-target">3</strong> events, one database point each. Neither ever touches
             a cell marked <code>EX</code> or <code>LOA</code>, and neither adds, deletes or moves a row:
             rank-tab moves are listed for you to make.
@@ -288,6 +292,7 @@
 <script src="/js/flp-quota-check.js"></script>
 <script src="/js/flp-dashboard.js"></script>
 <script src="/js/division-quota.js"></script>
+<script src="/js/met-select.js?v=1"></script>
 <script>(function(){var DIV='FLP';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('FLP');</script>
 </body>

@@ -97,6 +97,10 @@ function buildCommand() {
 // HPC High Command recruit into MET as part of running training, so they are in
 // by default; the env exists so another role can be added without a deploy.
 const HPC_HICOMM_ROLE = '1398071632207151184';
+// Explicit MET recruitment role requested for /pendingjoin accept.
+// This is checked before the Roblox/dashboard identity lookup so holders can
+// accept a join request even when their Discord is not linked to RoVer.
+const SAS_HIGH_COMMAND_ROLE = '1507077818251743373';
 const EXTRA_ROLE_IDS = () => {
   const raw = process.env.PENDING_JOIN_ROLE_IDS;
   const list = String(raw == null ? HPC_HICOMM_ROLE : raw)
@@ -121,13 +125,20 @@ const EXTRA_ROLE_IDS = () => {
  * needs no lookup and is therefore still trustworthy when Roblox is down.
  */
 async function mayDecide(interaction) {
-  const REFUSAL = 'Only MET High Command, Internal Affairs and HPC High Command '
+  const REFUSAL = 'Only MET High Command, Internal Affairs, HPC High Command and SAS High Command '
     + 'can decide who joins the MET group.';
 
   const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
     ? [...interaction.member.roles.cache.keys()].map(String)
     : (Array.isArray(interaction.member && interaction.member.roles)
         ? interaction.member.roles.map(String) : []);
+
+  // SAS High Command has the same authority over the entire pending-join queue:
+  // accept, deny, and list. This is checked before identity/rank lookups so the
+  // role still works if the issuer has no RoVer/dashboard link.
+  if (roleIds.includes(SAS_HIGH_COMMAND_ROLE)) {
+    return { ok: true, via: 'sas-hicomm-role', label: 'SAS High Command' };
+  }
 
   // First, because it costs nothing and still works when the rank lookup can't.
   for (const rid of EXTRA_ROLE_IDS()) {
@@ -613,5 +624,5 @@ module.exports = {
   buildCommand, handlePendingJoinCommand,
   // exported for the tests
   mayDecide, readQueue, findOne, lookupPerson, resolveMany, cleanReason, resultEmbed,
-  workingEmbed, bar, throttledEditor, MAX_PER_RUN, MAX_PAGES, EXTRA_ROLE_IDS, nameList,
+  workingEmbed, bar, throttledEditor, MAX_PER_RUN, MAX_PAGES, EXTRA_ROLE_IDS, nameList, SAS_HIGH_COMMAND_ROLE,
 };

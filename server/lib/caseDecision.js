@@ -100,6 +100,51 @@ function tierRefusal(actorRole, kase, verb) {
   return null;
 }
 
+
+// ── Quota points for the reviewer ─────────────────────────────────
+//
+// Reviewing is work, and it is paid whichever way the decision goes: a case
+// that is properly denied took the same reading as one that is approved, and
+// paying only for approvals quietly rewards approving.
+//
+// One point, on the case id, so a re-decision cannot pay twice. Deliberately a
+// DIFFERENT refType from the submitter's award on the same case — the outbox
+// de-duplicates on (refType, refId), so sharing one would mean whichever landed
+// first silently cancelled the other.
+const REVIEW_POINTS = () => {
+  const n = parseInt(process.env.IA_CASE_REVIEW_POINTS || '1', 10);
+  return Number.isFinite(n) ? n : 1;
+};
+
+async function awardReviewer(kase, actor, decision) {
+  if (!actor || !actor.id) return;
+  const points = REVIEW_POINTS();
+  if (!points) return;
+  try {
+    // The award is keyed by Roblox username on the sheet, so the reviewer's
+    // account has to supply one. actor carries a User.id; the rest comes from
+    // the row.
+    const user = await prisma.user.findUnique({
+      where:  { id: actor.id },
+      select: { discordId: true, robloxUsername: true },
+    });
+    const discordId = (user && user.discordId) || actor.discordId || null;
+    if (!discordId && !(user && user.robloxUsername)) return;
+
+    const { enqueueQuotaAward } = require('./quota');
+    await enqueueQuotaAward({
+      refType: 'case_review', refId: kase.id,
+      discordId,
+      robloxUsername: (user && user.robloxUsername) || null,
+      points,
+      label: `reviewed case ${kase.caseRef} (${decision.toLowerCase()})`,
+    });
+  } catch (err) {
+    // Never let the reviewer's point undo the decision itself.
+    console.warn('[IA] reviewer point not queued for', kase.caseRef, '·', err.message);
+  }
+}
+
 /**
  * Approve a case and run every side effect.
  *
@@ -234,7 +279,7 @@ async function approveCase({ caseId, actor, note } = {}) {
       }).catch(() => {});
     }
 
-    // Tell the OFFICER their record changed — the same notice /discipline sends.
+    // Tell the OFFICER their record changed — the same notice /infract sends.
     if (existing.officerDiscordId) {
       const timed = actions.find(a => ACTION_CONFIG[a.action]?.timed && a.durationDays);
       require('./officerNotice').notifyPunished({
@@ -269,6 +314,17 @@ async function approveCase({ caseId, actor, note } = {}) {
     }).catch(() => {});
   }
 
+  // The reviewer's own point, for the reading either decision takes.
+  await awardReviewer(existing, actor, 'APPROVED');
+
+  await require('./actionJournal').record({
+    kind: 'CASE_APPROVE',
+    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
+    targetType: 'case', targetId: existing.id,
+    summary: `Approved case ${existing.caseRef}`,
+    payload: { caseRef: existing.caseRef, officerDiscordId: existing.officerDiscordId },
+  });
+
   return { ok: true, status: 200, case: updated };
 }
 
@@ -289,6 +345,19 @@ async function denyCase({ caseId, actor, note } = {}) {
   await prisma.caseAction.create({
     data: { caseId: existing.id, actionType: 'DENIED', performedBy: actor.id, notes: note || 'Denied by HICOMM/Developer' },
   });
+
+  // The reviewer is paid for a denial exactly as for an approval. The SUBMITTER
+  // is not: no award is queued anywhere in this function, which is the point.
+  await awardReviewer(existing, actor, 'DENIED');
+
+  await require('./actionJournal').record({
+    kind: 'CASE_DENY',
+    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
+    targetType: 'case', targetId: existing.id,
+    summary: `Denied case ${existing.caseRef}`,
+    payload: { caseRef: existing.caseRef },
+  });
+
   return { ok: true, status: 200, case: updated };
 }
 
@@ -331,7 +400,7 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
   // somebody who is not on the IA sheet. `closerIsIa` was resolved at ingest.
   const payable = ticket.closerIsIa !== false;
   if (status === 'APPROVED' && payable && (ticket.closerDiscordId || ticket.closerUserId)) {
-    const { enqueueQuotaAward, TICKET_POINTS } = require('./quota');
+    const { enqueueQuotaAward, ticketPointsFor } = require('./quota');
     let closer = null;
     if (ticket.closerUserId) {
       closer = await prisma.user.findUnique({
@@ -347,11 +416,21 @@ async function reviewTicket({ ticketId, actor, action } = {}) {
         // Only the matched site account's Roblox name — NEVER
         // creatorRobloxUsername, which is the person who OPENED the ticket.
         robloxUsername: (closer && closer.robloxUsername) || null,
-        points: TICKET_POINTS(),
+        points: ticketPointsFor(),
         label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
       }).catch(() => {});
     }
   }
+
+  // Journalled so /undo can put it back — including cancelling an award that
+  // has not reached the sheet yet.
+  await require('./actionJournal').record({
+    kind: 'TICKET_REVIEW',
+    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
+    targetType: 'ticket', targetId: ticket.id,
+    summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketNo != null ? '#' + ticket.ticketNo : ticket.id}`,
+    payload: { decision: status },
+  });
 
   return { ok: true, status: 200, ticket: updated, decision: status };
 }

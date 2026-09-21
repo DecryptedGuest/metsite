@@ -32,7 +32,7 @@ const MAX_TARGETS = 20;
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('xp')
-    .setDescription('XP')
+    .setDescription('XP tools')
     .addStringOption(o => o
       .setName('officers')
       .setDescription('Who')
@@ -53,13 +53,9 @@ function buildCommand() {
       .setName('reason')
       .setDescription('Why')
       .setMaxLength(500))
-    // A boolean rather than a `/xp leaderboard` subcommand, because Discord
-    // makes a command either take subcommands or take options — never both —
-    // and a bare `/xp` showing your own card is the thing everyone actually
-    // uses. Typing "lead" in the option picker gets you here in one keystroke.
     .addBooleanOption(o => o
       .setName('leaderboard')
-      .setDescription('Leaderboard'))
+      .setDescription('Top XP'))
     .toJSON();
 }
 
@@ -105,7 +101,7 @@ function buildLeaderboard(rows, client, { viewerId, viewerPos, viewerXp, viewerM
       ? `${e('met_star')} <@${viewerId}> · **${viewerXp}** XP · top of the ladder`
       : viewerPos
         ? `\`${viewerPos}\` <@${viewerId}> · **${viewerXp}** XP`
-        : `<@${viewerId}> · *no XP yet. Attend an event and you're on the board.*`;
+        : `<@${viewerId}> · *no XP yet.*`;
     embed.addFields({ name: 'You', value: mine, inline: false });
   }
   return embed;
@@ -284,7 +280,7 @@ async function loadOfficer(discordId, guild) {
     ? await withTimeout(guild.members.fetch(discordId), t, null)
     : null;
 
-  // The same resolver /discipline uses — RoVer, then their MET Dashboard
+  // The same resolver /infract uses — RoVer, then their MET Dashboard
   // account, then their MET nickname. A missing Roblox link here means no rank,
   // which means no XP placement at all.
   const link = await withTimeout(
@@ -602,7 +598,7 @@ async function handleXpCommand(interaction) {
   let frame = 0;
   let lastEdit = 0;
   const draw = async (embed) => {
-    // Same pacing rule as /discipline: a floor between edits so a fast step
+    // Same pacing rule as /infract: a floor between edits so a fast step
     // still renders as a frame, and no burst can reach a rate limit.
     const wait = 420 - (Date.now() - lastEdit);
     if (wait > 0) await new Promise(r => setTimeout(r, wait));

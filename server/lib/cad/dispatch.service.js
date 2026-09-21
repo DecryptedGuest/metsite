@@ -60,7 +60,7 @@ function createDispatchService(prisma) {
             status: 'OPEN', createdById, createdByName,
           },
         });
-        await log(incident.id, 'CREATED', `Incident created — Grade ${g}, ${category} at ${location}.`);
+        await log(incident.id, 'CREATED', `Incident created: Grade ${g}, ${category} at ${location}.`);
         return ok({ incident });
       } catch (e) {
         if (String(e.code) === 'P2002' && attempt < 3) continue; // ref collision → retry
@@ -118,7 +118,7 @@ function createDispatchService(prisma) {
     const attached = await prisma.cadUnit.findMany({ where: { currentIncidentId: incident.id } });
     await prisma.cadUnit.updateMany({ where: { currentIncidentId: incident.id }, data: { status: 'AVAILABLE', currentIncidentId: null, lastStatusAt: new Date() } });
     const updated = await prisma.cadIncident.update({ where: { id: incident.id }, data: { status: 'CLOSED', closedAt: new Date(), closedOutcome: String(outcome || '').slice(0, 300) || null } });
-    await log(incident.id, 'CLOSED', `Incident closed${outcome ? ` — ${outcome}` : ''}. ${attached.length} unit(s) released.`);
+    await log(incident.id, 'CLOSED', `Incident closed${outcome ? `: ${outcome}` : ''}. ${attached.length} unit(s) released.`);
     return ok({ incident: updated, released: attached });
   }
 

@@ -147,6 +147,7 @@ function handlePost(e) {
     if (body.action === 'exempt')  return setExempt((body.username || '').toString().trim(), (body.marker || 'EX').toString());
     if (body.action === 'members') return listMembers();
     if (body.action === 'roster')  return syncRoster(body.remove || [], body.add || []);
+    if (body.action === 'writeWeek') return writeWeek(body.rows || [], body.borders !== false);
 
     var points         = Number(body.points) || 0;
     var discordId      = (body.discordId || '').toString().trim();
@@ -412,4 +413,81 @@ function normName(s) { return (s || '').toString().toLowerCase().replace(/[^a-z0
 
 function json(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+
+/**
+ * Write a whole week for many members at once.
+ *
+ * The single-cell "add" path is right for one approval, but a full resync of
+ * thirty members would be thirty round trips, each re-reading the sheet. This
+ * takes the finished numbers and writes them in one pass.
+ *
+ * rows: [{ username, discordId, rank, days: { SUN..SAT }, total }]
+ * Members already on the sheet are updated in place; the rest are reported as
+ * "missing" rather than invented, because where a row belongs is a decision
+ * about sections and this cannot see them.
+ */
+function writeWeek(rows, borders) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = SHEET_NAME ? ss.getSheetByName(SHEET_NAME) : ss.getSheets()[0];
+  if (!sheet) return json({ ok: false, error: 'sheet not found' });
+
+  var values = sheet.getDataRange().getDisplayValues();
+  var cols = findColumns(values);
+  if (cols.username == null) return json({ ok: false, error: 'No username column found.' });
+
+  var updated = 0, missing = [], touched = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || {};
+    var target = -1;
+
+    // Discord id first: it survives a Roblox rename, which a username does not.
+    var wantD = (row.discordId || '').toString().replace(/\D/g, '');
+    if (wantD && cols.discordId != null) {
+      for (var r = 0; r < values.length; r++) {
+        var cell = (values[r][cols.discordId] || '').toString().replace(/\D/g, '');
+        if (cell && cell === wantD) { target = r; break; }
+      }
+    }
+    if (target < 0) {
+      var wantU = normName(row.username);
+      for (var r2 = 0; r2 < values.length; r2++) {
+        if (wantU && normName(values[r2][cols.username]) === wantU) { target = r2; break; }
+      }
+    }
+    if (target < 0) { missing.push(row.username || row.discordId); continue; }
+
+    var days = row.days || {};
+    for (var d = 0; d < DAYS.length; d++) {
+      var col = cols.days[d];
+      if (col == null) continue;
+      var key = DAYS[d].toUpperCase();
+      var v = days[key];
+      // An exempt or LOA member keeps their marker: it is a statement about the
+      // week, not a score, and overwriting it with 0 loses that.
+      var existing = (values[target][col] || '').toString().trim().toUpperCase();
+      if (existing === 'EX' || existing === 'LOA') continue;
+      sheet.getRange(target + 1, col + 1).setValue(v == null ? 0 : v);
+    }
+    touched.push(target + 1);
+    updated++;
+  }
+
+  if (borders && touched.length) applyBorders(sheet, touched, cols);
+
+  SpreadsheetApp.flush();
+  return json({ ok: true, updated: updated, missing: missing });
+}
+
+/** The sheet's house style: a solid black grid around every member row. */
+function applyBorders(sheet, rowNumbers, cols) {
+  var first = cols.username, last = cols.username;
+  for (var d in cols.days) { if (cols.days[d] > last) last = cols.days[d]; }
+  if (cols.discordId != null) { if (cols.discordId < first) first = cols.discordId; if (cols.discordId > last) last = cols.discordId; }
+  for (var i = 0; i < rowNumbers.length; i++) {
+    sheet.getRange(rowNumbers[i], first + 1, 1, (last - first) + 1)
+      .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  }
 }

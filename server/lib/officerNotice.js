@@ -2,7 +2,7 @@
 // What the officer on the receiving end is told.
 //
 // Three things can happen to somebody: a case against them is approved, a
-// direct action is taken with /discipline, or an appeal lifts one of those. All
+// direct action is taken with /infract, or an appeal lifts one of those. All
 // three are the same event from where they are standing — their record changed
 // — and all three used to be told differently or not at all. A case approval
 // notified the *submitter* and left the officer to find out from a role
@@ -98,7 +98,7 @@ function consequenceFor(actions, fallbackAction) {
  * @param {string} [o.notes]
  * @param {string} [o.caseLink]
  * @param {Date}   [o.expiresAt]
- * @param {boolean}[o.direct]       taken with /discipline rather than reviewed
+ * @param {boolean}[o.direct]       taken with /infract rather than reviewed
  * @param {string} [o.avatar]       their Roblox headshot
  * @param {string} [o.robloxUsername]
  * @param {string} [o.robloxId]

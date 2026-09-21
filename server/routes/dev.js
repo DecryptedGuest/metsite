@@ -286,7 +286,10 @@ router.get('/db-targets', async (req, res) => {
 //             right one before anything is created.
 router.post('/case-log-import', async (req, res) => {
   const body = req.body || {};
-  const channelId = String(body.channelId || process.env.CASE_LOG_CHANNEL_ID || '').trim();
+  // The MET administrative-log channel, hardcoded: it is where the case logs
+  // live and it is not moving, so it should not need setting up.
+  const channelId = String(
+    body.channelId || process.env.CASE_LOG_CHANNEL_ID || '1458943564456399091').trim();
   const dry = body.dry === true || body.dry === 'true' || req.query.dry === '1';
   if (!channelId) {
     return res.status(400).json({
@@ -312,6 +315,164 @@ router.post('/case-log-import', async (req, res) => {
     res.json(out);
   } catch (err) {
     console.error('[Dev] case log import failed:', err.message);
+    res.status(500).json({ error: 'The import failed: ' + err.message });
+  }
+});
+
+// ── IA Database sync ──────────────────────────────────────────────
+//
+// One place to reconcile the sheet with what the site knows. Split into a plan
+// and an apply so the destructive half is never the first thing that happens:
+// a sync you cannot preview is one nobody runs on a Sunday night.
+
+// GET /api/dev/ia-sync/plan — what WOULD be written. Reads only.
+router.get('/ia-sync/plan', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    const plan = await require('../lib/iaSheetSync').planSync(getClient());
+    res.json(plan);
+  } catch (err) {
+    console.error('[Dev] IA sync plan failed:', err.message);
+    res.status(500).json({ error: 'Could not build the plan: ' + err.message });
+  }
+});
+
+// POST /api/dev/ia-sync/apply — write the roster and this week's points.
+router.post('/ia-sync/apply', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet · try again shortly.' });
+
+    const body = req.body || {};
+    const out = await require('../lib/iaSheetSync').applySync(client, {
+      addMissing: body.addMissing !== false,
+      borders:    body.borders    !== false,
+    });
+    if (out.ok) {
+      audit.log(req.user, { category: 'SECURITY', action: 'IA_SHEET_SYNC',
+        summary: `IA sheet sync: ${out.updated} rows updated, ${out.added.length} added` });
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] IA sync apply failed:', err.message);
+    res.status(500).json({ error: 'The sync failed: ' + err.message });
+  }
+});
+
+// POST /api/dev/ia-sync/tickets — pull the MET ticket-log channel again.
+router.post('/ia-sync/tickets', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet.' });
+    const ingest = require('../lib/ticketIngest');
+    const fn = ingest.sweepTicketLogs || ingest.sweep || ingest.runSweep;
+    if (typeof fn !== 'function') {
+      return res.status(501).json({ error: 'No ticket sweep entry point is exported.' });
+    }
+    res.json(await fn(client, { full: req.body && req.body.full === true }));
+  } catch (err) {
+    console.error('[Dev] ticket sync failed:', err.message);
+    res.status(500).json({ error: 'The ticket sync failed: ' + err.message });
+  }
+});
+
+// GET /api/dev/ticket-diagnose — why did nothing appear in the tickets channel?
+//
+// Walks the whole path (read the source channel, store the row, post the card)
+// and reports each step with the fix. Read-only: posts nothing, writes nothing.
+router.get('/ticket-diagnose', async (req, res) => {
+  try {
+    const { getClient } = require('../lib/bot');
+    res.json(await require('../lib/ticketDiagnose').diagnose(getClient()));
+  } catch (err) {
+    console.error('[Dev] ticket diagnose failed:', err.message);
+    res.status(500).json({ error: 'The check failed: ' + err.message });
+  }
+});
+
+// POST /api/dev/ticket-cards/since — card the tickets closed since a moment.
+//
+// The automatic path only cards what closed after the bot started watching, so a
+// ticket closed in the gap around a restart is stored and never queued. This
+// asks for those by name, with a window the caller chooses, rather than
+// re-carding history.
+router.post('/ticket-cards/since', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { getClient } = require('../lib/bot');
+    if (!getClient()) return res.status(503).json({ error: 'The Discord bot is not connected yet.' });
+
+    // Default to the last two hours: long enough to cover a restart, short
+    // enough that a mistyped request cannot flood the channel.
+    const since = body.since ? new Date(body.since) : new Date(Date.now() - 2 * 3600 * 1000);
+    const out = await require('../lib/ticketIngest')
+      .cardTicketsSince(since, { limit: body.limit });
+    if (!out.ok) return res.status(422).json({ error: out.reason });
+
+    audit.log(req.user, { category: 'SECURITY', action: 'TICKET_CARDS_POSTED',
+      summary: `Posted ${out.posted} review card(s) for tickets closed since ${out.since}` });
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] ticket carding failed:', err.message);
+    res.status(500).json({ error: 'Could not post the cards: ' + err.message });
+  }
+});
+
+// ── Quota leaderboard screenshot ──────────────────────────────────
+//
+// The weekly leaderboard is rendered by a bot this codebase does not own, so
+// there is no API behind it: the picture is the record. Read it once, show what
+// was read, and write only what was approved.
+
+// POST /api/dev/quota-shot/preview — read an image, write nothing.
+// Body: { image: "<base64, with or without a data: prefix>", mediaType }
+router.post('/quota-shot/preview', async (req, res) => {
+  try {
+    const body = req.body || {};
+    let image = String(body.image || '');
+    let mediaType = String(body.mediaType || 'image/png');
+    // A data: URL from a paste or a file picker carries its own type. Trust the
+    // one in the URL over anything the client claimed alongside it.
+    const m = /^data:([^;,]+);base64,(.*)$/s.exec(image);
+    if (m) { mediaType = m[1]; image = m[2]; }
+    if (!image) return res.status(400).json({ error: 'Send the screenshot as { image: "<base64>" }.' });
+    if (!/^image\/(png|jpeg|jpg|webp|gif)$/i.test(mediaType)) {
+      return res.status(400).json({ error: `Unsupported image type: ${mediaType}` });
+    }
+
+    const shot = require('../lib/quotaScreenshot');
+    const read = await shot.readLeaderboard(image, mediaType.toLowerCase().replace('image/jpg', 'image/jpeg'));
+    if (!read.ok) return res.status(422).json({ error: read.reason });
+
+    const plan = shot.planFromRows(read.rows);
+    res.json({ ...plan, trackingSince: read.trackingSince });
+  } catch (err) {
+    console.error('[Dev] quota screenshot preview failed:', err.message);
+    res.status(500).json({ error: 'Could not read that screenshot: ' + err.message });
+  }
+});
+
+// POST /api/dev/quota-shot/apply — write the plan that was previewed.
+// Takes the PLAN, never the image, so what lands is what was approved.
+router.post('/quota-shot/apply', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const plan = body.plan;
+    if (!plan || !Array.isArray(plan.rows)) {
+      return res.status(400).json({ error: 'Send the plan from the preview as { plan: ... }.' });
+    }
+    const shot = require('../lib/quotaScreenshot');
+    const out = await shot.applyPlan({ ...plan, ok: true }, { borders: body.borders !== false });
+    if (out.ok) {
+      audit.log(req.user, { category: 'SECURITY', action: 'QUOTA_SCREENSHOT_IMPORT',
+        summary: `Imported a quota leaderboard screenshot into the ${plan.dayKey} column: `
+               + `${out.updated} row(s) updated` });
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('[Dev] quota screenshot apply failed:', err.message);
     res.status(500).json({ error: 'The import failed: ' + err.message });
   }
 });
@@ -449,10 +610,16 @@ router.delete('/tryouts/:id', async (req, res) => {
   try {
     const t = await prisma.tryout.findUnique({ where: { id: req.params.id } });
     if (!t) return res.status(404).json({ error: 'Tryout not found' });
-    // Tidy the Discord side (never blocks the delete).
+    // Tidy the whole Discord side while the ids are still readable, not just the
+    // announcement. A scheduled event left behind outlives the row that knows
+    // its id, so nothing can ever remove it and it sits in the server counting
+    // down to a tryout that no longer exists, and the host DM still reads as an
+    // upcoming tryout. Never blocks the delete.
     try {
       const bot = require('../lib/bot');
       await bot.deleteTryoutAnnouncement(t).catch(() => {});
+      await bot.deleteTryoutScheduledEvent(t, bot.tryoutGuildId(t.division)).catch(() => {});
+      await bot.editTryoutHostDM({ ...t, status: 'CANCELLED' }).catch(() => {});
     } catch (e) { /* bot not ready */ }
     // TryoutCommand rows reference the tryout by id (no FK cascade) — clear them.
     await prisma.tryoutCommand.deleteMany({ where: { tryoutId: t.id } }).catch(() => {});
@@ -600,6 +767,11 @@ router.post('/emergency-alert', async (req, res) => {
     const events = require('../lib/events');
     const payload = {
       message,
+      // The bold line at the top of the alert. Optional: the client falls back
+      // to a generic headline when it is not set.
+      title: String(body.title || '').trim().slice(0, 90),
+      // The label in the red band. Anything else falls back to the top level.
+      level: ['emergency', 'severe', 'test'].includes(body.level) ? body.level : 'emergency',
       by: req.user.displayName || req.user.discordUsername || 'Developer',
       at: new Date().toISOString(),
     };

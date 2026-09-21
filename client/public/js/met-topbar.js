@@ -257,6 +257,7 @@ function metInjectMobileNav(mine, currentDivision, examEligible) {
       + item('/dashboard', 'ti-home', 'My Dashboard', here === '/dashboard' || here === '/profile')
       + (divLinks ? '<div class="met-mnav-label">Divisions you can access</div>' + divLinks : '')
       + '<div class="met-mnav-label">You</div>'
+      + item('/tryout', 'ti-target-arrow', 'Tryout', here === '/tryout')
       + (examEligible ? item('/exam', 'ti-writing', 'Final Exam', here === '/exam') : '')
       + item('/app', 'ti-device-mobile', 'Mobile App', here === '/app')
     + '</div>'

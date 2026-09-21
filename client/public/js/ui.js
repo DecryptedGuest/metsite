@@ -782,14 +782,14 @@ function statusBadge(status) {
   return map[status] || `<span class="badge">${status}</span>`;
 }
 
-// Where a case came from. A direct action taken with /discipline is a real
+// Where a case came from. A direct action taken with /infract is a real
 // record and counts the same, but it is NOT the conclusion of an
 // investigation, and a record that doesn't say so is misleading about how the
 // decision was reached. Returns '' for an ordinary case.
 function originBadge(c) {
   const o = c && c.origin;
   if (o === 'DISCIPLINE') {
-    return '<span class="badge badge-amber" title="Issued directly with the /discipline command · no investigation, auto-approved by the officer who issued it.">'
+    return '<span class="badge badge-amber" title="Issued directly with the /infract command · no investigation, auto-approved by the officer who issued it.">'
          + '<span class="badge-dot"></span><i class="ti ti-gavel"></i> Direct action</span>';
   }
   if (o === 'IA') {

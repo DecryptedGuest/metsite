@@ -179,13 +179,38 @@ router.post('/tryouts/:id/complete', async (req, res) => {
     if (t.hostId !== req.user.id && req.user.role !== 'DEVELOPER') {
       return res.status(403).json({ error: 'Only the host can end this tryout.' });
     }
-    const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+    // Only a running tryout can be ended, and only once. Every sibling
+    // transition guards the terminal states first: cancel does, the game's
+    // cancel and start do, the conclude close out refuses to overwrite a
+    // terminal row, and the Discord buttons refuse. This one wrote COMPLETED
+    // over whatever was there, so a stale tab could mark a tryout that had
+    // already been auto cancelled as completed, and the host DM would flip from
+    // "cancelled" to "review and post the results" for a tryout with no log.
+    // A SCHEDULED row could jump straight to COMPLETED and never fire.
+    if (['COMPLETED', 'CANCELLED'].includes(t.status)) {
+      return res.status(400).json({ error: 'This tryout is already finished.' });
+    }
+    if (t.status !== 'LIVE') {
+      return res.status(400).json({ error: 'This tryout is not running yet, so it cannot be ended.' });
+    }
+    // Claimed rather than written, so two clicks cannot both tear down the
+    // Discord side.
+    const claim = await prisma.tryout.updateMany({
+      where: { id: t.id, status: 'LIVE' },
+      data: { status: 'COMPLETED' },
+    });
+    if (!claim.count) return res.status(409).json({ error: 'This tryout is already finished.' });
+    const updated = await prisma.tryout.findUnique({ where: { id: t.id } });
     try {
       const bot = require('../lib/bot');
       await bot.deleteTryoutAnnouncement(updated).catch(() => {});
       await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
       await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* best-effort */ }
+    try {
+      require('../lib/audit').record({ req, action: 'TRYOUT_COMPLETE', category: 'tryout',
+        targetType: 'tryout', targetId: t.id, summary: 'Ended a CID tryout' });
+    } catch (e) { /* never blocks */ }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to complete tryout' });
@@ -248,14 +273,40 @@ router.post('/tryout-logs/:id/submit', async (req, res) => {
     const data = { status: 'PENDING' };
     if (typeof notes === 'string') data.notes = notes.slice(0, 3000);
     if (typeof proof === 'string') data.proof = proof.slice(0, 500);
+    // Edits to the attendee list, NOT a replacement for it. The list on the draft
+    // came from the in game panel, which is who was actually in the server, and
+    // this used to overwrite it with whatever the browser sent. The host can
+    // still change anybody's result or strikes; they cannot add people the panel
+    // never saw. HPC has had this barrier for the same reason.
+    let rejectedAttendees = [];
     if (Array.isArray(attendees)) {
-      const clean = tryoutLogsLib.normaliseAttendees(attendees);
-      Object.assign(data, { attendees: clean, ...tryoutLogsLib.countsFor(clean) });
+      const merged = tryoutLogsLib.applyAttendeeEdits(log.attendees, attendees);
+      rejectedAttendees = merged.rejected;
+      Object.assign(data, { attendees: merged.attendees, ...tryoutLogsLib.countsFor(merged.attendees) });
     }
     const updated = await prisma.tryoutLog.update({ where: { id: log.id }, data });
+    if (rejectedAttendees.length) {
+      // Worth a record: somebody submitting names that were never in their
+      // tryout is not a typo.
+      try {
+        require('../lib/audit').record({
+          req, action: 'TRYOUT_LOG_ATTENDEE_REJECTED', category: 'cid',
+          targetType: 'tryout-log', targetId: log.id,
+          summary: `${req.user.displayName || req.user.discordUsername} submitted tryout log ${log.id} `
+                 + `with ${rejectedAttendees.length} name(s) that were not in the tryout: `
+                 + rejectedAttendees.slice(0, 20).join(', '),
+          metadata: { rejected: rejectedAttendees.slice(0, 50) },
+        });
+      } catch (e) { /* never blocks the submit */ }
+    }
     const msgId = await sendTryoutLog(updated, { event: 'submitted' }).catch(() => null);
     if (msgId) await prisma.tryoutLog.update({ where: { id: log.id }, data: { logMessageId: msgId } }).catch(() => {});
-    res.json({ success: true, status: 'PENDING', posted: !!msgId });
+    res.json({ success: true, status: 'PENDING', posted: !!msgId,
+      rejectedAttendees,
+      ...(rejectedAttendees.length ? { warning:
+        `${rejectedAttendees.length} name(s) were not in this tryout and were not added: `
+        + rejectedAttendees.slice(0, 10).join(', ')
+        + '. You can change anybody\'s result or strikes, but not add people the panel did not see.' } : {}) });
   } catch (err) {
     console.error('[CID] submit tryout log failed:', err.message);
     res.status(500).json({ error: 'Failed to submit the tryout log' });
@@ -271,17 +322,41 @@ router.post('/tryout-logs/:id/approve', requireCidLead, async (req, res) => {
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be approved.' });
 
+    // Nobody approves their own tryout. The gate was the CID lead role alone, so
+    // a host who held it could host, submit and approve in three clicks and write
+    // +1 to their OWN row on the CID sheet, unbounded. The HPC twin of this route
+    // has had this check for exactly that reason; CID never got it, and
+    // analytics.js already raises a high severity self approval flag for the
+    // state it produces, so the codebase treated it as a violation while the
+    // route allowed it.
+    if (log.hostId && log.hostId === req.user.id) {
+      return res.status(403).json({
+        error: 'You cannot approve your own tryout log. Ask another approver to review it.',
+      });
+    }
+
+    // Claim it with a conditional update BEFORE awarding anything. The status
+    // test above is a read and the button stays live while it works, so two
+    // clicks both passed it and both wrote +1 to the sheet.
+    const claim = await prisma.tryoutLog.updateMany({
+      where: { id: log.id, status: 'PENDING' },
+      data: {
+        status: 'APPROVED',
+        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
+        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
+        reviewedAt: new Date(),
+      },
+    });
+    if (!claim.count) {
+      return res.status(409).json({ error: 'That log has already been reviewed.' });
+    }
+
     // Award the host their +1 CID event (never blocks approval).
     const awarded = await tryoutLogsLib.awardCidEventPoint(log).catch(() => false);
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },
-      data: {
-        status: 'APPROVED', pointAwarded: awarded,
-        reviewNote: req.body && req.body.note ? String(req.body.note).slice(0, 2000) : null,
-        reviewedById: req.user.id, reviewedByName: req.user.displayName || req.user.discordUsername,
-        reviewedAt: new Date(),
-      },
+      data: { pointAwarded: awarded },
     });
     await editTryoutLog(updated, { event: 'approved' }).catch(() => null);
     res.json({ success: true, status: 'APPROVED', pointAwarded: awarded });
@@ -297,6 +372,11 @@ router.post('/tryout-logs/:id/deny', requireCidLead, async (req, res) => {
     const log = await prisma.tryoutLog.findFirst({ where: { id: req.params.id, division: DIVISION } });
     if (!log) return res.status(404).json({ error: 'Tryout log not found' });
     if (log.status !== 'PENDING') return res.status(400).json({ error: 'Only pending logs can be denied.' });
+    if (log.hostId && log.hostId === req.user.id) {
+      return res.status(403).json({
+        error: 'You cannot review your own tryout log. Ask another approver to look at it.',
+      });
+    }
 
     const updated = await prisma.tryoutLog.update({
       where: { id: log.id },

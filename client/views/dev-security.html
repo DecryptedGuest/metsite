@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · Dev Security</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
   <link rel="stylesheet" href="/css/main.css" />
   <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
@@ -13,7 +16,7 @@
   <script src="/js/emoji.js?v=1"></script>
   <!-- The developer cloak. Loaded in <head> and BEFORE anything renders, so the
        dev tab is never painted and then taken away. Ctrl+Shift+Alt+D toggles. -->
-  <script src="/js/dev-cloak.js?v=1"></script>
+  <script src="/js/dev-cloak.js?v=2"></script>
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
   <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
@@ -24,6 +27,7 @@
     .dev-accent{color:#f5c518;}
   </style>
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
+  <link rel="stylesheet" href="/css/met.css?v=1" />
 </head>
 <body>
 <div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
@@ -56,7 +60,7 @@
       <nav class="sidebar-nav">
         <div class="nav-section-label">Security</div>
         <button class="nav-item active" data-page="overview"><i class="ti ti-shield-lock nav-icon"></i><span>Overview</span></button>
-        <button class="nav-item" data-page="presence"><i class="ti ti-users nav-icon"></i><span>Live Presence</span><span class="nav-badge" id="sec-presence-badge" style="display:none;background:var(--green);"></span></button>
+        <button class="nav-item" data-page="presence"><i class="ti ti-users nav-icon"></i><span>Who is online</span><span class="nav-badge" id="sec-presence-badge" style="display:none;background:var(--green);"></span></button>
         <button class="nav-item" data-page="sessions"><i class="ti ti-devices nav-icon"></i><span>Sessions</span></button>
         <button class="nav-item" data-page="integrity"><i class="ti ti-fingerprint-scan nav-icon"></i><span>Audit Integrity</span></button>
         <button class="nav-item" data-page="alerts"><i class="ti ti-alert-triangle nav-icon"></i><span>Alerts</span><span class="nav-badge pending" id="sec-alert-badge" style="display:none;"></span></button>
@@ -86,7 +90,7 @@
     </section>
 
     <section class="page" id="page-presence">
-      <div class="page-header fade-up"><div><h1 class="page-title">Live Presence</h1><p class="page-sub">Officers active in the last 5 minutes</p></div>
+      <div class="page-header fade-up"><div><h1 class="page-title">Who is online</h1><p class="page-sub">Officers active in the last 5 minutes</p></div>
         <button class="btn btn-ghost btn-sm" onclick="secLoadPresence()"><i class="ti ti-refresh"></i> Refresh</button></div>
       <div class="panel glass fade-up stagger-1"><div id="sec-presence" style="padding:14px;"><div class="table-loading"><div class="spinner"></div></div></div></div>
     </section>
@@ -125,7 +129,7 @@
       <div class="panel glass fade-up stagger-1" style="max-width:560px;"><div style="padding:22px;text-align:center;">
         <div id="sec-lockdown-state" style="font-size:15px;margin-bottom:18px;">Loading…</div>
         <button class="btn btn-danger" id="sec-lockdown-btn" onclick="secToggleLockdown()" style="min-width:220px;"><i class="ti ti-lock"></i> …</button>
-        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site — including the login page — is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.6;">When engaged, the entire site, including the login page, is inaccessible to everyone except developers. Use in an emergency; lift it the same way.</p>
       </div></div>
     </section>
 
@@ -180,6 +184,7 @@
 <script src="/js/command-palette.js"></script>
 <script src="/js/passkeys.js"></script>
 <script src="/js/dev-security.js"></script>
+<script src="/js/met-select.js?v=1"></script>
 <script>initMetTopbar('SECURITY');</script>
 </body>
 </html>

@@ -11,10 +11,13 @@
 // So on every join we resolve the member's Roblox id, gather what that Roblox
 // identity carries across EVERY Discord account it has ever been seen on, and:
 //
-//   * re-apply any still-active NON-exile punishment role the new account is
-//     missing (a strike or suspension is the person's, not the account's) — but
-//     never auto-apply a blacklist or termination to a new account, because a
-//     wrong RoVer match must not exile the wrong person;
+//   * re-apply any still-active punishment ROLE the new account is missing —
+//     including a blacklist. WEARING a role and being EXILED are different acts
+//     with different risk, and conflating them is what let a blacklisted person
+//     walk back in on a new account wearing nothing. The role is reversible in
+//     one click and the alert below fires either way; exile is not reversible
+//     like that, so a wrong RoVer match must never trigger it and it stays on
+//     the IA button;
 //   * when the identity is blacklisted, or an active punishment sits on a
 //     DIFFERENT account, post a detailed alert to Internal Affairs with buttons
 //     to blacklist, kick, view the record or dismiss it.
@@ -72,7 +75,17 @@ function caseActions(kase) {
  *                          the account that just appeared, and is what "another
  *                          account" is measured against.
  */
+function warnDegraded(which, err) {
+  console.warn(`[Evasion] the ${which} lookup failed, so this record is incomplete:`, err && err.message);
+}
+
 async function gatherRecord(subject) {
+  // Which lookups could not be read. Every source of blacklistSources is one of
+  // three arrays, and each catch used to empty its own array, so a query that
+  // threw produced "no sources found" and therefore "not blacklisted", which is
+  // the same answer a genuinely clean account gets. A caller gating access on
+  // this has to be able to tell those apart.
+  const degraded = [];
   const robloxId = subject.robloxId ? String(subject.robloxId) : null;
   const username = subject.robloxUsername || null;
   const here = subject.discordId ? String(subject.discordId) : null;
@@ -88,7 +101,7 @@ async function gatherRecord(subject) {
       });
       for (const u of users) if (u.discordId) linked.add(String(u.discordId));
       subject._users = users;
-    } catch (e) { subject._users = []; }
+    } catch (e) { subject._users = []; degraded.push('accounts'); warnDegraded('accounts', e); }
   }
 
   // 2. Cases against this identity — by Roblox id, then by username.
@@ -107,7 +120,7 @@ async function gatherRecord(subject) {
         },
         orderBy: { createdAt: 'desc' }, take: 100,
       });
-    } catch (e) { cases = []; }
+    } catch (e) { cases = []; degraded.push('cases'); warnDegraded('cases', e); }
   }
   for (const c of cases) if (c.officerDiscordId) linked.add(String(c.officerDiscordId));
 
@@ -121,7 +134,7 @@ async function gatherRecord(subject) {
         select: { discordId: true, type: true, reason: true, caseRef: true, issuedAt: true, expiresAt: true },
         orderBy: { issuedAt: 'desc' }, take: 100,
       });
-    } catch (e) { punishments = []; }
+    } catch (e) { punishments = []; degraded.push('punishments'); warnDegraded('punishments', e); }
   }
   const now = Date.now();
   punishments = punishments.filter(p => !p.expiresAt || new Date(p.expiresAt).getTime() > now);
@@ -151,6 +164,9 @@ async function gatherRecord(subject) {
     punishments,
     blacklisted: blacklistSources.length > 0,
     blacklistSources,
+    // Empty when every lookup answered. Anything in here means "not blacklisted"
+    // is not a finding, it is the absence of one.
+    degraded,
   };
 }
 
@@ -295,20 +311,34 @@ async function scanJoin(member) {
   return { flagged: kind, reapplied: reapplied.added };
 }
 
-// Active, non-exile punishment roles the member is not already wearing. Applied
-// straight away — a strike or suspension follows the person. A blacklist or
-// termination is never auto-applied to a new account: those exile, and a wrong
-// RoVer match must not exile the wrong person. They go to the IA button instead.
+// Every active punishment ROLE this member is not already wearing, for the
+// Roblox identity rather than the Discord account. Applied straight away: a
+// strike, a suspension and a blacklist are all the person's, not the account's.
+//
+// The exile ITSELF is never automated. Removing somebody from the Roblox group
+// on the strength of a RoVer match is not something to undo with a click, and
+// the alert this triggers puts that decision in front of Internal Affairs with a
+// button. Wearing the role is the part that has to be automatic, because a
+// blacklist nobody is wearing is a blacklist that stopped applying.
 async function reapplySafeRoles(member, record) {
-  const out = { added: [], skipped: 0 };
+  const out = { added: [], skipped: 0, blacklist: false };
   const owed = new Map();
   const now = Date.now();
 
+  // Whether a blacklist ROLE may be re-applied to a new account. On by default:
+  // a blacklist that stops applying the moment somebody makes a new Discord
+  // account is not a blacklist. Set EVASION_REAPPLY_BLACKLIST=off to go back to
+  // alert-only.
+  const wearBlacklist = String(process.env.EVASION_REAPPLY_BLACKLIST || '').toLowerCase() !== 'off';
+
   // From MetPunishments on any linked account.
   for (const p of record.punishments) {
-    if (BLACKLIST_TYPES.test(String(p.type))) continue;
     const cfg = ACTION_CONFIG[p.type];
-    if (!cfg || cfg.exile || !cfg.roleId) continue;
+    if (!cfg || !cfg.roleId) continue;
+    // An exiling action's ROLE is still applied — see the note at the top of
+    // this file. What is never automated is the exile itself.
+    if (cfg.exile && !wearBlacklist) continue;
+    if (cfg.exile) out.blacklist = true;
     owed.set(cfg.roleId, p.type);
   }
   // From approved cases' punishments — read the role off the action config.
@@ -325,7 +355,10 @@ async function reapplySafeRoles(member, record) {
       });
       for (const r of rows) {
         const cfg = ACTION_CONFIG[r.action];
-        if (cfg && cfg.exile) continue;                 // never auto-exile
+        if (cfg && cfg.exile) {
+          if (!wearBlacklist) continue;
+          out.blacklist = true;
+        }
         const roleId = (cfg && cfg.roleId) || r.roleId;
         if (roleId) owed.set(roleId, r.action);
       }
@@ -346,7 +379,8 @@ async function reapplySafeRoles(member, record) {
   }
   if (!toAdd.length) return out;
   try {
-    await member.roles.add(toAdd.map(x => x.roleId), 'Punishment still active · re-applied by Roblox identity on rejoin');
+    await member.roles.add(toAdd.map(x => x.roleId),
+      'Punishment still active on this Roblox identity · re-applied on join');
     out.added = toAdd.map(x => x.action);
   } catch (e) {
     for (const x of toAdd) {

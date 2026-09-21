@@ -1,5 +1,5 @@
-// server/lib/discipline.js
-// The engine behind /discipline — direct disciplinary action, no case attached.
+// server/lib/infract.js
+// The engine behind /infract — direct disciplinary action, no case attached.
 //
 // The IA case system already does all of this, but only at the end of a case:
 // somebody files it, somebody reviews it, and approval fires the side effects.
@@ -118,7 +118,7 @@ async function currentStrikeLevel({ discordId, roleIds, guildRoleIds }) {
   const claimed = new Map();
   const claim = (n, why) => { if (n > 0 && !claimed.has(n)) claimed.set(n, why); };
 
-  // 1. Punishment history (/discipline and the Discord infraction ingest).
+  // 1. Punishment history (/infract and the Discord infraction ingest).
   //    Only rows that are still live: an inactive or expired punishment is over,
   //    and counting it would hold somebody to a strike they have served.
   try {
@@ -277,7 +277,7 @@ async function loadRecord(discordId, limit = 6) {
 
   out.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 
-  // A /discipline action exists in both tables by design — the bot reads one,
+  // A /infract action exists in both tables by design — the bot reads one,
   // the dashboard reads the other — and they share a case ref. Show it once.
   const seen = new Set();
   const merged = out.filter(en => {
@@ -393,7 +393,7 @@ async function fileCase(o) {
       caseId: row.id,
       actionType: 'APPROVED',
       performedBy: owner.id,
-      notes: `Issued directly with /discipline by ${o.issuerName || o.issuerDiscordId} · no review required.`,
+      notes: `Issued directly with /infract by ${o.issuerName || o.issuerDiscordId} · no review required.`,
     },
   }).catch(() => {});
 
@@ -496,6 +496,9 @@ async function applyDiscipline(o) {
   }
 
   // 3. Roblox group — demotion or exile, whichever the action calls for.
+  // The rank they land on, captured here so the nickname step below can use it
+  // rather than guessing or re-reading a cache that still holds the old value.
+  let newRankName = o.newRankName || null;
   if (o.targetRobloxId && (cfg.exile || o.action === 'Demotion')) {
     await step('group', async () => {
       const roblox = require('./roblox');
@@ -512,14 +515,46 @@ async function applyDiscipline(o) {
       }
       const res = await roblox.demoteByOneRank(o.targetRobloxId);
       if (!res.ok) throw new Error(res.reason || 'demotion failed');
+      newRankName = res.to || newRankName;
       return `${res.from} → ${res.to}`;
+    });
+  }
+
+  // 3a. The member's Discord IDENTITY: their nickname.
+  //
+  //     An administrative action that changes somebody's standing should leave
+  //     their nickname saying the right thing. Terminated or blacklisted, the
+  //     rank prefix goes and the username stays ("EthanCaaden"); re-ranked, it
+  //     becomes "NewRank | EthanCaaden".
+  //
+  //     RoVer is asked first, because letting the system that owns the mapping
+  //     do it beats a second system racing it, and its re-verify fixes roles
+  //     and nickname together. It is then CHECKED rather than trusted: the
+  //     update endpoint answers "ok" before it does any work, and it may not
+  //     be configured at all. Only if RoVer has not done it does the bot.
+  if (o.targetDiscordId && (cfg.exile || o.action === 'Demotion' || o.action === 'Promotion')) {
+    await step('discord_identity', async () => {
+      const r = await require('./rover').syncIdentity({
+        discordId:  o.targetDiscordId,
+        robloxId:   o.targetRobloxId || null,
+        terminated: !!cfg.exile,
+        rankName:   newRankName,
+      });
+      return r.nickname ? `${r.nickname} · ${r.note}` : r.note;
     });
   }
 
   // 3b. Discord roles. A termination or blacklist strips every MET role in the
   //     server (rank, division, permissions), keeping only the Blacklist role
-  //     when applicable. Independent of Roblox, so it runs on the Discord id
-  //     even when there is no linked Roblox account.
+  //     when applicable, and never touching Verified or British Citizen.
+  //     Independent of Roblox, so it runs on the Discord id even when there is
+  //     no linked Roblox account.
+  //
+  //     This is NOT skipped when RoVer was asked to re-sync. A blacklist has to
+  //     take effect now: RoVer's own sync is on its own schedule, and the gap
+  //     between the two is a window where somebody just blacklisted still holds
+  //     every permission they had. Re-removing a role RoVer has already removed
+  //     costs nothing; leaving one in place for ten minutes does not.
   if (o.targetDiscordId && cfg.exile) {
     await step('discord_roles', async () => {
       const r = await require('./exile').stripDiscordRolesForExile(o.targetDiscordId, [o.action]);

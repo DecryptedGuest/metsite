@@ -164,6 +164,10 @@ model Case {
   suspectRobloxDisplayName    String?
   punishmentsSummary          String?
   logMessageId                String?
+  // The review card posted into the IA cases channel. Stored so a card can be
+  // rewritten in place when the case is decided, and so a case that never got
+  // one can be spotted and given one rather than sitting unseen forever.
+  cardMessageId               String?
   reviewNote                  String?
   reviewChanges               Json?
   // Snapshot of the case's editable fields taken the moment a reviewer requested
@@ -287,7 +291,13 @@ model TicketLog {
   // ticket handled by a division officer is logged and reviewed but pays
   // nobody. Resolved at ingest and stored, so a later rank change cannot
   // silently rewrite who was owed for work already done.
-  closerIsIa Boolean @default(false)
+  //
+  // NULLABLE, and the null matters: it means "we could not tell", which is a
+  // different thing from "not IA". It used to default to false, so a ticket
+  // whose handler simply had not been resolved yet was reported on its card as
+  // "No points · handler is not IA" — a rule being announced about somebody
+  // nobody had identified.
+  closerIsIa Boolean?
 
   // Supervisor sign-off. Nobody logs a ticket by hand any more — the row is
   // ingested from Discord — but a supervisor still approves or denies it on the
@@ -299,6 +309,17 @@ model TicketLog {
   // Set when the queue was reset: a log nobody is being asked to decide on any
   // more. Distinct from DENIED, which is a decision somebody made.
   voidedAt       DateTime?
+
+  // The review card posted into the IA tickets channel, for the same reasons
+  // Case.cardMessageId exists: rewrite it in place on a decision, and find the
+  // rows that were ingested before cards existed and never got queued.
+  cardMessageId String?
+  // When this row was last checked against its original Discord message to see
+  // whether it is really a ticket CLOSE. The check re-reads Discord, so it is
+  // done once per row and the stamp is what makes that true across restarts —
+  // without it the pass re-read the whole table on every boot and never
+  // finished.
+  closeChecked  DateTime?
 
   raw       Json?
   createdAt DateTime @default(now())
@@ -338,6 +359,36 @@ model CasePunishment {
   case Case @relation(fields: [caseId], references: [id])
 
   @@map("case_punishments")
+}
+
+model AutomatedTryout {
+  id                String   @id @default(uuid())
+  gameSessionId     String?  @unique
+  tryoutId          String?
+  division          String   @default("HPC")
+  hostName          String   @default("INSTRUCTOR")
+  coHostName        String?
+  attendeeRobloxId  String
+  attendeeName      String
+  result            String
+  strikes           Int      @default(0)
+  quizScore         Int?
+  quizTotal         Int?
+  flags             String?
+  placeId           String?
+  privateServerId   String?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  payload           String
+  logChannelId      String?
+  logMessageId      String?
+  actionedById      String?
+  actionedAt        DateTime?
+  actionKind        String?
+  createdAt         DateTime @default(now())
+
+  @@index([attendeeRobloxId])
+  @@map("automated_tryouts")
 }
 
 model CaseCounter {
@@ -851,9 +902,11 @@ model HpcExamSubmission {
 // citizens can see upcoming/live tryouts and join the live one from the site.
 model Tryout {
   id                String    @id @default(uuid())
-  hostId            String // creator (User.id)
-  hostDiscordId     String
+  hostId            String? // creator (User.id); null when the host is the automated instructor
+  hostDiscordId     String?
   hostName          String
+  automated         Boolean   @default(false)
+  hostKind          String    @default("human") // human | npc
   hostRobloxId      String? // the host's Roblox id (for the in-game TryoutTV board)
   hostRobloxName    String? // the host's Roblox username
   coHostDiscordId   String?
@@ -881,7 +934,7 @@ model Tryout {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  host User @relation(fields: [hostId], references: [id])
+  host User? @relation(fields: [hostId], references: [id])
 
   @@index([scheduledAt])
   @@index([status])
@@ -1604,4 +1657,36 @@ model EvasionFlag {
   @@index([discordId])
   @@index([status])
   @@map("evasion_flags")
+}
+
+// A member's Discord avatar, re-hosted as a Roblox Decal so the in game
+// confirmation card can show it: ImageLabel.Image takes rbxassetid:// and
+// nothing else, so an external CDN url can never render.
+//
+// Keyed on the avatar hash, so a member who never changes their picture is
+// uploaded once and read from here forever after. Roblox upload allowances are
+// tight and pooled per account, so re uploading on every eligibility check
+// would throttle the account within minutes.
+model DiscordAvatarAsset {
+  id          String   @id @default(uuid())
+  discordId   String
+  avatarHash  String // Discord's hash: changes whenever they change the picture
+  source      String   @default("user") // user | guild (a server specific avatar)
+  url         String? // what was fetched, kept for the audit trail
+  contentHash String? // sha256 of the bytes: the same picture is never uploaded twice
+  assetId     String? // the Roblox asset id, once Roblox has given us one
+  operationId String? // the Open Cloud operation still being polled
+  state       String   @default("PENDING") // PENDING | APPROVED | REJECTED | FAILED | BLOCKED
+  moderation  String? // Roblox's own word: APPROVED | REVIEWING | REJECTED
+  bytes       Int?
+  error       String?
+  requestedAt DateTime @default(now())
+  decidedAt   DateTime?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([discordId, avatarHash])
+  @@index([state])
+  @@index([contentHash])
+  @@index([discordId, state])
+  @@map("discord_avatar_assets")
 }

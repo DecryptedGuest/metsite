@@ -313,7 +313,29 @@ router.post('/exam/submissions/:id/mark', requireHpcMarker, async (req, res) => 
       clean[q.id] = pts;
       total += pts;
     }
-    const maxScore   = hpcExam.totalPoints();
+    // The paper the cadet actually sat, not whichever one is current. maxScore is
+    // stored on the submission for exactly this reason: change the paper between
+    // somebody sitting it and somebody marking it, and scoring against the new
+    // total fails them over questions they were never shown.
+    //
+    // That only holds while every question they answered is still markable. If a
+    // question has been removed since, its marks cannot be counted (there is no
+    // question to score) while its points are still inside the stored total, so
+    // the cadet silently loses them. There is no honest way to score that, so it
+    // is refused rather than guessed at, and restoring the question resolves it.
+    const answered = s.answers && typeof s.answers === 'object' ? Object.keys(s.answers) : [];
+    const current  = new Set(hpcExam.QUESTIONS.map(q => q.id));
+    const dropped  = answered.filter(id => !current.has(id));
+    if (dropped.length) {
+      return res.status(409).json({
+        error: 'This exam was sat on a different paper: '
+             + `${dropped.length} question(s) they answered are no longer on it, so a fair score cannot be worked out. `
+             + 'Put those questions back to mark this submission.',
+        droppedQuestions: dropped,
+      });
+    }
+
+    const maxScore   = Number.isFinite(s.maxScore) && s.maxScore > 0 ? s.maxScore : hpcExam.totalPoints();
     const percentage = Math.round((total / maxScore) * 100);
     const passed     = percentage >= hpcExam.PASS_PERCENT;
 
@@ -500,6 +522,25 @@ router.post('/tryouts', async (req, res) => {
     if (isNaN(when.getTime())) return res.status(400).json({ error: 'A valid date/time is required.' });
     if (when.getTime() < Date.now() - 60 * 1000) return res.status(400).json({ error: 'The scheduled time must be in the future.' });
 
+    // One tryout at a time in a division. The worker refuses to start a second
+    // one, so scheduling into an occupied slot only produces a tryout that
+    // silently never fires. Say so here instead, while somebody is looking at
+    // the screen and can pick another time.
+    const clash = await prisma.tryout.findFirst({
+      where: { division: 'HPC', status: { in: ['LIVE', 'SCHEDULED'] } },
+      orderBy: { scheduledAt: 'asc' },
+      select: { id: true, status: true, scheduledAt: true, hostName: true },
+    }).catch(() => null);
+    if (clash) {
+      return res.status(409).json({
+        error: clash.status === 'LIVE'
+          ? `A tryout hosted by ${clash.hostName} is running right now. Wait for it to finish.`
+          : `A tryout hosted by ${clash.hostName} is already scheduled. Only one runs at a time.`,
+        tryoutId: clash.id,
+        scheduledAt: clash.scheduledAt,
+      });
+    }
+
     const t = await prisma.tryout.create({
       data: {
         hostId: req.user.id,
@@ -562,7 +603,28 @@ router.post('/tryouts/:id/complete', async (req, res) => {
     if (!canManageTryout(req.user, t)) {
       return res.status(403).json({ error: 'Only the host, HPC/MET HICOMM or a developer can end this tryout.' });
     }
-    const updated = await prisma.tryout.update({ where: { id: t.id }, data: { status: 'COMPLETED' } });
+    // Only a running tryout can be ended, and only once. Every sibling
+    // transition guards the terminal states first: cancel does, the game's
+    // cancel and start do, the conclude close out refuses to overwrite a
+    // terminal row, and the Discord buttons refuse. This one wrote COMPLETED
+    // over whatever was there, so a stale tab could mark a tryout that had
+    // already been auto cancelled as completed, and the host DM would flip from
+    // "cancelled" to "review and post the results" for a tryout with no log.
+    // A SCHEDULED row could jump straight to COMPLETED and never fire.
+    if (['COMPLETED', 'CANCELLED'].includes(t.status)) {
+      return res.status(400).json({ error: 'This tryout is already finished.' });
+    }
+    if (t.status !== 'LIVE') {
+      return res.status(400).json({ error: 'This tryout is not running yet, so it cannot be ended.' });
+    }
+    // Claimed rather than written, so two clicks cannot both tear down the
+    // Discord side.
+    const claim = await prisma.tryout.updateMany({
+      where: { id: t.id, status: 'LIVE' },
+      data: { status: 'COMPLETED' },
+    });
+    if (!claim.count) return res.status(409).json({ error: 'This tryout is already finished.' });
+    const updated = await prisma.tryout.findUnique({ where: { id: t.id } });
     // Now the tryout has concluded: remove its channel announcement, end the
     // Discord scheduled event, and flip the host DM — same as CID's complete.
     try {
@@ -571,6 +633,7 @@ router.post('/tryouts/:id/complete', async (req, res) => {
       await bot.deleteTryoutScheduledEvent(updated, bot.tryoutGuildId(updated.division)).catch(() => {});
       await bot.editTryoutHostDM(updated).catch(() => {});
     } catch (e) { /* Discord side is best-effort */ }
+    audit.record({ req, action: 'TRYOUT_COMPLETE', category: 'tryout', targetType: 'tryout', targetId: t.id, summary: 'Ended a MET tryout' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to complete tryout' });

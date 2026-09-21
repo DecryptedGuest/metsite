@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · HPC Dashboard</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
   <link rel="stylesheet" href="/css/main.css" />
   <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
        and the met.e() helper. In <head> and unconditional so every later
@@ -16,6 +19,7 @@
   <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
   <link rel="stylesheet" href="/css/enhance.css?v=5" />
+  <link rel="stylesheet" href="/css/met.css?v=1" />
 </head>
 <body class="div-hpc">
 <div class="bg-canvas">
@@ -84,15 +88,15 @@
       <div class="stats-grid">
         <div class="stat-card amber fade-up stagger-1"><div class="stat-card-inner">
           <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
-          <div class="stat-body"><div class="stat-label">Exams Awaiting Marking</div><div class="stat-value" id="stat-pending">—</div></div>
+          <div class="stat-body"><div class="stat-label">Exams Awaiting Marking</div><div class="stat-value" id="stat-pending">·</div></div>
         </div><div class="stat-bar amber"></div></div>
         <div class="stat-card green fade-up stagger-2"><div class="stat-card-inner">
           <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
-          <div class="stat-body"><div class="stat-label">Passed</div><div class="stat-value" id="stat-passed">—</div></div>
+          <div class="stat-body"><div class="stat-label">Passed</div><div class="stat-value" id="stat-passed">·</div></div>
         </div><div class="stat-bar green"></div></div>
         <div class="stat-card red fade-up stagger-3"><div class="stat-card-inner">
           <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
-          <div class="stat-body"><div class="stat-label">Failed</div><div class="stat-value" id="stat-failed">—</div></div>
+          <div class="stat-body"><div class="stat-label">Failed</div><div class="stat-value" id="stat-failed">·</div></div>
         </div><div class="stat-bar red"></div></div>
       </div>
 
@@ -163,7 +167,7 @@
     <!-- LIVE (read-only mirror of running tryouts) -->
     <section class="page" id="page-live">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Live Tryouts</h1><p class="page-sub">Watch running tryouts in real time · updates every few seconds</p></div>
+        <div><h1 class="page-title">Tryouts</h1><p class="page-sub">Watch running tryouts in real time · updates every few seconds</p></div>
         <span class="badge badge-pending" id="hpc-live-status"><span class="badge-dot"></span>Connecting…</span>
       </div>
       <div id="hpc-live-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
@@ -364,6 +368,7 @@
 <script src="/js/events-client.js"></script>
 <script src="/js/hpc-dashboard.js?v=82"></script>
 <script src="/js/division-quota.js"></script>
+<script src="/js/met-select.js?v=1"></script>
 <script>(function(){var DIV='HPC';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('HPC');</script>
 </body>

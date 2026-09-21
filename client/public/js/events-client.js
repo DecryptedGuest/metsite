@@ -189,69 +189,199 @@
     }
     return _popupWrap;
   }
-  // ── Emergency alert (full-screen takeover) ────────────────────────────
-  // A harsh, LOUD two-tone alarm modelled on a UK radio "panic button" / broadcast
-  // emergency warble — a rapidly alternating hi-lo square-wave tone that reads as
-  // "this is a real emergency." DELIBERATELY ignores the snooze/mute.
+  // ── Emergency alert ───────────────────────────────────────────────────
+  // Styled after a UK Government Emergency Alert as it appears on a phone: a
+  // red band, a white card, black text set large, and a single acknowledge
+  // button. The point of that design is that it is unmistakable and cannot be
+  // confused with an ordinary notification, which is exactly what this is for.
+  //
+  // The tone is synthesised, not a recording: it is the standard cell-broadcast
+  // attention signal, 853 Hz and 960 Hz sounded TOGETHER, which is what gives
+  // that pair its harsh beating quality rather than a musical chord. It is
+  // gated on and off about twice a second for the pulse. DELIBERATELY ignores
+  // the snooze and the mute.
+  var _sirenStop = null;
+
+  // The Common Audio Attention Signal, to the letter of the specification the
+  // UK's alerts share with Wireless Emergency Alerts in the US and EU-Alert.
+  // 47 CFR 10.520:
+  //
+  //   "For devices that have polyphonic capabilities, the audio attention
+  //    signal must consist of the fundamental frequencies of 853 Hz and
+  //    960 Hz transmitted simultaneously."
+  //
+  //   "The audio attention signal must have a temporal pattern of one long
+  //    tone of two (2) seconds, followed by two short tones of one (1) second
+  //    each, with a half (0.5) second interval between each tone. The entire
+  //    sequence must be repeated twice with a half (0.5) second interval
+  //    between each repetition."
+  //
+  // Which lays out as 2 + 0.5 + 1 + 0.5 + 1 = 5s per sequence, two sequences
+  // half a second apart, so 10.5s in total. That is the check that this is
+  // right: it lands exactly on the "about ten seconds" every UK source gives
+  // for how long a real alert sounds.
+  //
+  // The pair is chosen to be unpleasant, not audible: 853 and 960 are close
+  // enough to beat against each other at about 107 Hz, and that roughness is
+  // the whole point. Sine waves, because the beating does the work and square
+  // waves would only pile harmonics on top of it.
+  var WEA_TONES = [853, 960];
+  var WEA_SEQUENCE = [                 // [start, duration] within one sequence
+    [0.0, 2.0],                        // one long tone of two seconds
+    [2.5, 1.0],                        // half-second interval, then a short tone
+    [4.0, 1.0]                         // half-second interval, then a short tone
+  ];
+  var WEA_SEQ_LEN = 5.0;               // 4.0 + 1.0
+  var WEA_REPEATS = 2;                 // the sequence, repeated
+  var WEA_GAP     = 0.5;               // between repetitions
+  var WEA_TOTAL   = WEA_REPEATS * WEA_SEQ_LEN + (WEA_REPEATS - 1) * WEA_GAP;   // 10.5s
+
   function emergencySiren() {
     var ctx = ensureAudio(); if (!ctx) return;
-    var now = ctx.currentTime;
-    var dur = 3.6, step = 0.26;      // ~3.6s of alternating tone, ~0.26s per tone
-    // Two slightly-detuned square oscillators through one gain → a grating,
-    // penetrating alarm rather than a clean beep.
-    function voice(detune) {
-      var o = ctx.createOscillator(); o.type = 'square'; o.detune.value = detune;
-      var t = now, hi = true;
-      while (t < now + dur) { o.frequency.setValueAtTime(hi ? 1000 : 760, t); hi = !hi; t += step; }
-      return o;
-    }
+    stopSiren();
+    var t0 = ctx.currentTime + 0.02;
     try {
       var g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.5, now + 0.02);   // snap to loud immediately
-      g.gain.setValueAtTime(0.5, now + dur - 0.12);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; // tame the very top edge
-      var o1 = voice(0), o2 = voice(9);
-      o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(ctx.destination);
-      o1.start(now); o2.start(now); o1.stop(now + dur); o2.stop(now + dur);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+
+      // Gate the gain to the pattern. A 6ms edge on each side, because a tone
+      // switched on instantly clicks, and the click is louder than the tone.
+      var EDGE = 0.006, LEVEL = 0.5;
+      for (var r = 0; r < WEA_REPEATS; r++) {
+        var base = t0 + r * (WEA_SEQ_LEN + WEA_GAP);
+        for (var i = 0; i < WEA_SEQUENCE.length; i++) {
+          var on = base + WEA_SEQUENCE[i][0], off = on + WEA_SEQUENCE[i][1];
+          g.gain.setValueAtTime(0.0001, on);
+          g.gain.exponentialRampToValueAtTime(LEVEL, on + EDGE);
+          g.gain.setValueAtTime(LEVEL, off - EDGE);
+          g.gain.exponentialRampToValueAtTime(0.0001, off);
+        }
+      }
+
+      // Both fundamentals, sounded together, running continuously underneath:
+      // the gate above is what shapes them into the pattern.
+      var end = t0 + WEA_TOTAL + 0.05;
+      var oscs = WEA_TONES.map(function (f) {
+        var o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(g); o.start(t0 - 0.01); o.stop(end);
+        return o;
+      });
+      g.connect(ctx.destination);
+
+      _sirenStop = function () {
+        try {
+          var n = ctx.currentTime;
+          g.gain.cancelScheduledValues(n);
+          g.gain.setValueAtTime(Math.max(g.gain.value, 0.0001), n);
+          g.gain.exponentialRampToValueAtTime(0.0001, n + 0.06);
+          oscs.forEach(function (o) { try { o.stop(n + 0.08); } catch (e) {} });
+        } catch (e) {}
+        _sirenStop = null;
+      };
     } catch (e) {}
   }
+  function stopSiren() { if (_sirenStop) _sirenStop(); }
+
   function ensureEmergencyCss() {
     if (document.getElementById('met-emergency-css')) return;
     var st = document.createElement('style'); st.id = 'met-emergency-css';
+    // Modelled on the iOS system alert a real emergency alert arrives in: a
+    // small, centred, translucent card on a dimmed screen, title and message
+    // centred, a hairline, and one full-width button. Nothing animates once it
+    // is on screen. A flashing banner is the sort of thing that reads as a
+    // scam page rather than as a system alert, and the tone is what makes
+    // somebody look up anyway.
     st.textContent =
-      '@keyframes mePulse{0%,100%{box-shadow:0 0 0 0 rgba(226,35,26,.5),0 24px 80px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 14px rgba(226,35,26,0),0 24px 80px rgba(0,0,0,.7)}}'
-      + '@keyframes meIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}'
+      '@keyframes meIn{from{opacity:0;transform:scale(1.14)}to{opacity:1;transform:none}}'
       + '@keyframes meBg{from{opacity:0}to{opacity:1}}'
-      + '@keyframes meThrob{0%,100%{transform:scale(1);filter:drop-shadow(0 0 10px rgba(255,68,56,.45))}50%{transform:scale(1.12);filter:drop-shadow(0 0 22px rgba(255,68,56,.75))}}'
-      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;padding:24px;'
-      + 'background:radial-gradient(circle at 50% 40%,rgba(120,10,10,.86),rgba(6,8,12,.94));backdrop-filter:blur(6px);animation:meBg .18s ease both;}'
-      + '.met-emerg .me-card{max-width:560px;width:100%;text-align:center;background:#14171d;border:2px solid #e2231a;border-radius:20px;padding:34px 30px 28px;animation:meIn .22s ease both,mePulse 1.6s ease-in-out infinite;}'
-      + '.met-emerg .me-icon{font-size:66px;color:#ff4438;line-height:1;animation:meThrob 1.4s ease-in-out infinite;}'
-      + '.met-emerg .me-title{margin-top:10px;font-size:13px;letter-spacing:.28em;text-transform:uppercase;font-weight:800;color:#ff6a5e;}'
-      + '.met-emerg .me-msg{margin-top:16px;font-size:20px;line-height:1.5;font-weight:600;color:#f4f6fa;white-space:pre-wrap;word-wrap:break-word;}'
-      + '.met-emerg .me-by{margin-top:14px;font-size:12px;color:#9aa3b2;}'
-      + '.met-emerg .me-dismiss{margin-top:24px;padding:12px 26px;border:none;border-radius:11px;background:#e2231a;color:#fff;font-weight:800;font-size:14px;cursor:pointer;letter-spacing:.02em;}'
-      + '.met-emerg .me-dismiss:hover{filter:brightness(1.1);}';
+      + '.met-emerg{position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;'
+      + 'justify-content:center;padding:20px;background:rgba(0,0,0,.5);'
+      + '-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:meBg .18s ease both;}'
+      + '.met-emerg .me-card{width:270px;max-width:100%;border-radius:14px;overflow:hidden;text-align:center;'
+      + 'background:rgba(42,42,44,.82);-webkit-backdrop-filter:blur(26px) saturate(1.7);'
+      + 'backdrop-filter:blur(26px) saturate(1.7);box-shadow:0 12px 44px rgba(0,0,0,.55);'
+      + "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','Segoe UI',Roboto,sans-serif;"
+      + 'color:#fff;animation:meIn .22s cubic-bezier(.2,.8,.3,1) both;}'
+      + '.met-emerg .me-body{padding:19px 16px 15px;}'
+      + '.met-emerg .me-kicker{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;'
+      + 'color:#FF453A;margin:0 0 7px;}'
+      + '.met-emerg .me-head{font-size:17px;font-weight:600;line-height:1.29;margin:0;letter-spacing:-.01em;}'
+      + '.met-emerg .me-msg{font-size:13px;line-height:1.38;margin:5px 0 0;white-space:pre-wrap;'
+      + 'word-wrap:break-word;overflow-wrap:anywhere;color:rgba(255,255,255,.94);}'
+      + '.met-emerg .me-msg a{color:#0A84FF;text-decoration:none;}'
+      + '.met-emerg .me-msg a:hover{text-decoration:underline;}'
+      + '.met-emerg .me-actions{border-top:.5px solid rgba(255,255,255,.22);}'
+      + '.met-emerg .me-dismiss{display:block;width:100%;padding:11px 8px;border:0;background:none;'
+      + 'color:#0A84FF;font-family:inherit;font-size:17px;font-weight:600;cursor:pointer;}'
+      + '.met-emerg .me-dismiss:hover{background:rgba(255,255,255,.06);}'
+      + '.met-emerg .me-dismiss:active{background:rgba(255,255,255,.11);}'
+      + '@media (max-width:360px){.met-emerg .me-card{width:100%;}}';
     document.head.appendChild(st);
   }
+
+  // Escape first, THEN linkify. Doing it the other way round would let a
+  // crafted message put markup into the page, and this is an innerHTML sink
+  // that fires without anybody clicking anything.
+  function linkify(text) {
+    var safe = esc(String(text == null ? '' : text));
+    return safe.replace(/\b(https?:\/\/[^\s<>"']+)/g, function (url) {
+      // A trailing full stop or bracket is almost always sentence punctuation
+      // rather than part of the address.
+      var tail = '';
+      var m = url.match(/[.,;:!?)\]]+$/);
+      if (m) { tail = m[0]; url = url.slice(0, -tail.length); }
+      return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>' + tail;
+    });
+  }
+
+  var LEVELS = { emergency: 'Emergency alert', severe: 'Severe alert', test: 'Test alert' };
+
+  function buildAlertCard(d) {
+    var level = String((d && d.level) || 'emergency').toLowerCase();
+    var card = document.createElement('div');
+    card.className = 'me-card';
+    card.setAttribute('role', 'alertdialog');
+    card.setAttribute('aria-label', LEVELS[level] || LEVELS.emergency);
+    card.innerHTML =
+      '<div class="me-body">'
+      +   '<p class="me-kicker">' + esc(LEVELS[level] || LEVELS.emergency) + '</p>'
+      +   '<h2 class="me-head">' + esc((d && d.title) || 'Severe alert') + '</h2>'
+      +   '<p class="me-msg">' + linkify(d && d.message) + '</p>'
+      + '</div>'
+      + '<div class="me-actions"><button class="me-dismiss" type="button">OK</button></div>';
+    return card;
+  }
+
   function showEmergencyAlert(d) {
     if (!d || !d.message) return;
     ensureEmergencyCss();
     var old = document.getElementById('met-emergency'); if (old) { try { old.remove(); } catch (e) {} }
     var ov = document.createElement('div'); ov.id = 'met-emergency'; ov.className = 'met-emerg';
-    ov.innerHTML =
-      '<div class="me-card" role="alertdialog" aria-label="Emergency Alert">'
-      +   '<div class="me-icon"><i class="ti ti-alert-triangle"></i></div>'
-      +   '<div class="me-title">Emergency Alert</div>'
-      +   '<div class="me-msg">' + esc(d.message) + '</div>'
-      +   '<button class="me-dismiss" type="button"><i class="ti ti-check"></i> Dismiss</button>'
-      + '</div>';
+    ov.appendChild(buildAlertCard(d));
     document.body.appendChild(ov);
-    ov.querySelector('.me-dismiss').addEventListener('click', function () { try { ov.remove(); } catch (e) {} });
+    var btn = ov.querySelector('.me-dismiss');
+    btn.addEventListener('click', function () { stopSiren(); try { ov.remove(); } catch (e) {} });
+    try { btn.focus(); } catch (e) {}
     emergencySiren();
   }
+
+  // The preview and the sound test in the dev dashboard use THESE, so what is
+  // previewed is the same code that runs for real rather than a lookalike.
+  window.metEmergencyPreview = function (d) {
+    ensureEmergencyCss();
+    var old = document.getElementById('met-emergency-preview');
+    if (old) { try { old.remove(); } catch (e) {} }
+    var ov = document.createElement('div'); ov.id = 'met-emergency-preview'; ov.className = 'met-emerg';
+    ov.appendChild(buildAlertCard(d || {}));
+    document.body.appendChild(ov);
+    ov.querySelector('.me-dismiss').addEventListener('click', function () {
+      stopSiren(); try { ov.remove(); } catch (e) {}
+    });
+    return ov;
+  };
+  window.metEmergencyTone = { play: emergencySiren, stop: stopSiren, seconds: WEA_TOTAL };
+
   window.metShowEmergencyAlert = showEmergencyAlert;
 
   function connect() {
@@ -268,7 +398,7 @@
 
     es.addEventListener('tryout_live', function (ev) {
       var d = parse(ev);
-      toast(d.message || 'A MET tryout is now live!', 'info');
+      toast(d.message || 'A MET tryout has started', 'info');
       window.metSound('tryout_live');
       call('loadTryouts');      // profile page — refresh the tryouts panel if present
     });

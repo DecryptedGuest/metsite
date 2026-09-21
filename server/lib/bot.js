@@ -84,6 +84,50 @@ async function onReady() {
   // Mirror the closed-ticket logs onto the site (All Tickets / My Tickets).
   try { require('./ticketIngest').startTicketLogWorker(client); }
   catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
+
+  // Which configured servers the bot can actually SEE. A card that cannot be
+  // posted, a command that will not register and a suggestions channel that
+  // cannot be read are all one cause — the bot is not in that server — and
+  // reported as three unrelated errors nobody connects.
+  try {
+    const invite = (id) => {
+      const appId = process.env.DISCORD_CLIENT_ID || process.env.DISCORD_APPLICATION_ID
+        || (client.application && client.application.id) || null;
+      return appId
+        ? `https://discord.com/oauth2/authorize?client_id=${appId}`
+          + '&scope=bot%20applications.commands&permissions=277025508352'
+        : 'https://discord.com/developers/applications (invite it with bot + applications.commands)';
+    };
+    const configured = [
+      ['MET', process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID],
+      ['IA',  process.env.IA_GUILD_ID],
+      ['CID', process.env.CID_GUILD_ID],
+    ].filter(([, id]) => id);
+    for (const [name, id] of configured) {
+      const guild = client.guilds.cache.get(String(id))
+        || await client.guilds.fetch(String(id)).catch(() => null);
+      if (guild) console.log(`[Bot] ${name} server ${id} · in it ("${guild.name}")`);
+      else {
+        console.error(`[Bot] ${name} server ${id} · NOT IN IT. Nothing can be posted or registered there.`);
+        console.error(`[Bot]   invite: ${invite(id)}`);
+      }
+    }
+  } catch (e) { console.warn('[Bot] could not check server membership:', e.message); }
+
+  // Say where the review cards are going, at boot, every boot. An unset channel
+  // used to mean cards were built and then quietly dropped, which looks exactly
+  // like the ingest never running — and cost a whole deploy cycle to find.
+  try {
+    const cards = require('./iaReviewCards');
+    const ingest = require('./ticketIngest');
+    const where = (id) => id ? id : 'NOT SET · cards will be dropped';
+    console.log(`[IA] review cards · tickets → ${where(cards.ticketsChannelId())}`
+      + ` · cases → ${where(cards.casesChannelId())}`
+      + ` · reviewer ping → ${cards.reviewerRoleId() || 'none'}`);
+    for (const src of ingest.ticketSources()) {
+      console.log(`[TicketLogs] reading ${src.division} from channel ${src.channelId} in guild ${src.guildId}`);
+    }
+  } catch (e) { console.warn('[IA] could not report the card channels:', e.message); }
   // Re-read tick/cross reactions on recent patrol/event logs. Gateway events
   // are not replayed after a disconnect, so without this a sign-off made while
   // the bot was restarting would never reach the site.
@@ -108,7 +152,14 @@ function buildClient(withMessageContent) {
   // non-privileged intent, so it's always safe to request.
   const intents  = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates];
   const partials = [Partials.GuildMember];
-  if (withMessageContent) intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+  // GuildMessages is NOT privileged and never needs enabling in the portal.
+  // MessageContent is. Requesting them together meant that losing the privileged
+  // one lost the unprivileged one too, and with it the messageCreate event
+  // itself — so the fallback login below came up with NO live ingest at all,
+  // for tickets, patrols, suggestions and logs alike, while reporting only that
+  // "forum + ticket-transcript reads" were affected.
+  intents.push(GatewayIntentBits.GuildMessages);
+  if (withMessageContent) intents.push(GatewayIntentBits.MessageContent);
   if (WANT_REACTIONS) {
     // GuildMessageReactions is NOT privileged, so requesting it can't fail login
     // the way MessageContent can. The partials are what let us see a reaction on
@@ -126,7 +177,17 @@ function buildClient(withMessageContent) {
   c.once('clientReady', boot);
   c.once('ready', boot);
   c.on('interactionCreate', onInteraction);
-  if (withMessageContent) c.on('messageCreate', onPatrolMessage);
+  // Attached unconditionally. The gateway delivers messageCreate on the
+  // unprivileged GuildMessages intent; MessageContent only decides whether the
+  // CONTENT of somebody else's message is populated. Gating the listener on it
+  // meant a fallback login silently ingested nothing at all, which is
+  // indistinguishable from the bot not running.
+  c.on('messageCreate', onPatrolMessage);
+  if (!withMessageContent) {
+    console.warn('[Bot] running WITHOUT the Message Content intent · embeds posted by other bots '
+      + '(Tickety ticket logs included) will arrive empty and cannot be parsed. '
+      + 'Enable "Message Content Intent" in the Discord Developer Portal.');
+  }
   if (WANT_REACTIONS) {
     // Ticking or crossing a patrol/event log IS the sign-off, whoever does it.
     const onReaction = added => (reaction, user) =>
@@ -164,24 +225,89 @@ client = buildClient(WANT_MESSAGE_CONTENT);
 // in a deployment where those two are different servers, registering against
 // DISCORD_GUILD_ID puts the commands somewhere nobody is looking.
 //
-// So take BOTH, deduplicated. Registering /xp and /discipline in each costs
+// So take BOTH, deduplicated. Registering /xp and /infract in each costs
 // nothing — who may actually run them is decided in code, not by where they
 // appear — and it removes a whole class of "the command isn't there" that is
 // invisible from the outside.
-function metGuildIds(specific) {
-  return [...new Set([
-    process.env[specific],
-    process.env.MET_GUILD_ID,
-    process.env.DISCORD_GUILD_ID,
-  ].filter(Boolean).map(String))];
+/**
+ * Which guild a command belongs in.
+ *
+ * This used to union the command's own guild with MET_GUILD_ID and
+ * DISCORD_GUILD_ID, so every command landed in every configured server — IA
+ * tooling showed up in the MET server and vice versa. Commands are now scoped
+ * to exactly one server, because who can SEE a command is part of the
+ * permission model, not just a convenience.
+ *
+ * `specific` still wins when set, so a one-off override is possible without
+ * moving the whole set.
+ */
+function guildFor(specific, fallbackEnv) {
+  const id = process.env[specific]
+    || process.env[fallbackEnv]
+    || process.env.DISCORD_GUILD_ID;
+  return id ? [String(id)] : [];
 }
-const DISCIPLINE_GUILD_IDS = () => metGuildIds('DISCIPLINE_GUILD_ID');
-const XP_GUILD_IDS         = () => metGuildIds('XP_GUILD_ID');
-const IA_GUILD_IDS         = () => metGuildIds('IA_PANEL_GUILD_ID');
-const PROMOTE_GUILD_IDS    = () => metGuildIds('PROMOTE_GUILD_ID');
-const LOA_GUILD_IDS        = () => metGuildIds('LOA_GUILD_ID');
-const MET_GUILD_IDS        = () => metGuildIds('MET_INFO_GUILD_ID');
-const PENDINGJOIN_GUILD_IDS = () => metGuildIds('PENDINGJOIN_GUILD_ID');
+
+// Internal Affairs server: cases, tickets, quota, discipline, LOA.
+const iaGuild  = (specific) => guildFor(specific, 'IA_GUILD_ID');
+// MET server: Roblox group administration and MET-wide info.
+const metGuild = (specific) => guildFor(specific, 'MET_GUILD_ID');
+
+/**
+ * Which commands the IA server actually shows.
+ *
+ * Everything IA-scoped is BUILT; this decides what is registered. Kept as a
+ * list rather than scattered per-command flags so the answer to "why can I see
+ * this" is one line, and trimming the set never means editing the plan.
+ *
+ * Default is the IA working set: file a case, see the table, adjust points,
+ * check priors, put a mistake back. Anything built but not listed simply is not
+ * registered there, so trimming the server is a variable change rather than a
+ * deploy — and a name in the list that is not built yet is harmless.
+ *
+ * Override with IA_COMMANDS as a comma-separated list, or "*" for everything.
+ */
+// The commands that are actually registered in the Internal Affairs server.
+// Kept beside the allowlist so a command moving servers updates one place.
+const UNDO_GUILD_ID_NAMES        = 'undo';
+const QP_GUILD_ID_NAMES          = 'add-qp';
+const LEADERBOARD_GUILD_ID_NAMES = 'leaderboard';
+const SUBMIT_CASE_GUILD_ID_NAMES = 'submit-case';
+
+const IA_COMMAND_ALLOWLIST = () => {
+  const raw = (process.env.IA_COMMANDS || '').trim();
+  if (raw === '*') return null;                       // null = no filtering
+  const list = raw
+    ? raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
+    // The Internal Affairs server's whole command set. Everything else lives in
+    // the MET server, including /check-record and /ia, which are about IA but
+    // are used by MET High Command.
+    : ['submit-case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
+  return new Set(list);
+};
+
+// /infract, /xp and /loa are MET commands. They used to resolve through
+// iaGuild(), which meant that with only IA_GUILD_ID set they targeted the IA
+// server -- where the allowlist below then removed them again, so they
+// registered nowhere at all. They are MET's, and they go to MET's server.
+const DISCIPLINE_GUILD_IDS  = () => metGuild('DISCIPLINE_GUILD_ID');
+const XP_GUILD_IDS          = () => metGuild('XP_GUILD_ID');
+// /check-record and /ia are MET commands, not IA ones.
+//
+// They resolved through iaGuild(), so with IA_GUILD_ID set they targeted the IA
+// server — where /check-record was then also filtered out by the allowlist, and
+// /ia was not on that list at all, so it registered NOWHERE. Meanwhile the
+// people who need them, MET High Command, are in the MET server and could not
+// see either.
+//
+// They look up and act on a record. That is MET work, gated in code by rank
+// exactly as /infract is — being about Internal Affairs is not the same as
+// belonging in the Internal Affairs server.
+const IA_GUILD_IDS          = () => metGuild('IA_PANEL_GUILD_ID');
+const LOA_GUILD_IDS         = () => metGuild('LOA_GUILD_ID');
+const PROMOTE_GUILD_IDS     = () => metGuild('PROMOTE_GUILD_ID');
+const MET_GUILD_IDS         = () => metGuild('MET_INFO_GUILD_ID');
+const PENDINGJOIN_GUILD_IDS = () => metGuild('PENDINGJOIN_GUILD_ID');
 
 // Register slash commands, GROUPED BY GUILD.
 //
@@ -197,7 +323,49 @@ const PENDINGJOIN_GUILD_IDS = () => metGuildIds('PENDINGJOIN_GUILD_ID');
  */
 function buildCommandPlan() {
   const byGuild = new Map();
+  let   iaAllow = IA_COMMAND_ALLOWLIST();
+
+  // ONLY an explicit IA_GUILD_ID. This used to fall back to DISCORD_GUILD_ID,
+  // which meant that with IA_GUILD_ID unset the allowlist was applied to
+  // whatever DISCORD_GUILD_ID pointed at -- normally the MET server -- and
+  // stripped /infract, /xp, /check-record, /ia, /promote, /loa, /met and
+  // /pendingjoin out of it, leaving MET with only the five IA commands. The
+  // allowlist describes the Internal Affairs server; with no IA server
+  // configured there is nothing for it to describe and it must not run.
+  const iaGuildId = process.env.IA_GUILD_ID;
+  if (!iaGuildId) {
+    if (process.env.IA_COMMANDS) {
+      console.warn('[Bot] IA_COMMANDS is set but IA_GUILD_ID is not · the allowlist '
+        + 'only ever applies to the Internal Affairs server, so it is being ignored. '
+        + 'Set IA_GUILD_ID to the IA server id.');
+    }
+    iaAllow = null;
+  }
+
+  // A list that filters out everything is always stale config, never an
+  // intention: nobody configures a server to show no commands. It happens when
+  // IA_COMMANDS still names commands that have since moved to the MET server,
+  // and the result was an IA server with nothing in it and not one line in the
+  // log, because a guild with no commands never reaches the registration loop.
+  if (iaAllow && iaGuildId) {
+    const iaTargets = [UNDO_GUILD_ID_NAMES, QP_GUILD_ID_NAMES,
+                       LEADERBOARD_GUILD_ID_NAMES, SUBMIT_CASE_GUILD_ID_NAMES];
+    if (!iaTargets.some(n => iaAllow.has(n))) {
+      console.warn(`[Bot] IA_COMMANDS ("${process.env.IA_COMMANDS}") does not name a single `
+        + 'command that is registered in the Internal Affairs server, so it would leave that '
+        + 'server empty · ignoring it and using the default set instead. The commands it names '
+        + 'may have moved to the MET server; unset IA_COMMANDS to silence this.');
+      iaAllow = null;
+    }
+  }
+
   const add = (guildIds, json) => {
+    // Filter only the IA server: the MET set is small and deliberate already.
+    if (iaAllow && json && json.name && iaGuildId
+        && (guildIds || []).some(g => String(g) === String(iaGuildId))
+        && !iaAllow.has(String(json.name).toLowerCase())) {
+      return;
+    }
     for (const guildId of (Array.isArray(guildIds) ? guildIds : [guildIds])) {
       if (!guildId) continue;
       if (!byGuild.has(guildId)) byGuild.set(guildId, []);
@@ -221,7 +389,7 @@ function buildCommandPlan() {
       .toJSON());
   }
 
-  // /discipline is visible to everyone; who may actually run it is decided in
+  // /infract is visible to everyone; who may actually run it is decided in
   // code (Internal Affairs, or Deputy Commissioner and above). Gating it with
   // Discord's own default_member_permissions would tie it to a permission bit
   // rather than to rank, which is not the same thing at all.
@@ -231,7 +399,7 @@ function buildCommandPlan() {
     add(DISCIPLINE_GUILD_IDS(), cmd);
     global.push(cmd);
   } catch (err) {
-    console.error('[Bot] could not build /discipline:', err.message);
+    console.error('[Bot] could not build /infract:', err.message);
   }
 
   // /xp — everyone can look; who may change XP is decided in code.
@@ -243,9 +411,10 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /xp:', err.message);
   }
 
-  // /check-record — the Internal Affairs panel. Visible to everyone, gated in code
-  // to the same people /discipline is, because it shows the same material. It was
-  // called /ia, which named the department rather than the thing it does.
+  // /check-record — the record lookup panel. In the MET server: it is what MET
+  // High Command uses to see somebody's disciplinary history. Visible to
+  // everyone, gated in code to the same people /infract is, because it shows the
+  // same material.
   try {
     const cmd = require('./iaPanel').buildCommand();
     add(IA_GUILD_IDS(), cmd);
@@ -254,9 +423,9 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /check-record:', err.message);
   }
 
-  // /ia — the Internal Affairs dashboard. Registered in the MET server (and the
-  // IA panel guild) like /check-record; who may actually use it, and what they
-  // may decide, is settled in code by lib/iaAuthority.
+  // /ia — the Internal Affairs dashboard. In the MET server alongside
+  // /check-record; who may actually use it, and what they may decide, is settled
+  // in code by lib/iaAuthority, not by which server it appears in.
   try {
     const cmd = require('./iaDashboard').buildCommand();
     add(IA_GUILD_IDS(), cmd);
@@ -274,9 +443,71 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /promote:', err.message);
   }
 
+  // /demote — one rank down in the MET group. Same permission model as /promote,
+  // but it works in reverse and keeps the same confirmation flow.
+  try {
+    const cmd = require('./demoteCommand').buildCommand();
+    add(PROMOTE_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /demote:', err.message);
+  }
+
   // /loa — leave of absence. Everyone can request and manage their own; the
   // reviewing half is gated in code to the LOA admin role, not by a Discord
-  // permission bit, for the same reason /discipline is.
+  // permission bit, for the same reason /infract is.
+  // /undo — reverse one of your own recent actions (see lib/actionJournal).
+  try {
+    const cmd = require('./undoCommand').buildCommand();
+    add(iaGuild('UNDO_GUILD_ID'), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /undo:', err.message);
+  }
+
+  // /adonis — the Roblox game bridge. ONE server, hardcoded, and deliberately
+  // not the MET one: this command drives live game servers, and it appearing
+  // anywhere else causes real damage.
+  //
+  // It is NOT pushed onto `global`. The global set is the fallback used when no
+  // guild registration succeeds at all, and it registers a command in EVERY
+  // server the bot is in. For most commands that is a harmless safety net; for
+  // this one it is the exact outcome being guarded against, so the fallback is
+  // worse than the command being missing.
+  try {
+    const cmd = require('./adonisCommand').buildCommand();
+    add([require('./adonisCommand').GUILD_ID], cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /adonis:', err.message);
+  }
+
+  // The four Internal Affairs commands. All IA-server only: quota points and
+  // case filing have no meaning in the MET or CID servers.
+  try {
+    for (const cmd of require('./qpCommand').buildCommands()) {
+      add(iaGuild('QP_GUILD_ID'), cmd);
+      global.push(cmd);
+    }
+  } catch (err) {
+    console.error('[Bot] could not build /add-qp + /remove-qp:', err.message);
+  }
+
+  try {
+    const cmd = require('./leaderboardCommand').buildCommand();
+    add(iaGuild('LEADERBOARD_GUILD_ID'), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /leaderboard:', err.message);
+  }
+
+  try {
+    const cmd = require('./submitCaseCommand').buildCommand();
+    add(iaGuild('SUBMIT_CASE_GUILD_ID'), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /submit-case:', err.message);
+  }
+
   try {
     const cmd = require('./loaCommand').buildCommand();
     add(LOA_GUILD_IDS(), cmd);
@@ -294,6 +525,16 @@ function buildCommandPlan() {
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /met:', err.message);
+  }
+
+  // /exile — immediate MET termination. Reuses the /infract discipline engine
+  // so the Roblox exile, punishment record, dashboard case and admin log agree.
+  try {
+    const cmd = require('./exileCommand').buildCommand();
+    add(PENDINGJOIN_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /exile:', err.message);
   }
 
   // /pendingjoin — the MET group's join-request queue. Gated in code to MET High
@@ -314,13 +555,29 @@ function buildCommandPlan() {
  * Push the plan to Discord.
  * @param {object} [c] a client to use instead of the live one (tests)
  */
+let lastRegistration = null;   // what the last registerCommands() actually did
+
 async function registerCommands(c) {
   const api = c || client;
   const { byGuild, global } = buildCommandPlan();
-  const out = { guilds: [], global: null, errors: [] };
+  const out = { guilds: [], global: null, errors: [], at: new Date().toISOString() };
 
   if (!byGuild.size) {
     console.warn('[Bot] no guild configured for slash commands · set MET_GUILD_ID or DISCORD_GUILD_ID.');
+  }
+
+  // A guild that is configured but ended up with no commands never enters
+  // byGuild, so the loop below never touches it and never reports it. That is
+  // the shape of this failure: the server is simply empty and the log says
+  // nothing at all. Name it here, before the loop, so it cannot happen quietly.
+  for (const [envName, label] of [['IA_GUILD_ID', 'Internal Affairs'], ['MET_GUILD_ID', 'MET']]) {
+    const id = process.env[envName];
+    if (id && !byGuild.has(String(id))) {
+      console.error(`[Bot] ${envName}=${id} (${label}) is configured but NO command is `
+        + 'registered there · that server will show an empty command list. Check IA_COMMANDS '
+        + 'and that the commands you expect are targeted at that guild.');
+      out.errors.push(`${id}: configured (${envName}) but no commands were planned for it`);
+    }
   }
 
   let anyGuildOk = false;
@@ -345,23 +602,95 @@ async function registerCommands(c) {
     }
   }
 
-  // Last resort. Guild commands appear instantly but only where we were told to
-  // put them; global ones take up to an hour to propagate but appear EVERYWHERE
-  // the bot is. If every guild attempt failed, a slow command beats no command.
-  // REGISTER_GLOBAL_COMMANDS=1 forces this on even when a guild worked.
-  const wantGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1' || (!anyGuildOk && global.length);
+  // Guild commands and global commands STACK: the same command registered both
+  // ways renders twice in the picker. So the rule is not "prefer guild" — it is
+  // that the two can never coexist.
+  //
+  // Global is therefore only ever a fallback for a total failure, and
+  // REGISTER_GLOBAL_COMMANDS cannot override that. Setting it while guild
+  // registration works would put every command in every server AND duplicate
+  // each one, which is never what anybody wants.
+  const askedGlobal = process.env.REGISTER_GLOBAL_COMMANDS === '1';
+  const wantGlobal  = askedGlobal && !anyGuildOk;
+
+  if (askedGlobal && anyGuildOk) {
+    console.warn('[Bot] REGISTER_GLOBAL_COMMANDS=1 is set but guild registration worked · '
+      + 'ignoring it. Registering the same command globally AND per guild shows it '
+      + 'twice in every server · unset the variable.');
+  }
+  if (!anyGuildOk && !askedGlobal) {
+    console.error('[Bot] NO guild registration succeeded and the global fallback is off · '
+      + 'check IA_GUILD_ID / MET_GUILD_ID and that the bot was invited with the '
+      + '"applications.commands" scope. No slash commands are registered.');
+  }
+
   if (wantGlobal && api.application) {
     try {
       await api.application.commands.set(global);
       out.global = global.map(c => c.name);
-      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY`
-        + (anyGuildOk ? '' : ' (no guild registration succeeded · these can take up to an hour to show up)'));
+      console.log(`[Bot] registered ${global.map(c => '/' + c.name).join(' ')} GLOBALLY `
+        + '(no guild registration succeeded · these can take up to an hour to appear)');
     } catch (err) {
       out.errors.push(`global: ${err.message}`);
       console.error('[Bot] global command registration failed:', err.message);
     }
+  } else if (api.application) {
+    // Discord keeps a command until something deletes it, so anything an older
+    // deploy registered outlives the code that put it there. Clear the global
+    // set on EVERY boot that is not deliberately global-only: it is the copy
+    // that duplicates the guild ones and leaks commands into servers the plan
+    // never mentioned.
+    try {
+      const stale = await api.application.commands.fetch();
+      if (stale.size) {
+        await api.application.commands.set([]);
+        console.log(`[Bot] cleared ${stale.size} stale GLOBAL command(s): `
+          + `${[...stale.values()].map(c => '/' + c.name).join(' ')} `
+          + '· clients can take up to an hour to stop showing them');
+        out.clearedGlobal = [...stale.values()].map(c => c.name);
+      } else {
+        console.log('[Bot] no global commands registered · nothing to clear');
+      }
+    } catch (err) {
+      console.warn('[Bot] could not clear global commands:', err.message);
+    }
   }
 
+  // Any server the bot is in that the plan does not mention should have NO
+  // commands — the CID server, for instance, is joined only to read a role.
+  // Without this, commands registered there by an earlier deploy stay forever.
+  try {
+    const planned = new Set([...byGuild.keys()].map(String));
+    const summary = [];
+    for (const [, guild] of api.guilds.cache) {
+      const isPlanned = planned.has(String(guild.id));
+      let existing = null;
+      try { existing = await guild.commands.fetch(); }
+      catch (err) {
+        summary.push(`${guild.name} (${guild.id}): cannot read commands · ${err.message}`);
+        continue;
+      }
+      if (!isPlanned && existing.size) {
+        await guild.commands.set([]);
+        console.log(`[Bot] cleared ${existing.size} leftover command(s) from "${guild.name}" `
+          + `(${guild.id}) · not in the command plan`);
+        out.cleared = out.cleared || [];
+        out.cleared.push({ guildId: guild.id, name: guild.name, removed: existing.size });
+        summary.push(`${guild.name}: none (cleared ${existing.size})`);
+      } else {
+        summary.push(`${guild.name}: ${existing.size
+          ? [...existing.values()].map(c => '/' + c.name).join(' ')
+          : 'none'}`);
+      }
+    }
+    // One line per server, so "why is this command here" is answerable from the
+    // boot log alone rather than by asking Discord.
+    console.log('[Bot] command layout now:\n    ' + summary.join('\n    '));
+  } catch (err) {
+    console.warn('[Bot] leftover-command sweep failed:', err.message);
+  }
+
+  lastRegistration = out;
   return out;
 }
 
@@ -378,13 +707,27 @@ async function listRegisteredCommands() {
   const out = { guilds: [], global: [], botGuilds: [], resolved: {} };
   out.resolved = {
     MET_GUILD_ID: process.env.MET_GUILD_ID || null,
+    IA_GUILD_ID: process.env.IA_GUILD_ID || null,
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID || null,
+    IA_COMMANDS: process.env.IA_COMMANDS || null,
     disciplineTargets: DISCIPLINE_GUILD_IDS(),
     xpTargets: XP_GUILD_IDS(),
     iaTargets: IA_GUILD_IDS(),
     promoteTargets: PROMOTE_GUILD_IDS(),
     loaTargets:     LOA_GUILD_IDS(),
+    // The Internal Affairs server's own commands. Every target above resolves
+    // through metGuild(), so without these the one server whose commands were
+    // missing was the one server this could not report on.
+    undoTarget:       iaGuild('UNDO_GUILD_ID'),
+    qpTarget:         iaGuild('QP_GUILD_ID'),
+    leaderboardTarget: iaGuild('LEADERBOARD_GUILD_ID'),
+    submitCaseTarget: iaGuild('SUBMIT_CASE_GUILD_ID'),
   };
+  out.lastRegistration = lastRegistration;
+  out.plan = {};
+  try {
+    for (const [gid, cmds] of buildCommandPlan().byGuild) out.plan[gid] = cmds.map(c => c.name);
+  } catch (e) { out.plan = { error: e.message }; }
   try {
     for (const g of client.guilds.cache.values()) out.botGuilds.push({ id: g.id, name: g.name });
   } catch (e) { /* cache only */ }
@@ -392,7 +735,10 @@ async function listRegisteredCommands() {
     const g = await client.application.commands.fetch();
     out.global = [...g.values()].map(c => c.name);
   } catch (e) { out.global = { error: e.message }; }
-  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), ...LOA_GUILD_IDS(), IMPORT_GUILD_ID].filter(Boolean))) {
+  for (const guildId of new Set([...DISCIPLINE_GUILD_IDS(), ...XP_GUILD_IDS(), ...IA_GUILD_IDS(), ...PROMOTE_GUILD_IDS(), ...LOA_GUILD_IDS(),
+                                 ...iaGuild('UNDO_GUILD_ID'), ...iaGuild('QP_GUILD_ID'),
+                                 ...iaGuild('LEADERBOARD_GUILD_ID'), ...iaGuild('SUBMIT_CASE_GUILD_ID'),
+                                 IMPORT_GUILD_ID].filter(Boolean))) {
     try {
       const guild = await client.guilds.fetch(guildId);
       const cmds = await guild.commands.fetch();
@@ -409,9 +755,21 @@ async function onInteraction(interaction) {
   // Autocomplete (the /promote rank picker). Answered separately from the
   // command itself · it only ever suggests, it never runs anything.
   if (interaction.isAutocomplete && interaction.isAutocomplete()) {
+    if (interaction.commandName === require('./adonisCommand').COMMAND) {
+      return require('./adonisCommand').handleAutocomplete(interaction)
+        .catch(e => console.error('[Bot] adonis autocomplete error:', e.message));
+    }
     if (interaction.commandName === 'promote') {
       return require('./promoteCommand').handlePromoteAutocomplete(interaction)
         .catch(e => console.error('[Bot] promote autocomplete error:', e.message));
+    }
+    if (interaction.commandName === 'demote') {
+      return require('./demoteCommand').handleDemoteAutocomplete(interaction)
+        .catch(e => console.error('[Bot] demote autocomplete error:', e.message));
+    }
+    if (interaction.commandName === 'submit-case') {
+      return require('./submitCaseCommand').handleAutocomplete(interaction)
+        .catch(e => console.error('[Bot] submit-case autocomplete error:', e.message));
     }
     return;
   }
@@ -422,8 +780,21 @@ async function onInteraction(interaction) {
       || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())
       || (interaction.isModalSubmit && interaction.isModalSubmit())) {
     const cid = interaction.customId || '';
+    if (cid.startsWith('atr_')) {
+      return require('./automatedTryout').handleButton(interaction)
+        .catch(e => console.error('[Bot] automated tryout button error:', e.message));
+    }
     if (cid.startsWith('tryout_')) {
       return handleTryoutComponent(interaction).catch(e => console.error('[Bot] tryout component error:', e.message));
+    }
+    // IA case/ticket review cards.
+    if (cid.startsWith('undo:')) {
+      return require('./undoCommand').handleUndoComponent(interaction)
+        .catch(e => console.error('[Bot] undo component error:', e.message));
+    }
+    if (cid.startsWith('iareview:')) {
+      return require('./iaReviewCards').handleReviewButton(interaction)
+        .catch(e => console.error('[Bot] IA review button error:', e.message));
     }
     if (cid.startsWith('disc_')) {
       return require('./disciplineCommand').handleDisciplineButton(interaction)
@@ -446,6 +817,10 @@ async function onInteraction(interaction) {
     if (cid.startsWith('prom_')) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
+    }
+    if (cid.startsWith('dem_')) {
+      return require('./demoteCommand').handleDemoteButton(interaction)
+        .catch(e => console.error('[Bot] demote button error:', e.message));
     }
     if (cid.startsWith('evade_')) {
       return require('./evasion').handleEvasionButton(interaction)
@@ -475,6 +850,32 @@ async function onInteraction(interaction) {
 
   if (!interaction.isChatInputCommand()) return;
 
+  if (interaction.commandName === 'add-qp' || interaction.commandName === 'remove-qp') {
+    return require('./qpCommand')
+      .handleQp(interaction, interaction.commandName === 'add-qp' ? +1 : -1)
+      .catch(e => console.error(`[Bot] /${interaction.commandName} error:`, e.message));
+  }
+
+  if (interaction.commandName === require('./adonisCommand').COMMAND) {
+    return require('./adonisCommand').handle(interaction)
+      .catch(e => console.error('[Bot] /adonis error:', e.message));
+  }
+
+  if (interaction.commandName === 'leaderboard') {
+    return require('./leaderboardCommand').handleLeaderboard(interaction)
+      .catch(e => console.error('[Bot] /leaderboard error:', e.message));
+  }
+
+  if (interaction.commandName === 'submit-case') {
+    return require('./submitCaseCommand').handleSubmitCase(interaction)
+      .catch(e => console.error('[Bot] /submit-case error:', e.message));
+  }
+
+  if (interaction.commandName === 'undo') {
+    return require('./undoCommand').handleUndo(interaction)
+      .catch(e => console.error('[Bot] /undo error:', e.message));
+  }
+
   if (interaction.commandName === 'xp') {
     return require('./xpCommand').handleXpCommand(interaction)
       .catch(async (err) => {
@@ -486,10 +887,10 @@ async function onInteraction(interaction) {
       });
   }
 
-  if (interaction.commandName === 'discipline') {
+  if (interaction.commandName === 'infract') {
     return require('./disciplineCommand').handleDisciplineCommand(interaction)
       .catch(async (err) => {
-        console.error('[Bot] /discipline failed:', err.message);
+        console.error('[Bot] /infract failed:', err.message);
         // The panel is ephemeral and already deferred by this point, so the
         // issuer would otherwise be left staring at "thinking…" forever.
         const msg = { content: `${e('met_cross')} Something went wrong running that · nothing was issued. (${err.message})`, embeds: [], components: [] };
@@ -503,6 +904,17 @@ async function onInteraction(interaction) {
     return require('./promoteCommand').handlePromoteCommand(interaction)
       .catch(async (err) => {
         console.error('[Bot] /promote failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'demote') {
+    return require('./demoteCommand').handleDemoteCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /demote failed:', err.message);
         const msg = { content: `${e('met_cross')} Something went wrong · nothing was changed. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
@@ -539,6 +951,17 @@ async function onInteraction(interaction) {
       .catch(async (err) => {
         console.error('[Bot] /met failed:', err.message);
         const msg = { content: `${e('met_cross')} Something went wrong posting that. (${err.message})`, embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'exile') {
+    return require('./exileCommand').handleExileCommand(interaction)
+      .catch(async (err) => {
+        console.error('[/exile] handler failed:', err.message);
+        const msg = { content: `${e('met_cross')} Exile failed · nothing else was changed. (${err.message})`, embeds: [], components: [] };
         await (interaction.deferred || interaction.replied
           ? interaction.editReply(msg)
           : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
@@ -639,7 +1062,10 @@ function startBot() {
   client.login(token).catch(err => {
     const disallowed = err && (/disallowed intent/i.test(err.message || '') || err.code === 'DisallowedIntents');
     if (WANT_MESSAGE_CONTENT && disallowed) {
-      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal · starting the bot WITHOUT it. Role assignment still works, but forum + ticket-transcript reads are disabled until you enable "Message Content Intent" in the portal.');
+      console.warn('[Bot] Message Content intent is NOT enabled in the Discord Developer Portal · '
+        + 'starting the bot WITHOUT it. Roles, commands and slash interactions still work, but every '
+        + 'embed posted by another bot arrives EMPTY, so ticket logs, forum reads and transcript '
+        + 'reads all stop producing anything. Enable "Message Content Intent" in the portal.');
       client = buildClient(false);
       client.login(token).catch(e => console.error('Bot login failed (fallback):', e.message));
     } else {
@@ -1006,10 +1432,50 @@ async function removeRole(discordUserId, roleId) {
  * @param {string} [opts.reason]
  * @returns {Promise<{ ok, removed, kept, skipped, guilds:Array }>}
  */
+// Roles a discipline must never take, matched by NAME as well as by id.
+//
+// A blacklist is a MET punishment: it removes somebody's rank and their access
+// to MET. It is not a statement about who they are in the wider community, so
+// it has no business removing their verification or their citizenship. Losing
+// Verified in particular is disproportionate and annoying to undo, because it
+// is what RoVer and the onboarding flow hang off.
+//
+// Matched by name because these role ids are not configured anywhere, and
+// asking somebody to hunt down every id before a blacklist behaves properly is
+// how it ends up never being set. Names are normalised first: real role names
+// carry decoration, and "✅ Verified" and "🇬🇧 British Citizen" have to match.
+// Plurals and the common "Verified Member" spelling are here because the name a
+// server actually uses is not something we get to choose, and the failure is
+// silent: the role goes, nobody sees why, and it is annoying to undo. No MET
+// rank is called any of these, so widening the net costs nothing.
+const DEFAULT_KEEP_ROLE_NAMES = [
+  'verified', 'verified member', 'verified members',
+  'british citizen', 'british citizens',
+  'citizen', 'citizens',
+];
+
+function normaliseRoleName(name) {
+  return String(name || '').toLowerCase()
+    .replace(/[^a-z ]+/g, ' ')     // strip emoji, punctuation, digits
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function keptRoleNames() {
+  const extra = String(process.env.DISCIPLINE_KEEP_ROLE_NAMES || '')
+    .split(',').map(normaliseRoleName).filter(Boolean);
+  return new Set([...DEFAULT_KEEP_ROLE_NAMES, ...extra]);
+}
+
 async function stripMetRoles(discordUserId, opts = {}) {
-  const out = { ok: false, removed: 0, kept: 0, skipped: 0, guilds: [] };
+  const out = { ok: false, removed: 0, kept: 0, skipped: 0, keptNames: [], removedNames: [], guilds: [] };
   if (!ready) { console.warn('Bot not ready · cannot strip roles'); return out; }
   const keep = new Set((opts.keepRoleIds || []).filter(Boolean).map(String));
+  // The identity roles, by id where one is configured and by name always.
+  if (process.env.BRITISH_CITIZEN_ROLE_ID) keep.add(String(process.env.BRITISH_CITIZEN_ROLE_ID));
+  for (const r of String(process.env.DISCIPLINE_KEEP_ROLE_IDS || '')
+    .split(',').map(x => x.trim()).filter(Boolean)) keep.add(r);
+  const keepNames = keptRoleNames();
   const reason = opts.reason || 'MET discipline';
   for (const gid of DISCIPLINE_GUILD_IDS()) {
     const g = { guildId: gid, removed: 0, kept: 0, skipped: 0 };
@@ -1023,9 +1489,14 @@ async function stripMetRoles(discordUserId, opts = {}) {
       const remove = [];
       for (const role of member.roles.cache.values()) {
         if (role.id === guild.id) continue;            // @everyone
-        if (keep.has(role.id)) { g.kept++; continue; } // deliberately preserved
+        if (keep.has(role.id)) { g.kept++; out.keptNames.push(role.name); continue; }   // by id
+        if (keepNames.has(normaliseRoleName(role.name))) {                                // by name
+          g.kept++; out.keptNames.push(role.name); continue;
+        }
         if (role.managed || role.position >= myTop) { g.skipped++; continue; } // the bot cannot touch these
         remove.push(role.id);
+        // Recorded so "why did it take that one" has an answer afterwards.
+        if (out.removedNames.length < 60) out.removedNames.push(role.name);
       }
       if (remove.length) await member.roles.remove(remove, reason);
       g.removed = remove.length;
@@ -1106,7 +1577,11 @@ async function getRobloxNameFromNick(discordUserId) {
 let _memberCache = null, _memberCacheAt = 0;
 async function getAllGuildMembers() {
   if (!ready) return null;
-  const guildId = process.env.DISCORD_GUILD_ID;
+  // The MET server, resolved the way the rest of the app resolves it:
+  // MET_GUILD_ID first, DISCORD_GUILD_ID as the single-server fallback. This
+  // used to read DISCORD_GUILD_ID alone, so a deployment that set MET_GUILD_ID
+  // was quietly looking at whichever server DISCORD_GUILD_ID happened to name.
+  const guildId = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
   if (!guildId) return null;
   if (_memberCache && Date.now() - _memberCacheAt < 5 * 60 * 1000) return _memberCache;
   try {
@@ -1213,6 +1688,31 @@ async function getMetMemberProfile(discordUserId, guildId) {
   } catch (e) {
     return null;
   }
+}
+
+// Every member of the MET server, flattened to the fields identity matching
+// needs. Returns null when the answer is unknown (bot not connected, no guild
+// configured, or the fetch failed) so a caller can tell that apart from "nobody
+// matched". Served from the same five minute cache as getAllGuildMembers.
+function metServerGuildId() {
+  return process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+}
+
+async function listMetServerMembers() {
+  const members = await getAllGuildMembers();
+  if (!members) return null;
+  return [...members.values()].map(m => ({
+    id:          m.user.id,
+    username:    m.user.username,
+    globalName:  m.user.globalName || null,
+    nickname:    m.nickname || null,
+    displayName: m.displayName || m.user.username,
+    // Avatar hashes and join date, for re-hosting the picture as a Roblox asset.
+    // m.avatar is the server specific one, m.user.avatar the account's.
+    avatar:      m.user.avatar || null,
+    guildAvatar: m.avatar || null,
+    joinedAt:    m.joinedAt ? m.joinedAt.toISOString() : null,
+  }));
 }
 
 async function findMemberByRobloxNick(robloxUsername) {
@@ -1343,9 +1843,10 @@ function tryoutHostDmButtons(tryout) {
   row.addComponents(
     new ButtonBuilder().setCustomId(`tryout_cohost_${tryout.id}`).setLabel('Pick Co-Host').setStyle(ButtonStyle.Secondary),
   );
-  // No manual "Update Announcement" — once posted, the announcement updates
-  // itself automatically on any change (co-host, lock state, join link). We only
-  // offer a one-time "Send Announcement" when it hasn't gone out yet.
+  // Announcing is the host's call: starting a tryout posts nothing, so this
+  // button is the only thing that does. Once it has been pressed the post keeps
+  // itself current on any change (co-host, lock state, join link), which is why
+  // there is no manual "Update Announcement" and why this drops off afterwards.
   if (!announced) {
     row.addComponents(new ButtonBuilder().setCustomId(`tryout_announce_${tryout.id}`).setLabel('Send Announcement').setStyle(ButtonStyle.Success));
   }
@@ -1768,8 +2269,11 @@ async function dmTicketAlert(discordId, opts) {
   }
 }
 
-// DM the host that their tryout was created + announced. Returns the DM message
-// id (so it can be edited in real time when the lock state changes), or null.
+// DM the host that their tryout is live. Returns the DM message id (so it can be
+// edited in real time when the lock state changes), or null.
+//
+// Starting a tryout does NOT announce it — this DM, and its "Send Announcement"
+// button, is how the host announces it when they are ready.
 async function dmTryoutStarted(tryout, { reviewUrl } = {}) {
   if (!ready || !tryout || !tryout.hostDiscordId) return null;
   try {
@@ -2436,9 +2940,9 @@ async function listGuildVoiceChannels(guildId) {
 }
 
 module.exports = {
-  startBot, assignRole, removeRole, stripMetRoles, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
+  startBot, assignRole, removeRole, stripMetRoles, normaliseRoleName, keptRoleNames, setMemberNickname, dmMemberNotice, getMemberDisplayName, listGuildChannels, lookupMember, getMemberRecord,
   listBotGuilds, listGuildVoiceChannels,
-  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick,
+  findMemberByUsername, parseRankNick, getRobloxNameFromNick, findMemberByRobloxNick, listMetServerMembers, metServerGuildId,
   getRoleHolders, setExclusiveRoleHolder, getGuildMemberInfo, getMetMemberProfile, startRoleExpiryChecker,
   matchTicketTranscript, getClient,
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,

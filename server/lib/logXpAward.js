@@ -34,10 +34,10 @@
 const prisma = require('./db');
 const XP = require('./xp');
 
-const EVENT_ATTENDEE_XP = () => {
-  const n = parseInt(process.env.EVENT_ATTENDEE_XP || '1', 10);
-  return Number.isFinite(n) ? n : 1;
-};
+// Event attendance is always exactly 1 XP. This is deliberately NOT
+// configurable: a mass-patrol/event log must never turn an attendee list into
+// a bulk XP payout because a deployment environment contains a bad value.
+const EVENT_ATTENDEE_XP = () => 1;
 const PATROL_XP_MINUTES = () => {
   const n = parseInt(process.env.PATROL_XP_MINUTES || '30', 10);
   return Number.isFinite(n) && n > 0 ? n : 30;
@@ -53,6 +53,48 @@ function patrolXpFor(minutes) {
   const m = Number(minutes);
   if (!Number.isFinite(m) || m <= 0) return 0;
   return Math.floor(m / PATROL_XP_MINUTES());
+}
+
+/**
+ * Verify a patrol duration from its stored Discord content. The database
+ * totalMinutes field is derived/cache data and is never a source of truth
+ * for an XP payout.
+ */
+function verifiedPatrolMinutes(log) {
+  if (!log || log.type === 'EVENT') return { ok: true, minutes: null };
+
+  const raw = String(log.rawContent || '');
+  if (!raw.trim()) return { ok: false, minutes: null, why: 'patrol has no raw Discord content' };
+
+  const { parsePatrolLog } = require('./patrolLog');
+  const parsed = parsePatrolLog(raw);
+
+  // XP must come from a real start/end pair. Never fall back to a user-entered
+  // "Total Time:" field for XP.
+  if (!parsed.shiftStart || !parsed.shiftEnd || parsed.totalMinutes == null) {
+    return { ok: false, minutes: null, why: 'patrol start/end could not be verified' };
+  }
+
+  const stored = Number(log.totalMinutes);
+  const calculated = Number(parsed.totalMinutes);
+  if (!Number.isFinite(calculated) || calculated <= 0) {
+    return { ok: false, minutes: null, why: 'patrol duration is invalid' };
+  }
+
+  // If cached data disagrees with the Discord content, stop the payout rather
+  // than silently paying either value. That turns suspicious/stale logs into
+  // a review item instead of an XP exploit.
+  if (!Number.isFinite(stored) || stored !== calculated) {
+    return {
+      ok: false,
+      minutes: calculated,
+      why: 'patrol duration mismatch (stored ' +
+        (Number.isFinite(stored) ? stored : 'missing') +
+        ' min, Discord content ' + calculated + ' min)',
+    };
+  }
+
+  return { ok: true, minutes: calculated };
 }
 
 /**
@@ -113,13 +155,17 @@ function plannedAwards(log) {
     return out;
   }
 
-  // PATROL — the officer who filed it.
-  const amount = patrolXpFor(log.totalMinutes);
+  // PATROL — the officer who filed it. The cached total is only usable when
+  // it exactly matches a duration recomputed from the raw Discord message.
+  const verified = verifiedPatrolMinutes(log);
+  if (!verified.ok) return [];
+  const minutes = verified.minutes;
+  const amount = patrolXpFor(minutes);
   if (!amount || !log.submitterDiscordId) return [];
   return [{
     discordId: String(log.submitterDiscordId),
     amount,
-    reason: `Patrol · ${log.totalMinutes} min`,
+    reason: `Patrol · ${minutes} min`,
     name: log.submitterDisplayName || log.submitterUsername || null,
   }];
 }
@@ -142,15 +188,48 @@ async function awardForLog(log, approver, opts = {}) {
   if (!log) { out.skipped = 'no log'; return out; }
   if (log.xpAwarded) { out.skipped = 'already awarded'; return out; }
 
+  // Two independent paths approve a log: the button on the site and a tick on
+  // the Discord message. Both read xpAwarded and then pay, and the stamp only
+  // lands afterwards, so both could read false and both pay out. Claim it here
+  // instead, at the one point both paths go through. The stamp at the end
+  // writes the real outcome, which releases the claim if nothing was actually
+  // awarded so a later genuine attempt can still pay.
+  if (opts.persist !== false) {
+    const claim = await prisma.patrolLog
+      .updateMany({ where: { id: log.id, xpAwarded: false }, data: { xpAwarded: true } })
+      .catch(() => null);
+    if (!claim || !claim.count) { out.skipped = 'already awarded'; return out; }
+  }
+
+  // Anything that gives up after the claim has to hand it back, or a log that
+  // was never paid stays marked as paid and no later attempt can ever pay it.
+  // Only the holder is in here, so putting it back cannot tread on anybody.
+  const release = async () => {
+    if (opts.persist === false) return;
+    await prisma.patrolLog
+      .updateMany({ where: { id: log.id, xpAwarded: true }, data: { xpAwarded: false } })
+      .catch(() => {});
+  };
+
+  // Validate the patrol before claiming xpAwarded. An invalid patrol must
+  // remain eligible for a later corrected/reviewed attempt.
+  if (log.type !== 'EVENT') {
+    const verified = verifiedPatrolMinutes(log);
+    if (!verified.ok) {
+      out.skipped = verified.why;
+      return out;
+    }
+  }
+
   const gate = canAward({
     roleIds: approver && approver.roleIds,
     approverId: approver && approver.id,
     log,
   });
-  if (!gate.ok) { out.skipped = gate.why; return out; }
+  if (!gate.ok) { out.skipped = gate.why; await release(); return out; }
 
   const plan = plannedAwards(log);
-  if (!plan.length) { out.skipped = 'nothing to award'; return out; }
+  if (!plan.length) { out.skipped = 'nothing to award'; await release(); return out; }
 
   for (const p of plan) {
     try {

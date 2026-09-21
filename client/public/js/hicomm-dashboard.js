@@ -32,7 +32,7 @@
   function stopCC() { if (ccTimer) { clearInterval(ccTimer); ccTimer = null; } }
 
   const COUNTERS = [
-    ['liveTryouts', 'Live Tryouts', 'var(--green)'],
+    ['liveTryouts', 'Tryouts', 'var(--green)'],
     ['openTickets', 'Open Tickets', 'var(--blue)'],
     ['pendingLogs', 'Logs to Review', 'var(--amber)'],
     ['pendingCases', 'Pending Cases', 'var(--red)'],
@@ -52,7 +52,7 @@
         <div><div style="font-weight:700;">${esc(t.hostName || 'Tryout')} <span class="met-chip div-chip div-${esc(String(t.division || '').toLowerCase())}" style="font-size:9px;">${esc(t.division)}</span></div>
         <div style="font-size:11px;color:var(--text-muted);">${t.coHostName ? 'co: ' + esc(t.coHostName) + ' · ' : ''}${t.attendees} attending</div></div>
         <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? 'Unlocked' : 'Locked'}</span></div>`;
-    }).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) : '<div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div>');
+    }).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) : '<div class="table-empty"><div class="table-empty-text">No tryouts are running right now.</div></div>');
     // audit feed
     $('hc-audit-feed').innerHTML = d.audit.length ? d.audit.map(auditRow).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-history', title: 'No recent activity', sub: 'Privileged actions will show up here.' }) : '<div class="table-empty"><div class="table-empty-text">No recorded actions yet.</div></div>');
   };
@@ -284,7 +284,7 @@
         ${s.avatar ? `<img src="${esc(s.avatar)}" style="width:64px;height:64px;border-radius:50%;">` : `<div style="width:64px;height:64px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:24px;">${esc((s.name || '?').slice(0,1).toUpperCase())}</div>`}
         <div style="flex:1;"><div style="font-size:20px;font-weight:800;">${esc(s.name)}</div>
         <div style="font-size:12px;color:var(--text-muted);">${s.robloxUsername ? 'Roblox: ' + esc(s.robloxUsername) : ''}${s.discordId ? ' · Discord id ' + esc(s.discordId) : ''}</div>
-        <div style="font-size:11px;color:var(--amber);margin-top:4px;">Live lookup · pulled from the MET server + Roblox, not the site.</div></div>
+        </div>
         <div>${openFull}</div>
       </div></div>
       ${renderMetProfile(p)}`;

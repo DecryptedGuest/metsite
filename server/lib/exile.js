@@ -128,15 +128,30 @@ async function stripDiscordRolesForExile(discordUserId, actionNames = []) {
     const blRole = ACTION_CONFIG['Blacklist'] && ACTION_CONFIG['Blacklist'].roleId;
     if (blRole) keep.push(String(blRole));
   }
-  // An escape hatch: roles the owner never wants a discipline to remove.
-  for (const r of String(process.env.DISCIPLINE_KEEP_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean)) keep.push(r);
+  // Identity roles (Verified, British Citizen and anything named in
+  // DISCIPLINE_KEEP_ROLE_IDS / _NAMES) are preserved by stripMetRoles itself,
+  // so every caller gets that behaviour rather than only this one.
 
   const res = await require('./bot').stripMetRoles(discordUserId, {
     keepRoleIds: keep,
     reason: `MET ${isBlacklist ? 'blacklist' : 'termination'}: roles stripped`,
   });
-  const parts = [`removed ${res.removed} role(s)`];
-  if (res.kept) parts.push(`kept ${res.kept}`);
+  // Name both sides in the administrative log: what survived, so it is plain
+  // that verification and citizenship were left alone, and what went, so "why
+  // did it take that one" has an answer without anybody digging.
+  const listed = (names, limit) => {
+    const uniq = [...new Set(names || [])];
+    if (!uniq.length) return '';
+    const shown = uniq.slice(0, limit).join(', ');
+    return uniq.length > limit ? `${shown} and ${uniq.length - limit} more` : shown;
+  };
+
+  const removedList = listed(res.removedNames, 6);
+  const parts = [`removed ${res.removed} ${res.removed === 1 ? 'role' : 'roles'}${removedList ? ` (${removedList})` : ''}`];
+  if (res.kept) {
+    const keptList = listed(res.keptNames, 5);
+    parts.push(keptList ? `kept ${res.kept} (${keptList})` : `kept ${res.kept}`);
+  }
   if (res.skipped) parts.push(`${res.skipped} above the bot or managed`);
   return { stripped: res.removed, keptBlacklist: isBlacklist, summary: parts.join(' · ') };
 }

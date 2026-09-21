@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>(function(){var p="dark";try{p=localStorage.getItem("iacms_theme")||"dark"}catch(e){}var t=p;if(p==="system"){t="light";try{if(window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches)t="dark"}catch(e){t="dark"}}if(t!=="light"&&t!=="dark"&&t!=="midnight")t="dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-theme-pref",p);})();</script>
+  <title>Tryouts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/met.css?v=1" />
+  <style>
+    .tw { max-width: 620px; margin: 0 auto; padding: 56px 20px 80px; }
+    .tw .eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: .18em;
+      text-transform: uppercase; color: var(--met-a-2); margin-bottom: 14px; }
+    .tw h1 { font-family: var(--font-display); font-size: 40px; letter-spacing: -.03em; margin: 0 0 10px; }
+    .tw .lede { color: var(--text-secondary); font-size: 15px; line-height: 1.6; margin: 0 0 30px; }
+    .check { display: flex; gap: 12px; align-items: flex-start; padding: 13px 0;
+      border-bottom: 1px solid var(--border-dim); }
+    .check:last-child { border-bottom: 0; }
+    .check i { font-size: 18px; flex: 0 0 20px; margin-top: 1px; }
+    .check .ok { color: var(--green); } .check .no { color: var(--red); } .check .un { color: var(--text-muted); }
+    .check-t { font-size: 14px; font-weight: 500; }
+    .check-s { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
+    .reasons { margin: 22px 0 0; padding: 15px 17px; border-radius: var(--radius-md);
+      background: rgba(240,97,111,.08); border: 1px solid rgba(240,97,111,.26); }
+    .reasons li { font-size: 13.5px; line-height: 1.6; margin: 0 0 6px; }
+    .reasons li:last-child { margin-bottom: 0; }
+    .go { margin-top: 26px; }
+  </style>
+</head>
+<body>
+  <div class="bg-canvas"><div class="bg-glow-1"></div><div class="bg-glow-2"></div></div>
+  <div class="tw">
+    <div class="eyebrow">Hendon Police College</div>
+    <h1>Entrance tryouts</h1>
+    <p class="lede">Check whether you can attend, then start one when you are ready.</p>
+
+    <div class="panel" id="t-panel">
+      <div class="table-loading" style="padding:40px;text-align:center;">
+        <div class="spinner" style="width:22px;height:22px;margin:0 auto;"></div>
+      </div>
+    </div>
+
+    <div class="go" id="t-go"></div>
+  </div>
+
+  <script src="/js/ui.js"></script>
+  <script>
+    var esc = window.escapeHtml || function (v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+      });
+    };
+
+    function row(state, title, sub) {
+      var icon = state === true ? '<i class="ti ti-circle-check ok"></i>'
+               : state === false ? '<i class="ti ti-circle-x no"></i>'
+               : '<i class="ti ti-help-circle un"></i>';
+      return '<div class="check">' + icon + '<div><div class="check-t">' + esc(title) + '</div>'
+           + (sub ? '<div class="check-s">' + esc(sub) + '</div>' : '') + '</div></div>';
+    }
+
+    async function load() {
+      var panel = document.getElementById('t-panel');
+      var go = document.getElementById('t-go');
+      var d;
+      try { d = await (await fetch('/api/tryout/me')).json(); }
+      catch (e) { panel.innerHTML = '<div style="padding:24px;">Could not load this just now. Try again shortly.</div>'; return; }
+
+      if (!d.ok && d.error) { panel.innerHTML = '<div style="padding:24px;">' + esc(d.error) + '</div>'; return; }
+
+      var c = d.checks || {};
+      var html = '<div style="padding:6px 20px;">';
+      html += row(d.linked === true, 'Roblox account linked',
+        d.username ? 'Signed in as ' + d.username : 'Verify with RoVer in the Discord server.');
+      if (d.linked) {
+        html += row(c.inMetServer, 'In the MET Discord server',
+          c.inMetServer === false ? 'Join the MET Discord server, then reload this page.'
+            : c.inMetServer === null ? 'This one could not be checked right now.' : '');
+        html += row(c.metPending, 'In the MET group, or waiting to join',
+          c.metPending === null ? 'This one could not be checked right now.' : '');
+        html += row(c.blacklisted === true ? false : c.blacklisted === false ? true : null, 'Not blacklisted',
+          c.blacklisted === null ? 'This one could not be checked right now.' : '');
+        if (c.multiAccount) {
+          html += row(null, 'Account check', c.multiAccountDetail
+            || 'More than one account is linked here. An instructor will see this on your tryout log.');
+        }
+      }
+      html += '</div>';
+      panel.innerHTML = html;
+
+      if (d.reasons && d.reasons.length) {
+        var ul = '<ul class="reasons" style="list-style:none;padding-left:17px;">';
+        d.reasons.forEach(function (r) { ul += '<li>' + esc(r) + '</li>'; });
+        panel.insertAdjacentHTML('afterend', ul + '</ul>');
+      }
+
+      if (d.eligible) {
+        go.innerHTML = '<button class="btn btn-primary" id="t-start" style="width:100%;padding:14px;">Start a tryout</button>';
+        document.getElementById('t-start').addEventListener('click', start);
+      }
+    }
+
+    async function start() {
+      var b = document.getElementById('t-start');
+      b.disabled = true; b.textContent = 'Opening Roblox';
+      try {
+        var r = await (await fetch('/api/tryout/request', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ division: 'HPC' }),
+        })).json();
+        if (r.ok && r.link) { window.location.href = r.link; return; }
+        b.disabled = false; b.textContent = 'Start a tryout';
+        if (window.showToast) showToast(r.error || 'Could not start a tryout.', 'error');
+      } catch (e) {
+        b.disabled = false; b.textContent = 'Start a tryout';
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

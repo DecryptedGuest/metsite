@@ -51,7 +51,7 @@
       <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Integrity Flags <span style="font-size:10px;color:var(--text-muted);">(${flags.length})</span></div></div>
       <div style="padding:0.4rem 1rem 1rem;">${flags.slice(0, 12).map(f => `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-dim);">
         <span style="width:8px;height:8px;border-radius:50%;background:${severityColor(f.severity)};flex-shrink:0;"></span>
-        <span style="font-size:12px;">${esc(f.kind)} — <span style="color:var(--text-muted);">${esc(f.host || '')}</span></span>
+        <span style="font-size:12px;">${esc(f.kind)} · <span style="color:var(--text-muted);">${esc(f.host || '')}</span></span>
         <span style="margin-left:auto;font-size:10px;text-transform:uppercase;color:${severityColor(f.severity)};">${esc(f.severity)}</span>
       </div>`).join('')}</div></div>` : '';
 

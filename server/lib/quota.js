@@ -488,17 +488,29 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 // ticket log is worth TICKET_POINTS (2) to whoever closed the ticket.
 const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
 const TICKET_POINTS = () => { const n = parseInt(process.env.IA_TICKET_POINTS || '2', 10); return Number.isFinite(n) ? n : 2; };
+// A ticket is worth 2 points. Every ticket, whatever type it is.
+//
+// There used to be a third rate paying appeals 3, read off a line in the sheet's
+// own key. It was wrong: an appeal is just an appeal ticket, and it is the
+// busiest type there is, so the effect was to overpay the most common work by
+// 50%. There is no per-type rate and no environment variable to bring one back;
+// a rate that can be resurrected by setting a variable is a rate that will be.
+
+/** What one approved ticket log is worth. The same for every type. */
+function ticketPointsFor() { return TICKET_POINTS(); }
 
 function quotaForRank(rank) {
   const r = (rank || '').toString().trim().toLowerCase();
   if (!r) return { exempt: false, target: null, tier: null };
   if (r === 'loa')                                          return { exempt: true,  target: 0,  tier: 'LOA' };
   if (/director/.test(r))                                   return { exempt: true,  target: 0,  tier: 'High Command' };
+  // MIDDLE COMMAND on the sheet is Supervisor and Senior Investigator only.
   if (/senior\s*investigator|supervisor/.test(r))           return { exempt: false, target: 20, tier: 'Middle Command' };
-  if (/junior\s*investigator|probationary\s*investigator/.test(r)) return { exempt: false, target: 30, tier: 'Low Command' };
-  // A plain "Investigator" sits with Middle Command rather than falling through
-  // as an unknown rank with no target at all.
-  if (/investigator/.test(r))                               return { exempt: false, target: 20, tier: 'Middle Command' };
+  // LOW COMMAND is everyone else who investigates: Investigator, Junior
+  // Investigator, Probationary Investigator. A plain "Investigator" belongs
+  // HERE — the sheet lists them under LOW COMMAND, so scoring them against the
+  // middle target of 20 marked them as meeting quota 10 points early.
+  if (/investigator/.test(r))                               return { exempt: false, target: 30, tier: 'Low Command' };
   return { exempt: false, target: null, tier: null }; // unknown rank
 
 }
@@ -1161,7 +1173,7 @@ module.exports = {
   // Low-level sheet helpers reused by other point systems (e.g. HPC tryouts)
   // and by the MET database sync.
   getSheetsClient, findColumns, findMemberRow, currentDayIndex, colLetter, sheetRef,
-  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS,
+  normName, NON_MEMBER, readSheet, resolveSheetName, callQuotaWebhook, hasQuotaWebhook, DEFAULT_SHEET_ID, CASE_POINTS, TICKET_POINTS, ticketPointsFor,
   // Division-aware config resolver (IA | FLP | MET).
   quotaConfig, quotaForRank, metQuotaForRank, MET_TARGET, resolveQuotaTabs, isMemberRow, dayIndexFromHeader,
   buildMembersFromRows,

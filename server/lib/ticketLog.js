@@ -42,13 +42,49 @@ function normalizeUrl(u) {
   return s.toLowerCase();
 }
 
+
+// ── What a ticket type is CALLED ──────────────────────────────────
+//
+// The enum names are database identifiers, and printing them raw put
+// "OFFICER REPORT" and "APPEAL" on cards and panels — neither of which is what
+// anybody in the department calls those tickets. These are the names on the
+// tickets themselves.
+const TICKET_TYPE_LABEL = {
+  GENERAL_SUPPORT: 'General Support',
+  OFFICER_REPORT:  'Officer Complaint',
+  APPEAL:          'Disciplinary Action Appeal',
+  HICOMM:          'IA Complaint',
+};
+
+/** The human name for a ticket type, or a tidied version of an unknown one. */
+function ticketTypeLabel(type) {
+  const key = String(type || '').toUpperCase();
+  if (TICKET_TYPE_LABEL[key]) return TICKET_TYPE_LABEL[key];
+  // An unknown type is still readable rather than shouted.
+  return key
+    ? key.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    : 'General Support';
+}
+
 // ── Ticket-type classification from the ticket name ───────────────
 // Names look like "general-support-noirn", "IA Complaint-lkblaze31",
 // "officer-complaint-kis7ua", "Appeal-someone". Maps to the TicketType enum:
 //   GENERAL_SUPPORT | HICOMM | OFFICER_REPORT | APPEAL
 function ticketTypeFromName(name) {
-  const s = String(name || '').toLowerCase();
-  if (!s) return 'GENERAL_SUPPORT';
+  const full = String(name || '').toLowerCase();
+  if (!full) return 'GENERAL_SUPPORT';
+
+  // Classify on the TYPE, not on the opener's username.
+  //
+  // Tickety names a ticket "<type>-<username>", and matching anywhere in the
+  // whole string meant the username decided the type: a general-support ticket
+  // opened by somebody called "appealing" was filed as an APPEAL, and paid at
+  // the appeal rate. So the trailing "-<username>" is dropped first and the
+  // type is read from what is left; the full string stays as a fallback for the
+  // names that do not follow the pattern.
+  const head = full.includes('-') ? full.slice(0, full.lastIndexOf('-')) : full;
+  const s = head || full;
+
   if (/appeal/.test(s))                                   return 'APPEAL';
   // An "IA Complaint" is a complaint about Internal Affairs itself — a HICOMM
   // matter. Match it (and plain "hicomm"/"high command") before officer reports.
@@ -155,6 +191,35 @@ function parseTicketLogEmbed(embed, extraText) {
     footer.includes('tickety');
   if (!looksLikeTickety) return null;
 
+  // ── ...and it has to be a CLOSE ─────────────────────────────────
+  // Tickety logs a ticket's whole life into the same channel with the same
+  // layout: opened, claimed, renamed, transferred, reopened, closed. Every one
+  // of those carries "Ticket Name:" and a Tickety footer, so the test above
+  // matches all of them — and each was being stored as a closed ticket, given a
+  // ticket number, queued for review and, on approval, PAID. One ticket could
+  // be worth points several times over just by being renamed.
+  //
+  // The TicketLog table means "a ticket that was closed" everywhere it is read:
+  // the site's All Tickets and My Tickets, the weekly count, the review queue.
+  // So the parser has to mean it too.
+  //
+  // Decided on the embed alone, like the test above, and stated as an explicit
+  // NO before a YES: a log that says both (a close whose reason mentions
+  // reopening) is a close, but a log that only says "Ticket Opened" must never
+  // be read as one because it happens to carry the word "closed" in a
+  // transcript link.
+  const notAClose =
+    /\bticket\s+(?:opened|created|claimed|unclaimed|renamed|reopened|re-opened|transferred|locked|unlocked|deleted)\b/i
+      .test(title || embedText.split('\n')[0] || '');
+  const isAClose =
+    /clos(?:ed|ing)\s+(?:a|this|the)\s+ticket/i.test(embedText) ||
+    /clos(?:ed|ing)\s+by\b/i.test(embedText) ||
+    /\bclose\s+information\b/i.test(embedText) ||
+    /\bclosed\s*(?:at|on|reason)\s*:/i.test(embedText) ||
+    /\bticket\s+closed\b/i.test(embedText) ||
+    (/ticket/i.test(title) && /clos/i.test(title));
+  if (notAClose || !isAClose) return null;
+
   // Everything belonging to this log, embed and message content alike. Field
   // extraction reads this; the classifier above did not.
   const outside = String(extraText == null ? '' : extraText).trim();
@@ -191,6 +256,19 @@ function parseTicketLogEmbed(embed, extraText) {
   // labelled reader needs a colon, so this shape was invisible to it.
   const closedByPhrase = /clos(?:ed|ing)\s+by\s*:?\s*([^\n]+)/i.exec(text);
 
+  // Where the executor came from matters. An explicitly labelled Executor /
+  // Closer / Closed By field is the log telling us outright; the sentence at the
+  // top is an inference from prose. Only the labelled fields are strong enough
+  // to overrule the "that is the creator" test below.
+  const labelledExecutorId =
+       labelled(text, 'Executor ID')
+    || labelled(text, 'Closer ID')
+    || labelled(text, 'Staff ID')
+    || firstMentionId(labelled(text, 'Executor')  || '')
+    || firstMentionId(labelled(text, 'Closed By') || '')
+    || firstMentionId(labelled(text, 'Handled By')|| '')
+    || null;
+
   const executorId =
        labelled(text, 'Executor ID')
     || labelled(text, 'Closer ID')
@@ -217,9 +295,14 @@ function parseTicketLogEmbed(embed, extraText) {
   // so each one is tested after cleaning rather than before. That is the other
   // half of the same bug: "<@id> closed a ticket" cleaned down to "" and was
   // still accepted as the answer.
+  // Markdown, but NOT underscores. Discord usernames contain them constantly
+  // ("no_onee_01", "minigun543_257"), and stripping them stored the handler
+  // under a name that does not exist — which then matched nobody on the sheet
+  // and paid nobody. Tickety does not italicise the executor, so there is no
+  // underscore-italic to strip here anyway.
   const clean = (v) => String(v == null ? '' : v)
     .replace(/<@[!&]?\d+>/g, '')
-    .replace(/[*_`~]/g, '')
+    .replace(/[*`~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -265,6 +348,10 @@ function parseTicketLogEmbed(embed, extraText) {
     creatorId,
     executorId,
     executorRaw,
+    // True when the id came from a labelled Executor/Closer field rather than
+    // from the prose sentence. The ingest uses this to refuse a "closer" who is
+    // really the creator.
+    executorLabelled: !!labelledExecutorId,
     ticketType: ticketTypeFromName(effectiveName),
     // Everything the log said, kept so a row that named nobody can be looked at
     // later without another round trip to Discord. "Not recorded" is only worth
@@ -306,6 +393,7 @@ function transcriptUrlFromComponents(components) {
 }
 
 module.exports = {
+  TICKET_TYPE_LABEL, ticketTypeLabel,
   normalizeUrl,
   ticketTypeFromName,
   flattenEmbed,

@@ -13,8 +13,29 @@ const prisma  = require('../lib/db');
 
 const router = express.Router();
 
-function gameSecret()        { return process.env.TRYOUT_GAME_SECRET || null; }
-function gameSigningSecret() { return process.env.TRYOUT_GAME_SIGNING_SECRET || null; }
+// The shared secret, under either name.
+//
+// The Roblox side calls its config value GAME_SECRET, and the server only ever
+// read TRYOUT_GAME_SECRET. Setting the obvious one therefore configured
+// nothing: gameSecret() stayed null, so requireGameSecret took its "not
+// configured" branch and answered 503 to EVERY /api/game route — create,
+// commands, ack, conclude, all of it. The game sees a server that is up and
+// refusing to talk, and the env var is sitting right there looking correct.
+//
+// So both names work. TRYOUT_GAME_SECRET wins when both are set, because it is
+// the specific one.
+function gameSecret() {
+  return process.env.TRYOUT_GAME_SECRET || process.env.GAME_SECRET || null;
+}
+function gameSigningSecret() {
+  return process.env.TRYOUT_GAME_SIGNING_SECRET || process.env.GAME_SIGNING_SECRET || null;
+}
+/** Which variable the secret was actually found in, for /health. */
+function gameSecretSource() {
+  if (process.env.TRYOUT_GAME_SECRET) return 'TRYOUT_GAME_SECRET';
+  if (process.env.GAME_SECRET)        return 'GAME_SECRET';
+  return null;
+}
 // Tryout "test mode" (announce without pinging) is DISABLED by default so every
 // tryout actually pings its notification roles. Set TRYOUT_TEST_MODE=1 to honour
 // the game's suppressPings flag again.
@@ -43,7 +64,9 @@ function hasValidSignature(req) {
 // endpoint is disabled (503) rather than left open.
 function requireGameSecret(req, res, next) {
   if (!gameSecret() && !gameSigningSecret()) {
-    return res.status(503).json({ error: 'Game callback not configured (set TRYOUT_GAME_SECRET).' });
+    return res.status(503).json({
+      error: 'Game callback not configured · set TRYOUT_GAME_SECRET (GAME_SECRET is also accepted).',
+    });
   }
   if (hasValidSignature(req)) return next();
   const provided = req.get('x-game-secret') || (req.body && req.body.secret) || '';
@@ -55,6 +78,11 @@ function requireGameSecret(req, res, next) {
 // (body) or ?division=CID (query); default HPC. HPC and CID never resolve to
 // each other's rows.
 function normDivision(v) { const d = String(v || '').toUpperCase(); return (d === 'CID' || d === 'SCO19') ? d : 'HPC'; }
+
+// One implementation, shared with the tryout log path, so a stamp the game sends
+// is read the same way whichever endpoint it arrives on. Required lazily to keep
+// this route file free of a load-time dependency on the log module.
+function gameDate(v) { return require('../lib/tryoutLogs').gameDate(v); }
 function reqDivision(req) { return normDivision((req.body && req.body.division) || req.query.division); }
 
 // Resolve which tryout the callback refers to, scoped to its division:
@@ -111,11 +139,22 @@ router.get('/health', async (req, res) => {
   const out = {
     ok: true,
     secretSet:          !!gameSecret(),
+    // WHICH variable it came from. "secretSet: false while I have clearly set a
+    // secret" is the exact confusion this avoids.
+    secretSource:       gameSecretSource(),
     signingSet:         !!gameSigningSecret(),
     roverConfigured:    !!(process.env.ROVER_API_KEY && process.env.DISCORD_GUILD_ID),
     announceChannelSet: !!process.env.TRYOUT_ANNOUNCE_CHANNEL_ID,
     publicBaseUrlSet:   !!process.env.PUBLIC_BASE_URL,
     botReady,
+    // How long a tryout can go without any callback before it is treated as
+    // abandoned and cancelled. The game needs this to pace its own callbacks,
+    // and an automated tryout with nobody to notice is exactly the one that
+    // would otherwise be cancelled out from under itself.
+    tryoutAbsenceMinutes: (() => {
+      const m = parseInt(process.env.TRYOUT_HOST_ABSENCE_MINUTES, 10);
+      return Number.isFinite(m) && m > 0 ? m : 20;
+    })(),
   };
   // Secret-gated host check (so account lookups aren't public).
   const provided = req.get('x-game-secret') || req.query.secret || '';
@@ -328,6 +367,15 @@ router.post('/tryout/heartbeat', requireGameSecret, async (req, res) => {
 // ── Tryout lifecycle driven from the in-game panel ────────────────────
 // Resolve a { robloxId, username, discordId? } host payload to a site user
 // (must have signed in — same rule as /tryout/conclude's 422).
+function isNpcHost(host) {
+  return !!(host && String(host.type || '').toLowerCase() === 'npc');
+}
+
+function npcHostName(host) {
+  const n = host && host.name ? String(host.name).trim().slice(0, 40) : '';
+  return n || 'INSTRUCTOR';
+}
+
 async function resolveGameHost(host) {
   if (!host) return null;
   const { resolveHostUser } = require('../lib/tryoutLogs');
@@ -390,15 +438,36 @@ function parseLockState(body) {
 
 // Take a tryout LIVE-facing: post its announcement + DM the host. Returns
 // { tryoutId, dmed, announced }. Best-effort on the Discord side (never throws).
-async function announceAndDm(tryout, { edit = false } = {}) {
+/**
+ * DM the host that their tryout is live. Does NOT announce it.
+ *
+ * Starting a tryout no longer posts anything to the announcement channel. The
+ * host decides when their tryout is announced, using the "Send Announcement"
+ * button on the DM this sends — which already exists, already refuses to post
+ * before a manual-link division has set its private-server link, and already
+ * makes the post update itself from then on.
+ *
+ * An announcement that ALREADY exists is still edited. That is not announcing:
+ * it is keeping a post somebody deliberately made accurate now the tryout has
+ * actually started, and leaving it saying "scheduled" while the tryout is
+ * running would be worse than either.
+ */
+async function announceAndDm(tryout) {
   const bot = require('../lib/bot');
-  let announced;
-  if (edit && tryout.announcementMsgId) announced = await bot.editTryoutAnnouncement(tryout).catch(() => false);
-  else announced = await bot.postTryoutAnnouncement(tryout).then(id => !!id).catch(() => false);
+
+  let announced = false;
+  if (tryout.announcementMsgId) {
+    announced = await bot.editTryoutAnnouncement(tryout).catch(() => false);
+  }
+
   const fresh = (await prisma.tryout.findUnique({ where: { id: tryout.id } }).catch(() => null)) || tryout;
-  // DM the host and record the DM message id so it can be edited on lock change.
-  const dmId = await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl(fresh) }).catch(() => null);
+  // An automated tryout has nobody to DM, so it is skipped rather than left to
+  // fail quietly against a null recipient.
+  const dmId = fresh.hostDiscordId
+    ? await bot.dmTryoutStarted(fresh, { reviewUrl: reviewUrl(fresh) }).catch(() => null)
+    : null;
   if (dmId) await prisma.tryout.update({ where: { id: tryout.id }, data: { hostDmMessageId: dmId } }).catch(() => {});
+
   return { tryoutId: tryout.id, dmed: !!dmId, announced: !!announced };
 }
 
@@ -469,13 +538,165 @@ router.get('/tryout/joincode', requireGameSecret, async (req, res) => {
   }
 });
 
+// ── GET /api/game/tryout/linkstatus?robloxId=<id> ──────────────────
+//
+// Is this Roblox user linked to a portal account? Read-only, and deliberately
+// so: it creates nothing, changes nothing, schedules nothing.
+//
+// It exists because the only way to find out used to be to TRY to start a
+// tryout and get a 422 back, which happens in front of the cadets. The
+// instructor panel can now ask first.
+//
+// The answer has to be the SAME answer /tryout/create would give, or the panel
+// says "linked" and the create still fails. So it calls resolveGameHost — the
+// very function create calls — rather than reimplementing the lookup. That
+// includes the RoVer reverse lookup and the stored-username fallback.
+//
+// An unlinked user is a normal answer, not an error: 200 with linked:false.
+// Only a malformed request is a 4xx.
+router.get('/tryout/linkstatus', requireGameSecret, async (req, res) => {
+  const raw = req.query.robloxId;
+  if (raw == null || String(raw).trim() === '') {
+    return res.status(400).json({ error: 'robloxId is required.' });
+  }
+  // Strict: a Roblox user id is a positive integer. Number() alone would accept
+  // "12e3", " 12 " and "0x1f", and Roblox ids that came back from a coercion
+  // like that would silently look up the wrong person.
+  const text = String(raw).trim();
+  if (!/^[0-9]+$/.test(text) || text === '0') {
+    return res.status(400).json({ error: 'robloxId must be a positive integer.' });
+  }
+
+  try {
+    // The direct read first, and deliberately WITHOUT a catch.
+    //
+    // resolveHostUser wraps every query in `.catch(() => null)`, which is right
+    // for starting a tryout (fall through to the next strategy) and wrong here:
+    // it makes a database outage indistinguishable from "not linked", and this
+    // endpoint's whole job is to tell a host whether they need to go and link.
+    // Sending a correctly-linked person away to re-link is a worse failure than
+    // saying "ask again in a minute".
+    let user = await prisma.user.findFirst({ where: { robloxId: text } });
+
+    // Not found by the stored id is not the end of it: the create route also
+    // tries RoVer's reverse lookup and the stored Roblox username. Use the same
+    // resolver so this answer cannot disagree with what create would do.
+    if (!user) user = await resolveGameHost({ robloxId: text });
+
+    if (!user) {
+      return res.json({ linked: false, reason: 'no linked account for this Roblox id' });
+    }
+    return res.json({
+      linked: true,
+      username: user.displayName || user.discordUsername || user.robloxUsername || 'Unknown',
+      discordId: user.discordId ? String(user.discordId) : null,
+    });
+  } catch (err) {
+    // A lookup that fell over is NOT "not linked" — saying so would send the
+    // host away to re-link an account that is already linked fine.
+    console.error('[Game] linkstatus failed:', err.message);
+    // 503, not 500: this is "ask again", not "your request was wrong". The panel
+    // should say the check is unavailable, never that the host is unlinked.
+    return res.status(503).json({ error: 'Could not check the link right now · try again shortly.' });
+  }
+});
+
 // POST /api/game/tryout/create — start an unscheduled tryout instantly.
 // body: { host:{robloxId,username,discordId?}, coHost?, privateServerId?, startedAt? }
+router.post('/tryout/automated', requireGameSecret, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const a = body.attendee || {};
+    if (!a.userId) return res.status(400).json({ ok: false, error: 'attendee.userId is required.' });
+    if (!['passed', 'failed', 'kicked'].includes(String(a.result || '').toLowerCase())) {
+      return res.status(400).json({ ok: false, error: 'attendee.result must be passed, failed or kicked.' });
+    }
+
+    // The key has to identify THIS TRAINEE'S result, not the server it happened
+    // in. One reserved server runs several trainees one after another, so
+    // falling back to privateServerId alone meant the second and third came back
+    // as duplicates of the first: their results were never recorded, nobody
+    // could rank them, and the panel saw a 200 and moved on, so the loss was
+    // invisible on both sides. An explicit sessionId still wins, since the game
+    // controls its uniqueness.
+    const sessionId = body.sessionId
+      || (body.privateServerId && a.userId ? `${body.privateServerId}:${a.userId}` : null);
+    if (sessionId) {
+      const seen = await prisma.automatedTryout.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
+      if (seen) return res.status(200).json({ ok: true, id: seen.id, existing: true });
+    }
+
+    let row;
+    try {
+      row = await prisma.automatedTryout.create({ data: {
+        gameSessionId:    sessionId ? String(sessionId) : null,
+        tryoutId:         body.tryoutId ? String(body.tryoutId) : null,
+        division:         String(body.division || 'HPC').toUpperCase(),
+        hostName:         (body.host && body.host.name) ? String(body.host.name).slice(0, 40) : 'INSTRUCTOR',
+        coHostName:       body.coHost && body.coHost.name ? String(body.coHost.name).slice(0, 40) : null,
+        attendeeRobloxId: String(a.userId),
+        attendeeName:     String(a.username || a.userId).slice(0, 40),
+        result:           String(a.result).toLowerCase(),
+        strikes:          Number.isFinite(Number(a.strikes)) ? Number(a.strikes) : 0,
+        quizScore:        Number.isFinite(Number(a.quizScore)) ? Number(a.quizScore) : null,
+        quizTotal:        Number.isFinite(Number(a.quizTotal)) ? Number(a.quizTotal) : null,
+        flags:            Array.isArray(a.flags) && a.flags.length ? a.flags.join(',') : null,
+        placeId:          body.placeId ? String(body.placeId) : null,
+        privateServerId:  body.privateServerId ? String(body.privateServerId) : null,
+        startedAt:        gameDate(body.startedAt),
+        endedAt:          gameDate(body.endedAt),
+        payload:          JSON.stringify(body).slice(0, 20000),
+      } });
+    } catch (err) {
+      // Two retries of the same submission can both pass the check above and
+      // race into the insert. The unique index on gameSessionId is what settles
+      // it, so treat the loser exactly like the duplicate it is.
+      if (err && err.code === 'P2002' && sessionId) {
+        const seen = await prisma.automatedTryout.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
+        if (seen) return res.status(200).json({ ok: true, id: seen.id, existing: true });
+      }
+      throw err;
+    }
+
+    const posted = await require('../lib/automatedTryout').post(row, body);
+    if (posted.posted) {
+      await prisma.automatedTryout.update({
+        where: { id: row.id },
+        data: { logChannelId: posted.channelId, logMessageId: posted.messageId },
+      }).catch(() => {});
+    }
+
+    res.status(201).json({ ok: true, id: row.id, logged: !!posted.posted, why: posted.why || null });
+  } catch (err) {
+    console.error('[Game] automated tryout failed:', err.message);
+    res.status(500).json({ ok: false, error: 'Could not record the tryout.' });
+  }
+});
+
+router.get('/tryout/eligibility', requireGameSecret, async (req, res) => {
+  try {
+    const { checkEligibility } = require('../lib/tryoutEligibility');
+    // hint is whatever the player typed into the in game prompt: untrusted free
+    // text, bounded here rather than trusted anywhere downstream.
+    const hint = String(req.query.hint == null ? '' : req.query.hint).trim().slice(0, 64);
+    const out = await checkEligibility(req.query.userId, {
+      username: req.query.username || null,
+      hint: hint || null,
+    });
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[Game] eligibility check failed:', err.message);
+    res.status(500).json({ ok: false, error: 'Eligibility check failed.' });
+  }
+});
+
 router.post('/tryout/create', requireGameSecret, async (req, res) => {
   try {
     const body = req.body || {};
-    const hostUser = await resolveGameHost(body.host);
-    if (!hostUser) return hostNotFound(res, body.host);
+    const npc = isNpcHost(body.host);
+    const hostUser = npc ? null : await resolveGameHost(body.host);
+    if (!npc && !hostUser) return hostNotFound(res, body.host);
 
     const existing = await ongoingTryout(body.division);
     if (existing) return res.status(409).json({ error: 'A tryout is already ongoing.', tryoutId: existing.id });
@@ -483,13 +704,16 @@ router.post('/tryout/create', requireGameSecret, async (req, res) => {
     const coHost = body.coHost || {};
     const t = await prisma.tryout.create({ data: {
       division:          normDivision(body.division),
-      hostId:            hostUser.id,
-      hostDiscordId:     hostUser.discordId,
-      hostName:          hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host',
-      hostRobloxId:      (body.host && body.host.robloxId) ? String(body.host.robloxId) : hostUser.robloxId,
-      hostRobloxName:    (body.host && body.host.username) || hostUser.robloxUsername || null,
+      hostId:            hostUser ? hostUser.id : null,
+      hostDiscordId:     hostUser ? hostUser.discordId : null,
+      hostName:          npc ? npcHostName(body.host)
+                             : (hostUser.displayName || hostUser.discordUsername || (body.host && body.host.username) || 'Host'),
+      hostRobloxId:      npc ? null : ((body.host && body.host.robloxId) ? String(body.host.robloxId) : hostUser.robloxId),
+      hostRobloxName:    npc ? null : ((body.host && body.host.username) || hostUser.robloxUsername || null),
+      automated:         npc,
+      hostKind:          npc ? 'npc' : 'human',
       coHostName:        coHost.username || coHost.name || null,
-      scheduledAt:       body.startedAt ? new Date(body.startedAt) : new Date(),
+      scheduledAt:       gameDate(body.startedAt) || new Date(),
       status:            'LIVE',
       lockState:         parseLockState(body) || 'UNLOCKED', // reflect the real state now (default: open)
       suppressPings:     tryoutTestMode() && !!body.suppressPings, // test mode disabled → always ping
@@ -538,7 +762,7 @@ router.post('/tryout/start-scheduled', requireGameSecret, async (req, res) => {
       hostLastSeenAt:  new Date(),
       inGamePlayers:   normInGamePlayers(body.inGamePlayers) || t.inGamePlayers || undefined,
     } });
-    res.json(await announceAndDm(updated, { edit: true }));
+    res.json(await announceAndDm(updated));
   } catch (err) {
     console.error('[Game] start-scheduled failed:', err.message);
     res.status(500).json({ error: 'Failed to start scheduled tryout.' });

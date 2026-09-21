@@ -23,10 +23,10 @@
 //   Activity    XP, MET quota, patrol/event logs
 //
 // Nothing here changes anything. It is a reading tool, and deliberately so:
-// /discipline already owns doing, and a panel that both shows and acts is a
+// /infract already owns doing, and a panel that both shows and acts is a
 // panel where somebody clicks the wrong button while looking something up.
 //
-// Access is the same gate as /discipline (Internal Affairs, MET High Command,
+// Access is the same gate as /infract (Internal Affairs, MET High Command,
 // or the developer) because it shows the same material.
 
 const {
@@ -102,14 +102,14 @@ const COMMAND = 'check-record';
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName(COMMAND)
-    .setDescription("Look up an officer's record, or open a case by number")
+    .setDescription('Check a record')
     .addStringOption(o => o
       .setName('officer')
-      .setDescription('Who · a mention, a Discord id, or a Roblox username')
+      .setDescription('Who')
       .setMaxLength(120))
     .addStringOption(o => o
       .setName('case_number')
-      .setDescription('Case number, e.g. 618')
+      .setDescription('Case')
       .setMaxLength(40))
     .toJSON();
 }
@@ -246,7 +246,7 @@ async function finish(seed, guild) {
  * Every case filed against this person, newest first.
  *
  * Matched on the Discord id AND the Roblox username, because cases are filed
- * both ways: /discipline knows the Discord id, an imported case from before
+ * both ways: /infract knows the Discord id, an imported case from before
  * any of this often only carries the Roblox name.
  */
 async function casesFor(subject, take = 25) {
@@ -381,7 +381,7 @@ async function overviewView(subject, client) {
 async function recordView(subject) {
   const [cases, punishments] = await Promise.all([casesFor(subject), punishmentsFor(subject)]);
 
-  // A /discipline action exists as both a case and a punishment row sharing a
+  // A /infract action exists as both a case and a punishment row sharing a
   // ref. Show it once, preferring the case — it carries the detail and the
   // appeal state.
   const refs = new Set(cases.map(c => c.caseRef).filter(Boolean));
@@ -449,7 +449,7 @@ async function ticketsView(subject) {
   const opened = tickets.filter(t => mine && String(t.creatorDiscordId) === mine);
   const closed = tickets.filter(t => !(mine && String(t.creatorDiscordId) === mine));
   const fmt = t => `${statusMark(t.status)} \`${short(t.ticketRef || t.ticketName || '·', 16)}\` `
-    + `${short(String(t.ticketType || '').replace(/_/g, ' ').toLowerCase(), 22)} · ${when(t.closedAt)}`;
+    + `${short(require('./ticketLog').ticketTypeLabel(t.ticketType), 26)} · ${when(t.closedAt)}`;
 
   if (opened.length) embed.addFields({ name: `Opened (${opened.length})`, value: short(opened.slice(0, 8).map(fmt).join('\n'), 1000), inline: false });
   if (closed.length) embed.addFields({ name: `Closed by them (${closed.length})`, value: short(closed.slice(0, 8).map(fmt).join('\n'), 1000), inline: false });
@@ -516,7 +516,7 @@ async function activityView(subject, client) {
 /** One case, in full, with its evidence. */
 async function caseView(kase, precomputed) {
   const ev = precomputed || await require('./caseEvidence').evidenceFor(kase);
-  // Who filed it — the issuer for a /discipline action, the investigator for an
+  // Who filed it — the issuer for a /infract action, the investigator for an
   // ordinary case. A direct action MUST show who ran the command.
   const issuer = kase.investigatorDiscordUsername || kase.investigatorRobloxUsername
     || (kase.user && kase.user.displayName) || null;
@@ -526,7 +526,7 @@ async function caseView(kase, precomputed) {
     .setDescription(
       `${statusMark(kase.status)} **${kase.status.replace('_', ' ')}**`
       + (kase.origin === 'DISCIPLINE'
-        ? ` · ${e('met_gavel')} issued with \`/discipline\`${issuer ? ` by **${short(issuer, 40)}**` : ''}`
+        ? ` · ${e('met_gavel')} issued with \`/infract\`${issuer ? ` by **${short(issuer, 40)}**` : ''}`
         : (issuer ? ` · ${e('met_scales')} by **${short(issuer, 40)}**` : ''))
       + `\n${e('met_user')} ${kase.robloxUsername ? short(kase.robloxUsername, 30) : (kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'unknown')}`
       + ` · filed ${when(kase.createdAt)}`)

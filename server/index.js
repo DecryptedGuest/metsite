@@ -176,6 +176,9 @@ if (RUN_WORKERS) {
   require('./lib/accessControl').startAccessRevalidator();
   require('./lib/quota').startQuotaWorker();
   require('./lib/tryouts').startTryoutWorker();
+  // Roblox moderation takes as long as it takes, so re-hosted avatars are
+  // followed up on a timer rather than inside a request.
+  try { require('./lib/discordAvatar').startAvatarWorker(); } catch (e) { /* optional */ }
   // Optional (MET_DB_AUTO_SYNC=true): keep the MET database sheet in step with
   // the Roblox group — drop members who left, add newly joined constables.
   require('./lib/metDatabase').startMetDatabaseWorker();
@@ -303,7 +306,7 @@ app.post('/api/security/bot-signal', botSignalLimiter, (req, res) => {
     try { detail = JSON.stringify(b.detail || {}).slice(0, 200); } catch (e) { detail = ''; }
     require('./lib/audit').record({
       req, action: 'BOT_SIGNAL', category: 'SECURITY', targetType: 'request',
-      summary: `Behavioural bot signal: ${type}${path ? ` on ${path}` : ''}${detail && detail !== '{}' ? ` — ${detail}` : ''}`,
+      summary: `Behavioural bot signal: ${type}${path ? ` on ${path}` : ''}${detail && detail !== '{}' ? `: ${detail}` : ''}`,
       metadata: { type, detail: b.detail || {}, reportedPath: path },
     }).catch(() => {});
   } catch (e) { /* best-effort */ }
@@ -438,6 +441,15 @@ app.use('/api/dev', requireAuth, require('./routes/dev'));
 app.use('/api/cad', requireAuth, require('./routes/cad'));
 // MET HICOMM oversight — Command Center, analytics, audit trail, officer 360°.
 app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm'));
+
+// The Adonis command bridge. Two mounts, because it has two audiences: the
+// Roblox game authenticates with the shared game secret and is NOT a
+// logged-in user, while the dashboard side is behind the normal session.
+// Queuing a command is gated to High Command inside the router itself.
+app.use('/api/adonis', require('./routes/adonis').router);
+app.use('/api/adonis', requireAuth, require('./routes/adonis').site);
+app.use('/api/tryout', requireAuth, require('./routes/tryoutPublic'));
+try { require('./lib/adonis').start(); } catch (e) { console.warn('[Adonis] sweeper not started:', e.message); }
 // "Install on your phone" QR handoff — mint one-time session-transfer tokens.
 app.use('/api/app', requireAuth, require('./routes/app'));
 // Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
@@ -553,7 +565,7 @@ app.get('/m/:id', async (req, res) => {
    <meta name="twitter:image" content="${escHtml(raw)}">`;
     } else {
       og = `<meta property="og:type" content="website">
-   <meta property="og:title" content="&#128274; Restricted ${escHtml(isVideo ? 'video' : 'image')} — ${escHtml(title)}">
+   <meta property="og:title" content="&#128274; Restricted ${escHtml(isVideo ? 'video' : 'image')} · ${escHtml(title)}">
    <meta property="og:description" content="This ${escHtml(isVideo ? 'video' : 'image')} is restricted to ${escHtml(audience)}. Sign in on metia.uk to view.">
    <meta property="og:image" content="${escHtml(base + '/img/logo.png')}">
    <meta name="twitter:card" content="summary">`;
@@ -925,7 +937,7 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
       discordId: req.user.discordId, robloxId: req.user.robloxId, robloxUsername: req.user.robloxUsername,
     });
   } catch (e) { casePunishments = []; }
-  // A /discipline action exists as BOTH a MetPunishment (what the bot reads)
+  // A /infract action exists as BOTH a MetPunishment (what the bot reads)
   // and a case (what the dashboard reads); they share a case ref. Show it once,
   // preferring the case, which carries the detail and the appeal state.
   const caseRefs = new Set(casePunishments.map(p => p.caseRef).filter(Boolean));
@@ -1149,12 +1161,12 @@ app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
     legacyRoles:      legacy.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
     derivedPerms:     chips.map(p => p.label),
     error,
-    hint: !rid ? 'No Roblox id stored — log out and back in to link it (needs DISCORD_GUILD_ID + RoVer).'
-      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set — legacy endpoint returns only ONE role. Set an Open Cloud API key.'
-      : (rawOpenCloud.status && rawOpenCloud.status >= 400 ? `Open Cloud returned ${rawOpenCloud.status} — the API key lacks group-membership read scope for this group (or wrong group). Body: ${rawOpenCloud.body || ''}`
-      : (!rawOpenCloud.rolePaths.length ? 'Open Cloud returned 200 but no roles — this Roblox account holds no roles in the perms group (check the id is actually in the group).'
+    hint: !rid ? 'No Roblox id stored. Log out and back in to link it (needs DISCORD_GUILD_ID + RoVer).'
+      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set, so the legacy endpoint returns only ONE role. Set an Open Cloud API key.'
+      : (rawOpenCloud.status && rawOpenCloud.status >= 400 ? `Open Cloud returned ${rawOpenCloud.status}: the API key lacks group-membership read scope for this group (or wrong group). Body: ${rawOpenCloud.body || ''}`
+      : (!rawOpenCloud.rolePaths.length ? 'Open Cloud returned 200 but no roles, so this Roblox account holds no roles in the perms group (check the id is actually in the group).'
       : (!chips.length ? 'You hold roles but all were filtered (rank <2 / >99 / divider / Member).'
-      : 'Perms resolved OK — they should show on your profile.')))),
+      : 'Perms resolved OK. They should show on your profile.')))),
   });
 });
 
@@ -1329,7 +1341,7 @@ function linkPreview(division) {
       + brandMeta(division, originOf(req))
       + `<meta name="robots" content="noindex" />`
       + `</head><body><h1>${esc(b.fullName)}</h1>`
-      + `<p>${esc(b.tagline || '')} — sign in to continue.</p></body></html>`);
+      + `<p>${esc(b.tagline || '')}. Sign in to continue.</p></body></html>`);
   };
 }
 
@@ -1494,6 +1506,7 @@ app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
 // ── PWA install + phone handoff ──
 // /app — the install page (QR to hand off to a phone, install + notification opt-in).
 app.get('/app', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'app.html')));
+app.get('/tryout', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'tryout.html')));
 // /mobile/:token — a phone opened the handoff link: consume the one-time token
 // and transfer the session to this device (sets the same JWT cookie as a normal
 // login). NOTE: must not be "/m/:token" — that path is the media-embed route.
@@ -1555,6 +1568,20 @@ app.get(['/healthz', '/api/healthz'], async (req, res) => {
     uptimeSeconds: Math.round(process.uptime()),
     startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
   });
+});
+
+// Why a server is showing no slash commands, answerable from a URL instead of
+// from a deploy log. Reports what the plan targets at each guild, what Discord
+// actually has, and the reason the last registration failed where it failed.
+// No secrets: guild ids and command names only.
+app.get(['/healthz/commands', '/api/healthz/commands'], async (req, res) => {
+  try {
+    const bot = require('./lib/bot');
+    if (!bot.isReady()) return res.status(200).json({ ok: false, error: 'Bot not connected yet.' });
+    res.status(200).json({ ok: true, ...(await bot.listRegisteredCommands()) });
+  } catch (e) {
+    res.status(200).json({ ok: false, error: String(e && e.message || e).slice(0, 300) });
+  }
 });
 
 // ── 404 / Error ─────────────────────────────────────────────

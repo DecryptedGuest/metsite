@@ -36,7 +36,7 @@
   function tryoutStatusBadge(t) {
     const map = {
       SCHEDULED: ['badge-pending', 'Scheduled'],
-      LIVE:      ['badge-approved', '<i class="ti ti-broadcast"></i> Live'],
+      LIVE:      ['badge-approved', '<i class="ti ti-broadcast"></i> Running'],
       COMPLETED: ['badge-approved', 'Completed'],
       CANCELLED: ['badge-denied', 'Cancelled'],
     };
@@ -164,7 +164,7 @@
       cidAnnounceLive(live);
       if (badge) { badge.style.display = live.length ? 'inline-flex' : 'none'; badge.textContent = live.length; }
       if (statusEl) statusEl.innerHTML = `<span class="badge-dot"></span>${live.length ? live.length + ' live' : 'No live tryouts'}`;
-      if (!live.length) { wrap.innerHTML = window.metEmpty ? '<div class="panel glass">' + window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) + '</div>' : '<div class="panel glass"><div class="table-empty"><div class="table-empty-text">No tryouts are live right now.</div></div></div>'; return; }
+      if (!live.length) { wrap.innerHTML = window.metEmpty ? '<div class="panel glass">' + window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) + '</div>' : '<div class="panel glass"><div class="table-empty"><div class="table-empty-text">No tryouts are running right now.</div></div></div>'; return; }
       wrap.innerHTML = live.map(renderLiveCard).join('');
     } catch (e) {
       if (statusEl) statusEl.innerHTML = `<span class="badge-dot"></span>${esc(e.message)}`;
@@ -307,8 +307,14 @@
     const notesEl = document.getElementById('cid-log-notes');
     const notes = notesEl ? notesEl.value : undefined;
     try {
-      await api('/api/cid/tryout-logs/' + id + '/submit', { method: 'POST', body: JSON.stringify({ notes }) });
-      closeModal('modal-cid-log'); showToast('Posted for review', 'success'); cidLoadMyLogs();
+      const r = await api('/api/cid/tryout-logs/' + id + '/submit', { method: 'POST', body: JSON.stringify({ notes }) });
+      closeModal('modal-cid-log');
+      // Pass on what the server actually said: whether the Discord post went
+      // out, and whether any names were refused for not being in the tryout.
+      showToast('Posted for review'
+        + (r && r.posted === false ? '. The Discord post did not go out, but it is in the review queue.' : ''), 'success');
+      if (r && r.warning) showToast(r.warning, 'warning');
+      cidLoadMyLogs();
     } catch (e) { showToast(e.message, 'error'); }
   };
   window.cidReviewLog = async function (id, action) {

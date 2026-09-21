@@ -8,11 +8,14 @@
 // "All Tickets" is every ticket the channel has logged.
 
 // Ticket-type labels + badge colours, shared with the dashboard tables.
+// The names on the tickets themselves. "Officer Report" and "Appeal" were this
+// codebase's own shorthand, not what the department calls them; keep this in
+// step with TICKET_TYPE_LABEL in server/lib/ticketLog.js.
 var TL = {
   GENERAL_SUPPORT: 'General Support',
   HICOMM:          'IA Complaint',
-  OFFICER_REPORT:  'Officer Report',
-  APPEAL:          'Appeal',
+  OFFICER_REPORT:  'Officer Complaint',
+  APPEAL:          'Disciplinary Action Appeal',
 };
 var TC = {
   GENERAL_SUPPORT: 'blue',

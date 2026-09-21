@@ -8,6 +8,29 @@ const prisma = require('./db');
 // Normalise a tryout division to one of the REVIEWABLE tryout programmes. SCO-19
 // has no tryout dashboard anymore, so any stray SCO19 payload is folded into HPC
 // rather than landing in a queue with no UI to view/submit/approve it.
+// Timestamps off the game arrive as ISO strings, but Lua's os.time() gives epoch
+// SECONDS, and either can come through as a number or a string. Anything Prisma
+// would reject becomes null: a concluded tryout must always produce a log, and a
+// stamp we cannot read is not a reason to lose one.
+function gameDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return Number.isFinite(v.getTime()) ? v : null;
+
+  // Anything wholly numeric is an epoch, never a string for Date to interpret.
+  // Letting 0 or a negative fall through to the string branch is how "0" became
+  // the year 2000 and "-5" became 2001: both are nonsense, so both are null.
+  const text = String(v).trim();
+  if (text !== '' && !Number.isNaN(Number(text))) {
+    const n = Number(text);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const d = new Date(n > 1e11 ? n : n * 1000);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  const d = new Date(text);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
 function normTryoutDivision(v) {
   const d = String(v || '').toUpperCase();
   return d === 'CID' ? 'CID' : 'HPC';
@@ -171,8 +194,18 @@ async function resolveHostUser({ hostDiscordId, hostRobloxId, hostRobloxName } =
     if (u) return u;
   }
   if (hostRobloxId) {
-    const byRoblox = await prisma.user.findFirst({ where: { robloxId: String(hostRobloxId) } }).catch(() => null);
-    if (byRoblox) return byRoblox;
+    // findFirst on a column with no unique index picks an arbitrary row when two
+    // accounts carry the same Roblox id, and whichever it picks becomes the
+    // log's owner: the gate on submitting it, and the gate on approving your
+    // own. Guessing there hands one person's tryout to another, so an ambiguous
+    // answer is treated as no answer. The log then goes to the review queue
+    // unowned, which is the same safe place an unlinked host lands in.
+    const byRoblox = await prisma.user.findMany({ where: { robloxId: String(hostRobloxId) }, take: 2 }).catch(() => []);
+    if (byRoblox.length === 1) return byRoblox[0];
+    if (byRoblox.length > 1) {
+      console.warn(`[TryoutLog] Roblox id ${hostRobloxId} matches more than one account, so the host was left unresolved`);
+      return null;
+    }
     // Fall back to RoVer reverse lookup → discord id → user.
     try {
       const { getDiscordFromRoblox } = require('./roblox');
@@ -186,10 +219,15 @@ async function resolveHostUser({ hostDiscordId, hostRobloxId, hostRobloxName } =
   // Last resort: a signed-in user whose stored Roblox username matches (handles a
   // stale/absent robloxId link when the name is still on record).
   if (hostRobloxName) {
-    const byName = await prisma.user.findFirst({
+    const byName = await prisma.user.findMany({
       where: { robloxUsername: { equals: String(hostRobloxName), mode: 'insensitive' } },
-    }).catch(() => null);
-    if (byName) return byName;
+      take: 2,
+    }).catch(() => []);
+    if (byName.length === 1) return byName[0];
+    if (byName.length > 1) {
+      console.warn(`[TryoutLog] Roblox username ${hostRobloxName} matches more than one account, so the host was left unresolved`);
+      return null;
+    }
   }
   return null;
 }
@@ -227,7 +265,15 @@ async function resolveCoHost(coHost) {
 // or { ok:false, error }.
 async function createFromGamePayload(payload = {}) {
   // ── Idempotency: if this game session already logged, return it. ──
-  const sessionId = payload.sessionId || payload.gameSessionId || null;
+  // gameSessionId is unique but nullable, and Postgres lets any number of rows
+  // hold NULL, so a conclude sent without a sessionId deduped against nothing:
+  // a panel retry after a slow response filed the tryout twice, both logs went
+  // for review, and approving both paid the host twice for one tryout. A tryout
+  // concludes once, so its id is a perfectly good key when the game does not
+  // send one of its own.
+  const sessionId = payload.sessionId
+    || payload.gameSessionId
+    || (payload.tryoutId ? `tryout:${payload.tryoutId}` : null);
   if (sessionId) {
     const existing = await prisma.tryoutLog.findUnique({ where: { gameSessionId: String(sessionId) } }).catch(() => null);
     if (existing) {
@@ -270,8 +316,8 @@ async function createFromGamePayload(payload = {}) {
         hostRobloxName,
         coHostName:     coHost.name,
         coHostRobloxId: coHost.robloxId,
-        startedAt:      payload.startedAt ? new Date(payload.startedAt) : null,
-        concludedAt:    payload.concludedAt ? new Date(payload.concludedAt) : new Date(),
+        startedAt:      gameDate(payload.startedAt),
+        concludedAt:    gameDate(payload.concludedAt) || new Date(),
         attendees, events, ...counts,
         status,
         division:       normTryoutDivision(payload.division),
@@ -530,6 +576,7 @@ async function grantFinalExamRoleToPassers(log) {
 }
 
 module.exports = {
+  gameDate,
   normaliseAttendees, applyAttendeeEdits, normaliseEvents, countsFor, resolveHostUser,
   createFromGamePayload, serialize, awardHpcPoint, awardCidEventPoint,
   syncAttendanceToSheet, notifyTryoutApprovers, grantFinalExamRoleToPassers,
