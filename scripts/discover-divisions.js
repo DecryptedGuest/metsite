@@ -1,5 +1,5 @@
 // scripts/discover-divisions.js
-// Prints what the portal auto-discovers for each division from the holder
+// Prints what the dashboard auto-discovers for each division from the holder
 // account's Roblox groups: group name, id, icon URL, and the full rank ladder.
 //
 // Run this where Roblox IS reachable (your machine, or the Railway shell) —

@@ -1,22 +1,52 @@
 // client/public/js/dashboard.js
 
 // ── Constants ─────────────────────────────────────────────────────
-// Note: roleIds here are advisory only — the server resolves the real role from
-// its env-driven config at approval time. Timed actions (Zero Tolerance,
-// Suspension) show a duration select and auto-expire.
+// The punishment list, loaded from the server (GET /api/cases/actions) so it is
+// the SAME list the server assigns roles from.
+//
+// This used to be a hard-coded copy, and the copy drifted: it still had Written
+// Warning and Suspension down as carrying no Discord role long after both were
+// configured, so the case builder badged them "NO ROLE" and — because the
+// duration picker is only offered for an action that has a role to take away
+// again — gave a suspension no length. It also still listed two actions the
+// server has since retired.
+//
+// What is written here is only what the checklist renders with before the fetch
+// lands, or if the fetch fails. It is kept correct, but it is not the source of
+// truth: loadActionDefs() replaces it in place with whatever the server says.
 const ACTIONS_CLIENT = [
-  { name: 'Verbal Warning',        roleId: null,                  exile: false },
-  { name: 'Written Warning',       roleId: null,                  exile: false },
-  { name: 'Zero Tolerance',        roleId: '1452275521470726235', exile: false, timed: true },
-  { name: 'Suspension',            roleId: null,                  exile: false, timed: true },
-  { name: 'Activity Strike',       roleId: '1219011548714893343', exile: false },
-  { name: 'Disciplinary Strike 1', roleId: '1191048287361433738', exile: false },
-  { name: 'Disciplinary Strike 2', roleId: '1191048287361433739', exile: false },
-  { name: 'Disciplinary Strike 3', roleId: '1513101097978564739', exile: false },
-  { name: 'Demotion',              roleId: null,                  exile: false },
-  { name: 'Termination',           roleId: null,                  exile: true  },
-  { name: 'Blacklist',             roleId: '1195557302250524764', exile: true  },
+  { name: 'Written Warning',       hasRole: true,  exile: false, timed: false },
+  { name: 'Zero Tolerance',        hasRole: true,  exile: false, timed: true  },
+  { name: 'Suspension',            hasRole: true,  exile: false, timed: true  },
+  { name: 'Activity Strike',       hasRole: true,  exile: false, timed: false },
+  { name: 'Disciplinary Strike 1', hasRole: true,  exile: false, timed: false },
+  { name: 'Disciplinary Strike 2', hasRole: true,  exile: false, timed: false },
+  { name: 'Demotion',              hasRole: false, exile: false, timed: false },
+  { name: 'Termination',           hasRole: false, exile: true,  timed: false },
+  { name: 'Blacklist',             hasRole: true,  exile: true,  timed: false },
 ];
+
+// Replace the fallback with the server's list. In place, because the array is
+// a const that other modules (ui.js's embed preview) already hold a reference
+// to. Best-effort: a failed fetch leaves the fallback, which is a stale list
+// rather than an empty checklist.
+let _actionDefsLoaded = false;
+async function loadActionDefs(force) {
+  if (_actionDefsLoaded && !force) return ACTIONS_CLIENT;
+  try {
+    const d = await api('/api/cases/actions');
+    const list = Array.isArray(d) ? null : (d && d.actions);
+    if (Array.isArray(list) && list.length) {
+      ACTIONS_CLIENT.length = 0;
+      list.forEach(a => ACTIONS_CLIENT.push({
+        name: a.name, hasRole: !!a.hasRole, exile: !!a.exile, timed: !!a.timed,
+      }));
+      _actionDefsLoaded = true;
+      renderActionChecklist();
+    }
+  } catch (e) { /* the fallback list stands */ }
+  return ACTIONS_CLIENT;
+}
 
 const DURATION_OPTIONS = [
   { label: '1 Day',     days: 1    },
@@ -38,6 +68,7 @@ let blacklistTargetId   = null;
 let officerProfile      = null;
 let importedCaseExtra   = null;  // identity fields autofilled from a parsed case doc
 let editingCaseId       = null;  // when set, the submit modal is editing this case
+let editingCaseRef      = '';    // its reference, offered to the document builder
 let editingCaseApproved = false; // whether the case being edited is APPROVED
 let groupRolesCache     = null;
 let groupMembersNextToken = null;
@@ -46,6 +77,9 @@ let groupMembersCache   = [];
 let pendingCache        = [];
 // Bot account's rank — members at this rank or above cannot be managed by the bot
 const BOT_RANK_NAME     = 'Deputy Assistant Commissioner';
+// The managing bot account (METAdministration). Its live rank in each group is
+// the real ceiling: Roblox rejects managing anyone at the bot's rank or above.
+const MET_ADMIN_USER_ID = '11077193582';
 
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -58,32 +92,57 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupFilterTabs();
   setupOfficerLookup();
   renderActionChecklist();
-  loadDashboard();
+  // The real punishment list, from the same config the server assigns roles
+  // from. Not awaited: the checklist above has already drawn with the fallback,
+  // and this re-renders it the moment the answer lands.
+  loadActionDefs();
+  // Developer division lands on the Dev Panel; IA lands on the dashboard.
+  if (isDevContext() && currentUser && currentUser.role === 'DEVELOPER') navigateTo('admin');
+  else loadDashboard();
   startNavBadgePolling();   // keep the pending case/ticket badges current
-  showClassifiedNotice();
+  maybeShowNotifyOptIn();   // offer to turn on ticket notifications (once)
   startSessionHeartbeat();
   handleNotificationLaunch(); // open a case/ticket if arriving from a notification
 });
 
-// Keep the sidebar "pending" badges (cases + tickets) up to date without having
-// to open the relevant tab — refreshes on load, on a timer, and whenever the
-// tab regains focus (so counts are current when you come back to an open tab).
+// Keep the sidebar "pending" badges up to date without having to open the
+// relevant tab — refreshes on load, on a timer, and whenever the tab regains
+// focus (so counts are current when you come back to an open tab).
 async function refreshNavBadges() {
   try {
-    const [caseStats, caseMineStats, ticketStats] = await Promise.all([
-      api('/api/cases/stats').catch(() => null),           // scope depends on role (all-pending for elevated)
+    const [caseStats, caseMineStats] = await Promise.all([
+      api('/api/cases/stats').catch(() => null),            // scope depends on role (all-pending for elevated)
       api('/api/cases/stats?scope=mine').catch(() => null), // always the user's OWN pending
-      api('/api/tickets/stats').catch(() => null),
     ]);
     const setBadge = (id, n) => {
       const el = document.getElementById(id);
       if (el) { el.textContent = n; el.style.display = n > 0 ? '' : 'none'; }
     };
-    if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);      // Pending Cases (review)
-    if (caseMineStats) setBadge('nav-badge-my',     caseMineStats.pending || 0);  // My Cases (own pending)
-    if (ticketStats) {
-      setBadge('nav-badge-tickets',       ticketStats.pending || 0);
-      setBadge('nav-badge-ticket-review', ticketStats.pendingAll != null ? ticketStats.pendingAll : 0);
+    if (caseStats)     setBadge('nav-badge-review', caseStats.pending || 0);
+    // "My Cases" badges what's on the submitter's plate: cases sent back to them.
+    if (caseMineStats) setBadge('nav-badge-my', caseMineStats.changesRequested || 0);
+
+    // Events waiting on a supervisor. The Pending nav badge counts them
+    // alongside cases, because "Pending" is one queue as far as anybody
+    // glancing at the sidebar is concerned.
+    if (window.canReviewCasework) {
+      const [ev, pt] = await Promise.all([
+        api('/api/ia-events/pending-count').catch(() => null),
+        api('/api/ia-patrols/pending-count').catch(() => null),
+      ]);
+      if (ev) setBadge('pending-events-badge', ev.pending || 0);
+      if (pt) setBadge('pending-patrols-badge', pt.pending || 0);
+      // The sidebar badge is one number for one queue: cases, events and patrols
+      // are all "waiting on a supervisor" as far as anybody glancing at it is
+      // concerned. Counting only two of the three understates the backlog.
+      const logs = (ev ? ev.pending || 0 : 0) + (pt ? pt.pending || 0 : 0);
+      if (ev || pt) setBadge('readonly-pending-badge', logs);
+      const nav = document.getElementById('nav-badge-review');
+      if (nav && caseStats && (ev || pt)) {
+        const total = (caseStats.pending || 0) + logs;
+        nav.textContent = total;
+        nav.style.display = total > 0 ? '' : 'none';
+      }
     }
   } catch (e) { /* non-blocking */ }
 }
@@ -95,27 +154,6 @@ function startNavBadgePolling() {
   _navBadgeTimer = setInterval(refreshNavBadges, 45 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshNavBadges(); });
   window.addEventListener('focus', refreshNavBadges);
-}
-
-// ── Pending-ticket nav badge (loaded on startup) ──────────────────
-async function loadTicketNavBadge() {
-  try {
-    const stats = await api('/api/tickets/stats');
-    if (!stats) return;
-    // My Tickets badge = the user's OWN pending submissions
-    const badge = document.getElementById('nav-badge-tickets');
-    if (badge) {
-      badge.textContent   = stats.pending;
-      badge.style.display = stats.pending > 0 ? '' : 'none';
-    }
-    // Pending Tickets (review) badge = EVERY pending ticket (HICOMM/Supervisor)
-    const reviewBadge = document.getElementById('nav-badge-ticket-review');
-    if (reviewBadge) {
-      const allPending = stats.pendingAll != null ? stats.pendingAll : 0;
-      reviewBadge.textContent   = allPending;
-      reviewBadge.style.display = allPending > 0 ? '' : 'none';
-    }
-  } catch (err) { /* non-blocking */ }
 }
 
 // ── Session heartbeat — picks up blacklist/revoke within ~20s ─────
@@ -133,25 +171,6 @@ function startSessionHeartbeat() {
   }, 20000);
 }
 
-// ── Classified information notice (shown once per session) ────────
-function showClassifiedNotice() {
-  let alreadyAcked = false;
-  try { alreadyAcked = sessionStorage.getItem('iacms_classified_ack') === '1'; } catch (e) {}
-  if (alreadyAcked) {
-    // Rules already acknowledged this session — go straight to the opt-in check.
-    maybeShowNotifyOptIn();
-    return;
-  }
-  const btn = document.getElementById('btn-ack-classified');
-  if (btn) {
-    btn.onclick = () => {
-      try { sessionStorage.setItem('iacms_classified_ack', '1'); } catch (e) {}
-      closeModal('modal-classified');
-      maybeShowNotifyOptIn(); // ask about notifications once the rules are accepted
-    };
-  }
-  openModal('modal-classified');
-}
 
 // ── Load current user ─────────────────────────────────────────────
 async function loadCurrentUser() {
@@ -173,18 +192,52 @@ async function loadCurrentUser() {
 
     const roleEl = document.getElementById('user-role-badge');
     if (roleEl) {
-      const labels  = { DEVELOPER: '⚙ Developer', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', IA: 'Internal Affairs' };
+      const labels  = { DEVELOPER: 'Developer', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', IA: 'Internal Affairs' };
       const classes = { DEVELOPER: 'dev', HICOMM: 'hicomm', SUPERVISOR: 'hicomm', IA: 'ia' };
       roleEl.textContent = labels[currentUser.role] || currentUser.role;
       roleEl.className   = `user-role-badge ${classes[currentUser.role] || 'ia'}`;
     }
 
-    if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role))
+    if (['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) {
       document.querySelectorAll('.hicomm-only, .supervisor-only').forEach(el => el.style.display = '');
-    if (['HICOMM', 'DEVELOPER'].includes(currentUser.role))
+      // Supervisor and above sign ticket logs off (tickets.js reads this).
+      window.canReviewTickets = true;
+      // …and event logs, which is why the archive says it is not the place.
+      window.canReviewCasework = true;
+    }
+    if (['HICOMM', 'DEVELOPER'].includes(currentUser.role)) {
       document.querySelectorAll('.hicomm-strict-only').forEach(el => el.style.display = '');
-    if (currentUser.role === 'DEVELOPER')
-      document.querySelectorAll('.dev-only').forEach(el => el.style.display = '');
+      // Withdrawing an event reverses everybody's points, so it is theirs.
+      window.canVoidEvents = true;
+    }
+    // Developer-only, ANYWHERE — not just inside /dev. `.dev-only` is the
+    // Developer division's own nav and pages, which are deliberately hidden on
+    // the IA dashboard; this is for the handful of controls that sit among the
+    // ordinary tools and must still never be pressable by anybody else. The
+    // clear-backlog button is one: it approves thousands of rows in one press.
+    if (currentUser.role === 'DEVELOPER') {
+      document.querySelectorAll('.developer-only').forEach(el => el.style.display = '');
+    }
+    // The ticket re-sync shares the casework header with "Submit Case", so the
+    // selector decides when it is on screen; this decides whether they may see it
+    // at all. DEVELOPER only.
+    //
+    // `allowed` was being stamped on for EVERY signed-in user, and the selector
+    // then sets display directly — which overrides the CSS class that was
+    // supposed to be hiding it. So the class gated nothing and a supervisor could
+    // see the button. The gate belongs on the flag, not on a class that something
+    // else overwrites.
+    const syncBtn = document.getElementById('btn-ticket-sync');
+    if (syncBtn) {
+      if (currentUser.role === 'DEVELOPER') syncBtn.dataset.allowed = '1';
+      else delete syncBtn.dataset.allowed;
+      syncBtn.style.display = 'none';
+    }
+
+    // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
+    // not mixed into the Internal Affairs section. The dev nav is therefore only
+    // revealed in that context — never on the IA dashboard, even for developers.
+    if (isDevContext() && currentUser.role === 'DEVELOPER') applyDevContext();
 
     // Register the service worker for elevated roles (no permission prompt yet)
     if (window.pushClient) window.pushClient.initForStaff(currentUser.role).catch(() => {});
@@ -193,7 +246,7 @@ async function loadCurrentUser() {
 
 // ── One-time notification opt-in prompt (after rules acknowledged) ──
 async function maybeShowNotifyOptIn() {
-  if (!currentUser || !['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) return;
+  if (!currentUser || !['IA', 'HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser.role)) return;
   if (!window.pushClient || !window.pushClient.supported()) return;
   let state;
   try { state = await api('/api/notifications/me'); } catch { return; }
@@ -223,23 +276,208 @@ async function maybeShowNotifyOptIn() {
   openModal('modal-notify-optin');
 }
 
+// ── Developer division context ─────────────────────────────────────
+// The IA dashboard view is reused for the Developer division at /dev/dashboard.
+// In that context we show ONLY the developer tools and hide the IA nav, so the
+// two are cleanly separated (dev tools are no longer part of the IA section).
+function isDevContext() { return location.pathname.startsWith('/dev'); }
+
+function applyDevContext() {
+  // Reveal the developer nav + pages.
+  document.querySelectorAll('.dev-only').forEach(el => el.style.display = '');
+  // Hide every non-developer nav entry (Overview / Cases / Tickets / Tools /
+  // Review / Oversight) — the Developer division shows dev tools only.
+  document.querySelectorAll('.sidebar-nav .nav-item, .sidebar-nav .nav-section-label').forEach(el => {
+    if (!el.classList.contains('dev-only')) el.style.display = 'none';
+  });
+  // Rebrand the sidebar + tab for the Developer division.
+  const bn = document.querySelector('.brand-name'); if (bn) bn.textContent = 'MET · DEV';
+  const bs = document.querySelector('.brand-sub');  if (bs) bs.textContent = 'Developer Tools';
+  document.title = 'MET · Developer';
+}
+
+// ── Casework selector ─────────────────────────────────────────────
+// Cases or tickets, everyone's or mine. Defaults to everyone's, which is what
+// people are usually looking for — your own work is a filter on the archive,
+// not a different place.
+let caseworkKind  = 'cases';
+let caseworkScope = 'all';
+window.caseworkScope = 'all';
+let pendingKind   = 'cases';
+
+const CASEWORK_COPY = {
+  'cases:all':    ['All Cases',   'Every case Internal Affairs has filed'],
+  'cases:mine':   ['My Cases',    'Cases you submitted'],
+  'tickets:all':  ['All Tickets', 'Every closed ticket logged in Discord'],
+  'tickets:mine': ['My Tickets',  'Tickets you closed'],
+  'events:all':   ['Event Logs',  'Every event Internal Affairs has run'],
+  'events:mine':  ['Event Logs',  'Events you hosted'],
+  'patrols:all':  ['Patrol Logs', 'Every patrol Internal Affairs has filed'],
+  'patrols:mine': ['Patrol Logs', 'Patrols you went out on'],
+};
+
+function applyCaseworkSelector() {
+  document.querySelectorAll('#casework-kind .seg-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.kind === caseworkKind));
+  document.querySelectorAll('#casework-scope .seg-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.scope === caseworkScope));
+
+  const PANES = {
+    'cases:all':    'cw-cases-all',   'cases:mine':   'cw-cases-mine',
+    'tickets:all':  'cw-tickets-all', 'tickets:mine': 'cw-tickets-mine',
+    // An event is hosted rather than filed against somebody, so one pane
+    // serves both scopes — its own All/Mine filter does the narrowing.
+    'events:all':   'cw-events',      'events:mine':  'cw-events',
+    // Same for a patrol: it is filed BY somebody rather than against them, so
+    // one pane serves both scopes and its own All/Mine filter narrows it.
+    'patrols:all':  'cw-patrols',     'patrols:mine': 'cw-patrols',
+  };
+  const want = PANES[`${caseworkKind}:${caseworkScope}`];
+  Object.values(PANES).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === want ? '' : 'none';
+  });
+
+  const [title, sub] = CASEWORK_COPY[`${caseworkKind}:${caseworkScope}`] || ['Casework', ''];
+  const t = document.getElementById('casework-title'); if (t) t.textContent = title;
+  const p = document.getElementById('casework-sub');   if (p) p.textContent = sub;
+
+  // "Submit Case" belongs to cases; the Discord re-sync to tickets; "Log an
+  // event" to events, and only for somebody allowed to file one.
+  const newBtn = document.querySelector('#page-casework .btn-new-case');
+  if (newBtn) newBtn.style.display = caseworkKind === 'cases' ? '' : 'none';
+  const sync = document.getElementById('btn-ticket-sync');
+  if (sync && sync.dataset.allowed === '1') sync.style.display = caseworkKind === 'tickets' ? '' : 'none';
+  const newEv = document.getElementById('btn-new-event');
+  if (newEv) newEv.style.display = (caseworkKind === 'events' && window.canFileEvents) ? '' : 'none';
+  const newPt = document.getElementById('btn-new-patrol');
+  if (newPt) newPt.style.display = (caseworkKind === 'patrols' && window.canFilePatrols) ? '' : 'none';
+
+  // The archive is read-only, and that is not obvious to somebody who can
+  // decide things elsewhere.
+  const note = document.getElementById('casework-readonly');
+  if (note && window.canReviewCasework) note.style.display = '';
+}
+
+function setCaseworkKind(kind)  { caseworkKind = kind;  applyCaseworkSelector(); loadCasework(); }
+function setCaseworkScope(scope){
+  caseworkScope = scope;
+  // The events list is in its own file and follows this selector too.
+  window.caseworkScope = scope;
+  applyCaseworkSelector();
+  loadCasework();
+}
+
+// Only the pane on screen is loaded. Switching panes loads the other.
+function loadCasework() {
+  if (caseworkKind === 'events') return (typeof loadIaEvents === 'function') ? loadIaEvents() : null;
+  if (caseworkKind === 'patrols') return (typeof loadIaPatrols === 'function') ? loadIaPatrols() : null;
+  if (caseworkKind === 'cases')  return caseworkScope === 'all' ? loadAllCases() : loadMyCases();
+  return caseworkScope === 'all' ? loadAllTickets() : loadTickets();
+}
+
+function applyPendingSelector() {
+  document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.pkind === pendingKind));
+  [['pend-cases', 'cases'], ['pend-tickets', 'tickets'], ['pend-events', 'events'],
+   ['pend-patrols', 'patrols']].forEach(([id, kind]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = pendingKind === kind ? '' : 'none';
+  });
+}
+
+function setPendingKind(kind) { pendingKind = kind; applyPendingSelector(); loadPending(); }
+
+function loadPending() {
+  if (pendingKind === 'cases')  return loadReview();
+  if (pendingKind === 'events') return (typeof loadPendingIaEvents === 'function') ? loadPendingIaEvents() : null;
+  if (pendingKind === 'patrols') return (typeof loadPendingIaPatrols === 'function') ? loadPendingIaPatrols() : null;
+  return typeof loadPendingTickets === 'function' ? loadPendingTickets() : null;
+}
+
+function setupCaseworkSelector() {
+  document.querySelectorAll('#casework-kind .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setCaseworkKind(b.dataset.kind)));
+  document.querySelectorAll('#casework-scope .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setCaseworkScope(b.dataset.scope)));
+  document.querySelectorAll('#pending-kind .seg-btn').forEach(b =>
+    b.addEventListener('click', () => setPendingKind(b.dataset.pkind)));
+  const go = document.getElementById('btn-go-pending');
+  if (go) go.addEventListener('click', () => navigateTo('pending'));
+  applyCaseworkSelector();
+  applyPendingSelector();
+}
+
+// The casework footer links to the document archive by name; that page has no
+// nav item any more, so give it the same entry point everything else uses.
+function showPage(id) { return navigateTo(id); }
+window.showPage = showPage;
+
 // ── Navigation ────────────────────────────────────────────────────
 function setupNav() {
+  setupCaseworkSelector();
   document.querySelectorAll('.nav-item[data-page]').forEach(btn =>
     btn.addEventListener('click', () => navigateTo(btn.dataset.page))
   );
+
+  // The developer tools live in a collapsed group so they don't dominate the
+  // sidebar for the people who can see them.
+  const devToggle = document.getElementById('nav-dev-toggle');
+  const devGroup  = document.getElementById('nav-dev-group');
+  if (devToggle && devGroup) {
+    const open = localStorage.getItem('iacms_nav_dev') === '1';
+    devGroup.style.display = open ? '' : 'none';
+    devToggle.classList.toggle('nav-open', open);
+    devToggle.addEventListener('click', () => {
+      const nowOpen = devGroup.style.display === 'none';
+      devGroup.style.display = nowOpen ? '' : 'none';
+      devToggle.classList.toggle('nav-open', nowOpen);
+      localStorage.setItem('iacms_nav_dev', nowOpen ? '1' : '0');
+    });
+  }
+
+  // The sidebar search chip opens the command palette (Ctrl/Cmd+K).
+  const navSearch = document.getElementById('nav-search-btn');
+  if (navSearch) navSearch.addEventListener('click', () => {
+    if (typeof openCommandPalette === 'function') openCommandPalette();
+    else navigateTo('all-cases');
+  });
 }
 
+// Cases and tickets used to be four pages; the review queue was a fifth. They
+// are now two pages with a selector. Every existing caller — notification deep
+// links, the overview shortcuts, "review this case" — still names the old page,
+// so those names are resolved here rather than rewritten in twenty places.
+const MERGED_PAGES = {
+  'my-cases':    { page: 'casework', kind: 'cases',   scope: 'mine' },
+  'all-cases':   { page: 'casework', kind: 'cases',   scope: 'all'  },
+  tickets:       { page: 'casework', kind: 'tickets', scope: 'mine' },
+  'all-tickets': { page: 'casework', kind: 'tickets', scope: 'all'  },
+  review:        { page: 'pending',  pkind: 'cases' },
+};
+
 function navigateTo(pageId) {
+  const merged = MERGED_PAGES[pageId];
+  if (merged) {
+    pageId = merged.page;
+    if (merged.kind)  caseworkKind  = merged.kind;
+    if (merged.scope) caseworkScope = merged.scope;
+    if (merged.pkind) pendingKind   = merged.pkind;
+  }
+
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const navBtn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
   if (navBtn) navBtn.classList.add('active');
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const page = document.getElementById(`page-${pageId}`);
   if (page) page.classList.add('active');
+  if (pageId === 'casework') applyCaseworkSelector();
+  if (pageId === 'pending')  applyPendingSelector();
 
   const loaders = {
     dashboard:   loadDashboard,
+    casework:    loadCasework,
+    pending:     loadPending,
     'my-cases':  loadMyCases,
     review:      loadReview,
     'all-cases': loadAllCases,
@@ -250,17 +488,685 @@ function navigateTo(pageId) {
     security:        loadSecurity,
     tickets:         loadTickets,
     'all-tickets':   loadAllTickets,
-    'ticket-review': loadTicketReview,
     records:         (typeof loadRecords === 'function' ? loadRecords : null),
-    'quota-check':   (typeof loadQuotaCheck === 'function' ? loadQuotaCheck : null),
-    'ai-review':     (typeof loadAiReview === 'function' ? loadAiReview : null),
+    // Activity tracking is part of this page now — the same table, not a
+    // second copy of it.
+    'quota-check':   () => { if (typeof loadQuotaCheck === 'function') loadQuotaCheck(); },
+    'ia-profiles':   (typeof loadIaProfiles === 'function' ? loadIaProfiles : null),
     'site-control':  loadSiteControl,
     'notif-settings': loadNotifSettings,
     'send-notif':    loadDevNotifSender,
+    'emergency-alert': (typeof loadEmergencyAlert === 'function' ? loadEmergencyAlert : null),
     media:           (typeof loadMedia === 'function' ? loadMedia : null),
     'media-admin':   (typeof loadMediaAdmin === 'function' ? loadMediaAdmin : null),
+    gamelogs:        loadDevGameLogs,
+    cad:             (typeof loadCad === 'function' ? loadCad : null),
+    'roblox-audio':  (typeof loadRobloxAudio === 'function' ? loadRobloxAudio : null),
+    'server-control': (typeof loadServerControl === 'function' ? loadServerControl : null),
   };
   if (loaders[pageId]) return loaders[pageId]();
+}
+
+// ── Game Logs (in-game Adonis / join / leave / chat feed) ──────────
+const DEV_GL_ICON = { ADONIS: ['ti-shield-bolt', '#f59e0b'], JOIN: ['ti-login', '#2ed896'], LEAVE: ['ti-logout', '#8b93a1'], CHAT: ['ti-message', '#3b82f6'] };
+async function loadDevGameLogs() {
+  const srcEl = document.getElementById('dev-gl-source');
+  const qEl   = document.getElementById('dev-gl-q');
+  const tb    = document.getElementById('dev-gl-tbody');
+  if (!tb) return;
+  const src = srcEl ? srcEl.value : '';
+  const q   = qEl ? qEl.value.trim() : '';
+  // A fresh load starts at the top of the log again; only "load more" carries the
+  // cursor forward.
+  if (!_devGlAppend) {
+    _devGlBefore = null; _devGlTotal = null; _devGlShown = 0;
+    tb.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
+  }
+  let out;
+  try { out = await api(`/api/dev/game-logs?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}&limit=200${_devGlBefore ? '&before=' + encodeURIComponent(_devGlBefore) : ''}`); }
+  catch (e) { tb.innerHTML = `<tr><td colspan="6" class="table-empty-text">${escapeHtml(e.message)}</td></tr>`; return; }
+  // Tolerate the older shape (a bare array) so a cached page still works.
+  const rows = Array.isArray(out) ? out : (out.rows || []);
+  _devGlBefore = Array.isArray(out) ? null : out.nextBefore;
+  _devGlTotal  = Array.isArray(out) ? null : out.total;
+  _devGlMore   = Array.isArray(out) ? false : !!out.hasMore;
+  const html = rows.length ? rows.map(g => {
+    const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
+    return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
+      <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
+      <td>${escapeHtml(g.actor || '·')}</td>
+      <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '·'}</td>
+      <td>${escapeHtml(g.target || '·')}</td>
+      <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
+  }).join('') : (window.metEmpty
+    ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-file-off', title: 'No game logs yet', sub: 'In-game activity will appear here.' })}</td></tr>`
+    : '<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No game logs yet.</div></td></tr>');
+  if (_devGlAppend) { tb.insertAdjacentHTML('beforeend', rows.map(devGlRow).join('')); _devGlShown += rows.length; }
+  else { tb.innerHTML = html; _devGlShown = rows.length; }
+  devGlFooter(src, q);
+}
+
+// Nothing prunes the game log — it is the all-time record — so the panel has to
+// be able to reach past the first page of it.
+let _devGlBefore = null, _devGlTotal = null, _devGlMore = false, _devGlShown = 0, _devGlAppend = false;
+
+function devGlRow(g) {
+  const [ic, col] = DEV_GL_ICON[g.source] || ['ti-point', '#888'];
+  return `<tr><td style="white-space:nowrap;font-size:12px;color:var(--text-muted);">${escapeHtml(formatDateTime(g.createdAt))}</td>
+    <td><span style="color:${col};"><i class="ti ${ic}"></i> ${escapeHtml(g.source)}</span></td>
+    <td>${escapeHtml(g.actor || '·')}</td>
+    <td>${g.action ? `<span class="mono" style="font-size:11px;">${escapeHtml(g.action)}</span>` : '·'}</td>
+    <td>${escapeHtml(g.target || '·')}</td>
+    <td style="max-width:360px;">${escapeHtml(g.message || '')}</td></tr>`;
+}
+
+function devGlFooter(src, q) {
+  const foot = document.getElementById('dev-gl-foot');
+  if (!foot) return;
+  const of = _devGlTotal == null ? '' : ` of <strong>${_devGlTotal.toLocaleString()}</strong>`;
+  const csv = `/api/dev/game-logs.csv?source=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`;
+  foot.innerHTML =
+    `<span style="font-size:12px;color:var(--text-muted);">Showing <strong>${_devGlShown.toLocaleString()}</strong>${of}</span>`
+    + (_devGlMore
+      ? ` <button class="btn btn-ghost btn-sm" onclick="devMoreGameLogs()"><i class="ti ti-chevron-down"></i> Load more</button>`
+      : ` <span style="font-size:12px;color:var(--text-muted);">· that is all of them</span>`)
+    + ` <a class="btn btn-ghost btn-sm" href="${csv}" download><i class="ti ti-file-download"></i> Export all</a>`;
+}
+
+async function devMoreGameLogs() {
+  _devGlAppend = true;
+  try { await devLoadGameLogs(); } finally { _devGlAppend = false; }
+}
+
+let _devGlT = null;
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'dev-gl-q') { clearTimeout(_devGlT); _devGlT = setTimeout(loadDevGameLogs, 250); } });
+
+// ── Developer Imports tab ──────────────────────────────────────────
+async function runPatrolBackfill() {
+  const btn = document.getElementById('imp-patrol-btn');
+  const out = document.getElementById('imp-patrol-result');
+  if (!(await uiConfirm('Import every patrol & event log from the channels? Runs in the background and adds any missing logs as approved.'))) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Starting…'; }
+  if (out) out.innerHTML = '';
+  try {
+    const r = await api('/api/dev/patrol-backfill', { method: 'POST' });
+    if (out) out.innerHTML = `<span style="color:var(--green);"><i class="ti ti-check"></i> ${escapeHtml(r.message || 'Import started.')}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-download"></i> Import patrol &amp; event logs'; } }
+}
+
+async function runIaSync() {
+  const btn = document.getElementById('imp-ia-btn');
+  const out = document.getElementById('imp-ia-result');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Syncing…'; }
+  if (out) out.innerHTML = '';
+  try {
+    const r = await api('/api/dev/ia-sync', { method: 'POST' });
+    // Surface a sub-sync failure (e.g. IA_DATABASE_URL wrong, or an IA schema/
+    // column mismatch) instead of a meaningless "+?/?" — that's what makes a
+    // silent failure look like "nothing happened".
+    const failed = (r.cases && r.cases.ok === false) || (r.tickets && r.tickets.ok === false);
+    const fmt = (lbl, x) => {
+      if (!x) return `${lbl}: ·`;
+      if (x.ok === false) return `${lbl}: ${met.e('met_warn')} ${x.reason || 'failed'}`;
+      return `${lbl}: +${x.synced != null ? x.synced : '?'}/${x.total != null ? x.total : '?'}${x.skipped ? ` (${x.skipped} skipped)` : ''}`;
+    };
+    if (out) out.innerHTML = failed
+      ? `<span style="color:var(--amber,#e8842a);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`
+      : `<span style="color:var(--green);"><i class="ti ti-check"></i> Synced. ${escapeHtml(fmt('Cases', r.cases))} · ${escapeHtml(fmt('Tickets', r.tickets))}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Sync IA cases &amp; tickets'; } }
+}
+
+// ── Rebuilding the case archive from Discord ───────────────────────
+//
+// Two buttons, and the order between them is the whole design: the real import
+// stays DISABLED until a dry run has been done. Reading a channel of unknown shape
+// and writing a thousand cases from it, first try, with no idea what it parsed, is
+// how somebody ends up with an archive full of nonsense and no way to tell which
+// rows to trust.
+const CLR_CHANNEL_KEY = 'met_caselog_channel';
+
+function clrChannel() {
+  const el = document.getElementById('clr-channel');
+  return el ? String(el.value || '').replace(/\D/g, '') : '';
+}
+
+// Remember it: this is a nineteen-digit number nobody wants to find twice.
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('clr-channel');
+  if (!el) return;
+  try { el.value = localStorage.getItem(CLR_CHANNEL_KEY) || ''; } catch (e) {}
+  el.addEventListener('input', () => {
+    try { localStorage.setItem(CLR_CHANNEL_KEY, clrChannel()); } catch (e) {}
+    // Changing the channel invalidates the dry run that unlocked the import.
+    const go = document.getElementById('clr-go-btn');
+    if (go) { go.disabled = true; go.title = 'Do the dry run first'; }
+  });
+});
+
+function clrRow(k, v, tone) {
+  const colour = tone === 'good' ? 'var(--green)' : tone === 'warn' ? 'var(--amber)'
+    : tone === 'bad' ? 'var(--red)' : 'var(--text-primary)';
+  return `<div style="display:flex;gap:.6rem;padding:3px 0;font-size:12.5px;">
+    <span style="color:var(--text-muted);min-width:190px;">${escapeHtml(k)}</span>
+    <span style="color:${colour};font-weight:500;">${escapeHtml(String(v))}</span></div>`;
+}
+
+async function clrImport(dry) {
+  const channelId = clrChannel();
+  const out = document.getElementById('clr-result');
+  if (!channelId) {
+    if (out) out.innerHTML = `<span style="color:var(--amber);"><i class="ti ti-alert-triangle"></i> Put the channel id in first.</span>`;
+    return;
+  }
+  if (!dry) {
+    const yes = await uiConfirm(
+      'This writes cases into the database from what it read in Discord.\n\n'
+      + 'Cases you filed on the site are never overwritten, and running it again later is a refresh '
+      + 'rather than a duplicate · but read the dry run above before you do this.',
+      { title: 'Import the cases for real?', confirmText: 'Import them', cancelText: 'Not yet', icon: 'ti-database-import' });
+    if (!yes) return;
+  }
+
+  const btn = document.getElementById(dry ? 'clr-dry-btn' : 'clr-go-btn');
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Reading the channel…'; }
+  if (out) {
+    out.innerHTML = `<span style="color:var(--text-secondary);"><i class="ti ti-loader-2"></i> `
+      + `Walking the channel back to its first message. On a long history this takes a few minutes.</span>`;
+  }
+
+  try {
+    const r = await api('/api/dev/case-log-import', {
+      method: 'POST', body: JSON.stringify({ channelId, dry }),
+    });
+    if (out) out.innerHTML = clrReport(r, dry);
+    // Only a dry run that actually found something unlocks the real import.
+    const go = document.getElementById('clr-go-btn');
+    if (dry && go) {
+      go.disabled = !(r.ok && r.parsed > 0);
+      go.title = go.disabled ? 'The dry run found no cases in that channel' : '';
+    }
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+function clrReport(r, dry) {
+  if (r.error) return `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`;
+  // The server says whether it wrote, and it is the one that knows. Trusting the
+  // flag we sent instead would let the heading say "Imported" over a dry run.
+  if (typeof r.dryRun === 'boolean') dry = r.dryRun;
+
+  let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`;
+  h += `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
+     + (dry ? 'Dry run, nothing was written' : 'Imported') + `</div>`;
+
+  h += clrRow('Messages read', r.scanned);
+  // Whether it genuinely reached the beginning is the difference between "all the
+  // cases" and "the recent ones".
+  h += clrRow('Reached the start of the channel', r.reachedStart ? 'yes' : 'NO · it stopped early',
+              r.reachedStart ? 'good' : 'warn');
+  h += clrRow('Cases found', r.parsed, r.parsed ? 'good' : 'warn');
+  h += clrRow('Distinct cases', r.uniqueCases);
+  if (r.highestRef) h += clrRow('Highest reference', '#' + r.highestRef);
+  if (r.oldest) h += clrRow('Oldest', new Date(r.oldest).toLocaleDateString());
+  if (r.newest) h += clrRow('Newest', new Date(r.newest).toLocaleDateString());
+
+  if (!dry) {
+    h += clrRow('Created', r.created, r.created ? 'good' : null);
+    h += clrRow('Updated', r.updated);
+    h += clrRow('Already correct', r.unchanged);
+    if (r.movedAside) {
+      h += clrRow('Site cases moved to free a reference', r.movedAside, 'warn');
+      h += `<div style="font-size:11.5px;color:var(--text-muted);margin:.2rem 0 .5rem;line-height:1.7;">`
+        + (r.moves || []).map(m => `${escapeHtml(m.from)} → ${escapeHtml(m.to)}`).join(', ')
+        + `. The Discord reference is the one people quote, so the case filed on the site moved instead. `
+        + `It kept all of its own data.</div>`;
+    }
+    if (r.counter) h += clrRow('Case counter now at', r.counter.counter);
+  }
+
+  // The census. This is the part that answers "did it get everything".
+  const formats = Object.entries(r.formats || {});
+  if (formats.length) {
+    h += `<div style="margin-top:.7rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">Formats read</div>`;
+    h += formats.sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => clrRow(k, n)).join('');
+  }
+  if (r.truncatedCases) {
+    h += clrRow('Shortened by Discord when posted', r.truncatedCases, 'warn');
+  }
+
+  // And the part that answers "what did it MISS" — which is the only way to find a
+  // format nobody has taught it yet.
+  if ((r.unrecognised || []).length) {
+    h += `<div style="margin-top:.8rem;padding:.7rem .85rem;border-radius:8px;background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);">`
+      + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
+      + `${r.unrecognised.length} message${r.unrecognised.length === 1 ? '' : 's'} look like a case but could not be read</div>`
+      + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:.5rem;">`
+      + `These are old formats nothing here understands yet. Send them over and they can be added.</div>`
+      + r.unrecognised.slice(0, 8).map(u =>
+          `<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:3px 0;border-top:1px solid var(--border-dim);">`
+          + `${escapeHtml(new Date(u.at).toLocaleDateString())} · ${escapeHtml(u.text.slice(0, 180))}</div>`).join('')
+      + `</div>`;
+  } else if (r.scanned) {
+    h += `<div style="margin-top:.7rem;font-size:12px;color:var(--green);">`
+      + `<i class="ti ti-check"></i> Nothing case-like was left unread.</div>`;
+  }
+
+  if ((r.samples || []).length) {
+    h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">A few of them</div>`
+      + r.samples.slice(0, 6).map(s =>
+          `<div style="font-size:11.5px;color:var(--text-secondary);padding:3px 0;border-top:1px solid var(--border-dim);">`
+          + `<span style="font-family:var(--font-mono);color:var(--blue);">${escapeHtml(s.caseRef)}</span> · `
+          + `${escapeHtml(s.action)} · ${escapeHtml(s.reason)}</div>`).join('');
+  }
+
+  if ((r.errors || []).length) {
+    h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">`
+      + r.errors.slice(0, 6).map(e => escapeHtml(e)).join('<br>') + `</div>`;
+  }
+  return h + `</div>`;
+}
+
+// Read-only. Run it before and after an import — it is how the archive is checked
+// rather than assumed.
+async function clrAudit() {
+  const out = document.getElementById('clr-result');
+  const btn = document.getElementById('clr-audit-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Checking…'; }
+  try {
+    const a = await api('/api/dev/case-audit');
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">The archive as it stands</div>`;
+    h += clrRow('Cases', a.total);
+    h += clrRow('Where they came from', Object.entries(a.byOrigin || {}).map(([k, n]) => `${k} ${n}`).join(' · '));
+    if (a.oldest) h += clrRow('Oldest', new Date(a.oldest).toLocaleDateString());
+    if (a.newest) h += clrRow('Newest', new Date(a.newest).toLocaleDateString());
+    h += clrRow('Highest reference', '#' + a.highestRef);
+    h += clrRow('Counter', a.counter, a.counterBelowHighest ? 'bad' : 'good');
+    if (a.counterBelowHighest) {
+      h += `<div style="font-size:11.5px;color:var(--red);line-height:1.7;">The counter is BELOW the highest reference in use, so the next case filed would collide. Run an import, which raises it.</div>`;
+    }
+    h += clrRow('Duplicate references', a.duplicates.length, a.duplicates.length ? 'bad' : 'good');
+    h += clrRow('Without a reference', a.unnumbered.length, a.unnumbered.length ? 'bad' : 'good');
+    h += clrRow('Without a Discord log', a.withoutLogMessage);
+    h += clrRow('Numbered out of sequence', a.outOfOrderCount, a.outOfOrderCount ? 'warn' : 'good');
+    if (a.outOfOrderCount) {
+      h += `<div style="font-size:11.5px;color:var(--text-muted);line-height:1.7;margin-top:.3rem;">`
+        + `A reference lower than one that came before it. Normal where cases were filed out of order · `
+        + `the reference is what people quote, so nothing is renumbered automatically.</div>`;
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-list-check"></i> Check the archive'; }
+  }
+}
+
+/**
+ * Put the case references back into one consistent numbering.
+ *
+ * Dry run first, always — this renames rows people quote at each other, so the
+ * mapping is shown and confirmed before anything moves. Cases already in order are
+ * never touched.
+ */
+async function clrRenumber(dry, mode) {
+  const out = document.getElementById('clr-result');
+  const btn = document.getElementById('clr-renum-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Working…'; }
+  try {
+    const m = mode === 'resequence' ? 'resequence' : 'repair';
+    let r = await api('/api/dev/case-renumber', { method: 'POST', body: JSON.stringify({ dry: !!dry, mode: m }) });
+    // A real renumber runs in the background (renaming hundreds of cases and
+    // re-editing their Discord logs takes minutes), so poll until it finishes
+    // instead of waiting on the one request, which the proxy would time out.
+    if (!dry && r && r.started) {
+      const started = Date.now();
+      for (;;) {
+        await new Promise(res => setTimeout(res, 2000));
+        const s = await api('/api/dev/case-renumber');
+        if (out) out.innerHTML = `<span style="color:var(--text-muted);"><div class="spinner" style="display:inline-block;vertical-align:middle;"></div> `
+          + `Renumbering in the background… ${Math.round((Date.now() - started) / 1000)}s</span>`;
+        if (s && !s.running) {
+          if (s.error) throw new Error(s.error);
+          r = s.result || { ok: true, mode: m, total: 0, moved: 0, unchanged: 0, moves: [] };
+          break;
+        }
+      }
+    }
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
+      + (r.dryRun ? 'What renumbering would do' : 'Renumbered')
+      + (r.mode === 'resequence'
+          ? ' · every case, in date order, from #' + (r.startsAt || 700)
+          : ' · only the ones out of the sequence')
+      + `</div>`;
+    h += clrRow('Cases', r.total);
+    h += clrRow(r.mode === 'resequence' ? 'Keeping the ref they have' : 'Already in order', r.unchanged, 'good');
+    h += clrRow(r.dryRun ? 'Would be renumbered' : 'Renumbered', r.moved, r.moved ? 'warn' : 'good');
+    if (r.counter && r.counter.counter) h += clrRow('Counter now at', r.counter.counter);
+    if ((r.moves || []).length) {
+      h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">`
+        + `The mapping</div><div style="font-family:var(--font-mono);font-size:11.5px;line-height:1.9;">`
+        + r.moves.slice(0, 40).map(function (m) {
+            return escapeHtml(m.from) + ' → <span style="color:var(--green);">' + escapeHtml(m.to) + '</span>';
+          }).join('<br>')
+        + (r.moves.length > 40 ? '<br>…and ' + (r.moves.length - 40) + ' more' : '')
+        + `</div>`;
+    }
+    if ((r.errors || []).length) {
+      h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">`
+        + r.errors.map(function (x) { return escapeHtml(x); }).join('<br>') + `</div>`;
+    }
+    // A repair makes every reference valid; it does not make them climb with time,
+    // because doing that would mean renaming references people have quoted. Say so
+    // rather than leaving somebody to notice it themselves.
+    if (r.mode !== 'resequence' && r.outOfOrder) {
+      h += `<div style="margin-top:.8rem;padding:.6rem .75rem;border-radius:8px;`
+        + `background:rgba(60,110,255,.07);border:1px solid rgba(60,110,255,.25);`
+        + `font-size:11.5px;color:var(--text-secondary);line-height:1.7;">`
+        + `<i class="ti ti-info-circle"></i> <strong>` + r.outOfOrder + `</strong> reference`
+        + (r.outOfOrder === 1 ? ' is' : 's are') + ` numerically out of step with the date of the case`
+        + `. This does not fix that, on purpose: those are references people have quoted, and the only `
+        + `way to make them climb with time is to rename them. <strong>Renumber all in date order</strong> `
+        + `does that if you want it.</div>`;
+    }
+    if (r.dryRun && r.moved) {
+      h += `<div style="margin-top:.9rem;font-size:12px;color:var(--text-secondary);line-height:1.7;">`
+        + `The old reference is kept on every case that moves, so anybody quoting it can still be `
+        + `found. The Discord logs keep the number they were posted with.</div>`
+        + `<button type="button" class="btn btn-success btn-sm" style="margin-top:.6rem;" `
+        + `onclick="clrRenumberGo('` + (r.mode || 'repair') + `')"><i class="ti ti-check"></i> Do it</button>`;
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+async function clrRenumberGo(mode) {
+  const all = mode === 'resequence';
+  const yes = await uiConfirm(
+    'This renames case references, and references are what people quote at each other.\n\n'
+    + (all
+        ? 'EVERY case is renumbered in date order, so the references climb with time and there is '
+          + 'one scheme instead of four. References people have already quoted WILL change · the old '
+          + 'one is kept on each case, so quoting it still finds them.'
+        : 'Only cases whose reference is not part of the sequence move · a code, a number below three '
+          + 'digits, a number from another scheme, or one that goes backwards in time. Everything '
+          + 'anybody has quoted keeps the reference it has.')
+    + '\n\nThe Discord logs are left exactly as they are either way.',
+    { title: all ? 'Renumber EVERY case?' : 'Renumber the cases?',
+      confirmText: all ? 'Renumber all of them' : 'Renumber them', cancelText: 'Not yet',
+      icon: 'ti-sort-ascending-numbers' });
+  if (!yes) return;
+  return clrRenumber(false, mode);
+}
+
+// ── Clans Labs XP import ──────────────────────────────────────────
+//
+// Same two-button shape as the case rebuild, and for the same reason: this writes
+// a balance for a thousand accounts, and the dry run reports exactly the numbers
+// the real one will. The real button stays locked until a dry run has been read.
+
+async function cxpLook() {
+  const out = document.getElementById('cxp-result');
+  const btn = document.getElementById('cxp-look-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Reading…'; }
+  try {
+    const r = await api('/api/dev/xp-import');
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">The file, unread by anything else</div>`;
+    h += clrRow('Rows', r.rows);
+    h += clrRow('Distinct accounts', r.accounts, r.accounts ? 'good' : 'warn');
+    h += clrRow('Lines ignored', r.ignoredLines);
+    h += clrRow('Capped at', r.cap + ' XP');
+    if (r.pending) {
+      h += clrRow('Held for accounts with no Discord id', r.pending.waiting,
+                  r.pending.waiting ? 'warn' : 'good');
+      h += clrRow('Already handed over', r.pending.claimed, r.pending.claimed ? 'good' : null);
+    }
+    // A run that is still going, or the last one's result.
+    if (r.run) {
+      h += clrRow('Last run', r.run.running
+        ? (r.run.stage || 'running') + (r.run.total ? ` · ${r.run.done} of ${r.run.total}` : '')
+        : new Date(r.run.finishedAt || r.run.startedAt).toLocaleString()
+          + (r.run.dry ? ' (dry run)' : ''),
+        r.run.error ? 'bad' : r.run.running ? 'warn' : 'good');
+      if (r.run.error) h += clrRow('It failed with', r.run.error, 'bad');
+    }
+    if ((r.highest || []).length) {
+      h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">Top of the list</div>`
+        + r.highest.map(function (s) {
+            return `<div style="font-size:11.5px;color:var(--text-secondary);padding:3px 0;border-top:1px solid var(--border-dim);">`
+              + `<span style="font-family:var(--font-mono);color:var(--blue);">${escapeHtml(s.username)}</span> · `
+              + `${escapeHtml(String(s.xp))} → ${escapeHtml(String(Math.min(s.xp, r.cap)))}</div>`;
+          }).join('');
+    }
+    if (out) out.innerHTML = h + `</div>`;
+    cxpUnlock(r);
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-list-search"></i> What\'s in the file'; }
+  }
+}
+
+async function cxpImport(dry) {
+  const out = document.getElementById('cxp-result');
+  if (!dry) {
+    const yes = await uiConfirm(
+      'This sets the XP of everyone on the leaderboard who can be matched to a Discord account, '
+      + 'and holds the rest against their Roblox account.\n\n'
+      + 'It only ever raises a balance, so nothing anybody earned here is lost · but read the dry run first.',
+      { title: 'Sync the XP for real?', confirmText: 'Sync it', cancelText: 'Not yet', icon: 'ti-database-import' });
+    // Saying so. Declining used to return in silence, which from the outside is
+    // indistinguishable from a button that does nothing.
+    if (!yes) {
+      if (out) {
+        out.innerHTML = '<span style="color:var(--text-muted);"><i class="ti ti-hand-stop"></i> '
+          + 'Cancelled · nothing was run.</span>';
+      }
+      return;
+    }
+  }
+
+  const btn = document.getElementById(dry ? 'cxp-dry-btn' : 'cxp-go-btn');
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Running…'; }
+
+  try {
+    // The server starts it and answers straight away. It cannot answer with the
+    // result: a thousand usernames is minutes of paced Roblox calls, and an edge
+    // proxy would close the request long before then.
+    await api('/api/dev/xp-import', { method: 'POST', body: JSON.stringify({ dry: dry }) });
+    const r = await cxpPoll(out);
+    if (!r) return;
+    if (out) out.innerHTML = r.error
+      ? `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`
+      : cxpReport(r.out || {});
+    if (dry && r.out) cxpUnlock({ run: r });
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+/**
+ * Unlock the real sync, from what the SERVER remembers of the last run.
+ *
+ * It used to be unlocked only by a dry run done in the current page, so reloading
+ * re-locked it — and a disabled button, clicked, does exactly nothing and says
+ * nothing. "I press sync for real and it does nothing" was that, not a failure in
+ * the import. The state now comes from the server, which remembers across reloads,
+ * and the reason is written under the buttons where somebody can read it.
+ */
+function cxpUnlock(state) {
+  const go = document.getElementById('cxp-go-btn');
+  const hint = document.getElementById('cxp-hint');
+  if (!go) return;
+  const run = state && state.run;
+  const ok = !!(run && run.out && run.out.ok && run.out.resolved > 0);
+  const running = !!(run && run.running);
+  go.disabled = !ok || running;
+  let why = '';
+  if (running) why = 'A run is going now · wait for it to finish.';
+  else if (!run) why = 'Do the dry run first: it does every lookup and writes nothing.';
+  else if (!run.out) why = run.error ? 'The last run failed. Read it, then try the dry run again.'
+                                     : 'Do the dry run first.';
+  else if (!ok) why = 'The last dry run resolved nobody, so there is nothing to write.';
+  else why = run.dry
+    ? 'The dry run above is what this will write.'
+    : 'Already synced once · running it again is a refresh and cannot lower anybody.';
+  go.title = go.disabled ? why : '';
+  if (hint) {
+    hint.innerHTML = '<i class="ti ti-info-circle"></i> ' + escapeHtml(why);
+    hint.style.color = go.disabled ? 'var(--amber)' : 'var(--text-muted)';
+  }
+}
+
+// Watch a run to the end, showing what it is on. A bar that moves is the
+// difference between "this is working" and "this has hung".
+async function cxpPoll(out) {
+  const started = Date.now();
+  const LIMIT = 30 * 60 * 1000;   // a run that long has gone wrong
+  while (Date.now() - started < LIMIT) {
+    let s = null;
+    try { s = await api('/api/dev/xp-import'); } catch (e) { /* a dropped poll is not a failure */ }
+    const run = s && s.run;
+    if (run) {
+      if (!run.running) return run;
+      if (out) {
+        const pct = run.total ? Math.round((run.done / run.total) * 100) : 0;
+        const mins = Math.floor((Date.now() - started) / 60000);
+        out.innerHTML = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+          + `<div style="font-size:13px;color:var(--text-secondary);margin-bottom:.5rem;">`
+          + `<i class="ti ti-loader-2"></i> ${escapeHtml(run.stage || 'Working')}`
+          + (run.total ? ` · ${run.done} of ${run.total}` : '') + `</div>`
+          + `<div style="height:6px;border-radius:3px;background:var(--border-dim);overflow:hidden;">`
+          + `<div style="height:100%;width:${pct}%;background:var(--blue);transition:width .4s;"></div></div>`
+          + `<div style="font-size:11.5px;color:var(--text-muted);margin-top:.5rem;line-height:1.6;">`
+          + `Roblox is asked in paced batches and rate-limits hard, so this takes a few minutes`
+          + (mins ? ` (${mins} so far)` : '') + `. Leaving the page does not stop it.</div></div>`;
+      }
+    }
+    await new Promise(function (r) { setTimeout(r, 3000); });
+  }
+  if (out) {
+    out.innerHTML = `<span style="color:var(--amber);"><i class="ti ti-alert-triangle"></i> `
+      + `Stopped watching after half an hour. The run may still be going · press `
+      + `"What's in the file" to see where it got to.</span>`;
+  }
+  return null;
+}
+
+function cxpReport(r) {
+  if (r.error) return `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(r.error)}</span>`;
+  // The server is the one that knows whether it wrote.
+  const dry = typeof r.dryRun === 'boolean' ? r.dryRun : true;
+
+  let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`;
+  h += `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">`
+     + (dry ? 'Dry run, nothing was written' : 'Synced') + `</div>`;
+
+  h += clrRow('Accounts on the leaderboard', r.accounts);
+  h += clrRow('Resolved on Roblox', r.resolved, r.resolved ? 'good' : 'warn');
+  // Kept apart from "not a Roblox account" on purpose: one means the row is junk,
+  // the other means we never got to ask.
+  if (r.unasked) h += clrRow('Rate-limited by Roblox, not looked at', r.unasked, 'warn');
+  h += clrRow('Not a Roblox account', r.unknown, r.unknown ? 'warn' : 'good');
+  h += clrRow('Over ' + r.cap + ', so capped', r.capped);
+  h += clrRow(dry ? 'Would be set now' : 'Set now', r.set, r.set ? 'good' : null);
+  if (!dry) {
+    h += clrRow('Of those, actually raised', r.raised);
+    h += clrRow('Already at least that high', r.unchanged);
+  }
+  h += clrRow(dry ? 'Would wait for a Discord account' : 'Waiting for a Discord account', r.pending);
+  if (r.roverLookups) h += clrRow('RoVer lookups', r.roverLookups);
+  if (r.failed) h += clrRow('Failed', r.failed, 'bad');
+
+  if (r.unasked) {
+    h += `<div style="margin-top:.8rem;padding:.7rem .85rem;border-radius:8px;background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);">`
+      + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
+      + `${r.unasked} name${r.unasked === 1 ? '' : 's'} were rate-limited, so the run is not finished</div>`
+      + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;">`
+      + `Roblox stopped answering. Those names were <strong>not</strong> looked at and nothing was `
+      + `stored or ruled out for them. Run it again in a few minutes · everything already imported is `
+      + `left exactly as it is.</div></div>`;
+  } else if (!dry && r.resolved) {
+    h += `<div style="margin-top:.7rem;font-size:12px;color:var(--green);">`
+      + `<i class="ti ti-check"></i> The whole list was looked at.</div>`;
+  }
+
+  if ((r.unknownNames || []).length) {
+    h += `<div style="margin-top:.8rem;padding:.7rem .85rem;border-radius:8px;background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);">`
+      + `<div style="font-size:12.5px;color:var(--amber);font-weight:600;margin-bottom:.4rem;">`
+      + `${r.unknown} name${r.unknown === 1 ? '' : 's'} could not be resolved</div>`
+      + `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:.5rem;">`
+      + `Mostly usernames the leaderboard cut short. Nothing was stored for them · a shortened name `
+      + `belongs to a different account, or to nobody.</div>`
+      + `<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);line-height:1.8;">`
+      + r.unknownNames.map(function (n) { return escapeHtml(n); }).join(', ')
+      + (r.unknown > r.unknownNames.length ? ', and ' + (r.unknown - r.unknownNames.length) + ' more' : '')
+      + `</div></div>`;
+  }
+
+  if ((r.samples || []).length) {
+    h += `<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">A few of them</div>`
+      + r.samples.map(function (s) {
+          return `<div style="font-size:11.5px;color:var(--text-secondary);padding:3px 0;border-top:1px solid var(--border-dim);">`
+            + `<span style="font-family:var(--font-mono);color:var(--blue);">${escapeHtml(s.username)}</span> · `
+            + `${escapeHtml(String(s.from))} → ${escapeHtml(String(s.xp))} XP · `
+            + (s.to === 'discord' ? 'on their record' : 'held for later') + `</div>`;
+        }).join('');
+  }
+
+  if ((r.notes || []).length) {
+    h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-muted);line-height:1.7;">`
+      + r.notes.map(function (n) { return escapeHtml(n); }).join('<br>') + `</div>`;
+  }
+  return h + `</div>`;
+}
+
+// The long tail: rows still waiting for a Discord id. Worth a press after a wave
+// of people join.
+async function cxpSweep() {
+  const out = document.getElementById('cxp-result');
+  const btn = document.getElementById('cxp-sweep-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> Retrying…'; }
+  try {
+    const r = await api('/api/dev/xp-claim-sweep', { method: 'POST', body: JSON.stringify({}) });
+    let h = `<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">`
+      + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">Retried the waiting rows</div>`;
+    h += clrRow('Looked at', r.looked);
+    h += clrRow('Usernames resolved for the first time', r.resolvedIds);
+    h += clrRow('Handed over', r.claimed, r.claimed ? 'good' : null);
+    h += clrRow('Of those, actually raised', r.raised);
+    h += clrRow('Still waiting', r.stillWaiting);
+    if (r.failed) h += clrRow('Failed', r.failed, 'bad');
+    if (r.pending) h += clrRow('Left in the holding table', r.pending.waiting);
+    if ((r.notes || []).length) {
+      h += `<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-muted);line-height:1.7;">`
+        + r.notes.map(function (n) { return escapeHtml(n); }).join('<br>') + `</div>`;
+    }
+    if (out) out.innerHTML = h + `</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ${escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Retry the waiting ones'; }
+  }
 }
 
 // ── Open a case/ticket from a clicked notification ─────────────────
@@ -274,15 +1180,11 @@ async function handleNotificationTarget(page, caseId, ticketId) {
     // loadReview populates allCasesCache with the currently-pending cases.
     const c = (allCasesCache || []).find(x => x.id === caseId);
     if (c && c.status === 'PENDING') openDetail(caseId);
-    else showToast('This case is no longer pending — it has already been reviewed.', 'info');
+    else showToast('This case is no longer pending · it has already been reviewed.', 'info');
   }
 
-  if (ticketId) {
-    let t = null;
-    try { t = await api('/api/tickets/' + ticketId); } catch (e) {}
-    if (t && t.status === 'PENDING') openTicketDetail(ticketId);
-    else showToast('This ticket log is no longer pending — it has already been reviewed.', 'info');
-  }
+  // Ticket logs are read-only records — a deep link just opens the log.
+  if (ticketId) openTicketDetail(ticketId);
 }
 
 // On a fresh load triggered by a notification click, the SW opens
@@ -338,16 +1240,18 @@ async function openTicketDeepLink(ticketId) {
 }
 
 // Copy a shareable deep-link to a case/ticket detail.
-function copyCaseLink(caseId) { copyDeepLink('/dashboard?case=' + caseId); }
-function copyTicketLink(ticketId) { copyDeepLink('/dashboard?ticket=' + ticketId); }
+// Deep links must point at the IA dashboard: "/dashboard" is the MET profile
+// page, which knows nothing about ?case= / ?ticket=.
+function copyCaseLink(caseId) { copyDeepLink('/ia/dashboard?case=' + caseId); }
+function copyTicketLink(ticketId) { copyDeepLink('/ia/dashboard?ticket=' + ticketId); }
 function copyDeepLink(path) {
   const url = location.origin + path;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(
       function () { showToast('Link copied.', 'success'); },
-      function () { prompt('Copy this link:', url); });
+      function () { uiPrompt('Copy this link:', { title: 'Copy link', value: url, confirmText: 'Done' }); });
   } else {
-    prompt('Copy this link:', url);
+    uiPrompt('Copy this link:', { title: 'Copy link', value: url, confirmText: 'Done' });
   }
 }
 
@@ -355,6 +1259,7 @@ function copyDeepLink(path) {
 function setupNewCaseButtons() {
   document.getElementById('btn-new-case-dash')?.addEventListener('click', openNewCaseModal);
   document.querySelectorAll('.btn-new-case').forEach(btn => btn.addEventListener('click', openNewCaseModal));
+
 }
 
 // Draft persistence: a new-case draft is kept in the DOM while the modal is
@@ -366,6 +1271,7 @@ function resetCaseForm() {
   officerProfile = null;
   importedCaseExtra = null;
   editingCaseId = null;
+  editingCaseRef = '';
   editingCaseApproved = false;
   const resultEl = document.getElementById('officer-lookup-result');
   if (resultEl) resultEl.style.display = 'none';
@@ -381,15 +1287,15 @@ function resetCaseForm() {
   if (sbtn) sbtn.innerHTML = '<i class="ti ti-send"></i> Submit Case';
   const importBox = document.getElementById('f-import-url')?.closest('.form-group');
   if (importBox) importBox.style.display = '';
-  // Fresh case: no method picked yet — show only the selector until they choose.
-  if (typeof setCaseMode === 'function') setCaseMode('');
-  aiEvidence = [];
-  if (typeof renderEvidenceList === 'function') renderEvidenceList();
-  ['ai-email', 'ai-penal'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  const aiRes = document.getElementById('ai-doc-result'); if (aiRes) aiRes.style.display = 'none';
+  // Importing from the case link IS the normal way to file a case — the case
+  // file is written elsewhere and pasted in, and the import reads the suspect,
+  // the punishments and the exhibits straight out of it. Entering it by hand is
+  // still a click away for the cases that need it.
+  if (typeof setCaseMode === 'function') setCaseMode('import');
   renderActionChecklist();
 }
 
+window.openNewCaseModal = openNewCaseModal;
 function openNewCaseModal() {
   // Start fresh only if there's no draft in progress (or we were editing).
   if (!caseDraftActive || editingCaseId) { resetCaseForm(); caseDraftActive = true; }
@@ -403,29 +1309,28 @@ function setupCaseModeTabs() {
     tab.addEventListener('click', () => setCaseMode(tab.dataset.casemode)));
 }
 // mode '' / null → nothing picked yet: show only the selector chips.
+//   build  — write the case document here on the site (the normal path)
+//   import — pull the details out of an existing (Google) doc link
+//   manual — type everything in, paste your own link
 function setCaseMode(mode) {
   document.querySelectorAll('#case-mode-tabs .filter-tab').forEach(t => {
     if (t.disabled) return;
     t.classList.toggle('active', !!mode && t.dataset.casemode === mode);
   });
   const imp    = document.getElementById('case-manual-import');
-  const ai     = document.getElementById('case-ai-section');
   const fields = document.getElementById('case-fields');
   const link   = document.getElementById('case-link-group');
-  if (!mode) { // pick a method first — hide the import panel and all fields
+  if (!mode) { // pick a method first — hide the panel and all fields
     if (imp)    imp.style.display    = 'none';
-    if (ai)     ai.style.display     = 'none';
     if (fields) fields.style.display = 'none';
     return;
   }
-  // Import panel only in import mode; AI section only in (the disabled) ai mode.
   if (imp)    imp.style.display    = mode === 'import' ? '' : 'none';
-  if (ai)     ai.style.display     = mode === 'ai' ? '' : 'none';
   if (fields) fields.style.display = '';
-  // In AI mode the case link is generated automatically — hide the manual field.
-  if (link)   link.style.display   = mode === 'ai' ? 'none' : '';
-  // Import mode greys the manual fields until a doc import fills them; manual mode
-  // leaves them immediately editable.
+  // The case link is where the case file lives, either way.
+  if (link)   link.style.display   = '';
+  // Import mode greys the manual fields until a doc import fills them; the other
+  // modes leave them immediately editable.
   setCaseFieldsEnabled(mode !== 'import');
 }
 function setCaseFieldsEnabled(enabled) {
@@ -433,83 +1338,6 @@ function setCaseFieldsEnabled(enabled) {
   box.style.opacity      = enabled ? '' : '0.5';
   box.style.pointerEvents = enabled ? '' : 'none';
   box.querySelectorAll('input, textarea, select, button').forEach(el => { el.disabled = !enabled; });
-}
-
-// Evidence collected for the AI document
-let aiEvidence = [];
-function renderEvidenceList() {
-  const box = document.getElementById('ai-evidence-list');
-  if (!box) return;
-  box.innerHTML = aiEvidence.map((e, i) => {
-    const label = String.fromCharCode(65 + i);
-    if (e.kind === 'link') {
-      return `<div style="display:flex;gap:6px;align-items:center;">
-        <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
-        <input type="text" class="form-control" style="flex:1;font-size:12px;padding:5px 8px;" placeholder="https://medal.tv/… or any link" value="${escapeHtml(e.url || '')}" oninput="aiEvidence[${i}].url=this.value" />
-        <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
-      </div>`;
-    }
-    return `<div style="display:flex;gap:6px;align-items:center;">
-      <span style="font-size:11px;color:var(--text-muted);width:14px;">${label}</span>
-      <span style="flex:1;font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="ti ti-paperclip"></i> ${escapeHtml(e.name || e.filename)}</span>
-      <button class="btn btn-ghost btn-sm" type="button" onclick="removeEvidence(${i})"><i class="ti ti-x"></i></button>
-    </div>`;
-  }).join('') || '<div style="font-size:11px;color:var(--text-muted);">No evidence added yet.</div>';
-}
-function addEvidenceLinkRow() { aiEvidence.push({ kind: 'link', url: '' }); renderEvidenceList(); }
-function removeEvidence(i) { aiEvidence.splice(i, 1); renderEvidenceList(); }
-function addEvidenceFiles(files) {
-  Array.prototype.forEach.call(files || [], f => {
-    const r = new FileReader();
-    r.onload = e => { aiEvidence.push({ kind: 'file', dataBase64: e.target.result, mimeType: f.type, filename: f.name, name: f.name }); renderEvidenceList(); };
-    r.readAsDataURL(f);
-  });
-  const inp = document.getElementById('ai-evidence-file'); if (inp) inp.value = '';
-}
-
-async function generateAiDocument() {
-  const v = id => (document.getElementById(id) || {}).value || '';
-  const email = v('ai-email').trim();
-  const penalCodes = v('ai-penal').split(',').map(s => s.trim()).filter(Boolean);
-  // Suspect details come from the officer lookup (same source as Records).
-  const suspectName = (officerProfile && (officerProfile.robloxUsername || officerProfile.username)) || '';
-  const suspectRank = (officerProfile && officerProfile.groupRole) || '';
-  const suspectId   = (officerProfile && (officerProfile.discordId || officerProfile.robloxId)) || '';
-  const punishment  = getSelectedActions().map(a => a.action).join(', ');
-
-  if (!officerProfile || !suspectName) { showToast('Look up the officer (suspect) first.', 'error'); return; }
-  if (!email)            { showToast('Enter your email address.', 'error'); return; }
-  if (!penalCodes.length){ showToast('Enter at least one penal code.', 'error'); return; }
-  if (!punishment)       { showToast('Select at least one punishment.', 'error'); return; }
-
-  const evidence = aiEvidence
-    .map(e => e.kind === 'link' ? { url: e.url } : { dataBase64: e.dataBase64, mimeType: e.mimeType, filename: e.filename })
-    .filter(e => (e.url && e.url.trim()) || e.dataBase64);
-
-  const btn = document.getElementById('btn-ai-generate');
-  const resEl = document.getElementById('ai-doc-result');
-  if (btn) { btn.disabled = true; btn.innerHTML = "<div class='spinner'></div> Generating…"; }
-  try {
-    const d = await api('/api/cases/ai-document', { method: 'POST', body: JSON.stringify({
-      email, penalCodes, punishment,
-      suspect: { user: suspectName, rank: suspectRank, userId: suspectId },
-      evidence,
-    }) });
-    const linkEl = document.getElementById('f-case-link'); if (linkEl) linkEl.value = d.url || '';
-    const reasonEl = document.getElementById('f-reason');
-    if (reasonEl && Array.isArray(d.allegations))
-      reasonEl.value = d.allegations.map(a => a.code + (a.offense ? ' (' + a.offense + ')' : '')).join(', ');
-    if (resEl) {
-      resEl.style.display = '';
-      resEl.innerHTML = "✅ Document created &amp; shared with you. <a href='" + escapeHtml(d.url) + "' target='_blank' rel='noopener' style='color:var(--blue);'>Open document</a> — review it, then Submit Case below.";
-    }
-    showToast('Case document generated.', 'success');
-  } catch (err) {
-    if (resEl) { resEl.style.display = ''; resEl.innerHTML = "<span style='color:var(--red);'>" + escapeHtml(err.message || 'Failed to generate document.') + "</span>"; }
-    showToast(err.message || 'Failed to generate document.', 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = "<i class='ti ti-sparkles'></i> Generate Case Document"; }
-  }
 }
 
 // Show the (estimated) case ID the next submission will receive.
@@ -532,6 +1360,7 @@ function openEditCase(caseId) {
   officerProfile = null;
   importedCaseExtra = null;
   editingCaseId = c.id;
+  editingCaseRef = c.caseRef || '';
   editingCaseApproved = c.status === 'APPROVED';
   caseDraftActive = false; // editing isn't a resumable new-case draft
 
@@ -635,7 +1464,7 @@ function applyDocPunishments(punishments, preserveDurations) {
   (punishments || []).forEach(p => {
     const slug = actionSlug(p.action);
     const cb   = document.getElementById('action-check-' + slug);
-    if (!cb) return; // not a checklist action (e.g. Suspension) — surfaced in notes
+    if (!cb) return; // an action this checklist does not offer — surfaced in notes
     cb.checked = true;
     const durEl = document.getElementById('action-dur-' + slug);
     if (durEl) durEl.style.display = '';
@@ -690,19 +1519,23 @@ async function importCaseFromDoc() {
       investigatorRobloxUsername:  inv.robloxUsername || null,
       investigatorDiscordUsername: inv.discordUsername || null,
       punishmentsSummary:          d.finalDecisionClean || null,
+      // Every exhibit the case file lists, so the case panel can show them as
+      // named links instead of making somebody open the document to find them.
+      evidence:                    Array.isArray(d.evidence) ? d.evidence : [],
     };
 
     if (resEl) {
       resEl.style.display = '';
       resEl.style.color   = 'var(--green)';
-      resEl.innerHTML = '✓ Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
+      resEl.innerHTML = '<i class="ti ti-check"></i> Imported <strong>' + escapeHtml(sus.robloxUsername || sus.discordUsername || sus.discordId || 'suspect') + '</strong>'
         + (sus.groupRole ? ' · ' + escapeHtml(sus.groupRole) : '')
         + (d.punishments?.length ? ' · ' + d.punishments.map(p => escapeHtml(p.action)).join(', ') : '')
-        + ' — review before submitting.';
+        + (d.evidence?.length ? ' · ' + d.evidence.length + ' exhibit' + (d.evidence.length === 1 ? '' : 's') : '')
+        + ' · review before submitting.';
     }
     // Unlock the (previously greyed) manual fields now that they're populated.
     if (typeof setCaseFieldsEnabled === 'function') setCaseFieldsEnabled(true);
-    showToast('Doc imported — review the autofilled fields.', 'success');
+    showToast('Doc imported · review the autofilled fields.', 'success');
   } catch (err) {
     if (resEl) { resEl.style.display = ''; resEl.style.color = 'var(--red)'; resEl.textContent = err.message || 'Failed to import.'; }
     showToast(err.message || 'Failed to import doc.', 'error');
@@ -724,21 +1557,23 @@ function renderActionChecklist(precheck = null) {
     const onRecord    = approvedActions.includes(a.name);
     const isSuggested = a.name === suggestedAction;
     const isExile     = a.exile;
-    const hasRole     = !!a.roleId;
+    const hasRole     = !!a.hasRole;
     const isBlacklist = a.name === 'Blacklist';
 
     let badge = '';
-    if (isExile)     badge = `<span class="ac-badge ac-exile">⚡ ${isBlacklist ? 'EXILE + ROLE' : 'EXILE'}</span>`;
+    if (isExile)     badge = `<span class="ac-badge ac-exile"><i class="ti ti-bolt"></i> ${isBlacklist ? 'EXILE + ROLE' : 'EXILE'}</span>`;
     else if (hasRole) badge = `<span class="ac-badge ac-role">AUTO-ROLE</span>`;
     else              badge = `<span class="ac-badge ac-norole">NO ROLE</span>`;
 
     const onRecordBadge = onRecord
-      ? `<span class="ac-badge ac-onrecord">⚠ on record</span>` : '';
+      ? `<span class="ac-badge ac-onrecord"><i class="ti ti-alert-triangle"></i> on record</span>` : '';
     const suggestedBadge = isSuggested
-      ? `<span class="ac-badge ac-suggested">★ Recommended</span>` : '';
+      ? `<span class="ac-badge ac-suggested"><i class="ti ti-star"></i> Recommended</span>` : '';
 
-    // Duration only shown when the checkbox is checked; hidden otherwise
-    const durationSelect = hasRole ? `
+    // Duration only shown when the checkbox is checked; hidden otherwise — and
+    // only offered at all for a punishment that actually carries one. Gating
+    // this on "has a role" let a Blacklist be given fourteen days.
+    const durationSelect = a.timed ? `
       <select class="ac-duration" id="action-dur-${slug}" style="${isSuggested ? '' : 'display:none'}">
         ${DURATION_OPTIONS.map(d =>
           `<option value="${d.days ?? ''}" ${d.days === null ? 'selected' : ''}>${d.label}</option>`
@@ -820,7 +1655,7 @@ async function lookupOfficer() {
         icon  = 'alert-triangle';
         if (data.isRateLimit) {
           title  = 'RoVer Rate Limited';
-          detail = 'Too many lookups. Wait a minute, then try again — or enter the officer\'s Roblox user ID directly instead.';
+          detail = 'Too many lookups. Wait a minute, then try again · or enter the officer\'s Roblox user ID directly instead.';
         } else {
           title  = 'RoVer Lookup Failed';
           detail = `RoVer API error: ${escapeHtml(data.error || 'unknown')}. Check ROVER_API_KEY.`;
@@ -850,7 +1685,7 @@ async function lookupOfficer() {
       : '';
 
     const suggestedNote = data.suggestedAction
-      ? `<span class="officer-suggested-note">⚠ ${escapeHtml(data.warning)} — <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
+      ? `<span class="officer-suggested-note"><i class="ti ti-alert-triangle"></i> ${escapeHtml(data.warning)} · <strong>${escapeHtml(data.suggestedAction)}</strong> pre-selected</span>`
       : '';
 
     resultEl.innerHTML = `
@@ -869,33 +1704,44 @@ async function lookupOfficer() {
 
     renderActionChecklist();
   } catch {
-    resultEl.innerHTML = `<div class="officer-card officer-card-error"><div class="officer-card-body"><span class="officer-card-detail">Lookup failed — check Discord ID.</span></div></div>`;
+    resultEl.innerHTML = `<div class="officer-card officer-card-error"><div class="officer-card-body"><span class="officer-card-detail">Lookup failed · check Discord ID.</span></div></div>`;
     resultEl.style.display = 'block';
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-search"></i> Lookup'; }
   }
 }
 
-// ── Filter tabs ───────────────────────────────────────────────────
+// ── Filters + search ──────────────────────────────────────────────
+// Every case list has the same pair of controls: a status filter and a search
+// box. This wires them all the same way so they behave identically.
 function setupFilterTabs() {
-  document.querySelectorAll('#dash-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#dash-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); dashFilter = tab.dataset.filter; renderDashTable();
-    })
-  );
-  document.querySelectorAll('#all-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#all-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); allPageFilter = tab.dataset.filter; renderAllCasesTable();
-    })
-  );
-  document.querySelectorAll('#dash-ticket-filter-tabs .filter-tab').forEach(tab =>
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#dash-ticket-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active'); dashTicketFilter = tab.dataset.tfilter; renderDashTickets();
-    })
-  );
+  const tabs = (selector, attr, apply) => {
+    document.querySelectorAll(`${selector} .filter-tab`).forEach(tab =>
+      tab.addEventListener('click', () => {
+        document.querySelectorAll(`${selector} .filter-tab`).forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        apply(tab.dataset[attr]);
+      })
+    );
+  };
+  tabs('#dash-filter-tabs',   'filter',   v => { dashFilter    = v; renderDashTable(); });
+  tabs('#all-filter-tabs',    'filter',   v => { allPageFilter = v; renderAllCasesTable(); });
+  tabs('#my-filter-tabs',     'myfilter', v => { myFilter      = v; renderMyCasesTable(); });
+  tabs('#review-filter-tabs', 'rfilter',  v => { reviewFilter  = v; renderReviewTable(); });
+
+  const search = (id, apply) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => apply(el.value.trim()));
+    // Escape clears the box — the fastest way back to the full list.
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { el.value = ''; apply(''); }
+    });
+  };
+  search('dash-search',      q => { dashQuery   = q; renderDashTable(); });
+  search('my-cases-search',  q => { myQuery     = q; renderMyCasesTable(); });
+  search('all-cases-search', q => { allQuery    = q; renderAllCasesTable(); });
+  search('review-search',    q => { reviewQuery = q; renderReviewTable(); });
 }
 
 // ── Submit Case ───────────────────────────────────────────────────
@@ -913,7 +1759,7 @@ function submitCase() {
   if (!officerInput) { showToast('Officer Discord/Roblox ID or username is required.', 'error'); return; }
   if (!actions.length) { showToast('Select at least one punishment.', 'error'); return; }
   if (!reason)         { showToast('Reason is required.', 'error'); return; }
-  if (!caseLink)       { showToast('Case link is required.', 'error'); return; }
+  if (!caseLink) { showToast('A case link is required.', 'error'); return; }
 
   // Edit mode: save changes + re-post (no submit preview)
   if (editingCaseId) { return doEditCase({ actions, reason, notes, caseLink }); }
@@ -965,8 +1811,8 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
       body:   JSON.stringify({ actions, reason, notes, caseLink, repost }),
     });
     closeModal('modal-submit');
-    editingCaseId = null; editingCaseApproved = false; caseDraftActive = false;
-    showToast(repost ? 'Case updated — log updated.' : 'Case updated.', 'success');
+    editingCaseId = null; editingCaseRef = ''; editingCaseApproved = false; caseDraftActive = false;
+    showToast(repost ? 'Case updated · log updated.' : 'Case updated.', 'success');
     await loadDashboard(); loadAllCases(); loadReview();
   } catch (err) {
     showToast(err.message || 'Failed to save changes.', 'error');
@@ -976,98 +1822,163 @@ async function doEditCase({ actions, reason, notes, caseLink }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────
-async function loadDashboard() { await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadPoints()]); }
+async function loadDashboard() {
+  if (typeof DivQuota !== 'undefined') DivQuota.loadMyQuota('IA', 'dq-IA-mine');
+  await Promise.all([loadStats(), loadDashCases(), loadDashTickets(), loadQuotaHero()]);
+  renderAttention();
+}
 
-// My Activity Points — read from the linked IA Database Google Sheet
-async function loadPoints() {
-  const panel = document.getElementById('points-panel');
-  const body  = document.getElementById('points-body');
-  const totalEl = document.getElementById('points-total');
-  if (!panel || !body) return;
+// ── Weekly quota hero ─────────────────────────────────────────────
+// The weekly target depends on rank (30 Low Command / 20 Middle Command,
+// High Command and LOA exempt). It's the number people actually care about, so
+// it gets the top of the page rather than a panel halfway down.
+async function loadQuotaHero() {
+  const hero = document.getElementById('quota-hero');
+  if (!hero) return;
   try {
     const d = await api('/api/me/points');
-    if (!d || !d.configured || !d.found) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
+    if (!d || !d.configured || !d.found) { hero.style.display = 'none'; return; }
+    hero.style.display = '';
 
-    const q = d.quota || {};
-    // Header summary (top-right)
-    if (totalEl) {
-      if (q.exempt) {
-        totalEl.innerHTML = `<span style="color:var(--purple);font-weight:700;">EXEMPT</span> · ${escapeHtml(d.rank || 'High Command')}`;
-      } else if (q.target != null) {
-        const met = d.total >= q.target;
-        totalEl.innerHTML = `${d.total} / ${q.target} pts`
-          + (met
-              ? ` · <span style="color:var(--green);font-weight:700;">Quota met ✓</span>`
-              : ` · <span style="color:var(--amber);font-weight:700;">${d.remaining} to go</span>`);
-      } else {
-        totalEl.textContent = `Total this week: ${d.total}`;
-      }
-    }
+    const q      = d.quota || {};
+    // No target for an unrecognised rank — show the raw total rather than
+    // inventing a number to measure them against.
+    const target = q.target != null ? q.target : null;
+    const total  = d.total || 0;
+    const met    = q.exempt || (target != null && total >= target);
+    const pct    = q.exempt || target == null ? 100 : Math.min(100, Math.round((total / Math.max(1, target)) * 100));
 
-    // Progress bar + breakdown
-    let progressHtml = '';
-    if (q.exempt) {
-      progressHtml = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
-        ${escapeHtml(d.rank || '')} — exempt from the weekly quota (EX).</div>`;
-    } else if (q.target != null) {
-      const pct = Math.min(100, Math.round((d.total / q.target) * 100));
-      const met = d.total >= q.target;
-      progressHtml = `
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:5px;">
-          <span>${escapeHtml(d.rank || '')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''} — ${q.target} pts/week</span>
-          <span>${d.total}/${q.target}${met ? '' : ` · ${d.remaining} left`}</span>
-        </div>
-        <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:5px;overflow:hidden;margin-bottom:12px;">
-          <div style="height:100%;width:${pct}%;background:${met ? 'var(--green)' : 'var(--amber)'};border-radius:5px;transition:width .3s;"></div>
-        </div>`;
-    }
+    document.getElementById('quota-hero-points').textContent = q.exempt ? 'EX' : total;
+    document.getElementById('quota-hero-target').textContent = (q.exempt || target == null) ? '' : ` / ${target} pts`;
+    document.getElementById('quota-hero-sub').innerHTML = q.exempt
+      ? `${escapeHtml(d.rank || 'High Command')} · exempt from the weekly quota.`
+      : `${escapeHtml(d.rank || 'Internal Affairs')}${q.tier ? ' · ' + escapeHtml(q.tier) : ''}`
+        + (target == null ? ''
+            : met
+              ? ' · <strong style="color:var(--green);">Quota met</strong>'
+              : ` · <strong style="color:var(--amber);">${Math.max(0, target - total)} points to go</strong>`);
+
+    const fill = document.getElementById('quota-hero-fill');
+    fill.style.width = pct + '%';
+    fill.style.background = met ? 'var(--green)' : 'var(--amber)';
+    hero.classList.toggle('quota-met', met);
 
     const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const daysHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${
-      order.map(day => {
-        const v = d.days[day];
-        return `<div style="flex:1;min-width:64px;text-align:center;background:rgba(255,255,255,0.03);border:1px solid var(--border-dim);border-radius:6px;padding:8px 4px;">
-          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">${day}</div>
-          <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:2px;">${escapeHtml(String(v))}</div>
-        </div>`;
-      }).join('')
-    }</div>`;
+    document.getElementById('quota-hero-days').innerHTML = order.map(day => {
+      const v = d.days[day];
+      const has = typeof v === 'number' ? v > 0 : !!v;
+      return `<div class="quota-day${has ? ' quota-day-on' : ''}">
+        <span class="quota-day-name">${day}</span>
+        <span class="quota-day-val">${escapeHtml(String(v))}</span>
+      </div>`;
+    }).join('');
+  } catch (err) { hero.style.display = 'none'; }
+}
 
-    body.innerHTML = progressHtml + daysHtml;
-  } catch (err) { panel.style.display = 'none'; }
+// ── "Needs your attention" ────────────────────────────────────────
+// One place that answers "what do I actually have to do?" — cases sent back to
+// you, and (for reviewers) the queue waiting on a decision.
+let attentionState = { changes: [], pending: 0 };
+
+function renderAttention() {
+  const panel = document.getElementById('attention-panel');
+  const box   = document.getElementById('attention-items');
+  if (!panel || !box) return;
+
+  const items = [];
+  attentionState.changes.forEach(c => {
+    items.push(`<button class="attention-item" onclick="openDetail('${c.id}')">
+      <i class="ti ti-edit-circle" style="color:var(--amber);"></i>
+      <span><strong>${escapeHtml(c.caseRef)}</strong> needs changes · ${escapeHtml((c.reviewNote || '').slice(0, 90))}</span>
+      <i class="ti ti-chevron-right"></i>
+    </button>`);
+  });
+  if (attentionState.pending > 0 && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role)) {
+    items.push(`<button class="attention-item" onclick="navigateTo('review')">
+      <i class="ti ti-clipboard-check" style="color:var(--blue);"></i>
+      <span><strong>${attentionState.pending}</strong> case${attentionState.pending === 1 ? '' : 's'} waiting on a decision</span>
+      <i class="ti ti-chevron-right"></i>
+    </button>`);
+  }
+
+  if (!items.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  box.innerHTML = items.join('');
 }
 
 async function loadStats() {
   try {
-    const [stats, mine, myTickets] = await Promise.all([
+    const [stats, mine, tickets] = await Promise.all([
       api('/api/cases/stats'),
       api('/api/cases/stats?scope=mine'),
-      api('/api/tickets/stats?scope=mine'),
+      api('/api/tickets/stats').catch(() => null),
     ]);
-    if (stats) {
-      document.getElementById('stat-total').textContent    = stats.total;
-      document.getElementById('stat-pending').textContent  = stats.pending;
-      document.getElementById('stat-approved').textContent = stats.approved;
-      document.getElementById('stat-denied').textContent   = stats.denied;
-      const badge = document.getElementById('nav-badge-review');
-      if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
-    }
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    if (mine) {
-      set('stat-my-total',    mine.total);
-      set('stat-my-pending',  mine.pending);
-      set('stat-my-approved', mine.approved);
-      set('stat-my-denied',   mine.denied);
+
+    // The overview cards are the signed-in investigator's OWN figures. They
+    // used to show the whole of Internal Affairs, so "Total Cases" was the
+    // department's total sitting under somebody's personal dashboard — which
+    // reads as theirs and is not.
+    const own = mine || stats;
+    if (own) {
+      set('stat-total',      own.total);
+      set('stat-pending',    own.pending);
+      set('stat-approved',   own.approved);
+      set('stat-denied',     own.denied);
+      set('stat-overturned', own.overturned || 0);
     }
-    if (myTickets) {
-      set('stat-my-ticket-total',    myTickets.total);
-      set('stat-my-ticket-pending',  myTickets.pending);
-      set('stat-my-ticket-approved', myTickets.approved);
-      set('stat-my-ticket-denied',   myTickets.denied);
+
+    // The BADGES stay department-wide: they are the review queue, which is
+    // everybody's, and a supervisor needs to see all of it.
+    if (stats) {
+      for (const id of ['nav-badge-review', 'pending-cases-badge']) {
+        const badge = document.getElementById(id);
+        if (badge) { badge.textContent = stats.pending; badge.style.display = stats.pending > 0 ? '' : 'none'; }
+      }
+      attentionState.pending = stats.pending || 0;
+    }
+    if (mine) {
+      const myBadge = document.getElementById('nav-badge-my');
+      if (myBadge) {
+        myBadge.textContent = mine.changesRequested || 0;
+        myBadge.style.display = (mine.changesRequested || 0) > 0 ? '' : 'none';
+      }
+    }
+    if (tickets) {
+      set('stat-tickets-week', tickets.mineWeek || 0);
+      // How many ticket logs are still waiting on a supervisor — shown on the
+      // All Tickets "Pending" tab and the nav, so the sign-off queue is visible
+      // without having to go looking for it.
+      const waiting = tickets.pending || 0;
+      for (const id of ['all-tickets-pending-badge', 'nav-badge-tickets', 'casework-ticket-badge', 'pending-tickets-badge']) {
+        const b = document.getElementById(id);
+        if (b) { b.textContent = waiting; b.style.display = waiting > 0 ? '' : 'none'; }
+      }
     }
   } catch (err) { console.error('Stats error:', err); }
 }
+
+// ── Case search + filter helpers ──────────────────────────────────
+// One matcher shared by every case list, so search behaves identically on the
+// dashboard, My Cases, All Cases and the review queue.
+function caseMatches(c, q) {
+  if (!q) return true;
+  const hay = [
+    c.caseRef, c.action, c.reason, c.notes, c.robloxUsername, c.robloxUserId,
+    c.officerDiscordId, c.suspectRobloxDisplayName, c.investigatorRobloxUsername,
+    c.investigatorDiscordUsername, c.punishmentsSummary, c.appealedByName, c.reviewNote,
+    c.user && (c.user.displayName || c.user.discordUsername),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
+
+function filterCases(list, status, q) {
+  return (list || [])
+    .filter(c => status === 'all' || c.status === status)
+    .filter(c => caseMatches(c, q));
+}
+
+let dashQuery = '', myQuery = '', myFilter = 'all', allQuery = '', reviewQuery = '', reviewFilter = 'all';
 
 async function loadDashCases() {
   const tbody = document.getElementById('dash-cases-tbody');
@@ -1076,7 +1987,9 @@ async function loadDashCases() {
   try {
     const cases = await api('/api/cases/my');
     allCasesCache = cases || [];
+    attentionState.changes = allCasesCache.filter(caseAwaitingChanges);
     renderDashTable();
+    renderAttention();
   } catch {
     tbody.innerHTML = `<tr><td colspan="6" class="table-empty"><span class="table-empty-text">Failed to load cases.</span></td></tr>`;
   }
@@ -1086,52 +1999,60 @@ function renderDashTable() {
   const tbody = document.getElementById('dash-cases-tbody');
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
-  const filtered   = dashFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === dashFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, 'No cases found'); return; }
+  const filtered   = filterCases(allCasesCache, dashFilter, dashQuery).slice(0, 25);
+  if (!filtered.length) { tbody.innerHTML = emptyRow(isElevated ? 6 : 5, dashQuery ? 'No cases match that search.' : 'No cases yet · press “Submit Case” to file one.'); return; }
   tbody.innerHTML = filtered.map(c => `
-    <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
       <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
       ${isElevated ? `<td onclick="event.stopPropagation();">${c.status === 'PENDING' ? rowActions(c) : ''}</td>` : ''}
     </tr>`).join('');
 }
 
-// ── Recent Ticket Logs (the user's own) ───────────────────────────
-let dashTicketFilter  = 'all';
-let dashTicketsCache  = [];
+// Row highlight: amber for "needs your changes", blue for "submitter updated it".
+function caseRowClass(c) {
+  if (caseAwaitingChanges(c)) return 'row-changes';
+  if (caseWasUpdated(c))      return 'row-updated';
+  return '';
+}
+
+// ── Tickets I closed (dashboard preview) ──────────────────────────
+let dashTicketsCache = [];
 
 async function loadDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const tickets = await api('/api/tickets');
-    dashTicketsCache = tickets || [];
+    dashTicketsCache = (await api('/api/tickets?take=8')) || [];
     renderDashTickets();
   } catch {
-    tbody.innerHTML = '<tr><td colspan="5" class="table-empty"><span class="table-empty-text">Failed to load tickets.</span></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="table-empty"><span class="table-empty-text">Failed to load ticket logs.</span></td></tr>';
   }
 }
 
 function renderDashTickets() {
   const tbody = document.getElementById('dash-tickets-tbody');
   if (!tbody) return;
-  const filtered = dashTicketFilter === 'all' ? dashTicketsCache : dashTicketsCache.filter(t => t.status === dashTicketFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(5, 'No ticket logs found'); return; }
+  const rows = dashTicketsCache.slice(0, 8);
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(5, 'No tickets closed by you yet · they appear here automatically.');
+    return;
+  }
   const TLmap = (typeof TL !== 'undefined') ? TL : {};
   const TCmap = (typeof TC !== 'undefined') ? TC : {};
-  tbody.innerHTML = filtered.map(t => {
+  tbody.innerHTML = rows.map(t => {
     const c = TCmap[t.ticketType] || 'blue';
     const l = TLmap[t.ticketType] || t.ticketType;
     return `<tr onclick="openTicketDetail('${t.id}')">
-      <td><span class="case-ref">${escapeHtml(t.ticketRef)}</span></td>
-      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.robloxUsername || '—')}</span></td>
+      <td><span class="case-ref">${escapeHtml(t.ticketRef || t.ticketName || '·')}</span></td>
+      <td><span style="font-size:12px;font-weight:500;">${escapeHtml(t.creatorRobloxUsername || t.creatorUsername || '·')}</span></td>
       <td><span class="badge badge-${c}"><span class="badge-dot"></span>${escapeHtml(l)}</span></td>
-      <td>${statusBadge(t.status)}</td>
-      <td><span class="date-cell">${formatDate(t.createdAt)}</span></td>
+      <td><span class="case-reason-cell">${escapeHtml(t.reason || '·')}</span></td>
+      <td><span class="date-cell">${formatDate(t.closedAt)}</span></td>
     </tr>`;
   }).join('');
 }
@@ -1142,44 +2063,77 @@ async function loadMyCases() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/my');
-    allCasesCache = cases || [];
-    if (!cases?.length) { tbody.innerHTML = emptyRow(6, 'No cases submitted yet.'); return; }
-    tbody.innerHTML = cases.map(c => `
-      <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
-        <td>${actionBadges(cleanAction(c.action))}</td>
-        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-        <td><span class="case-notes-cell">${escapeHtml(c.notes)}</span></td>
-        <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
-        <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
-      </tr>`).join('');
+    allCasesCache = (await api('/api/cases/my')) || [];
+    renderMyCasesTable();
   } catch { tbody.innerHTML = emptyRow(6, 'Failed to load cases.'); }
+}
+
+function renderMyCasesTable() {
+  const tbody = document.getElementById('my-cases-tbody');
+  if (!tbody) return;
+  const rows = filterCases(allCasesCache, myFilter, myQuery);
+  const count = document.getElementById('my-cases-count');
+  if (count) count.textContent = `${rows.length} of ${allCasesCache.length} shown`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(6, allCasesCache.length ? 'No cases match that search.' : 'No cases submitted yet.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
+      <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
+      <td>${officerCell(c)}</td>
+      <td>${actionBadges(cleanAction(c.action))}</td>
+      <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
+      <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
+      <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
+    </tr>`).join('');
 }
 
 // ── Review Queue ──────────────────────────────────────────────────
 async function loadReview() {
   const tbody = document.getElementById('review-tbody');
-  const label = document.getElementById('pending-count-label');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/all?status=PENDING');
-    allCasesCache = cases || [];
-    if (label) label.textContent = `${cases?.length || 0} awaiting decision`;
-    if (!cases?.length) { tbody.innerHTML = emptyRow(8, 'No pending cases — all caught up.'); return; }
-    tbody.innerHTML = cases.map(c => `
-      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
-        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${caseAwaitingChanges(c) ? '<br>' + changesBadge(c) : ''}</td>
+    allCasesCache = (await api('/api/cases/all?status=PENDING')) || [];
+    renderReviewTable();
+  } catch { tbody.innerHTML = emptyRow(8, 'Failed to load cases.'); }
+}
+
+function renderReviewTable() {
+  const tbody = document.getElementById('review-tbody');
+  const label = document.getElementById('pending-count-label');
+  if (!tbody) return;
+
+  let rows = allCasesCache.filter(c => caseMatches(c, reviewQuery));
+  if (reviewFilter === 'changes')      rows = rows.filter(caseAwaitingChanges);
+  else if (reviewFilter === 'updated') rows = rows.filter(caseWasUpdated);
+  else if (reviewFilter === 'new')     rows = rows.filter(c => !caseAwaitingChanges(c) && !caseWasUpdated(c));
+
+  if (label) label.textContent = `${rows.length} of ${allCasesCache.length} awaiting decision`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(8, allCasesCache.length ? 'Nothing matches that filter.' : 'No pending cases · all caught up.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => {
+    const rev = lastRevision(c);
+    return `
+      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;" class="${caseRowClass(c)}">
+        <td><span class="case-ref">${escapeHtml(c.caseRef)}</span>${
+          originBadge(c) ? '<br>' + originBadge(c) : ''}${changesBadge(c) ? '<br>' + changesBadge(c) : ''}</td>
         <td>${caseInvestigatorCell(c)}</td>
         <td>${officerCell(c)}</td>
         <td>${actionBadges(cleanAction(c.action))}</td>
-        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
+        <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span>${
+          caseWasUpdated(c) && rev
+            ? `<div class="row-diff-hint" title="${escapeHtml(rev.changes.map(x => x.label + ': ' + x.before + ' → ' + x.after).join(' · '))}">
+                 <i class="ti ti-git-compare"></i> ${escapeHtml(rev.changes.map(x => x.label).join(', '))} updated
+               </div>` : ''}</td>
         <td><span class="case-notes-cell">${escapeHtml(c.notes)}</span></td>
         <td><span class="date-cell">${formatDateTime(c.createdAt)}</span></td>
         <td onclick="event.stopPropagation();">${rowActions(c)}</td>
-      </tr>`).join('');
-  } catch { tbody.innerHTML = emptyRow(8, 'Failed to load cases.'); }
+      </tr>`;
+  }).join('');
 }
 
 // ── All Cases ─────────────────────────────────────────────────────
@@ -1188,8 +2142,7 @@ async function loadAllCases() {
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const cases = await api('/api/cases/all');
-    allCasesCache = cases || [];
+    allCasesCache = (await api('/api/cases/all')) || [];
     renderAllCasesTable();
   } catch { tbody.innerHTML = emptyRow(7, 'Failed to load cases.'); }
 }
@@ -1199,19 +2152,24 @@ function renderAllCasesTable() {
   if (!tbody) return;
   const isElevated = ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(currentUser?.role);
   const cols = isElevated ? 8 : 7;
-  const filtered = allPageFilter === 'all' ? allCasesCache : allCasesCache.filter(c => c.status === allPageFilter);
-  if (!filtered.length) { tbody.innerHTML = emptyRow(cols, 'No cases found.'); return; }
-  tbody.innerHTML = filtered.map(c => `
-    <tr onclick="openDetail('${c.id}')" class="${caseAwaitingChanges(c) ? 'row-changes' : ''}">
+  const rows = filterCases(allCasesCache, allPageFilter, allQuery);
+  const count = document.getElementById('all-cases-count');
+  if (count) count.textContent = `${rows.length} of ${allCasesCache.length} shown`;
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(cols, allCasesCache.length ? 'No cases match that search.' : 'No cases found.');
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr onclick="openDetail('${c.id}')" class="${caseRowClass(c)}">
       <td><span class="case-ref">${escapeHtml(c.caseRef)}</span></td>
       <td>${caseInvestigatorCell(c)}</td>
       <td>${officerCell(c)}</td>
       <td>${actionBadges(cleanAction(c.action))}</td>
       <td><span class="case-reason-cell">${escapeHtml(c.reason)}</span></td>
-      <td>${statusBadge(c.status)} ${changesBadge(c)}</td>
+      <td>${statusBadge(c.status)} ${originBadge(c)} ${changesBadge(c)}</td>
       <td><span class="date-cell">${formatDate(c.createdAt)}</span></td>
       ${isElevated ? `<td onclick="event.stopPropagation();">${c.status === 'PENDING'
-          ? `<button class="row-btn row-btn-approve btn-sm" onclick="goReviewCase('${c.id}')"><i class="ti ti-clipboard-check"></i> Review</button>`
+          ? reviewElsewhereChip(`goReviewCase('${c.id}')`)
           : ''}</td>` : ''}
     </tr>`).join('');
 }
@@ -1223,7 +2181,12 @@ async function loadAudit() {
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const actions = await api('/api/cases/audit');
-    if (!actions?.length) { tbody.innerHTML = emptyRow(5, 'No audit entries yet.'); return; }
+    if (!actions?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-list-details', title: 'No audit entries yet', sub: 'Case actions will be recorded here.' })}</td></tr>`
+        : emptyRow(5, 'No audit entries yet.');
+      return;
+    }
     const actionBadges = {
       CREATED:       '<span class="badge badge-ia"><span class="badge-dot"></span>Created</span>',
       APPROVED:      '<span class="badge badge-approved"><span class="badge-dot"></span>Approved</span>',
@@ -1236,9 +2199,9 @@ async function loadAudit() {
       <tr>
         <td><span class="date-cell">${formatDateTime(a.timestamp)}</span></td>
         <td>${actionBadges[a.actionType] || `<span class="badge">${a.actionType}</span>`}</td>
-        <td><span class="case-ref">${escapeHtml(a.case?.caseRef || '—')}</span></td>
-        <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(a.user?.displayName || a.user?.discordUsername || '—')}</span></td>
-        <td><span style="font-size:11px;color:var(--text-muted);">${escapeHtml(a.notes || '—')}</span></td>
+        <td><span class="case-ref">${escapeHtml(a.case?.caseRef || '·')}</span></td>
+        <td><span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(a.user?.displayName || a.user?.discordUsername || '·')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-muted);">${escapeHtml(a.notes || '·')}</span></td>
       </tr>`).join('');
   } catch { tbody.innerHTML = emptyRow(5, 'Failed to load audit log.'); }
 }
@@ -1253,13 +2216,18 @@ async function loadAccessGrants() {
   tbody.innerHTML = '<tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
     const grants = await api('/api/admin/access-grants');
-    if (!grants?.length) { tbody.innerHTML = emptyRow(5, 'No authorised users yet.'); return; }
+    if (!grants?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-users', title: 'No authorised users yet', sub: 'Grant access using the form above.' })}</td></tr>`
+        : emptyRow(5, 'No authorised users yet.');
+      return;
+    }
     const roleLabel = { IA: 'Internal Affairs', HICOMM: 'HICOMM', SUPERVISOR: 'Supervisor', DEVELOPER: 'Developer' };
     tbody.innerHTML = grants.map(g => `
       <tr>
         <td><span class="case-ref" style="font-size:10px;">${escapeHtml(g.discordId)}</span></td>
         <td><span class="badge badge-${g.role === 'DEVELOPER' ? 'amber' : (g.role === 'HICOMM' || g.role === 'SUPERVISOR') ? 'blue' : 'approved'}"><span class="badge-dot"></span>${roleLabel[g.role] || g.role}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(g.note || '—')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(g.note || '·')}</span></td>
         <td><span class="date-cell">${formatDate(g.createdAt)}</span></td>
         <td><div class="admin-actions">
           <button class="row-btn row-btn-deny btn-sm" onclick="revokeAccessGrant('${g.id}')"><i class="ti ti-user-x"></i> Revoke</button>
@@ -1283,7 +2251,7 @@ async function addAccessGrant() {
 }
 
 async function revokeAccessGrant(id) {
-  if (!confirm('Revoke this user\'s authorised access? They will be logged out immediately and can only return if they hold the required Discord roles.')) return;
+  if (!(await uiConfirm('Revoke this user\'s authorised access? They will be logged out immediately and can only return if they hold the required Discord roles.'))) return;
   try {
     await api(`/api/admin/access-grants/${id}`, { method: 'DELETE' });
     showToast('Access revoked.', 'info');
@@ -1301,15 +2269,232 @@ async function loadAdminStats() {
   } catch {}
 }
 
+// The MET umbrella group's rank ladder (for the MET-rank override dropdown),
+// fetched once and cached for the session.
+let _metRolesCache = null;
+async function metRolesOnce() {
+  if (_metRolesCache) return _metRolesCache;
+  try { _metRolesCache = await api('/api/admin/met-roles'); } catch (e) { _metRolesCache = []; }
+  return _metRolesCache || [];
+}
+// ── Custom site-UI dropdowns for the admin user row ──────────────────
+// Two developer controls, styled to the site (not native <select>s):
+//   1. Panels — a multi-select of every divisional panel (+ each division's
+//      HICOMM, IA Supervisor, and MET High Command). Additive: the panels a
+//      user already has via group rank are shown "(default)" and locked on;
+//      ticking extras GRANTS that access site-wide.
+//   2. MET rank — a single-select of every MET rank; their natural (group)
+//      rank is marked "(default)" and pre-selected when no override is set.
+
+// The panel catalogue (order + labels). token → { label, div, lead }
+const PANEL_CATALOG = [
+  { token: 'MET',            label: 'MET High Command',    group: 'MET' },
+  { token: 'CID',            label: 'CID',                 group: 'CID' },
+  { token: 'CID:LEAD',       label: 'CID High Command',    group: 'CID' },
+  { token: 'SCO19',          label: 'SCO-19',              group: 'SCO19' },
+  { token: 'SCO19:LEAD',     label: 'SCO-19 High Command', group: 'SCO19' },
+  { token: 'IA',             label: 'Internal Affairs',    group: 'IA' },
+  { token: 'IA:SUPERVISOR',  label: 'IA Supervisor',       group: 'IA' },
+  { token: 'IA:LEAD',        label: 'IA High Command',     group: 'IA' },
+  { token: 'FLP',            label: 'Frontline Policing',  group: 'FLP' },
+  { token: 'FLP:LEAD',       label: 'FLP High Command',    group: 'FLP' },
+  { token: 'HPC',            label: 'Hendon Police College',group: 'HPC' },
+  { token: 'HPC:LEAD',       label: 'HPC High Command',    group: 'HPC' },
+];
+const PANEL_COLORS = { MET: '#4a8fff', CID: '#e8842a', SCO19: '#4b5563', IA: '#c2701f', FLP: '#5cc0ff', HPC: '#e8eef7' };
+
+// Which tokens a user holds NATURALLY (from group rank) — from their cached
+// divisions, excluding developer-granted entries.
+function naturalPanelTokens(u) {
+  const set = new Set();
+  const divs = Array.isArray(u.divisions) ? u.divisions.filter(d => d && !d.granted) : [];
+  if (divs.some(d => d.metHicomm)) set.add('MET');
+  for (const d of divs) {
+    if (!d.division) continue;
+    if (d.division === 'MET') { set.add('MET'); continue; }
+    set.add(d.division);                              // member-level
+    if (d.tier === 'LEAD') set.add(d.division + ':LEAD'); // + HICOMM tier
+  }
+  return set;
+}
+function grantedPanelTokens(u) {
+  return new Set(Array.isArray(u.panelGrant) ? u.panelGrant.map(String) : []);
+}
+
+function panelsDropdownTrigger(u) {
+  const nat = naturalPanelTokens(u), grant = grantedPanelTokens(u);
+  const active = PANEL_CATALOG.filter(p => nat.has(p.token) || grant.has(p.token));
+  const chips = active.length
+    ? active.slice(0, 4).map(p => `<span class="met-cd-chip" style="--c:${PANEL_COLORS[p.group] || '#8b93a1'}">${escapeHtml(p.label)}</span>`).join('')
+      + (active.length > 4 ? `<span class="met-cd-chip more">+${active.length - 4}</span>` : '')
+    : '<span style="color:var(--text-muted);font-size:11px;">No panels</span>';
+  return `<button type="button" class="met-cd-trigger" title="Panel access" onclick="openPanelsDropdown('${u.id}',event)">
+    <span class="met-cd-chips">${chips}</span><i class="ti ti-chevron-down met-cd-caret"></i></button>`;
+}
+function metRankDropdownTrigger(u, metRoles) {
+  const override = u.metRankOverride && u.metRankOverride.name;
+  const natural  = u.metRankNatural && u.metRankNatural.name;
+  const label = override || natural || 'No MET rank';
+  const tag = override ? '<span class="met-cd-tag over">override</span>' : (natural ? '<span class="met-cd-tag def">default</span>' : '');
+  return `<button type="button" class="met-cd-trigger" title="Site-only MET rank" onclick="openMetRankDropdown('${u.id}',event)">
+    <span class="met-cd-rank">${escapeHtml(label)}</span>${tag}<i class="ti ti-chevron-down met-cd-caret"></i></button>`;
+}
+
+// ── Shared popover host (body-appended so the table never clips it) ──
+let _metCdOutside = null;
+function closeMetCd() {
+  const p = document.getElementById('met-cd-pop'); if (p) p.remove();
+  if (_metCdOutside) { document.removeEventListener('mousedown', _metCdOutside, true); document.removeEventListener('keydown', _metCdEsc, true); _metCdOutside = null; }
+}
+function _metCdEsc(e) { if (e.key === 'Escape') closeMetCd(); }
+function openMetCd(anchorEl, innerHtml, onMount) {
+  closeMetCd();
+  const pop = document.createElement('div');
+  pop.id = 'met-cd-pop'; pop.className = 'met-cd-pop glass';
+  pop.innerHTML = innerHtml;
+  document.body.appendChild(pop);
+  const r = anchorEl.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6); // flip up
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  _metCdOutside = (e) => { if (!pop.contains(e.target)) closeMetCd(); };
+  setTimeout(() => { document.addEventListener('mousedown', _metCdOutside, true); document.addEventListener('keydown', _metCdEsc, true); }, 0);
+  if (onMount) onMount(pop);
+}
+
+// ── Panels multi-select popover ─────────────────────────────────────
+window.openPanelsDropdown = function (userId, ev) {
+  if (ev) ev.stopPropagation();
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const anchor = ev && ev.currentTarget ? ev.currentTarget : ev.target.closest('.met-cd-trigger');
+  const nat = naturalPanelTokens(u), grant = grantedPanelTokens(u);
+  let rowsHtml = '';
+  let lastGroup = null;
+  for (const p of PANEL_CATALOG) {
+    if (p.group !== lastGroup) { lastGroup = p.group; }
+    const isDefault = nat.has(p.token);
+    const checked = isDefault || grant.has(p.token);
+    const c = PANEL_COLORS[p.group] || '#8b93a1';
+    rowsHtml += `<label class="met-cd-opt ${isDefault ? 'is-default' : ''}">
+      <input type="checkbox" data-token="${p.token}" ${checked ? 'checked' : ''} ${isDefault ? 'disabled' : ''}>
+      <span class="met-cd-dot" style="background:${c}"></span>
+      <span class="met-cd-lbl">${escapeHtml(p.label)}</span>
+      ${isDefault ? '<span class="met-cd-def">(default)</span>' : ''}
+    </label>`;
+  }
+  const html = `<div class="met-cd-head">Panel access<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
+    <div class="met-cd-note">Defaults come from their ranks and stay on. Tick extras to grant access.</div>
+    <div class="met-cd-list">${rowsHtml}</div>
+    <div class="met-cd-foot">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="savePanelGrants('${u.id}')"><i class="ti ti-check"></i> Save</button>
+    </div>`;
+  openMetCd(anchor, html);
+};
+window.savePanelGrants = async function (userId) {
+  const pop = document.getElementById('met-cd-pop'); if (!pop) return;
+  // Save only the NON-default ticked tokens (defaults are effective anyway).
+  const grants = [].slice.call(pop.querySelectorAll('input[type="checkbox"][data-token]'))
+    .filter(cb => cb.checked && !cb.disabled).map(cb => cb.getAttribute('data-token'));
+  try {
+    const r = await api(`/api/admin/users/${userId}/panels`, { method: 'PATCH', body: JSON.stringify({ grants }) });
+    const u = (window._adminUsers || {})[userId]; if (u) u.panelGrant = r.panelGrant || null;
+    // Refresh just this row's trigger.
+    const btn = document.querySelector(`.met-cd-trigger[onclick*="openPanelsDropdown('${userId}'"]`);
+    if (btn && u) btn.outerHTML = panelsDropdownTrigger(u);
+    closeMetCd();
+    showToast(grants.length ? 'Panel access granted (applies on their next request)' : 'Extra panel grants cleared', 'success');
+  } catch (e) { showToast(e.message || 'Failed to save panels', 'error'); }
+};
+
+// ── MET rank single-select popover ──────────────────────────────────
+window.openMetRankDropdown = async function (userId, ev) {
+  if (ev) ev.stopPropagation();
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const anchor = ev && ev.currentTarget ? ev.currentTarget : ev.target.closest('.met-cd-trigger');
+  const metRoles = await metRolesOnce();
+  const curRank = u.metRankOverride ? Number(u.metRankOverride.rank) : null;
+  const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
+  const selRank = curRank != null ? curRank : natRank;   // default-select the natural rank
+  let opts = `<label class="met-cd-opt"><input type="radio" name="metrank" value="" ${selRank == null ? 'checked' : ''}><span class="met-cd-lbl" style="color:var(--text-muted);">· No MET rank ·</span></label>`;
+  opts += (metRoles || []).map(r => {
+    const isDef = natRank != null && Number(r.rank) === natRank;
+    return `<label class="met-cd-opt ${isDef ? 'is-default' : ''}"><input type="radio" name="metrank" value="${r.rank}" ${Number(r.rank) === selRank ? 'checked' : ''}>
+      <span class="met-cd-lbl">${escapeHtml(r.name)}</span>${isDef ? '<span class="met-cd-def">(default)</span>' : ''}</label>`;
+  }).join('');
+  const html = `<div class="met-cd-head">MET rank<span class="met-cd-sub">${escapeHtml(u.displayName || u.discordUsername)}</span></div>
+    <div class="met-cd-note">Site-only. Deputy Commissioner+ grants MET High Command everywhere. Picking their (default) clears the override.</div>
+    <div class="met-cd-list">${opts}</div>
+    <div class="met-cd-foot">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeMetCd()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="saveMetRank('${u.id}')"><i class="ti ti-check"></i> Save</button>
+    </div>`;
+  openMetCd(anchor, html);
+};
+window.saveMetRank = async function (userId) {
+  const pop = document.getElementById('met-cd-pop'); if (!pop) return;
+  const u = (window._adminUsers || {})[userId]; if (!u) return;
+  const picked = pop.querySelector('input[name="metrank"]:checked');
+  const rankVal = picked ? picked.value : '';
+  const natRank = u.metRankNatural ? Number(u.metRankNatural.rank) : null;
+  let body;
+  if (!rankVal || (natRank != null && Number(rankVal) === natRank)) {
+    body = { clear: true };                              // none, or their natural rank → clear override
+  } else {
+    const roles = _metRolesCache || [];
+    const role = roles.find(r => String(r.rank) === String(rankVal));
+    if (!role) return;
+    body = { name: role.name, rank: role.rank };
+  }
+  try {
+    const r = await api(`/api/admin/users/${userId}/met-rank`, { method: 'PATCH', body: JSON.stringify(body) });
+    u.metRankOverride = r.metRankOverride || null;
+    const btn = document.querySelector(`.met-cd-trigger[onclick*="openMetRankDropdown('${userId}'"]`);
+    if (btn) btn.outerHTML = metRankDropdownTrigger(u);
+    closeMetCd();
+    showToast(body.clear ? 'MET rank set to their default' : 'MET rank override set (applies on their next request)', 'success');
+  } catch (e) { showToast(e.message || 'Failed to set MET rank', 'error'); }
+};
+
+// Dedupe IA→MET migration duplicate case/ticket logs. preview=false → apply.
+async function dedupeMigration(apply) {
+  const box = document.getElementById('dedupe-results');
+  if (apply && !confirm('Delete the duplicate case/ticket logs? The canonical (native) record is kept. This cannot be undone.')) return;
+  if (box) box.innerHTML = '<div class="table-loading" style="padding:8px;"><div class="spinner"></div></div>';
+  try {
+    const r = await api('/api/admin/dedupe-migration-logs', { method: 'POST', body: JSON.stringify({ apply, scope: 'all' }) });
+    const line = (name, s) => `<div style="margin-top:6px;"><strong>${name}:</strong> ${s.count} duplicate(s)${apply ? ` · deleted ${s.deleted}` : ''}` +
+      (s.report && s.report.length ? `<ul style="margin:4px 0 0 16px;color:var(--text-muted);">${s.report.slice(0, 40).map(g =>
+        `<li>keep <code>${escapeHtml(g.keep)}</code> (${escapeHtml(g.keepOrigin)}) · remove ${g.remove.map(x => `<code>${escapeHtml(x.ref)}</code>`).join(', ')}</li>`).join('')}</ul>` : '') + '</div>';
+    if (box) box.innerHTML = `<div style="border:1px solid var(--border,#2a3040);border-radius:8px;padding:10px;">
+      ${apply ? '<div style="color:var(--green,#28c76f);font-weight:600;">Cleanup applied.</div>' : '<div style="color:var(--amber);font-weight:600;">Preview only · nothing deleted.</div>'}
+      ${line('Tickets', r.tickets)}${line('Cases', r.cases)}
+      ${(r.tickets.count + r.cases.count) === 0 ? `<div style="margin-top:6px;color:var(--text-muted);">No migration duplicates found. ${met.e('met_celebrate')}</div>` : ''}
+    </div>`;
+    if (apply) showToast(`Removed ${r.tickets.deleted + r.cases.deleted} duplicate log(s)`, 'success');
+  } catch (e) {
+    if (box) box.innerHTML = `<div style="color:var(--red,#e2231a);">${escapeHtml(e.message || 'Failed')}</div>`;
+  }
+}
+
 async function loadAdminUsers() {
   const tbody = document.getElementById('admin-users-tbody');
   if (!tbody) return;
   tbody.innerHTML = '<tr><td colspan="10" class="table-loading"><div class="spinner"></div></td></tr>';
   try {
-    const users = await api('/api/admin/users');
-    if (!users?.length) { tbody.innerHTML = emptyRow(10, 'No users found.'); return; }
-    const roleOptions = r => ['IA','HICOMM','SUPERVISOR','DEVELOPER'].map(v =>
-      `<option value="${v}" ${r === v ? 'selected' : ''}>${v}</option>`).join('');
+    const [users, metRoles] = await Promise.all([api('/api/admin/users'), metRolesOnce()]);
+    if (!users?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="10">${window.metEmpty({ icon: 'ti-users', title: 'No users found', sub: 'No accounts match yet.' })}</td></tr>`
+        : emptyRow(10, 'No users found.');
+      return;
+    }
+    // Stash each user so the custom panel/MET-rank dropdowns can read their
+    // divisions, grants and natural rank when opened.
+    window._adminUsers = {};
+    users.forEach(u => { window._adminUsers[u.id] = u; });
     tbody.innerHTML = users.map(u => `
       <tr class="${u.isBlacklisted ? 'blacklisted-row' : ''}">
         <td>
@@ -1324,19 +2509,22 @@ async function loadAdminUsers() {
         <td><span class="case-ref" style="font-size:10px;">${escapeHtml(u.discordId)}</span></td>
         <td>${u.robloxUsername || u.robloxId
             ? `<div style="display:flex;flex-direction:column;gap:1px;">
-                 <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(u.robloxUsername || '—')}</span>
+                 <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(u.robloxUsername || '·')}</span>
                  ${u.robloxId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(u.robloxId)}</span>` : ''}
                </div>`
             : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>'}</td>
-        <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
-        <td><select class="role-select" onchange="changeUserRole('${u.id}',this.value)">${roleOptions(u.role)}</select></td>
+        <td><span class="case-ref" style="font-size:10px;">${u.lastIp ? escapeHtml(u.lastIp) : '<span style="color:var(--text-muted);">·</span>'}</span></td>
+        <td><div style="display:flex;flex-direction:column;gap:6px;min-width:210px;">
+          ${panelsDropdownTrigger(u)}
+          ${metRankDropdownTrigger(u, metRoles)}
+        </div></td>
         <td style="font-size:12px;color:var(--text-secondary);">${u._count?.cases ?? 0}</td>
         <td>${u.isBlacklisted ? '<span class="badge badge-denied"><span class="badge-dot"></span>Blacklisted</span>' : '<span class="badge badge-approved"><span class="badge-dot"></span>Active</span>'}</td>
         <td>${u.notifyEnabled && u.hasPush
-            ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span>🔔 On</span>'
+            ? '<span class="badge badge-approved" title="Notifications enabled with an active device"><span class="badge-dot"></span><i class="ti ti-bell"></i> On</span>'
             : (u.notifyEnabled
-                ? '<span class="badge badge-amber" title="Enabled but no active device subscribed">🔔 No device</span>'
-                : '<span style="font-size:11px;color:var(--text-muted);">🔕 Off</span>')}</td>
+                ? '<span class="badge badge-amber" title="Enabled but no active device subscribed"><i class="ti ti-bell"></i> No device</span>'
+                : '<span style="font-size:11px;color:var(--text-muted);"><i class="ti ti-bell-off"></i> Off</span>')}</td>
         <td><span class="date-cell">${formatDate(u.lastLogin)}</span></td>
         <td><div class="admin-actions">
           ${u.isBlacklisted
@@ -1344,7 +2532,7 @@ async function loadAdminUsers() {
             : `<button class="row-btn row-btn-deny btn-sm" onclick="openBlacklistModal('${u.id}')"><i class="ti ti-ban"></i> Blacklist</button>`}
         </div></td>
       </tr>`).join('');
-  } catch { tbody.innerHTML = emptyRow(9, 'Failed to load users.'); }
+  } catch { tbody.innerHTML = emptyRow(10, 'Failed to load users.'); }
 }
 
 // ── Website Visits (Developer) ────────────────────────────────────
@@ -1356,19 +2544,24 @@ async function loadVisits() {
     const visits = await api('/api/admin/visits');
     const badge  = document.getElementById('visits-count-badge');
     if (badge) badge.textContent = `${visits?.length || 0} recent visit(s)`;
-    if (!visits?.length) { tbody.innerHTML = emptyRow(5, 'No visits recorded yet.'); return; }
+    if (!visits?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="5">${window.metEmpty({ icon: 'ti-world-search', title: 'No visits recorded yet', sub: 'Visitor activity will appear here.' })}</td></tr>`
+        : emptyRow(5, 'No visits recorded yet.');
+      return;
+    }
 
     tbody.innerHTML = visits.map(v => {
       const discord = v.discordUsername || v.discordId
         ? `<div style="display:flex;flex-direction:column;gap:1px;">
-             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '—')}</span>
+             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '·')}</span>
              ${v.discordId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(v.discordId)}</span>` : ''}
            </div>`
         : '<span style="font-size:11px;color:var(--text-muted);">Anonymous</span>';
 
       const roblox = v.robloxUsername || v.robloxId
         ? `<div style="display:flex;flex-direction:column;gap:1px;">
-             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.robloxUsername || '—')}</span>
+             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.robloxUsername || '·')}</span>
              ${v.robloxId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(v.robloxId)}</span>` : ''}
            </div>`
         : '<span style="font-size:11px;color:var(--text-muted);">Not linked</span>';
@@ -1377,8 +2570,8 @@ async function loadVisits() {
         <td><span class="date-cell">${formatDateTime(v.createdAt)}</span></td>
         <td>${discord}</td>
         <td>${roblox}</td>
-        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '<span style="color:var(--text-muted);">—</span>'}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.path || '—')}</span></td>
+        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '<span style="color:var(--text-muted);">·</span>'}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.path || '·')}</span></td>
       </tr>`;
     }).join('');
   } catch (err) {
@@ -1400,12 +2593,17 @@ async function loadSecurity() {
     securityCache = logs || [];
     const badge = document.getElementById('security-count-badge');
     if (badge) badge.textContent = `${logs?.length || 0} event(s)`;
-    if (!logs?.length) { tbody.innerHTML = emptyRow(8, 'No capture events recorded.'); return; }
+    if (!logs?.length) {
+      tbody.innerHTML = window.metEmpty
+        ? `<tr><td colspan="8">${window.metEmpty({ icon: 'ti-shield', title: 'No capture events recorded', sub: 'Screenshot attempts will be logged here.' })}</td></tr>`
+        : emptyRow(8, 'No capture events recorded.');
+      return;
+    }
 
     tbody.innerHTML = logs.map(v => {
       const user = v.discordUsername || v.discordId || v.robloxUsername
         ? `<div style="display:flex;flex-direction:column;gap:1px;">
-             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '—')}</span>
+             <span style="font-size:11px;color:var(--text-primary);">${escapeHtml(v.discordUsername || '·')}</span>
              ${v.robloxUsername ? `<span style="font-size:10px;color:var(--text-muted);">Roblox: ${escapeHtml(v.robloxUsername)}</span>` : ''}
              ${v.discordId ? `<span style="font-size:10px;color:var(--text-muted);">ID: ${escapeHtml(v.discordId)}</span>` : ''}
            </div>`
@@ -1414,11 +2612,11 @@ async function loadSecurity() {
         <td><span class="date-cell">${formatDateTime(v.createdAt)}</span>${v.screenshot ? ' <i class="ti ti-photo" title="Screenshot attached" style="color:var(--amber);"></i>' : ''}</td>
         <td><span class="badge badge-denied" style="font-size:10px;"><span class="badge-dot"></span>${escapeHtml(v.method)}</span>${v.details ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${escapeHtml(v.details)}</div>` : ''}</td>
         <td>${user}</td>
-        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '—'}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.os || '—')}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.browser || '—')}</span></td>
-        <td><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(v.screenInfo || '—')}</span></td>
-        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.page || '—')}</span></td>
+        <td><span class="case-ref" style="font-size:10px;">${v.ip ? escapeHtml(v.ip) : '·'}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.os || '·')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.browser || '·')}</span></td>
+        <td><span style="font-size:10px;color:var(--text-muted);">${escapeHtml(v.screenInfo || '·')}</span></td>
+        <td><span style="font-size:11px;color:var(--text-secondary);">${escapeHtml(v.page || '·')}</span></td>
       </tr>`;
     }).join('');
   } catch (err) {
@@ -1447,15 +2645,15 @@ function openSecurityDetail(id) {
       ${row('Method', v.method)}
       ${row('Details', v.details)}
       ${row('Page Viewed', v.page)}
-      ${row('Discord', v.discordUsername ? `${v.discordUsername} (${v.discordId || '—'})` : v.discordId)}
-      ${row('Roblox', v.robloxUsername ? `${v.robloxUsername} (${v.robloxId || '—'})` : v.robloxId)}
+      ${row('Discord', v.discordUsername ? `${v.discordUsername} (${v.discordId || '·'})` : v.discordId)}
+      ${row('Roblox', v.robloxUsername ? `${v.robloxUsername} (${v.robloxId || '·'})` : v.robloxId)}
       ${row('IP Address', v.ip)}
       ${row('Operating System', v.os)}
       ${row('Browser', v.browser)}
       ${row('Device', v.device)}
       ${row('Screen / Viewport', v.screenInfo)}
       ${row('Language', v.language)}
-      <div class="detail-field full"><span class="detail-field-label">User Agent</span><span class="detail-field-value" style="font-size:11px;word-break:break-all;color:var(--text-muted);">${escapeHtml(v.userAgent || '—')}</span></div>
+      <div class="detail-field full"><span class="detail-field-label">User Agent</span><span class="detail-field-value" style="font-size:11px;word-break:break-all;color:var(--text-muted);">${escapeHtml(v.userAgent || '·')}</span></div>
       ${shot}
     </div>`;
   openModal('modal-security-detail');
@@ -1587,10 +2785,10 @@ async function loadNotifSettings() {
   // "Active" only if enabled in settings AND permission granted on this device.
   const active = s.enabled && notifPermGranted();
 
-  set('ns-enabled',   active);
-  set('ns-newCase',   s.prefs.newCase);
-  set('ns-newTicket', s.prefs.newTicket);
-  document.querySelectorAll('.ns-tt').forEach(cb => { cb.checked = (s.prefs.ticketTypes || []).includes(cb.value); });
+  set('ns-enabled',      active);
+  set('ns-newCase',      s.prefs.newCase);
+  set('ns-caseUpdated',  s.prefs.caseUpdated);
+  set('ns-caseAppealed', s.prefs.caseAppealed);
   setNotifPrefsVisible(active);
 
   // Warn if the browser has blocked notifications
@@ -1626,15 +2824,18 @@ async function loadNotifSettings() {
 }
 
 async function saveNotifSettings() {
-  const enabled = document.getElementById('ns-enabled')?.checked || false;
   const prefs = {
-    newCase:       document.getElementById('ns-newCase')?.checked   || false,
-    newTicket:     document.getElementById('ns-newTicket')?.checked || false,
+    newCase:      document.getElementById('ns-newCase')?.checked      || false,
+    caseUpdated:  document.getElementById('ns-caseUpdated')?.checked  || false,
+    caseAppealed: document.getElementById('ns-caseAppealed')?.checked || false,
     announcements: true, // developer announcements are always on
-    ticketTypes:   Array.from(document.querySelectorAll('.ns-tt')).filter(cb => cb.checked).map(cb => cb.value),
   };
   try {
-    await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ enabled, prefs }) });
+    // Send ONLY prefs. The account-wide `enabled` flag is owned by the master
+    // toggle's own onchange handler; re-sending it from here would push the
+    // per-device checkbox state (which is false on any device that hasn't granted
+    // browser permission) and silently disable notifications account-wide.
+    await api('/api/notifications/settings', { method: 'PATCH', body: JSON.stringify({ prefs }) });
     showToast('Notification settings saved.', 'success');
   } catch (err) { showToast(err.message || 'Failed to save settings.', 'error'); }
 }
@@ -1661,10 +2862,10 @@ function renderDevRecipients() {
   //   Off       → notifications disabled
   const statusHtml = (u) => {
     if (u.notifyEnabled && u.hasPush)
-      return '<span style="color:var(--green);font-size:11px;font-weight:600;white-space:nowrap;">🔔 On</span>';
+      return '<span style="color:var(--green);font-size:11px;font-weight:600;white-space:nowrap;"><i class="ti ti-bell"></i> On</span>';
     if (u.notifyEnabled)
-      return '<span style="color:var(--amber);font-size:11px;font-weight:600;white-space:nowrap;" title="Enabled but no active device">🔔 No device</span>';
-    return '<span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">🔕 Off</span>';
+      return '<span style="color:var(--amber);font-size:11px;font-weight:600;white-space:nowrap;" title="Enabled but no active device"><i class="ti ti-bell"></i> No device</span>';
+    return '<span style="color:var(--text-muted);font-size:11px;white-space:nowrap;"><i class="ti ti-bell-off"></i> Off</span>';
   };
 
   const onCount = devRecipients.filter(u => u.notifyEnabled && u.hasPush).length;
@@ -1682,6 +2883,54 @@ function toggleDevRecipientList() {
   const all = document.getElementById('dn-all')?.checked;
   const box = document.getElementById('dn-recipients');
   if (box) { box.style.opacity = all ? '.4' : '1'; box.style.pointerEvents = all ? 'none' : 'auto'; }
+}
+
+// ── Emergency alert (dev) ───────────────────────────────────────────────
+let eaOnline = { users: [], divisions: [] };
+async function loadEmergencyAlert() {
+  try { eaOnline = await api('/api/dev/online'); } catch { eaOnline = { users: [], divisions: ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'] }; }
+  renderEmergencyTarget();
+}
+function eaTarget() { const el = document.querySelector('input[name="ea-target"]:checked'); return el ? el.value : 'everyone'; }
+function renderEmergencyTarget() {
+  const t = eaTarget();
+  const divBox = document.getElementById('ea-divisions');
+  const userBox = document.getElementById('ea-users');
+  const note = document.getElementById('ea-online-note');
+  if (!divBox || !userBox) return;
+  divBox.style.display = t === 'divisions' ? 'flex' : 'none';
+  userBox.style.display = t === 'users' ? 'flex' : 'none';
+  const divisions = eaOnline.divisions || ['IA', 'HPC', 'CID', 'FLP', 'SCO19', 'MET'];
+  divBox.innerHTML = divisions.map(d =>
+    `<label class="ea-div-chip"><input type="checkbox" class="ea-div" value="${escapeHtml(d)}"> ${escapeHtml(d)}</label>`).join('');
+  const users = eaOnline.users || [];
+  userBox.innerHTML = users.length
+    ? users.map(u => `<label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;padding:6px 8px;border-radius:6px;border:1px solid var(--border-dim);">
+        <input type="checkbox" class="ea-user" value="${escapeHtml(u.id)}" style="accent-color:var(--red,#e2231a);">
+        <span style="flex:1;">${escapeHtml(u.name)} <span style="color:var(--text-muted);font-size:11px;">· ${escapeHtml((u.divisions || []).join(', ') || u.role || '')}</span></span>
+      </label>`).join('')
+    : '<p style="color:var(--text-secondary);">Nobody is on the site right now.</p>';
+  if (note) note.textContent = `${users.length} ${users.length === 1 ? 'person is' : 'people are'} on the site right now.`;
+}
+async function sendEmergencyAlert() {
+  const message = (document.getElementById('ea-message')?.value || '').trim();
+  if (!message) { showToast('Enter an alert message.', 'error'); return; }
+  const target = eaTarget();
+  const payload = { target, message };
+  if (target === 'divisions') {
+    payload.divisions = Array.from(document.querySelectorAll('.ea-div')).filter(c => c.checked).map(c => c.value);
+    if (!payload.divisions.length) { showToast('Pick at least one division.', 'error'); return; }
+  } else if (target === 'users') {
+    payload.userIds = Array.from(document.querySelectorAll('.ea-user')).filter(c => c.checked).map(c => c.value);
+    if (!payload.userIds.length) { showToast('Select at least one person.', 'error'); return; }
+  }
+  const who = target === 'everyone' ? 'everyone on the site' : (target === 'divisions' ? payload.divisions.join(', ') : `${payload.userIds.length} person(s)`);
+  if (!(await uiConfirm(`Send a full-screen EMERGENCY ALERT to ${who} right now?`))) return;
+  try {
+    const r = await api('/api/dev/emergency-alert', { method: 'POST', body: JSON.stringify(payload) });
+    showToast(`Emergency alert sent to ${r.recipients} recipient(s).`, 'success');
+    const m = document.getElementById('ea-message'); if (m) m.value = '';
+  } catch (e) { showToast(e.message || 'Failed to send.', 'error'); }
 }
 
 async function sendDevNotification() {
@@ -1702,7 +2951,7 @@ async function sendDevNotification() {
 }
 
 async function deleteCase(caseId) {
-  if (!confirm('Permanently delete this case? This cannot be undone.')) return;
+  if (!(await uiConfirm('Permanently delete this case? This cannot be undone.'))) return;
   try {
     await api(`/api/admin/cases/${caseId}`, { method: 'DELETE' });
     closeModal('modal-detail');
@@ -1721,16 +2970,56 @@ function groupError(msg) {
   </div>`;
 }
 
+// Which division's Roblox group the panel is currently managing. The dev panel
+// can switch between every division. Empty only until loadGroupDivisions() has
+// answered — there is no "default" group to fall back to, because the default
+// WAS the MET umbrella group, which is in the switcher under its own name.
+let currentGroupDivision = '';
+
+// Build a query string carrying the selected division (+ any extra params).
+function gq(params) {
+  const p = new URLSearchParams(params || {});
+  if (currentGroupDivision) p.set('division', currentGroupDivision);
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
+// Populate the division switcher from the registry (future divisions auto-appear).
+async function loadGroupDivisions() {
+  const sel = document.getElementById('group-division-select');
+  if (!sel) return;
+  try {
+    const divs = await api('/api/admin/group/divisions');
+    sel.innerHTML = divs
+      .map(d => `<option value="${escapeHtml(d.key)}">${escapeHtml(d.name)}${d.fullName && d.fullName !== d.name ? ' · ' + escapeHtml(d.fullName) : ''}</option>`)
+      .join('');
+    // Land on MET when nothing is chosen — that is what "Default" resolved to.
+    if (!currentGroupDivision) currentGroupDivision = divs.some(d => d.key === 'MET') ? 'MET' : (divs[0] ? divs[0].key : '');
+    sel.value = currentGroupDivision;
+  } catch (e) { /* switcher optional */ }
+}
+
+// Switch the group the panel manages, then reload it.
+function changeGroupDivision(key) {
+  currentGroupDivision = key || '';
+  groupRolesCache = null;
+  groupMembersNextToken = null;
+  loadGroupPanel();
+}
+
 async function loadGroupPanel() {
+  // Awaited: every request below carries ?division=, and on the very first load
+  // that key only exists once the switcher has been filled in.
+  await loadGroupDivisions();
   // Always reload roles fresh so rank dropdowns are populated
   try {
-    groupRolesCache = await api('/api/admin/group/roles');
+    groupRolesCache = await api('/api/admin/group/roles' + gq());
     const badge = document.getElementById('group-env-badge');
     if (badge) badge.textContent = `${groupRolesCache.length} role(s) loaded`;
   } catch (err) {
     groupRolesCache = [];
     const badge = document.getElementById('group-env-badge');
-    if (badge) badge.textContent = `⚠ Roles failed: ${err.message}`;
+    if (badge) badge.textContent = `Roles failed: ${err.message}`;
     console.error('[Group panel] roles error:', err.message);
     // Auto-show debug output so developer can see what's wrong
     runGroupDebug();
@@ -1785,12 +3074,12 @@ function botRankThreshold() {
 async function loadPendingRequests() {
   const container = document.getElementById('pending-requests-container');
   if (!container) return;
-  container.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+  container.innerHTML = window.metSkeleton ? window.metSkeleton('feed', 4) : '<div class="table-loading"><div class="spinner"></div></div>';
   try {
     pendingCache = [];
     let token = null, pages = 0;
     do {
-      const url  = '/api/admin/group/pending' + (token ? `?pageToken=${encodeURIComponent(token)}` : '');
+      const url  = '/api/admin/group/pending' + gq(token ? { pageToken: token } : {});
       const data = await api(url);
       pendingCache = pendingCache.concat(data?.requests || []);
       token = data?.nextPageToken || null;
@@ -1817,7 +3106,9 @@ function renderPendingRequests() {
   if (countEl) countEl.textContent = `(${list.length})`;
 
   if (!list.length) {
-    container.innerHTML = `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`;
+    container.innerHTML = window.metEmpty
+      ? window.metEmpty({ icon: 'ti-inbox', title: 'No pending join requests', sub: 'New group join requests will appear here.' })
+      : `<p style="padding:1rem 1.2rem;font-size:13px;color:var(--text-muted);">No pending join requests.</p>`;
     return;
   }
 
@@ -1845,7 +3136,7 @@ function renderPendingRequests() {
 
 async function resolveRequest(userId, action, username) {
   try {
-    await api(`/api/admin/group/pending/${userId}/${action}`, { method: 'POST' });
+    await api(`/api/admin/group/pending/${userId}/${action}` + gq(), { method: 'POST' });
     showToast(`${username} ${action === 'approve' ? 'accepted' : 'declined'}.`,
               action === 'approve' ? 'success' : 'info');
     loadPendingRequests();
@@ -1863,7 +3154,7 @@ async function loadGroupMembers() {
     groupMembersCache = [];
     let token = null, pages = 0;
     do {
-      const url    = '/api/admin/group/members' + (token ? `?pageToken=${encodeURIComponent(token)}` : '');
+      const url    = '/api/admin/group/members' + gq(token ? { pageToken: token } : {});
       const result = await api(url);
       groupMembersCache = groupMembersCache.concat(result?.members || []);
       token = result?.nextPageToken || null;
@@ -1882,7 +3173,10 @@ async function loadGroupMembers() {
 // Derived from the live member list / roles so it works even if the role list
 // failed to load.
 function botRankValue() {
-  // Prefer the roles list; fall back to scanning members for the named rank.
+  // Prefer the bot account's OWN live rank in this group (the true ceiling).
+  const bot = groupMembersCache.find(x => String(x.userId) === MET_ADMIN_USER_ID);
+  if (bot && bot.roleRank != null) return bot.roleRank;
+  // Fall back to the named rank (roles list, then members).
   const r = (groupRolesCache || []).find(x => (x.name || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
   if (r) return r.rank;
   const m = groupMembersCache.find(x => (x.roleName || '').trim().toLowerCase() === BOT_RANK_NAME.toLowerCase());
@@ -1917,7 +3211,7 @@ function renderGroupMembers() {
   let list = groupMembersCache.map(m => ({
     ...m,
     _rank:     (m.roleRank != null ? m.roleRank : -1),
-    _roleName: m.roleName || m.roleId || '—',
+    _roleName: m.roleName || m.roleId || '·',
   }));
   list.sort((a, b) => b._rank - a._rank); // highest rank first
 
@@ -1930,7 +3224,12 @@ function renderGroupMembers() {
   const countEl = document.getElementById('members-count');
   if (countEl) countEl.textContent = `(${list.length}${list.length !== groupMembersCache.length ? ' / ' + groupMembersCache.length : ''})`;
 
-  if (!list.length) { tbody.innerHTML = emptyRow(4, 'No members found.'); return; }
+  if (!list.length) {
+    tbody.innerHTML = window.metEmpty
+      ? `<tr><td colspan="4">${window.metEmpty({ icon: 'ti-users', title: 'No members found', sub: 'Try a different search or rank filter.' })}</td></tr>`
+      : emptyRow(4, 'No members found.');
+    return;
+  }
 
   // Only ranks strictly below the bot's rank can be assigned
   const assignable = roles.filter(r => r.rank < threshold).sort((a, b) => b.rank - a.rank);
@@ -1952,11 +3251,11 @@ function renderGroupMembers() {
         </td>
         <td>
           <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(m._roleName)}</span>
-          ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;">🔒 above bot rank</span>' : ''}
+          ${locked ? '<span style="font-size:9px;color:var(--text-muted);display:block;"><i class="ti ti-lock"></i> above bot rank</span>' : ''}
         </td>
         <td>
           ${locked
-            ? '<span style="font-size:11px;color:var(--text-muted);">—</span>'
+            ? '<span style="font-size:11px;color:var(--text-muted);">·</span>'
             : `<select class="role-select" id="rank-sel-${escapeHtml(m.userId)}">${roleOptions(m.roleId)}</select>`}
         </td>
         <td>
@@ -1982,7 +3281,7 @@ async function changeGroupRankUI(userId, username) {
   const roleId = sel?.value;
   if (!roleId) { showToast('Select a rank first.', 'error'); return; }
   try {
-    await api(`/api/admin/group/members/${userId}/rank`, {
+    await api(`/api/admin/group/members/${userId}/rank` + gq(), {
       method: 'PATCH',
       body:   JSON.stringify({ roleId }),
     });
@@ -1995,9 +3294,9 @@ async function changeGroupRankUI(userId, username) {
 }
 
 async function kickGroupMember(userId, username) {
-  if (!confirm(`Kick ${username} from the Roblox group?`)) return;
+  if (!(await uiConfirm(`Kick ${username} from the Roblox group?`))) return;
   try {
-    await api(`/api/admin/group/members/${userId}`, { method: 'DELETE' });
+    await api(`/api/admin/group/members/${userId}` + gq(), { method: 'DELETE' });
     showToast(`${username} kicked from group.`, 'success');
     loadGroupMembers();
   } catch (err) {
@@ -2018,7 +3317,195 @@ function supervisorBlockedFromCase(c) {
   return currentUser?.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(c);
 }
 
+// ── Appeals ───────────────────────────────────────────────────────
+// Mirrors server/lib/iaRank.js so the button can be hidden (or explained)
+// instead of being offered and then rejected. The server is the authority.
+function canAppealLocally(c) {
+  if (!c) return { show: false, allowed: false, reason: '' };
+  if (c.status === 'OVERTURNED' || c.appealedAt)
+    return { show: false, allowed: false, reason: 'This case has already been appealed.' };
+  if (c.status !== 'APPROVED')
+    return { show: false, allowed: false, reason: 'Only an approved case can be appealed.' };
+  if (!currentUser?.isSiPlus)
+    return { show: false, allowed: false, reason: 'Appeals can only be filed by Senior Investigator and above.' };
+  if (caseHasHicommOnlyPunishment(c) && !currentUser?.isHicomm)
+    return { show: true, allowed: false, reason: 'Only High Command can appeal a Termination or Blacklist.' };
+  return { show: true, allowed: true, reason: '' };
+}
+
+// Find a case in whichever cache is loaded, fetching it if we have to.
+async function getCase(caseId) {
+  const hit = (allCasesCache || []).find(x => x.id === caseId);
+  if (hit) return hit;
+  try {
+    const c = await api('/api/cases/' + caseId);
+    if (c) allCasesCache.push(c);
+    return c;
+  } catch (e) { return null; }
+}
+
+// The appeal dialog markup ships in the IA dashboard view, but the same scripts
+// (and the Grant appeal button) run on the developer, HPC, CID, FLP and SCO19
+// dashboards too. On those the modal element is not in the page, so the click
+// used to hit `if (!btn) return` and silently do nothing. Build it on demand so
+// the button works wherever a case card is shown.
+function ensureAppealModal() {
+  if (document.getElementById('modal-appeal')) return;
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay'; ov.id = 'modal-appeal';
+  ov.innerHTML = `<div class="modal glass-bright" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--purple);"><i class="ti ti-gavel" style="font-size:18px;"></i> Appeal Case <span id="appeal-ref"></span></div>
+      <button class="modal-close" onclick="closeModal('modal-appeal')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div id="appeal-warning" style="display:none;margin-bottom:1rem;padding:11px 13px;border-radius:9px;background:rgba(157,125,255,.12);border:1px solid rgba(157,125,255,.4);font-size:12.5px;color:var(--text-primary);line-height:1.6;"></div>
+      <p style="font-size:13px;line-height:1.65;color:var(--text-secondary);margin:0 0 .9rem;">
+        Filing an appeal <strong style="color:var(--text-primary);">approves it immediately</strong>. The case is marked
+        <strong style="color:var(--purple);">appealed</strong>, its punishment roles are removed in Discord, and it stops
+        counting toward the officer's record. This is permanent · it cannot be undone from the site.
+      </p>
+      <div id="appeal-punishments" style="margin-bottom:1rem;"></div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">Reason for the appeal <span>*</span></label>
+        <textarea class="form-control" id="appeal-reason" rows="4" maxlength="2000" placeholder="Why is this case being overturned? (recorded permanently against the case)"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-appeal')">Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-appeal" style="background:var(--purple);border-color:var(--purple);">
+        <i class="ti ti-gavel"></i> Grant appeal
+      </button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+
+// Open the appeal dialog. Works from any case card on the site (My Cases, All
+// Cases, the review queue and the Records lookup).
+async function openAppealModal(caseId) {
+  const c = await getCase(caseId);
+  if (!c) { showToast('That case could not be loaded.', 'error'); return; }
+
+  ensureAppealModal();
+  const refEl  = document.getElementById('appeal-ref');
+  const warnEl = document.getElementById('appeal-warning');
+  const punEl  = document.getElementById('appeal-punishments');
+  const noteEl = document.getElementById('appeal-reason');
+  const btn    = document.getElementById('btn-confirm-appeal');
+  if (!btn || !noteEl) return;
+
+  if (refEl) refEl.textContent = c.caseRef || '';
+  noteEl.value = '';
+
+  // Ask the server whether this user may appeal THIS case — it knows the rank.
+  let verdict = null;
+  try { verdict = await api('/api/cases/' + caseId + '/appeal'); } catch (e) { /* fall back to local */ }
+  const local = canAppealLocally(c);
+  const allowed = verdict ? verdict.canAppeal : local.allowed;
+  const reason  = verdict ? verdict.reason    : local.reason;
+
+  if (warnEl) {
+    if (!allowed) {
+      warnEl.style.display = '';
+      warnEl.innerHTML = `<i class="ti ti-lock"></i> ${escapeHtml(reason || 'You cannot appeal this case.')}`;
+    } else if (verdict && verdict.hicommOnly) {
+      warnEl.style.display = '';
+      warnEl.innerHTML = `<i class="ti ti-alert-triangle"></i> This case carries a <strong>Termination or Blacklist</strong>. `
+        + `You are appealing it as <strong>${escapeHtml(verdict.rankLabel || 'High Command')}</strong>.`;
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
+
+  const actions = (Array.isArray(c.actions) && c.actions.length)
+    ? c.actions
+    : [{ action: c.action, durationDays: null }];
+  if (punEl) {
+    punEl.innerHTML = `<div class="appeal-lift">
+      <div class="appeal-lift-label">Punishments that will be lifted</div>
+      <div class="appeal-lift-list">${actions.map(a =>
+        `<span class="badge badge-red"><span class="badge-dot"></span>${escapeHtml(a.action)}${a.durationDays ? ` (${a.durationDays}d)` : ''}</span>`
+      ).join('')}</div>
+    </div>`;
+  }
+
+  btn.disabled = !allowed;
+  btn.onclick = async () => {
+    const text = noteEl.value.trim();
+    if (!text) { showToast('A reason for the appeal is required.', 'error'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Granting…';
+    try {
+      const res = await api('/api/cases/' + caseId + '/appeal', {
+        method: 'POST', body: JSON.stringify({ reason: text }),
+      });
+      closeModal('modal-appeal');
+      closeModal('modal-detail');
+      const failed = (res.failed || []).length;
+      const manual = res.manual || [];
+      showToast(
+        `Appeal granted · ${res.lifted?.length || 0} punishment role(s) lifted.`
+        + (failed ? ` ${failed} role(s) couldn't be removed in Discord and will be retried automatically.` : ''),
+        failed ? 'warning' : 'success');
+      // Anything the bot physically cannot undo has to be said out loud, or
+      // people will assume the appeal reversed everything.
+      if (manual.length) {
+        showToast('Still to do by hand: ' + manual.join('; '), 'warning', 12000);
+      }
+      await refreshCaseViews();
+    } catch (err) {
+      showToast(err.message || 'Failed to file the appeal.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ti ti-gavel"></i> Grant appeal';
+    }
+  };
+
+  openModal('modal-appeal');
+}
+window.openAppealModal = openAppealModal;
+
+// Reload whichever case list is currently on screen.
+async function refreshCaseViews() {
+  const active = document.querySelector('.page.active');
+  const id = active ? active.id : '';
+  if (id === 'page-dashboard')  return loadDashboard();
+  if (id === 'page-my-cases')   return loadMyCases();
+  if (id === 'page-all-cases')  return loadAllCases();
+  if (id === 'page-review')     return loadReview();
+  if (id === 'page-records' && typeof runRecordLookup === 'function') return runRecordLookup();
+  return loadDashboard();
+}
+window.refreshCaseViews = refreshCaseViews;
+
+// ── Where a decision may be made ──────────────────────────────────
+//
+// One place: the Pending tab. Everywhere else — the dashboard, All Cases, My
+// Cases, the ticket archive — is the RECORD, and an Approve button sitting in the
+// middle of a record is how a case gets signed off by somebody who only opened
+// the page to look something up. It is also how the same case gets decided twice
+// from two different tables.
+//
+// So the controls do not exist outside Pending. What appears instead is the way
+// to get to Pending, which is more use than a greyed-out button.
+function onPendingPage() {
+  const p = document.getElementById('page-pending');
+  return !!p && p.classList.contains('active');
+}
+window.onPendingPage = onPendingPage;
+
+// The stand-in for a decision button, outside Pending.
+function reviewElsewhereChip(onclick) {
+  return `<button class="row-btn row-btn-review-elsewhere btn-sm" onclick="${onclick}"
+            title="Decisions are made on the Pending tab. This takes you there and opens it.">
+            <i class="ti ti-clipboard-check"></i> Review in Pending
+          </button>`;
+}
+
 function rowActions(c) {
+  // Not on Pending: offer the route there, not the decision.
+  if (!onPendingPage()) return reviewElsewhereChip(`goReviewCase('${c.id}')`);
   if (supervisorBlockedFromCase(c)) {
     return '<span style="font-size:11px;color:var(--amber);white-space:nowrap;"><i class="ti ti-lock"></i> HICOMM only</span>';
   }
@@ -2084,23 +3571,56 @@ function parseRequestedActions(text) {
     ['Disciplinary Strike 1', [/\bdisciplinary strike\s*1\b/, /\bstrike\s*1\b/, /\bds\s*1\b/, /\b1st strike\b/, /\bfirst strike\b/]],
     ['Disciplinary Strike 2', [/\bdisciplinary strike\s*2\b/, /\bstrike\s*2\b/, /\bds\s*2\b/, /\b2nd strike\b/, /\bsecond strike\b/]],
     ['Activity Strike',       [/\bactivity strike\b/]],
-    ['Verbal Warning',        [/\bverbal warning\b/, /\bverbal\b/]],
-    ['Written Warning',       [/\bwritten warning\b/, /\bwritten\b/]],
+    ['Written Warning',       [/\bwritten warning\b/, /\bwritten\b/, /\bwarning\b/]],
     ['Zero Tolerance',        [/\bzero tolerance\b/, /\bzt\b/, /\bz t\b/]],
+    // Suspension was missing entirely, so a reviewer asking for one in a change
+    // request had it silently detected as nothing.
+    ['Suspension',            [/\bsuspension\b/, /\bsuspend(ed)?\b/, /\bsusp\b/]],
     ['Demotion',              [/\bdemotion\b/, /\bdemote[d]?\b/]],
     ['Termination',           [/\btermination\b/, /\bterminate[d]?\b/, /\bfired\b/]],
     ['Blacklist',             [/\bblacklist(ed)?\b/]],
   ];
-  // A duration mentioned anywhere ("5 day", "5 days", "5d") attaches to the
-  // punishments that carry one (Zero Tolerance).
-  const durM = t.match(/\b(\d{1,3})\s*(?:d|day|days)\b/);
-  const dur  = durM ? parseInt(durM[1], 10) : null;
-  const TIMED = { 'Zero Tolerance': true };
+  // A duration ("5 day", "5 days", "5d") belongs to the punishment it was
+  // written next to. "5 day ZT and strike 1" is one five-day ZT and one strike,
+  // not two five-day punishments — applying a single duration to everything
+  // timed handed out lengths nobody asked for.
+  //
+  // Which punishments carry a length comes from the server's list, not a second
+  // hand-written one — Suspension is timed and was missing from the copy that
+  // used to live here, so "7 day suspension" lost its 7.
+  const DUR_RE = /\b(\d{1,3})\s*(?:d|day|days)\b/g;
+  const durations = [];
+  for (let m; (m = DUR_RE.exec(t)); ) durations.push({ days: parseInt(m[1], 10), at: m.index, end: m.index + m[0].length });
+  const isTimed = (name) => {
+    const cfg = ACTIONS_CLIENT.find(a => a.name === name);
+    return !!(cfg && cfg.timed);
+  };
+  // Only offer what can actually be filed today. A retired action (Verbal
+  // Warning, Disciplinary Strike 3) is not on the server's list, so detecting
+  // one would hand the submitter a punishment the server then refuses.
+  const filable = new Set(ACTIONS_CLIENT.map(a => a.name));
   const found = [];
   for (const [name, pats] of rules) {
-    if (pats.some(p => p.test(t))) found.push({ action: name, durationDays: (dur && TIMED[name]) ? dur : null });
+    if (!filable.has(name)) continue;
+    let at = -1;
+    for (const p of pats) { const m = t.match(p); if (m && m.index !== undefined) { at = m.index; break; } }
+    if (at < 0) continue;
+    found.push({ action: name, durationDays: null, _at: at });
   }
-  return found;
+  // Each length goes to the nearest timed punishment named after it, and each
+  // is spent once. A length written after everything ("suspend them, 7 days")
+  // still finds the suspension, because nothing nearer claimed it.
+  const timedFound = found.filter(f => isTimed(f.action));
+  for (const d of durations) {
+    let best = null, bestGap = Infinity;
+    for (const f of timedFound) {
+      if (f.durationDays != null) continue;
+      const gap = f._at >= d.end ? f._at - d.end : (d.at - f._at) + 1000;  // after it wins over before it
+      if (gap < bestGap) { bestGap = gap; best = f; }
+    }
+    if (best) best.durationDays = d.days;
+  }
+  return found.map(({ action, durationDays }) => ({ action, durationDays }));
 }
 
 // Normalise a stored reviewChanges action (old = plain string, new = object).
@@ -2122,7 +3642,7 @@ function requestCaseChanges(caseId) {
     if (!detectedEl) return;
     if (detected.length) {
       detectedEl.style.display = '';
-      detectedEl.innerHTML = '<i class="ti ti-wand"></i> Detected punishment change — the submitter will get a one-click apply for: <strong>'
+      detectedEl.innerHTML = '<i class="ti ti-wand"></i> Detected punishment change · the submitter will get a one-click apply for: <strong>'
         + detected.map(d => escapeHtml(reqActionLabel(d))).join(', ') + '</strong>';
     } else { detectedEl.style.display = 'none'; }
   };
@@ -2137,7 +3657,7 @@ function requestCaseChanges(caseId) {
       });
       closeModal('modal-request-changes');
       closeModal('modal-detail');
-      showToast('Changes requested — the submitter has been notified.', 'success');
+      showToast('Changes requested · the submitter has been notified.', 'success');
       loadReview(); loadAllCases();
     } catch (err) { showToast(err.message || 'Failed to request changes.', 'error'); }
   };
@@ -2165,7 +3685,7 @@ function promptApplyChanges(c) {
       // Pass durations through (preserveDurations) so "5 day zt" applies as 5d.
       applyDocPunishments(actions.map(a => { const o = reqActionObj(a); return { action: o.action, durationDays: o.durationDays }; }), true);
       closeModal('modal-apply-changes');
-      showToast('Requested punishment applied — review the details and save.', 'success');
+      showToast('Requested punishment applied · review the details and save.', 'success');
     };
   } else {
     // Nothing reliably parsed — just show the note, no auto-apply.
@@ -2178,9 +3698,18 @@ function promptApplyChanges(c) {
 }
 
 // ── Case Detail Modal ─────────────────────────────────────────────
+// Open a case detail from anywhere on the site — including the Records lookup,
+// where the case isn't in any list cache yet.
+async function openCaseDetail(caseId) {
+  const c = await getCase(caseId);
+  if (!c) { showToast("That case couldn't be loaded.", 'error'); return; }
+  openDetail(caseId);
+}
+window.openCaseDetail = openCaseDetail;
+
 function openDetail(caseId) {
   const c = allCasesCache.find(x => x.id === caseId);
-  if (!c) return;
+  if (!c) { openCaseDetail(caseId); return; }
 
   document.getElementById('detail-ref').textContent = c.caseRef;
 
@@ -2215,7 +3744,7 @@ function openDetail(caseId) {
     <div class="detail-field full">
       <span class="detail-field-label">Group Exile</span>
       <span class="detail-field-value" style="font-size:12px;color:${ea.notes.includes('failed') ? 'var(--status-denied)' : 'var(--status-approved)'};">
-        ${ea.notes.includes('failed') ? '⚠ ' : '✓ '}${escapeHtml(ea.notes)}
+        ${ea.notes.includes('failed') ? '<i class="ti ti-alert-triangle"></i> ' : '<i class="ti ti-check"></i> '}${escapeHtml(ea.notes)}
       </span>
     </div>`).join('')}
   ` : '';
@@ -2241,7 +3770,7 @@ function openDetail(caseId) {
     ${awaiting ? `
     <div style="margin-bottom:1rem;padding:13px 15px;border-radius:10px;background:rgba(245,197,24,.12);border:1px solid rgba(245,197,24,.4);box-shadow:0 0 18px rgba(240,170,20,.12);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);"><i class="ti ti-edit-circle"></i> Changes requested — awaiting update</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);"><i class="ti ti-edit-circle"></i> Changes requested · awaiting update</div>
         ${reviewer ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">by <strong style="color:var(--text-secondary);">${escapeHtml(reviewer)}</strong>${reviewedAt ? ' · ' + formatDateTime(reviewedAt) : ''}</div>` : ''}
       </div>
       <div style="font-size:13px;color:var(--text-primary);line-height:1.5;">${escapeHtml(c.reviewNote)}</div>
@@ -2249,10 +3778,22 @@ function openDetail(caseId) {
         ? `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary);"><i class="ti ti-wand"></i> Suggested punishment: ${c.reviewChanges.actions.map(a => escapeHtml(reqActionLabel(a))).join(', ')}</div>` : ''}
       <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);line-height:1.5;">
         ${isOwner
-          ? '<i class="ti ti-arrow-back-up"></i> Edit this case to address the note — it will return to the review queue automatically.'
+          ? '<i class="ti ti-arrow-back-up"></i> Edit this case to address the note · it will return to the review queue automatically.'
           : '<i class="ti ti-clock"></i> Sent back to the submitter. It stays pending until they update it.'}
       </div>
     </div>` : ''}
+    ${caseIsAppealed(c) ? `
+    <div class="appeal-banner">
+      <div class="appeal-banner-head">
+        <span><i class="ti ti-gavel"></i> Appeal granted · punishments lifted</span>
+        <span class="appeal-banner-when">${c.appealedAt ? formatDateTime(c.appealedAt) : ''}</span>
+      </div>
+      <div class="appeal-banner-by">by <strong>${escapeHtml(c.appealedByName || 'Internal Affairs')}</strong>${
+        (c.appeals && c.appeals[0] && c.appeals[0].appealedByRank) ? ' · ' + escapeHtml(c.appeals[0].appealedByRank) : ''}</div>
+      ${c.appealReason ? `<div class="appeal-banner-reason">${escapeHtml(c.appealReason)}</div>` : ''}
+      <div class="appeal-banner-note">This case no longer counts toward the officer's record.</div>
+    </div>` : ''}
+    ${renderRevisionHistory(c)}
     <div class="detail-grid">
       <div class="detail-field">
         <span class="detail-field-label">Case Reference</span>
@@ -2260,7 +3801,7 @@ function openDetail(caseId) {
       </div>
       <div class="detail-field">
         <span class="detail-field-label">Status</span>
-        <span class="detail-field-value">${statusBadge(c.status)}</span>
+        <span class="detail-field-value">${statusBadge(c.status)} ${originBadge(c)}</span>
       </div>
       ${c.officerDiscordId ? `
       <div class="detail-field full">
@@ -2281,15 +3822,16 @@ function openDetail(caseId) {
       </div>
       ${c.caseLink ? `
       <div class="detail-field full">
-        <span class="detail-field-label">Case Link</span>
-        <span class="detail-field-value"><a href="${escapeHtml(c.caseLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);word-break:break-all;">${escapeHtml(c.caseLink)}</a></span>
+        <span class="detail-field-label">Case File</span>
+        <span class="detail-field-value">${linkChip(c.caseLink, 'Open the case file', 'file-text')}</span>
       </div>` : ''}
+      ${evidenceBlock(c.evidence)}
       ${robloxSection}
       ${investigatorSection}
       <div class="detail-divider"></div>
       <div class="detail-field">
         <span class="detail-field-label">${(c.investigatorRobloxUsername || c.investigatorDiscordUsername) ? 'Investigator' : 'Submitted By'}</span>
-        <span class="detail-field-value">${escapeHtml(c.investigatorRobloxUsername || c.investigatorDiscordUsername || c.user?.displayName || c.user?.discordUsername || '—')}</span>
+        <span class="detail-field-value">${escapeHtml(c.investigatorRobloxUsername || c.investigatorDiscordUsername || c.user?.displayName || c.user?.discordUsername || '·')}</span>
       </div>
       <div class="detail-field">
         <span class="detail-field-label">Submitted At</span>
@@ -2298,7 +3840,7 @@ function openDetail(caseId) {
       ${decisionAction ? `
         <div class="detail-field">
           <span class="detail-field-label">${c.status === 'APPROVED' ? 'Approved' : 'Denied'} By</span>
-          <span class="detail-field-value">${escapeHtml(decisionAction.user?.displayName || decisionAction.user?.discordUsername || '—')}</span>
+          <span class="detail-field-value">${escapeHtml(decisionAction.user?.displayName || decisionAction.user?.discordUsername || '·')}</span>
         </div>
         <div class="detail-field">
           <span class="detail-field-label">Decision At</span>
@@ -2319,6 +3861,19 @@ function openDetail(caseId) {
   linkBtn.className = 'btn btn-ghost'; linkBtn.innerHTML = '<i class="ti ti-link"></i> Copy link';
   linkBtn.onclick = () => copyCaseLink(c.id);
   footer.appendChild(linkBtn);
+
+  // Appeal — Senior Investigator and above, High Command only for
+  // Terminations/Blacklists. The server enforces the same rule.
+  const appealCheck = canAppealLocally(c);
+  if (appealCheck.show) {
+    const appealBtn = document.createElement('button');
+    appealBtn.className = 'btn btn-ghost btn-appeal';
+    appealBtn.innerHTML = '<i class="ti ti-gavel"></i> Appeal';
+    appealBtn.disabled = !appealCheck.allowed;
+    if (!appealCheck.allowed) appealBtn.title = appealCheck.reason;
+    appealBtn.onclick = () => openAppealModal(c.id);
+    footer.appendChild(appealBtn);
+  }
 
   if (isDev) {
     const delBtn = document.createElement('button');
@@ -2351,6 +3906,19 @@ function openDetail(caseId) {
     note.style.cssText = 'font-size:12px;color:var(--amber);align-self:center;margin-left:auto;';
     note.innerHTML = '<i class="ti ti-lock"></i> Only HICOMM can approve or deny Blacklist / Termination cases.';
     footer.appendChild(note);
+  } else if (isElevated && c.status === 'PENDING' && !onPendingPage()) {
+    // Opened from the record rather than from the queue. The decision belongs on
+    // the Pending tab, so this offers the way there instead of the three buttons.
+    const go = document.createElement('button');
+    go.className = 'btn btn-ghost';
+    go.innerHTML = '<i class="ti ti-clipboard-check"></i> Review in Pending';
+    go.title = 'Approve, deny and request-changes all live on the Pending tab.';
+    go.onclick = async () => { closeModal('modal-detail'); await goReviewCase(c.id); };
+    const why = document.createElement('span');
+    why.style.cssText = 'font-size:12px;color:var(--text-secondary);align-self:center;margin-right:auto;';
+    why.textContent = 'This is the record, so nothing is decided here.';
+    footer.appendChild(why);
+    footer.appendChild(go);
   } else if (isElevated && c.status === 'PENDING') {
     // Request Changes — bounce the case back to the submitter with a note
     const reqBtn = document.createElement('button');
@@ -2374,3 +3942,224 @@ function openDetail(caseId) {
   openModal('modal-detail');
 }
 
+
+// ── Leave already in progress ─────────────────────────────────────
+//
+// Same two-button shape as the case rebuild and the XP import, for the same
+// reason: this writes records for real people and the rehearsal reports exactly
+// what the real run will do.
+
+function loaiDate(v) {
+  try { return new Date(v).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
+  catch (e) { return String(v || ''); }
+}
+
+async function loaiLook() {
+  const out = document.getElementById('loai-result');
+  const btn = document.getElementById('loai-look-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Reading…"; }
+  try {
+    const r = await api('/api/dev/loa-import');
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + 'The list, read by nothing else yet</div>';
+    h += clrRow('People', (r.entries || []).length, (r.entries || []).length ? 'good' : 'warn');
+    h += loaiRoleWarning(r);
+    if ((r.entries || []).length) {
+      h += '<div style="margin-top:.8rem;font-size:11.5px;line-height:1.9;">'
+        + r.entries.map(function (x) {
+            return '<span class="mono">' + escapeHtml(x.username) + '</span> · '
+              + escapeHtml(x.id) + ' · ' + escapeHtml(loaiDate(x.startAt)) + ' → '
+              + escapeHtml(loaiDate(x.endAt));
+          }).join('<br>')
+        + '</div>';
+    }
+    if ((r.problems || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--amber,#f5b730);line-height:1.7;">'
+        + r.problems.map(function (x) { return escapeHtml(x); }).join('<br>') + '</div>';
+    }
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+// The role is the whole point: without it configured, the import records the leave
+// and still nothing takes the role off at the end.
+function loaiRoleWarning(r) {
+  if (r.roleConfigured) return '';
+  return '<div style="margin-top:.7rem;padding:.6rem .8rem;border-radius:8px;'
+    + 'background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);'
+    + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
+    + '<i class="ti ti-alert-triangle"></i> <strong>LOA_ROLE_ID is not set</strong>, so nothing will take '
+    + 'the on-leave role off anybody when their leave finishes · which is the main thing importing this '
+    + 'is for. Set it to the on-leave role id and the sweep will handle it. The bot also needs '
+    + '<em>Manage Roles</em>, with its own highest role above that one.</div>';
+}
+
+async function loaiImport(dry) {
+  const out = document.getElementById('loai-result');
+  const btn = document.getElementById(dry ? 'loai-dry-btn' : 'loai-go-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Working…"; }
+  try {
+    const r = await api('/api/dev/loa-import', { method: 'POST', body: JSON.stringify({ dry: !!dry }) });
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + (r.dryRun ? 'What importing would do' : 'Imported') + '</div>';
+    h += clrRow('In the list', r.read);
+    h += clrRow(r.dryRun ? 'Would be imported' : 'Imported', (r.imported || []).length, (r.imported || []).length ? 'good' : 'warn');
+    if ((r.alreadyThere || []).length) h += clrRow('Already there', r.alreadyThere.length, 'good');
+    if ((r.unresolved || []).length)   h += clrRow('No matching member', r.unresolved.length, 'warn');
+    if ((r.skipped || []).length)      h += clrRow('Skipped', r.skipped.length, 'warn');
+    h += loaiRoleWarning(r);
+
+    if ((r.imported || []).length) {
+      h += '<div style="margin-top:.8rem;font-size:12px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;">'
+        + (r.dryRun ? 'Who would come in' : 'Who came in') + '</div>'
+        + '<div style="font-family:var(--font-mono);font-size:11.5px;line-height:1.9;">'
+        + r.imported.map(function (x) {
+            return escapeHtml(x.username) + ' → <span style="color:var(--green);">'
+              + escapeHtml(loaiDate(x.endAt)) + '</span>'
+              + (x.hasAccount ? '' : ' <span style="color:var(--text-muted);">(no site account)</span>');
+          }).join('<br>')
+        + '</div>';
+    }
+    // Named individually: each of these is somebody whose leave is NOT being
+    // tracked, and the fix is a person checking the username.
+    if ((r.unresolved || []).length) {
+      h += '<div style="margin-top:.8rem;font-size:11.5px;color:var(--amber,#f5b730);line-height:1.8;">'
+        + 'No member of the server matches these exactly, so their leave was not imported. '
+        + 'Check the username and correct it in <code>data/loa-import.txt</code>:<br>'
+        + r.unresolved.map(function (x) { return '<span class="mono">' + escapeHtml(x.username) + '</span> (' + escapeHtml(x.id) + ')'; }).join(', ')
+        + '</div>';
+    }
+    if ((r.skipped || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--text-secondary);line-height:1.8;">'
+        + r.skipped.map(function (x) { return escapeHtml(x.username) + ' · ' + escapeHtml(x.why || 'skipped'); }).join('<br>')
+        + '</div>';
+    }
+    if ((r.problems || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--amber,#f5b730);line-height:1.7;">'
+        + r.problems.map(function (x) { return escapeHtml(x); }).join('<br>') + '</div>';
+    }
+    if ((r.errors || []).length) {
+      h += '<div style="margin-top:.7rem;font-size:11.5px;color:var(--red);line-height:1.7;">'
+        + r.errors.map(function (x) { return escapeHtml(x); }).join('<br>') + '</div>';
+    }
+    if (r.dryRun && (r.imported || []).length) {
+      h += '<div style="margin-top:.9rem;font-size:12px;color:var(--text-secondary);line-height:1.7;">'
+        + 'Nothing gains a role from this · everybody on the list already has it. The sweep takes it '
+        + 'off when each leave finishes.</div>'
+        + '<button type="button" class="btn btn-success btn-sm" id="loai-go-btn" style="margin-top:.6rem;" '
+        + 'onclick="loaiGo()"><i class="ti ti-check"></i> Import them</button>';
+    }
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+async function loaiGo() {
+  const yes = await uiConfirm(
+    'This writes a leave record for each person on the list, backdated and already approved.\n\n'
+    + 'It adds no roles · everybody on the list already has the on-leave one. What changes is that '
+    + 'the leave becomes visible to /loa active and the quota check, and the role comes off '
+    + 'automatically when each leave finishes.',
+    { title: 'Import the leave?', confirmText: 'Import it', cancelText: 'Not yet', icon: 'ti-calendar-plus' });
+  if (!yes) return;
+  return loaiImport(false);
+}
+
+// ── MET group audit log ───────────────────────────────────────────
+// "Nothing is arriving in the channel" has five different causes and they all
+// look the same from the channel. This says which one it is.
+async function galLook() {
+  const out = document.getElementById('gal-result');
+  const btn = document.getElementById('gal-look-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Asking Roblox…"; }
+  try {
+    const r = await api('/api/dev/group-audit');
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + 'The group audit log</div>';
+    h += clrRow('Watching', r.enabled ? 'yes' : 'switched off (GROUP_AUDIT_LOG=off)', r.enabled ? 'good' : 'warn');
+    h += clrRow('Group', r.groupId);
+    h += clrRow('Channel', r.channelId || 'not set', r.channelId ? 'good' : 'bad');
+    h += clrRow('Roblox bot cookie', r.cookieConfigured ? 'set' : 'not set', r.cookieConfigured ? 'good' : 'bad');
+    h += clrRow('Can read the log',
+      r.reachable === true ? 'yes' : r.reachable === false ? 'NO' : 'not tried',
+      r.reachable === true ? 'good' : r.reachable === false ? 'bad' : 'warn');
+    h += clrRow('Actions recorded', r.total, r.total ? 'good' : 'warn');
+    if (r.unposted) h += clrRow('Waiting to be posted', r.unposted, 'warn');
+    h += clrRow('Posting from', r.startedAt ? galWhen(r.startedAt) : 'the first sweep has not run yet');
+    if (r.readError) {
+      h += '<div style="margin-top:.7rem;padding:.6rem .8rem;border-radius:8px;'
+        + 'background:rgba(245,183,48,.08);border:1px solid rgba(245,183,48,.3);'
+        + 'font-size:11.5px;color:var(--text-secondary);line-height:1.7;">'
+        + '<i class="ti ti-alert-triangle"></i> ' + escapeHtml(r.readError) + '</div>';
+    }
+    if ((r.recent || []).length) {
+      h += '<div style="margin-top:.9rem;font-size:11.5px;line-height:1.9;">'
+        + r.recent.map(function (x) {
+            return '<span style="color:var(--text-muted);">' + escapeHtml(galWhen(x.occurredAt)) + '</span> · '
+              + '<span class="mono">' + escapeHtml(x.actionType) + '</span> · '
+              + escapeHtml(x.actorName || 'unknown')
+              + (x.targetName ? ' → ' + escapeHtml(x.targetName) : '')
+              + (x.messageId ? '' : ' <span style="color:var(--amber);">(not posted)</span>')
+              + (x.matchedAuditId ? ' <span style="color:var(--green);">(from the site)</span>' : '');
+          }).join('<br>')
+        + '</div>';
+    }
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+function galWhen(v) {
+  if (!v) return '·';
+  const d = new Date(v);
+  return isNaN(d) ? String(v) : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+async function galSweep() {
+  const out = document.getElementById('gal-result');
+  const btn = document.getElementById('gal-sweep-btn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = "<i class='ti ti-loader-2'></i> Reading…"; }
+  try {
+    const r = await api('/api/dev/group-audit/sweep', { method: 'POST', body: '{}' });
+    let h = '<div style="border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:.9rem 1rem;">'
+      + '<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.6rem;">'
+      + 'One sweep</div>';
+    if (r.skipped) h += clrRow('Stood down', r.skipped, 'warn');
+    if (r.ingest) {
+      h += clrRow('Read from Roblox', r.ingest.seen);
+      h += clrRow('Pages walked', r.ingest.pages);
+      h += clrRow('New to us', r.ingest.inserted, r.ingest.inserted ? 'good' : undefined);
+      if (r.ingest.error) h += clrRow('Could not read it', r.ingest.error, 'bad');
+    }
+    if (r.post) {
+      h += clrRow('Posted to Discord', r.post.posted, r.post.posted ? 'good' : undefined);
+      if (r.post.failed)  h += clrRow('Still queued', r.post.failed, 'warn');
+      if (r.post.gaveUp)  h += clrRow('Given up on (too old)', r.post.gaveUp, 'warn');
+      if (r.post.skipped) h += clrRow('Skipped', r.post.skipped, 'warn');
+      if (r.post.error)   h += clrRow('Posting failed', r.post.error, 'bad');
+    }
+    if (r.error) h += clrRow('Failed', r.error, 'bad');
+    if (out) out.innerHTML = h + '</div>';
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:var(--red);"><i class="ti ti-alert-triangle"></i> ' + escapeHtml(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}

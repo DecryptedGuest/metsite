@@ -1,20 +1,136 @@
-# 🛡 MET Police Service Portal
+# 🛡 MET Police Service Dashboard
 
-A secure, Discord-authenticated portal for the MET Police roleplay community, covering
+A secure, Discord-authenticated dashboard for the MET Police roleplay community, covering
 five divisions from one codebase and one login:
 
 | Division | Abbr. | Scope |
 |----------|-------|-------|
 | Criminal Investigation Department | **CID**   | Open cases, log evidence/notes, assign investigators, track status |
 | Specialist Firearms Command       | **SCO-19**| Log firearms deployments/authorisations, lead sign-off |
-| Internal Affairs                  | **IA**    | Case management, ticketing, quotas, audit log (the original system) |
+| Internal Affairs                  | **IA**    | Case management, case documents, appeals, quotas, audit log |
 | Frontline Policing                | **FLP**   | Shift start/end, incidents attended, arrests made |
 | Hendon Police College             | **HPC**   | Cadet roster, course tracking, pass/fail, graduation sign-off |
 
-IA is the original, fully-featured system this portal grew from — its case management,
-ticketing, quota tracking, audit log, Discord role-gating and webhook posting are
-unchanged, just re-homed under `/ia`. The other four divisions are lighter-weight tools
-scoped to what each division actually needs.
+IA is the original, fully-featured system this dashboard grew from, re-homed under `/ia`.
+The other four divisions are lighter-weight tools scoped to what each division needs.
+
+---
+
+## Internal Affairs
+
+Everything IA does now runs through cases. There is one place to write a case file,
+one queue to review it, one way to overturn it, and one number that tells an
+investigator whether they're on quota.
+
+### Case appeals
+
+An approved case can be **appealed**, and filing the appeal *is* the decision — it is
+granted automatically. Granting one moves the case to `OVERTURNED`, removes every
+punishment role it applied in Discord, marks its `CasePunishment` rows as lifted, edits
+the posted administrative-log notice to say it was appealed, and drops it out of the
+officer's punishment record (it shows in its own "Appealed" section in Records instead).
+
+Who may appeal:
+
+| Case contains | Who can appeal it |
+|---------------|-------------------|
+| Anything else | **Senior Investigator and above** |
+| A Termination or a Blacklist | **High Command only** |
+
+"Senior Investigator and above" can't come from the site role (`IA` collapses every
+investigator tier into one value), so login and the access revalidator now snapshot the
+member's Internal Affairs Roblox group rank onto `User.iaRank` / `User.iaRankName`.
+`server/lib/iaRank.js` is the single place that rule lives; `IA_SI_MIN_RANK` (default
+`15`) sets the numeric threshold, and the rank *name* is matched as a fallback. The
+server enforces it on every appeal endpoint — `/api/me` only exposes `isSiPlus` /
+`isHicomm` so the UI can hide the button rather than offer-and-reject it.
+
+### Case documents
+
+Case files are written **on the site** instead of in Google Docs. The builder has the
+same sections, inputs and order as the IA doc template — report date/time, suspect and
+investigator identity blocks, allegations, evidence exhibits, summary, the punishment
+checklist (issued items struck through), final decision and signature — plus a full
+formatting toolbar (fonts, sizes, colours, highlight, alignment, lists, indent, links,
+images, quotes, rules).
+
+Every field that can be resolved automatically has a one-click **autofill**:
+
+| Field | Filled from |
+|-------|-------------|
+| `User` | the member's Roblox username |
+| `Rank` | their rank name in the MET group (`MET_GROUP_ID`) |
+| `User ID` | their Discord user id |
+
+A finished document lives at `/case-doc/<id>` — that URL is what a case's "Case Link"
+points at. Rich text is sanitised server-side by `server/lib/sanitizeHtml.js` (strict
+tag/attribute/CSS allowlist) because documents are written by IA but read by anyone with
+the link.
+
+### Tickets
+
+**Tickets do not work on the website at all.** Nothing here opens, holds or handles one
+— the `/support` help desk and the hand-logged ticket table are both gone (migration
+`0060_remove_website_tickets`).
+
+What the site *does* have is a read-only mirror of the Discord ticket-log channel, plus a
+sign-off. The bot copies the **"Ticket Closed"** logs into `ticket_logs`
+(`server/lib/ticketIngest.js`) — live via `messageCreate`, with a catch-up sweep every 5
+minutes and a backfill on first run — so **IA never logs a ticket by hand**. A
+**Supervisor or above then approves or denies each log on the site**
+(`POST /api/tickets/:id/review`); you can't sign off a ticket you closed yourself.
+Approving one awards the investigator who closed it **2 quota points**
+(`IA_TICKET_POINTS`) — an approved case is worth 4. The award is queued durably and
+keyed on the ticket id, so re-approving can never double-award, and denying awards
+nothing.
+
+*My Tickets* is every ticket you closed; *All Tickets* is every ticket logged.
+
+### Patrol & event logs
+
+MET patrol logs and FLP event logs are filed in Discord and captured by
+`server/lib/patrolLog.js` into `patrol_logs`. A log is signed off by **somebody ticking
+or crossing the message** — and that is the part
+`server/lib/patrolReactions.js` handles.
+
+It matters because the sign-off is read off the **message's own reactions**, not off who
+clicked what in our UI: a log ticked or crossed by *anybody*, including someone who has
+never opened the site, lands here as approved or denied. Two paths keep it current — the
+live `messageReactionAdd` / `messageReactionRemove` handlers, and a reconcile sweep every
+5 minutes that re-reads reactions on recent PENDING logs. The sweep is not optional:
+gateway events are never replayed, so without it a tick added while the bot was
+restarting would be lost for good.
+
+Only two reactors are ignored: **bots** — otherwise a logger that pre-adds ✅/❌ as
+clickable buttons would mark every log both approved and denied the moment it posts — and
+**the officer who filed the log**, since "ticked by somebody else" is the whole point. A
+cross outranks a tick, except on the live path, where the reaction that just arrived
+wins; that's how a supervisor corrects a mistaken cross.
+
+Approving an EVENT log awards its point exactly as the site's own approve button does,
+and `pointAwarded` is written in the same update, so a Discord sign-off can't double-award.
+
+Configure with `PATROL_CHANNEL_ID` / `EVENTLOGS_CHANNEL_ID` (see `.env.example`); with
+both unset the bot requests no reaction intent. `PATROL_APPROVE_EMOJI` /
+`PATROL_DENY_EMOJI` add custom emoji to the built-in tick/cross sets.
+
+### Quota
+
+The weekly IA target is set **per rank**: Low Command (Junior / Probationary
+Investigator) **30**, Middle Command (Senior Investigator / Supervisor) **20**, and
+Director / LOA **exempt**. An approved case is worth **4** points
+(`IA_CASE_POINTS`) to its investigator and an approved ticket log **2**
+(`IA_TICKET_POINTS`) to whoever closed it. Holding the Investigator-of-the-Week role
+takes 10 off the target while they hold it.
+
+### MET database sync
+
+**Quota & Database → MET Database Sync** compares the database sheet against the MET
+Roblox group: members no longer in the group are removed, and newly joined constables are
+written into the rows that frees up. *Check* is a dry run that shows exactly what will
+change; *Apply changes* performs it. Writes go through the Apps Script webhook
+(`roster` action in `scripts/quota-webhook.gs`) with a service-account fallback. Set
+`MET_DB_AUTO_SYNC=true` to run it daily.
 
 ---
 
@@ -38,8 +154,9 @@ metsite/
 │   ├── index.js              # Express entry point — hub route, /ia/* + /cid|sco19|flp|hpc/* mounts
 │   ├── routes/
 │   │   ├── auth.js           # Shared Discord OAuth flow (all divisions)
-│   │   ├── cases.js          # IA case CRUD + audit (unchanged)
-│   │   ├── tickets.js        # IA ticketing (unchanged)
+│   │   ├── cases.js          # IA case CRUD + appeals + change diffs + audit
+│   │   ├── caseDocs.js       # Case documents (the built-in replacement for Google Docs)
+│   │   ├── tickets.js        # Closed-ticket logs, read-only (mirrored from Discord)
 │   │   ├── admin.js          # IA admin panel (unchanged)
 │   │   ├── cid.js            # CID case log
 │   │   ├── sco19.js          # SCO-19 deployment log
@@ -52,13 +169,18 @@ metsite/
 │       ├── db.js             # Prisma client singleton
 │       ├── roleResolver.js   # Site role (IA) + division access resolution
 │       ├── accessControl.js  # Background revalidator — refreshes role AND divisions
+│       ├── iaRank.js         # "Senior Investigator and above" — the appeal gate
+│       ├── sanitizeHtml.js   # Allowlist sanitiser for case-document rich text
+│       ├── ticketIngest.js   # Mirrors closed-ticket logs from Discord into the DB
+│       ├── patrolReactions.js # Patrol/event log sign-off from a Discord tick/cross
+│       ├── metDatabase.js    # MET database ↔ Roblox group roster sync
 │       ├── refGen.js         # Reference generator for the new division models
 │       └── webhook.js        # Discord webhook sender (IA)
 ├── client/
 │   ├── views/
 │   │   ├── index.html            # Hub — the 5 division cards + your rank in each
 │   │   ├── profile.html          # Officer profile — roles/perms/punishments/ranks
-│   │   ├── portal-denied.html    # Generic "no access" page (used by all new divisions)
+│   │   ├── access-denied.html    # Generic "no access" page (used by all new divisions)
 │   │   ├── login.html            # IA's own login page (/ia/login)
 │   │   ├── dashboard.html        # IA's dashboard (/ia/dashboard) — unchanged, + shared topbar
 │   │   ├── denied.html           # IA's own denied page (/ia/denied)
@@ -70,7 +192,7 @@ metsite/
 │       ├── css/
 │       │   ├── main.css          # Global styles (shared design tokens)
 │       │   ├── dashboard.css     # Dashboard component styles (shared)
-│       │   └── met-portal.css    # Hub + shared topbar styles (new)
+│       │   └── met-dashboard.css    # Hub + shared topbar styles (new)
 │       └── js/
 │           ├── ui.js             # Toast, modal, API helpers (shared, unchanged)
 │           ├── dashboard.js      # IA dashboard logic (unchanged)
@@ -90,7 +212,7 @@ metsite/
 
 ## How access works
 
-Login is one shared Discord OAuth2 flow for the whole portal (`/auth/discord`). After
+Login is one shared Discord OAuth2 flow for the whole dashboard (`/auth/discord`). After
 signing in, a user lands on the hub (`/`), which shows all 5 divisions with the user's
 **rank in each** — cards for divisions they belong to link to that division's dashboard;
 the rest are shown locked.
@@ -115,6 +237,36 @@ log, etc.) exactly as before.
 
 A `DEVELOPER` always has LEAD access to every division. Visiting a division you don't
 belong to redirects to that division's `/denied` page.
+
+### Per-division look and feel
+
+Every page under `/ia`, `/cid`, `/sco19`, `/flp` and `/hpc` is themed for that division,
+so it is obvious at a glance whose side of the dashboard you're on:
+
+| Division | Accent    | Crest                        |
+|----------|-----------|------------------------------|
+| IA       | `#8b7cff` | `/img/divisions/ia.png`      |
+| CID      | `#19c6d8` | `/img/divisions/cid.png`     |
+| SCO-19   | `#ff6b4a` | `/img/divisions/sco19.png`   |
+| FLP      | `#4a8fff` | `/img/divisions/flp.png`     |
+| HPC      | `#d966e8` | `/img/divisions/hpc.png`     |
+
+The theme is injected **server-side** by `sendPage(res, file, division)` →
+`divisions.brandHead()`, which adds `data-division="<slug>"` to `<html>`, the division's
+favicon, and the `--div-accent` / `--div-logo` custom properties. Because it's in the
+HTML the browser receives, the page is already the right colour on first paint — there is
+no flash of another division's theme.
+
+`client/public/css/division-theme.css` turns those two properties into the whole palette
+by re-pointing main.css's `--blue*` and `--border-*` tokens, so every component that
+already used a token follows along. **The status colours (`--green` approved, `--amber`
+pending, `--red` denied) are deliberately left alone** — they carry meaning and must read
+the same in every division. `client/public/js/division-brand.js` does the parts CSS can't:
+the crest watermark, the logo swaps, and any `[data-brand]` placeholder a shared view
+declares (the dashboard `/denied` page uses this to say which division turned you away).
+
+To restyle a division, edit its `accent` in the `META` table in `server/lib/divisions.js`
+and drop a new `client/public/img/divisions/<slug>.png`. Nothing else needs to change.
 
 The **LEAD (high-rank) tier** — which unlocks a division's restricted actions — is defined
 per the divisional spec:
@@ -146,7 +298,7 @@ npm install
 ### 2. Create Discord Application
 
 1. Go to https://discord.com/developers/applications
-2. Click **New Application** → name it "MET Police Portal"
+2. Click **New Application** → name it "MET Police Dashboard"
 3. Go to **OAuth2** → copy **Client ID** and **Client Secret**
 4. Under **Redirects**, add:
    - `http://localhost:3000/auth/discord/callback` (local)
@@ -302,7 +454,7 @@ bot populates them.
 | `discordUsername`, `metNickname` | display fields |
 | `robloxId`, `robloxUsername` | linked Roblox identity (optional) |
 | `roles` (JSON) | MET-server Discord roles → chips: `[{ id, name, color, position, icon }]` (`color` = Discord's decimal int or `#hex`) |
-| `perms` (JSON) | multi-division / gang / portal perms → chips: `[{ key, label, category, color }]` |
+| `perms` (JSON) | multi-division / gang / dashboard perms → chips: `[{ key, label, category, color }]` |
 
 **`met_punishments`** — one row per punishment, inserted by the bot:
 
@@ -316,6 +468,68 @@ bot populates them.
 The bot connects with the same `DATABASE_URL` and writes these rows; nothing else on the
 site needs to change for the profile to light up. Division rank/quota and division access
 continue to come from Roblox groups (above), independent of this bot data.
+
+**Perms and standing flags the site derives itself (no bot needed).** In addition to any
+bot-written `perms`, the profile now derives:
+
+* **Permissions** from the member's rank in the **perms group** (`PERMS_GROUP_ID`, default
+  `381582724`) — every rank `2..99` becomes a perm chip (QUOTA EXEMPT, GANG PERMS, MULTI
+  DIVISION PERMS, the BUYER perms, the RANK-LOCK perms, …), coloured by the group's colour
+  scheme. Guest/Member and rank `100+` (MET ADMINISTRATION / HICOMM / Overseer / HOLDER)
+  are the member's MET *rank*, not a perm, so they're filtered out, as are the divider
+  roles (`-----`). Site-derived and bot-written perms are merged and de-duplicated. The
+  catalogue and filtering live in `server/lib/permsGroup.js`. **Multiple roles per group:**
+  Roblox now lets a member hold more than one role in a single group; the site collects
+  **every** perm role the account holds (via `getUserGroupRoles`), so all their perms show —
+  not just one.
+* **Standing flags** from the disciplinary Discord roles (`ROLE_ACTIVITY_STRIKE`,
+  `ROLE_STRIKE_1/2/3`, `ROLE_SUSPENDED`, `ROLE_VERBAL_WARNING`, `ROLE_ZT`) — captured from
+  the member's Discord roles at login (`users.metRoleIds`) and shown as coloured chips.
+
+**Punishment history** on the profile now includes the member's own **Internal Affairs
+cases** (`cases` + `case_punishments`, matched by their Roblox id / username / suspect
+Discord id) with reason, issuer, expiry and active/expired status — merged with any
+bot-written `met_punishments` and shown newest-first. See `server/lib/punishments.js`.
+*Note:* that history lives in the Postgres DB, not in the repo. If this site already points
+at the same `DATABASE_URL` as the old IA site, the cases are already there and now show.
+Otherwise, either point `DATABASE_URL` at the IA database, or `pg_dump` the IA DB's
+`cases` / `case_actions` / `case_punishments` (and `case_counter`) tables and restore them
+into this database.
+
+**Divisions render as coloured role chips** following the MET Discord colour scheme (FLP
+blue, SCO-19 grey, CID orange, HPC white, IA teal; MI5 sky-blue reserved) — see
+`META[...].color` in `server/lib/divisions.js`.
+
+### Developer division
+
+The developer tools (Dev Panel, Group Panel, Discord Moderation, Visits, Security, Site
+Control, Send Notification, Media Admin) are their own **Developer division** at
+`/dev/dashboard` — no longer mixed into the Internal Affairs section. The IA dashboard view
+is reused: served from `/dev` it switches to "developer mode" (dev nav only, IA nav hidden);
+served from `/ia/dashboard` the dev nav is never shown, even to developers. Access is
+developers-only (`role === 'DEVELOPER'`), and the division appears in developers' profile +
+division switcher.
+
+### Tryout server lock (live from the game)
+
+Tryout announcements show the live **server-lock** state (Adonis `:serverlock on/off` /
+`:slock`) of the Hendon Police Campus game — not a static "shift-lock". When the lock
+toggles in-game, the game POSTs `/api/game/serverlock` (authenticated with the
+`x-game-secret` header = `TRYOUT_GAME_SECRET`), and the site updates the tryout and edits
+its Discord announcement in real time. In-game HTTP example (Adonis command hook /
+HttpService):
+
+```lua
+game:GetService("HttpService"):PostAsync(
+  "https://<your-site>/api/game/serverlock",
+  game:GetService("HttpService"):JSONEncode({ locked = true }),  -- or false
+  Enum.HttpContentType.ApplicationJson, false,
+  { ["x-game-secret"] = "<TRYOUT_GAME_SECRET>" }
+)
+```
+
+Body accepts `{ locked: true|false }` (or `state: "on"/"off"`), and optionally `tryoutId`
+or `privateServerId` to target a specific tryout (otherwise the current live one is used).
 
 ## Division → Roblox group mapping
 
@@ -355,8 +569,29 @@ access to every division.
 | GET    | `/api/me`               | Current user info (incl. `divisions`) |
 | GET    | `/api/me/divisions`     | Divisions the current user can access, for the hub + "Switch division" |
 
-### IA (`/api/cases`, `/api/tickets`, `/api/admin`, ... — unchanged, now gated to IA division)
-See the code in `server/routes/` — behaviour is identical to the original IA system.
+### IA (`/api/cases`, `/api/case-docs`, `/api/tickets`, `/api/quota`, `/api/admin` — gated to the IA division)
+
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| GET    | `/api/cases/all?q=&status=` | IA | Every case; free-text search + status filter |
+| GET    | `/api/cases/my?q=`          | IA | Your own cases, same search |
+| GET    | `/api/cases/stats`          | IA | Totals incl. `overturned` + `changesRequested` |
+| PATCH  | `/api/cases/:id/request-changes` | HICOMM/Supervisor | Bounce back with a note (snapshots the case) |
+| PATCH  | `/api/cases/:id`            | owner (pending) / elevated | Edit; records a before→after diff |
+| GET    | `/api/cases/:id/appeal`     | IA | May *I* appeal this case, and why not |
+| POST   | `/api/cases/:id/appeal`     | SI+ (HICOMM for Termination/Blacklist) | File — and thereby grant — an appeal |
+| GET    | `/api/case-docs`            | IA | Your case documents (`?scope=all` for elevated) |
+| POST   | `/api/case-docs`            | IA | Create a document |
+| PATCH  | `/api/case-docs/:id`        | author / elevated | Save |
+| GET    | `/api/case-docs/autofill?target=` | IA | Resolve User / Rank / User ID for a member |
+| GET    | `/api/case-docs/penal-codes?codes=` | IA | Resolve penal codes → offences |
+| GET    | `/api/tickets`              | IA | Closed tickets **you** closed |
+| GET    | `/api/tickets/all?q=&type=` | IA | Every closed ticket |
+| POST   | `/api/tickets/sync`         | HICOMM | Force a re-scan of the Discord log channel |
+| GET    | `/api/quota/met-database`   | HICOMM | Dry-run the MET database sync |
+| POST   | `/api/quota/met-database/sync` | HICOMM | Apply it |
+
+Everything else in `server/routes/` behaves as before.
 
 ### CID (`/api/cid`)
 | Method | Path                              | Access     | Description |

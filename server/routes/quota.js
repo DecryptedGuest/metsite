@@ -42,10 +42,18 @@ router.post('/check', requireHICOMMStrict, async (req, res) => {
     // (reducing their quota) and remove it from the previous holder. If the same
     // person is re-selected, the role simply stays. Non-blocking on failure.
     let iotwApplied = null;
-    if (iotwDiscordId || iotwUsername) {
-      iotwApplied = await setInvestigatorOfWeek(iotwDiscordId || null);
+    if (iotwDiscordId) {
+      // Guard on the Discord ID, not the username: calling setInvestigatorOfWeek(null)
+      // as a side effect of a selection that merely lacked an ID would strip the
+      // IOTW role from the PREVIOUS holder and grant it to nobody.
+      iotwApplied = await setInvestigatorOfWeek(iotwDiscordId);
       if (iotwApplied && !iotwApplied.ok)
         console.warn('[Quota] IOTW role update failed:', iotwApplied.error);
+    } else if (iotwUsername) {
+      // A member was picked but their sheet row has no Discord ID — surface it as
+      // a failure instead of silently clearing everyone's IOTW role.
+      iotwApplied = { ok: false, error: 'No Discord ID on file for the selected Investigator of the Week.' };
+      console.warn('[Quota] IOTW selection had no Discord ID · skipping role change for', iotwUsername);
     }
 
     const ok = await sendQuotaCheckWebhook({
@@ -99,11 +107,187 @@ router.post('/reset', requireHICOMMStrict, async (req, res) => {
   try {
     const result = await resetAllQuota();
     if (!result.ok) return res.status(500).json({ error: result.error || 'Reset failed.' });
-    console.log(`[Quota] reset by ${req.user.displayName || req.user.discordUsername} — ${result.cleared} cell(s) cleared`);
+    console.log(`[Quota] reset by ${req.user.displayName || req.user.discordUsername} · ${result.cleared} cell(s) cleared`);
     res.json(result);
   } catch (err) {
     console.error('[Quota] reset error:', err.message);
     res.status(500).json({ error: 'Failed to reset quota.' });
+  }
+});
+
+// ── Database sync ─────────────────────────────────────────────────
+// Removes members who are no longer in the group from the database sheet, and
+// adds newly joined members into the rows that frees up.
+//
+// WHICH database is a parameter. IA runs this against its own sheet from the IA
+// dashboard; FLP High Command runs the same thing against the MET sheet from
+// theirs. Same comparison, same safety rails, different sheet and group.
+//
+//   GET  /api/quota/met-database?division=IA|MET   → what it WOULD do
+//   POST /api/quota/met-database/sync              → actually do it
+
+// Only these two have a database this machinery understands, and letting the
+// query string name any division would point a destructive sync at a sheet
+// nobody meant.
+const DB_DIVISIONS = ['IA', 'MET'];
+function dbDivision(req) {
+  const d = ((req.query && req.query.division) || (req.body && req.body.division) || 'IA')
+    .toString().toUpperCase();
+  return DB_DIVISIONS.includes(d) ? d : 'IA';
+}
+
+// The MET database belongs to FLP High Command as well as to developers — they
+// are the ones who maintain it. IA's own database stays HICOMM-strict.
+function canTouchDatabase(req, res, next) {
+  const division = dbDivision(req);
+  if (division !== 'MET') return requireHICOMMStrict(req, res, next);
+  const divs = Array.isArray(req.user.divisions) ? req.user.divisions : [];
+  const flpHicomm = divs.some(d => d && d.division === 'FLP' && (d.hicomm || d.metHicomm));
+  if (req.user.role === 'DEVELOPER' || req.user.role === 'HICOMM' || flpHicomm) return next();
+  return res.status(403).json({ error: 'The MET database is maintained by FLP High Command.' });
+}
+
+router.get('/met-database', canTouchDatabase, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const plan = await syncMetDatabase({ dry: true, division: dbDivision(req) });
+    if (!plan.ok) return res.status(plan.error ? 400 : 500).json(plan);
+    res.json(plan);
+  } catch (err) {
+    console.error('[MetDB] plan error:', err.message);
+    res.status(500).json({ error: 'Could not read the MET database: ' + err.message });
+  }
+});
+
+router.post('/met-database/sync', canTouchDatabase, async (req, res) => {
+  try {
+    const { syncMetDatabase } = require('../lib/metDatabase');
+    const result = await syncMetDatabase({
+      dry:      false,
+      division: dbDivision(req),
+      // The token comes from the dry run the operator just reviewed, so what
+      // gets written is exactly what they were shown.
+      token: (req.body && req.body.token) || null,
+      actor: { id: req.user.id, name: req.user.displayName || req.user.discordUsername },
+    });
+    if (!result.ok) return res.status(result.stale ? 409 : 502).json(result);
+    res.json(result);
+  } catch (err) {
+    console.error('[MetDB] sync error:', err.message);
+    res.status(500).json({ error: 'MET database sync failed: ' + err.message });
+  }
+});
+
+// ── MET database audit ────────────────────────────────────────────
+// GET  /api/quota/met-database/audit    what is wrong with the sheet
+// POST /api/quota/met-database/normalise  fix the fixable half
+//
+// The audit is read-only and safe to run at any time. Normalise only ever
+// writes zeros into the seven day columns — it never adds, deletes or moves a
+// row, and never touches a cell holding EX or LOA. Moving somebody to their
+// correct rank tab is reported, not performed: that is a structural edit to a
+// live sheet with no undo, and the operator should be the one making it.
+router.get('/met-database/audit', canTouchDatabase, async (req, res) => {
+  try {
+    const { auditMet, summarise } = require('../lib/metDatabaseAudit');
+    const report = await auditMet({ checkGroup: req.query.group !== '0', division: dbDivision(req) });
+    if (!report.ok) return res.status(400).json(report);
+    res.json({ ...report, summaryText: summarise(report) });
+  } catch (err) {
+    console.error('[MetDB] audit error:', err.message);
+    res.status(500).json({ error: 'MET database audit failed: ' + err.message });
+  }
+});
+
+// ── Adding people the sheet is missing ────────────────────────────
+// GET  /api/quota/met-database/missing   everyone in the group with no row
+// POST /api/quota/met-database/add-members   add the ones that were picked
+//
+// The sync decides for itself and only ever offers the entry rank, which means a
+// Junior Investigator who never got a row stays invisible until their quota
+// reads zero for a month. These two are the manual half: a list to look at, and
+// a write that does exactly what it was told.
+router.get('/met-database/missing', canTouchDatabase, async (req, res) => {
+  try {
+    const { missingMembers } = require('../lib/metDatabase');
+    const out = await missingMembers(dbDivision(req));
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[MetDB] missing-members read failed:', err.message);
+    res.status(500).json({ error: 'Could not work out who is missing: ' + err.message });
+  }
+});
+
+router.post('/met-database/add-members', canTouchDatabase, async (req, res) => {
+  const body = req.body || {};
+  if (!Array.isArray(body.members) || !body.members.length) {
+    return res.status(400).json({ stage: 'select', error: 'Pick at least one person to add.' });
+  }
+  try {
+    const { addMembers } = require('../lib/metDatabase');
+    const out = await addMembers(body.members, dbDivision(req), {
+      id: req.user.id, name: req.user.displayName || req.user.discordUsername || req.user.id,
+    });
+    // Both kinds of refusal answer 400, and `stage` says which it was.
+    //
+    // A write failure is not the caller's fault, so 502 was the honest status —
+    // but a 5xx is exactly the response class a platform edge proxy may replace
+    // with its own error page, and when it does, the explanation this route
+    // worked so hard to produce never reaches the browser. Being readable beats
+    // being pedantically correct about the number.
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[MetDB] add-members failed:', err.message);
+    res.status(500).json({ error: 'Could not add them: ' + err.message });
+  }
+});
+
+// POST /api/quota/met-database/tidy-rows   move stray rows into their rank block
+//
+// A stray row is one that was appended rather than placed — the fallback the
+// writer takes when it cannot insert. It counts as "on the sheet", so the person
+// disappears from the missing list while still being nowhere anybody looks. This
+// drags them back where they belong, and nothing is ever deleted.
+router.post('/met-database/tidy-rows', canTouchDatabase, async (req, res) => {
+  const body = req.body || {};
+  try {
+    const { tidyStrayRows } = require('../lib/metDatabase');
+    const out = await tidyStrayRows(dbDivision(req), {
+      id: req.user.id, name: req.user.displayName || req.user.discordUsername || req.user.id,
+    }, { dryRun: body.dry === true });
+    // 400 rather than 5xx for the same reason as add-members: the body is the
+    // explanation, and an edge proxy may replace a 5xx body with its own page.
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (err) {
+    console.error('[MetDB] tidy-rows failed:', err.message);
+    res.status(400).json({ error: 'Could not tidy the rows: ' + err.message });
+  }
+});
+
+router.post('/met-database/normalise', canTouchDatabase, async (req, res) => {
+  const body = req.body || {};
+  try {
+    const { normaliseMet } = require('../lib/metDatabaseAudit');
+    const result = await normaliseMet({
+      division:   dbDivision(req),
+      fillBlanks: body.fillBlanks !== false,
+      reset:      !!body.reset,
+      // Default to a dry run. Zeroing a live database is not something to do by
+      // accident, so the caller has to say apply:true explicitly.
+      dryRun:     body.apply !== true,
+    });
+    if (!result.ok) return res.status(400).json(result);
+    if (!result.dryRun) {
+      console.log(`[MetDB] normalised by ${req.user.displayName || req.user.discordUsername}`
+        + ` · ${result.cleared} cleared, ${result.filled} filled, ${result.kept} EX/LOA kept`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[MetDB] normalise error:', err.message);
+    res.status(500).json({ error: 'MET database normalise failed: ' + err.message });
   }
 });
 

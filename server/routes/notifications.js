@@ -2,7 +2,7 @@
 const express = require('express');
 const prisma  = require('../lib/db');
 const { requireDeveloper } = require('../middleware/auth');
-const { sendCustomNotification, getPrefs, ALL_TICKET_TYPES } = require('../lib/push');
+const { sendCustomNotification, getPrefs } = require('../lib/push');
 
 const router = express.Router();
 
@@ -11,11 +11,10 @@ router.get('/me', async (req, res) => {
   try {
     const subCount = await prisma.pushSubscription.count({ where: { userId: req.user.id } });
     res.json({
-      asked:       req.user.notifyAsked,
-      enabled:     req.user.notifyEnabled,
-      hasPush:     subCount > 0,
-      prefs:       getPrefs(req.user),
-      ticketTypes: ALL_TICKET_TYPES,
+      asked:   req.user.notifyAsked,
+      enabled: req.user.notifyEnabled,
+      hasPush: subCount > 0,
+      prefs:   getPrefs(req.user),
     });
   } catch (e) {
     res.status(500).json({ error: 'Failed to load notification settings.' });
@@ -40,11 +39,9 @@ router.patch('/settings', async (req, res) => {
   if (prefs && typeof prefs === 'object') {
     data.notifyPrefs = {
       newCase:       prefs.newCase       !== false,
-      newTicket:     prefs.newTicket     !== false,
+      caseUpdated:   prefs.caseUpdated   !== false,
+      caseAppealed:  prefs.caseAppealed  !== false,
       announcements: prefs.announcements !== false,
-      ticketTypes:   Array.isArray(prefs.ticketTypes)
-        ? prefs.ticketTypes.filter(t => ALL_TICKET_TYPES.includes(t))
-        : [...ALL_TICKET_TYPES],
     };
   }
   // Enabling for the first time also counts as having been asked.

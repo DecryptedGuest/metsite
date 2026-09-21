@@ -36,8 +36,8 @@ async function requireAuth(req, res, next) {
   } catch (dbErr) {
     console.error('[Auth] requireAuth DB lookup failed (transient):', dbErr.message);
     return isApi
-      ? res.status(503).json({ error: 'Server busy — please retry.' })
-      : res.status(503).send('Server busy — please refresh in a moment.');
+      ? res.status(503).json({ error: 'Server busy · please retry.' })
+      : res.status(503).send('Server busy · please refresh in a moment.');
   }
 
   if (!user) {
@@ -47,9 +47,10 @@ async function requireAuth(req, res, next) {
 
   if (user.isBlacklisted) {
     res.clearCookie('iacms_token');
+    const reason = (user.blacklistReason || '').trim();
     return isApi
-      ? res.status(403).json({ error: 'Your account has been blacklisted.' })
-      : res.redirect('/denied?reason=blacklisted');
+      ? res.status(403).json({ error: 'Your account has been blacklisted.', reason: reason || undefined })
+      : res.redirect('/denied?reason=blacklisted' + (reason ? '&msg=' + encodeURIComponent(reason.slice(0, 300)) : ''));
   }
 
   if (user.mustReauth) {
@@ -70,8 +71,8 @@ async function requireAuth(req, res, next) {
     } catch (dbErr) {
       console.error('[Auth] session lookup failed (transient):', dbErr.message);
       return isApi
-        ? res.status(503).json({ error: 'Server busy — please retry.' })
-        : res.status(503).send('Server busy — please refresh in a moment.');
+        ? res.status(503).json({ error: 'Server busy · please retry.' })
+        : res.status(503).send('Server busy · please refresh in a moment.');
     }
     if (!session || session.revokedAt || session.expiresAt < new Date()) {
       res.clearCookie('iacms_token');
@@ -80,9 +81,21 @@ async function requireAuth(req, res, next) {
         : res.redirect('/login?error=access_revoked');
     }
     req.sessionId = session.id;
-    // Throttled lastSeen bump (~5 min) — never block the request on it.
+    // Rolling ("remember me") session: keep active users signed in. Piggyback
+    // on the ~5-min lastSeen throttle to also push the expiry window forward
+    // and reissue the cookie, so simply returning to the site keeps you logged
+    // in until you explicitly log out. Never blocks the request.
     if (Date.now() - new Date(session.lastSeenAt).getTime() > 5 * 60 * 1000) {
-      prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } }).catch(() => {});
+      const SESSION_DAYS = parseInt(process.env.SESSION_DAYS, 10) || 60;
+      const newExpiry = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+      prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date(), expiresAt: newExpiry } }).catch(() => {});
+      try {
+        const rolled = jwt.sign({ userId: user.id, sid: session.id }, process.env.JWT_SECRET, { expiresIn: `${SESSION_DAYS}d` });
+        res.cookie('iacms_token', rolled, {
+          httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
+          maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
+        });
+      } catch (e) { /* non-fatal — the existing cookie still works */ }
     }
   } else {
     res.clearCookie('iacms_token');
@@ -93,6 +106,32 @@ async function requireAuth(req, res, next) {
 
   req.user = user;
   next();
+
+  // Opportunistic, non-blocking role refresh: if this user's roles haven't been
+  // re-checked recently, re-derive them in the background so role changes (e.g.
+  // a removed final-exam role) take effect on their next request — without
+  // waiting for the periodic batch. Guarded per-user to avoid duplicate work.
+  maybeRefreshRoles(user);
+}
+
+const REFRESH_TTL_MS = 3 * 60 * 1000; // don't refresh the same user more than ~every 3 min
+const _refreshing = new Set();
+function maybeRefreshRoles(user) {
+  try {
+    if (!user || user.discordId === DEVELOPER_DISCORD_ID()) return; // only the owner skips re-derivation
+    const last = user.lastRoleCheck ? new Date(user.lastRoleCheck).getTime() : 0;
+    if (Date.now() - last < REFRESH_TTL_MS) return;
+    if (_refreshing.has(user.id)) return;
+    _refreshing.add(user.id);
+    (async () => {
+      try {
+        const { getMemberRecord } = require('../lib/bot');
+        const { revalidateUser } = require('../lib/accessControl');
+        await revalidateUser(user, getMemberRecord);
+      } catch (e) { /* best-effort; the periodic batch is the backstop */ }
+      finally { _refreshing.delete(user.id); }
+    })();
+  } catch (e) { /* never let a refresh error affect the request */ }
 }
 
 // HICOMM access: HICOMM, SUPERVISOR, or DEVELOPER
@@ -113,11 +152,64 @@ function requireHICOMMStrict(req, res, next) {
 function requireDeveloper(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (req.user.role === 'DEVELOPER') return next();
+  try { require('../lib/audit').denied(req, 'ACCESS_DENIED_DEV', `Non-developer (${req.user.role}) tried to reach a developer endpoint: ${req.method} ${req.originalUrl}`); } catch (e) {}
   return res.status(403).json({ error: 'Developer access required' });
+}
+
+/**
+ * The user behind a session cookie, or null — with every reason a cookie can stop
+ * being good already applied.
+ *
+ * There are five of them, and any code that authenticates a request has to honour
+ * all five: a signature that does not verify, an account that no longer exists, a
+ * blacklist, a forced re-auth, and a session that has been REVOKED or has expired.
+ * That last pair is what "Sign out everywhere else" and the Dev Security Center's
+ * kill switch actually do — they mark the Session row, not the cookie, because a
+ * cookie already issued cannot be taken back.
+ *
+ * Extracted so it is written once. It was inlined here and half-implemented in the
+ * hosted-media check, which verified the JWT and read the role and stopped there —
+ * so a revoked session, and a stolen laptop's cookie, kept reading IA and
+ * DEVELOPER media for the sixty days until the JWT itself expired. Two copies of an
+ * auth check is one copy and one hole.
+ *
+ * @returns {Promise<{ user, sessionId }|null>}
+ */
+async function sessionUserFromToken(token) {
+  if (!token) return null;
+  let payload;
+  try { payload = jwt.verify(token, process.env.JWT_SECRET); }
+  catch (e) { return null; }
+  let user = null;
+  try { user = await prisma.user.findUnique({ where: { id: payload.userId } }); }
+  catch (e) { return null; }
+  if (!user || user.isBlacklisted || user.mustReauth) return null;
+  // A sid-less token predates per-session revocation and cannot be checked against
+  // one, so it does not count as authenticated.
+  if (!payload.sid) return null;
+  let session = null;
+  try { session = await prisma.session.findUnique({ where: { id: payload.sid } }); }
+  catch (e) { return null; }
+  if (!session || session.revokedAt || session.expiresAt < new Date()) return null;
+  return { user, sessionId: session.id };
+}
+
+// Optional auth: set req.user if a valid session exists, else leave it null and
+// continue (never redirects/rejects). Used by public-but-personalisable areas
+// where login is optional.
+async function maybeAuth(req, res, next) {
+  const hit = await sessionUserFromToken(req.cookies?.iacms_token);
+  if (!hit) { req.user = null; return next(); }
+  req.sessionId = hit.sessionId;
+  req.user = hit.user;
+  next();
+  maybeRefreshRoles(hit.user);
 }
 
 module.exports = {
   requireAuth,
+  maybeAuth,
+  sessionUserFromToken,
   requireHICOMM,
   requireHICOMMStrict,
   requireDeveloper,

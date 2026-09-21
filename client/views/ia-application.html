@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET · Internal Affairs Application</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    body { overflow-y: auto; overflow-x: hidden; }
+    .iaa-wrap { max-width: 800px; margin: 0 auto; padding: 1.5rem 1.2rem 6rem; position: relative; z-index: 1; }
+
+    /* ── The header, and the progress through six sections ────────── */
+    .iaa-hero { text-align: center; padding: 1.6rem 1.4rem 1.3rem; margin-bottom: 1rem; }
+    .iaa-title { font-family: var(--font-display); font-size: 23px; font-weight: 700;
+                 letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-primary); line-height: 1.25; }
+    .iaa-sub { font-size: 12px; color: var(--text-muted); letter-spacing: 0.08em; margin-top: 5px; }
+
+    /* One pip per section, so "how much is left" is answerable at a glance. On a
+       six-page form that is the question people actually have. */
+    .iaa-steps { display: flex; gap: 6px; margin: 0 0 1.1rem; }
+    .iaa-step { flex: 1; height: 5px; border-radius: 3px; background: var(--border-dim); transition: background .25s; }
+    .iaa-step.done { background: var(--violet, #9d7dff); }
+    .iaa-step.here { background: var(--violet, #9d7dff); box-shadow: 0 0 0 2px rgba(157,125,255,.28); }
+    .iaa-stepwhere { display: flex; justify-content: space-between; align-items: baseline;
+                     font-size: 11.5px; color: var(--text-muted); margin-bottom: 1rem; letter-spacing: .05em; }
+    .iaa-stepwhere strong { color: var(--text-primary); font-size: 13px; letter-spacing: 0; }
+
+    /* ── Notices ──────────────────────────────────────────────────── */
+    .iaa-notice { display: flex; gap: .7rem; align-items: flex-start; padding: .7rem .9rem;
+                  border-radius: var(--radius-md); font-size: 12.5px; line-height: 1.65; margin-bottom: .6rem; }
+    .iaa-notice i { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .iaa-notice.danger  { background: rgba(240,79,94,.09);  border: 1px solid rgba(240,79,94,.3);  color: #ffd7db; }
+    .iaa-notice.danger i  { color: var(--red); }
+    .iaa-notice.warning { background: rgba(245,183,48,.08); border: 1px solid rgba(245,183,48,.3); color: #ffeec9; }
+    .iaa-notice.warning i { color: var(--amber); }
+    .iaa-notice.info    { background: var(--bg-input); border: 1px solid var(--border-dim); color: var(--text-secondary); }
+    .iaa-notice.info i    { color: var(--blue); }
+
+    .iaa-guidelines { padding: 1rem 1.2rem; margin-bottom: 1rem; }
+    .iaa-guidelines h3 { margin: 0 0 .6rem; font-size: 12px; letter-spacing: .07em; text-transform: uppercase;
+                         color: var(--text-muted); }
+    .iaa-guidelines ul { margin: 0; padding-left: 18px; }
+    .iaa-guidelines li { font-size: 12.5px; color: var(--text-secondary); line-height: 1.75; }
+
+    /* ── A section ────────────────────────────────────────────────── */
+    .iaa-section { padding: 1.3rem 1.35rem; }
+    .iaa-shead { font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: .03em;
+                 text-transform: uppercase; color: var(--text-primary); margin-bottom: .35rem; }
+    .iaa-blurb { font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-line; margin-bottom: .9rem; }
+    .iaa-note { font-size: 12.5px; color: var(--text-secondary); background: var(--bg-input);
+                border-left: 3px solid var(--violet, #9d7dff); border-radius: 6px;
+                padding: .6rem .8rem; line-height: 1.65; margin-bottom: 1.1rem; }
+
+    /* ── A question ───────────────────────────────────────────────── */
+    .iaa-q { padding: 1rem 0; border-top: 1px solid var(--border-dim); }
+    .iaa-q:first-of-type { border-top: none; padding-top: .3rem; }
+    .iaa-prompt { font-size: 14px; font-weight: 600; color: var(--text-primary); line-height: 1.55; margin-bottom: .3rem; }
+    .iaa-prompt .req { color: var(--red); margin-left: 3px; }
+    .iaa-help { font-size: 12px; color: var(--text-muted); line-height: 1.6; margin-bottom: .6rem; }
+    .iaa-q textarea, .iaa-q input[type="text"] { width: 100%; }
+    .iaa-q textarea { min-height: 130px; resize: vertical; line-height: 1.65; }
+
+    /* The live counter. This is the difference between meeting a minimum and
+       guessing at one, and it is why nobody should ever be refused at submit for
+       a word count they could not see. */
+    .iaa-count { display: flex; justify-content: space-between; align-items: center;
+                 font-size: 11.5px; margin-top: .35rem; letter-spacing: .02em; }
+    .iaa-count .n { font-family: var(--font-mono); }
+    .iaa-count.under  { color: var(--amber); }
+    .iaa-count.ok     { color: var(--green); }
+    .iaa-count.over   { color: var(--red); }
+
+    .iaa-choice { display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+                  border: 1px solid var(--border-dim); border-radius: 8px; margin-bottom: 7px;
+                  cursor: pointer; font-size: 13px; color: var(--text-secondary); transition: border-color .15s, background .15s; }
+    .iaa-choice:hover { border-color: var(--border-bright); background: var(--bg-input); }
+    .iaa-choice.picked { border-color: var(--violet, #9d7dff); background: rgba(157,125,255,.09); color: var(--text-primary); }
+    .iaa-choice input { accent-color: var(--violet, #9d7dff); flex-shrink: 0; }
+
+    /* ── The captured identity card ───────────────────────────────── */
+    .iaa-idcard { display: flex; gap: 1rem; align-items: center; padding: .9rem 1rem;
+                  background: var(--bg-input); border: 1px solid var(--border-dim);
+                  border-radius: var(--radius-md); margin-bottom: .9rem; flex-wrap: wrap; }
+    .iaa-idcard img { width: 54px; height: 54px; border-radius: 10px; background: var(--bg-panel); flex-shrink: 0; }
+    .iaa-idrows { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+    .iaa-idrow { display: flex; gap: .5rem; align-items: baseline; font-size: 12.5px; }
+    .iaa-idrow .k { color: var(--text-muted); min-width: 88px; letter-spacing: .03em; }
+    .iaa-idrow .v { color: var(--text-primary); font-weight: 500; }
+    .iaa-idrow .v.mono { font-family: var(--font-mono); font-size: 12px; }
+    .iaa-locked { font-size: 10.5px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 3px; }
+
+    .iaa-autofill { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
+                    padding: .8rem 1rem; margin-bottom: 1rem; border-radius: var(--radius-md);
+                    background: rgba(157,125,255,.07); border: 1px solid rgba(157,125,255,.28); }
+    .iaa-autofill .t { flex: 1; min-width: 220px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; }
+    .iaa-autofill .t strong { color: var(--text-primary); }
+
+    /* ── Errors ───────────────────────────────────────────────────── */
+    .iaa-err { border: 1px solid rgba(240,79,94,.35); background: rgba(240,79,94,.08);
+               border-radius: var(--radius-md); padding: .8rem 1rem; margin-bottom: 1rem; }
+    .iaa-err h4 { margin: 0 0 .4rem; font-size: 12.5px; color: var(--red); letter-spacing: .04em; text-transform: uppercase; }
+    .iaa-err ul { margin: 0; padding-left: 18px; }
+    .iaa-err li { font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; }
+    .iaa-err a { color: var(--blue); cursor: pointer; text-decoration: underline; }
+    .iaa-q.bad { background: rgba(240,79,94,.05); border-radius: 8px;
+                 box-shadow: 0 0 0 1px rgba(240,79,94,.28); padding-left: .8rem; padding-right: .8rem; }
+
+    /* ── The footer bar ───────────────────────────────────────────── */
+    .iaa-nav { display: flex; gap: .7rem; align-items: center; margin-top: 1.1rem; flex-wrap: wrap; }
+    .iaa-nav .spacer { flex: 1; }
+    .iaa-saved { font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+    .iaa-saved.on { color: var(--green); }
+
+    .iaa-state { text-align: center; padding: 3rem 1.5rem; }
+    .iaa-state .big { font-size: 42px; margin-bottom: .9rem; }
+    .iaa-state h2 { font-family: var(--font-display); font-size: 19px; letter-spacing: .04em;
+                    text-transform: uppercase; margin: 0 0 .6rem; color: var(--text-primary); }
+    .iaa-state p { font-size: 13.5px; color: var(--text-secondary); line-height: 1.75; max-width: 44ch; margin: 0 auto .5rem; }
+
+    @media (max-width: 560px) {
+      .iaa-wrap { padding: 1rem .8rem 6rem; }
+      .iaa-section { padding: 1.1rem 1rem; }
+      .iaa-idrow { flex-direction: column; gap: 1px; }
+      .iaa-idrow .k { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="aurora"><div class="aurora-blob a1"></div><div class="aurora-blob a2"></div></div>
+
+  <div class="iaa-wrap">
+    <div class="panel glass iaa-hero">
+      <div class="iaa-title">Internal Affairs Application</div>
+      <div class="iaa-sub" id="iaa-sub">Metropolitan Police · Internal Affairs</div>
+    </div>
+
+    <div id="iaa-body">
+      <div class="iaa-state"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- uiConfirm() and showToast() both need this to exist. -->
+  <div id="toast-container"></div>
+
+  <script src="/js/ui.js?v=1"></script>
+  <script src="/js/ia-application.js?v=1"></script>
+</body>
+</html>

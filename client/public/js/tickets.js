@@ -1,391 +1,645 @@
 // client/public/js/tickets.js
-var ticketsCache=[],ticketFilter="all",proofFiles=[];
-var allTicketsCache=[],allTicketFilter="all";
-var ticketMode="import"; // "import" | "manual" (AI is case-only, disabled)
-document.addEventListener("DOMContentLoaded",function(){
-  var b1=document.getElementById("btn-new-ticket");
-  var b2=document.getElementById("btn-submit-ticket");
-  var b3=document.getElementById("btn-new-ticket-dash");
-  if(b1)b1.addEventListener("click",openTicketModal);
-  if(b2)b2.addEventListener("click",submitTicket);
-  if(b3)b3.addEventListener("click",openTicketModal);
-  document.querySelectorAll("#ticket-filter-tabs .filter-tab").forEach(function(tab){
-    tab.addEventListener("click",function(){
-      document.querySelectorAll("#ticket-filter-tabs .filter-tab").forEach(function(t){t.classList.remove("active");});
-      tab.classList.add("active");ticketFilter=tab.dataset.tfilter;renderTicketsTable();
-    });
-  });
-  document.querySelectorAll("#all-ticket-filter-tabs .filter-tab").forEach(function(tab){
-    tab.addEventListener("click",function(){
-      document.querySelectorAll("#all-ticket-filter-tabs .filter-tab").forEach(function(t){t.classList.remove("active");});
-      tab.classList.add("active");allTicketFilter=tab.dataset.atfilter;renderAllTicketsTable();
-    });
-  });
-  // Import-method selector + transcript import
-  document.querySelectorAll("#ticket-mode-tabs .filter-tab").forEach(function(tab){
-    if(tab.disabled)return;
-    tab.addEventListener("click",function(){setTicketMode(tab.dataset.tmode);});
-  });
-  var bImp=document.getElementById("btn-import-transcript");
-  if(bImp)bImp.addEventListener("click",importTicketFromTranscript);
-  var impUrl=document.getElementById("t-import-url");
-  if(impUrl)impUrl.addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();importTicketFromTranscript();}});
-});
-// Draft persistence: keep an in-progress ticket while the modal is closed, so
-// reopening resumes it. Clears on submit and on page refresh.
-var ticketDraftActive=false;
-function resetTicketForm(){
-  proofFiles=[];
-  ["t-roblox-username","t-ticket-type","t-conclusion","t-transcript-link","t-import-url"].forEach(function(id){var el=document.getElementById(id);if(el)el.value="";});
-  var g=document.getElementById("proof-preview-grid");if(g)g.innerHTML="";
-  var inp=document.getElementById("t-proof-input");if(inp)inp.value="";
-  var tag=document.getElementById("ticket-roblox-tag");if(tag)tag.style.display="none";
-  var ir=document.getElementById("t-import-result");if(ir)ir.style.display="none";
-  // NB: do NOT prefill the Roblox username with the logged-in member's own name —
-  // a ticket log is about the ticket *opener*, not the investigator. It stays
-  // blank in manual mode and is filled by the transcript import (opener's name).
-  presetTicketTime();
-  setTicketMode(""); // no method picked yet — show only the selector chips
-}
-function openTicketModal(){
-  if(!ticketDraftActive){ resetTicketForm(); ticketDraftActive=true; }
-  openModal("modal-ticket");
-}
-// ── Import method (Import-from-link vs Build-manually) ────────────
-// mode "" / null → nothing picked yet: show only the selector chips.
-function setTicketMode(mode){
-  ticketMode=mode||"";
-  document.querySelectorAll("#ticket-mode-tabs .filter-tab").forEach(function(t){
-    if(t.disabled)return;
-    t.classList.toggle("active",!!mode&&t.dataset.tmode===mode);
-  });
-  var panel=document.getElementById("ticket-import-panel");
-  var fields=document.getElementById("ticket-fields");
-  if(!mode){ // pick a method first — hide the import panel and all fields
-    if(panel)panel.style.display="none";
-    if(fields)fields.style.display="none";
-    return;
-  }
-  if(panel)panel.style.display=mode==="import"?"":"none";
-  if(fields)fields.style.display="";
-  // Import mode: fields stay greyed until a successful import fills them.
-  // Manual mode: fields are immediately editable.
-  setTicketFieldsEnabled(mode!=="import");
-}
-function setTicketFieldsEnabled(enabled){
-  var box=document.getElementById("ticket-fields");if(!box)return;
-  box.style.opacity=enabled?"":"0.5";
-  box.style.pointerEvents=enabled?"":"none";
-  box.querySelectorAll("input,textarea,select").forEach(function(el){el.disabled=!enabled;});
-}
-function tset(id,v){var el=document.getElementById(id);if(el)el.value=v;}
-// Fill the datetime-local from an ISO instant using the viewer's LOCAL wall
-// clock, so the transcript time reads correctly for the submitter in their own
-// timezone (the timezone field is set to their local zone to match).
-function setTicketDateTime(iso){
-  var dt=document.getElementById("t-submitted-at");if(!dt)return;
-  var d=new Date(iso);if(isNaN(d.getTime()))return;
-  var p=function(n){return String(n).padStart(2,"0");};
-  dt.value=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());
-}
-async function importTicketFromTranscript(){
-  var urlEl=document.getElementById("t-import-url");
-  var resEl=document.getElementById("t-import-result");
-  var url=urlEl?urlEl.value.trim():"";
-  if(!url){showToast("Paste a transcript link first.","error");return;}
-  var btn=document.getElementById("btn-import-transcript");
-  if(btn){btn.disabled=true;btn.innerHTML="<div class=\"spinner\"></div>";}
-  try{
-    var d=await api("/api/tickets/import-transcript",{method:"POST",body:JSON.stringify({transcriptLink:url})});
-    tset("t-roblox-username",d.robloxUsername||"");
-    tset("t-ticket-type",d.ticketType||"");
-    tset("t-conclusion",d.conclusion||"");
-    tset("t-transcript-link",d.transcriptLink||url);
-    if(d.submittedAt)setTicketDateTime(d.submittedAt);
-    tset("t-timezone-display",(typeof formatTzLabel==="function")?formatTzLabel():"UTC (GMT+0)");
-    var tag=document.getElementById("ticket-roblox-tag");if(tag)tag.style.display="none";
-    setTicketFieldsEnabled(true); // unlock now that they're populated
-    if(resEl){
-      resEl.style.display="";
-      var nm=d.meta&&d.meta.ticketName?" · "+escapeHtml(d.meta.ticketName):"";
-      var unv=(d.robloxUsername==="Unverified/Unknown")?" (creator could not be resolved — set the username manually)":"";
-      resEl.innerHTML="<span style=\"color:var(--green);\">&#x2713; Imported"+nm+"</span>"+escapeHtml(unv);
-    }
-    showToast("Ticket details imported.","success");
-  }catch(err){
-    if(resEl){resEl.style.display="";resEl.innerHTML="<span style=\"color:var(--red);\">"+escapeHtml(err.message||"No matching ticket log found.")+"</span>";}
-    showToast(err.message||"Import failed.","error");
-  }finally{
-    if(btn){btn.disabled=false;btn.innerHTML="<i class=\"ti ti-download\"></i> Import";}
-  }
-}
-// Prefill the datetime-local with "now" (editable) and the timezone (editable)
-function presetTicketTime(){
-  var dt=document.getElementById("t-submitted-at"),ze=document.getElementById("t-timezone-display");
-  if(dt){
-    var now=new Date();
-    var pad=function(n){return String(n).padStart(2,"0");};
-    dt.value=now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate())+"T"+pad(now.getHours())+":"+pad(now.getMinutes());
-  }
-  if(ze)ze.value=formatTzLabel();
-}
-function handleProofFiles(fileList){
-  var MAX=10,MB5=5*1024*1024;
-  Array.from(fileList).forEach(function(file){
-    if(proofFiles.length>=MAX){showToast("Max 10 images.","error");return;}
-    if(file.size>MB5){showToast("File too large (max 5MB).","error");return;}
-    var r=new FileReader();
-    r.onload=function(e){proofFiles.push({name:file.name,dataUrl:e.target.result});renderProofPreviews();};
-    r.readAsDataURL(file);
-  });
-}
-function renderProofPreviews(){
-  var g=document.getElementById("proof-preview-grid");if(!g)return;
-  g.innerHTML=proofFiles.map(function(f,i){
-    return "<div class=\"proof-thumb\"><img src=\""+f.dataUrl+"\" /><button class=\"proof-thumb-remove\" onclick=\"removeProof("+i+")\">&#x2715;</button></div>";
-  }).join("");
-}
-function removeProof(i){proofFiles.splice(i,1);renderProofPreviews();}
-async function submitTicket(){
-  var ru=(document.getElementById("t-roblox-username")||{value:""}).value.trim();
-  var tt=(document.getElementById("t-ticket-type")||{value:""}).value;
-  var sa=(document.getElementById("t-submitted-at")||{value:""}).value;
-  var tz=(document.getElementById("t-timezone-display")||{value:""}).value.trim();
-  var co=(document.getElementById("t-conclusion")||{value:""}).value.trim();
-  var tl=(document.getElementById("t-transcript-link")||{value:""}).value.trim();
-  if(!ru){showToast("Roblox username is required.","error");return;}
-  if(!tt){showToast("Please select a ticket type.","error");return;}
-  if(!sa){showToast("Please select a date & time.","error");return;}
-  if(!co){showToast("Conclusion is required.","error");return;}
-  if(!tl){showToast("Ticket transcript link is required.","error");return;}
-  var btn=document.getElementById("btn-submit-ticket");
-  btn.disabled=true;btn.innerHTML="Submitting...";
-  try{
-    var t=await api("/api/tickets",{method:"POST",body:JSON.stringify({
-      robloxUsername:ru,ticketType:tt,
-      submittedAt:sa,
-      timezone:tz||formatTzLabel(),
-      conclusion:co,
-      transcriptLink:tl,
-      proofImages:proofFiles.map(function(f){return f.dataUrl;})
-    })});
-    closeModal("modal-ticket");
-    resetTicketForm(); ticketDraftActive=false; // draft consumed
-    showToast("Ticket "+t.ticketRef+" submitted for review.","success");
-    loadTickets();
-  }catch(err){showToast(err.message||"Failed to submit ticket.","error");}
-  finally{btn.disabled=false;btn.innerHTML="<i class=\"ti ti-send\"></i> Submit Ticket Log";}
-}
-async function loadTickets(){
-  var tbody=document.getElementById("tickets-tbody");if(!tbody)return;
-  tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
-  try{ticketsCache=await api("/api/tickets")||[];renderTicketsTable();updateTicketNavBadge();}
-  catch(e){tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-empty\"><span class=\"table-empty-text\">Failed to load tickets.</span></td></tr>";}
-}
-function updateTicketNavBadge(){
-  // Single source of truth (own pending + all-pending) lives in dashboard.js
-  if(typeof loadTicketNavBadge==="function") loadTicketNavBadge();
-}
-var TL={GENERAL_SUPPORT:"General Support",HICOMM:"HICOMM",OFFICER_REPORT:"Officer Report",APPEAL:"Disciplinary Action Appeal"};
-var TC={GENERAL_SUPPORT:"blue",HICOMM:"amber",OFFICER_REPORT:"red",APPEAL:"green"};
-function ticketStatusBadge(s){
-  var m={
-    PENDING:"<span class=\"badge badge-pending\"><span class=\"badge-dot\"></span>Pending</span>",
-    APPROVED:"<span class=\"badge badge-approved\"><span class=\"badge-dot\"></span>Approved</span>",
-    DENIED:"<span class=\"badge badge-denied\"><span class=\"badge-dot\"></span>Denied</span>"
-  };
-  return m[s]||"<span class=\"badge\">"+escapeHtml(s||"")+"</span>";
-}
-function ticketRowActions(id,ticketType){
-  // IA Complaints (HICOMM tickets) are HICOMM/Developer only — Supervisors can't action them.
-  if(currentUser&&currentUser.role==="SUPERVISOR"&&ticketType==="HICOMM")
-    return "<span style=\"color:var(--text-muted);font-size:11px;\">HICOMM only</span>";
-  return "<div class=\"row-actions\">"
-    +"<button class=\"row-btn row-btn-approve\" onclick=\"event.stopPropagation();decideTicket('"+id+"','approve')\"><i class=\"ti ti-check\"></i> Approve</button>"
-    +"<button class=\"row-btn row-btn-deny\" onclick=\"event.stopPropagation();decideTicket('"+id+"','deny')\"><i class=\"ti ti-x\"></i> Deny</button>"
-    +"</div>";
-}
-function renderTicketsTable(){
-  var tbody=document.getElementById("tickets-tbody");if(!tbody)return;
-  var elev=currentUser&&["HICOMM","SUPERVISOR","DEVELOPER"].indexOf(currentUser.role)>=0;
-  var cols=elev?8:6;
-  var filt=ticketFilter==="all"?ticketsCache:ticketsCache.filter(function(t){return t.status===ticketFilter;});
-  if(!filt.length){tbody.innerHTML="<tr><td colspan=\""+cols+"\" class=\"table-empty\"><span class=\"table-empty-text\">No tickets found.</span></td></tr>";return;}
-  tbody.innerHTML=filt.map(function(t){
-    var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
-    var pc=t.proofCount>0?"<i class=\"ti ti-photo\"></i> "+t.proofCount:"&mdash;";
-    var inv=elev?"<td>"+escapeHtml((t.user&&(t.user.displayName||t.user.discordUsername))||"—")+"</td>":"";
-    var dec=elev?"<td onclick=\"event.stopPropagation();\">"+(t.status==="PENDING"?ticketRowActions(t.id,t.ticketType):"")+"</td>":"";
-    return "<tr onclick=\"openTicketDetail('"+t.id+"')\">"
-      +"<td><span class=\"case-ref\">"+escapeHtml(t.ticketRef)+"</span></td>"
-      +"<td><span style=\"font-size:12px;font-weight:500;\">"+escapeHtml(t.robloxUsername)+"</span></td>"
-      +"<td><span class=\"badge badge-"+c+"\"><span class=\"badge-dot\"></span>"+escapeHtml(l)+"</span></td>"
-      +"<td>"+ticketStatusBadge(t.status)+"</td>"
-      +"<td>"+pc+"</td>"
-      +"<td><span class=\"date-cell\">"+formatDateTime(t.createdAt)+"</span></td>"
-      +inv+dec+"</tr>";
-  }).join("");
-}
-async function decideTicket(ticketId,decision){
-  try{
-    await api("/api/tickets/"+ticketId+"/"+decision,{method:"PATCH"});
-    var verb=decision==="approve"?"approved":"denied";
-    showToast("Ticket "+verb+".",decision==="approve"?"success":"info");
-    loadTickets();
-    if(typeof loadTicketReview==="function")loadTicketReview();
-    if(typeof loadAllTickets==="function")loadAllTickets();
-    if(typeof loadTicketNavBadge==="function")loadTicketNavBadge();
-  }catch(err){showToast(err.message||("Failed to "+decision+" ticket."),"error");}
-}
-async function deleteTicket(ticketId){
-  if(!confirm("Permanently delete this ticket log? This cannot be undone."))return;
-  try{
-    await api("/api/admin/tickets/"+ticketId,{method:"DELETE"});
-    closeModal("modal-ticket-detail");
-    showToast("Ticket log deleted.","success");
-    loadTickets();
-    if(typeof loadAllTickets==="function")loadAllTickets();
-    if(typeof loadTicketReview==="function")loadTicketReview();
-    if(typeof loadTicketNavBadge==="function")loadTicketNavBadge();
-  }catch(err){showToast(err.message||"Failed to delete ticket log.","error");}
-}
-// ── All Tickets (read-only for IA, decision controls for HICOMM) ──
-async function loadAllTickets(){
-  var tbody=document.getElementById("all-tickets-tbody");if(!tbody)return;
-  tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
-  try{allTicketsCache=await api("/api/tickets/all")||[];renderAllTicketsTable();}
-  catch(e){tbody.innerHTML="<tr><td colspan=\"8\" class=\"table-empty\"><span class=\"table-empty-text\">Failed to load tickets.</span></td></tr>";}
-}
-function renderAllTicketsTable(){
-  var tbody=document.getElementById("all-tickets-tbody");if(!tbody)return;
-  var elev=currentUser&&["HICOMM","SUPERVISOR","DEVELOPER"].indexOf(currentUser.role)>=0;
-  var cols=elev?8:7;
-  var filt=allTicketFilter==="all"?allTicketsCache:allTicketsCache.filter(function(t){return t.status===allTicketFilter;});
-  if(!filt.length){tbody.innerHTML="<tr><td colspan=\""+cols+"\" class=\"table-empty\"><span class=\"table-empty-text\">No tickets found.</span></td></tr>";return;}
-  tbody.innerHTML=filt.map(function(t){
-    var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
-    var pc=t.proofCount>0?"<i class=\"ti ti-photo\"></i> "+t.proofCount:"&mdash;";
-    var inv=(typeof investigatorCell==="function")?investigatorCell(t.user):escapeHtml((t.user&&(t.user.displayName||t.user.discordUsername))||"—");
-    var dec=elev?"<td onclick=\"event.stopPropagation();\">"+(t.status==="PENDING"?"<button class=\"row-btn row-btn-approve btn-sm\" onclick=\"goReviewTicket('"+t.id+"')\"><i class=\"ti ti-clipboard-check\"></i> Review</button>":"")+"</td>":"";
-    return "<tr onclick=\"openTicketDetail('"+t.id+"')\">"
-      +"<td><span class=\"case-ref\">"+escapeHtml(t.ticketRef)+"</span></td>"
-      +"<td>"+inv+"</td>"
-      +"<td><span style=\"font-size:12px;font-weight:500;\">"+escapeHtml(t.robloxUsername)+"</span></td>"
-      +"<td><span class=\"badge badge-"+c+"\"><span class=\"badge-dot\"></span>"+escapeHtml(l)+"</span></td>"
-      +"<td>"+ticketStatusBadge(t.status)+"</td>"
-      +"<td>"+pc+"</td>"
-      +"<td><span class=\"date-cell\">"+formatDateTime(t.createdAt)+"</span></td>"
-      +dec+"</tr>";
-  }).join("");
-}
-// ── HICOMM Ticket Review Queue (mirrors the cases Review Queue) ────
-async function loadTicketReview(){
-  var tbody=document.getElementById("ticket-review-tbody");
-  var label=document.getElementById("ticket-pending-count-label");
-  if(!tbody)return;
-  tbody.innerHTML="<tr><td colspan=\"7\" class=\"table-loading\"><div class=\"spinner\"></div></td></tr>";
-  try{
-    // ALL pending tickets (every user's), not just the reviewer's own
-    var tickets=await api("/api/tickets/all?status=PENDING")||[];
-    if(label)label.textContent=tickets.length+" awaiting decision";
-    if(!tickets.length){tbody.innerHTML="<tr><td colspan=\"7\" class=\"table-empty\"><span class=\"table-empty-text\">No pending tickets — all caught up.</span></td></tr>";return;}
-    tbody.innerHTML=tickets.map(function(t){
-      var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
-      var inv=(typeof investigatorCell==="function")?investigatorCell(t.user):escapeHtml((t.user&&(t.user.displayName||t.user.discordUsername))||"—");
-      var ti=t.submittedAt;
-      try{ti=new Date(t.submittedAt).toLocaleString([],{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});}catch(e){}
-      return "<tr onclick=\"openTicketDetail('"+t.id+"')\">"
-        +"<td><span class=\"case-ref\">"+escapeHtml(t.ticketRef)+"</span></td>"
-        +"<td>"+inv+"</td>"
-        +"<td><span style=\"font-size:12px;font-weight:500;\">"+escapeHtml(t.robloxUsername)+"</span></td>"
-        +"<td><span class=\"badge badge-"+c+"\"><span class=\"badge-dot\"></span>"+escapeHtml(l)+"</span></td>"
-        +"<td><span style=\"font-size:11px;color:var(--text-secondary);\">"+escapeHtml(ti)+"</span></td>"
-        +"<td><span class=\"date-cell\">"+formatDateTime(t.createdAt)+"</span></td>"
-        +"<td onclick=\"event.stopPropagation();\">"+ticketRowActions(t.id,t.ticketType)+"</td>"
-        +"</tr>";
-    }).join("");
-  }catch(e){tbody.innerHTML="<tr><td colspan=\"7\" class=\"table-empty\"><span class=\"table-empty-text\">Failed to load tickets.</span></td></tr>";}
-}
-// From All Tickets, jump to the Pending Tickets tab and open the ticket detail
-// so elevated staff can approve/deny it there.
-async function goReviewTicket(ticketId){
-  try { if(typeof navigateTo==="function") await navigateTo("ticket-review"); } catch(e){}
-  if(typeof openTicketDetail==="function") openTicketDetail(ticketId);
+// Closed ticket logs, mirrored from the IA ticket-logs Discord channel.
+//
+// Nobody logs a ticket here — rows arrive automatically from the Discord
+// ticket-log channel. A supervisor approves or denies each one on the site, and
+// an approved log gives the investigator who closed it 2 quota points (an
+// approved case is worth 4). "My Tickets" is every ticket YOU closed;
+// "All Tickets" is every ticket the channel has logged.
+
+// Ticket-type labels + badge colours, shared with the dashboard tables.
+var TL = {
+  GENERAL_SUPPORT: 'General Support',
+  HICOMM:          'IA Complaint',
+  OFFICER_REPORT:  'Officer Report',
+  APPEAL:          'Appeal',
+};
+var TC = {
+  GENERAL_SUPPORT: 'blue',
+  HICOMM:          'red',
+  OFFICER_REPORT:  'amber',
+  APPEAL:          'purple',
+};
+
+var myTicketsCache  = [];
+var allTicketsCache = [];
+var myTicketType    = 'all';
+var allTicketType   = 'all';
+var myTicketQuery   = '';
+var allTicketQuery  = '';
+var myTicketStatus  = 'all';
+var allTicketStatus = 'all';
+// dashboard.js sets window.canReviewTickets once /api/me resolves the viewer's
+// role. Supervisors and above sign tickets off; everyone else sees the status
+// read-only. Read through window each time — this file loads first.
+function canReview() { return !!window.canReviewTickets; }
+
+// Which department's ticket logs a row came out of. Internal Affairs handles
+// the MET's, CID's and SCO-19's, so they share one queue and this says which.
+var DIVC = { MET: 'blue', CID: 'amber', SCO: 'muted' };
+var DIVL = { MET: 'MET', CID: 'CID', SCO: 'SCO' };
+function ticketDivisionBadge(d) {
+  var k = String(d || 'MET').toUpperCase();
+  var c = DIVC[k] || 'blue';
+  return '<span class="badge badge-' + c + '"><span class="badge-dot"></span>' + escapeHtml(DIVL[k] || k) + '</span>';
 }
 
-async function openTicketDetail(ticketId){
-  var body=document.getElementById("tdetail-body"),ref=document.getElementById("tdetail-ref"),foot=document.getElementById("tdetail-footer");
-  if(!body)return;
-  body.innerHTML="<div class=\"table-loading\"><div class=\"spinner\"></div></div>";
-  openModal("modal-ticket-detail");
-  try{
-    var t=await api("/api/tickets/"+ticketId);
-    var c=TC[t.ticketType]||"blue",l=TL[t.ticketType]||t.ticketType;
-    if(ref)ref.textContent=t.ticketRef;
-    var sd=t.submittedAt;
-    try{sd=new Date(t.submittedAt).toLocaleString([],{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});}catch(e2){}
-    var invName=(t.user&&(t.user.displayName||t.user.discordUsername))||"—";
-    var invHandle=(t.user&&t.user.discordUsername)?(" <span style=\"color:var(--text-muted);font-size:11px;\">@"+escapeHtml(t.user.discordUsername)+"</span>"):"";
-    var rev=(t.reviewer&&(t.reviewer.displayName||t.reviewer.discordUsername))||null;
-    var createdOn=t.createdAt?formatDateTime(t.createdAt):"—";
-    var reviewedOn=t.reviewedAt?formatDateTime(t.reviewedAt):null;
-    var ph=Array.isArray(t.proofImages)&&t.proofImages.length
-      ?"<div class=\"proof-preview-grid proof-preview-grid-detail\">"+
-        t.proofImages.map(function(src,i){return "<a href=\""+src+"\" onclick=\"return openImageNewTab(this.href)\" class=\"proof-thumb\"><img src=\""+src+"\" loading=\"lazy\"/></a>";}).join("")+"</div>"
-      :"<span style=\"color:var(--text-muted);\">No proof images attached.</span>";
-    // Target Roblox user header (resolved server-side)
-    var tg=t.target,targetHeader="";
-    if(tg){
-      var grpChip=tg.inGroup
-        ?"<span class=\"badge badge-green\"><span class=\"badge-dot\"></span>MET Group"+(tg.groupRole?" · "+escapeHtml(tg.groupRole)+(tg.groupRank!=null?" ("+tg.groupRank+")":""):"")+"</span>"
-        :"<span class=\"badge badge-red\"><span class=\"badge-dot\"></span>Not in MET Group</span>";
-      targetHeader="<div style=\"display:flex;align-items:center;gap:12px;margin-bottom:1.1rem;padding-bottom:1.1rem;border-bottom:1px solid var(--border-dim);\">"
-        +(tg.avatar?"<img src=\""+tg.avatar+"\" alt=\"\" style=\"width:54px;height:54px;border-radius:10px;border:1px solid var(--border-dim);flex-shrink:0;\"/>":"")
-        +"<div style=\"flex:1;min-width:0;\">"
-        +"<div style=\"font-weight:700;font-size:15px;\">"+escapeHtml(tg.displayName||tg.username||t.robloxUsername)+"</div>"
-        +"<div style=\"font-size:12px;color:var(--text-muted);\">@"+escapeHtml(tg.username||t.robloxUsername)+" &middot; ID "+escapeHtml(tg.robloxId)+"</div>"
-        +"<div style=\"margin-top:6px;\">"+grpChip+"</div>"
-        +"</div>"
-        +"<a class=\"btn btn-ghost btn-sm\" href=\""+escapeHtml(tg.profileUrl)+"\" target=\"_blank\" rel=\"noopener\" style=\"white-space:nowrap;\"><i class=\"ti ti-external-link\"></i> Profile</a>"
-        +"</div>";
-    }
-    body.innerHTML=targetHeader+"<div class=\"detail-grid\">"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Ticket Ref</span><span class=\"detail-field-value mono\">"+escapeHtml(t.ticketRef)+"</span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Status</span><span class=\"detail-field-value\">"+ticketStatusBadge(t.status)+"</span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Type</span><span class=\"detail-field-value\"><span class=\"badge badge-"+c+"\"><span class=\"badge-dot\"></span>"+escapeHtml(l)+"</span></span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Roblox Username</span><span class=\"detail-field-value mono\">"+escapeHtml(t.robloxUsername)+"</span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Investigator</span><span class=\"detail-field-value\">"+escapeHtml(invName)+invHandle+"</span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Incident Time</span><span class=\"detail-field-value\">"+escapeHtml(sd)+"</span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Timezone</span><span class=\"detail-field-value mono\">"+escapeHtml(displayTz(t.timezone))+"</span></div>"
-      +"<div class=\"detail-field\"><span class=\"detail-field-label\">Submitted On</span><span class=\"detail-field-value\">"+escapeHtml(createdOn)+"</span></div>"
-      +(rev?"<div class=\"detail-field\"><span class=\"detail-field-label\">"+(t.status==="APPROVED"?"Approved":"Denied")+" By</span><span class=\"detail-field-value\">"+escapeHtml(rev)+"</span></div>":"")
-      +(reviewedOn?"<div class=\"detail-field\"><span class=\"detail-field-label\">Reviewed On</span><span class=\"detail-field-value\">"+escapeHtml(reviewedOn)+"</span></div>":"")
-      +"<div class=\"detail-divider\"></div>"
-      +"<div class=\"detail-field full\"><span class=\"detail-field-label\">Conclusion</span><span class=\"detail-field-value\" style=\"white-space:pre-wrap;line-height:1.7;\">"+escapeHtml(t.conclusion)+"</span></div>"
-      +(t.transcriptLink?"<div class=\"detail-field full\"><span class=\"detail-field-label\">Transcript</span><span class=\"detail-field-value\"><a href=\""+escapeHtml(t.transcriptLink)+"\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:var(--blue);word-break:break-all;\">"+escapeHtml(t.transcriptLink)+"</a></span></div>":"")
-      +"<div class=\"detail-divider\"></div>"
-      +"<div class=\"detail-field full\"><span class=\"detail-field-label\">Proof Images</span><span class=\"detail-field-value\">"+ph+"</span></div>"
-      +"</div>";
-    // Footer — approve/deny for HICOMM when pending; delete for developers
-    if(foot){
-      var elev=currentUser&&["HICOMM","SUPERVISOR","DEVELOPER"].indexOf(currentUser.role)>=0;
-      var isDev=currentUser&&currentUser.role==="DEVELOPER";
-      // IA Complaints (HICOMM tickets) can only be actioned by HICOMM/Developer.
-      var canDecide=elev&&!(t.ticketType==="HICOMM"&&currentUser.role==="SUPERVISOR");
-      var html="";
-      if(isDev){
-        html+="<button class=\"btn btn-danger\" style=\"margin-right:auto;\" onclick=\"deleteTicket('"+t.id+"')\"><i class=\"ti ti-trash\"></i> Delete Log</button>";
-      }
-      html+="<button class=\"btn btn-ghost\" onclick=\"closeModal('modal-ticket-detail')\">Close</button>";
-      html+="<button class=\"btn btn-ghost\" onclick=\"copyTicketLink('"+t.id+"')\"><i class=\"ti ti-link\"></i> Copy link</button>";
-      if(elev&&!canDecide&&t.status==="PENDING"){
-        html+="<span style=\"color:var(--text-muted);font-size:11px;align-self:center;\">HICOMM only</span>";
-      }
-      if(canDecide&&t.status==="PENDING"){
-        html+="<button class=\"btn btn-danger\" onclick=\"closeModal('modal-ticket-detail');decideTicket('"+t.id+"','deny')\"><i class=\"ti ti-x\"></i> Deny</button>"
-          +"<button class=\"btn btn-success\" onclick=\"closeModal('modal-ticket-detail');decideTicket('"+t.id+"','approve')\"><i class=\"ti ti-check\"></i> Approve</button>";
-      }
-      foot.innerHTML=html;
-    }
-  }catch(e){body.innerHTML="<p style=\"color:var(--red);padding:1rem;\">Failed to load ticket details.</p>";}
+function ticketTypeBadge(t) {
+  var c = TC[t] || 'blue';
+  var l = TL[t] || t || '·';
+  return '<span class="badge badge-' + c + '"><span class="badge-dot"></span>' + escapeHtml(l) + '</span>';
 }
+
+// A ticket matches a search when any field a person would search by contains it.
+function ticketMatches(t, q) {
+  if (!q) return true;
+  var hay = [
+    t.ticketNo != null ? ('#' + String(t.ticketNo).padStart(4, '0')) : null,
+    t.ticketNo != null ? String(t.ticketNo) : null,
+    t.ticketRef, t.ticketName, t.reason, t.creatorUsername, t.creatorRobloxUsername, t.closerRaw,
+    t.creatorDiscordId, t.closerUsername, t.closerDiscordId, TL[t.ticketType], t.ticketType,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.indexOf(q.toLowerCase()) >= 0;
+}
+
+// Newest first, always. The server already orders by closedAt desc, but these
+// caches get merged and re-rendered after a review, and a table whose order
+// depends on which requests happened to land in which sequence is a table
+// nobody can trust. Sorting here says the order out loud instead.
+function byNewestFirst(a, b) {
+  var ta = a && a.closedAt ? Date.parse(a.closedAt) : 0;
+  var tb = b && b.closedAt ? Date.parse(b.closedAt) : 0;
+  if (!isFinite(ta)) ta = 0;
+  if (!isFinite(tb)) tb = 0;
+  if (tb !== ta) return tb - ta;
+  // Same instant (two tickets closed in the same second): fall back to the
+  // ticket number, so the order is at least stable between renders.
+  return (b.ticketNo || 0) - (a.ticketNo || 0);
+}
+
+function filterTickets(list, type, q, status) {
+  return (list || [])
+    .filter(function (t) { return type === 'all' || t.ticketType === type; })
+    .filter(function (t) { return !status || status === 'all' || (t.status || 'PENDING') === status; })
+    .filter(function (t) { return ticketMatches(t, q); })
+    .sort(byNewestFirst);
+}
+
+// The supervisor sign-off cell.
+//
+// The buttons exist on the Pending tab and nowhere else. The archive is the
+// record: a tick and a cross sitting in it is how a log gets signed off by
+// somebody who opened the page to look a ticket up, and how the same log gets
+// decided twice from two tables. Outside Pending, an elevated viewer is offered
+// the way to Pending instead.
+function ticketReviewCell(t, inQueue) {
+  var st = t.status || 'PENDING';
+  var here = inQueue === true
+    || (typeof window.onPendingPage === 'function' && window.onPendingPage());
+  if (st === 'PENDING' && canReview() && here) {
+    return '<div class="row-actions" onclick="event.stopPropagation()">'
+      + '<button class="row-btn row-btn-approve" title="Approve" onclick="reviewTicket(\'' + t.id + '\', \'approve\')"><i class="ti ti-check"></i></button>'
+      + '<button class="row-btn row-btn-deny" title="Deny" onclick="reviewTicket(\'' + t.id + '\', \'deny\')"><i class="ti ti-x"></i></button>'
+      + '</div>';
+  }
+  if (st === 'PENDING' && canReview()) {
+    return '<div onclick="event.stopPropagation()">'
+      + '<button class="row-btn row-btn-review-elsewhere btn-sm" onclick="goPendingTickets()"'
+      + ' title="Decisions are made on the Pending tab. This takes you there.">'
+      + '<i class="ti ti-clipboard-check"></i> Review in Pending</button></div>';
+  }
+  if (st === 'PENDING') return '<span class="text-muted" style="font-size:11px;">Awaiting review</span>';
+  return '<span style="font-size:11px;">' + escapeHtml(t.reviewedByName || '·') + '</span>';
+}
+
+// Straight to the ticket queue, with the ticket half of Pending already selected.
+async function goPendingTickets() {
+  try {
+    if (typeof setPendingKind === 'function') setPendingKind('tickets');
+    if (typeof navigateTo === 'function') await navigateTo('pending');
+    if (typeof setPendingKind === 'function') setPendingKind('tickets');
+  } catch (e) { /* the navigation is the whole action; nothing to recover */ }
+}
+
+// Approve or deny a ticket log. Approving awards the closer 2 quota points.
+async function reviewTicket(ticketId, action) {
+  try {
+    await api('/api/tickets/' + encodeURIComponent(ticketId) + '/review', {
+      method: 'POST', body: JSON.stringify({ action: action }),
+    });
+    showToast(action === 'approve' ? 'Ticket approved.' : 'Ticket denied.', 'success');
+    closeModal('modal-ticket-detail');
+    allTicketsCache = [];   // force a refetch so the queue and the archive agree
+    await Promise.all([loadTickets(), loadAllTickets()].map(function (p) { return p && p.catch ? p.catch(function () {}) : p; }));
+    if (typeof renderPendingTicketsTable === 'function') renderPendingTicketsTable();
+    if (typeof loadStats === 'function') loadStats();
+  } catch (err) {
+    showToast(err.message || 'Could not record that decision.', 'error');
+  }
+}
+
+// ── The two ids a ticket has ──────────────────────────────────────
+//
+// Tickety stamps every ticket with its OWN id, and that is the id that appears
+// in Discord, in the transcript and in Tickety's own dashboard — so that is the
+// id this column leads with. Anyone cross-referencing a ticket is holding the
+// Tickety id, not ours.
+//
+// The site's own sequential number stays alongside it: it is short enough to say
+// out loud, and it is the only id a log has at all when Tickety's embed didn't
+// print one. It reads low-to-high oldest-to-newest, so on a newest-first table
+// the biggest number is at the top.
+function ticketSeq(t) {
+  return t.ticketNo != null ? '#' + String(t.ticketNo).padStart(4, '0') : null;
+}
+
+// The single id to use where there is only room for one (modal headings, toasts).
+function ticketNumber(t) {
+  return t.ticketRef || ticketSeq(t) || t.ticketName || '·';
+}
+
+// The table cell: Tickety's id, with ours underneath it when we have both.
+function ticketIdCell(t) {
+  var ref = t.ticketRef || null;
+  var seq = ticketSeq(t);
+  if (ref && seq) {
+    return '<span class="ticket-id-stack">'
+      + '<span class="case-ref" title="Tickety ticket ID">' + escapeHtml(ref) + '</span>'
+      + '<span class="ticket-seq" title="Ticket number on this site">' + escapeHtml(seq) + '</span>'
+      + '</span>';
+  }
+  return '<span class="case-ref">' + escapeHtml(ticketNumber(t)) + '</span>';
+}
+
+// Who handled it. Every fallback the server resolved, then the raw name the log
+// printed, then the id — and only if the log genuinely named nobody does it say
+// so in words. An em dash tells you nothing; "Not recorded" tells you the log
+// itself was missing an executor, which is a different problem from a lookup
+// that failed.
+// The handler's rank in the department whose ticket this is. Shown because a
+// CID or SCO-19 ticket is often closed by one of that division's own officers,
+// and "who closed it" without a rank tells a reviewer very little.
+function ticketHandlerRank(t) {
+  return t && t.closerRank ? String(t.closerRank) : null;
+}
+
+function ticketHandler(t) {
+  const name = t.closerUsername || t.closerRaw || t.closerDiscordId;
+  if (name) return String(name);
+  return t.reviewedByName && t.reviewedByName !== 'Backlog cleared'
+    ? t.reviewedByName
+    : 'Not recorded';
+}
+
+function ticketRowHtml(t, opts) {
+  opts = opts || {};
+  var creator = t.creatorRobloxUsername || t.creatorUsername || t.creatorDiscordId || '·';
+  var closer  = ticketHandler(t);
+  return '<tr onclick="openTicketDetail(\'' + t.id + '\')">'
+    + '<td>' + ticketIdCell(t) + '</td>'
+    + (opts.showCloser
+        ? '<td><span style="font-size:12px;'
+          + (closer === 'Not recorded' ? 'color:var(--text-muted);font-style:italic;' : '')
+          + '">' + escapeHtml(closer) + '</span></td>'
+        : '')
+    + '<td><span style="font-size:12px;font-weight:500;">' + escapeHtml(creator) + '</span></td>'
+    + '<td>' + ticketDivisionBadge(t.division) + '</td>'
+    + '<td>' + ticketTypeBadge(t.ticketType) + '</td>'
+    + '<td><span class="case-reason-cell">' + escapeHtml(t.reason || '·') + '</span></td>'
+    + '<td>' + (t.transcriptUrl
+        ? '<a href="' + escapeHtml(safeLinkHref(t.transcriptUrl) || '#') + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="row-btn"><i class="ti ti-file-text"></i> Transcript</a>'
+        : '<span class="text-muted" style="font-size:11px;">·</span>') + '</td>'
+    // The pending queue is all one status, so a Status column there would be
+    // the same word on every row; the decision goes last, where the eye ends up.
+    + (opts.review
+        ? '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>'
+          + '<td>' + ticketReviewCell(t, true) + '</td>'
+        : '<td>' + statusBadge(t.status || 'PENDING') + '</td>'
+          + '<td>' + ticketReviewCell(t, false) + '</td>'
+          + '<td><span class="date-cell">' + formatDateTime(t.closedAt) + '</span></td>')
+    + '</tr>';
+}
+
+// ── My Tickets ────────────────────────────────────────────────────
+async function loadTickets() {
+  var tbody = document.getElementById('tickets-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>';
+  try {
+    // The search goes to the server too, so it isn't limited to the rows the
+    // page happens to have loaded.
+    myTicketsCache = (await api('/api/tickets' + (myTicketQuery ? '?q=' + encodeURIComponent(myTicketQuery) : ''))) || [];
+    renderTicketsTable();
+  } catch (err) {
+    tbody.innerHTML = emptyRow(8, 'Failed to load ticket logs.');
+  }
+}
+
+function renderTicketsTable() {
+  var tbody = document.getElementById('tickets-tbody');
+  if (!tbody) return;
+  var rows = filterTickets(myTicketsCache, myTicketType, myTicketQuery, myTicketStatus);
+  var label = document.getElementById('tickets-count-label');
+  if (label) label.textContent = rows.length + ' of ' + myTicketsCache.length + ' shown';
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(8, myTicketsCache.length
+      ? 'No ticket logs match that search.'
+      : 'No tickets closed by you yet. Close a ticket in Discord and it appears here automatically.');
+    return;
+  }
+  tbody.innerHTML = rows.map(function (t) { return ticketRowHtml(t); }).join('');
+}
+
+// ── All Tickets ───────────────────────────────────────────────────
+async function loadAllTickets() {
+  var tbody = document.getElementById('all-tickets-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="9" class="table-loading"><div class="spinner"></div></td></tr>';
+  try {
+    allTicketsCache = (await api('/api/tickets/all' + (allTicketQuery ? '?q=' + encodeURIComponent(allTicketQuery) : ''))) || [];
+    renderAllTicketsTable();
+  } catch (err) {
+    tbody.innerHTML = emptyRow(9, 'Failed to load ticket logs.');
+  }
+}
+
+// ── Pending tickets ───────────────────────────────────────────────
+// The supervisor queue. Same rows as the archive, filtered to what still needs
+// a decision, with the decision column always present — a queue whose whole
+// purpose is deciding things shouldn't make you hunt for the buttons.
+var pendingTicketQuery = '';
+var pendingTicketType = 'all';
+
+async function loadPendingTickets() {
+  var tbody = document.getElementById('pending-tickets-tbody');
+  if (!tbody) return;
+  if (!allTicketsCache.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="table-loading"><div class="spinner"></div></td></tr>';
+    try { allTicketsCache = (await api('/api/tickets/all')) || []; }
+    catch (err) { tbody.innerHTML = emptyRow(8, err.message || 'Failed to load tickets.'); return; }
+  }
+  renderPendingTicketsTable();
+}
+
+function renderPendingTicketsTable() {
+  var tbody = document.getElementById('pending-tickets-tbody');
+  if (!tbody) return;
+  // Everything still awaiting a decision, before the type filter and the
+  // search — that's the denominator "X of Y" is measured against, the same way
+  // the pending cases queue reads.
+  var waiting = filterTickets(allTicketsCache, 'all', '', 'PENDING');
+  var rows = filterTickets(allTicketsCache, pendingTicketType, pendingTicketQuery, 'PENDING');
+
+  var label = document.getElementById('pending-tickets-count');
+  if (label) label.textContent = rows.length + ' of ' + waiting.length + ' awaiting decision';
+  // The nav badge counts the whole queue, not the filtered view — a filter is
+  // how you're looking at it, not how much there is.
+  var badge = document.getElementById('pending-tickets-badge');
+  if (badge) { badge.textContent = waiting.length; badge.style.display = waiting.length ? '' : 'none'; }
+
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(8, (pendingTicketQuery || pendingTicketType !== 'all')
+      ? 'No pending tickets match that filter.'
+      : 'Nothing waiting · every ticket log has been signed off.');
+    return;
+  }
+  tbody.innerHTML = rows.map(function (t) { return ticketRowHtml(t, { showCloser: true, review: true }); }).join('');
+}
+
+function renderAllTicketsTable() {
+  var tbody = document.getElementById('all-tickets-tbody');
+  if (!tbody) return;
+  var rows = filterTickets(allTicketsCache, allTicketType, allTicketQuery, allTicketStatus);
+  var label = document.getElementById('all-tickets-count-label');
+  if (label) label.textContent = rows.length + ' of ' + allTicketsCache.length + ' shown';
+  if (!rows.length) {
+    tbody.innerHTML = emptyRow(9, allTicketsCache.length
+      ? 'No ticket logs match that search.'
+      : 'No ticket logs ingested yet. They arrive automatically as tickets are closed in Discord.');
+    return;
+  }
+  tbody.innerHTML = rows.map(function (t) { return ticketRowHtml(t, { showCloser: true }); }).join('');
+}
+
+// ── Detail ────────────────────────────────────────────────────────
+// The actual ticket transcript, shown inline. Tickety hosts every transcript as
+// a shareable web page; embedding it here means a handler reads the real
+// conversation without leaving the dashboard. Only tickety.top URLs are framed
+// (the site CSP allows that host and no other); anything else, or a missing
+// link, degrades to a plain message with the out-of-dashboard link kept.
+function isTicketyTranscript(url) {
+  try { return /(^|\.)tickety\.top$/i.test(new URL(String(url)).hostname); } catch (e) { return false; }
+}
+function transcriptSectionHtml(t) {
+  var url = t && t.transcriptUrl;
+  if (!url) {
+    return '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
+      + '<span class="detail-field-value" style="color:var(--text-muted);">'
+      + 'No transcript link was captured for this ticket.</span></div>';
+  }
+  var href = (typeof safeLinkHref === 'function' ? safeLinkHref(url) : url) || url;
+  var openLink = '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer" '
+    + 'class="row-btn" style="text-decoration:none;"><i class="ti ti-external-link"></i> Open in new tab</a>';
+  // A non-Tickety link cannot be embedded under our frame-src, so link out only.
+  if (!isTicketyTranscript(url)) {
+    return '<div class="detail-field full"><span class="detail-field-label">Transcript</span>'
+      + '<span class="detail-field-value">' + openLink + '</span></div>';
+  }
+  return '<div class="detail-field full">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;">'
+    +   '<span class="detail-field-label" style="margin:0;"><i class="ti ti-file-text"></i> Transcript</span>'
+    +   openLink
+    + '</div>'
+    + '<iframe src="' + escapeHtml(href) + '" title="Ticket transcript" loading="lazy" '
+    +   'referrerpolicy="no-referrer" '
+    +   'sandbox="allow-scripts allow-same-origin allow-popups allow-forms" '
+    +   'style="width:100%;height:60vh;min-height:360px;border:1px solid var(--border-dim);'
+    +   'border-radius:10px;background:#fff;"></iframe>'
+    + '</div>';
+}
+
+async function openTicketDetail(ticketId) {
+  var body = document.getElementById('tdetail-body');
+  var ref  = document.getElementById('tdetail-ref');
+  if (!body) return;
+  body.innerHTML = '<div class="table-loading" style="padding:2rem;"><div class="spinner"></div></div>';
+  openModal('modal-ticket-detail');
+
+  var t;
+  try {
+    t = await api('/api/tickets/' + ticketId);
+  } catch (err) {
+    body.innerHTML = '<div style="padding:1rem;color:var(--red);">' + escapeHtml(err.message || 'Failed to load ticket.') + '</div>';
+    return;
+  }
+
+  if (ref) ref.textContent = ticketNumber(t);
+
+  var field = function (label, value, mono) {
+    return '<div class="detail-field"><span class="detail-field-label">' + escapeHtml(label) + '</span>'
+      + '<span class="detail-field-value' + (mono ? ' mono' : '') + '">'
+      + (value || '<span style="color:var(--text-muted);">·</span>') + '</span></div>';
+  };
+
+  var targetHtml = '';
+  if (t.target) {
+    targetHtml = '<div class="detail-divider"></div>'
+      + '<div class="detail-field full"><span class="detail-field-label">Ticket opened by</span>'
+      + '<span class="detail-field-value" style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;">'
+      + (t.target.avatar ? '<img src="' + escapeHtml(t.target.avatar) + '" alt="" style="width:30px;height:30px;border-radius:50%;" />' : '')
+      + '<a href="' + escapeHtml(t.target.profileUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--blue);">'
+      + escapeHtml(t.target.username) + '</a>'
+      + (t.target.groupRole ? '<span class="badge badge-blue"><span class="badge-dot"></span>' + escapeHtml(t.target.groupRole) + '</span>' : '')
+      + '</span></div>';
+  }
+
+  body.innerHTML = '<div class="detail-grid">'
+    + field('Ticket', escapeHtml(t.ticketName || t.ticketRef || '·'), true)
+    // Both ids, spelled out. The Tickety id is the one that matches Discord and
+    // the transcript; ours is the one that is short enough to quote.
+    + field('Tickety ID', escapeHtml(t.ticketRef || '·'), true)
+    + field('Ticket number', escapeHtml(ticketSeq(t) || '·'), true)
+    + field('Department', ticketDivisionBadge(t.division))
+    + field('Type', ticketTypeBadge(t.ticketType))
+    + field('Closed by', escapeHtml(ticketHandler(t))
+        + (ticketHandlerRank(t)
+            ? ' <span class="text-muted" style="font-size:11px;">' + escapeHtml(ticketHandlerRank(t)) + '</span>'
+            : '')
+        // Quota is Internal Affairs'. A ticket a division officer handled is
+        // still reviewed, it just pays nobody — say so where the decision is made.
+        + (t.closerIsIa === false
+            ? '<br><span class="text-muted" style="font-size:11px;">Not Internal Affairs · approving awards no quota points</span>'
+            : ''))
+    + field('Closed at', formatDateTime(t.closedAt))
+    + field('Status', statusBadge(t.status || 'PENDING'))
+    + field('Reviewed by', escapeHtml(t.reviewedByName || '·')
+        + (t.reviewedAt ? ' <span class="text-muted" style="font-size:11px;">' + formatDateTime(t.reviewedAt) + '</span>' : ''))
+    + '<div class="detail-field full"><span class="detail-field-label">Close reason</span>'
+    +   '<span class="detail-field-value">' + escapeHtml(t.reason || 'No reason given.') + '</span></div>'
+    + field('Opened by (Discord)', escapeHtml(t.creatorUsername || '·'), true)
+    + field('Creator ID', escapeHtml(t.creatorDiscordId || '·'), true)
+    + transcriptSectionHtml(t)
+    + targetHtml
+    + '</div>'
+    + '<div style="margin-top:1rem;padding:9px 12px;border-radius:8px;background:var(--blue-dim);border:1px solid var(--border-dim);font-size:11.5px;color:var(--text-secondary);">'
+    +   '<i class="ti ti-info-circle"></i> This ticket log was sent from Discord automatically.'
+    + '</div>'
+    // Same rule as the table: the decision lives on the Pending tab. A log
+    // opened out of the archive shows the way there, not the two buttons.
+    + ((t.status || 'PENDING') === 'PENDING' && canReview()
+        ? (typeof window.onPendingPage === 'function' && window.onPendingPage()
+            ? '<div style="margin-top:0.9rem;display:flex;gap:8px;justify-content:flex-end;">'
+              + '<button class="btn btn-danger" onclick="reviewTicket(\'' + t.id + '\', \'deny\')"><i class="ti ti-x"></i> Deny</button>'
+              + '<button class="btn btn-primary" onclick="reviewTicket(\'' + t.id + '\', \'approve\')"><i class="ti ti-check"></i> Approve</button>'
+              + '</div>'
+            : '<div style="margin-top:0.9rem;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">'
+              + '<span style="font-size:12px;color:var(--text-secondary);">This is the record, so nothing is decided here.</span>'
+              + '<button class="btn btn-ghost" onclick="closeModal(\'modal-ticket-detail\'); goPendingTickets();">'
+              + '<i class="ti ti-clipboard-check"></i> Review in Pending</button>'
+              + '</div>')
+        : '');
+}
+
+// Deep-link support (shared "Copy link" URLs).
+async function goReviewTicket(ticketId) { openTicketDetail(ticketId); }
+
+// ── Wiring ────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+  // Type filter tabs
+  document.querySelectorAll('#ticket-filter-tabs .filter-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#ticket-filter-tabs .filter-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      myTicketType = tab.dataset.tfilter;
+      renderTicketsTable();
+    });
+  });
+  document.querySelectorAll('#all-ticket-filter-tabs .filter-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#all-ticket-filter-tabs .filter-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      allTicketType = tab.dataset.atfilter;
+      renderAllTicketsTable();
+    });
+  });
+
+  // Status tabs — this is what makes the sign-off queue workable: "Pending"
+  // shows only the logs still waiting on a supervisor.
+  document.querySelectorAll('#ticket-status-tabs .filter-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#ticket-status-tabs .filter-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      myTicketStatus = tab.dataset.tstatus;
+      renderTicketsTable();
+    });
+  });
+  document.querySelectorAll('#all-ticket-status-tabs .filter-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#all-ticket-status-tabs .filter-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      allTicketStatus = tab.dataset.atstatus;
+      renderAllTicketsTable();
+    });
+  });
+
+  // Search
+  // Filter what's on screen instantly, then re-query the server shortly after so
+  // matches beyond the loaded rows show up too.
+  var mineTimer = null, allTimer = null;
+  var mine = document.getElementById('tickets-search');
+  if (mine) mine.addEventListener('input', function () {
+    myTicketQuery = mine.value.trim();
+    renderTicketsTable();
+    clearTimeout(mineTimer);
+    mineTimer = setTimeout(loadTickets, 350);
+  });
+  var all = document.getElementById('all-tickets-search');
+  if (all) all.addEventListener('input', function () {
+    allTicketQuery = all.value.trim();
+    renderAllTicketsTable();
+    clearTimeout(allTimer);
+    allTimer = setTimeout(loadAllTickets, 350);
+  });
+
+  var pq = document.getElementById('pending-tickets-search');
+  var pqTimer;
+  if (pq) pq.addEventListener('input', function () {
+    pendingTicketQuery = pq.value.trim();
+    clearTimeout(pqTimer);
+    pqTimer = setTimeout(renderPendingTicketsTable, 200);
+  });
+
+  var ptabs = document.getElementById('pending-tickets-filter-tabs');
+  if (ptabs) ptabs.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.filter-tab');
+    if (!b) return;
+    ptabs.querySelectorAll('.filter-tab').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    pendingTicketType = b.dataset.tfilter || 'all';
+    renderPendingTicketsTable();
+  });
+
+  // Clear the backlog (HICOMM / Developer). Everything waiting becomes
+  // APPROVED and nobody is paid — the count is said out loud first, because
+  // this is a thousand rows changing status in one press.
+  // Two buttons, one job: the Pending tab and the All Tickets header, because
+  // the size of the queue is visible from both and somebody looking at nine
+  // thousand rows should not have to find the other tab first.
+  ['btn-ticket-clear-backlog', 'btn-ticket-clear-backlog-all'].forEach(function (btnId) {
+  var clear = document.getElementById(btnId);
+  if (clear) clear.addEventListener('click', async function () {
+    // Say something the moment it is pressed. A disabled button and silence is
+    // indistinguishable from a button that does nothing, and at nine thousand
+    // rows the request is not instant.
+    var original = clear.innerHTML;
+    var busy = function (text) { clear.innerHTML = '<div class="spinner"></div> ' + text; };
+    clear.disabled = true;
+    busy('Counting…');
+    try {
+      // The instruction goes in the URL as well as the body. A body that never
+      // arrives is indistinguishable from a body that said "just count them",
+      // and that is exactly what this looked like for four rounds.
+      var dry = await api('/api/tickets/clear-backlog?all=1', { method: 'POST', body: JSON.stringify({ all: true }) });
+      clear.innerHTML = original;
+      if (!dry.wouldClear) {
+        // "Nothing to clear" is only true if nothing is pending. If the queue is
+        // full and the count came back zero, the count is what is wrong — say
+        // that, rather than cheerfully reporting success.
+        if (dry.pendingTotal) {
+          showToast(dry.pendingTotal + ' ticket(s) are still pending but the clear matched none of them. '
+            + (dry.clearBuild >= 4
+                ? 'Open /api/tickets/backlog-status to see why.'
+                : 'The server is running an older build · redeploy, then try again.'), 'error', 12000);
+          return;
+        }
+        showToast('Nothing waiting · the queue is already clear.', 'success');
+        return;
+      }
+      var okd = await (typeof uiConfirm === 'function'
+        ? uiConfirm('Clear the ticket backlog?\n\n' + dry.wouldClear + ' log(s) waiting will be marked APPROVED '
+          + 'and stamped as a backlog clear. NO quota points are awarded for any of them.\n\n'
+          + 'This also draws a line at right now: a later sync will store older logs without putting them '
+          + 'back in the queue. Logs closed from now on still arrive pending and still pay on approval.')
+        : Promise.resolve(confirm('Approve ' + dry.wouldClear + ' waiting log(s) without paying anybody?')));
+      if (!okd) return;
+
+      // The server clears a bounded slice per request — a single statement over
+      // ten thousand rows is long enough for a pooler or a proxy to kill, and
+      // when it did the write rolled back and the button looked dead. So we go
+      // round until the queue is empty, showing the count coming down. A run
+      // that dies half way has still genuinely cleared half of it; pressing
+      // again picks up from there.
+      var total = 0, fixed = 0, rounds = 0;
+      for (;;) {
+        busy('Clearing… ' + total + ' of ' + dry.wouldClear);
+        var r = await api('/api/tickets/clear-backlog?apply=1&all=1',
+          { method: 'POST', body: JSON.stringify({ apply: true, all: true }) });
+        // The server answering a dry run to an apply is its own failure, and
+        // saying "cleared 0" for it sent us looking at the database four times
+        // over. Name it.
+        if (r && r.dryRun) {
+          showToast('The server treated that as a count, not a clear · it received '
+            + JSON.stringify((r.saw && r.saw.resolved) || {})
+            + '. Build ' + (r.clearBuild || '?') + '.', 'error', 15000);
+          return;
+        }
+        total += r.cleared || 0;
+        fixed += (r.handlers && r.handlers.fixed) || 0;
+        rounds++;
+        // Nothing moved but rows remain — going round again would spin. Report
+        // what the server said about why instead of a silent "cleared 0".
+        if (!r.cleared && (r.pendingTotal || r.remaining)) {
+          var why = (r.diagnosis && r.diagnosis.why)
+            || (r.clearBuild >= 7
+                ? 'The server reported no diagnosis at all, which it should never do · open /api/tickets/backlog-status.'
+                : 'The server is running an older build (' + (r.clearBuild || 'unknown')
+                  + ') · redeploy, then try again.');
+          showToast('Cleared ' + total + '. ' + (r.pendingTotal || r.remaining)
+            + ' still pending · ' + why, 'error', 12000);
+          allTicketsCache = [];
+          loadPendingTickets(); loadAllTickets();
+          return;
+        }
+        if (r.done || !r.cleared) break;
+        // A guard, not a limit: 40 rounds is 120,000 rows. Anything past that
+        // is a loop that is not converging, and spinning forever would be worse
+        // than saying so.
+        if (rounds >= 40) {
+          showToast('Cleared ' + total + ' so far, ' + r.remaining + ' still waiting · press again to continue.', 'warning');
+          break;
+        }
+      }
+      if (rounds < 40) {
+        showToast('Cleared ' + total + ' log(s).' + (fixed ? ' Filled in ' + fixed + ' handler(s).' : ''), 'success');
+      }
+      allTicketsCache = [];
+      loadPendingTickets();
+      loadAllTickets();
+      if (typeof loadStats === 'function') loadStats();
+    } catch (err) {
+      showToast(err.message || 'Failed to clear the backlog.', 'error');
+    } finally {
+      clear.disabled = false;
+      clear.innerHTML = original;
+    }
+  });
+  });
+
+  // Manual re-sync (DEVELOPER only)
+  var sync = document.getElementById('btn-ticket-sync');
+  if (sync) sync.addEventListener('click', async function () {
+    sync.disabled = true;
+    var original = sync.innerHTML;
+    sync.innerHTML = '<div class="spinner"></div> Syncing…';
+    try {
+      var s = await api('/api/tickets/sync', { method: 'POST', body: JSON.stringify({ full: true }) });
+      showToast('Synced · ' + s.created + ' new, ' + s.updated + ' refreshed (scanned ' + s.scanned + ').', 'success');
+      loadAllTickets(); loadTickets();
+      if (typeof renderPendingTicketsTable === 'function') renderPendingTicketsTable();
+    } catch (err) {
+      showToast(err.message || 'Sync failed.', 'error');
+    } finally {
+      sync.disabled = false; sync.innerHTML = original;
+    }
+  });
+});

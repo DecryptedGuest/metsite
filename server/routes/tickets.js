@@ -1,387 +1,625 @@
 // server/routes/tickets.js
+// Closed-ticket logs, mirrored from the IA ticket-logs Discord channel.
+//
+// Nobody logs a ticket on the site. Rows arrive automatically from Discord via
+// lib/ticketIngest.js — but a supervisor still SIGNS THEM OFF here, which is the
+// one thing that isn't read-only. Approving a ticket log awards the investigator
+// who CLOSED it 2 quota points (an approved case is worth 4).
+//
+//   GET  /api/tickets            → tickets the current user closed ("My Tickets")
+//   GET  /api/tickets/all        → every closed ticket ("All Tickets")
+//   GET  /api/tickets/stats      → counts for the dashboard + nav
+//   GET  /api/tickets/:id        → one ticket log
+//   POST /api/tickets/sync       → force a re-scan of the log channel (DEVELOPER)
+//   POST /api/tickets/:id/review → approve / deny a ticket log (Supervisor+)
+
 const express = require('express');
 const prisma  = require('../lib/db');
-const { notifyStaff } = require('../lib/push');
-const { requireHICOMM } = require('../middleware/auth');
-const { getRobloxIdFromDiscord, getRobloxUserInfo, getRobloxIdFromUsername,
-        getRobloxAvatarHeadshot, getGroupMembership } = require('../lib/roblox');
-const { findMemberByUsername, matchTicketTranscript, parseRankNick, getRobloxNameFromNick } = require('../lib/bot');
+const { requireHICOMMStrict, requireHICOMM, requireDeveloper } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Resolve any of: Roblox username / Roblox ID / Discord ID / Discord username
-// into a canonical Roblox username. Falls back to the raw input on failure.
-async function resolveToRobloxUsername(input) {
-  const raw = (input || '').trim().replace(/^@/, '');
-  if (!raw) return input;
-  try {
-    if (/^\d{17,20}$/.test(raw)) {                 // Discord ID
-      const rid = await getRobloxIdFromDiscord(raw);
-      if (rid) { const info = await getRobloxUserInfo(rid); if (info?.username) return info.username; }
-    } else if (/^\d{1,16}$/.test(raw)) {           // Roblox ID
-      const info = await getRobloxUserInfo(raw);
-      if (info?.username) return info.username;
-    } else {                                       // a username
-      const r = await getRobloxIdFromUsername(raw);
-      if (r?.username) return r.username;          // canonical Roblox username
-      const m = await findMemberByUsername(raw);   // Discord username → RoVer → Roblox
-      if (m) {
-        const rid = await getRobloxIdFromDiscord(m.id);
-        if (rid) { const info = await getRobloxUserInfo(rid); if (info?.username) return info.username; }
-      }
-    }
-  } catch (e) { /* keep raw input */ }
-  return input.trim();
+const TYPES    = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
+const STATUSES = ['PENDING', 'APPROVED', 'DENIED'];
+// Which department's ticket logs a row came from. Internal Affairs handles all
+// three, so they share one queue and this narrows it.
+const DIVISIONS = ['MET', 'CID', 'SCO'];
+
+// Free-text search across everything on a ticket worth searching by.
+function searchClause(q) {
+  const s = (q || '').toString().trim();
+  if (!s) return null;
+  const like = { contains: s, mode: 'insensitive' };
+  return {
+    OR: [
+      { ticketRef:             like },
+      { ticketName:            like },
+      { reason:                like },
+      { creatorUsername:       like },
+      { creatorRobloxUsername: like },
+      { creatorDiscordId:      like },
+      { closerUsername:        like },
+      { closerDiscordId:       like },
+      { transcriptUrl:         like },
+    ],
+  };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
-async function nextTicketRef() {
-  const counter = await prisma.ticketCounter.upsert({
-    where:  { id: 1 },
-    update: { count: { increment: 1 } },
-    create: { id: 1, count: 1 },
-  });
-  return `TKT-${String(counter.count).padStart(4, '0')}`;
+// Every ticket the current user closed. Matched on the site account first, and
+// on the raw Discord id too so tickets closed before they ever signed in still
+// appear under their name.
+function mineClause(user) {
+  const or = [{ closerUserId: user.id }];
+  if (user.discordId) or.push({ closerDiscordId: String(user.discordId) });
+  return { OR: or };
 }
 
-// ── GET /api/tickets/my-roblox ────────────────────────────────────
-// Returns the logged-in user's Roblox username via RoVer.
-router.get('/my-roblox', async (req, res) => {
-  try {
-    const robloxId = await getRobloxIdFromDiscord(req.user.discordId);
-    if (!robloxId) return res.json({ linked: false });
+function buildWhere(req, base) {
+  const filters = [];
+  if (base) filters.push(base);
+  const type = (req.query.type || '').toString();
+  if (TYPES.includes(type)) filters.push({ ticketType: type });
+  const status = (req.query.status || '').toString().toUpperCase();
+  if (STATUSES.includes(status)) filters.push({ status });
+  const division = (req.query.division || '').toString().toUpperCase();
+  if (DIVISIONS.includes(division)) filters.push({ division });
+  const search = searchClause(req.query.q);
+  if (search) filters.push(search);
+  return filters.length ? { AND: filters } : {};
+}
 
-    const info = await getRobloxUserInfo(robloxId);
-    res.json({ linked: true, robloxUsername: info?.username || null, robloxId });
+function take(req, fallback = 500) {
+  const n = parseInt(req.query.take, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 2000) : fallback;
+}
+
+// Resolve a promise, or give up and return `fallback` after `ms`. Used so a
+// slow third-party lookup can never hold a page open.
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise(resolve => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+// The ticket creator's Roblox identity (avatar, profile link, MET rank).
+async function enrichCreator(ticket) {
+  if (!ticket.creatorRobloxUsername) return null;
+  const { getRobloxIdFromUsername, getGroupMembership, getRobloxAvatarHeadshot } = require('../lib/roblox');
+  const r = await getRobloxIdFromUsername(ticket.creatorRobloxUsername);
+  if (!r) return null;
+  const [membership, avatar] = await Promise.all([
+    getGroupMembership(r.id).catch(() => null),
+    getRobloxAvatarHeadshot(r.id).catch(() => null),
+  ]);
+  return {
+    robloxId:    r.id,
+    username:    r.username,
+    displayName: r.displayName,
+    avatar,
+    profileUrl:  `https://www.roblox.com/users/${r.id}/profile`,
+    inGroup:     !!membership,
+    groupRole:   membership?.role?.name ?? null,
+    groupRank:   membership?.role?.rank ?? null,
+  };
+}
+
+// ── GET /api/tickets — "My Tickets" (tickets I closed) ────────────
+router.get('/', async (req, res) => {
+  try {
+    const tickets = await prisma.ticketLog.findMany({
+      where:   buildWhere(req, mineClause(req.user)),
+      // Newest first. `createdAt` breaks the tie when two tickets close in the
+      // same second, so the order doesn't quietly shuffle between requests.
+      orderBy: [{ closedAt: 'desc' }, { createdAt: 'desc' }],
+      take:    take(req),
+    });
+    res.json(tickets);
   } catch (err) {
-    console.error('[Tickets] my-roblox error:', err.message);
-    res.json({ linked: false, error: err.message });
+    console.error('[TicketLogs] list error:', err.message);
+    res.status(500).json({ error: 'Failed to load ticket logs.' });
   }
 });
 
-// ── POST /api/tickets/import-transcript ───────────────────────────
-// Autofill a ticket from a Tickety "View Transcript" link. Scans the recent
-// closed-ticket logs, matches the transcript URL, and returns the fields to
-// prefill the form: Roblox username (resolved from the creator), ticket type
-// (from the ticket's original name), the close reason, and the log's timestamp.
-router.post('/import-transcript', async (req, res) => {
-  const link = (req.body?.transcriptLink || '').trim();
-  if (!link) return res.status(400).json({ matched: false, error: 'A transcript link is required.' });
-
+// ── GET /api/tickets/all — every closed ticket ────────────────────
+router.get('/all', async (req, res) => {
   try {
-    const result = await matchTicketTranscript(link);
-    if (!result.matched) {
-      return res.status(404).json({ matched: false, error: result.error || 'No matching ticket log found.' });
-    }
-    const log = result.log;
-
-    // Resolve the ticket creator → Roblox username, in order of confidence:
-    //  1. The embed already shows a "RANK | RobloxUsername" nickname.
-    //  2. Their server nickname ("RANK | RobloxUsername") looked up by Discord ID.
-    //  3. Convert their Discord ID via RoVer (DB-first + cooldown-aware — the
-    //     existing rate-limit-friendly path).
-    //  4. Only then: Unverified/Unknown.
-    let robloxUsername = null;
-    if (log.creatorRaw && log.creatorRaw.includes('|')) {
-      robloxUsername = parseRankNick(log.creatorRaw).robloxUsername || null;
-    }
-    if (!robloxUsername && log.creatorId) {
-      try { robloxUsername = (await getRobloxNameFromNick(log.creatorId)) || null; } catch (e) { /* try RoVer next */ }
-    }
-    if (!robloxUsername && log.creatorId) {
-      try {
-        const rid = await getRobloxIdFromDiscord(log.creatorId);
-        if (rid) { const info = await getRobloxUserInfo(rid); robloxUsername = info?.username || null; }
-      } catch (e) { /* fall through to Unverified/Unknown */ }
-    }
-    if (!robloxUsername) robloxUsername = 'Unverified/Unknown';
-
-    res.json({
-      matched:        true,
-      robloxUsername,
-      ticketType:     log.ticketType || 'GENERAL_SUPPORT',
-      conclusion:     log.reason || '',
-      submittedAt:    log.sentAt || new Date().toISOString(),
-      timezone:       'UTC',
-      transcriptLink: log.transcriptUrl || link,
-      meta: {
-        ticketName:      log.effectiveName || log.ticketName || null,
-        creatorId:       log.creatorId || null,
-        creatorUsername: log.creatorUsername || null,
-      },
+    const tickets = await prisma.ticketLog.findMany({
+      where:   buildWhere(req, null),
+      orderBy: [{ closedAt: 'desc' }, { createdAt: 'desc' }],
+      take:    take(req, 1000),
     });
+    res.json(tickets);
   } catch (err) {
-    console.error('[Tickets] import-transcript error:', err.message);
-    res.status(500).json({ matched: false, error: 'Failed to look up ticket transcript.' });
-  }
-});
-
-// ── POST /api/tickets ─────────────────────────────────────────────
-// Submit a new ticket.
-router.post('/', async (req, res) => {
-  const { robloxUsername, ticketType, submittedAt, timezone, conclusion, proofImages, transcriptLink } = req.body;
-
-  if (!robloxUsername?.trim())  return res.status(400).json({ error: 'Roblox username is required.' });
-  if (!ticketType)              return res.status(400).json({ error: 'Ticket type is required.' });
-  if (!conclusion?.trim())      return res.status(400).json({ error: 'Conclusion is required.' });
-  if (!transcriptLink?.trim())  return res.status(400).json({ error: 'Ticket transcript link is required.' });
-
-  const validTypes = ['GENERAL_SUPPORT', 'HICOMM', 'OFFICER_REPORT', 'APPEAL'];
-  if (!validTypes.includes(ticketType)) return res.status(400).json({ error: 'Invalid ticket type.' });
-
-  // Validate proof images (max 10, each base64 string)
-  if (proofImages && (!Array.isArray(proofImages) || proofImages.length > 10))
-    return res.status(400).json({ error: 'Too many proof images (max 10).' });
-
-  try {
-    const ticketRef = await nextTicketRef();
-    const resolvedRoblox = await resolveToRobloxUsername(robloxUsername);
-
-    const ticket = await prisma.ticket.create({
-      data: {
-        ticketRef,
-        userId:        req.user.id,
-        robloxUsername: resolvedRoblox,
-        ticketType,
-        submittedAt:   submittedAt || new Date().toISOString(),
-        timezone:      timezone    || 'UTC',
-        conclusion:    conclusion.trim(),
-        transcriptLink: transcriptLink.trim(),
-        proofImages:   proofImages || [],
-      },
-      include: { user: { select: { displayName: true, discordUsername: true } } },
-    });
-
-    const typeLabels = {
-      GENERAL_SUPPORT: 'General Support', HICOMM: 'HICOMM',
-      OFFICER_REPORT: 'Officer Report', APPEAL: 'Disciplinary Action Appeal',
-    };
-    notifyStaff({
-      category: 'ticket',
-      ticketType,
-      title: `New Ticket — ${ticketRef}`,
-      body:  `${resolvedRoblox} · ${typeLabels[ticketType] || ticketType}`,
-      url:   `/dashboard?page=ticket-review&ticket=${ticket.id}`,
-    });
-
-    res.status(201).json(ticket);
-  } catch (err) {
-    console.error('[Tickets] create error:', err.message);
-    res.status(500).json({ error: 'Failed to create ticket.' });
+    console.error('[TicketLogs] all error:', err.message);
+    res.status(500).json({ error: 'Failed to load ticket logs.' });
   }
 });
 
 // ── GET /api/tickets/stats ────────────────────────────────────────
-// `pending` etc. are scoped to the user's OWN tickets (My Tickets badge).
-// `pendingAll` is every pending ticket (the HICOMM "Pending Tickets" review badge).
+// `mine` powers the dashboard tiles; `total` the All Tickets header. `week`
+// is how many the user closed in the last 7 days.
 router.get('/stats', async (req, res) => {
   try {
-    const isElevated = ['HICOMM','SUPERVISOR','DEVELOPER'].includes(req.user.role);
-    const own = { userId: req.user.id };
-    const [total, pending, approved, denied, pendingAll] = await Promise.all([
-      prisma.ticket.count({ where: own }),
-      prisma.ticket.count({ where: { ...own, status: 'PENDING'  } }),
-      prisma.ticket.count({ where: { ...own, status: 'APPROVED' } }),
-      prisma.ticket.count({ where: { ...own, status: 'DENIED'   } }),
-      isElevated ? prisma.ticket.count({ where: { status: 'PENDING' } }) : Promise.resolve(0),
+    const mine = mineClause(req.user);
+    const weekAgo = new Date(Date.now() - 7 * 86400000);
+    const [total, mineCount, mineWeek, byType, byStatus, pending] = await Promise.all([
+      prisma.ticketLog.count(),
+      prisma.ticketLog.count({ where: mine }),
+      prisma.ticketLog.count({ where: { AND: [mine, { closedAt: { gte: weekAgo } }] } }),
+      prisma.ticketLog.groupBy({ by: ['ticketType'], _count: { _all: true } }).catch(() => []),
+      prisma.ticketLog.groupBy({ by: ['status'], _count: { _all: true } }).catch(() => []),
+      prisma.ticketLog.count({ where: { status: 'PENDING' } }).catch(() => 0),
     ]);
-    res.json({ total, pending, approved, denied, pendingAll });
+    const types = {};
+    for (const row of byType) types[row.ticketType] = row._count._all;
+    const statuses = { PENDING: 0, APPROVED: 0, DENIED: 0 };
+    for (const row of byStatus) statuses[row.status] = row._count._all;
+    res.json({ total, mine: mineCount, mineWeek, types, statuses, pending });
   } catch (err) {
-    console.error('[Tickets] stats error:', err.message);
+    console.error('[TicketLogs] stats error:', err.message);
     res.status(500).json({ error: 'Failed to fetch ticket stats.' });
   }
 });
 
-// ── GET /api/tickets ──────────────────────────────────────────────
-// "My Tickets" — always only the current user's own tickets (any role).
-router.get('/', async (req, res) => {
+// ── POST /api/tickets/sync — force a re-scan (HICOMM / Developer) ─
+// Strict: matches the button, which is hicomm-strict-only in the UI.
+// DEVELOPER only, not HICOMM. Hiding the button would not have been a gate —
+// the endpoint is a fetch away — and a full re-scan of the log channel is a
+// developer tool rather than a supervisor's.
+router.post('/sync', requireDeveloper, async (req, res) => {
   try {
-    const { status } = req.query;
-    const where = { userId: req.user.id };
-    if (status && ['PENDING', 'APPROVED', 'DENIED'].includes(status)) where.status = status;
-
-    const tickets = await prisma.ticket.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { displayName: true, discordUsername: true, discordAvatar: true } } },
-    });
-
-    // Strip proof image data from list view (send count only)
-    const safe = tickets.map(t => ({
-      ...t,
-      proofImages: undefined,
-      proofCount: Array.isArray(t.proofImages) ? t.proofImages.length : 0,
-    }));
-
-    res.json(safe);
+    const { getClient } = require('../lib/bot');
+    const client = getClient();
+    if (!client) return res.status(503).json({ error: 'The Discord bot is not connected yet · try again shortly.' });
+    const { sweep } = require('../lib/ticketIngest');
+    const stats = await sweep(client, { full: !!(req.body && req.body.full) });
+    if (!stats) return res.status(409).json({ error: 'A sync is already running.' });
+    if (stats.error) return res.status(502).json({ error: stats.error, ...stats });
+    res.json(stats);
   } catch (err) {
-    console.error('[Tickets] list error:', err.message);
-    res.status(500).json({ error: 'Failed to load tickets.' });
+    console.error('[TicketLogs] sync error:', err.message);
+    res.status(500).json({ error: 'Failed to sync ticket logs.' });
   }
 });
 
-// ── GET /api/tickets/all ──────────────────────────────────────────
-// Every ticket — readable by any authenticated user (IA + HICOMM).
-// HICOMM-only actions (approve/deny) remain gated on their own endpoints.
-router.get('/all', async (req, res) => {
+// ── GET /api/tickets/backlog-status ───────────────────────────────
+//
+// DEVELOPER ONLY, like the clear it explains. It reports the connected role,
+// the database name, row-level security, triggers and the table's columns —
+// the internals of the deployment, not something the rest of High Command has
+// any reason to read.
+// The truth about the queue, in a form a person can read by opening the URL.
+//
+// Toasts are lossy and server logs are somewhere else. When the clear button
+// says something that does not match what is on screen, this is what settles
+// it: how many are actually pending, how many the date cutoff can reach, the
+// oldest and newest still waiting, and which build is answering — because
+// "the button does nothing" has more than once turned out to be a deploy that
+// had not landed.
+router.get('/backlog-status', requireDeveloper, async (req, res) => {
   try {
-    const { status } = req.query;
-    const where = {};
-    if (status && ['PENDING', 'APPROVED', 'DENIED'].includes(status)) where.status = status;
+    const now = new Date();
+    const [pending, beforeNow, future, oldest, newest, blank, cleared] = await Promise.all([
+      prisma.ticketLog.count({ where: { status: 'PENDING' } }),
+      prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { lt: now } } }),
+      prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { gte: now } } }),
+      prisma.ticketLog.findFirst({ where: { status: 'PENDING' }, orderBy: { closedAt: 'asc' },
+        select: { id: true, ticketNo: true, closedAt: true, closerUsername: true } }),
+      prisma.ticketLog.findFirst({ where: { status: 'PENDING' }, orderBy: { closedAt: 'desc' },
+        select: { id: true, ticketNo: true, closedAt: true, closerUsername: true } }),
+      prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
+      prisma.ticketLog.count({ where: { reviewedByName: 'Backlog cleared' } }),
+    ]);
+    // Ask the DATABASE the same question, in the same SQL the clear uses.
+    // If this disagrees with Prisma's count, the disagreement IS the bug —
+    // a different schema on the search path, an enum that is really text, a
+    // view standing in for the table. Better to see it than to theorise.
+    let rawPending = null, rawError = null;
+    try {
+      const r = await prisma.$queryRaw`
+        SELECT COUNT(*)::int AS n FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus"`;
+      rawPending = r && r[0] ? Number(r[0].n) : null;
+    } catch (e) { rawError = e.message; }
 
-    const tickets = await prisma.ticket.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { displayName: true, discordUsername: true, discordAvatar: true } } },
+    let tableIs = null;
+    try {
+      const t = await prisma.$queryRaw`
+        SELECT current_schema() AS schema,
+               to_regclass('ticket_logs')::text AS resolves_to,
+               pg_typeof('PENDING'::"TicketStatus")::text AS status_type`;
+      tableIs = t && t[0] ? t[0] : null;
+    } catch (e) { tableIs = { error: e.message }; }
+
+    const { backlogClearedAt, probeTicketTable } = require('../lib/ticketIngest');
+
+    // Everything the database will say about whether this connection can
+    // actually WRITE to ticket_logs — permissions, row-level security, rules,
+    // triggers, read-only, replica. An UPDATE that Postgres accepts and then
+    // applies to nothing is invisible from the application side; this is where
+    // it becomes visible.
+    const canWrite = await probeTicketTable().catch(e => ({ probeError: e.message }));
+
+    // The clear's own UPDATE — EVERY column it sets, not a reduced version of
+    // it — run against a single row inside a transaction that is then rolled
+    // back. A cut-down statement proved only that `status` was writable, which
+    // is why a first pass came back clean while the real clear kept failing:
+    // if one of the other columns is what the statement chokes on, this is
+    // where it says so.
+    let writeTest = null;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const n = await tx.$executeRawUnsafe(
+          `UPDATE ticket_logs SET
+             status = 'APPROVED'::"TicketStatus",
+             "voidedAt" = NOW(), "reviewedAt" = NOW(), "reviewedByName" = 'Backlog cleared'
+            WHERE id IN (SELECT id FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus" LIMIT 1)`);
+        writeTest = { rowsAffected: n, rolledBack: true, statement: 'the real one' };
+        throw new Error('__rollback__');
+      }).catch(e => { if (e.message !== '__rollback__') throw e; });
+    } catch (e) { writeTest = { error: e.message, statement: 'the real one' }; }
+
+    // Which columns the table actually has. A statement that names a column
+    // this database has never heard of fails as a whole, and every row it
+    // would have touched stays exactly where it was.
+    let columns = null;
+    try {
+      const c = await prisma.$queryRawUnsafe(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'ticket_logs' AND table_schema = current_schema()`);
+      const have = new Set((c || []).map(r => r.column_name));
+      columns = { count: have.size };
+      for (const need of ['status', 'voidedAt', 'reviewedAt', 'reviewedByName', 'ticketNo', 'closedAt']) {
+        columns[need] = have.has(need);
+      }
+    } catch (e) { columns = { error: e.message }; }
+
+    res.json({
+      // Bumped whenever the clear logic changes, so a stale deploy is obvious.
+      clearBuild: 7,
+      pending, clearableWithDateCutoff: beforeNow, datedInTheFuture: future,
+      oldestPending: oldest, newestPending: newest,
+      blankHandlers: blank, alreadyBacklogCleared: cleared,
+      // Unnumbered rows mean the ticket-number sequence was missing when they
+      // were stored — the same missing-migration-SQL problem.
+      unnumbered: await prisma.ticketLog.count({ where: { ticketNo: null } }).catch(() => null),
+      watermark: await backlogClearedAt().catch(() => null),
+      serverTime: now,
+      // The two numbers that must agree.
+      rawPending, rawError, tableIs,
+      agrees: rawPending === pending,
+      // Can this connection write to the table at all, and does the clear's
+      // own statement match a row when it is tried for real?
+      canWrite, writeTest, columns,
+      // The same real ticket stored more than once. POST /api/tickets/repair
+      // folds each group down to one row.
+      duplicateGroups: await (async () => {
+        try {
+          const r = await prisma.$queryRawUnsafe(
+            `SELECT COUNT(*)::int AS n FROM (
+               SELECT "ticketRef" FROM ticket_logs
+                WHERE "ticketRef" IS NOT NULL AND "ticketRef" <> ''
+                GROUP BY "ticketRef" HAVING COUNT(*) > 1) x`);
+          return r && r[0] ? Number(r[0].n) : null;
+        } catch (e) { return null; }
+      })(),
+    });
+  } catch (err) {
+    console.error('[TicketLogs] backlog status error:', err.message);
+    res.status(500).json({ error: 'Failed to read the queue: ' + err.message });
+  }
+});
+
+// ── POST /api/tickets/clear-backlog — clear the queue ─────────────
+//
+// DEVELOPER ONLY. One press approves every waiting log — nine thousand of them,
+// at the size this was built for — and there is no undo. Hiding the button
+// would not be enough on its own: an endpoint is reachable by anybody who knows
+// the path, so the gate is here as well as in the page.
+// Nine thousand logs nobody was ever going to work through is a wall, not a
+// queue. Everything waiting gets closed off as APPROVED and marked as a backlog
+// clear rather than a decision — the rows stay, they keep their full history in
+// All Tickets, they simply stop being somebody's decision to make. No points
+// are awarded: nobody reviewed these, so nobody earned anything.
+//
+// This request is deliberately BOUNDED. It clears a slice and reports how many
+// are left, and the caller comes back for the next one. The previous version
+// tried the whole queue in one statement and one request, which at this size is
+// long enough for a pooler or a proxy to kill it — the write rolled back and
+// the button appeared to do nothing at all.
+//
+//   { }                       → dry run: how many are waiting
+//   { apply: true }           → clear a slice, report `remaining`
+//   { apply: true, all: true} → ignore the date cutoff (strays included)
+router.post('/clear-backlog', requireDeveloper, async (req, res) => {
+  const body  = req.body  || {};
+  const query = req.query || {};
+
+  // The intent is read from the QUERY STRING as well as the body, and either
+  // is enough.
+  //
+  // Every symptom of this bug has pointed at the apply arriving as a dry run:
+  // the response the browser reported carried no `diagnosis`, and the route
+  // only omits that on the dry-run branch. Whether the body is being dropped
+  // by something between the browser and here, or a stale script is sending a
+  // different one, an instruction that travels in the URL cannot be lost the
+  // same way. What the server actually received comes back in `saw`, so if it
+  // is still not arriving, that is visible instead of inferred.
+  const truthy = (v) => v === true || v === 'true' || v === '1' || v === 1;
+  const apply  = truthy(body.apply) || truthy(query.apply);
+  const all    = truthy(body.all)   || truthy(query.all);
+  const saw = {
+    bodyKeys: Object.keys(body),
+    queryKeys: Object.keys(query),
+    contentType: (req.headers && req.headers['content-type']) || null,
+    resolved: { apply, all },
+  };
+
+  try {
+    const cutoff = body.before ? new Date(body.before) : new Date();
+    if (isNaN(cutoff.getTime())) return res.status(400).json({ error: 'That is not a date.' });
+
+    // `all` also decides what we COUNT, or the dry run would promise a number
+    // the apply then disagrees with.
+    const where = all
+      ? { status: 'PENDING' }
+      : { status: 'PENDING', closedAt: { lt: cutoff } };
+
+    if (!apply) {
+      const [waiting, total, blank] = await Promise.all([
+        prisma.ticketLog.count({ where }),
+        prisma.ticketLog.count({ where: { status: 'PENDING' } }),
+        prisma.ticketLog.count({ where: { OR: [{ closerUsername: null }, { closerUsername: '' }] } }),
+      ]);
+      return res.json({
+        clearBuild: 7, saw,
+        dryRun: true, wouldClear: waiting, pendingTotal: total,
+        // Rows the cutoff would strand — a ticket dated in the future is never
+        // "before now", so without saying so it would sit there unexplained.
+        strandedByDate: Math.max(0, total - waiting),
+        blankHandlers: blank, before: cutoff,
+      });
+    }
+
+    const { clearBacklogBefore } = require('../lib/ticketIngest');
+    const out = await clearBacklogBefore(cutoff, {
+      all,
+      batch: body.batch,
+      // One request's worth. Enough that a normal queue goes in a single press,
+      // small enough that the statement can never be the slow thing.
+      maxRows: body.maxRows || 3000,
     });
 
-    const safe = tickets.map(t => ({
-      ...t,
-      proofImages: undefined,
-      proofCount: Array.isArray(t.proofImages) ? t.proofImages.length : 0,
-    }));
+    // The handler repair used to run here. It does not belong in this request:
+    // it is per-row work over four and a half thousand blank handlers, none of
+    // which has anything to do with clearing the queue, and it was the only
+    // thing in here that could take an unbounded amount of time. The sweep does
+    // it in the background, and POST /backfill-handlers does it on demand.
+    const handlers = { fixed: 0, stillBlank: 0, checked: 0, movedTo: 'the background sweep' };
 
-    res.json(safe);
+    // The TRUE pending count, not just what this filter matched. A clear that
+    // reports "0 cleared" while nine thousand rows are still pending is telling
+    // you something, and the old response had no way to say it.
+    const pendingTotal = await prisma.ticketLog.count({ where: { status: 'PENDING' } });
+
+    // Diagnose whenever anything is still pending — not only when the clear
+    // moved nothing. A partial clear that keeps stalling needs explaining too,
+    // and the previous version could return `diagnosis: null` alongside a
+    // non-zero pending count, which told nobody anything.
+    let diagnosis = null;
+    if (pendingTotal > 0) {
+      const [future, sample] = await Promise.all([
+        prisma.ticketLog.count({ where: { status: 'PENDING', closedAt: { gte: new Date() } } }),
+        prisma.ticketLog.findFirst({
+          where: { status: 'PENDING' }, orderBy: { closedAt: 'asc' },
+          select: { id: true, ticketNo: true, closedAt: true, status: true, messageId: true },
+        }),
+      ]);
+      // What the DATABASE thinks, in the clear's own SQL. If this disagrees
+      // with Prisma's count then the two are not looking at the same rows, and
+      // that is the whole answer.
+      let rawPending = null, rawError = null;
+      try {
+        const rp = await prisma.$queryRaw`
+          SELECT COUNT(*)::int AS n FROM ticket_logs WHERE status = 'PENDING'::"TicketStatus"`;
+        rawPending = rp && rp[0] ? Number(rp[0].n) : null;
+      } catch (e) { rawError = e.message; }
+
+      // When nothing moved, the useful answer is what the DATABASE says about
+      // itself — not another restatement of the row count. `probe` carries it.
+      const p = out.probe || {};
+      const blocked =
+          p.can_update === false ? `the ${p.role || 'database'} role has no UPDATE permission on ticket_logs`
+        : p.read_only === 'on'   ? 'the connection is in read-only mode'
+        : p.replica === true     ? 'the app is connected to a read replica, which cannot accept writes'
+        : (p.rls === true && !p.policies) ? 'row-level security is on with no policy, so every UPDATE matches nothing'
+        : p.rls === true         ? `row-level security is on (${p.policies} policy/policies) and none of them allows this UPDATE`
+        : p.rules                ? `a rewrite rule on ticket_logs is intercepting the UPDATE`
+        : p.triggers             ? `a trigger on ticket_logs is cancelling the UPDATE`
+        : null;
+
+      diagnosis = {
+        cleared: out.cleared, pendingTotal, datedInTheFuture: future,
+        rawPending, rawError, agrees: rawPending === pendingTotal,
+        // Which code path did the work, what EVERY path did, and what the
+        // database says about itself. This is the bit that was missing every
+        // time this went wrong.
+        via: out.via || null, pathErrors: out.errors || [],
+        attempts: out.attempts || [], probe: out.probe || null,
+        oldestPending: sample,
+        why: out.cleared
+          ? `Cleared ${out.cleared}; ${pendingTotal} still pending. Press again to continue.`
+          : blocked
+            ? `Nothing could be written: ${blocked}.`
+            : rawError
+              ? `The clear statement failed: ${rawError}`
+              : rawPending !== pendingTotal
+                ? `The database and the ORM disagree · SQL sees ${rawPending} pending, the ORM sees ${pendingTotal}. `
+                  + 'They are not reading the same rows; check DATABASE_URL and the schema search path.'
+                : (out.errors && out.errors.length)
+                  ? `Every update path was tried and none of them wrote a row: ${out.errors.join(' | ')}`
+                  : body.all === true
+                    ? `${pendingTotal} rows are pending and every UPDATE matched none of them. `
+                      + 'Open /api/tickets/backlog-status · it reports what the database says about itself.'
+                    : `The date cutoff excluded them. ${future} pending ticket(s) are dated in the future. Retry with "all".`,
+      };
+      if (!out.cleared) console.warn('[TicketLogs] backlog clear moved nothing:', JSON.stringify(diagnosis));
+    }
+
+    console.log(`[TicketLogs] backlog clear by ${req.user.displayName || req.user.discordUsername} · `
+      + `${out.cleared} cleared, ${out.remaining} left (${pendingTotal} pending overall), `
+      + `${handlers.fixed} handler(s) filled in`);
+    res.json({ clearBuild: 7, saw, dryRun: false, ...out, pendingTotal, diagnosis, handlers, before: cutoff });
   } catch (err) {
-    console.error('[Tickets] all error:', err.message);
-    res.status(500).json({ error: 'Failed to load tickets.' });
+    console.error('[TicketLogs] backlog clear error:', err.message);
+    res.status(500).json({ error: 'Failed to clear the backlog: ' + err.message });
+  }
+});
+
+// ── POST /api/tickets/backfill-numbers ────────────────────────────
+// Renumber every log in the order the tickets were closed.
+//
+// Two separate things went wrong with these numbers. A deployment done with
+// `prisma db push` gets the schema's columns but never runs a migration's
+// hand-written SQL, so ticketNo existed and the sequence that fills it did not,
+// and rows landed unnumbered. And the numbers that WERE handed out came out
+// backwards: they are assigned as rows are stored, and the channel is read
+// newest-message-first, so the newest ticket became #0001 and the oldest got the
+// highest number.
+//
+// Numbering the gaps cannot fix an ordering, so this reassigns the lot, oldest
+// closed ticket first. `?only=missing` keeps the old narrower behaviour.
+router.post('/backfill-numbers', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { backfillTicketNumbers, renumberTickets } = require('../lib/ticketIngest');
+    const onlyMissing = req.query.only === 'missing' || (req.body && req.body.only === 'missing');
+    const out = onlyMissing ? await backfillTicketNumbers() : await renumberTickets();
+    const left = await prisma.ticketLog.count({ where: { ticketNo: null } });
+    res.json({ ...out, onlyMissing, stillUnnumbered: left });
+  } catch (err) {
+    console.error('[TicketLogs] renumber error:', err.message);
+    res.status(500).json({ error: 'Failed to number the logs: ' + err.message });
+  }
+});
+
+// ── POST /api/tickets/backfill-handlers ───────────────────────────
+// Fill in the handler on any row that has none, without touching status.
+//
+// `force` re-reads Discord even for rows a previous pass already wrote off as
+// naming nobody — which is what you want after the parser has changed, and only
+// then, since it costs a request per row.
+router.post('/backfill-handlers', requireHICOMMStrict, async (req, res) => {
+  try {
+    const { backfillHandlers } = require('../lib/ticketIngest');
+    const force = req.query.force === '1' || !!(req.body && req.body.force);
+    const out = await backfillHandlers((req.body && req.body.limit) || 5000, { refetch: true, force });
+    const blank = await prisma.ticketLog.count({
+      where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
+    });
+    // What the still-blank rows actually SAID. Every source has been tried on
+    // these, so the log itself named nobody — and the shape it used is the only
+    // thing that can tell us whether that is fixable or genuinely a log with no
+    // executor in it. Trimmed hard: this is a hint, not a dump.
+    const samples = await prisma.ticketLog.findMany({
+      where: { AND: [{ OR: [{ closerUsername: null }, { closerUsername: '' }] }] },
+      orderBy: { closedAt: 'desc' }, take: 5,
+      select: { id: true, messageId: true, ticketRef: true, closedAt: true, raw: true },
+    }).catch(() => []);
+    res.json({
+      ...out, force, blankHandlers: blank,
+      unattributedSamples: samples.map(s => ({
+        id: s.id, messageId: s.messageId, ticketRef: s.ticketRef, closedAt: s.closedAt,
+        said: s.raw && s.raw.noExecutor ? String(s.raw.noExecutor.text || '').slice(0, 400) : null,
+      })),
+    });
+  } catch (err) {
+    console.error('[TicketLogs] handler backfill error:', err.message);
+    res.status(500).json({ error: 'Failed to fill in the handlers.' });
+  }
+});
+
+// ── POST /api/tickets/repair ──────────────────────────────────────
+// The two things wrong with the rows already stored, in one press.
+//
+//   1. duplicates — one closed ticket logged more than once became more than one
+//      row, because the only thing making a row unique was the MESSAGE id
+//   2. blank handlers — the parser only read the labelled "Executor" fields, so
+//      an embed whose executor is just "<@id> closed a ticket" yielded neither
+//      an id nor a name. Re-reading the message with today's parser fixes it.
+//
+// The merge runs first: repairing handlers on rows that are about to be deleted
+// is wasted work, and a duplicate that knows the handler hands it to the row
+// that survives.
+//
+// `?dry=1` reports what it would do and changes nothing.
+router.post('/repair', requireHICOMMStrict, async (req, res) => {
+  const dryRun = req.query.dry === '1' || (req.body && req.body.dry === true);
+  try {
+    const TI = require('../lib/ticketIngest');
+    const duplicates = await TI.mergeDuplicates({ dryRun, limit: (req.body || {}).limit });
+    const handlers = dryRun
+      ? { skipped: 'dry run' }
+      : await TI.backfillHandlers((req.body || {}).handlerLimit || 5000, { refetch: true, force: true });
+    const blankAfter = await prisma.ticketLog.count({
+      where: { OR: [{ closerUsername: null }, { closerUsername: '' }] },
+    });
+    res.json({ ok: true, dryRun, duplicates, handlers, blankHandlers: blankAfter,
+               total: await prisma.ticketLog.count() });
+  } catch (err) {
+    console.error('[TicketLogs] repair error:', err.message);
+    res.status(500).json({ error: 'Repair failed: ' + err.message });
+  }
+});
+
+// ── POST /api/tickets/:id/review — approve / deny a ticket log ────
+// Body: { action: 'approve' | 'deny' }
+//
+// This is the ONLY write on a ticket. It records a supervisor's decision on a
+// log that was ingested from Discord — it does not create, edit or delete the
+// log. Approving one awards TICKET_POINTS (2) to the investigator who closed
+// the ticket; denying one awards nothing.
+router.post('/:id/review', requireHICOMM, async (req, res) => {
+  try {
+    const { reviewTicket } = require('../lib/caseDecision');
+    const out = await reviewTicket({
+      ticketId: req.params.id,
+      actor:    req.user,
+      action:   (req.body && req.body.action) || '',
+    });
+    if (!out.ok) return res.status(out.status).json({ error: out.error });
+
+    require('../lib/audit').record({
+      req, action: out.decision === 'APPROVED' ? 'TICKET_APPROVE' : 'TICKET_DENY',
+      category: 'ia', targetType: 'ticketLog', targetId: out.ticket.id,
+      summary: `${out.decision === 'APPROVED' ? 'Approved' : 'Denied'} ticket `
+             + `${out.ticket.ticketRef || out.ticket.ticketName || out.ticket.id}`
+             + (out.decision === 'APPROVED' ? ` (+${require('../lib/quota').TICKET_POINTS()} pts)` : ''),
+    });
+
+    res.json(out.ticket);
+  } catch (err) {
+    console.error('[TicketLogs] review error:', err.message);
+    res.status(500).json({ error: 'Failed to record the decision.' });
   }
 });
 
 // ── GET /api/tickets/:id ──────────────────────────────────────────
-// Get a single ticket with full proof images.
+// Registered last so it doesn't shadow /all, /stats or /sync.
 router.get('/:id', async (req, res) => {
   try {
-    const ticket = await prisma.ticket.findUnique({
-      where:   { id: req.params.id },
-      include: { user: { select: { displayName: true, discordUsername: true } } },
-    });
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+    const ticket = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket log not found.' });
 
-    // Any authenticated IA member can view a ticket's detail — the All Tickets
-    // tab lists everyone's tickets and is meant to be clickable. Acting on a
-    // ticket (approve/deny) stays gated on its own HICOMM-only endpoints.
+    // Enrich the ticket's creator with their Roblox identity, the same way the
+    // records lookup does, so the detail view can show who opened it. This is a
+    // nicety, not the point of the page — so it is time-boxed: if Roblox is slow
+    // or unreachable the ticket still opens instantly, just without the extras.
+    const target = await withTimeout(enrichCreator(ticket), 2500, null);
 
-    // Attach reviewer display name if the ticket has been decided
-    let reviewer = null;
-    if (ticket.reviewedBy) {
-      reviewer = await prisma.user.findUnique({
-        where:  { id: ticket.reviewedBy },
-        select: { displayName: true, discordUsername: true },
-      });
-    }
-
-    // Resolve the target Roblox user for richer detail (non-fatal on failure)
-    let target = null;
-    try {
-      const r = await getRobloxIdFromUsername(ticket.robloxUsername);
-      if (r) {
-        const [membership, avatar] = await Promise.all([
-          getGroupMembership(r.id),
-          getRobloxAvatarHeadshot(r.id),
-        ]);
-        target = {
-          robloxId:    r.id,
-          username:    r.username,
-          displayName: r.displayName,
-          avatar,
-          profileUrl:  `https://www.roblox.com/users/${r.id}/profile`,
-          inGroup:     !!membership,
-          groupRole:   membership?.role?.name ?? null,
-          groupRank:   membership?.role?.rank ?? null,
-        };
-      }
-    } catch (e) {
-      console.error('[Tickets] target resolve error:', e.message);
-    }
-
-    res.json({ ...ticket, reviewer, target });
+    res.json({ ...ticket, target });
   } catch (err) {
-    console.error('[Tickets] detail error:', err.message);
-    res.status(500).json({ error: 'Failed to load ticket.' });
-  }
-});
-
-// ── PATCH /api/tickets/:id/approve ────────────────────────────────
-router.patch('/:id/approve', requireHICOMM, async (req, res) => {
-  try {
-    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
-    if (!existing)                     return res.status(404).json({ error: 'Ticket not found.' });
-    if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Ticket is not pending.' });
-    // IA Complaints (HICOMM tickets) are a High Command matter — Supervisors
-    // (and IA, already blocked by requireHICOMM) cannot action them.
-    if (existing.ticketType === 'HICOMM' && req.user.role === 'SUPERVISOR')
-      return res.status(403).json({ error: 'Only HICOMM can action IA Complaint (HICOMM) tickets.' });
-
-    const updated = await prisma.ticket.update({
-      where: { id: req.params.id },
-      data:  { status: 'APPROVED', reviewedBy: req.user.id, reviewedAt: new Date() },
-    });
-
-    // +2 quota points for the IA member who logged the ticket
-    try {
-      const submitter = await prisma.user.findUnique({
-        where:  { id: existing.userId },
-        select: { discordId: true, robloxUsername: true },
-      });
-      if (submitter) {
-        // If robloxUsername isn't cached, do a live RoVer lookup so the sheet
-        // can match by username even when there's no Discord ID column.
-        let robloxUsername = submitter.robloxUsername;
-        if (!robloxUsername && submitter.discordId) {
-          try {
-            const { getRobloxIdFromDiscord, getRobloxUserInfo } = require('../lib/roblox');
-            const rbxId = await getRobloxIdFromDiscord(submitter.discordId);
-            if (rbxId) {
-              const info = await getRobloxUserInfo(rbxId);
-              robloxUsername = info?.username || null;
-              // Cache it for next time
-              if (robloxUsername) {
-                await prisma.user.update({
-                  where: { id: existing.userId },
-                  data:  { robloxId: rbxId, robloxUsername },
-                }).catch(() => {});
-              }
-            }
-          } catch (rvErr) {
-            console.warn('[Tickets] RoVer lookup for quota failed:', rvErr.message);
-          }
-        }
-        // Queue the award durably so it's retried until it lands — never lost
-        // to a transient failure or a rapid approve burst.
-        const { enqueueQuotaAward } = require('../lib/quota');
-        await enqueueQuotaAward({
-          refType: 'ticket', refId: existing.id,
-          discordId: submitter.discordId, robloxUsername,
-          points: 2, label: `ticket ${existing.ticketRef}`,
-        }).catch(err => { console.warn('[Tickets] quota enqueue error:', err.message); });
-      }
-    } catch (e) { console.warn('[Tickets] quota award skipped:', e.message); }
-
-    res.json(updated);
-  } catch (err) {
-    console.error('[Tickets] approve error:', err.message);
-    res.status(500).json({ error: 'Failed to approve ticket.' });
-  }
-});
-
-// ── PATCH /api/tickets/:id/deny ───────────────────────────────────
-router.patch('/:id/deny', requireHICOMM, async (req, res) => {
-  try {
-    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
-    if (!existing)                     return res.status(404).json({ error: 'Ticket not found.' });
-    if (existing.status !== 'PENDING') return res.status(409).json({ error: 'Ticket is not pending.' });
-    if (existing.ticketType === 'HICOMM' && req.user.role === 'SUPERVISOR')
-      return res.status(403).json({ error: 'Only HICOMM can action IA Complaint (HICOMM) tickets.' });
-
-    const updated = await prisma.ticket.update({
-      where: { id: req.params.id },
-      data:  { status: 'DENIED', reviewedBy: req.user.id, reviewedAt: new Date() },
-    });
-    res.json(updated);
-  } catch (err) {
-    console.error('[Tickets] deny error:', err.message);
-    res.status(500).json({ error: 'Failed to deny ticket.' });
+    console.error('[TicketLogs] detail error:', err.message);
+    res.status(500).json({ error: 'Failed to load ticket log.' });
   }
 });
 

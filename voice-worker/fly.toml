@@ -1,0 +1,28 @@
+# voice-worker/fly.toml — Fly.io app config for the MET CAD voice worker.
+# The GitHub Action deploys with --app so this name is only the default.
+app = "metsite-cad-voice"
+primary_region = "lhr"   # London — closest to Discord's EU voice servers.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep it up: it must stay in the voice channel.
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

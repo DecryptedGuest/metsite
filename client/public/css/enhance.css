@@ -1,0 +1,792 @@
+/* enhance.css — site-wide micro-interactions + polish.
+   Injected into every page after the base stylesheets. Uses GPU-friendly
+   transform/opacity/shadow transitions. Reduce-motion (ui.js) zeroes all
+   transitions/animations globally with !important, so this self-disables. */
+
+/* ── Smooth transitions on interactive surfaces ─────────────────────── */
+.btn, .btn-icon, .nav-item, .met-chip, .badge, .stat-card, .sup-panel,
+.met-switcher-item, .filter-tab, .data-table tbody tr, a.profile-div-card,
+.chip, .toast, .theme-toggle, .met-topbar-logo {
+  transition: transform .16s cubic-bezier(.2,.7,.3,1),
+              box-shadow .2s ease, background-color .18s ease,
+              border-color .2s ease, color .15s ease, opacity .18s ease;
+}
+.panel, .glass { transition: box-shadow .25s ease, border-color .25s ease, transform .2s cubic-bezier(.2,.7,.3,1); }
+
+/* ── Buttons: lift on hover, press on click, glow on primary/danger ──── */
+.btn { will-change: transform; }
+.btn:hover  { transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.97); }
+.btn-primary:hover  { box-shadow: 0 6px 22px var(--blue-glow, rgba(74,143,255,.38)); }
+.btn-danger:hover   { box-shadow: 0 6px 22px rgba(240,79,94,.32); }
+.btn-icon:hover, .theme-toggle:hover { transform: translateY(-1px) scale(1.08); }
+.btn-icon:active, .theme-toggle:active { transform: scale(.94); }
+
+/* ── Cards / tiles: gentle lift + accent border on hover ────────────── */
+/* Applies to clickable cards AND display-only tiles (e.g. My Activity) so
+   everything card-like gives a little life on hover. */
+.stat-card, .sup-panel, a.profile-div-card, .met-tile {
+  transition: transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease, border-color .2s ease, background-color .18s ease;
+}
+.stat-card:hover, .sup-panel:hover, a.profile-div-card:hover, .met-tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(0,0,0,.30);
+  border-color: var(--blue-dim, rgba(74,143,255,.45));
+}
+/* A subtle inner glow on display tiles so they feel alive without a click. */
+.met-tile:hover { background: var(--blue-dim, rgba(74,143,255,.06)); }
+/* Big panels: no jumpy transform — just a soft glow so dense dashboards stay calm */
+.panel:hover { box-shadow: 0 10px 30px rgba(0,0,0,.22); border-color: var(--blue-dim, rgba(74,143,255,.22)); }
+
+/* ── Sidebar / nav: slide + highlight ───────────────────────────────── */
+.nav-item:hover { transform: translateX(3px); background: var(--hover, rgba(255,255,255,.05)); }
+.met-switcher-item:hover { transform: translateX(3px); background: var(--hover, rgba(255,255,255,.06)); }
+
+/* ── Tables: row highlight ──────────────────────────────────────────── */
+.data-table tbody tr:hover { background: var(--hover, rgba(74,143,255,.06)); }
+
+/* ── Chips / badges: subtle pop ─────────────────────────────────────── */
+.met-chip:hover, .chip:hover { transform: translateY(-1px); }
+
+/* ── Inputs: focus glow ─────────────────────────────────────────────── */
+.form-control { transition: box-shadow .18s ease, border-color .18s ease, background-color .18s ease; }
+.form-control:focus {
+  outline: none;
+  border-color: var(--blue, #4a8fff);
+  box-shadow: 0 0 0 3px var(--blue-dim, rgba(74,143,255,.22));
+}
+
+/* ── Links ──────────────────────────────────────────────────────────── */
+a { transition: color .15s ease, opacity .15s ease; }
+
+/* ── Logo micro-interaction ─────────────────────────────────────────── */
+.met-topbar-logo:hover { transform: rotate(-4deg) scale(1.05); }
+
+/* ── Modal entrance ─────────────────────────────────────────────────── */
+@keyframes met-modal-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+.modal-overlay.open .modal, .modal.open, .met-modal.open { animation: met-modal-in .22s cubic-bezier(.2,.7,.3,1) both; }
+
+/* ── Entrance polish for fade-up sections (staggered) ───────────────── */
+@keyframes met-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: met-fade-up .45s cubic-bezier(.2,.7,.3,1) both; }
+.stagger-1 { animation-delay: .06s; }
+.stagger-2 { animation-delay: .12s; }
+.stagger-3 { animation-delay: .18s; }
+
+/* ── Accessible focus ring (keyboard only) ──────────────────────────── */
+.btn:focus-visible, .nav-item:focus-visible, a:focus-visible, .form-control:focus-visible {
+  outline: 2px solid var(--blue, #4a8fff);
+  outline-offset: 2px;
+}
+
+/* ── Spinner: a touch smoother ──────────────────────────────────────── */
+.spinner { transition: opacity .2s ease; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   COLOUR + LIFE PASS — site-wide, additive (shadows/pseudo-elements/anim
+   only, never layout) so every dashboard gets the polished, colourful
+   member-dashboard look. Reduce-motion still zeroes all animation.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Section dots (panel headers / "MY ACTIVITY"-style labels): glow + soft pulse
+   so each section reads with its own colour, like the member dashboard. */
+@keyframes met-dot-pulse { 0%,100% { box-shadow: 0 0 0 0 currentColor; } 50% { box-shadow: 0 0 8px 1px currentColor; } }
+/* Calm by default: every section dot gets a soft static glow, but only dots that
+   demand attention (.pending / .pulse-anim) actually pulse — so a screen full of
+   panels isn't a wall of blinking dots competing for the eye. */
+.panel-dot { box-shadow: 0 0 6px 0 currentColor; }
+.panel-dot.pending, .panel-dot.pulse-anim { animation: met-dot-pulse 2.6s ease-in-out infinite; }
+.panel-dot.blue  { color: var(--blue,   #4a8fff); }
+.panel-dot.green { color: var(--green,  #22c55e); }
+.panel-dot.red   { color: var(--red,    #e0503a); }
+.panel-dot.amber { color: var(--amber,  #e8842a); }
+.panel-dot.purple{ color: #9b6dff; }
+
+/* Stat / KPI cards: a coloured accent bar along the top + a lift, so numbers
+   pop (matches the member dashboard's My Activity tiles). */
+.stat-card, .cc-stat { position: relative; overflow: hidden; }
+/* The accent bar follows the card's own colour: an explicit --cc/--dc, then a
+   semantic .amber/.green/.red/.purple class, else the page's division (--dc),
+   else blue. So an amber "Awaiting" card gets an amber bar, not a fighting blue one. */
+.stat-card::before, .cc-stat::before {
+  content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--cc, var(--dc, var(--blue,#4a8fff))), transparent 85%);
+  opacity: .85;
+}
+.stat-card.amber::before  { background: linear-gradient(90deg, var(--amber,#f5b730), transparent 85%); }
+.stat-card.green::before  { background: linear-gradient(90deg, var(--green,#2ed896), transparent 85%); }
+.stat-card.red::before    { background: linear-gradient(90deg, var(--red,#f04f5e), transparent 85%); }
+.stat-card.purple::before { background: linear-gradient(90deg, #9b6dff, transparent 85%); }
+.stat-card.blue::before   { background: linear-gradient(90deg, var(--blue,#4a8fff), transparent 85%); }
+
+/* OVERLAP FIX: .stat-card itself has no padding — the padding lives on an inner
+   .stat-card-inner wrapper. But many KPI tiles across the site (live-tryout
+   stats, division analytics tiles, HPC stat tiles) drop .stat-value / .stat-label
+   straight into .stat-card with NO wrapper, so the content sits flush against the
+   edges and the 3px top accent bar cuts across the number. Give those wrapper-less
+   cards a proper, even inset (cards that DO use .stat-card-inner keep their own). */
+.stat-card:not(:has(.stat-card-inner)) { padding: 15px 16px 14px; }
+.stat-card:not(:has(.stat-card-inner)) .stat-value { line-height: 1.05; }
+.stat-card:not(:has(.stat-card-inner)) .stat-label { margin: 7px 0 0; }
+/* Number glow is a spotlight — reserve it for the lead/alert tiles so a KPI wall
+   doesn't have every number shouting. A card opts in with .lead (or a semantic
+   colour class); plain cards get a crisp, un-glowing number. */
+.cc-stat.lead .v, .stat-card.lead .stat-value,
+.cc-stat.amber .v, .cc-stat.red .v,
+.stat-card.amber .stat-value, .stat-card.red .stat-value { text-shadow: 0 0 18px currentColor; }
+
+/* Coloured section accents you can drop on any panel via a class. */
+.accent-blue  { box-shadow: inset 3px 0 0 var(--blue,#4a8fff); }
+.accent-green { box-shadow: inset 3px 0 0 var(--green,#22c55e); }
+.accent-red   { box-shadow: inset 3px 0 0 var(--red,#e0503a); }
+.accent-amber { box-shadow: inset 3px 0 0 var(--amber,#e8842a); }
+.accent-purple{ box-shadow: inset 3px 0 0 #9b6dff; }
+
+/* Division colour system — a consistent accent per division, usable anywhere
+   (chips, cards) via .div-<name>. Per MET brief: CID orange, SCO-19 black
+   (gunmetal so it stays visible on the dark theme), IA dark/administrative
+   orange, FLP light blue, MET the standard MET blue, HPC white. Dev + MET
+   HICOMM keep their gold. */
+.div-ia   { --dc: #c2701f; } .div-met  { --dc: #4a8fff; } .div-sco19 { --dc: #4b5563; }
+.div-cid  { --dc: #e8842a; } .div-flp  { --dc: #5cc0ff; } .div-hpc   { --dc: #e8eef7; }
+/* Developer tools + MET HICOMM keep their gold identity, so their pages key off
+   one accent (active nav rail, breadcrumb, KPI bars) just like the divisions. */
+.div-dev  { --dc: #f5c518; } .div-hicomm { --dc: #f5c518; }
+.div-chip { border-color: color-mix(in srgb, var(--dc,#8b93a1) 55%, transparent) !important;
+  color: var(--dc,#8b93a1) !important; }
+
+/* Officer Lookup hero: a slow, subtle animated colour sheen across the card. */
+@keyframes met-hero-sheen { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+.hc-officer-hero {
+  background-image: linear-gradient(115deg, rgba(74,143,255,.10), rgba(155,109,255,.08) 40%, rgba(34,197,94,.07) 70%, rgba(74,143,255,.10));
+  background-size: 200% 100%; animation: met-hero-sheen 14s linear infinite;
+  border-color: rgba(74,143,255,.28);
+}
+
+/* Nav: the active item gets a coloured left rail + glow so wayfinding is clear. */
+.nav-item.active { position: relative; }
+/* Solid, glowing division-colour left rail (thicker than a plain accent). */
+.nav-item.active::before {
+  content: ""; position: absolute; left: 0; top: 12%; bottom: 12%; width: 4px; border-radius: 0 4px 4px 0;
+  background: var(--dc, var(--blue,#4a8fff)); box-shadow: 0 0 12px color-mix(in srgb, var(--dc,#4a8fff) 85%, transparent);
+}
+
+/* Page sections fade/slide in on first paint so navigating feels alive. */
+.page.active > .page-header,
+.page.active > .panel { animation: met-fade-up .4s cubic-bezier(.2,.7,.3,1) both; }
+.page.active > .panel:nth-of-type(2) { animation-delay: .05s; }
+.page.active > .panel:nth-of-type(3) { animation-delay: .1s; }
+.page.active > .panel:nth-of-type(4) { animation-delay: .15s; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   CLARITY PASS — make the sidebar + topbar clearly visible and buttons more
+   accessible/legible. Component-level overrides (loads last) so the theme
+   tokens are untouched and light/dark both stay intact.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: a distinct, slightly raised surface with a clear edge + shadow so it
+   reads as its own panel. The dark surface is scoped to dark mode so the light
+   theme (main.css) isn't overridden; the shadow is theme-agnostic. */
+.sidebar { box-shadow: 4px 0 24px rgba(0,0,0,0.25); }
+html:not([data-theme="light"]) .sidebar {
+  background: linear-gradient(180deg, rgba(10,20,46,0.95), rgba(6,13,34,0.95)) !important;
+  border-right: 1px solid rgba(60,120,255,0.30) !important;
+}
+/* Nav items: brighter default text (dark) + clearer hover/active. */
+.nav-item { font-weight: 500; }
+html:not([data-theme="light"]) .nav-item { color: rgba(190,214,255,0.82) !important; }
+html:not([data-theme="light"]) .nav-item:hover { color: #eaf2ff !important; background: rgba(40,90,220,0.18) !important; }
+/* Active nav item — ONE unmistakable, division-coloured state: filled --dc tint,
+   --dc border, glowing --dc rail (above) + accented icon. The label colour flips
+   with the theme so it stays legible on both. */
+.nav-item.active {
+  font-weight: 700; scroll-margin: 12px;
+  background: linear-gradient(90deg,
+      color-mix(in srgb, var(--dc, #4a8fff) 30%, transparent),
+      color-mix(in srgb, var(--dc, #4a8fff) 12%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--dc, #4a8fff) 55%, transparent) !important;
+}
+html:not([data-theme="light"]) .nav-item.active { color: #fff !important; }
+html[data-theme="light"] .nav-item.active { color: color-mix(in srgb, var(--dc,#4a8fff) 40%, #0d1b3e) !important; }
+.nav-item.active .nav-icon { color: color-mix(in srgb, var(--dc, #4a8fff) 55%, currentColor) !important; }
+.nav-icon { color: inherit; }
+.nav-section-label { letter-spacing: .08em; }
+html:not([data-theme="light"]) .nav-section-label { color: rgba(150,185,240,0.6) !important; }
+
+/* Topbar: give it a visible surface + a crisp bottom border and shadow. Dark
+   surface scoped to dark mode; the light theme gets its own below. */
+.met-topbar { box-shadow: 0 6px 22px rgba(0,0,0,0.22); }
+html:not([data-theme="light"]) .met-topbar {
+  background: linear-gradient(180deg, rgba(9,17,38,0.92), rgba(7,13,30,0.88)) !important;
+  border-bottom: 1px solid rgba(60,120,255,0.28) !important;
+}
+html:not([data-theme="light"]) .met-topbar-brand { color: #cfe0ff !important; }
+
+/* Buttons: bigger tap targets + bolder text (theme-agnostic). The dark colour
+   tweaks are scoped so the light theme keeps its own contrast. */
+.btn { min-height: 38px; font-weight: 600; }
+.btn-sm { min-height: 30px; font-size: 12px; padding: 0.34rem 0.8rem; }
+.btn-icon { min-height: 36px; }
+html:not([data-theme="light"]) .btn-primary { color: #eaf3ff !important; }
+html:not([data-theme="light"]) .btn-ghost { border-color: rgba(90,140,240,0.38) !important; color: rgba(200,222,255,0.9) !important; }
+html:not([data-theme="light"]) .btn-ghost:hover { border-color: rgba(110,160,255,0.6) !important; color: #fff !important; background: rgba(40,90,220,0.2) !important; }
+
+/* Bigger, comfier focus + hover targets on small icon/close controls. */
+.btn-icon, .modal-close, .theme-toggle { border-radius: 9px; }
+
+/* Panels: a hair more separation from the page so the layout reads cleanly. */
+.panel, .glass { border-color: rgba(50,110,235,0.20); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   DIVISION IDENTITY + COMPONENT COLOUR (from the UI-map). Everything keys off
+   --dc, which is set on a page via <body class="div-hpc"> etc. and defaults to
+   blue everywhere else, so IA and shared pages are untouched.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* The whole division dashboard picks up its colour: brand name, logo glow, and the
+   topbar division badge become a coloured pill. */
+body[class*="div-"] .brand-name { color: var(--dc, #7aacff); }
+body[class*="div-"] .brand-logo { box-shadow: 0 0 16px color-mix(in srgb, var(--dc,#3050dc) 34%, transparent);
+  border-color: color-mix(in srgb, var(--dc,#3264ff) 45%, transparent); }
+/* The division tag under the brand — a clean, legible "chip" with a glowing
+   status dot and a brighter label (mixing the division colour toward white so
+   deep hues like CID orange read clearly on the dark bar). */
+.met-topbar-division {
+  display: inline-flex; align-items: center; gap: 6px; width: fit-content; margin-top: 3px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--dc,#4a8fff) 20%, transparent),
+    color-mix(in srgb, var(--dc,#4a8fff) 10%, transparent)) !important;
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 50%, transparent) !important;
+  color: color-mix(in srgb, var(--dc,#4a8fff) 55%, #ffffff) !important;
+  padding: 3px 10px 3px 9px; border-radius: 8px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  box-shadow: 0 2px 10px -4px var(--dc,#4a8fff), inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+.met-topbar-division::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--dc,#4a8fff); box-shadow: 0 0 7px var(--dc,#4a8fff);
+}
+/* Division-tinted panel headers so each dashboard reads with its own colour. */
+body[class*="div-"] .panel-title { color: color-mix(in srgb, var(--dc,#7aacff) 78%, #d8eaff); }
+
+/* .div-chip: a filled, tinted chip (used for division/type tags in tables etc.) */
+.div-chip { background: color-mix(in srgb, var(--dc,#8b93a1) 12%, transparent) !important; }
+.div-chip::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dc,#8b93a1); margin-right: 6px; vertical-align: middle; box-shadow: 0 0 6px var(--dc,#8b93a1); }
+
+/* cc-stat (Command Center KPI tiles): gradient tint, hover lift, brighter number. */
+.cc-stat { background: linear-gradient(180deg, rgba(74,143,255,.06), transparent) !important;
+  transition: transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease, border-color .2s ease; }
+.cc-stat:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,.28); border-color: var(--blue-dim, rgba(74,143,255,.4)); }
+.cc-stat .v { font-weight: 800; }
+
+/* Command-Center timeline (Officer Lookup / audit): comfy rows + glowing dots. */
+.tl-item { border-radius: 9px; padding: 10px 12px; margin: 2px 0; transition: background .15s ease; }
+.tl-item:hover { background: var(--hover, rgba(74,143,255,.08)); }
+.tl-dot { box-shadow: 0 0 12px -2px currentColor; }
+
+/* Dev panels: gold section dot + a reusable DEV pill. */
+.panel-dot.gold { background: #f5c518; color: #f5c518; box-shadow: 0 0 8px #f5c518; }
+.accent-gold { box-shadow: inset 3px 0 0 #f5c518; }
+.dev-pill { font-size: 11px; background: rgba(245,197,24,.12); color: #f5c518;
+  border: 1px solid rgba(245,197,24,.32); border-radius: 5px; padding: .28rem .7rem; font-weight: 700; letter-spacing: .04em; }
+
+/* Officer-lookup search result rows: hover lift. */
+.hc-off-row { transition: transform .15s ease, border-color .2s ease, box-shadow .2s ease; }
+.hc-off-row:hover { transform: translateY(-2px); border-color: var(--blue-dim, rgba(74,143,255,.55)) !important; box-shadow: 0 8px 22px rgba(0,0,0,.28); }
+
+/* ── Ticket TYPE + PRIORITY + STATUS colour system (support desk) ──────── */
+.tkt-general_support { --dc: var(--blue,#4a8fff); }
+.tkt-disciplinary_appeal { --dc: var(--amber,#f5b730); }
+.tkt-officer_complaint { --dc: var(--red,#f04f5e); }
+.tkt-ia_complaint { --dc: #9b6dff; }
+/* Type-coloured left rail on ticket rows/cards + coloured heading icon. */
+.tkt-row > td:first-child, .sup-panel[class*="tkt-"]::after { }
+.sup-panel[class*="tkt-"] { position: relative; }
+.sup-panel[class*="tkt-"]::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background: var(--dc,#4a8fff); border-radius: 3px 0 0 3px; opacity:.9; }
+.sup-panel[class*="tkt-"] h3 i { color: var(--dc,#4a8fff); }
+/* Coloured left rail — div rows take it directly; table rows need it on the first cell. */
+div.tkt-row { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc,#4a8fff) 70%, transparent); }
+tr.tkt-row > td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc,#4a8fff) 75%, transparent); }
+
+/* Priority badges (token-driven, replaces inline hex). */
+.badge-prio-urgent { background: var(--red-dim,rgba(240,79,94,.14)) !important; color: var(--red,#f04f5e) !important; border: 1px solid rgba(240,79,94,.4) !important; }
+.badge-prio-high   { background: var(--amber-dim,rgba(245,183,48,.14)) !important; color: var(--amber,#f5b730) !important; border: 1px solid rgba(245,183,48,.4) !important; }
+.badge-prio-normal { background: var(--blue-dim,rgba(74,143,255,.14)) !important; color: var(--blue,#4a8fff) !important; border: 1px solid rgba(74,143,255,.3) !important; }
+.badge-prio-low    { background: rgba(140,150,170,.12) !important; color: var(--text-muted,#8b93a1) !important; }
+
+/* Empty-state icon (already-referenced class, now defined). */
+.table-empty-icon { display:block; font-size: 30px; color: var(--text-muted,#8b93a1); opacity:.5; margin: 0 auto 8px; }
+
+/* Landing/login division tiles. */
+.div-tile { position: relative; border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 38%, var(--border-mid)) !important;
+  box-shadow: inset 3px 0 0 var(--dc,#4a8fff); transition: transform .16s ease, border-color .2s ease, box-shadow .2s ease; }
+.div-tile:hover { transform: translateY(-3px); border-color: var(--dc,#4a8fff) !important; box-shadow: inset 3px 0 0 var(--dc,#4a8fff), 0 12px 30px rgba(0,0,0,.3); }
+
+/* Message avatar role rings in chat (kind class already on .sup-msg). */
+.sup-msg.bot .sup-av   { box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue,#4a8fff) 55%, transparent); }
+.sup-msg.staff .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--green,#2ed896) 50%, transparent); }
+.sup-msg.internal .sup-av { box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber,#f5b730) 55%, transparent); }
+
+/* Topbar button order — deterministic + logical, independent of the order the
+   topbar script injects them. Left → right: Dashboard · Menu · Switch Division ·
+   Search, then the profile + Sign-out pinned to the far right
+   (the auto-margin opens a clear gap before the identity cluster). */
+#met-dash-btn      { order: 10; }
+#met-pages         { order: 20; }  /* Menu ▾ */
+#met-switcher      { order: 30; }  /* Switch Division / My Divisions ▾ */
+#met-cmdk-btn      { order: 40; }  /* Search ⌘K */
+.met-topbar-user { order: 900; margin-left: auto; }
+.met-topbar-right > form { order: 901; }
+
+/* ── Dual Discord + Roblox avatars (topbar cluster) ─────────────────────
+   The Roblox avatar tucks slightly behind the Discord one; both get a ring in
+   the current division colour so the identity reads at a glance. */
+.met-topbar-user.has-dual { gap: 10px; }
+.met-topbar-user.has-dual #met-user-avatar,
+.met-topbar-user.has-dual #met-user-avatar-fallback { position: relative; z-index: 2; }
+.met-user-roblox {
+  width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+  margin-left: -12px; z-index: 1;
+  background: var(--bg-deep,#0a1020);
+  box-shadow: 0 0 0 2px var(--bg-panel,#0e1730), 0 0 0 3px color-mix(in srgb, var(--dc,#4a8fff) 55%, transparent);
+}
+.met-topbar-user.has-dual #met-user-avatar,
+.met-topbar-user.has-dual #met-user-avatar-fallback {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dc,#4a8fff) 60%, transparent);
+}
+
+/* ── Avatar stack primitive (sidebar footer + anywhere else) ───────────── */
+.idv-stack { display: inline-flex; align-items: center; flex-shrink: 0; }
+.idv-av { border-radius: 50%; object-fit: cover; background: var(--bg-deep,#0a1020); }
+.idv-av.idv-fallback {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #fff;
+  background: color-mix(in srgb, var(--dc,#4a8fff) 40%, #1a2340);
+}
+.idv-disc { position: relative; z-index: 2; box-shadow: 0 0 0 2px color-mix(in srgb, var(--dc,#4a8fff) 60%, transparent); }
+.idv-rob  { margin-left: -14px; z-index: 1;
+  box-shadow: 0 0 0 2px var(--bg-panel,#0e1730), 0 0 0 3px color-mix(in srgb, var(--dc,#4a8fff) 45%, transparent); }
+
+/* ── Sidebar identity footer (division dashboards) ─────────────────────── */
+.sidebar-user { margin-top: auto; padding: 0 0.75rem 0.9rem; }
+.sidebar-user .sidebar-divider { margin: 0 0 0.75rem; }
+.siu-card {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 12px; border-radius: 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dc,#4a8fff) 9%, transparent), transparent);
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 22%, var(--border-mid,rgba(255,255,255,0.08)));
+}
+.siu-info { min-width: 0; flex: 1; }
+.siu-name { font-size: 13px; font-weight: 700; color: var(--text-primary,#eaf1ff);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.siu-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.siu-rank {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--dc,#4a8fff) 60%, #ffffff);
+  background: color-mix(in srgb, var(--dc,#4a8fff) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dc,#4a8fff) 40%, transparent);
+  padding: 1px 7px; border-radius: 999px; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.siu-sub { font-size: 11px; color: var(--text-muted,#8b93a1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   VIEWPORT AUTO-ZOOM — fixes the "some people see a perfectly-sized UI while
+   others get it tiny / zoomed out with black wasted space at the bottom".
+   That gap is display density: a 1440p / 4K monitor at 100% OS scaling renders
+   these pixel sizes physically small and leaves the page short. We scale the
+   WHOLE chrome up on large viewports (exactly like the browser's own zoom, but
+   automatic), so big screens get a bigger UI that fills the space, while normal
+   laptops (≤ ~1600px) are left untouched. Media queries read the real viewport,
+   so `zoom` here never feeds back into the breakpoints.
+   Applied to the topbar + app layout (not .bg-canvas, so the background always
+   covers the real viewport with no seams).
+   ══════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1700px) { .met-topbar, .app-layout { zoom: 1.10; } }
+@media (min-width: 2100px) { .met-topbar, .app-layout { zoom: 1.22; } }
+@media (min-width: 2560px) { .met-topbar, .app-layout { zoom: 1.34; } }
+@media (min-width: 3200px) { .met-topbar, .app-layout { zoom: 1.55; } }
+
+/* Firefox < 126 doesn't support `zoom`; fall back to a font-size bump so text at
+   least scales up (px-based boxes won't, but nothing shrinks or breaks). */
+@supports not (zoom: 1.1) {
+  @media (min-width: 1700px) { html { font-size: 17.5px; } }
+  @media (min-width: 2100px) { html { font-size: 19px; } }
+  @media (min-width: 2560px) { html { font-size: 21px; } }
+}
+
+/* Command Center: chunkier KPI numbers + roomier tiles so the top row reads
+   boldly at any size (pairs with the now full-width stacked panels below). */
+.cc-stat { padding: 18px 20px; }
+.cc-stat .v { font-size: 34px; }
+.cc-stat .l { font-size: 11.5px; }
+
+/* ── Loading skeletons ─────────────────────────────────────────────────────
+   A calmer stand-in than a bare spinner: grey shimmer blocks in the shape of the
+   content that's loading. Build via window.metSkeleton('rows'|'cards'|'feed'|
+   'kpi', count) or drop .sk elements directly. Reduce-motion stops the shimmer. */
+@keyframes met-sk-shimmer { 0% { background-position: -420px 0; } 100% { background-position: 420px 0; } }
+.sk { border-radius: 8px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+  background-size: 840px 100%; animation: met-sk-shimmer 1.3s linear infinite; }
+.sk-line { height: 12px; margin: 8px 0; }
+.sk-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border-dim, rgba(255,255,255,.06)); }
+.sk-row .sk-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; }
+.sk-row .sk-body { flex: 1; }
+.sk-card { border: 1px solid var(--border-dim, rgba(255,255,255,.06)); border-radius: 12px; padding: 16px; }
+.sk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.sk-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+.sk-kpi .sk-card { height: 84px; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* Friendly empty states (window.metEmpty): centred icon + title + sub + a CTA so
+   a blank panel is never a dead end. */
+.met-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 30px 18px; gap: 2px; }
+.met-empty .table-empty-icon { margin-bottom: 6px; }
+.met-empty-sub { font-size: 12.5px; color: var(--text-muted, #8b93a1); max-width: 340px; margin-top: 2px; }
+.met-empty-cta { margin-top: 14px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   LIGHT THEME — make the chrome and every floating / injected component follow
+   the theme too (topbar, breadcrumb, chat FAB/popup, back-to-top, dropdown
+   menus, command palette, skeletons). Loads last, so it wins over the dark
+   defaults baked into those components.
+   ══════════════════════════════════════════════════════════════════════ */
+html[data-theme="light"] .met-topbar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(236,243,255,0.92)) !important;
+  border-bottom: 1px solid rgba(80,120,200,0.22) !important;
+  box-shadow: 0 4px 18px rgba(40,80,200,0.08);
+}
+html[data-theme="light"] .met-topbar-brand { color: #16305e !important; }
+html[data-theme="light"] .met-topbar-division { color: color-mix(in srgb, var(--dc,#4a8fff) 45%, #0d1b3e) !important; }
+html[data-theme="light"] .met-breadcrumb { border-left-color: rgba(80,120,200,0.25); }
+html[data-theme="light"] .met-breadcrumb .bc-section { color: color-mix(in srgb, var(--dc,#4a8fff) 45%, #0d1b3e); }
+html[data-theme="light"] .siu-rank { color: color-mix(in srgb, var(--dc,#4a8fff) 45%, #0d1b3e); }
+html[data-theme="light"] .siu-name { color: #16305e; }
+
+/* Floating widgets */
+html[data-theme="light"] .met-chat-pop {
+  background: rgba(255,255,255,0.99);
+  border-color: color-mix(in srgb, var(--dc,#4a8fff) 26%, rgba(80,120,200,0.30));
+  box-shadow: 0 18px 50px rgba(40,80,200,0.22);
+}
+html[data-theme="light"] .met-to-top {
+  background: color-mix(in srgb, var(--dc,#4a8fff) 15%, #ffffff);
+  color: #12224a; border-color: color-mix(in srgb, var(--dc,#4a8fff) 40%, transparent);
+  box-shadow: 0 8px 24px rgba(40,80,200,0.18);
+}
+html[data-theme="light"] .met-to-top:hover { background: color-mix(in srgb, var(--dc,#4a8fff) 26%, #ffffff); }
+
+/* Dropdowns / menus / cards that ship a dark background */
+html[data-theme="light"] .met-switcher-menu,
+html[data-theme="light"] .rc-ac,
+html[data-theme="light"] .dc-mention-card,
+html[data-theme="light"] #cmdk > div {
+  background: rgba(255,255,255,0.99) !important;
+  border-color: rgba(80,120,200,0.28) !important;
+  color: #12224a;
+}
+html[data-theme="light"] .met-menu-empty,
+html[data-theme="light"] #cmdk-list > div { color: #1a2f60; }
+
+/* ── Command palette (search menu): hover slide + click press ─────────────── */
+.cmdk-row { transition: transform .13s cubic-bezier(.2,.7,.3,1), background-color .13s ease, box-shadow .15s ease; }
+.cmdk-row:hover { transform: translateX(4px); background: var(--hover, rgba(74,143,255,.10)) !important;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dc, var(--blue,#4a8fff)) 70%, transparent); }
+.cmdk-row:hover i { transform: scale(1.12); transition: transform .13s cubic-bezier(.2,.7,.3,1); }
+.cmdk-row:active { transform: translateX(4px) scale(.975); }
+@keyframes cmdk-list-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+#cmdk-list { animation: cmdk-list-in .16s ease both; }
+
+/* Skeleton shimmer — dark-tinted blocks on a light page (the white shimmer was
+   invisible on white). */
+html[data-theme="light"] .sk {
+  background: linear-gradient(90deg, rgba(20,50,120,0.06) 25%, rgba(20,50,120,0.13) 37%, rgba(20,50,120,0.06) 63%);
+  background-size: 840px 100%;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PERSONAL ACCENT COLOUR — the profile "accent" picker sets --blue (ui.js
+   applyAccent). Most prominent controls used a HARDCODED blue, so the accent
+   appeared to do nothing. Route them through the accent token here (last
+   layer) so the choice is visible site-wide. Division dashboards keep their
+   own --dc identity on the nav rail / brand / titles; the accent drives the
+   interactive controls. All palette accents are mid-tone → white text reads. */
+:root { --accent: var(--blue, #4a8fff); }
+
+/* Primary buttons — a rich two-stop gradient built from the accent. */
+.btn-primary {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 80%, #000 20%),
+    color-mix(in srgb, var(--accent) 58%, #000 42%)) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+  color: #fff !important;
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 92%, #000 8%),
+    color-mix(in srgb, var(--accent) 70%, #000 30%)) !important;
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent) !important;
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 42%, transparent) !important;
+  color: #fff !important;
+}
+.btn-primary:active { filter: brightness(.95); }
+
+/* Focus ring, input focus, active filter tab, spinner, checkboxes, selection
+   and in-content links all follow the accent too, so it reads as one system. */
+.form-control:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent) !important;
+}
+.btn:focus-visible, .nav-item:focus-visible, a:focus-visible, .form-control:focus-visible {
+  outline-color: var(--accent) !important;
+}
+.spinner { border-top-color: var(--accent) !important; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+.filter-tab.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  color: color-mix(in srgb, var(--accent) 60%, #fff) !important;
+}
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MET BRAND — slogans, strap-line + one-per-session intro splash.
+   Themed after the Met's "MORE TRUST · LESS CRIME · HIGH STANDARDS" strap
+   and "Working together for a safer London": navy field, diagonal accent,
+   yellow underline sweep. Reduced-motion (ui.js) zeroes the animations.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* The three-part strap-line. Segments divided by thin rules, like the posters. */
+.met-strap {
+  display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: center;
+  font-family: var(--font-display, inherit); font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; line-height: 1.1;
+}
+.met-strap .seg { padding: 0 clamp(9px, 2.4vw, 16px); position: relative; white-space: nowrap; }
+.met-strap .seg + .seg::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 1.5px; height: 1.05em; background: currentColor; opacity: .38;
+}
+/* Staggered reveal when data-animate is present. */
+.met-strap[data-animate] .seg { opacity: 0; transform: translateY(11px); animation: met-seg-in .55s cubic-bezier(.2,.7,.3,1) forwards; }
+.met-strap[data-animate] .seg:nth-child(1) { animation-delay: .06s; }
+.met-strap[data-animate] .seg:nth-child(2) { animation-delay: .24s; }
+.met-strap[data-animate] .seg:nth-child(3) { animation-delay: .42s; }
+@keyframes met-seg-in { to { opacity: 1; transform: none; } }
+/* Yellow underline that sweeps in beneath the strap. */
+.met-strap-underline {
+  height: 3px; width: min(340px, 70%); margin: 10px auto 0; border-radius: 2px;
+  background: linear-gradient(90deg, #ffd200, #ffb700);
+  transform-origin: left; transform: scaleX(0);
+  animation: met-sweep .6s cubic-bezier(.2,.7,.3,1) .58s forwards;
+}
+@keyframes met-sweep { to { transform: scaleX(1); } }
+
+/* Rotating tagline (JS swaps the text; CSS does the fade). */
+.met-rotator > .rot { display: inline-block; animation: met-rot-in .5s ease; }
+@keyframes met-rot-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.met-rotator.out > .rot { opacity: 0; transform: translateY(-6px); transition: opacity .28s ease, transform .28s ease; }
+
+/* ── One-per-session intro splash ─────────────────────────────────────── */
+.met-splash {
+  position: fixed; inset: 0; z-index: 99999; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  background: radial-gradient(130% 130% at 18% -10%, #0d3288 0%, #071a44 46%, #030a1e 100%);
+  opacity: 1; transition: opacity .55s ease;
+}
+.met-splash.hide { opacity: 0; pointer-events: none; }
+/* Diagonal accent band + corner glow, echoing the campaign artwork. */
+.met-splash::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(114deg, transparent 54%, rgba(43,104,235,.26) 54%, rgba(43,104,235,.05) 77%, transparent 77%);
+  transform: translateX(-8%); animation: met-diag-in .9s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes met-diag-in { from { transform: translateX(-30%); opacity: 0; } to { transform: translateX(-8%); opacity: 1; } }
+.met-splash::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 82% 92%, rgba(43,104,235,.28), transparent 46%);
+}
+.met-splash-crest {
+  width: 82px; height: 82px; border-radius: 18px; position: relative; z-index: 1;
+  box-shadow: 0 0 54px rgba(43,104,235,.55); animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both;
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+  /* Branded fallback so the box is never empty / never shows raw alt text while
+     the logo is still downloading (notably slow mobile first-loads). */
+  background: linear-gradient(150deg, #2b68eb, #14357f);
+}
+/* Wordmark fallback (no dependency on the icon webfont or the logo download —
+   both can lag on a mobile first-load, which is exactly when this shows). */
+.met-splash-crest-txt { color: #fff; font-weight: 800; font-size: 22px; letter-spacing: .12em; }
+.met-splash-crest img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: 18px; z-index: 1;
+}
+@keyframes met-crest-in { from { opacity: 0; transform: translateY(-16px) scale(.9); } to { opacity: 1; transform: none; } }
+.met-splash .met-strap { color: #fff; font-size: clamp(19px, 4.6vw, 36px); position: relative; z-index: 1; text-align: center; }
+.met-splash .met-strap-underline { animation-delay: .66s; }
+.met-splash-tag {
+  color: #cadcff; font-size: clamp(12px, 2.6vw, 15px); letter-spacing: .2em; text-transform: uppercase;
+  position: relative; z-index: 1; opacity: 0; animation: met-splash-tag-in .55s ease 1s forwards;
+}
+@keyframes met-splash-tag-in { to { opacity: 1; } }
+.met-splash-skip {
+  position: absolute; bottom: 24px; right: 26px; z-index: 2; cursor: pointer;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(255,255,255,.5); background: none; border: none; padding: 6px;
+}
+.met-splash-skip:hover { color: rgba(255,255,255,.85); }
+
+/* Sign-in hero strap sizing. */
+.met-strap-hero { color: var(--text-primary); font-size: clamp(15px, 4vw, 21px); }
+html[data-theme="light"] .met-strap-hero { color: #0d1b3e; }
+
+/* Dashboard footer strap — quiet, sits under the main content. */
+.met-footer-strap {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  margin: 26px auto 8px; padding: 14px 12px 4px; opacity: .62;
+  border-top: 1px solid var(--border-dim);
+}
+.met-footer-strap .met-strap { color: var(--text-muted); font-size: 11px; letter-spacing: .16em; }
+.met-footer-strap .met-strap .seg + .seg::before { opacity: .3; }
+.met-footer-strap .fs-tag { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-tiny); }
+
+@media (prefers-reduced-motion: reduce) {
+  .met-strap[data-animate] .seg,
+  .met-strap-underline, .met-splash::before, .met-splash-crest, .met-splash-tag,
+  .met-rotator > .rot { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .met-splash-underline, .met-strap-underline { transform: scaleX(1) !important; }
+}
+
+/* ── Medals & Decorations — metallic badges ───────────────────────────── */
+.med-card {
+  display: flex; gap: 12px; align-items: center; padding: 11px 13px;
+  border: 1px solid var(--border-dim); border-radius: 12px;
+  background: color-mix(in srgb, var(--mc, #f5c518) 6%, transparent);
+  transition: transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease, border-color .2s ease;
+}
+.med-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,.28); }
+.med-badge {
+  width: 46px; height: 46px; border-radius: 50%; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; font-size: 23px; color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
+  background:
+    radial-gradient(circle at 32% 26%,
+      color-mix(in srgb, var(--mc, #f5c518) 62%, #fff 38%) 0%,
+      var(--mc, #f5c518) 52%,
+      color-mix(in srgb, var(--mc, #f5c518) 60%, #000 40%) 100%);
+  border: 1px solid color-mix(in srgb, var(--mc, #f5c518) 70%, #000 22%);
+  box-shadow:
+    0 2px 9px color-mix(in srgb, var(--mc, #f5c518) 42%, transparent),
+    inset 0 1px 2px rgba(255,255,255,.55),
+    inset 0 -2px 3px rgba(0,0,0,.22);
+}
+
+/* ── Branded "moment" — celebration variant (exam pass, etc.) ─────────── */
+.met-moment-icon {
+  width: 92px; height: 92px; border-radius: 50%; position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: center; font-size: 46px; color: #fff;
+  text-shadow: 0 2px 4px rgba(0,0,0,.35);
+  background: radial-gradient(circle at 32% 26%,
+    color-mix(in srgb, var(--mc, #f5c518) 55%, #fff 45%) 0%,
+    var(--mc, #f5c518) 54%,
+    color-mix(in srgb, var(--mc, #f5c518) 60%, #000 40%) 100%);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--mc, #f5c518) 58%, transparent),
+    inset 0 2px 3px rgba(255,255,255,.55), inset 0 -3px 5px rgba(0,0,0,.25);
+  animation: met-crest-in .6s cubic-bezier(.2,.7,.3,1) both,
+             met-moment-glow 2.4s ease-in-out .7s infinite;
+}
+@keyframes met-moment-glow {
+  0%, 100% { box-shadow: 0 0 42px color-mix(in srgb, var(--mc, #f5c518) 45%, transparent),
+    inset 0 2px 3px rgba(255,255,255,.55), inset 0 -3px 5px rgba(0,0,0,.25); }
+  50%      { box-shadow: 0 0 82px color-mix(in srgb, var(--mc, #f5c518) 78%, transparent),
+    inset 0 2px 3px rgba(255,255,255,.6), inset 0 -3px 5px rgba(0,0,0,.25); }
+}
+.met-moment-title {
+  color: #fff; font-family: var(--font-display, inherit); font-weight: 800;
+  text-transform: uppercase; letter-spacing: .05em; text-align: center;
+  font-size: clamp(27px, 6.4vw, 48px); position: relative; z-index: 1;
+  opacity: 0; transform: translateY(11px); animation: met-seg-in .55s cubic-bezier(.2,.7,.3,1) .12s forwards;
+}
+.met-moment-celebrate { background: radial-gradient(130% 130% at 18% -10%, #123a1f 0%, #071a44 46%, #030a1e 100%); }
+.met-moment-celebrate::after { background: radial-gradient(circle at 82% 92%, rgba(46,216,150,.28), transparent 46%); }
+@media (prefers-reduced-motion: reduce) {
+  .met-moment-icon, .met-moment-title { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+
+/* ── Empty-state strap-line watermark ─────────────────────────────────── */
+.met-empty-strap {
+  margin-top: 16px; color: var(--text-tiny); font-size: 9px; letter-spacing: .2em; opacity: .32;
+}
+.met-empty-strap .seg + .seg::before { opacity: .5; }
+
+/* ── Developer user-row custom dropdowns (panels + MET rank) ───────────── */
+.met-cd-trigger {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: var(--surface-2, rgba(255,255,255,.04));
+  border: 1px solid var(--border-dim, rgba(255,255,255,.1));
+  border-radius: 8px; padding: 5px 8px; cursor: pointer;
+  color: var(--text-primary); font: inherit; font-size: 11px; text-align: left;
+}
+.met-cd-trigger:hover { border-color: color-mix(in srgb, var(--accent,#4a8fff) 55%, transparent); }
+.met-cd-chips { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.met-cd-chip {
+  display: inline-flex; align-items: center; font-size: 10px; font-weight: 600; line-height: 1;
+  padding: 3px 7px; border-radius: 999px;
+  color: var(--c, #8b93a1); background: color-mix(in srgb, var(--c,#8b93a1) 16%, transparent);
+}
+.met-cd-chip.more { --c: #8b93a1; }
+.met-cd-rank { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.met-cd-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 5px; border-radius: 5px; }
+.met-cd-tag.def  { color: var(--text-muted); background: rgba(150,160,180,.15); }
+.met-cd-tag.over { color: #f59e0b; background: rgba(245,158,11,.16); }
+.met-cd-caret { color: var(--text-muted); font-size: 13px; flex-shrink: 0; }
+
+.met-cd-pop {
+  position: fixed; z-index: 100001; width: 264px; max-height: 76vh; overflow: auto;
+  border-radius: 12px; padding: 10px; box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  background: var(--surface-1, #12161f); border: 1px solid var(--border, rgba(255,255,255,.12));
+}
+.met-cd-head { font-weight: 700; font-size: 13px; display: flex; flex-direction: column; margin-bottom: 4px; }
+.met-cd-head .met-cd-sub { font-weight: 400; font-size: 11px; color: var(--text-muted); }
+.met-cd-note { font-size: 11px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px; }
+.met-cd-list { display: flex; flex-direction: column; gap: 1px; margin: 0 -4px; }
+.met-cd-opt {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-size: 12px;
+}
+.met-cd-opt:hover { background: rgba(255,255,255,.05); }
+.met-cd-opt input { accent-color: var(--accent, #4a8fff); cursor: pointer; }
+.met-cd-opt input:disabled { cursor: not-allowed; }
+.met-cd-opt.is-default { opacity: .95; }
+.met-cd-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.met-cd-lbl { flex: 1; }
+.met-cd-def { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.met-cd-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-dim, rgba(255,255,255,.08)); }
+.met-cd-foot .btn-sm { height: 30px; padding: 0 12px; font-size: 12px; }
+
+/* ── Mobile fit hardening ──────────────────────────────────────────────
+   Stop any stray wide element (decorative background glows, an unwrapped
+   wide table, an overshooting dropdown) from making the whole PAGE scroll
+   sideways — the classic "everything looks shifted / cut off" symptom on a
+   phone. Legitimately wide tables scroll inside their own .table-wrap. */
+html, body { overflow-x: hidden; max-width: 100%; }
+.app-layout, .main-content, .profile-wrap, .sup-wrap { max-width: 100%; }
+@media (max-width: 640px) {
+  .main-content, .profile-wrap { min-width: 0; }
+  /* Any data table stays inside its panel and scrolls sideways on its own. */
+  .table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Cards/panels never exceed the screen. */
+  .panel, .glass, .stat-card, .med-card { max-width: 100%; }
+  /* Popovers / dropdowns clamp to the viewport. */
+  .met-cd-pop, .met-switcher-menu, .dc-mention-card { max-width: calc(100vw - 16px); }
+}
+
+/* ── CAD dispatch console (dev panel) ─────────────────────────────────── */
+.cad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; align-items: start; }
+.cad-col { min-width: 0; }
+.cad-lbl { display: block; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+@media (max-width: 1100px) { .cad-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px)  { .cad-grid { grid-template-columns: 1fr; } }

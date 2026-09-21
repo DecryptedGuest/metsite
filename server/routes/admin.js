@@ -2,31 +2,66 @@
 const express = require('express');
 const prisma  = require('../lib/db');
 const { requireDeveloper } = require('../middleware/auth');
+const { userIsMetHicommCached } = require('../middleware/division');
 const {
   listGroupRoles, listGroupMembers, listJoinRequests,
-  resolveJoinRequest, changeGroupRank, exileFromGroup,
+  resolveJoinRequest, changeGroupRank, exileFromGroup, cookieForDivision, mainGroupId,
 } = require('../lib/roblox');
 const {
   searchGuildMembers, listGuildBans, banMember, unbanMember, kickMember, timeoutMember,
 } = require('../lib/bot');
+const { panelGroups, groupIdForKey } = require('../lib/divisions');
+
+// Resolve the ?division= query to a Roblox group id for the group panel.
+// No division → null (falls back to ROBLOX_GROUP_ID inside the roblox helpers,
+// preserving the original single-group behaviour). Unknown key → throws (400).
+function panelGroupId(req) {
+  const key = req.query.division;
+  if (!key) return null;
+  const gid = groupIdForKey(key);
+  if (!gid) { const e = new Error(`Unknown division "${key}"`); e.status = 400; throw e; }
+  return gid;
+}
+
+// The bot-account cookie to manage the selected division's group. CID uses its
+// own account (CID_ROBLOX_BOT_COOKIE); everything else uses the default.
+function panelCookie(req) {
+  return cookieForDivision(req.query.division);
+}
 
 const router = express.Router();
 
-// All routes require DEVELOPER role
-router.use(requireDeveloper);
+// The Group Panel (/group/*) is shared with MET HICOMM — they can manage every
+// Roblox group (ranks, join requests, exile) just like developers. Everything
+// else in this router (user management, Discord moderation, blacklists, site
+// control) stays DEVELOPER-only. req.path here is mount-relative (e.g.
+// '/group/roles'), matching the outer /api/admin gate that already admits HICOMM.
+router.use((req, res, next) => {
+  if (/^\/group(\/|$)/.test(req.path)) {
+    if (req.user && (req.user.role === 'DEVELOPER' || userIsMetHicommCached(req.user))) return next();
+    return res.status(403).json({ error: 'Developer or MET HICOMM access required' });
+  }
+  return requireDeveloper(req, res, next);
+});
 
-// ── GET /api/admin/users ──────────────────────────────────────────
+// ── GET /api/admin/users ───────────────────────────────────
 router.get('/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
+      // Only real people who have actually signed in — a session row exists for
+      // every login. This excludes the shell rows the IA archive import creates
+      // (username "ia_<id>" / "IA Archive"), which never log in and cluttered
+      // the panel. Most-recently-active first.
+      where: { sessions: { some: {} } },
+      orderBy: [{ lastLogin: 'desc' }, { createdAt: 'desc' }],
       select: {
         id: true, discordId: true, discordUsername: true,
         displayName: true, discordAvatar: true, role: true,
         isBlacklisted: true, blacklistReason: true,
         lastIp: true, robloxId: true, robloxUsername: true,
         createdAt: true, lastLogin: true,
-        notifyEnabled: true,
+        notifyEnabled: true, metRankOverride: true,
+        metRankNatural: true, panelGrant: true, divisions: true,
         _count: { select: { cases: true, pushSubscriptions: true } },
       },
     });
@@ -39,10 +74,12 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/users/:id/role ──────────────────────────────
+// ── PATCH /api/admin/users/:id/role ─────────────────────────
 router.patch('/users/:id/role', async (req, res) => {
   const { role } = req.body;
-  if (!['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) {
+  // NONE removes site access (division-only / plain member). Changing the site
+  // role never touches the Roblox group — it's a site-only standing.
+  if (!['NONE', 'IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
   // Prevent dev from demoting themselves
@@ -62,43 +99,180 @@ router.patch('/users/:id/role', async (req, res) => {
         notes:       `Role changed to ${role} by Developer`,
       },
     }).catch(() => {}); // ignore if no case to attach to
+    audit.log(req.user, { category: 'ACCESS', action: 'ROLE_CHANGE', target: { type: 'user', id: req.params.id, name: user.displayName || user.discordUsername },
+      summary: `Site role changed to ${role} for ${user.displayName || user.discordUsername}` });
     res.json({ success: true, role: user.role });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update role' });
   }
 });
 
-// ── POST /api/admin/users/:id/blacklist ──────────────────────────
+// ── POST /api/admin/dedupe-migration-logs ───────────────────
+// Remove duplicate case/ticket logs from the IA→MET migration. Dry run unless
+// { apply:true }. Optional { scope: 'all'|'cases'|'tickets' }. Developer-gated.
+router.post('/dedupe-migration-logs', async (req, res) => {
+  try {
+    const apply = !!(req.body && req.body.apply);
+    const scope = ['all', 'cases', 'tickets'].includes(req.body && req.body.scope) ? req.body.scope : 'all';
+    const result = await require('../lib/dedupeMigration').runDedupe({ apply, scope });
+    if (apply) {
+      audit.log(req.user, { category: 'ACCESS', action: 'DEDUPE_MIGRATION_LOGS',
+        summary: `Deduped migration logs · deleted ${result.tickets.deleted} ticket(s) + ${result.cases.deleted} case(s)` });
+    }
+    res.json(result);
+  } catch (e) {
+    console.error('[Admin] dedupe failed:', e.message);
+    res.status(500).json({ error: 'Dedupe failed' });
+  }
+});
+
+// ── GET /api/admin/met-roles ────────────────────────────────
+// The live MET umbrella group's rank ladder (from the Roblox roles API), newest
+// rank first — populates the dev panel's MET-rank dropdown. Cached in roblox.js.
+router.get('/met-roles', async (req, res) => {
+  try {
+    const { getGroupRolesPublic } = require('../lib/roblox');
+    const { metGroupId } = require('../lib/divisions');
+    const roles = await getGroupRolesPublic(metGroupId());
+    const out = (roles || [])
+      .filter(r => Number(r.rank) > 0 && Number(r.rank) < 255) // skip Guest(0)/Owner(255)
+      .sort((a, b) => Number(b.rank) - Number(a.rank));
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load MET roles' });
+  }
+});
+
+// ── PATCH /api/admin/users/:id/met-rank ─────────────────────
+// Set (or clear) a SITE-ONLY MET rank override for a user. Body:
+//   { name, rank }  — set the override to this MET rank
+//   { clear: true } — remove the override
+// Never touches the Roblox group. Takes effect on the user's next revalidation
+// (≤1 min on a gated route, or immediately on their next login).
+router.patch('/users/:id/met-rank', async (req, res) => {
+  try {
+    const body = req.body || {};
+    let metRankOverride = null;
+    if (!body.clear) {
+      const rank = parseInt(body.rank, 10);
+      const name = (body.name || '').toString().trim().slice(0, 80);
+      if (!Number.isFinite(rank) || rank < 1 || rank > 255 || !name) {
+        return res.status(400).json({ error: 'Provide a valid MET rank (name + rank), or clear:true.' });
+      }
+      metRankOverride = { name, rank };
+    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data:  { metRankOverride, lastRoleCheck: null }, // force a re-derive on next access
+    });
+    audit.log(req.user, { category: 'ACCESS', action: 'MET_RANK_OVERRIDE',
+      target: { type: 'user', id: req.params.id, name: user.displayName || user.discordUsername },
+      summary: metRankOverride
+        ? `MET rank override set to ${metRankOverride.name} (rank ${metRankOverride.rank}) for ${user.displayName || user.discordUsername}`
+        : `MET rank override cleared for ${user.displayName || user.discordUsername}` });
+    res.json({ success: true, metRankOverride });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to set MET rank' });
+  }
+});
+
+// ── PATCH /api/admin/users/:id/panels ───────────────────────
+// Set (or clear) a user's SITE-ONLY panel grants — an ADDITIVE allow-list of
+// extra panels on top of their group ranks. Body:
+//   { grants: ["CID","IA:SUPERVISOR","MET", …] }  — replace the grant set
+//   { clear: true }                               — remove all grants
+// Tokens: "<DIV>" | "<DIV>:LEAD" | "IA" | "IA:SUPERVISOR" | "IA:LEAD" | "MET".
+// Never touches Roblox groups; takes effect on the user's next revalidation
+// (≤1 min on a gated route) or immediately on their next login.
+const PANEL_DIVS = ['CID', 'SCO19', 'IA', 'FLP', 'HPC'];
+function sanitizeGrants(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = new Set();
+  for (const g of raw) {
+    const t = String(g || '').toUpperCase().trim();
+    if (!t) continue;
+    if (t === 'MET' || t === 'MET:LEAD') { out.add('MET'); continue; }
+    const [div, tier] = t.split(':');
+    if (!PANEL_DIVS.includes(div)) continue;
+    if (div === 'IA') {
+      if (tier === 'SUPERVISOR') out.add('IA:SUPERVISOR');
+      else if (tier === 'LEAD' || tier === 'HICOMM') out.add('IA:LEAD');
+      else out.add('IA');
+    } else {
+      out.add(tier === 'LEAD' || tier === 'HICOMM' ? `${div}:LEAD` : div);
+    }
+  }
+  return [...out];
+}
+router.patch('/users/:id/panels', async (req, res) => {
+  try {
+    const body = req.body || {};
+    let panelGrant = null;
+    if (!body.clear) {
+      const grants = sanitizeGrants(body.grants);
+      panelGrant = grants.length ? grants : null;
+    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data:  { panelGrant, lastRoleCheck: null }, // force a re-derive on next access
+    });
+    audit.log(req.user, { category: 'ACCESS', action: 'PANEL_GRANT_OVERRIDE',
+      target: { type: 'user', id: req.params.id, name: user.displayName || user.discordUsername },
+      summary: panelGrant
+        ? `Panel grants set to [${panelGrant.join(', ')}] for ${user.displayName || user.discordUsername}`
+        : `Panel grants cleared for ${user.displayName || user.discordUsername}` });
+    res.json({ success: true, panelGrant });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to set panel access' });
+  }
+});
+
+// ── POST /api/admin/users/:id/blacklist ───────────────────────
 router.post('/users/:id/blacklist', async (req, res) => {
   const { reason } = req.body;
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: 'Cannot blacklist yourself' });
   }
   try {
-    await prisma.user.update({
+    const u = await prisma.user.update({
       where: { id: req.params.id },
       data:  { isBlacklisted: true, blacklistReason: reason || 'No reason given' },
     });
-    res.json({ success: true });
+    // Kill their live sessions immediately so the blacklist takes effect now.
+    await prisma.session.updateMany({ where: { userId: req.params.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {});
+    audit.log(req.user, { category: 'ACCESS', action: 'BLACKLIST', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
+      summary: `Blacklisted ${u.displayName || u.discordUsername}${reason ? ` · ${reason}` : ''}` });
+
+    // Advanced alt detection: propagate the blacklist to accounts that share a
+    // real IP / device with this one (developer-toggleable via `altBlock`).
+    let altIds = [];
+    try { altIds = await require('../lib/accessGuard').propagateBlacklistToAlts(u, reason); } catch (e) { altIds = []; }
+    if (altIds.length) {
+      audit.log(req.user, { category: 'ACCESS', action: 'BLACKLIST_ALTS', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
+        summary: `Alt detection auto-blacklisted ${altIds.length} linked account(s) of ${u.displayName || u.discordUsername}` });
+    }
+    res.json({ success: true, altsBlacklisted: altIds.length });
   } catch (err) {
     res.status(500).json({ error: 'Failed to blacklist user' });
   }
 });
 
-// ── POST /api/admin/users/:id/unblacklist ────────────────────────
+// ── POST /api/admin/users/:id/unblacklist ─────────────────────
 router.post('/users/:id/unblacklist', async (req, res) => {
   try {
-    await prisma.user.update({
+    const u = await prisma.user.update({
       where: { id: req.params.id },
       data:  { isBlacklisted: false, blacklistReason: null },
     });
+    audit.log(req.user, { category: 'ACCESS', action: 'UNBLACKLIST', target: { type: 'user', id: req.params.id, name: u.displayName || u.discordUsername },
+      summary: `Lifted blacklist on ${u.displayName || u.discordUsername}` });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to unblacklist user' });
   }
 });
 
-// ── DELETE /api/admin/cases/:id ───────────────────────────────────
+// ── DELETE /api/admin/cases/:id ──────────────────────────────
 router.delete('/cases/:id', async (req, res) => {
   try {
     const existing = await prisma.case.findUnique({ where: { id: req.params.id } });
@@ -115,7 +289,7 @@ router.delete('/cases/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/visits ─────────────────────────────────────────
+// ── GET /api/admin/visits ───────────────────────────────────
 // Developer-only website visit log (most recent first).
 router.get('/visits', async (req, res) => {
   try {
@@ -186,8 +360,7 @@ router.delete('/access-grants/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/security ───────────────────────────────────────
-// Developer-only screenshot/capture security log (most recent first).
+// ── GET /api/admin/security ─────────────────────────────────
 router.get('/security', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 300, 1000);
@@ -202,20 +375,23 @@ router.get('/security', async (req, res) => {
   }
 });
 
-// ── DELETE /api/admin/tickets/:id ─────────────────────────────────
-router.delete('/tickets/:id', async (req, res) => {
+// ── DELETE /api/admin/ticket-logs/:id ─────────────────────────────
+// Ticket logs mirror Discord, so deleting one here is only ever a cleanup for a
+// mis-parsed entry — the next sweep will re-ingest it if the message still
+// exists. (Hand-logged tickets no longer exist; the `tickets` table is gone.)
+router.delete('/ticket-logs/:id', async (req, res) => {
   try {
-    const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } });
-    if (!existing) return res.status(404).json({ error: 'Ticket not found' });
-    await prisma.ticket.delete({ where: { id: req.params.id } });
+    const existing = await prisma.ticketLog.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Ticket log not found' });
+    await prisma.ticketLog.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (err) {
-    console.error('DELETE /tickets error:', err.message);
-    res.status(500).json({ error: 'Failed to delete ticket' });
+    console.error('DELETE /ticket-logs error:', err.message);
+    res.status(500).json({ error: 'Failed to delete ticket log' });
   }
 });
 
-// ── GET /api/admin/settings ───────────────────────────────────────
+// ── GET /api/admin/settings ─────────────────────────────────
 router.get('/settings', async (req, res) => {
   try {
     const settings = await prisma.systemSetting.findMany();
@@ -227,7 +403,7 @@ router.get('/settings', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/settings ─────────────────────────────────────
+// ── PATCH /api/admin/settings ──────────────────────────────
 router.patch('/settings', async (req, res) => {
   const siteConfig = require('../lib/siteConfig');
   const allowed = ['webhookUrl', 'systemName', 'maintenanceMode', ...siteConfig.KEYS];
@@ -251,7 +427,7 @@ router.patch('/settings', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/stats ──────────────────────────────────────────
+// ── GET /api/admin/stats ──────────────────────────────────
 router.get('/stats', async (req, res) => {
   try {
     const [totalUsers, totalCases, totalActions, blacklisted] = await Promise.all([
@@ -266,10 +442,10 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/group/debug ────────────────────────────────────
+// ── GET /api/admin/group/debug ──────────────────────────────
 // Exercises the cookie-authenticated group functions so misconfiguration is visible
 router.get('/group/debug', async (req, res) => {
-  const groupId = process.env.ROBLOX_GROUP_ID;
+  const groupId = mainGroupId();
 
   const probe = async (label, fn) => {
     try {
@@ -299,58 +475,71 @@ router.get('/group/debug', async (req, res) => {
   });
 });
 
-// ── GET /api/admin/group/roles ────────────────────────────────────
+// ── GET /api/admin/group/divisions ───────────────────────────
+// The selectable groups for the panel's division switcher (every division that
+// has a group id, + MET). Client-safe: names/keys only, never the group ids.
+router.get('/group/divisions', (req, res) => {
+  res.json(panelGroups().map(g => ({ key: g.key, name: g.name, fullName: g.fullName })));
+});
+
+// ── GET /api/admin/group/roles ──────────────────────────────
 router.get('/group/roles', async (req, res) => {
   try {
-    const roles = await listGroupRoles();
+    const roles = await listGroupRoles(panelGroupId(req), panelCookie(req));
     res.json(roles);
   } catch (err) {
     console.error('GET /group/roles error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
-// ── GET /api/admin/group/members ──────────────────────────────────
+// ── GET /api/admin/group/members ────────────────────────────
 router.get('/group/members', async (req, res) => {
   try {
     const { pageToken } = req.query;
-    const result = await listGroupMembers(pageToken || null);
+    const result = await listGroupMembers(pageToken || null, panelGroupId(req), panelCookie(req));
     res.json(result);
   } catch (err) {
     console.error('GET /group/members error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
-// ── GET /api/admin/group/pending ──────────────────────────────────
+// ── GET /api/admin/group/pending ────────────────────────────
 router.get('/group/pending', async (req, res) => {
   try {
     const { pageToken } = req.query;
-    const result = await listJoinRequests(pageToken || null);
+    const result = await listJoinRequests(pageToken || null, panelGroupId(req), panelCookie(req));
     res.json(result);
   } catch (err) {
     console.error('GET /group/pending error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
+
+const audit = require('../lib/audit');
 
 // ── POST /api/admin/group/pending/:userId/approve ─────────────────
 router.post('/group/pending/:userId/approve', async (req, res) => {
   try {
-    await resolveJoinRequest(req.params.userId, 'approve');
+    await resolveJoinRequest(req.params.userId, 'approve', panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'JOIN_APPROVE', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Approved join request for Roblox user ${req.params.userId} (${req.query.division || 'MET'})` });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to approve join request' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to approve join request' });
   }
 });
 
 // ── POST /api/admin/group/pending/:userId/decline ─────────────────
 router.post('/group/pending/:userId/decline', async (req, res) => {
   try {
-    await resolveJoinRequest(req.params.userId, 'decline');
+    await resolveJoinRequest(req.params.userId, 'decline', panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'JOIN_DECLINE', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Declined join request for Roblox user ${req.params.userId} (${req.query.division || 'MET'})` });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to decline join request' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to decline join request' });
   }
 });
 
@@ -359,24 +548,33 @@ router.patch('/group/members/:userId/rank', async (req, res) => {
   const { roleId } = req.body;
   if (!roleId) return res.status(400).json({ error: 'roleId is required' });
   try {
-    await changeGroupRank(req.params.userId, roleId);
+    await changeGroupRank(req.params.userId, roleId, panelGroupId(req), panelCookie(req));
+    audit.log(req.user, { category: 'GROUP', action: 'RANK_CHANGE', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Changed rank of Roblox user ${req.params.userId} → role ${roleId} (${req.query.division || 'MET'})`,
+      meta: { roleId } });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to change rank' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to change rank' });
   }
 });
 
-// ── DELETE /api/admin/group/members/:userId ───────────────────────
+// ── DELETE /api/admin/group/members/:userId ─────────────────────
 router.delete('/group/members/:userId', async (req, res) => {
   try {
-    await exileFromGroup(req.params.userId);
+    // exileFromGroup returns false (never throws) on any failure — cookie unset,
+    // bot lacks permission, Roblox 403/429/500. Don't report success or write a
+    // KICK audit entry unless the exile actually happened.
+    const ok = await exileFromGroup(req.params.userId, panelGroupId(req), panelCookie(req));
+    if (!ok) return res.status(502).json({ error: 'Roblox rejected the kick (check the group bot cookie/permissions).' });
+    audit.log(req.user, { category: 'GROUP', action: 'KICK', division: req.query.division || 'MET',
+      target: { type: 'roblox_user', id: req.params.userId }, summary: `Kicked Roblox user ${req.params.userId} from ${req.query.division || 'MET'} group` });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to kick member' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to kick member' });
   }
 });
 
-// ── Discord Moderation (Dev Panel) ────────────────────────────────
+// ── Discord Moderation (Dev Panel) ───────────────────────────
 // Ban / unban / kick / timeout ("mute") any Discord user by ID or by
 // searching the member list — for MET-server moderation, independent of any
 // IA case. Every action is logged to DiscordModerationLog for an audit trail.
@@ -392,23 +590,44 @@ async function logModeration(req, { action, targetDiscordId, targetUsername, rea
       },
     });
   } catch (e) { console.error('[Moderation] audit log write failed:', e.message); }
-  // Mirror into the unified portal audit trail (best-effort).
+  // Mirror into the unified dashboard audit trail (best-effort).
   try {
     require('../lib/audit').record({
       req, action: `MOD_${action}`, category: 'moderation', targetType: 'discord_user', targetId: targetDiscordId,
-      summary: `${action} ${targetUsername || targetDiscordId}${reason ? ` — ${reason}` : ''}${durationMinutes ? ` (${durationMinutes}m)` : ''}`,
+      summary: `${action} ${targetUsername || targetDiscordId}${reason ? ` · ${reason}` : ''}${durationMinutes ? ` (${durationMinutes}m)` : ''}`,
     });
   } catch (e) { /* non-fatal */ }
 }
 
 function isValidDiscordId(id) { return /^\d{15,25}$/.test(String(id || '').trim()); }
 
+// Which server a moderation action applies to. Every helper already accepts a
+// guildId and falls back to the MET server; this just lets the panel say which.
+// Validated against the servers the bot is actually in, so a typo'd id is a
+// clear error rather than an action that silently lands nowhere.
+function guildFromRequest(req) {
+  const raw = (req.query && req.query.guildId) || (req.body && req.body.guildId) || null;
+  return isValidDiscordId(raw) ? String(raw).trim() : undefined;
+}
+
+// GET /api/admin/discord/guilds — the servers the bot can moderate in.
+router.get('/discord/guilds', async (req, res) => {
+  try {
+    const { listBotGuilds } = require('../lib/bot');
+    const guilds = await listBotGuilds();
+    const primary = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID || null;
+    res.json(guilds.map(g => ({ ...g, primary: primary && String(g.id) === String(primary) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to list servers' });
+  }
+});
+
 // GET /api/admin/discord/members?search=... — search the guild's member list.
 router.get('/discord/members', async (req, res) => {
   try {
     const q = String(req.query.search || '').trim();
     if (!q) return res.json([]);
-    const members = await searchGuildMembers(q, 25);
+    const members = await searchGuildMembers(q, 25, guildFromRequest(req));
     res.json(members);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to search members' });
@@ -418,7 +637,7 @@ router.get('/discord/members', async (req, res) => {
 // GET /api/admin/discord/bans?search=... — list/search currently-banned users.
 router.get('/discord/bans', async (req, res) => {
   try {
-    const bans = await listGuildBans(req.query.search || '');
+    const bans = await listGuildBans(req.query.search || '', guildFromRequest(req));
     res.json(bans);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to list bans' });
@@ -441,7 +660,7 @@ router.post('/discord/ban', async (req, res) => {
   const { discordId, reason, deleteMessageSeconds, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await banMember(discordId, { reason, deleteMessageSeconds });
+    await banMember(discordId, { reason, deleteMessageSeconds, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'BAN', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -454,7 +673,7 @@ router.post('/discord/unban', async (req, res) => {
   const { discordId, reason, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await unbanMember(discordId, { reason });
+    await unbanMember(discordId, { reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'UNBAN', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -467,7 +686,7 @@ router.post('/discord/kick', async (req, res) => {
   const { discordId, reason, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await kickMember(discordId, { reason });
+    await kickMember(discordId, { reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'KICK', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -481,7 +700,7 @@ router.post('/discord/timeout', async (req, res) => {
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   if (!(Number(durationMinutes) > 0)) return res.status(400).json({ error: 'durationMinutes must be greater than 0.' });
   try {
-    await timeoutMember(discordId, { durationMinutes, reason });
+    await timeoutMember(discordId, { durationMinutes, reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'TIMEOUT', targetDiscordId: discordId, targetUsername: username, reason, durationMinutes: Number(durationMinutes) });
     res.json({ success: true });
   } catch (err) {
@@ -495,7 +714,7 @@ router.delete('/discord/timeout/:discordId', async (req, res) => {
   const { reason, username } = req.body || {};
   if (!isValidDiscordId(discordId)) return res.status(400).json({ error: 'A valid Discord user ID is required.' });
   try {
-    await timeoutMember(discordId, { durationMinutes: 0, reason });
+    await timeoutMember(discordId, { durationMinutes: 0, reason, guildId: guildFromRequest(req) });
     await logModeration(req, { action: 'UNTIMEOUT', targetDiscordId: discordId, targetUsername: username, reason });
     res.json({ success: true });
   } catch (err) {
@@ -503,7 +722,7 @@ router.delete('/discord/timeout/:discordId', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/audit ─────────────────────────────────────────
+// ── GET /api/admin/audit ─────────────────────────────────
 // Unified security audit trail (logins, session revocations, exam marking,
 // tryouts, moderation, access changes). Newest first, optional ?category= and
 // ?limit= filters. Developer-only (whole router is requireDeveloper).

@@ -5,11 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MET · Dashboard</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0b0f1a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="MET Dashboard" />
+  <link rel="apple-touch-icon" href="/img/divisions/met.png" />
   <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
 <body>
 <div class="bg-canvas">
@@ -43,6 +54,7 @@
       <div class="profile-avatar-fallback" id="p-avatar-fallback">?</div>
     </div>
     <div class="profile-id">
+      <div id="p-greeting" style="font-size:12px;color:var(--text-muted);letter-spacing:.02em;margin-bottom:2px;display:none;"></div>
       <div class="profile-name" id="p-name">Loading…</div>
       <div class="profile-sub" id="p-sub"></div>
       <div class="profile-meta" id="p-meta"></div>
@@ -79,25 +91,76 @@
     <div class="profile-section" id="p-tryouts"></div>
   </div>
 
+  <!-- My Activity -->
+  <div class="panel glass fade-up" id="p-activity-panel" style="display:none;">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>My Activity</div></div>
+    <div class="profile-section">
+      <div id="p-activity-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;"></div>
+    </div>
+  </div>
+
+  <!-- Standing / disciplinary flags (only shown when the member holds one) -->
+  <div class="panel glass fade-up" id="p-flags-panel" style="display:none;">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Standing</div></div>
+    <div class="profile-section"><div class="chip-row" id="p-flags"></div></div>
+  </div>
+
+  <!-- Medals / Awards & Decorations (only shown when the member holds one) -->
+  <div class="panel glass fade-up" id="p-medals-panel" style="display:none;">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot" style="background:#f5c518;"></span>Medals &amp; Decorations</div>
+      <span class="text-muted mono" id="p-medals-count" style="font-size:11px;"></span>
+    </div>
+    <div class="profile-section"><div id="p-medals"></div></div>
+  </div>
+
   <!-- Divisions + rank -->
   <div class="panel glass fade-up stagger-1">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Divisions &amp; Rank</div></div>
     <div class="profile-section" id="p-divisions"><div class="table-loading"><div class="spinner"></div></div></div>
   </div>
 
-  <!-- Perms -->
-  <div class="panel glass fade-up stagger-2">
+  <!-- XP — where they stand on the MET ladder. Shown to anyone the XP system
+       has placed; hidden for ranks it doesn't govern. -->
+  <div class="panel glass fade-up stagger-1" id="p-xp-panel" style="display:none;">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot blue"></span>MET XP</div>
+      <div class="panel-sub" style="font-size:11px;color:var(--text-muted);" id="p-xp-standing"></div>
+    </div>
+    <div class="profile-section" id="p-xp"></div>
+  </div>
+
+  <!-- MET weekly quota (anyone on a tracked quota rank, division or not) -->
+  <div class="panel glass fade-up stagger-1" id="p-metquota-panel" style="display:none;">
+    <div class="panel-header">
+      <div class="panel-title"><span class="panel-dot amber"></span>MET Weekly Quota</div>
+      <div class="panel-sub" style="font-size:11px;color:var(--text-muted);">3 events a week · 1 database point = 1 event</div>
+    </div>
+    <div class="profile-section" id="p-metquota"></div>
+  </div>
+
+  <!-- Rank history (shown only if there's a promotion/demotion on record) -->
+  <div class="panel glass fade-up stagger-2" id="p-rankhistory-panel" style="display:none;">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Rank History</div></div>
+    <div class="profile-section" id="p-rankhistory"></div>
+  </div>
+
+  <!-- Perms (hidden entirely unless the member holds a paid-permission role) -->
+  <div class="panel glass fade-up stagger-2" id="p-perms-panel" style="display:none;">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Permissions</div></div>
     <div class="profile-section"><div class="chip-row" id="p-perms"></div></div>
   </div>
 
-  <!-- Punishment history -->
-  <div class="panel glass fade-up stagger-3">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Punishment History</div></div>
+  <!-- Punishment history. "Issued By" is gone on purpose: who disciplined
+       somebody is Internal Affairs' business, and this page is the subject's
+       own. Rows open a detail view with what they ARE entitled to see. -->
+  <div class="panel glass fade-up stagger-3" id="record">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot red"></span>Punishment History</div>
+      <div class="panel-sub" style="font-size:11px;color:var(--text-muted);">Click an entry for the full details</div></div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Type</th><th>Reason</th><th>Issued By</th><th>Status</th><th>Date</th></tr></thead>
-        <tbody id="p-punishments"><tr><td colspan="5" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+        <thead><tr><th>Type</th><th>Reason</th><th>Status</th><th>Expires</th><th>Date</th><th></th></tr></thead>
+        <tbody id="p-punishments"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
       </table>
     </div>
   </div>
@@ -129,14 +192,58 @@
       <div id="p-passkeys"><div class="table-loading"><div class="spinner"></div></div></div>
     </div>
   </div>
+
+  <!-- Push notifications -->
+  <div class="panel glass fade-up stagger-3" id="p-notif-panel" style="display:none;">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Notifications</div></div>
+    <div class="profile-section">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">
+        Get push notifications on this device for things like tryout reminders, ticket replies and quota deadlines.
+      </p>
+      <div id="p-notif-body"><div class="table-loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- Appearance: accent colour + theme -->
+  <div class="panel glass fade-up stagger-3" id="p-appearance-panel">
+    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Appearance</div></div>
+    <div class="profile-section">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">Pick an accent colour — it's saved to this device and applied across the site.</p>
+      <div id="p-accent-current" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"></div>
+      <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Choose a colour</div>
+      <div id="p-accent-swatches" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" onclick="toggleTheme()"><i class="ti ti-brightness"></i> Toggle light / dark</button>
+        <button id="p-reduce-motion-btn" class="btn btn-ghost btn-sm" onclick="toggleReduceMotion()"><i class="ti ti-accessible"></i> Reduce motion</button>
+        <button id="p-density-btn" class="btn btn-ghost btn-sm" onclick="toggleDensity()"><i class="ti ti-layout-rows"></i> Compact</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadMyData()"><i class="ti ti-download"></i> Download my data</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast-container"></div>
-<script src="/js/ui.js"></script>
-<script src="/js/met-topbar.js"></script>
+<!-- One punishment, in full — what the subject of it is entitled to see.
+     Deliberately NOT here: who filed it, who approved it, who granted the
+     appeal, or any review notes. -->
+<div class="modal-overlay" id="modal-punishment">
+  <div class="modal glass-bright" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-gavel" style="font-size:18px;"></i> <span id="pd-title">Disciplinary action</span></div>
+      <button class="modal-close" onclick="closeModal('modal-punishment')" title="Close" aria-label="Close"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="pd-body"></div>
+  </div>
+</div>
+
+<script src="/js/ui.js?v=81"></script>
+
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
 <script src="/js/passkeys.js"></script>
+<script src="/js/push-client.js"></script>
 <script src="/js/profile.js"></script>
 <script>initMetTopbar('');</script>
 </body>

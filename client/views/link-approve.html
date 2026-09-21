@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MET Dashboard · Approve sign-in</title>
+  <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
+  <link rel="stylesheet" href="/css/aurora.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+    .ap-card { width:100%; max-width:400px; margin:1.2rem; padding:2rem 1.6rem; text-align:center; }
+    .ap-icon { font-size:44px; color:var(--blue,#4a8fff); margin-bottom:.6rem; }
+    .ap-title { font-size:20px; font-weight:700; margin:0 0 .5rem; }
+    .ap-sub { font-size:13px; color:var(--text-secondary); line-height:1.6; margin:0 0 1.4rem; }
+    .ap-btns { display:flex; flex-direction:column; gap:10px; }
+    .ap-btns .btn { width:100%; justify-content:center; padding:.85rem; font-size:15px; font-weight:600; }
+  </style>
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
+</head>
+<body>
+<div class="bg-canvas"><div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div></div>
+<div class="glass-bright ap-card" id="ap-card">
+  <div class="ap-icon"><i class="ti ti-qrcode"></i></div>
+  <h1 class="ap-title">Approve sign-in?</h1>
+  <p class="ap-sub">A device is trying to sign in to your MET Dashboard account. <strong>Only approve if you are signing in right now.</strong> If you didn't just start this, someone else has your QR link · tap "No" and change nothing else.</p>
+  <div id="ap-context" style="font-size:12px;color:var(--text-secondary);background:rgba(255,255,255,.04);border:1px solid var(--border-dim,#2a2a2a);border-radius:10px;padding:10px 12px;margin:0 0 1.1rem;text-align:left;line-height:1.7;">Loading device details…</div>
+  <div id="ap-match" style="margin:0 0 1.1rem;display:none;">
+    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px;">Enter the 2-digit code shown on the sign-in screen:</label>
+    <input type="text" inputmode="numeric" maxlength="2" id="ap-code" placeholder="00" style="width:96px;text-align:center;font-size:22px;letter-spacing:.2em;font-weight:800;" class="form-control" />
+  </div>
+  <div class="ap-btns">
+    <button class="btn btn-primary" id="ap-yes"><i class="ti ti-check"></i> Yes, it's me · sign in</button>
+    <button class="btn btn-ghost" id="ap-no"><i class="ti ti-x"></i> No, it wasn't me</button>
+  </div>
+</div>
+<div id="toast-container"></div>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/met-topbar.js?v=3"></script>
+<script src="/js/link-approve.js"></script>
+<script>setSiteChrome('');</script>
+</body>
+</html>

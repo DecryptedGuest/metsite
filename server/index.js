@@ -12,17 +12,16 @@ const debugRoutes   = require('./routes/debug');
 const ticketRoutes  = require('./routes/tickets');
 const securityRoutes = require('./routes/security');
 const quotaRoutes   = require('./routes/quota');
-const aiReviewRoutes = require('./routes/aiReview');
 const pushRoutes     = require('./routes/push');
 const notificationRoutes = require('./routes/notifications');
 const cidRoutes   = require('./routes/cid');
-const sco19Routes = require('./routes/sco19');
 const flpRoutes   = require('./routes/flp');
 const hpcRoutes   = require('./routes/hpc');
 const examRoutes  = require('./routes/exam');
 const tryoutRoutes = require('./routes/tryouts');
 const { requireAuth } = require('./middleware/auth');
-const { requireDivision } = require('./middleware/division');
+const { requireDivision, requireCidTryout, requireMetHicomm } = require('./middleware/division');
+const { maybeAuth } = require('./middleware/auth');
 const { recordVisit } = require('./middleware/visit');
 const { startBot, startRoleExpiryChecker } = require('./lib/bot');
 const { initCsrf }    = require('./lib/roblox');
@@ -54,7 +53,35 @@ const PORT = process.env.PORT || 3000;
 // Behind Railway's proxy — trust X-Forwarded-For so client IPs resolve correctly
 app.set('trust proxy', 1);
 
-// ── Security headers (CSP + hardening) ───────────────────────────
+// Canonical host: keep the browser on a single domain (e.g. slrmet.com) so the
+// URL bar, cookies and WebAuthn RP id stay consistent. Two redirects:
+//   • www.<domain> → the apex.
+//   • any other host (e.g. the raw *.up.railway.app URL) → CANONICAL_HOST.
+// The canonical host comes from CANONICAL_HOST, else the host in PUBLIC_BASE_URL,
+// so it stays OFF until you point the site at a real domain (no accidental
+// breakage in dev/before cutover). ONLY real browser page-loads are redirected
+// (GET + Accept: text/html); /api and /auth are never touched, so game/webhook
+// callbacks, OAuth callbacks and Railway health checks keep working on any host.
+const CANONICAL_HOST = (() => {
+  if (process.env.CANONICAL_HOST) return process.env.CANONICAL_HOST.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (process.env.PUBLIC_BASE_URL) { try { return new URL(process.env.PUBLIC_BASE_URL).host; } catch (e) {} }
+  return null;
+})();
+app.use((req, res, next) => {
+  const host = req.headers.host || '';
+  if (/^www\./i.test(host)) {
+    return res.redirect(301, `https://${host.replace(/^www\./i, '')}${req.originalUrl}`);
+  }
+  if (CANONICAL_HOST && host && host !== CANONICAL_HOST
+      && req.method === 'GET'
+      && (req.headers.accept || '').includes('text/html')
+      && !req.path.startsWith('/api') && !req.path.startsWith('/auth')) {
+    return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
+  }
+  next();
+});
+
+// ── Security headers (CSP + hardening) ────────────────────────────
 // Set before any route so every response carries them. CSP keeps
 // 'unsafe-inline' for script-src because the app relies on inline <script>
 // blocks and inline onclick handlers; jsdelivr is allowed for the Tabler icon
@@ -68,6 +95,10 @@ app.use((req, res, next) => {
     "img-src 'self' data: blob: https:",
     "connect-src 'self'",
     "media-src 'self' blob: data:",
+    // Tickety hosts ticket transcripts; the ticket detail view embeds them so a
+    // handler reads the actual conversation without leaving the dashboard. This
+    // only lets US frame Tickety, not the other way round (see frame-ancestors).
+    "frame-src 'self' https://tickety.top https://*.tickety.top",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -76,6 +107,8 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Opt out of AI training/indexing/archiving for compliant crawlers.
+  res.setHeader('X-Robots-Tag', 'noai, noimageai, noarchive');
   // camera=(self) is permitted for the exam webcam-proctoring feature; all
   // other powerful features are denied.
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), payment=(), camera=(self)');
@@ -101,6 +134,33 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * Hand out imported XP that is still waiting for a Discord account.
+ *
+ * The Clans Labs import leaves most of its rows held against a Roblox account,
+ * because most of the leaderboard is not in the server. Logging in claims a row,
+ * and so does anybody running /xp on them — but somebody who joins, verifies with
+ * RoVer and does neither would sit there indefinitely. This is that safety net,
+ * and it does nothing at all once the holding table is empty.
+ *
+ * It does NOT ask RoVer. RoVer's rate limit is the same one every login uses to
+ * find somebody's Roblox account, and through it their divisions — a background
+ * job that quietly spends that budget four times a day is how members end up
+ * logging in to find their access gone. Our own tables already know the link for
+ * everybody who has ever signed in, which is exactly the population this can help;
+ * anybody else is claimed by their own next login.
+ */
+function startXpClaimWorker() {
+  const run = () => require('./lib/clanslabsXp').sweepPending({ limit: 60, rover: false })
+    .then(out => {
+      if (out.claimed) console.log(`[XP] Claimed ${out.claimed} imported balance(s); `
+        + `${out.stillWaiting} still waiting for a Discord account.`);
+    })
+    .catch(err => console.warn('[XP] claim sweep failed:', err.message));
+  setTimeout(run, 3 * 60 * 1000);            // a few minutes after boot
+  setInterval(run, 6 * 60 * 60 * 1000);      // then four times a day
+}
+
 // ── Start Discord bot + background workers + Roblox CSRF warm-up ──
 // These need a single, always-on process (a persistent Discord gateway
 // connection + interval timers), so they are skipped on serverless hosts
@@ -116,15 +176,44 @@ if (RUN_WORKERS) {
   require('./lib/accessControl').startAccessRevalidator();
   require('./lib/quota').startQuotaWorker();
   require('./lib/tryouts').startTryoutWorker();
+  // Optional (MET_DB_AUTO_SYNC=true): keep the MET database sheet in step with
+  // the Roblox group — drop members who left, add newly joined constables.
+  require('./lib/metDatabase').startMetDatabaseWorker();
+  require('./lib/iaSync').startIaSync(); // no-op unless IA_DATABASE_URL is set
+  // Close off leave whose end date has passed, and tell the member they are
+  // back. Without it /loa active fills with people who returned weeks ago.
+  require('./lib/loaCommand').startLoaWorker();
+  // The weekly IA quota review, posted at 23:59 on Sunday rather than by
+  // somebody remembering to.
+  require('./lib/quotaWeekly').startWeeklyQuotaWorker();
+  // Hand imported XP to people who have since verified with RoVer. Logging in and
+  // being looked up both claim it already; this catches somebody who does neither.
+  startXpClaimWorker();
   initCsrf().catch(err => console.error('Roblox initCsrf error:', err.message));
 } else {
   console.log('[Startup] Background workers disabled (serverless or DISABLE_WORKERS=true).');
 }
 
-// ── Middleware ───────────────────────────────────────────────────
+// ── Middleware ──────────────────────────────────────────────
 // Large limit so ticket-log proof images (base64 data URLs) fit in the body.
 // Up to 10 images × 5 MB inflate to ~67 MB once base64-encoded.
-app.use(express.json({ limit: process.env.BODY_LIMIT || '256mb' }));
+// Capture the raw JSON body so game callbacks can be HMAC-verified
+// (server/routes/game.js) without re-serialising (which wouldn't match).
+// A route that wants a SMALLER limit than this cannot get one by declaring its
+// own parser: this one runs first, sets req._body, and the route's parser
+// short-circuits on it — so a route-scoped `express.json({ limit })` further down
+// is silently inert. Any path that needs its own limit has to be skipped here.
+// Measured: without this skip, /api/dev/roblox/audio buffered 252 MB before its
+// own 90 MB cap was consulted, and never was.
+const OWN_BODY_PARSER = ['/api/dev/roblox/audio'];
+const globalJson = express.json({
+  limit: process.env.BODY_LIMIT || '256mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+});
+app.use((req, res, next) => {
+  if (OWN_BODY_PARSER.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
+  return globalJson(req, res, next);
+});
 app.use(express.urlencoded({ extended: true, limit: process.env.BODY_LIMIT || '256mb' }));
 app.use(cookieParser());
 
@@ -132,11 +221,46 @@ app.use(cookieParser());
 const { issueCsrfToken, requireCsrf } = require('./middleware/csrf');
 app.use(issueCsrfToken);
 
-// ── Site-private gate (developer-controlled) ─────────────────────
+// Block self-identifying AI crawlers/agents and headless scrapers from the
+// HTML pages (self-exempts API/auth/webhooks/assets so integrations are safe).
+const { botGuard } = require('./middleware/botGuard');
+app.use(botGuard);
+
+// robots.txt — the polite layer: ask well-behaved crawlers (incl. AI trainers)
+// not to crawl at all. Advisory, but the major AI bots honour it.
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(
+    'User-agent: GPTBot\nDisallow: /\n\n' +
+    'User-agent: OAI-SearchBot\nDisallow: /\n\n' +
+    'User-agent: ChatGPT-User\nDisallow: /\n\n' +
+    'User-agent: anthropic-ai\nDisallow: /\n\n' +
+    'User-agent: ClaudeBot\nDisallow: /\n\n' +
+    'User-agent: Claude-Web\nDisallow: /\n\n' +
+    'User-agent: Claude-User\nDisallow: /\n\n' +
+    'User-agent: CCBot\nDisallow: /\n\n' +
+    'User-agent: Google-Extended\nDisallow: /\n\n' +
+    'User-agent: Google-CloudVertexBot\nDisallow: /\n\n' +
+    'User-agent: PerplexityBot\nDisallow: /\n\n' +
+    'User-agent: Perplexity-User\nDisallow: /\n\n' +
+    'User-agent: Bytespider\nDisallow: /\n\n' +
+    'User-agent: Amazonbot\nDisallow: /\n\n' +
+    'User-agent: Applebot-Extended\nDisallow: /\n\n' +
+    'User-agent: Meta-ExternalAgent\nDisallow: /\n\n' +
+    'User-agent: Meta-ExternalFetcher\nDisallow: /\n\n' +
+    'User-agent: cohere-ai\nDisallow: /\n\n' +
+    'User-agent: Diffbot\nDisallow: /\n\n' +
+    'User-agent: AI2Bot\nDisallow: /\n\n' +
+    'User-agent: img2dataset\nDisallow: /\n\n' +
+    'User-agent: VelenPublicWebCrawler\nDisallow: /\n\n' +
+    '# Everything here is behind sign-in anyway.\n' +
+    'User-agent: *\nDisallow: /\n'
+  );
+});
+
+// ── Site-private gate (developer-controlled) ──────────────────────
 // When sitePrivate is on, nobody but a logged-in DEVELOPER can reach the
 // site at all — not even the login page. /auth/* stays open so a developer
 // can still sign in, and /api/site-config stays open so the curtain renders.
-const jwtLib     = require('jsonwebtoken');
 const dbPrisma   = require('./lib/db');
 const siteConfig = require('./lib/siteConfig');
 const PRIVATE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Service Unavailable</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0c12;color:#e6e9ef;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}.card{text-align:center;max-width:460px;padding:48px 36px}.icon{font-size:50px;margin-bottom:18px;opacity:.85}h1{font-size:22px;margin:0 0 12px;font-weight:700}p{color:#9aa3b2;line-height:1.65;margin:0 0 14px;font-size:14px}.sub{font-size:12px;color:#5d6675;margin-top:30px}a{color:#5d6675;font-size:12px;text-decoration:none;opacity:.55}a:hover{opacity:1}</style></head><body><div class="card"><div class="icon">🗄️</div><h1>This service has been discontinued</h1><p>This system is no longer in use and is no longer maintained. Thank you to everyone who used it.</p><p class="sub">If you reached this page by mistake, you may safely close this tab.</p><a href="/auth/discord">Staff access</a></div></body></html>`;
@@ -145,14 +269,15 @@ app.use(async (req, res, next) => {
   if (!siteConfig.isOn('sitePrivate')) return next();
   const p = req.path;
   if (p.startsWith('/auth') || p === '/api/site-config') return next();
-  const token = req.cookies && req.cookies.iacms_token;
-  if (token) {
-    try {
-      const payload = jwtLib.verify(token, process.env.JWT_SECRET);
-      const u = await dbPrisma.user.findUnique({ where: { id: payload.userId }, select: { role: true } });
-      if (u && u.role === 'DEVELOPER') return next();
-    } catch (e) { /* fall through to curtain */ }
-  }
+  // Through the same door as everything else — session revocation, blacklist and
+  // mustReauth included. Verifying the JWT and reading the role was not enough: the
+  // curtain is what gets pulled during an incident, which is exactly when sessions
+  // are being revoked, and a revoked developer session walked straight through it.
+  try {
+    const hit = await require('./middleware/auth')
+      .sessionUserFromToken(req.cookies && req.cookies.iacms_token);
+    if (hit && hit.user.role === 'DEVELOPER') return next();
+  } catch (e) { /* fall through to curtain */ }
   if (p.startsWith('/api')) return res.status(503).json({ error: 'The site is currently private.' });
   return res.status(503).type('html').send(PRIVATE_PAGE);
 });
@@ -161,6 +286,28 @@ app.use(async (req, res, next) => {
 app.get('/api/site-config', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json(siteConfig.publicConfig());
+});
+
+// ── Behavioural bot signal beacon (from client/public/js/bot-sentinel.js) ──
+// Passive telemetry: the client reports input signatures a human doesn't make
+// (cursor teleports, synthetic events, automation flags). We only LOG them to
+// the Security Center — never block — so a false positive can't hurt a real
+// user. Public + rate-limited (global /api limiter + a stricter per-route cap).
+const botSignalLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+app.post('/api/security/bot-signal', botSignalLimiter, (req, res) => {
+  try {
+    const b = req.body || {};
+    const type = String(b.type || 'unknown').replace(/[^a-z0-9-]/gi, '').slice(0, 40) || 'unknown';
+    const path = String(b.path || '').slice(0, 120);
+    let detail = '';
+    try { detail = JSON.stringify(b.detail || {}).slice(0, 200); } catch (e) { detail = ''; }
+    require('./lib/audit').record({
+      req, action: 'BOT_SIGNAL', category: 'SECURITY', targetType: 'request',
+      summary: `Behavioural bot signal: ${type}${path ? ` on ${path}` : ''}${detail && detail !== '{}' ? ` — ${detail}` : ''}`,
+      metadata: { type, detail: b.detail || {}, reportedPath: path },
+    }).catch(() => {});
+  } catch (e) { /* best-effort */ }
+  res.status(204).end();
 });
 
 // Serve minified JS (deterrent against reading client code via view-source).
@@ -188,7 +335,7 @@ app.use('/api',  rateLimit({ windowMs: 1  * 60 * 1000, max: 120 }));
 // header; logout only clears a cookie). Safe methods pass through untouched.
 app.use('/api', requireCsrf);
 
-// ── Abuse-focused per-route rate limiters ────────────────────────
+// ── Abuse-focused per-route rate limiters ───────────────────────
 // The blanket /api limiter (120/min) covers ordinary traffic; these are much
 // tighter caps on the few endpoints where abuse is costly or high-impact.
 const examSubmitLimiter = rateLimit({
@@ -204,9 +351,12 @@ const tryoutWriteLimiter = rateLimit({
   message: { error: 'Too many tryout actions. Please wait a moment.' },
 });
 
-// ── Routes ───────────────────────────────────────────────────────
-// Shared across the whole portal.
+// ── Routes ───────────────────────────────────────────────────
+// Shared across the whole dashboard.
 app.use('/auth',        authRoutes);
+// "Try another way" passwordless sign-in (Discord DM code, QR approval,
+// passkey). Logged-out; POSTs are CSRF-protected (the login page holds a token).
+app.use('/api/login',   require('./routes/authAlt'));
 
 // IA — unchanged route logic, gated to users with IA division access.
 const ia = requireDivision('IA');
@@ -223,15 +373,39 @@ app.use('/api/webauthn', requireAuth, require('./routes/webauthn'));
 app.use('/api/tickets', requireAuth, ia, ticketRoutes);
 app.use('/api/security', requireAuth, ia, securityRoutes);
 app.use('/api/quota',   requireAuth, ia, quotaRoutes);
-app.use('/api/ai-review', requireAuth, ia, aiReviewRoutes);
-app.use('/api/push',     requireAuth, ia, pushRoutes);
-app.use('/api/notifications', requireAuth, ia, notificationRoutes);
+// IA event logs — filed on the site; a supervisor's approval awards every attendee.
+app.use('/api/ia-events', requireAuth, ia, require('./routes/iaEvents'));
+// IA patrol logs — the same shape, for one officer's own shift.
+app.use('/api/ia-patrols', requireAuth, ia, require('./routes/iaPatrols'));
+// The IA application. requireAuth ONLY, and deliberately not behind `ia` — an
+// applicant is by definition not in Internal Affairs yet, so gating this on IA
+// membership would let nobody apply. Nothing in this router returns anybody
+// else's answers; the marking half is its own router behind a HICOMM gate.
+app.use('/api/ia-application', requireAuth, require('./routes/iaApplication'));
+// Marking IA applications — Deputy Director and above. The gate is on the whole
+// router inside the file, not here, so it cannot be lost by editing this line.
+app.use('/api/ia-application-review', requireAuth, require('./routes/iaApplicationReview'));
+// IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
+app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
+// Push + notification self-service must be open to EVERY signed-in member — the
+// "Enable notifications" button on /profile and /app is shown to all users. The
+// developer-only endpoints inside these routers carry their own requireDeveloper
+// gate, so they stay protected without the IA mount gate.
+app.use('/api/push',     requireAuth, pushRoutes);
+app.use('/api/notifications', requireAuth, notificationRoutes);
 app.use('/api/media',    requireAuth, ia, require('./routes/media'));
-app.use('/auth/debug',  debugRoutes); // TEMPORARY
+app.use('/auth/debug',  requireAuth, require('./middleware/auth').requireDeveloper, debugRoutes); // developer-only diagnostics
 
 // New divisions — own routes, own scope, gated to their own division.
-app.use('/api/cid',   requireAuth, requireDivision('CID'),   cidRoutes);
-app.use('/api/sco19', requireAuth, requireDivision('SCO19'), sco19Routes);
+// CID tryouts use the CID-role gate (applied inside cid.js), not the generic
+// CID-division cache, so CID instructors get in via their CID Discord roles.
+app.use('/api/cid',   requireAuth,
+  // Throttle tryout writes (each fires live Discord API calls) so a CID-role
+  // holder can't flood the guild / exhaust the bot's rate budget — mirrors HPC.
+  (req, res, next) => (req.method === 'POST' && /^\/tryouts/.test(req.path)) ? tryoutWriteLimiter(req, res, next) : next(),
+  cidRoutes);
+// SCO-19 has no tryout programme — no /api/sco19 routes. The /sco19/dashboard
+// page is a lightweight division overview served below.
 app.use('/api/flp',   requireAuth, requireDivision('FLP'),   flpRoutes);
 app.use('/api/hpc',   requireAuth, requireDivision('HPC'),
   (req, res, next) => (req.method === 'POST' && /^\/tryouts/.test(req.path)) ? tryoutWriteLimiter(req, res, next) : next(),
@@ -243,22 +417,55 @@ app.use('/api/exam',  requireAuth,
   examRoutes);
 // Public tryout view (British citizens) — MET-wide, not HPC-gated.
 app.use('/api/tryouts', requireAuth, tryoutRoutes);
+// Leave of Absence requests — any authed MET member; forwarding + review gated
+// inside the router (MET HICOMM for MET scope, divisional leads for divisions).
+app.use('/api/divquota', requireAuth, require('./routes/divisionQuota'));
+// Developer Security Center — active-session command, break-glass lockdown,
+// global broadcast, security alerts, passkey compliance. Mounted before
+// /api/dev so its paths win. DEVELOPER only.
+app.use('/api/dev/security', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devSecurity'));
+// Roblox asset uploads — mounted ahead of /api/dev so its paths win. Handles the
+// stored upload credential, so DEVELOPER only, gated again inside the router.
+app.use('/api/dev/roblox', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devRoblox'));
+// Server Control — full control over every Discord guild the bot is in (channels,
+// roles, members, emojis, messaging). Mounted before /api/dev so its paths win.
+// DEVELOPER only, gated again inside the router.
+app.use('/api/dev/control', requireAuth, require('./middleware/auth').requireDeveloper, require('./routes/devControl'));
+// Developer maintenance tools (delete on-site log records) — DEVELOPER-gated
+// inside the router.
+app.use('/api/dev', requireAuth, require('./routes/dev'));
+// CAD — Metropolitan Police dispatch console (developer-only, gated in-router).
+app.use('/api/cad', requireAuth, require('./routes/cad'));
+// MET HICOMM oversight — Command Center, analytics, audit trail, officer 360°.
+app.use('/api/hicomm', requireAuth, requireMetHicomm, require('./routes/hicomm'));
+// "Install on your phone" QR handoff — mint one-time session-transfer tokens.
+app.use('/api/app', requireAuth, require('./routes/app'));
+// Roblox game callbacks (server-lock state, …) — secret-gated, NOT requireAuth.
+app.use('/api/game', require('./routes/game'));
 
 // Visibility check for hosted media. Returns { allowed, user }.
+//
+// The identity comes from sessionUserFromToken, the same function maybeAuth uses,
+// and NOT from verifying the JWT here. This used to do its own thing — verify the
+// signature, read `{ role, isBlacklisted }`, done — which skipped the two checks
+// that matter most for a link somebody may have shared or lost control of:
+//
+//   * the SESSION. "Sign out everywhere else", and a developer killing a session
+//     from the Security Center, mark the Session row — a cookie already issued
+//     cannot be recalled. So a revoked session, or a stolen laptop's cookie, kept
+//     reading IA / STAFF / DEVELOPER media for the sixty days until the JWT expired.
+//   * mustReauth, which is how somebody who has lost access is forced back through
+//     login before anything trusts their role again.
+//
+// It could not have checked either: the select did not even fetch the columns.
 async function checkMediaAccess(req, m) {
   if (m.visibility === 'PUBLIC') return { allowed: true, user: null };
-  let user = null;
-  const token = req.cookies && req.cookies.iacms_token;
-  if (token) {
-    try {
-      const payload = jwtLib.verify(token, process.env.JWT_SECRET);
-      user = await dbPrisma.user.findUnique({ where: { id: payload.userId }, select: { role: true, isBlacklisted: true } });
-      if (user && user.isBlacklisted) user = null;
-    } catch (e) { user = null; }
-  }
+  const hit = await require('./middleware/auth')
+    .sessionUserFromToken(req.cookies && req.cookies.iacms_token);
+  const user = hit ? hit.user : null;
   const role = user && user.role;
   const allowed =
-    (m.visibility === 'IA'        && !!role) ||
+    (m.visibility === 'IA'        && ['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER'].includes(role)) ||
     (m.visibility === 'STAFF'     && ['HICOMM', 'SUPERVISOR', 'DEVELOPER'].includes(role)) ||
     (m.visibility === 'DEVELOPER' && role === 'DEVELOPER');
   return { allowed, user };
@@ -346,7 +553,7 @@ app.get('/m/:id', async (req, res) => {
    <meta name="twitter:image" content="${escHtml(raw)}">`;
     } else {
       og = `<meta property="og:type" content="website">
-   <meta property="og:title" content="🔒 Restricted ${escHtml(isVideo ? 'video' : 'image')} — ${escHtml(title)}">
+   <meta property="og:title" content="&#128274; Restricted ${escHtml(isVideo ? 'video' : 'image')} — ${escHtml(title)}">
    <meta property="og:description" content="This ${escHtml(isVideo ? 'video' : 'image')} is restricted to ${escHtml(audience)}. Sign in on metia.uk to view.">
    <meta property="og:image" content="${escHtml(base + '/img/logo.png')}">
    <meta name="twitter:card" content="summary">`;
@@ -359,7 +566,7 @@ app.get('/m/:id', async (req, res) => {
             : `<img src="${escHtml('/media/' + m.id)}" alt="${escHtml(title)}" class="media">`}</div>
 <div class="meta">${m.views || 0} views · uploaded ${new Date(m.createdAt).toLocaleDateString()}</div>`
       : `<div class="stage"><div class="restricted">
-     <div class="lock">🔒</div>
+     <div class="lock"><img src="/img/emoji/met_lock.png" alt="Restricted" width="44" height="44"></div>
      <div class="rt">This ${escHtml(isVideo ? 'video' : 'image')} is restricted</div>
      <div class="rs">Only ${escHtml(audience)} can view it. Sign in to continue.</div>
      <a class="rb" href="/ia/login">Sign in</a>
@@ -451,7 +658,13 @@ app.get('/media/:id', async (req, res) => {
 
     const buf = Buffer.isBuffer(m.data) ? m.data : Buffer.from(m.data);
     const total = buf.length;
-    res.set('Content-Type', m.mimeType);
+    // SVG (and any HTML-ish) content can carry inline scripts that would run on
+    // our own origin if rendered inline. Never let those render: serve as plain
+    // text and force a download instead.
+    const unsafeInline = /svg|html|xml/i.test(m.mimeType || '');
+    res.set('Content-Type', unsafeInline ? 'text/plain; charset=utf-8' : m.mimeType);
+    if (unsafeInline) res.set('Content-Disposition', `attachment; filename="${String(m.filename || 'file').replace(/[^\w.\-]+/g, '_')}"`);
+    res.set('X-Content-Type-Options', 'nosniff');
     res.set('Accept-Ranges', 'bytes');
     // Modest cache only — so changing a file from PUBLIC to private actually
     // stops it being served from a CDN/browser cache within minutes.
@@ -479,7 +692,7 @@ app.get('/media/:id', async (req, res) => {
   }
 });
 
-// ── Current user ─────────────────────────────────────────────────
+// ── Current user ────────────────────────────────────────────
 app.get('/api/me', requireAuth, async (req, res) => {
   // Re-check the user's IA rank on load (throttled) so a member who has been
   // demoted/removed loses access before the page finishes loading. If they no
@@ -500,6 +713,8 @@ app.get('/api/me', requireAuth, async (req, res) => {
     }
   } catch (e) { /* never block /api/me on a revalidation hiccup */ }
 
+  const { isSeniorInvestigatorPlus, isHicomm, iaRankLabel } = require('./lib/iaRank');
+  const { userNeedsFinalExam } = require('./middleware/division');
   res.json({
     id:              req.user.id,
     discordId:       req.user.discordId,
@@ -510,7 +725,18 @@ app.get('/api/me', requireAuth, async (req, res) => {
     isBlacklisted:   req.user.isBlacklisted,
     notifyAsked:     req.user.notifyAsked,
     notifyEnabled:   req.user.notifyEnabled,
+    // Whether the user holds the HPC final-exam role (login snapshot). Drives the
+    // "Final Exam" menu entry — the /exam page still does the authoritative check.
+    examEligible:    userNeedsFinalExam(req.user),
     divisions:       Array.isArray(req.user.divisions) ? req.user.divisions : [],
+    // IA standing — drives the SI+ gate on case appeals in the UI. The server
+    // enforces the same rule on every appeal endpoint; this is only so the
+    // button can be hidden rather than shown-and-rejected.
+    iaRank:          req.user.iaRank ?? null,
+    iaRankName:      req.user.iaRankName || null,
+    iaRankLabel:     iaRankLabel(req.user),
+    isSiPlus:        isSeniorInvestigatorPlus(req.user),
+    isHicomm:        isHicomm(req.user),
   });
 });
 
@@ -522,11 +748,25 @@ const { meta: divisionMeta, allMeta: allDivisionMeta, getDivisionConfig } = requ
 
 // Compute the divisions (with tier/rank/icon) a user belongs to. Shared by the
 // hub, the "Switch division" control, and the profile page.
+// Map a MET rank name to its quota tab (Constable → Chief Inspector) or null if
+// it isn't a tracked quota rank. Chief-first so "Chief Inspector" doesn't match
+// the bare "Inspector" tab. Tolerant of prefixes (e.g. "Police Constable").
+function metQuotaRankName(name) {
+  const n = (name || '').toString().toLowerCase();
+  if (/chief\s*inspector/.test(n)) return 'Chief Inspector';
+  if (/inspector/.test(n))         return 'Inspector';
+  if (/sergeant/.test(n))          return 'Sergeant';
+  if (/constable/.test(n))         return 'Constable';
+  return null;
+}
+
 async function computeMyDivisions(user) {
   const { ALL } = require('./lib/divisions');
   let mine;
   if (user.role === 'DEVELOPER') {
     mine = ALL.map(division => ({ division, tier: 'LEAD', rankName: 'Developer' }));
+    // Developers also get the Developer division (their own tools).
+    mine.push({ division: 'DEV', tier: 'LEAD', rankName: 'Developer' });
   } else {
     mine = (Array.isArray(user.divisions) ? user.divisions : []).slice();
     // IA access is governed by the site role, not the cache — surface it here
@@ -539,13 +779,77 @@ async function computeMyDivisions(user) {
     const { userHpcTier } = require('./middleware/division');
     mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
   }
+  // MET HICOMM — the dashboard-wide oversight tier (Deputy Commissioner+ in the MET
+  // group, or DEVELOPER). The 'MET' cache entry is an access marker, not a real
+  // division dashboard, so pull it out and use its rank for the HICOMM card. The
+  // member's other division cards are already ranked by their MET rank (from
+  // roleResolver), so their MET rank shows everywhere (above divisional HICOMM).
+  const metEntry = mine.find(d => d.division === 'MET');
+  mine = mine.filter(d => d.division !== 'MET');
+  try {
+    const { userIsMetHicomm } = require('./lib/metRank');
+    const isHicomm = !!metEntry || await userIsMetHicomm(user);
+    if (isHicomm && !mine.some(d => d.division === 'METHICOMM')) {
+      mine.push({ division: 'METHICOMM', tier: 'LEAD', rankName: (metEntry && metEntry.rankName) || 'High Command',
+        name: 'MET HICOMM', slug: 'hicomm', fullName: 'MET High Command', color: '#f5c518', icon: '/img/divisions/met.png' });
+    }
+  } catch (e) { /* metRank/Roblox unavailable → no HICOMM card */ }
   // Group icons (best-effort; empty when Roblox is unreachable / ids unset).
   let cfg = {};
   try { cfg = await getDivisionConfig(); } catch (e) { cfg = {}; }
   const icon = (d) => (cfg[d] && cfg[d].icon) || null;
+  const { displayTier, tierLabel } = require('./lib/ranks');
   return {
     icon,
-    mine: mine.map(d => ({ ...d, ...divisionMeta(d.division), icon: icon(d.division) })),
+    // Prefer the live Roblox group icon; fall back to a static meta icon (e.g.
+    // the Developer division's committed logo) so DEV shows a crest like the rest.
+    mine: mine.map(d => {
+      const m = divisionMeta(d.division) || {};
+      // Map the member's rank (or coarse access tier) → LOW / MIDDLE / HIGH per
+      // the division rank structure, for the profile "Divisions & rank" badge.
+      const rankTier = displayTier(d.division, d.rankName, d.tier);
+      return { ...d, ...m, icon: icon(d.division) || m.icon || d.icon || null, rankTier, rankTierLabel: tierLabel(rankTier) };
+    }),
+  };
+}
+
+// Merge site-derived perms (from the perms group) with bot-written perms,
+// de-duplicated by key/label so the same perm never shows twice.
+function mergePerms(...lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    for (const p of (Array.isArray(list) ? list : [])) {
+      if (!p) continue;
+      const id = String(p.key || p.label || '').toLowerCase().trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+// The signed-in user's identity card — dual avatars (Discord + Roblox), the MET
+// server nickname and their names. Powers the topbar user cluster and the
+// sidebar footer. Roblox avatar + nickname are best-effort so this never blocks.
+async function meIdentity(user) {
+  let robloxAvatar = null;
+  if (user.robloxId) {
+    try { robloxAvatar = await require('./lib/roblox').getRobloxAvatarHeadshot(user.robloxId); } catch (e) {}
+  }
+  let metNickname = null;
+  try {
+    const p = await dbPrisma.metMemberProfile.findUnique({ where: { discordId: user.discordId }, select: { metNickname: true } });
+    metNickname = p && p.metNickname ? p.metNickname : null;
+  } catch (e) { metNickname = null; }
+  return {
+    displayName:     user.displayName || user.discordUsername || null,
+    discordUsername: user.discordUsername || null,
+    discordAvatar:   user.discordAvatar || null,
+    robloxUsername:  user.robloxUsername || null,
+    robloxAvatar,
+    metNickname,
   };
 }
 
@@ -553,10 +857,13 @@ app.get('/api/me/divisions', requireAuth, async (req, res) => {
   const { mine, icon } = await computeMyDivisions(req.user);
   let metIcon = null;
   try { const cfg = await getDivisionConfig(); metIcon = cfg.MET ? cfg.MET.icon : null; } catch (e) {}
+  let identity = null;
+  try { identity = await meIdentity(req.user); } catch (e) { identity = null; }
   res.json({
     all:  allDivisionMeta().map(m => ({ ...m, icon: icon(m.division) })),
     mine,
     metIcon,
+    identity,
   });
 });
 
@@ -568,19 +875,194 @@ app.get('/api/me/divisions', requireAuth, async (req, res) => {
 app.get('/api/me/profile', requireAuth, async (req, res) => {
   const { mine } = await computeMyDivisions(req.user);
 
-  let metProfile = null, punishments = [];
+  let metProfile = null, botPunishments = [];
   try {
     metProfile = await dbPrisma.metMemberProfile.findUnique({ where: { discordId: req.user.discordId } });
   } catch (e) { metProfile = null; }
+
+  // The member's live MET-group role ({ id, name, rank }) — this is the rank name
+  // shown on the profile in place of the internal site role. Best-effort.
+  let metRankInfo = null;
   try {
-    punishments = await dbPrisma.metPunishment.findMany({
+    const { metRole } = require('./lib/metRank');
+    metRankInfo = await metRole(req.user.robloxId);
+  } catch (e) { metRankInfo = null; }
+
+  // "Linked" = can we actually see this member in the MET server right now? The
+  // external MET bot's MetMemberProfile row is one signal, but a member who's in
+  // the server (roles captured at login, or a live guild lookup, or a resolved
+  // MET rank) is just as linked — so we don't nag people who are plainly members.
+  let inGuildLive = null;
+  try {
+    const { getMemberRecord } = require('./lib/bot');
+    const rec = await getMemberRecord(req.user.discordId);
+    inGuildLive = rec ? rec.inDiscord : null;
+  } catch (e) { inGuildLive = null; }
+  const hasMetRoles = Array.isArray(req.user.metRoleIds) && req.user.metRoleIds.length > 0;
+  const linked = !!metProfile || !!metRankInfo || inGuildLive === true || hasMetRoles;
+
+  // Promotion/demotion timeline (ingested from the Discord promotions channel).
+  let rankHistory = [];
+  try {
+    const or = [{ userId: req.user.id }, { discordId: req.user.discordId }];
+    if (req.user.robloxId) or.push({ robloxId: String(req.user.robloxId) });
+    rankHistory = await dbPrisma.rankHistory.findMany({ where: { OR: or }, orderBy: { createdAt: 'desc' }, take: 20 });
+  } catch (e) { rankHistory = []; }
+  try {
+    botPunishments = await dbPrisma.metPunishment.findMany({
       where: { discordId: req.user.discordId },
       orderBy: { issuedAt: 'desc' },
       take: 100,
     });
-  } catch (e) { punishments = []; }
+  } catch (e) { botPunishments = []; }
+
+  // Disciplinary history = the member's own IA cases (reason, issuer, expiry,
+  // status) merged with any bot-written MetPunishment rows, newest first.
+  const { getCasePunishments } = require('./lib/punishments');
+  let casePunishments = [];
+  try {
+    casePunishments = await getCasePunishments({
+      discordId: req.user.discordId, robloxId: req.user.robloxId, robloxUsername: req.user.robloxUsername,
+    });
+  } catch (e) { casePunishments = []; }
+  // A /discipline action exists as BOTH a MetPunishment (what the bot reads)
+  // and a case (what the dashboard reads); they share a case ref. Show it once,
+  // preferring the case, which carries the detail and the appeal state.
+  const caseRefs = new Set(casePunishments.map(p => p.caseRef).filter(Boolean));
+  const punishments = casePunishments
+    .concat(botPunishments
+      .filter(p => !(p.caseRef && caseRefs.has(p.caseRef)))
+      .map(p => ({
+        // issuedBy is deliberately absent: who disciplined somebody is
+        // Internal Affairs' business, not the subject's.
+        id: p.id, type: p.type, reason: p.reason,
+        caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt, source: 'bot',
+      })))
+    .sort((a, b) => new Date(b.issuedAt) - new Date(a.issuedAt));
+
+  // Paid permissions come from the member's MET-server Discord roles (Media,
+  // Quota Exempt, Multi Divisional Permissions, Gang Permissions), captured at
+  // login → user.metRoleIds — NOT the Roblox perms group. Merged with any perms
+  // the bot wrote onto the profile. Standing flags come from the disciplinary
+  // Discord roles the same way.
+  const { permsFromMetRoles, flagsFromRoleIds } = require('./lib/permsGroup');
+  const rolePerms = permsFromMetRoles(req.user.metRoleIds);
+  const botPerms = (metProfile && Array.isArray(metProfile.perms)) ? metProfile.perms : [];
+  const perms = mergePerms(rolePerms, botPerms);
+  const flags = flagsFromRoleIds(req.user.metRoleIds);
+
+  // Medals — held via the MET-server Discord medal roles (multiple possible) and,
+  // best-effort, their rank in the Awards & Decorations Roblox group.
+  let medals = [];
+  try {
+    const { medalsForMember, awardsGroupId } = require('./lib/medals');
+    // Prefer the member's LIVE MET-server roles so a medal role granted AFTER
+    // login shows on refresh (metRoleIds is only captured at login). Falls back
+    // to the cached roles if the bot/guild lookup is unavailable.
+    let roleIds = req.user.metRoleIds;
+    try {
+      const gid = process.env.DISCORD_GUILD_ID;
+      if (gid) {
+        const { getGuildMemberRoles } = require('./lib/bot');
+        const live = await getGuildMemberRoles(req.user.discordId, gid);
+        if (live && Array.isArray(live.roleIds) && live.roleIds.length) roleIds = live.roleIds;
+      }
+    } catch (e) { /* fall back to cached metRoleIds */ }
+    let awardsRank = null;
+    if (req.user.robloxId) {
+      try {
+        const { getUserGroupRole } = require('./lib/roblox');
+        const role = await getUserGroupRole(req.user.robloxId, awardsGroupId());
+        if (role && Number(role.rank) > 0) awardsRank = Number(role.rank);
+      } catch (e) { /* Roblox unreachable → Discord roles only */ }
+    }
+    medals = medalsForMember({ metRoleIds: roleIds, awardsRank });
+  } catch (e) { medals = []; }
+
+  // MET quota card — Constable, Sergeant, Inspector and Chief Inspector all
+  // have to meet the MET quota, whether or not they're in a division: a
+  // division adds a quota, it does not replace the MET one. The only thing
+  // that lifts it is a bought Quota Exempt.
+  //
+  // MET quota is 3 events a week, and one point on the MET database is one
+  // event — so the target read off the sheet is 3 points (see
+  // quota.metQuotaForRank). Above Chief Inspector metQuotaRankName returns null
+  // and nothing is shown.
+  const boughtExempt = perms.some(p => p && p.key === 'quota_exempt');
+  let metQuota = null;
+  try {
+    const rankMatch = metQuotaRankName(metRankName);
+    if (linked && rankMatch) {
+      const q = require('./lib/quota');
+      const row = await q.getMemberPoints(
+        { discordId: req.user.discordId, robloxUsername: req.user.robloxUsername }, 'MET',
+      );
+      if (row && row.found) {
+        // The sheet read resolves the exemption from the Discord role too, but
+        // the perm chip is the same fact from a source that's already loaded —
+        // honour it even when the role-holder lookup was unavailable.
+        const exempt = !!(row.quota && row.quota.exempt) || boughtExempt;
+        const target = row.quota ? row.quota.target : null;
+        metQuota = {
+          rank:       row.rank || rankMatch,
+          exempt,
+          exemptKind: row.exemptKind || (boughtExempt ? 'PURCHASED' : (exempt ? 'EXEMPT' : null)),
+          total:      row.total,
+          target,
+          remaining:  exempt ? 0 : row.remaining,
+          tier:       row.quota ? row.quota.tier : null,
+          met:        exempt ? true : (target != null ? row.total >= target : null),
+        };
+      } else if (boughtExempt || row) {
+        // Not on the database yet (or the sheet is unreadable) — still say what
+        // their quota is rather than showing nothing at all.
+        metQuota = {
+          rank: rankMatch, exempt: boughtExempt, exemptKind: boughtExempt ? 'PURCHASED' : null,
+          total: 0, target: boughtExempt ? 0 : q.MET_TARGET(), remaining: boughtExempt ? 0 : q.MET_TARGET(),
+          tier: 'Officer', met: boughtExempt ? true : false, onDatabase: false,
+        };
+      }
+    }
+  } catch (e) { metQuota = null; }
+
+  // ── XP ──
+  // Their standing on the MET XP ladder. Everything here is a database read
+  // once they have been placed; seedFromRank only touches Roblox if their group
+  // rank has to be resolved, and metRankInfo already did that above.
+  let xp = null;
+  try {
+    const XP = require('./lib/xp');
+    await XP.seedFromRank(req.user.discordId, metRankInfo).catch(() => {});
+    const row = await XP.getBalance(req.user.discordId);
+    if (row) {
+      const p = XP.progress(row.xp);
+      const [standing, history, promo] = await Promise.all([
+        XP.standing(req.user.discordId).catch(() => ({ position: 0, total: 0 })),
+        XP.history(req.user.discordId, 8).catch(() => []),
+        // The promotion they have not been shown yet — the profile plays the
+        // same celebration /xp does, and dismisses it via /api/me/xp/promo-seen.
+        XP.peekPendingPromo(req.user.discordId).catch(() => null),
+      ]);
+      xp = {
+        xp: row.xp,
+        max: XP.maxXp(),
+        rank: { code: p.rank.code, name: p.rank.name, at: p.rank.at },
+        next: p.next ? { code: p.next.code, name: p.next.name, at: p.next.at } : null,
+        need: p.need, have: p.have, span: p.span, pct: p.pct,
+        position: standing.position, of: standing.total,
+        promo: promo || null,
+        // No issuedBy: who moved somebody's XP is command's business, the same
+        // way who disciplined them is.
+        history: history.map(h => ({
+          kind: h.kind, delta: h.delta, after: h.after,
+          reason: h.reason, fromRank: h.fromRank, toRank: h.toRank, at: h.createdAt,
+        })),
+      };
+    }
+  } catch (e) { xp = null; }
 
   res.json({
+    xp,
     user: {
       id:              req.user.id,
       discordId:       req.user.discordId,
@@ -592,22 +1074,91 @@ app.get('/api/me/profile', requireAuth, async (req, res) => {
       robloxId:        req.user.robloxId,
     },
     divisions: mine,
+    metQuota,
     metNickname: metProfile ? metProfile.metNickname : null,
+    // The member's MET-group rank name (shown as their role on the profile).
+    metRankName: metRankInfo ? metRankInfo.name : null,
+    // The MET server's own insignia for that rank, as an image the site can
+    // show — the same badge Discord shows, not a second mark for one rank.
+    metRankEmoji: (() => {
+      try {
+        const client = require('./lib/bot').getClient();
+        return client && metRankInfo ? require('./lib/rankEmoji').urlForRank(client, metRankInfo.name) : null;
+      } catch (e) { return null; }
+    })(),
+    metRank: metRankInfo ? metRankInfo.rank : null,
     roles: (metProfile && Array.isArray(metProfile.roles)) ? metProfile.roles : [],
-    perms: (metProfile && Array.isArray(metProfile.perms)) ? metProfile.perms : [],
+    perms,
+    flags,
+    medals,
     punishments: punishments.map(p => ({
       id: p.id, type: p.type, reason: p.reason, issuedBy: p.issuedBy,
       caseRef: p.caseRef, active: p.active, issuedAt: p.issuedAt, expiresAt: p.expiresAt,
     })),
-    // Whether the MET bot has ever written a profile for this member yet.
-    botLinked: !!metProfile,
+    // Promotion / demotion history (newest first).
+    rankHistory: rankHistory.map(r => ({
+      id: r.id, group: r.group, fromRank: r.fromRank, toRank: r.toRank,
+      reason: r.reason, byName: r.byName, createdAt: r.createdAt,
+    })),
+    // Whether we can see this member in the MET server (profile row, live guild
+    // membership, resolved MET rank, or roles captured at login).
+    botLinked: linked,
     // Mobile app download link (advertised to desktop users). null = show the
     // promo as "coming soon" until MOBILE_APP_URL is set.
     mobileAppUrl: process.env.MOBILE_APP_URL || null,
   });
 });
 
-// ── Current user's quota points (from the IA Database sheet) ─────
+// ── Perms diagnostic — see exactly why perms do/don't show. Open while logged
+// in: /api/me/perms-debug. Shows your stored Roblox id, the RAW roles Roblox
+// returns for your account in the perms group, and the perm chips derived from
+// them (after the rank 2..99 / non-divider filter). ─────
+app.get('/api/me/perms-debug', requireAuth, async (req, res) => {
+  const fetch = require('node-fetch');
+  const { getUserGroupRoles } = require('./lib/roblox');
+  const { permsGroupId, openCloudKey, permsFromGroupRoles, isPermRole, fetchOpenCloudPermRoles } = require('./lib/permsGroup');
+  const gid = permsGroupId();
+  const rid = req.user.robloxId;
+  let legacy = [], openCloud = [], error = null;
+
+  // Raw Open Cloud probe so misconfig is visible (status + what the API returns).
+  const rawOpenCloud = { status: null, rolePaths: [], body: null };
+  if (rid && openCloudKey()) {
+    try {
+      const url = `https://apis.roblox.com/cloud/v2/groups/${gid}/memberships?maxPageSize=10&filter=${encodeURIComponent(`user == 'users/${rid}'`)}`;
+      const r = await fetch(url, { headers: { 'x-api-key': openCloudKey() } });
+      rawOpenCloud.status = r.status;
+      const j = await r.json().catch(() => ({}));
+      const ms = j.groupMemberships || j.memberships || [];
+      for (const m of ms) { if (Array.isArray(m.roles)) m.roles.forEach(p => rawOpenCloud.rolePaths.push(p)); if (m.role) rawOpenCloud.rolePaths.push(m.role); }
+      if (r.status >= 400) rawOpenCloud.body = JSON.stringify(j).slice(0, 300);
+    } catch (e) { rawOpenCloud.body = e.message; }
+  }
+
+  try { legacy = rid ? await getUserGroupRoles(rid, gid) : []; } catch (e) { error = e.message; }
+  try { openCloud = rid && openCloudKey() ? await fetchOpenCloudPermRoles(rid) : []; } catch (e) { error = (error ? error + '; ' : '') + e.message; }
+  const chips = permsFromGroupRoles(openCloud.length ? openCloud : legacy);
+  res.json({
+    robloxId:         rid || null,
+    robloxUsername:   req.user.robloxUsername || null,
+    permsGroupId:     gid,
+    openCloudKeySet:  !!openCloudKey(),
+    rawOpenCloud,     // { status, rolePaths:[...], body } — 200 + rolePaths = working
+    source:           openCloud.length ? 'open-cloud (all roles)' : 'legacy (single role)',
+    openCloudRoles:   openCloud.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
+    legacyRoles:      legacy.map(r => ({ id: r.id, name: r.name, rank: r.rank, kept: isPermRole(r) })),
+    derivedPerms:     chips.map(p => p.label),
+    error,
+    hint: !rid ? 'No Roblox id stored — log out and back in to link it (needs DISCORD_GUILD_ID + RoVer).'
+      : (!openCloudKey() ? 'PERMS_GROUP_API_KEY not set — legacy endpoint returns only ONE role. Set an Open Cloud API key.'
+      : (rawOpenCloud.status && rawOpenCloud.status >= 400 ? `Open Cloud returned ${rawOpenCloud.status} — the API key lacks group-membership read scope for this group (or wrong group). Body: ${rawOpenCloud.body || ''}`
+      : (!rawOpenCloud.rolePaths.length ? 'Open Cloud returned 200 but no roles — this Roblox account holds no roles in the perms group (check the id is actually in the group).'
+      : (!chips.length ? 'You hold roles but all were filtered (rank <2 / >99 / divider / Member).'
+      : 'Perms resolved OK — they should show on your profile.')))),
+  });
+});
+
+// ── Current user's quota points (from the IA Database sheet) ───
 app.get('/api/me/points', requireAuth, async (req, res) => {
   try {
     const { getMemberPoints } = require('./lib/quota');
@@ -622,7 +1173,49 @@ app.get('/api/me/points', requireAuth, async (req, res) => {
   }
 });
 
-// ── Live updates (Server-Sent Events) ───────────────────────────
+// ── Dismiss the promotion celebration ──
+// The profile plays the promotion moment from `xp.promo`; once it has played,
+// the client calls this so it never plays again. Own account only — you can
+// only dismiss your own.
+app.post('/api/me/xp/promo-seen', requireAuth, async (req, res) => {
+  try {
+    await require('./lib/xp').clearPendingPromo(req.user.discordId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── Current user's activity stats (patrols, events, tryouts, etc.) ──
+// Powers the "My Activity" + achievements panel on the profile. Read-only
+// aggregation over the member's own approved logs.
+app.get('/api/me/stats', requireAuth, async (req, res) => {
+  try {
+    const discordId = req.user.discordId;
+    const [patrols, events, patrolAgg, tryoutsHosted, examPass, rankChanges] = await Promise.all([
+      dbPrisma.patrolLog.count({ where: { submitterDiscordId: discordId, type: 'PATROL', status: 'APPROVED' } }).catch(() => 0),
+      dbPrisma.patrolLog.count({ where: { submitterDiscordId: discordId, type: 'EVENT', status: 'APPROVED' } }).catch(() => 0),
+      dbPrisma.patrolLog.aggregate({ _sum: { totalMinutes: true }, where: { submitterDiscordId: discordId, type: 'PATROL', status: 'APPROVED' } }).catch(() => null),
+      dbPrisma.tryoutLog.count({ where: { OR: [{ hostDiscordId: discordId }, { hostId: req.user.id }], status: 'APPROVED' } }).catch(() => 0),
+      dbPrisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id, status: 'PASSED' }, select: { id: true } }).catch(() => null),
+      dbPrisma.rankHistory.count({ where: { OR: [{ userId: req.user.id }, { discordId }] } }).catch(() => 0),
+    ]);
+    // Division-based tile visibility: events-hosted → FLP; tryouts-hosted → HPC/CID.
+    let divs = [];
+    try { divs = Array.isArray(req.user.divisions) ? req.user.divisions : (typeof req.user.divisions === 'string' ? JSON.parse(req.user.divisions) : []); } catch (e) { divs = []; }
+    const inDiv = d => Array.isArray(divs) && divs.some(x => x && x.division === d);
+    res.json({
+      patrols, events,
+      totalMinutes: (patrolAgg && patrolAgg._sum && patrolAgg._sum.totalMinutes) || 0,
+      tryoutsHosted, examPassed: !!examPass, rankChanges,
+      showEvents: inDiv('FLP'),
+      showTryouts: inDiv('HPC') || inDiv('CID'),
+      memberSince: req.user.createdAt,
+    });
+  } catch (e) { res.status(500).json({ error: 'Failed to load stats' }); }
+});
+
+// ── Live updates (Server-Sent Events) ──────────────────────────
 // Opens a long-lived stream the browser subscribes to for instant in-page
 // updates (exam marked, tryout live, new sign-in). No-op on serverless where
 // connections can't be held; Web Push is the durable fallback.
@@ -631,7 +1224,7 @@ app.get('/api/events', requireAuth, (req, res) => {
   require('./lib/events').subscribe(req.user.id, res);
 });
 
-// ── Active sessions (device management) ─────────────────────────
+// ── Active sessions (device management) ──────────────────────
 // Lists the user's live sign-ins and lets them revoke any one, or all the
 // others ("sign out everywhere else"). Powered by the server-side Session
 // model that requireAuth validates on every request.
@@ -643,10 +1236,11 @@ app.get('/api/me/sessions', requireAuth, async (req, res) => {
       orderBy: { lastSeenAt: 'desc' },
     });
     res.json({
+      // IPs are intentionally NOT exposed to users — only devices + activity.
+      // (Developers see IPs in the Dev Security Center.)
       sessions: rows.map(s => ({
         id:        s.id,
         device:    s.device || 'Unknown device',
-        ip:        s.ip || null,
         createdAt: s.createdAt,
         lastSeenAt: s.lastSeenAt,
         current:   s.id === req.sessionId,
@@ -691,11 +1285,55 @@ app.post('/api/me/sessions/revoke-others', requireAuth, async (req, res) => {
   }
 });
 
-// ── Page routes ──────────────────────────────────────────────────
+// ── Page routes ─────────────────────────────────────────────
 const views = path.join(__dirname, '../client/views');
 
 // Send HTML with comments stripped; fall back to the raw file on any error.
-function sendPage(res, file) {
+//
+// `division` brands the page for one division (IA / CID / SCO19 / FLP / HPC):
+// its accent palette, logo, favicon and crest are injected here rather than
+// baked into the view, so the same view can be served under more than one
+// division's path and so the theme is correct on first paint.
+// The origin this request actually came in on. Link previews are fetched by
+// Discord's servers, not by the reader's browser, so a root-relative image is
+// nothing they can resolve — every embed tag has to be absolute, and against the
+// host that served the page rather than a hard-coded one.
+function originOf(req) {
+  const host = String((req && (req.headers['x-forwarded-host'] || req.headers.host)) || '')
+    .split(',')[0].trim().toLowerCase();
+  if (host && /^[a-z0-9.-]+(:\d+)?$/.test(host)) return 'https://' + host;
+  return (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '') || null;
+}
+
+// ── Link previews for pages behind the sign-in ────────────────────
+// Every division dashboard requires auth, and Discord's crawler has none — so it
+// was following the redirect to the hub and embedding the hub: "MET Dashboard"
+// and the plain MET crest, whichever division the link pointed at.
+//
+// A crawler is answered directly with the division's own preview instead. Only a
+// crawler: a person with no session still gets the normal redirect to sign in, so
+// nothing about the login flow changes, and nothing behind the gate is served —
+// the response is a title, a description and a logo, all from our own table.
+const CRAWLER_UA = /discordbot|twitterbot|slackbot|facebookexternalhit|whatsapp|telegrambot|linkedinbot|embedly|redditbot|skypeuripreview|bingpreview|googlebot|applebot|mastodon|iframely|vkshare|pinterest/i;
+
+function linkPreview(division) {
+  return function (req, res, next) {
+    const ua = String(req.headers['user-agent'] || '');
+    if (!CRAWLER_UA.test(ua)) return next();
+    const { brandMeta, brandFor } = require('./lib/divisions');
+    const b = brandFor(division);
+    const esc = v => String(v == null ? '' : v).replace(/[&"<>]/g, c =>
+      ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]));
+    res.type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8" />'
+      + `<title>${esc(b.name)} Dashboard · Metropolitan Police Service</title>`
+      + brandMeta(division, originOf(req))
+      + `<meta name="robots" content="noindex" />`
+      + `</head><body><h1>${esc(b.fullName)}</h1>`
+      + `<p>${esc(b.tagline || '')} — sign in to continue.</p></body></html>`);
+  };
+}
+
+function sendPage(res, file, division) {
   try {
     let html = getMinifiedHtml(file);
     // Site-wide UI theme (dev toggle). Injected server-side so it applies for
@@ -703,48 +1341,223 @@ function sendPage(res, file) {
     if (require('./lib/siteConfig').isOn('auroraTheme')) {
       html = html.replace('<html', '<html data-ui="aurora"');
     }
+    if (division) {
+      const { brandHead, META } = require('./lib/divisions');
+      const slug = META[division] && META[division].slug;
+      // An unknown division just means "no branding" — never a broken page.
+      if (slug) {
+        html = html.replace('<html', `<html data-division="${slug}"`);
+        if (html.includes('</head>')) {
+          // A page that already carries its own og: tags would otherwise have two
+          // of each, and a crawler takes the first — the generic one. The
+          // division's are the right ones, so the page's own go.
+          html = html.replace(/\s*<meta\s+(?:property|name)="(?:og:[a-z:]+|twitter:[a-z:]+)"[^>]*>/gi, '');
+          html = html.replace('</head>', brandHead(division, originOf(res.req)) + '</head>');
+        }
+      }
+    }
+    // Anti-copy / anti-save guard, baked with the actual serving host so a
+    // saved (file://) or re-hosted copy locks itself, while the real site —
+    // on any domain — never can.
+    try {
+      const req = res.req;
+      const host = String((req && (req.headers['x-forwarded-host'] || req.headers.host)) || '')
+        .split(',')[0].trim().toLowerCase();
+      // Developers keep devtools/right-click; everyone else gets the deterrent.
+      let devState = 'unknown';
+      if (req && req.user) devState = req.user.role === 'DEVELOPER' ? 'dev' : 'nondev';
+      // Sign-in pages must not run the right-click/key deterrents — they break
+      // mobile password managers / autofill (the reported "screen freezes when I
+      // tap a saved password" bug). No proprietary UI lives on these pages.
+      const base = require('path').basename(String(file || ''));
+      const skipDeterrent = base === 'index.html' || base === 'login.html';
+      // Point social-embed image/url tags at the ACTUAL serving host, so link
+      // previews (Discord/Twitter) resolve the logo on whatever domain served
+      // the page — slrmet.com, metia.uk, etc. — instead of a hard-coded domain
+      // that may cross-host redirect (which crawlers won't follow for images).
+      if (host && /^[a-z0-9.-]+$/.test(host)) {
+        const origin = 'https://' + host;
+        html = html.replace(
+          /(<meta\s+(?:property|name)="(?:og:image|og:image:secure_url|og:url|twitter:image)"\s+content=")https?:\/\/[^/"]+/gi,
+          '$1' + origin,
+        );
+      }
+      html = require('./lib/assets').injectAntiCopyGuard(html, host, devState, { skipDeterrent });
+    } catch (e) { /* never block the page render on the guard */ }
+    // Ask AI crawlers not to train on / archive this page (advisory; the major
+    // AI bots honour it). Not "noindex" — search indexing stays robots.txt-governed.
+    try { res.set('X-Robots-Tag', 'noai, noimageai, noarchive'); } catch (e) { /* header set best-effort */ }
     res.type('html').send(html);
   } catch (e) { res.sendFile(file); }
 }
 
-// ── Hub — MET Police Service portal landing page ──────────────────
+// ── Hub — MET Police Service dashboard landing page ──────────────────
 // Public: shows a "Sign in" CTA when logged out, and the 5 division cards
 // (per-user access resolved client-side via /api/me + /api/me/divisions)
 // once authenticated. requireAuth's `res.redirect('/login')` lands here too.
 app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'index.html')));
 app.get('/login',                (req, res) => res.redirect('/' + req.url.replace(/^\/login/, '')));
-app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
+app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
+
+// Public one-click opt-out / opt-in for the IA ticket DMs. Reached from the
+// signed link in the Discord DM (no login needed); the HMAC in `sig` binds the
+// link to this user so it can't flip anyone else's preference.
+app.get('/n/ticket-dm', async (req, res) => {
+  const { u, sig, off } = req.query;
+  const { verifyTicketDmSig, ticketDmToggleUrl } = require('./lib/dmOptOut');
+  const page = (title, inner) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>`
+    + `<style>body{font-family:system-ui,-apple-system,sans-serif;background:#0b0f18;color:#e8edf5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}`
+    + `.card{max-width:430px;text-align:center;background:#111722;border:1px solid #2a3040;border-radius:16px;padding:30px 26px}h1{font-size:19px;margin:0 0 10px}p{color:#aeb6c2;font-size:14px;line-height:1.6;margin:0 0 18px}`
+    + `a.btn{display:inline-block;padding:11px 18px;border-radius:10px;background:#4a8fff;color:#fff;text-decoration:none;font-weight:700;font-size:14px}a.alt{display:block;margin-top:14px;color:#8b93a1;font-size:12px}</style></head><body><div class="card">${inner}</div></body></html>`;
+  if (!u || !verifyTicketDmSig(u, sig)) {
+    return res.status(400).type('html').send(page('Invalid link', '<h1>Link invalid or expired</h1><p>Manage your notifications from the dashboard instead.</p><a class="btn" href="/dashboard">Open dashboard</a>'));
+  }
+  const optOut = String(off) === '1';
+  try {
+    const user = await dbPrisma.user.findUnique({ where: { id: String(u) }, select: { notifyPrefs: true } });
+    if (!user) return res.status(404).type('html').send(page('Not found', '<h1>Account not found</h1><p>We couldn’t find your account.</p>'));
+    const prefs = (user.notifyPrefs && typeof user.notifyPrefs === 'object') ? { ...user.notifyPrefs } : {};
+    prefs.ticketDM = !optOut;
+    await dbPrisma.user.update({ where: { id: String(u) }, data: { notifyPrefs: prefs } });
+    const toggleBack = ticketDmToggleUrl(String(u), !optOut);
+    const inner = optOut
+      ? '<h1>You’re opted out ✓</h1><p>You’ll no longer get a Discord DM when a new Internal Affairs ticket opens. You can turn them back on any time.</p><a class="btn" href="' + toggleBack + '">Turn DMs back on</a><a class="alt" href="/dashboard">Go to dashboard</a>'
+      : '<h1>DMs turned back on ✓</h1><p>You’ll get a Discord DM with a claim link when a new Internal Affairs ticket opens.</p><a class="btn" href="' + toggleBack + '">Opt out again</a><a class="alt" href="/dashboard">Go to dashboard</a>';
+    res.type('html').send(page(optOut ? 'Opted out' : 'Opted in', inner));
+  } catch (e) {
+    res.status(500).type('html').send(page('Error', '<h1>Something went wrong</h1><p>Please try again, or manage notifications from the dashboard.</p><a class="btn" href="/dashboard">Open dashboard</a>'));
+  }
+});
 
 // MET dashboard — the signed-in landing: identity, divisions, exam, record.
 // (The profile page IS the dashboard; served at both paths.)
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 
+// Leave of Absence — any signed-in member requests; reviewers see a queue.
+
+// QR sign-in approval — opened by scanning a QR from a logged-out browser; the
+// (already logged-in) device approves the browser's sign-in. requireAuth so
+// only a signed-in device can approve.
+app.get('/link/approve', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'link-approve.html')));
+
 // Final Examination — any signed-in officer; the page itself gates on
 // eligibility (the HPC final-exam Discord role) via /api/exam/my.
 app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'exam.html')));
 
+// Support help desk — any signed-in user (community members open tickets;
+// staff see a queue for the types they handle). One page serves both.
+
 // ── IA — Internal Affairs (unchanged views, re-homed under /ia) ───
-app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));
-app.get('/ia/login',     recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html')));
-app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'denied.html')));
-app.get('/ia/dashboard', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
-app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
-app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html')));
+// Every /ia page is branded IA — violet accent, IA crest, IA favicon.
+app.get('/ia',           recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html'), 'IA'));
+app.get('/ia/login',     recordVisit, (req, res) => sendPage(res, path.join(views, 'login.html'), 'IA'));
+app.get('/ia/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'denied.html'), 'IA'));
+// The application itself is open to any signed-in member — that is the whole
+// point of it. IA branding, because it is an IA form, but NO requireDivision:
+// gating it on being in IA would mean only people who are already in can apply.
+app.get('/ia/application', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'ia-application.html'), 'IA'));
+app.get('/ia-application',  recordVisit, requireAuth, (req, res) => res.redirect('/ia/application'));
+// The marking view. requireDivision('IA') gets them onto the page; the API behind
+// it is Deputy-Director-and-above, so a plain investigator sees an empty shell
+// rather than anybody's answers.
+app.get('/ia/applications', recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'ia-applications.html'), 'IA'));
+app.get('/ia/dashboard', recordVisit, linkPreview('IA'), requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
+app.get('/ia/admin',     recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
+app.get('/ia/tickets',   recordVisit, requireAuth, requireDivision('IA'), (req, res) => sendPage(res, path.join(views, 'dashboard.html'), 'IA'));
+
+// ── Case documents — the on-site replacement for the Google Doc ───
 
 // ── New divisions — own dashboard view each, gated by their own division ──
 function mountDivisionPages(slug, division) {
   app.get(`/${slug}`,           recordVisit, (req, res) => res.redirect('/'));
-  app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'portal-denied.html')));
-  app.get(`/${slug}/dashboard`, recordVisit, requireAuth, requireDivision(division),
-    (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`)));
+  app.get(`/${slug}/denied`,    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html'), division));
+  app.get(`/${slug}/dashboard`, recordVisit, linkPreview(division), requireAuth, requireDivision(division),
+    (req, res) => sendPage(res, path.join(views, `${slug}-dashboard.html`), division));
 }
-mountDivisionPages('cid',   'CID');
+// CID pages: dashboard is gated by CID tryout access (the CID Discord roles),
+// not the generic CID-division cache.
+app.get('/cid',           recordVisit, (req, res) => res.redirect('/'));
+app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html'), 'CID'));
+app.get('/cid/dashboard', recordVisit, linkPreview('CID'), requireAuth, requireCidTryout,
+  (req, res) => sendPage(res, path.join(views, 'cid-dashboard.html'), 'CID'));
 mountDivisionPages('sco19', 'SCO19');
 mountDivisionPages('flp',   'FLP');
 mountDivisionPages('hpc',   'HPC');
 
-// ── 404 / Error ──────────────────────────────────────────────────
+// ── MET HICOMM — dashboard-wide oversight dashboard (Deputy Commissioner+). ──
+app.get('/hicomm',           recordVisit, (req, res) => res.redirect('/hicomm/dashboard'));
+app.get('/hicomm/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
+app.get('/hicomm/dashboard', recordVisit, requireAuth, requireMetHicomm,
+  (req, res) => sendPage(res, path.join(views, 'hicomm-dashboard.html')));
+
+// ── PWA install + phone handoff ──
+// /app — the install page (QR to hand off to a phone, install + notification opt-in).
+app.get('/app', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'app.html')));
+// /mobile/:token — a phone opened the handoff link: consume the one-time token
+// and transfer the session to this device (sets the same JWT cookie as a normal
+// login). NOTE: must not be "/m/:token" — that path is the media-embed route.
+app.get('/mobile/:token', recordVisit, async (req, res) => {
+  try {
+    const jwt = require('jsonwebtoken');
+    const row = await dbPrisma.mobileLoginToken.findUnique({ where: { token: String(req.params.token) } });
+    if (!row || row.usedAt || row.expiresAt < new Date()) return res.redirect('/login?error=link_expired');
+    await dbPrisma.mobileLoginToken.update({ where: { id: row.id }, data: { usedAt: new Date() } });
+    const user = await dbPrisma.user.findUnique({ where: { id: row.userId } });
+    if (!user || user.isBlacklisted || user.mustReauth) return res.redirect('/login');
+    // Create a real Session row so the token carries a `sid` — requireAuth
+    // rejects any token without one, which previously broke the whole handoff.
+    await require('./routes/auth').createSession(req, res, user);
+    return res.redirect('/app?welcome=1');
+  } catch (e) {
+    console.error('[App] handoff failed:', e.message);
+    return res.redirect('/login');
+  }
+});
+
+// ── Developer division — the developer tools, moved out of the IA section into
+// their own division. Developers only. Reuses the IA dashboard view, which
+// switches to "developer mode" (dev tools only) when served from /dev. ──
+app.get('/dev',        recordVisit, (req, res) => res.redirect('/dev/dashboard'));
+app.get('/dev/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
+app.get('/dev/dashboard', recordVisit, requireAuth, (req, res) => {
+  if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
+  return sendPage(res, path.join(views, 'dev-dashboard.html'));
+});
+// Dev Security Center — its own page, DEV-branded, decoupled from IA.
+app.get('/dev/security', recordVisit, requireAuth, (req, res) => {
+  if (req.user.role !== 'DEVELOPER') return res.redirect('/dev/denied');
+  return sendPage(res, path.join(views, 'dev-security.html'));
+});
+
+// ── Health ──────────────────────────────────────────────────
+// Answers 200 whenever the PROCESS is healthy, and reports the database
+// separately. Deliberately not 503 when the database is down: this is what the
+// platform restarts the container on, and restarting the app does not fix
+// Postgres — it just takes the site down too, which is what turned a database
+// outage into a total outage once already.
+app.get(['/healthz', '/api/healthz'], async (req, res) => {
+  let db = 'down', dbError = null;
+  try {
+    await require('./lib/db').$queryRawUnsafe('SELECT 1');
+    db = 'up';
+  } catch (e) {
+    // Prisma's message starts with a blank line, so the first line is empty and
+    // taking it reports nothing at all.
+    dbError = String(e && e.message || e).split('\n').map(l => l.trim())
+      .find(Boolean) || 'unreachable';
+    dbError = dbError.slice(0, 200);
+  }
+  res.status(200).json({
+    ok: true,
+    db,
+    dbError,
+    uptimeSeconds: Math.round(process.uptime()),
+    startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+  });
+});
+
+// ── 404 / Error ─────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404);
   // Never return the HTML hub page for asset/api requests — doing so makes a
@@ -753,7 +1566,7 @@ app.use((req, res) => {
   if (req.path.startsWith('/api/') || /\.[a-z0-9]{2,5}$/i.test(req.path)) {
     return res.type('text').send('Not found');
   }
-  sendPage(res, path.join(views, 'index.html'));
+  sendPage(res, path.join(views, 'not-found.html'));
 });
 app.use((err, req, res, next) => {
   console.error('[Server] Unhandled error:', err.stack || err.message);
@@ -772,13 +1585,25 @@ process.on('uncaughtException', (err) => {
 // Only bind a port when run as a real long-lived process (Railway, local,
 // `node server/index.js`). On serverless (Vercel), this module is imported by
 // api/index.js and the platform provides the HTTP layer — no listener needed.
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`\n🛡  MET Portal running on http://localhost:${PORT}`);
+//
+// MET_LISTEN=1 is the explicit form, for when something else owns the entry point
+// but this is still a long-lived server: scripts/start.js requires this module
+// rather than spawning it, so that signals and exit codes stay with one process,
+// and `require.main` is therefore the starter and not this file.
+if (require.main === module || process.env.MET_LISTEN === '1') {
+  const httpServer = app.listen(PORT, () => {
+    console.log(`\n[MET] Dashboard running on http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     console.log(`   DEVELOPER_DISCORD_ID: ${process.env.DEVELOPER_DISCORD_ID || 'NOT SET'}`);
     console.log(`   DB: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}\n`);
+    // Pre-obfuscate client JS into cache so the first page load isn't slowed
+    // by the one-time obfuscation pass. Non-blocking, best-effort.
+    try { require('./lib/assets').warmJsCache(PUBLIC_DIR + '/js'); } catch (e) {}
   });
+  // CAD voice gateway: lets an external voice worker (on a UDP-capable host)
+  // dial IN over WebSocket, since Railway can't do the voice UDP handshake and
+  // free bot hosts give no inbound URL. No-op unless CAD_VOICE_WORKER_SECRET set.
+  try { require('./lib/cad/voice/gateway').attach(httpServer); } catch (e) { console.error('[CAD] gateway attach failed:', e && e.message); }
 }
 
 // Export the Express app so serverless platforms (Vercel) can use it as a

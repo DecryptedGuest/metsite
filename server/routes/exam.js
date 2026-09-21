@@ -5,14 +5,15 @@
 const express = require('express');
 const prisma  = require('../lib/db');
 const hpcExam = require('../lib/hpcExam');
-const { userNeedsFinalExam, userHpcTier } = require('../middleware/division');
+const { userHasFinalExamRole, userHpcTier } = require('../middleware/division');
 
 const router = express.Router();
 
-// Who may even see the paper: eligible cadets, HPC instructors (to review), and
-// developers. Everyone else is kept out — leaking the exam is a blacklist offence.
-function mayViewPaper(user) {
-  return user.role === 'DEVELOPER' || userNeedsFinalExam(user) || userHpcTier(user, 'instructor');
+// Who may even see the paper: eligible cadets (hold the final-exam role), HPC
+// instructors (to review), and developers. Everyone else is kept out — leaking
+// the exam is a blacklist offence.
+async function mayViewPaper(user) {
+  return user.role === 'DEVELOPER' || userHpcTier(user, 'instructor') || await userHasFinalExamRole(user);
 }
 
 function summariseOwn(s) {
@@ -25,9 +26,14 @@ function summariseOwn(s) {
 }
 
 // GET /api/exam/my — the cadet's eligibility + latest attempt status.
+// Eligibility here is purely "do they actually hold the final-exam role" — this
+// drives whether the Final Examination panel shows on the profile, so it must
+// reflect the real requirement and NOT force-show for developers/HPC. Devs and
+// HPC instructors can still preview the paper by opening /exam directly
+// (mayViewPaper lets them through).
 router.get('/my', async (req, res) => {
   try {
-    const eligible = req.user.role === 'DEVELOPER' || userNeedsFinalExam(req.user);
+    const eligible = await userHasFinalExamRole(req.user);
     const latest = await prisma.hpcExamSubmission.findFirst({
       where: { userId: req.user.id },
       orderBy: { createdAt: 'desc' },
@@ -42,23 +48,64 @@ router.get('/my', async (req, res) => {
   }
 });
 
+// GET /api/exam/lookup?roblox=&discord= — identity confirmation before the exam.
+// Resolves the typed Roblox username (public Roblox API → avatar + display name)
+// and the typed Discord username (via the bot, best-effort), and always returns
+// the signed-in account so the cadet can cross-check "is this you?".
+router.get('/lookup', async (req, res) => {
+  const roblox  = String(req.query.roblox || '').trim();
+  const discord = String(req.query.discord || '').trim();
+  const out = { roblox: null, discord: null,
+    me: { discordId: req.user.discordId, discordUsername: req.user.discordUsername,
+      displayName: req.user.displayName, avatar: req.user.discordAvatar, robloxUsername: req.user.robloxUsername } };
+
+  if (roblox) {
+    try {
+      const rlib = require('../lib/roblox');
+      const r = await rlib.getRobloxIdFromUsername(roblox);
+      if (r && r.id) {
+        let avatar = null;
+        try { avatar = await rlib.getRobloxAvatarHeadshot(r.id); } catch (e) {}
+        out.roblox = { found: true, id: r.id, username: r.username, displayName: r.displayName, avatar };
+      } else out.roblox = { found: false };
+    } catch (e) { out.roblox = { found: false, error: 'lookup failed' }; }
+  }
+
+  if (discord) {
+    try {
+      const bot = require('../lib/bot');
+      const list = await bot.searchGuildMembers(discord, 1).catch(() => []);
+      const m = (list && list[0]) || null;
+      if (m) out.discord = { found: true, id: m.id, username: m.username, displayName: m.displayName, avatar: m.avatar || null, inServer: true };
+      else out.discord = { found: false };
+    } catch (e) { out.discord = { found: false }; }
+  }
+
+  res.json(out);
+});
+
 // GET /api/exam/paper — the questions (gated; never includes an answer key).
-router.get('/paper', (req, res) => {
-  if (!mayViewPaper(req.user)) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
+router.get('/paper', async (req, res) => {
+  if (!(await mayViewPaper(req.user))) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
   res.json(hpcExam.publicPaper());
 });
 
 // POST /api/exam/submit — submit answers + anti-cheat telemetry.
 router.post('/submit', async (req, res) => {
-  const eligible = req.user.role === 'DEVELOPER' || userNeedsFinalExam(req.user);
+  const eligible = req.user.role === 'DEVELOPER' || await userHasFinalExamRole(req.user);
   if (!eligible) return res.status(403).json({ error: 'You are not eligible to take this exam.' });
 
   const { answers, detection } = req.body || {};
   if (!answers || typeof answers !== 'object') return res.status(400).json({ error: 'answers are required' });
 
-  // Block a second attempt while one is still awaiting marking.
-  const pending = await prisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id, status: 'PENDING' } });
-  if (pending) return res.status(409).json({ error: 'You already have an exam awaiting marking.' });
+  // Only a fresh attempt (no prior) or a retake after a FAIL is allowed — mirror
+  // /my's canRetake rule so a passed/pending cadet can't re-submit.
+  const latest = await prisma.hpcExamSubmission.findFirst({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' } });
+  if (latest && latest.status !== 'FAILED') {
+    return res.status(409).json({ error: latest.status === 'PENDING'
+      ? 'You already have an exam awaiting marking.'
+      : 'You have already passed the final exam.' });
+  }
 
   // Validate required questions are answered.
   const missing = hpcExam.QUESTIONS.filter(q => q.required && !String(answers[q.id] || '').trim()).map(q => q.id);

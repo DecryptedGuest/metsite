@@ -6,19 +6,25 @@
   <title>MET · CID Dashboard</title>
   <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
   <link rel="stylesheet" href="/css/main.css" />
+  <!-- MET emoji: the fallback map (generated from scripts/emoji/manifest.js)
+       and the met.e() helper. In <head> and unconditional so every later
+       script can call met.e() without ordering games. -->
+  <script src="/js/emoji-map.js?v=1"></script>
+  <script src="/js/emoji.js?v=1"></script>
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/aurora.css" />
-  <link rel="stylesheet" href="/css/met-portal.css" />
+  <link rel="stylesheet" href="/css/met-dashboard.css?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="/css/enhance.css?v=5" />
 </head>
-<body>
+<body class="div-cid">
 <div class="bg-canvas">
   <div class="bg-grid"></div><div class="bg-glow-1"></div><div class="bg-glow-2"></div><div class="bg-scanline"></div>
 </div>
 
 <div class="met-topbar">
   <div class="met-topbar-left">
-    <img src="/img/logo.png" class="met-topbar-logo" alt="MET" />
+    <img src="/img/divisions/cid.png" class="met-topbar-logo" alt="CID" />
     <div class="met-topbar-title">
       <span class="met-topbar-brand">Metropolitan Police Service</span>
       <span class="met-topbar-division" id="met-division-badge">CID</span>
@@ -42,41 +48,232 @@
   <aside class="sidebar">
     <div class="sidebar-top">
       <div class="sidebar-brand">
-        <div class="brand-logo"><img src="/img/logo.png" alt="CID" /></div>
+        <div class="brand-logo"><img src="/img/divisions/cid.png" alt="CID" /></div>
         <div class="brand-text">
           <div class="brand-name">MET · CID</div>
-          <div class="brand-sub">Criminal Investigation</div>
+          <div class="brand-sub">Criminal Investigation Department</div>
         </div>
       </div>
       <div class="sidebar-divider"></div>
       <nav class="sidebar-nav">
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
+        <div class="nav-section-label">Tryouts</div>
+        <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
+        <button class="nav-item" data-page="tryouts"><i class="ti ti-calendar-event nav-icon"></i><span>Tryouts</span></button>
+        <button class="nav-item" data-page="live"><i class="ti ti-broadcast nav-icon"></i><span>Live</span><span class="nav-badge" id="cid-live-badge" style="display:none;background:var(--green);"></span></button>
+        <button class="nav-item" data-page="tryout-logs"><i class="ti ti-clipboard-list nav-icon"></i><span>My Tryout Logs</span></button>
+        <button class="nav-item approve-only" data-page="review-logs" style="display:none;"><i class="ti ti-clipboard-check nav-icon"></i><span>Review Logs</span><span class="nav-badge pending" id="cid-review-badge" style="display:none;"></span></button>
+        <div class="nav-section-label">Activity</div>
+        <button class="nav-item" data-page="dq-activity"><i class="ti ti-activity-heartbeat nav-icon"></i><span>Activity Tracking</span></button>
+        <div class="nav-section-label dq-hicomm" style="display:none;">High Command</div>
+        <button class="nav-item dq-hicomm" data-page="dq-quota" style="display:none;"><i class="ti ti-checklist nav-icon"></i><span>Quota Check</span></button>
       </nav>
     </div>
   </aside>
 
   <main class="main-content">
+    <!-- OVERVIEW -->
     <section class="page active" id="page-dashboard">
       <div class="page-header fade-up">
-        <div><h1 class="page-title">Criminal Investigation</h1><p class="page-sub">CID · Overview</p></div>
+        <div><h1 class="page-title">Criminal Investigation</h1><p class="page-sub">CID · Tryouts</p></div>
+        <button class="btn btn-primary" onclick="cidOpenSchedule()"><i class="ti ti-calendar-plus"></i> Schedule Tryout</button>
       </div>
+      <!-- At-a-glance KPIs -->
+      <div id="cid-kpis" class="fade-up"></div>
+      <div class="panel glass fade-up" id="dq-CID-mine" style="display:none;"></div>
       <div class="panel glass fade-up stagger-1">
-        <div style="padding:3rem 1.5rem;text-align:center;color:var(--text-secondary);">
-          <div style="font-size:40px;margin-bottom:1rem;">🚧</div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:0.5rem;">More features coming soon</div>
-          <div style="font-size:13px;max-width:440px;margin:0 auto;line-height:1.7;">CID tools are being built. You have access to this division — check back soon for its features.</div>
+        <div style="padding:1.6rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
+          Welcome to the CID tryout dashboard. Schedule and run CID entrance tryouts, drive them live from the site,
+          and log the results. Reviewing concluded tryout logs is restricted to the <strong>Director's Office</strong>.
+          See the <strong>Analytics</strong> tab for trends, host performance and integrity flags.
         </div>
       </div>
     </section>
+
+    <!-- ANALYTICS -->
+    <section class="page" id="page-analytics">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">CID Analytics</h1><p class="page-sub">Tryout trends, host leaderboard, recruitment funnel &amp; integrity</p></div>
+      </div>
+      <div id="cid-analytics"></div>
+    </section>
+
+    <!-- TRYOUTS -->
+    <section class="page" id="page-tryouts">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">CID Tryouts</h1><p class="page-sub">Schedule and manage CID entrance tryouts</p></div>
+        <button class="btn btn-primary" onclick="cidOpenSchedule()"><i class="ti ti-calendar-plus"></i> Schedule Tryout</button>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Upcoming &amp; Recent</div>
+          <button class="btn btn-ghost btn-sm" onclick="cidLoadTryouts()"><i class="ti ti-refresh"></i> Refresh</button></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>When</th><th>Host</th><th>Co-Host</th><th>Status</th><th>Link</th><th></th></tr></thead>
+            <tbody id="cid-tryouts-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE -->
+    <section class="page" id="page-live">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Live Tryouts</h1><p class="page-sub">Watch and drive running tryouts · updates every few seconds</p></div>
+        <span class="badge badge-pending" id="cid-live-status"><span class="badge-dot"></span>Connecting…</span>
+      </div>
+      <div id="cid-live-wrap"><div class="table-loading"><div class="spinner"></div></div></div>
+    </section>
+
+    <!-- MY TRYOUT LOGS -->
+    <section class="page" id="page-tryout-logs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">My Tryout Logs</h1><p class="page-sub">Review what happened, then post your concluded tryout for approval</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Your Tryouts</div></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Concluded</th><th>Attendees</th><th>Passed</th><th>Failed</th><th>Strikes</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cid-mylogs-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEW TRYOUT LOGS (Director's Office) -->
+    <section class="page" id="page-review-logs">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Review Tryout Logs</h1><p class="page-sub">Director's Office · approve or deny · approval adds +1 event on the CID database</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>Tryout Logs</div>
+          <div class="filter-tabs" id="cid-logfilter-tabs">
+            <button class="filter-tab active" data-filter="PENDING">Pending</button>
+            <button class="filter-tab" data-filter="APPROVED">Approved</button>
+            <button class="filter-tab" data-filter="DENIED">Denied</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Host</th><th>Attendees</th><th>Passed</th><th>Failed</th><th>Strikes</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cid-reviewlogs-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ACTIVITY TRACKING (read-only, every CID member) -->
+    <section class="page" id="page-dq-activity">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Activity Tracking</h1><p class="page-sub">Every member's weekly activity · read-only</p></div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot" style="background:#8b93a1;"></span>CID Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-CID-act-tabs"></span>
+            <span class="text-muted mono" id="dq-CID-act-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="dq-CID-act-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUOTA CHECK (CID High Command) -->
+    <section class="page" id="page-dq-quota">
+      <div class="page-header fade-up">
+        <div><h1 class="page-title">Quota Check</h1><p class="page-sub">CID High Command · Reviews the CID database</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="DivQuota.reset('CID')"><i class="ti ti-trash"></i> Reset All Points</button>
+          <button class="btn btn-primary" onclick="DivQuota.submit('CID')"><i class="ti ti-send"></i> Submit &amp; Post Results</button>
+        </div>
+      </div>
+      <div class="panel glass fade-up stagger-1">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-dot amber"></span>CID Members</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span id="dq-CID-rev-tabs"></span>
+            <button class="btn btn-ghost btn-sm" onclick="DivQuota.auto('CID')" title="Set pass/fail from quota targets"><i class="ti ti-wand"></i> Auto from quota</button>
+            <span class="text-muted mono" id="dq-CID-rev-count" style="font-size:11px;"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th>Rank</th><th>Tier</th><th>Points</th><th>Target</th><th>Decision</th><th>Reason (if fail — optional)</th></tr></thead>
+            <tbody id="dq-CID-rev-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOA REQUESTS (CID High Command) -->
   </main>
 </div>
 
+<!-- SCHEDULE TRYOUT MODAL -->
+<div class="modal-overlay" id="modal-cid-tryout">
+  <div class="modal glass-bright" style="max-width:460px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-calendar-plus" style="font-size:18px;"></i> Schedule CID Tryout</div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-cid-tryout')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 1rem;line-height:1.6;">
+        At the scheduled time a private server is provisioned and the bot DMs you the link + details, with buttons
+        to pick a co-host and post the announcement to the CID channel.
+      </p>
+      <div class="form-group"><label class="form-label">Date &amp; time (your local time)</label>
+        <div style="display:flex;gap:8px;">
+          <input type="date" class="form-control" id="cid-tryout-date" style="flex:1;" />
+          <input type="time" class="form-control" id="cid-tryout-time" style="flex:1;" />
+        </div></div>
+      <div class="form-group"><label class="form-label">Server lock (starting state)</label>
+        <select class="form-control" id="cid-tryout-lock">
+          <option value="UNLOCKED">Unlocked (:serverlock off)</option>
+          <option value="LOCKED">Locked (:serverlock on)</option>
+        </select>
+        <span style="display:block;font-size:11px;color:var(--text-muted);margin-top:4px;">Updates live from the game once the tryout is running.</span></div>
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Notes (optional)</label>
+        <input type="text" class="form-control" id="cid-tryout-notes" placeholder="Anything for your own reference" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cid-tryout')">Cancel</button>
+      <button class="btn btn-primary" onclick="cidSubmitSchedule()"><i class="ti ti-calendar-plus"></i> Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- TRYOUT LOG DETAIL — host review/post, or Director's Office approve/deny -->
+<div class="modal-overlay" id="modal-cid-log">
+  <div class="modal glass-bright" style="max-width:760px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-clipboard-list" style="font-size:18px;"></i> <span id="cid-tlog-title">Tryout Log</span></div>
+      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-cid-log')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="cid-tlog-body"><div class="table-loading"><div class="spinner"></div></div></div>
+    <div class="modal-footer" id="cid-tlog-footer"></div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
-<script src="/js/ui.js"></script>
-<script src="/js/met-topbar.js"></script>
+<script src="/js/ui.js?v=81"></script>
+<script src="/js/panel-collapse.js?v=1"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/division-analytics.js"></script>
+<script src="/js/met-topbar.js?v=3"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
+<script src="/js/cid-dashboard.js"></script>
+<script src="/js/division-quota.js"></script>
+<script>(function(){var DIV='CID';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var lr=once(function(){window.DivQuota&&DivQuota.loadReview(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);var qr=document.querySelector('.nav-item[data-page="dq-quota"]');if(qr)qr.addEventListener('click',lr);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});}}).catch(function(){});}})();</script>
 <script>initMetTopbar('CID');</script>
 </body>
 </html>

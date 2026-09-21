@@ -1,5 +1,5 @@
 // server/lib/divisions.js
-// Central registry for the MET portal's divisions and their Roblox groups.
+// Central registry for the MET dashboard's divisions and their Roblox groups.
 //
 // Source of truth (per product decision): a user's membership and rank in a
 // division come ONLY from that division's Roblox GROUP rank — no Discord-role
@@ -39,20 +39,37 @@ function localIcon(slug) {
 // `match` recognises the group by name during holder auto-discovery.
 // Roblox group ids are known/fixed (provided by MET), so they're the defaults;
 // the GROUP_* / IA_GROUP_ID env vars still override if ever needed.
+// `color` is the division's colour from the MET brief — CID orange, SCO-19
+// black, IA administrative orange, FLP light blue, HPC white — and is what the
+// profile renders as a role chip.
+//
+// `accent` is that same identity rendered for UI chrome: every /<slug>/… page is
+// themed with it, alongside the division's logo, wordmark and favicon, so you
+// can tell at a glance whose side of the dashboard you're on. It matches `color`
+// wherever the brief colour works as an accent; SCO-19's black and HPC's white
+// are lifted to a readable sibling of the same hue, because the accent has to
+// carry nav text and borders on BOTH the dark and light themes. Accents stay
+// clear of the semantic status hues (green approved, amber pending, red denied)
+// so badges read the same in every division.
 const META = {
-  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
-  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
-  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
-  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
-  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
+  CID:   { name: 'CID',    slug: 'cid',   fullName: 'Criminal Investigation Department', color: '#e8842a', accent: '#e8842a', short: 'Criminal Investigation', tagline: 'Investigations · Casework',    groupEnv: 'GROUP_CID',    defaultGroupId: '12697126',  match: /criminal invest|\bcid\b/i },
+  SCO19: { name: 'SCO-19', slug: 'sco19', fullName: 'Specialist Firearms Command',       color: '#4b5563', accent: '#8fa3bd', short: 'Specialist Firearms',    tagline: 'Armed Response · Deployments', groupEnv: 'GROUP_SCO19',  defaultGroupId: '14063116',  match: /sco[\s-]?19|specialist firearms|firearms command/i },
+  IA:    { name: 'IA',     slug: 'ia',    fullName: 'Internal Affairs',                  color: '#c2701f', accent: '#c2701f', short: 'Internal Affairs',       tagline: 'Case Management System',       groupEnv: 'IA_GROUP_ID',  defaultGroupId: '407296071', match: /internal affairs/i },
+  FLP:   { name: 'FLP',    slug: 'flp',   fullName: 'Frontline Policing',                color: '#5cc0ff', accent: '#5cc0ff', short: 'Frontline Policing',     tagline: 'Patrols · Response',           groupEnv: 'GROUP_FLP',    defaultGroupId: '233530818', match: /frontline/i },
+  HPC:   { name: 'HPC',    slug: 'hpc',   fullName: 'Hendon Police College',             color: '#e8eef7', accent: '#9fb4d0', short: 'Hendon Police College',  tagline: 'Training · Examinations',      groupEnv: 'GROUP_HPC',    defaultGroupId: '35685825',  match: /hendon|police college|\bhpc\b/i },
 };
+
+// Extra divisional colours for divisions that exist in the MET server but not
+// (yet) as dashboard divisions — kept so a perms-group chip / future division can
+// reuse the same palette. MI5 = Military Intelligence 5 (sky), SAS (purple).
+const DIVISION_COLORS_EXTRA = { MI5: '#38bdf8', SAS: '#9b6ef3' };
 
 // The top-level Metropolitan Police group — the umbrella every officer belongs
 // to. Its rank drives MET-wide quota (low rank / senior officer / high rank),
-// and its icon is the portal's brand mark. Not a "division", so it's not in ALL.
+// and its icon is the dashboard's brand mark. Not a "division", so it's not in ALL.
 function metGroupId() { return process.env.GROUP_MET || '17275620'; }
 
-// Division order the portal shows everywhere.
+// Division order the dashboard shows everywhere.
 const ALL = ['CID', 'SCO19', 'IA', 'FLP', 'HPC'];
 
 // New divisions resolved purely from their Roblox group. IA is resolved from
@@ -85,6 +102,13 @@ const LEAD_RANK_PATTERNS = {
 function isLeadRank(division, roleName, rankNumber) {
   const envMin = parseInt(process.env[`LEAD_MIN_RANK_${division}`], 10);
   if (Number.isFinite(envMin)) return Number(rankNumber) >= envMin;
+  // Prefer the authoritative rank→tier table (ranks.js): LEAD = the division's
+  // HIGH tier. This avoids the loose regex swallowing lower ranks by substring
+  // (e.g. "Unit Commander" is MIDDLE, not Command; "Assistant Director" is HIGH).
+  const { tierForRank } = require('./ranks');
+  const t = tierForRank(division, roleName);
+  if (t) return t === 'HIGH';
+  // Fallback for role names not present in the table (whitespace/suffix variants).
   const pat = LEAD_RANK_PATTERNS[division];
   return pat ? pat.test(String(roleName || '')) : false;
 }
@@ -152,7 +176,7 @@ async function getDivisionConfig() {
   const icons = needIds.length ? await fetchGroupIcons(needIds) : {};
   for (const d of ALL) if (!data[d].icon && data[d].groupId) data[d].icon = icons[data[d].groupId] || null;
 
-  // The MET umbrella group's icon (portal brand mark). Kept off ALL so it's
+  // The MET umbrella group's icon (dashboard brand mark). Kept off ALL so it's
   // never rendered as a division card.
   data.MET = { groupId: metId, icon: metLocal || icons[metId] || null };
 
@@ -167,16 +191,42 @@ function invalidateConfig() { configCache = { at: 0, data: null }; }
 // Given a Roblox user id, return the divisions (of the four group-backed ones)
 // the user is a member of, with their group rank. IA is NOT included here.
 //   → [{ division, rank, rankName, tier }]
-async function resolveGroupDivisions(robloxId) {
+/**
+ * @param {object} [diag] filled in with { checked, failed } — how many division
+ *        groups were asked about and how many of those lookups FAILED.
+ *
+ *        This matters more than it looks. A failed lookup and "they hold no rank
+ *        in that group" both used to come out as an absent division, so a Roblox
+ *        outage was indistinguishable from a member holding nothing — and the
+ *        callers persist the result. One rate-limited minute could therefore strip
+ *        somebody's divisions permanently. Anything that WRITES this list has to
+ *        be able to tell the two apart.
+ */
+async function resolveGroupDivisions(robloxId, diag) {
+  const d = diag || {};
+  d.checked = 0; d.failed = 0;
   if (!robloxId) return [];
   const cfg = await getDivisionConfig();
   const out = [];
   for (const division of GROUP_DIVISIONS) {
     const groupId = cfg[division] && cfg[division].groupId;
     if (!groupId) continue;
+    d.checked++;
     let role = null;
-    try { role = await getUserGroupRole(robloxId, groupId); } catch (e) { role = null; }
+    // The diag is the load-bearing part. getUserGroupRole does NOT throw when the
+    // lookup fails — getUserGroupRoles catches its own errors and treats a non-OK
+    // response (a 429, which is the one that happens) as "no roles" — so the catch
+    // below is only for something unexpected, and on its own it counted nothing.
+    // That is why the degraded guard could not see a Roblox outage: the failure
+    // never left roblox.js in any form a caller could read.
+    const gd = {};
+    try { role = await getUserGroupRole(robloxId, groupId, gd); }
+    catch (e) { role = null; gd.failed = true; }
+    if (gd.failed) d.failed++;
     if (role && Number(role.rank) > 0) {
+      // HPC only counts as a division site-wide for Junior Instructor and above —
+      // cadets / lower HPC group ranks don't get the HPC division on the dashboard.
+      if (division === 'HPC' && !hpcRankAtLeast(role.name, role.rank, 'instructor')) continue;
       out.push({
         division,
         rank:     Number(role.rank),
@@ -189,11 +239,142 @@ async function resolveGroupDivisions(robloxId) {
 }
 
 // Client-safe metadata only — never leak group ids / discovery regexes.
+// The Developer "division" — not a real MET division (never in ALL / the public
+// switcher), but developers get it in their `mine` list so it shows on their
+// profile + division switcher and links to the developer tools at /dev/dashboard.
+const DEV_META = { name: 'DEV', slug: 'dev', fullName: 'Developer Tools', color: '#f5c518', icon: '/img/divisions/dev.svg' };
+
 function meta(division) {
+  if (division === 'DEV') return { ...DEV_META };
   const m = META[division];
-  return m ? { name: m.name, slug: m.slug, fullName: m.fullName } : null;
+  return m ? {
+    name: m.name, slug: m.slug, fullName: m.fullName,
+    short: m.short || m.fullName, tagline: m.tagline || '',
+    color: m.color || null,
+    accent: m.accent || m.color || MET_BRAND.accent,
+    logo: brandLogo(m.slug),
+  } : null;
+}
+
+// The MET role-scheme colour for a division (or null if unknown).
+function divisionColor(division) {
+  if (division === 'DEV') return DEV_META.color;
+  return (META[division] && META[division].color) || DIVISION_COLORS_EXTRA[division] || null;
 }
 function allMeta() { return ALL.map(d => ({ division: d, ...meta(d) })); }
+
+
+// ── Per-division page branding ───────────────────────────────────────
+// Everything under /ia, /cid, /sco19, /flp and /hpc is themed with its own
+// division's colour, logo and wordmark. The theme is injected server-side (see
+// brandHead below) so it is already correct on first paint — no flash of the
+// wrong division while a script runs.
+const MET_BRAND = {
+  name: 'MET', slug: 'met', fullName: 'Metropolitan Police Service',
+  short: 'Metropolitan Police Service', tagline: 'Officer Dashboard', accent: '#4a8fff',
+};
+
+// The committed logo for a slug, or the dashboard mark when there isn't one. Never
+// the live Roblox icon: this has to resolve synchronously on the page path, and
+// Roblox's thumbnail API is too flaky to sit in front of first paint.
+function brandLogo(slug) { return localIcon(slug) || '/img/logo.png'; }
+
+function brandFor(division) {
+  const m = division && META[division];
+  const base = m
+    ? { name: m.name, slug: m.slug, fullName: m.fullName, short: m.short || m.fullName,
+        tagline: m.tagline || '', accent: m.accent || m.color || MET_BRAND.accent }
+    : { ...MET_BRAND };
+  return { ...base, logo: brandLogo(base.slug) };
+}
+
+// #rrggbb → "r, g, b" for rgba() mixes in the injected theme. Falls back to the
+// dashboard blue rather than emitting a broken custom property.
+function rgbTriplet(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return '74, 143, 255';
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+// Everything that goes into <head> to brand a page for one division: the
+// favicon, the browser theme colour, and the accent custom properties that
+// division-theme.css builds the rest of the palette from.
+//
+// Values come from the META table above, never from the request, so this is
+// static trusted markup — but the accent is still validated by rgbTriplet and
+// the slug is a fixed identifier, so a malformed table entry degrades to the
+// dashboard default instead of breaking the page.
+// Everything Discord (and every other unfurler) reads when somebody pastes a
+// link. Without these, an /ia/dashboard link shows whatever the page's own
+// <title> says — "MET · Dashboard" — with the MET mark, for every division.
+// A link to Internal Affairs should look like Internal Affairs.
+//
+// The image has to be absolute: Discord fetches it from its own servers and a
+// root-relative path means nothing to them.
+function brandMeta(division, origin) {
+  const b = brandFor(division);
+  // The host that actually served the page wins over the configured one: the
+  // dashboard answers on more than one domain, and a crawler will not follow a
+  // cross-host redirect for an image.
+  const base = String(origin || process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  const img = /^https?:\/\//i.test(b.logo) ? b.logo : (base ? base + b.logo : b.logo);
+  const title = division ? `${b.name} Dashboard` : 'MET Dashboard';
+  // Just the division's full name in the link embed, nothing else.
+  const desc = b.fullName;
+  const esc = v => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return [
+    `<meta property="og:site_name" content="Metropolitan Police Service" />`,
+    `<meta property="og:type" content="website" />`,
+    ...(base ? [`<meta property="og:url" content="${esc(base)}" />`] : []),
+    `<meta property="og:title" content="${esc(title)}" />`,
+    `<meta property="og:description" content="${esc(desc)}" />`,
+    ...(img ? [`<meta property="og:image" content="${esc(img)}" />`] : []),
+    // "summary" puts the mark beside the text as an icon rather than stretching
+    // it across the top — a square logo is not a banner.
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="twitter:title" content="${esc(title)}" />`,
+    `<meta name="twitter:description" content="${esc(desc)}" />`,
+    ...(img ? [`<meta name="twitter:image" content="${esc(img)}" />`] : []),
+    `<meta name="theme-color" content="${/^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent}" />`,
+  ].join('\n');
+}
+
+function brandHead(division, origin) {
+  const b = brandFor(division);
+  const accent = /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : MET_BRAND.accent;
+  return [
+    `<link rel="icon" type="image/png" href="${b.logo}" />`,
+    `<link rel="apple-touch-icon" href="${b.logo}" />`,
+    brandMeta(division, origin),
+    `<link rel="stylesheet" href="/css/division-theme.css" />`,
+    `<style>:root{--div-accent:${accent};--div-accent-rgb:${rgbTriplet(accent)};`
+      + `--div-logo:url("${b.logo}");}</style>`,
+    `<script>window.MET_BRAND=${JSON.stringify(b).replace(/</g, '\\u003c')};</script>`,
+    // defer → runs after the document is parsed, and after the inline script
+    // above has set window.MET_BRAND.
+    `<script src="/js/division-brand.js" defer></script>`,
+  ].join('\n');
+}
+
+// ── Group-panel targets ──────────────────────────────────────────────
+// Selectable groups for the developer Group Panel: every division (so future
+// ones added to ALL appear automatically) plus the MET umbrella group.
+function panelGroups() {
+  const out = ALL.map(d => ({ key: d, name: META[d].name, fullName: META[d].fullName, groupId: explicitGroupId(d) }));
+  out.push({ key: 'MET', name: 'MET', fullName: 'Metropolitan Police', groupId: metGroupId() });
+  return out.filter(g => g.groupId);
+}
+
+// Resolve a panel-group key ('CID' | 'IA' | 'FLP' | 'HPC' | 'SCO19' | 'MET') to
+// its Roblox group id. Returns null for an unknown key.
+function groupIdForKey(key) {
+  if (!key) return null;
+  if (key === 'MET') return metGroupId();
+  if (ALL.includes(key)) return explicitGroupId(key);
+  return null;
+}
 
 // ── HPC-specific rank gates ──────────────────────────────────────────
 // HPC has finer, named access tiers on top of the group rank:
@@ -222,8 +403,9 @@ function hpcExamRoleId() { return process.env.HPC_EXAM_ROLE_ID || '1509521712058
 function hpcResultsWebhookUrl() { return process.env.HPC_RESULTS_WEBHOOK_URL || null; }
 
 module.exports = {
-  ALL, GROUP_DIVISIONS, META,
-  meta, allMeta,
+  ALL, GROUP_DIVISIONS, META, DIVISION_COLORS_EXTRA,
+  meta, allMeta, divisionColor, panelGroups, groupIdForKey,
+  brandFor, brandHead, brandMeta, brandLogo, MET_BRAND,
   getDivisionConfig, invalidateConfig,
   resolveGroupDivisions,
   explicitGroupId, isLeadRank, holderUsername, metGroupId,

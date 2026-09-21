@@ -70,10 +70,11 @@ router.post('/', rawUpload, async (req, res) => {
   if (!buf || !buf.length || !mimeType || !filename)
     return res.status(400).json({ error: 'Missing file data.' });
 
-  const isImage = /^image\//.test(mimeType);
+  // SVG is an "image/" type but can carry scripts — never accept it as an image.
+  const isImage = /^image\//.test(mimeType) && !/svg/i.test(mimeType);
   const isVideo = /^video\//.test(mimeType);
   if (!isImage && !isVideo)
-    return res.status(400).json({ error: 'Only image and video files are allowed.' });
+    return res.status(400).json({ error: 'Only raster image and video files are allowed.' });
 
   let vis = (visibility || 'IA').toUpperCase();
   if (!IA_ALLOWED_VIS.includes(vis)) vis = 'IA';
@@ -184,9 +185,13 @@ router.patch('/:id', async (req, res) => {
     if (req.body.title !== undefined) data.title = (req.body.title || '').toString().trim() || null;
     if (req.body.visibility !== undefined) {
       const vis = String(req.body.visibility).toUpperCase();
+      const cur = String(m.visibility || '').toUpperCase();
       if (!VISIBILITIES.includes(vis)) return res.status(400).json({ error: 'Invalid visibility.' });
-      // Only developers can set the STAFF/DEVELOPER-restricted levels.
+      // Only developers can set the STAFF/DEVELOPER-restricted levels — AND only
+      // developers can change an item that's currently at a restricted level, so
+      // an uploader can't downgrade a dev-restricted item back to PUBLIC/IA.
       if (!isDev && !IA_ALLOWED_VIS.includes(vis)) return res.status(403).json({ error: 'Only developers can set that visibility.' });
+      if (!isDev && !IA_ALLOWED_VIS.includes(cur)) return res.status(403).json({ error: 'Only developers can change the visibility of a restricted item.' });
       data.visibility = vis;
     }
     const updated = await prisma.media.update({

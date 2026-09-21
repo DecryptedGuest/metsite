@@ -22,6 +22,8 @@ const KEYS = [
   'countdownLabel',  // event countdown label ('' = off)
   'countdownTarget', // ISO datetime string for the countdown
   'auroraTheme',     // site-wide UI theme: on = Aurora, off = Classic
+  'requirePasskeyElevated', // elevated staff must have a passkey for sensitive actions
+  'altBlock',        // advanced alt detection: propagate blacklists to alts + block alt logins (default ON)
 ];
 
 let cache = {};

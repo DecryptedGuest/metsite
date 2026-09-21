@@ -3,7 +3,7 @@
   "buildCommand": "prisma generate",
   "functions": {
     "api/index.js": {
-      "includeFiles": "client/**",
+      "includeFiles": "{client,data}/**",
       "maxDuration": 30
     }
   },
