@@ -299,7 +299,14 @@ async function loadOfficer(discordId, guild) {
   //
   // Timed too: placing a rank can need an authenticated group-roles call, and
   // that is one more thing that can stall.
-  await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+  // Seed the XP row from the live MET rank. On a fresh database this is what
+  // creates the officer's starting balance. Retry once if the first DB operation
+  // raced the database becoming ready after login/deploy; otherwise a perfectly
+  // valid Inspector/Sergeant can be shown as "not on the XP ladder".
+  let seeded = await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+  if (!seeded && groupRole) {
+    seeded = await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+  }
 
   // Any XP imported for their Roblox account before we knew their Discord id.
   // Looking somebody up is exactly the moment to settle that: it takes the higher
