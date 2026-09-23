@@ -814,6 +814,10 @@ async function onInteraction(interaction) {
       return require('./iaPanel').handleIaComponent(interaction)
         .catch(e => console.error('[Bot] IA panel component error:', e.message));
     }
+    if (cid.startsWith('xppromo:')) {
+      return require('./xpPromotionApproval').handleButton(interaction)
+        .catch(e => console.error('[Bot] XP promotion approval button error:', e.message));
+    }
     if (cid.startsWith('prom_')) {
       return require('./promoteCommand').handlePromoteButton(interaction)
         .catch(e => console.error('[Bot] promote button error:', e.message));
