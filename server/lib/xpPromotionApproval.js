@@ -90,7 +90,7 @@ async function handleButton(interaction) {
   const parts = String(interaction.customId || '').split(':');
   const action = parts[1];
   const id = parts[2];
-  if (!id || !['approve', 'deny', 'deny_reason', 'deny_noreason'].includes(action)) return;
+  if (!id || !['approve', 'deny', 'deny_reason', 'deny_noreason', 'deny_reason_modal'].includes(action)) return;
 
   const roleId = REVIEW_ROLE_ID();
   if (String(interaction.channelId) !== String(CHANNEL_ID())) {
@@ -115,10 +115,36 @@ async function handleButton(interaction) {
     return interaction.showModal(modal);
   }
 
+  if (action === 'deny_reason_modal') {
+    const reason = interaction.fields?.getTextInputValue('reason')?.trim();
+    if (!reason) return interaction.reply({ content: `${CROSS} A denial reason is required.`, ephemeral: true });
+    await interaction.deferReply({ ephemeral: true });
+    const pending = await XP.resolvePendingPromotion(id, 'REJECTED', interaction.user.id, reason);
+    if (!pending) return interaction.editReply({ content: `${CROSS} This promotion has already been resolved or no longer exists.` });
+    await interaction.editReply({ content: `${CROSS} Promotion denied with a reason. The review card has been updated.` });
+    await require('./bot').editChannelMessage(CHANNEL_ID(), pending.messageId, {
+      content: `<@&${roleId}>`,
+      embeds: [embed(pending, 'REJECTED')],
+      components: [],
+      allowedMentions: { roles: [], parse: [] },
+    }).catch(() => {});
+    return;
+  }
+
   await interaction.deferUpdate();
   const pending = await XP.resolvePendingPromotion(id, action === 'approve' ? 'APPROVED' : 'REJECTED', interaction.user.id);
   if (!pending) {
     return interaction.editReply({ components: [], content: `${CROSS} This promotion has already been resolved or no longer exists.` }).catch(() => {});
+  }
+
+  if (action === 'deny_noreason') {
+    await interaction.editReply({
+      content: `<@&${roleId}>`,
+      embeds: [embed(pending, 'REJECTED')],
+      components: [],
+      allowedMentions: { roles: [], parse: [] },
+    }).catch(() => {});
+    return;
   }
 
   if (action === 'deny') {
