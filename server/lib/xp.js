@@ -656,7 +656,7 @@ async function attachPendingPromotionMessage(discordId, approvalId, channelId, m
   });
 }
 
-async function resolvePendingPromotion(approvalId, status, resolvedById) {
+async function resolvePendingPromotion(approvalId, status, resolvedById, resolutionReason = null) {
   const wanted = String(approvalId || '');
   const finalStatus = status === 'APPROVED' ? 'APPROVED' : 'REJECTED';
   return prisma.$transaction(async (tx) => {
@@ -664,14 +664,14 @@ async function resolvePendingPromotion(approvalId, status, resolvedById) {
     const row = rows && rows[0];
     const p = row ? row.pendingPromo : null;
     if (!row || !p || p.status !== 'PENDING') return null;
-    const next = { ...p, status: finalStatus, resolvedById: String(resolvedById), resolvedAt: new Date().toISOString() };
+    const next = { ...p, status: finalStatus, resolvedById: String(resolvedById), resolvedAt: new Date().toISOString(), ...(finalStatus === 'REJECTED' && resolutionReason ? { denialReason: String(resolutionReason).slice(0, 1000) } : {}) };
     await tx.metXp.update({ where: { discordId: String(row.discordId) }, data: { pendingPromo: next } });
     if (finalStatus === 'REJECTED') {
-      await tx.metXp.update({ where: { discordId: String(row.discordId) }, data: { promotedRank: p.toCode, promotedAt: new Date() } });
       await tx.xpEvent.create({ data: {
         discordId: String(row.discordId), kind: 'PROMOTION_DENIED', delta: 0,
         before: Number(p.xp), after: Number(p.xp), fromRank: p.fromRank, toRank: p.toRank,
-        reason: 'XP promotion denied by promotion review', issuedById: String(resolvedById), issuedBy: 'Promotion Review',
+        reason: resolutionReason ? String(resolutionReason).slice(0, 1000) : 'XP promotion denied by promotion review',
+        issuedById: String(resolvedById), issuedBy: 'Promotion Review',
       } });
     }
     return next;
