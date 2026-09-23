@@ -311,10 +311,13 @@ async function announceXp(res, p, actor, reason) {
   try {
     const XC = require('./xpCommand');
     const officer = await XC.loadOfficer(p.discordId, null);
-    await XC.promote({
+    // Automatic XP must never directly change the Roblox group rank.
+    // Queue the same High Command approval used by manual /xp changes.
+    await XC.queuePromotion({
       officer, promotion: res.promotion, xp: res.after,
       issuedById: actor && actor.id,
       issuedBy: who,
+      reason: reason || p.reason,
     });
   } catch (e) {
     console.warn('[LogXP] promotion after an automatic award failed:', e.message);
