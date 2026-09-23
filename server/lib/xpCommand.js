@@ -908,16 +908,38 @@ async function runChange({ interaction, targets, problems, action, value, reason
  * in the log rather than silently half-done.
  */
 async function queuePromotion({ officer, promotion, xp, issuedById, issuedBy, reason }) {
-  return require('./xpPromotionApproval').queue({
+  const pending = await require('./xpPromotionApproval').queue({
     officer, promotion, xp, issuedById, issuedBy, reason,
   });
+  if (!pending) return null;
+  // Keep the promotion shape used by the XP result renderer while retaining
+  // the persistent approval record returned by the review workflow.
+  return { ...pending, from: promotion.from, to: promotion.to };
 }
 
 /** Execute an already-approved XP promotion. */
 async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
   const { from, to } = promotion;
 
-  const group = await XP.promoteInGroup(officer.robloxId, to);
+  // The approval card may have been created before a Roblox link was
+  // refreshed. Re-resolve from our own stored link before touching the group;
+  // never rely on a stale Discord/Roblox mapping captured at XP-award time.
+  let robloxId = officer.robloxId ? String(officer.robloxId) : null;
+  if (!robloxId && officer.discordId) {
+    try {
+      const link = await require('./robloxLink').resolveRoblox(officer.discordId);
+      robloxId = link && link.robloxId ? String(link.robloxId) : null;
+    } catch (_) {}
+  }
+
+  let group = await XP.promoteInGroup(robloxId, to);
+  // A transient Roblox/API failure must not turn an approval into a silent
+  // non-promotion. One controlled retry uses the same target and fresh group
+  // data, without involving RoVer.
+  if (!group.ok && robloxId) {
+    await new Promise(r => setTimeout(r, 750));
+    group = await XP.promoteInGroup(robloxId, to);
+  }
 
   let dmSent = false;
   try {
