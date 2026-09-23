@@ -100,7 +100,7 @@ async function handleButton(interaction) {
     return interaction.reply({ content: `${CROSS} You need <@&${roleId}> to do this.`, ephemeral: true });
   }
 
-  if (action === 'deny_reason') {
+  if (action === 'deny' || action === 'deny_reason' || action === 'deny_noreason') {
     const modal = new ModalBuilder()
       .setCustomId(`xppromo:deny_reason_modal:${id}`)
       .setTitle('Deny Promotion');
@@ -132,7 +132,7 @@ async function handleButton(interaction) {
   }
 
   await interaction.deferUpdate();
-  const pending = await XP.resolvePendingPromotion(id, action === 'approve' ? 'APPROVED' : 'REJECTED', interaction.user.id);
+  const pending = await XP.resolvePendingPromotion(id, 'APPROVED', interaction.user.id);
   if (!pending) {
     return interaction.editReply({ components: [], content: `${CROSS} This promotion has already been resolved or no longer exists.` }).catch(() => {});
   }
