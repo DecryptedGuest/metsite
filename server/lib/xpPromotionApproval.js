@@ -90,7 +90,7 @@ async function handleButton(interaction) {
   const parts = String(interaction.customId || '').split(':');
   const action = parts[1];
   const id = parts[2];
-  if (!id || !['approve', 'deny'].includes(action)) return;
+  if (!id || !['approve', 'deny', 'deny_reason', 'deny_noreason'].includes(action)) return;
 
   const roleId = REVIEW_ROLE_ID();
   if (String(interaction.channelId) !== String(CHANNEL_ID())) {
@@ -107,7 +107,16 @@ async function handleButton(interaction) {
   }
 
   if (action === 'deny') {
-    await interaction.editReply({ content: `<@&${roleId}>`, embeds: [embed(pending, 'REJECTED')], components: [], allowedMentions: { roles: [], parse: [] } }).catch(() => {});
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`xppromo:deny_reason:${id}`).setLabel('Deny w/ Reason').setStyle(ButtonStyle.Danger).setEmoji({ id: '1533231153866084433', name: 'cross' }),
+      new ButtonBuilder().setCustomId(`xppromo:deny_noreason:${id}`).setLabel('Deny without Reason').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1533231153866084433', name: 'cross' }),
+    );
+    await interaction.editReply({
+      content: `<@&${roleId}>\\n\\n**Deny this promotion?** Choose whether to include a reason.`,
+      embeds: [embed(pending)],
+      components: [row],
+      allowedMentions: { roles: [], parse: [] },
+    }).catch(() => {});
     return;
   }
 
