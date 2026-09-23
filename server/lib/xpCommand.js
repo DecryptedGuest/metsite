@@ -825,9 +825,9 @@ async function runChange({ interaction, targets, problems, action, value, reason
       let promoted = null;
       let demoted  = null;
       if (res.promotion) {
-        promoted = await promote({
+        promoted = await queuePromotion({
           officer: o, promotion: res.promotion, xp: res.after,
-          issuedById: interaction.user.id, issuedBy: issuerName,
+          issuedById: interaction.user.id, issuedBy: issuerName, reason,
         });
       } else if (res.demotion) {
         demoted = await demote({
@@ -869,11 +869,9 @@ async function runChange({ interaction, targets, problems, action, value, reason
 
   if (promotions.length) {
     embed.addFields({
-      name: `${e('met_celebrate')} Promoted`,
+      name: `${e('met_pending')} Pending promotion review`,
       value: short(promotions.map(r =>
-        `<@${r.id}> → **${r.promoted.to.name}**`
-        + (r.promoted.group.ok ? '' : ` ${e('met_warn')} *(group rank not changed: ${short(r.promoted.group.reason, 60)})*`)
-        + (r.promoted.dmSent ? '' : ` ${e('met_warn')} *(couldn't DM them)*`),
+        `<@${r.id}> → **${r.promoted.to.name}** ${e('met_pending')} · sent to High Command for approval`,
       ).join('\n'), 1000),
       inline: false,
     });
@@ -909,6 +907,13 @@ async function runChange({ interaction, targets, problems, action, value, reason
  * outcome is recorded, so a promotion whose group rank didn't move is visible
  * in the log rather than silently half-done.
  */
+async function queuePromotion({ officer, promotion, xp, issuedById, issuedBy, reason }) {
+  return require('./xpPromotionApproval').queue({
+    officer, promotion, xp, issuedById, issuedBy, reason,
+  });
+}
+
+/** Execute an already-approved XP promotion. */
 async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
   const { from, to } = promotion;
 
@@ -999,5 +1004,5 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
 module.exports = {
   buildCommand, handleXpCommand,
   resolveTargets, loadOfficer, buildCard, buildTable, buildLeaderboard, showLeaderboard, celebratePromotion,
-  canManageXp, xpRoleIds, promote, demote,
+  canManageXp, xpRoleIds, queuePromotion, promote, demote,
 };
