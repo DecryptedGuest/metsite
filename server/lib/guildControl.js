@@ -290,7 +290,7 @@ async function listMessages(gid, cid, opts = {}) {
     if (authorType === 'user' && bot) return false;
     if (afterTs && m.createdTimestamp <= afterTs) return false;
     if (beforeDateTs && m.createdTimestamp >= beforeDateTs) return false;
-    if (has === 'link' && !/(https?:\\/\\/|www\\.)/i.test(content)) return false;
+    if (has === 'link' && !/(https?:\/\/|www\.)/i.test(content)) return false;
     if (has === 'attachment' && (!m.attachments || !m.attachments.size)) return false;
     if (has === 'embed' && (!m.embeds || !m.embeds.length)) return false;
     if (has === 'image' && ![...(m.attachments ? m.attachments.values() : [])].some(a => String(a.contentType || '').startsWith('image/'))) return false;
