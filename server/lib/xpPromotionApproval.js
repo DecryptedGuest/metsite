@@ -6,7 +6,7 @@ const xpLog = require('./xpLog');
 const { e } = require('./emoji');
 
 const CHANNEL_ID = () => process.env.XP_PROMOTION_REVIEW_CHANNEL_ID || '1552170256053833728';
-const REVIEW_ROLE_ID = () => process.env.XP_PROMOTION_REVIEW_ROLE_ID || '1398068036128342187';
+const REVIEW_ROLE_ID = () => process.env.XP_PROMOTION_REVIEW_ROLE_ID || '1422406753231966290';
 const TICK = '<:tick:1533231152570040510>';
 const CROSS = '<:cross:1533231153866084433>';
 const PENDING = '<:pending:1533231156017758369>';
@@ -97,7 +97,7 @@ async function handleButton(interaction) {
     return interaction.reply({ content: `${CROSS} This review button is only valid in the promotion review channel.`, ephemeral: true });
   }
   if (!interaction.member?.roles?.cache?.has(roleId)) {
-    return interaction.reply({ content: `${CROSS} You need the promotion review role to decide this.`, ephemeral: true });
+    return interaction.reply({ content: `${CROSS} You need <@&${roleId}> to do this.`, ephemeral: true });
   }
 
   await interaction.deferUpdate();
