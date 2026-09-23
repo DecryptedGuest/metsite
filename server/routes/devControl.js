@@ -73,7 +73,17 @@ router.delete('/guilds/:gid/channels/:cid', h(async (req, res) => {
 }));
 
 router.get('/guilds/:gid/channels/:cid/messages', h(async (req, res) => {
-  res.json(await GC.listMessages(req.params.gid, req.params.cid, req.query.limit));
+  res.json(await GC.listMessages(req.params.gid, req.params.cid, {
+    limit: req.query.limit,
+    before: req.query.before,
+    q: req.query.q,
+    author: req.query.author,
+    authorType: req.query.authorType,
+    has: req.query.has,
+    after: req.query.after,
+    beforeDate: req.query.beforeDate,
+    scan: req.query.scan,
+  }));
 }));
 
 router.delete('/guilds/:gid/channels/:cid/messages/:mid', h(async (req, res) => {
