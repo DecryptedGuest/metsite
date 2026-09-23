@@ -291,7 +291,10 @@ const IA_COMMAND_ALLOWLIST = () => {
 // server -- where the allowlist below then removed them again, so they
 // registered nowhere at all. They are MET's, and they go to MET's server.
 const DISCIPLINE_GUILD_IDS  = () => metGuild('DISCIPLINE_GUILD_ID');
-const XP_GUILD_IDS          = () => metGuild('XP_GUILD_ID');
+// /xp belongs in the MET server. Do not let a stale XP_GUILD_ID override the
+// canonical MET target — that is how the command can disappear from MET while
+// still looking perfectly valid in the source.
+const XP_GUILD_IDS          = () => guildFor('MET_GUILD_ID', 'DISCORD_GUILD_ID');
 // /check-record and /ia are MET commands, not IA ones.
 //
 // They resolved through iaGuild(), so with IA_GUILD_ID set they targeted the IA
