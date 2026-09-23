@@ -729,6 +729,25 @@ async function applyGroupRank(robloxId, rank, direction = 'up') {
     }
 
     await roblox.changeGroupRank(String(robloxId), target.id);
+
+    // Roblox can acknowledge the write before the membership read reflects it.
+    // Verify the resulting role and retry once if it did not stick. This keeps
+    // an approved promotion from being recorded as successful when the group
+    // still has the old rank.
+    let verified = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await new Promise(r => setTimeout(r, 750));
+      const after = await roblox.getGroupMembership(String(robloxId));
+      const afterRank = after && after.role ? Number(after.role.rank) : null;
+      if (afterRank === Number(target.rank)) {
+        verified = true;
+        break;
+      }
+      if (attempt === 0) await roblox.changeGroupRank(String(robloxId), target.id);
+    }
+    if (!verified) {
+      return { ok: false, reason: \`Roblox accepted the rank request but verification still shows \${current.name || 'the previous rank'}\` };
+    }
     return { ok: true, from: current.name || 'unknown', to: target.name };
   } catch (err) {
     return { ok: false, reason: err.message };
