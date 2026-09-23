@@ -248,31 +248,102 @@ function messageContentReadable() {
   } catch (e) { return false; }
 }
 
-async function listMessages(gid, cid, limit) {
+async function listMessages(gid, cid, opts = {}) {
   const g = await getGuild(gid);
   if (!isSnowflake(cid)) throw bad('That is not a valid channel id.');
   const c = await g.channels.fetch(String(cid)).catch(() => null);
   if (!c) throw wrap({ code: 10003 });
   if (typeof c.isTextBased !== 'function' || !c.isTextBased()) throw bad('That channel has no messages to read.');
-  const n = Math.max(1, Math.min(50, parseInt(limit, 10) || 25));
-  let msgs;
-  try { msgs = await c.messages.fetch({ limit: n }); }
-  catch (err) { throw wrap(err, 'The messages could not be read.'); }
-  const rows = [...msgs.values()].map(m => ({
+
+  const n = Math.max(1, Math.min(100, parseInt(opts.limit, 10) || 25));
+  const cursor = isSnowflake(opts.before) ? String(opts.before) : null;
+  const q = String(opts.q || '').trim().toLowerCase();
+  const author = String(opts.author || '').trim().toLowerCase();
+  const authorType = ['user', 'bot', 'webhook'].includes(String(opts.authorType || '').toLowerCase())
+    ? String(opts.authorType).toLowerCase() : '';
+  const has = String(opts.has || '').toLowerCase().trim();
+  const afterTs = Number(opts.after) > 0 ? Number(opts.after) : null;
+  const beforeDateTs = Number(opts.beforeDate) > 0 ? Number(opts.beforeDate) : null;
+  // Search may need to walk backwards through several Discord pages. Keep a
+  // bounded scan so a broad query cannot turn one button click into an unbounded
+  // Discord API crawl.
+  const maxScan = Math.max(n, Math.min(1000, parseInt(opts.scan, 10) || (q || author || authorType || has || afterTs || beforeDateTs ? 500 : n)));
+
+  const matches = [];
+  let pageBefore = cursor;
+  let scanned = 0;
+  let lastId = null;
+  let exhausted = false;
+
+  const matchesMessage = (m) => {
+    const content = String(m.content || '');
+    const low = content.toLowerCase();
+    const authorName = m.author ? String(m.author.tag || m.author.username || '').toLowerCase() : '';
+    const authorId = m.author ? String(m.author.id || '').toLowerCase() : '';
+    const webhook = !!m.webhookId;
+    const bot = !!(m.author && m.author.bot);
+
+    if (q && !low.includes(q)) return false;
+    if (author && !authorId.includes(author) && !authorName.includes(author)) return false;
+    if (authorType === 'webhook' && !webhook) return false;
+    if (authorType === 'bot' && (!bot || webhook)) return false;
+    if (authorType === 'user' && bot) return false;
+    if (afterTs && m.createdTimestamp <= afterTs) return false;
+    if (beforeDateTs && m.createdTimestamp >= beforeDateTs) return false;
+    if (has === 'link' && !/(https?:\\/\\/|www\\.)/i.test(content)) return false;
+    if (has === 'attachment' && (!m.attachments || !m.attachments.size)) return false;
+    if (has === 'embed' && (!m.embeds || !m.embeds.length)) return false;
+    if (has === 'image' && ![...(m.attachments ? m.attachments.values() : [])].some(a => String(a.contentType || '').startsWith('image/'))) return false;
+    return true;
+  };
+
+  try {
+    while (scanned < maxScan && matches.length < n) {
+      const pageSize = Math.min(100, maxScan - scanned);
+      const msgs = await c.messages.fetch(pageBefore
+        ? { limit: pageSize, before: pageBefore }
+        : { limit: pageSize });
+      const rows = [...msgs.values()];
+      if (!rows.length) { exhausted = true; break; }
+
+      scanned += rows.length;
+      lastId = rows[rows.length - 1].id;
+      for (const m of rows) {
+        if (matchesMessage(m)) matches.push(m);
+        if (matches.length >= n) break;
+      }
+
+      if (rows.length < pageSize) { exhausted = true; break; }
+      pageBefore = lastId;
+    }
+  } catch (err) { throw wrap(err, 'The messages could not be read.'); }
+
+  const rows = matches.map(m => ({
     id: m.id,
     authorId: m.author ? m.author.id : null,
     authorTag: m.author ? (m.author.tag || m.author.username) : 'unknown',
     authorBot: !!(m.author && m.author.bot),
+    authorType: m.webhookId ? 'webhook' : ((m.author && m.author.bot) ? 'bot' : 'user'),
     content: m.content || '',
     createdTimestamp: m.createdTimestamp,
     editedTimestamp: m.editedTimestamp || null,
     pinned: !!m.pinned,
-    attachments: [...(m.attachments ? m.attachments.values() : [])].map(a => ({ name: a.name, url: a.url })),
+    attachments: [...(m.attachments ? m.attachments.values() : [])].map(a => ({ name: a.name, url: a.url, contentType: a.contentType || null })),
     embeds: m.embeds ? m.embeds.length : 0,
   }));
-  return { contentReadable: messageContentReadable(), messages: rows };
-}
 
+  // If the scan hit its cap, there may be older matching messages. If it
+  // exhausted Discord or returned fewer than the requested page, there aren't.
+  const hasMore = !exhausted && !!lastId;
+  return {
+    contentReadable: messageContentReadable(),
+    messages: rows,
+    nextBefore: hasMore ? lastId : null,
+    hasMore,
+    scanned,
+    filtered: !!(q || author || authorType || has || afterTs || beforeDateTs),
+  };
+}
 async function deleteMessage(gid, cid, mid) {
   const g = await getGuild(gid);
   if (!isSnowflake(cid) || !isSnowflake(mid)) throw bad('A valid channel and message id are required.');
