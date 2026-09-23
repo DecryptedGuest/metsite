@@ -1,6 +1,6 @@
 // XP promotion approval workflow.
 // Every XP-driven promotion pauses here until the configured review role approves it.
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const XP = require('./xp');
 const xpLog = require('./xpLog');
 const { e } = require('./emoji');
@@ -98,6 +98,21 @@ async function handleButton(interaction) {
   }
   if (!interaction.member?.roles?.cache?.has(roleId)) {
     return interaction.reply({ content: `${CROSS} You need <@&${roleId}> to do this.`, ephemeral: true });
+  }
+
+  if (action === 'deny_reason') {
+    const modal = new ModalBuilder()
+      .setCustomId(`xppromo:deny_reason_modal:${id}`)
+      .setTitle('Deny Promotion');
+    const reasonInput = new TextInputBuilder()
+      .setCustomId('reason')
+      .setLabel('Reason for denying this promotion')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Enter the reason...')
+      .setRequired(true)
+      .setMaxLength(1000);
+    modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+    return interaction.showModal(modal);
   }
 
   await interaction.deferUpdate();
