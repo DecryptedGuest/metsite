@@ -869,7 +869,7 @@ async function runChange({ interaction, targets, problems, action, value, reason
 
   if (promotions.length) {
     embed.addFields({
-      name: `${e('met_pending')} Pending promotion review`,
+      name: `<:pending:1533231156017758369> Pending promotion review`,
       value: short(promotions.map(r =>
         `<@${r.id}> → **${r.promoted.to.name}** ${e('met_pending')} · sent to High Command for approval`,
       ).join('\n'), 1000),
