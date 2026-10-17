@@ -100,36 +100,35 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
  * Returns the posted message ID (so edits can update it in place), or null.
  */
 async function sendApprovalWebhook(data) {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    console.warn('No DISCORD_WEBHOOK_URL configured · skipping webhook.');
-    return null;
-  }
-
-  const embed = buildCaseEmbed(data);
-  if (data.edited) embed.title = 'Staff Consequences & Discipline (updated)';
-
-  // Keep the webhook profile image aligned with the IA signature shown in the embed.
-  const body = { embeds: [embed], avatar_url: SIGN_AUTHOR_ICON };
-  if (data.officerDiscordId) body.content = `<@${data.officerDiscordId}>`;
-
+  const channelId = process.env.DISCIPLINARY_LOG_CHANNEL_ID || '1560790967450337412';
+  const hrId = data.hrDiscordId || data.officerDiscordId || null;
+  const userId = data.userDiscordId || data.suspectDiscordId || data.targetDiscordId || null;
+  const actions = Array.isArray(data.actions) && data.actions.length
+    ? data.actions.map(a => a.action + (a.durationDays ? ` (${a.durationDays} days)` : '')).join(', ')
+    : (data.action || 'N/A');
+  const content =
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\\n\\n' +
+    '<:IA:1552764629204205619> | DISCIPLINARY PUNISHMENT | <:IA:1552764629204205619>\\n' +
+    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (data.officerName || 'N/A')}\\n` +
+    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (data.suspectName || data.targetName || 'N/A')}\\n` +
+    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(data.reason || 'N/A').slice(0, 800)}\\n` +
+    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(actions).slice(0, 500)}\\n` +
+    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(data.durationDays ? data.durationDays + ' days' : (data.duration || 'N/A')).slice(0, 200)}\\n` +
+    `𝐏𝐑𝐎𝐎𝐅: ${String(data.proof || data.notes || 'N/A').slice(0, 900)}\\n\\n` +
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
   try {
-    // ?wait=true makes Discord return the created message (with its id)
-    const res = await fetch(webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'wait=true', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    const id = await require('./bot').postChannelMessage(channelId, {
+      content,
+      allowedMentions: { parse: [] },
     });
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`Webhook failed [${res.status}]:`, text);
+    if (!id) {
+      console.error('[DisciplineLog] bot could not post to channel', channelId);
       return null;
     }
-    const msg = await res.json().catch(() => ({}));
-    console.log(`Webhook sent for case ${data.caseRef} (msg ${msg.id})`);
-    return msg.id || null;
+    console.log(`Disciplinary log posted to ${channelId} (msg ${id})`);
+    return id;
   } catch (err) {
-    console.error('Webhook error:', err.message);
+    console.error('[DisciplineLog] channel post failed:', err.message);
     return null;
   }
 }
@@ -139,31 +138,30 @@ async function sendApprovalWebhook(data) {
  * Returns true on success.
  */
 async function editApprovalWebhook(messageId, data) {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl || !messageId) return false;
-
-  const embed = buildCaseEmbed(data);
-  if (!data.appealed) embed.title = 'Staff Consequences & Discipline (updated)';
-  const body = { embeds: [embed] };
-  if (data.officerDiscordId) body.content = `<@${data.officerDiscordId}>`;
-
-  // Webhook message edit: PATCH {webhookUrl}/messages/{messageId}
-  const base = webhookUrl.split('?')[0].replace(/\/+$/, '');
+  if (!messageId) return false;
+  const channelId = process.env.DISCIPLINARY_LOG_CHANNEL_ID || '1560790967450337412';
+  const hrId = data.hrDiscordId || data.officerDiscordId || null;
+  const userId = data.userDiscordId || data.suspectDiscordId || data.targetDiscordId || null;
+  const actions = Array.isArray(data.actions) && data.actions.length
+    ? data.actions.map(a => a.action + (a.durationDays ? ` (${a.durationDays} days)` : '')).join(', ')
+    : (data.action || 'N/A');
+  const content =
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\\n\\n' +
+    '<:IA:1552764629204205619> | DISCIPLINARY PUNISHMENT | <:IA:1552764629204205619>\\n' +
+    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (data.officerName || 'N/A')}\\n` +
+    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (data.suspectName || data.targetName || 'N/A')}\\n` +
+    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(data.reason || 'N/A').slice(0, 800)}\\n` +
+    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(actions).slice(0, 500)}\\n` +
+    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(data.durationDays ? data.durationDays + ' days' : (data.duration || 'N/A')).slice(0, 200)}\\n` +
+    `𝐏𝐑𝐎𝐎𝐅: ${String(data.proof || data.notes || 'N/A').slice(0, 900)}\\n\\n` +
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
   try {
-    const res = await fetch(`${base}/messages/${messageId}`, {
-      method:  'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    return await require('./bot').editChannelMessage(channelId, messageId, {
+      content,
+      allowedMentions: { parse: [] },
     });
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`Webhook edit failed [${res.status}]:`, text);
-      return false;
-    }
-    console.log(`Webhook edited for case ${data.caseRef} (msg ${messageId})`);
-    return true;
   } catch (err) {
-    console.error('Webhook edit error:', err.message);
+    console.error('[DisciplineLog] channel edit failed:', err.message);
     return false;
   }
 }
