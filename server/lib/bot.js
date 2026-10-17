@@ -405,14 +405,7 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /infract:', err.message);
   }
 
-  // /xp — everyone can look; who may change XP is decided in code.
-  try {
-    const cmd = require('./xpCommand').buildCommand();
-    add(XP_GUILD_IDS(), cmd);
-    global.push(cmd);
-  } catch (err) {
-    console.error('[Bot] could not build /xp:', err.message);
-  }
+  // XP system intentionally disabled: /xp is not registered.
 
   // /check-record — the record lookup panel. In the MET server: it is what MET
   // High Command uses to see somebody's disciplinary history. Visible to
@@ -426,16 +419,7 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /check-record:', err.message);
   }
 
-  // /ia — the Internal Affairs dashboard. In the MET server alongside
-  // /check-record; who may actually use it, and what they may decide, is settled
-  // in code by lib/iaAuthority, not by which server it appears in.
-  try {
-    const cmd = require('./iaDashboard').buildCommand();
-    add(IA_GUILD_IDS(), cmd);
-    global.push(cmd);
-  } catch (err) {
-    console.error('[Bot] could not build /ia:', err.message);
-  }
+  // /ia intentionally disabled at the user's request.
 
   // /promote — one rank up in the MET group. Gated in code, like the rest.
   try {
@@ -883,16 +867,7 @@ async function onInteraction(interaction) {
       .catch(e => console.error('[Bot] /undo error:', e.message));
   }
 
-  if (interaction.commandName === 'xp') {
-    return require('./xpCommand').handleXpCommand(interaction)
-      .catch(async (err) => {
-        console.error('[Bot] /xp failed:', err.message);
-        const msg = { content: `${e('met_cross')} Something went wrong running that. (${err.message})`, embeds: [], components: [] };
-        await (interaction.deferred || interaction.replied
-          ? interaction.editReply(msg)
-          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
-      });
-  }
+  // XP command handler disabled.
 
   if (interaction.commandName === 'infract') {
     return require('./disciplineCommand').handleDisciplineCommand(interaction)
@@ -929,16 +904,7 @@ async function onInteraction(interaction) {
       });
   }
 
-  if (interaction.commandName === require('./iaDashboard').COMMAND) {
-    return require('./iaDashboard').handleIaDashboardCommand(interaction)
-      .catch(async (err) => {
-        console.error('[Bot] /ia failed:', err.message);
-        const msg = { content: `${e('met_cross')} Something went wrong opening the dashboard. (${err.message})`, embeds: [], components: [] };
-        await (interaction.deferred || interaction.replied
-          ? interaction.editReply(msg)
-          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
-      });
-  }
+  // /ia command handler disabled.
 
   // Read from the module rather than repeated here, so a rename cannot leave the
   // command registered under one name and dispatched under another.
