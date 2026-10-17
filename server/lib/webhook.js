@@ -167,6 +167,35 @@ async function editApprovalWebhook(messageId, data) {
 }
 
 /**
+ * Post a non-disciplinary MET action notice (promotions/rank changes) in the
+ * dedicated MET notice channel.
+ */
+async function sendMetNotice({ hrId, hrName, userId, userName, reason, action, duration, proof }) {
+  const channelId = process.env.MET_NOTICE_CHANNEL_ID || '1458943564456399091';
+  const content =
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\\n\\n' +
+    '<:IA:1552764629204205619> | MET NOTICE | <:IA:1552764629204205619>\\n' +
+    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (hrName || 'N/A')}\\n` +
+    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (userName || 'N/A')}\\n` +
+    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(reason || 'N/A').slice(0, 800)}\\n` +
+    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(action || 'N/A').slice(0, 500)}\\n` +
+    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(duration || 'N/A').slice(0, 200)}\\n` +
+    `𝐏𝐑𝐎𝐎𝐅: ${String(proof || 'N/A').slice(0, 900)}\\n\\n` +
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
+  try {
+    const id = await require('./bot').postChannelMessage(channelId, {
+      content,
+      allowedMentions: { parse: [] },
+    });
+    if (!id) console.error('[MetNotice] bot could not post to channel', channelId);
+    return id || null;
+  } catch (err) {
+    console.error('[MetNotice] channel post failed:', err.message);
+    return null;
+  }
+}
+
+/**
  * Post the weekly Quota Check results to Discord.
  * results: [{ username, rank, total, target, status:'pass'|'fail', reason }]
  * Sends to QUOTA_RESULTS_WEBHOOK_URL, falling back to DISCORD_WEBHOOK_URL.
@@ -462,5 +491,5 @@ async function editTryoutLog(log, { event = 'submitted' } = {}) {
 }
 
 module.exports = {
-  signatureFor, sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog,
+  signatureFor, sendApprovalWebhook, editApprovalWebhook, buildCaseEmbed, sendMetNotice, sendQuotaCheckWebhook, sendHpcExamResult, sendTryoutLog, editTryoutLog,
   IA_QUOTA_CHANNEL_ID, IA_QUOTA_GUILD_ID, IA_QUOTA_PING_ROLE_ID };
