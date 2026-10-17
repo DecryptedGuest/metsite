@@ -80,7 +80,7 @@ function take(key, issuerId) {
   const hit = pending.get(key);
   if (!hit) return null;
   if (Date.now() - hit.at > PENDING_TTL) { pending.delete(key); return null; }
-  if (hit.data.issuerDiscordId !== issuerId) return null;
+  if ((hit.data.requesterDiscordId || hit.data.issuerDiscordId) !== issuerId) return null;
   pending.delete(key);
   return hit.data;
 }
@@ -217,7 +217,7 @@ async function handleDisciplineCommand(interaction) {
     return interaction.editReply({
       embeds: [new EmbedBuilder().setColor(COLOR.fail)
         .setTitle(`${e('met_cross')} That's a bot`)
-        .setDescription('Pick an officer.')],
+        .setDescription('Pick the user being punished.')],
     }).catch(() => {});
   }
   if (target.id === issuer.id) {
@@ -335,6 +335,7 @@ async function handleDisciplineCommand(interaction) {
   if (caveats.length) embed.addFields({ name: 'Worth knowing', value: short(caveats.join('\n'), 1000), inline: false });
 
   const baseJob = {
+    requesterDiscordId: issuer.id,
     reason, notes, caseLink, signedBy,
     targetDiscordId: target.id,
     userDiscordId: target.id,
