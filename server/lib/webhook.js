@@ -113,7 +113,7 @@ async function sendApprovalWebhook(data) {
     `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (data.suspectName || data.targetName || 'N/A')}\\n` +
     `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(data.reason || 'N/A').slice(0, 800)}\\n` +
     `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(actions).slice(0, 500)}\\n` +
-    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(data.durationDays ? data.durationDays + ' days' : (data.duration || 'N/A')).slice(0, 200)}\\n` +
+    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(data.durationDays ? data.durationDays + ' days' : ((data.actions || []).find(a => a && a.durationDays) || {}).durationDays ? ((data.actions || []).find(a => a && a.durationDays)).durationDays + ' days' : (data.duration || 'N/A')).slice(0, 200)}\\n` +
     `𝐏𝐑𝐎𝐎𝐅: ${String(data.proof || data.notes || 'N/A').slice(0, 900)}\\n\\n` +
     '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
   try {
