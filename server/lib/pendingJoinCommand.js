@@ -96,7 +96,7 @@ function buildCommand() {
 // Discord roles that may clear the queue on top of whatever canDiscipline says.
 // HPC High Command recruit into MET as part of running training, so they are in
 // by default; the env exists so another role can be added without a deploy.
-const HPC_HICOMM_ROLE = '1398071632207151184';
+const HPC_HICOMM_ROLE = '1490857465019895828';
 // Explicit MET recruitment role requested for /pendingjoin accept.
 // This is checked before the Roblox/dashboard identity lookup so holders can
 // accept a join request even when their Discord is not linked to RoVer.
@@ -125,7 +125,7 @@ const EXTRA_ROLE_IDS = () => {
  * needs no lookup and is therefore still trustworthy when Roblox is down.
  */
 async function mayDecide(interaction) {
-  const REFUSAL = 'Only MET High Command, Internal Affairs, HPC High Command and SAS High Command '
+  const REFUSAL = 'You are not authorised to use this command.'
     + 'can decide who joins the MET group.';
 
   const roleIds = interaction.member && interaction.member.roles && interaction.member.roles.cache
@@ -494,7 +494,7 @@ async function handlePendingJoinCommand(interaction) {
   if (!access.ok) {
     return interaction.reply({
       embeds: [new EmbedBuilder().setColor(COLOUR.fail)
-        .setTitle(`${e('met_denied')} Not for you`)
+        .setTitle('Access Denied')
         .setDescription(access.why || 'You cannot decide who joins the group.')],
       flags: 64,
     });
