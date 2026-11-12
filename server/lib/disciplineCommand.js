@@ -200,7 +200,7 @@ async function handleDisciplineCommand(interaction) {
     return interaction.editReply({
       embeds: [new EmbedBuilder()
         .setColor(COLOR.fail)
-        .setTitle(`${e('met_denied')} Not authorised`)
+         .setTitle('Access Denied')
         .setDescription(access.why || 'This command is for Internal Affairs and Deputy Commissioner and above.')],
     }).catch(() => {});
   }
