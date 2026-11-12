@@ -966,7 +966,7 @@ async function onInteraction(interaction) {
 
   const DEV = process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
   if (interaction.user.id !== DEV) {
-    return interaction.reply({ content: `${e('met_denied')} You are not authorised to use this command.`, flags: 64 });
+    return interaction.reply({ content: `**Access Denied**\nYou are not authorised to use this command.`, flags: 64 });
   }
 
   const channel = interaction.options.getChannel('channel');
