@@ -268,10 +268,10 @@ async function handleMetCommand(interaction) {
       flags: 64,
       embeds: [new EmbedBuilder()
         .setColor(0xf04f5e)
-        .setTitle(`${e('met_denied')} Not for you to post`)
+         .setTitle('Access Denied')
         .setDescription(access.why
           || 'This posts a message to the whole channel, so it is limited to Internal Affairs, '
-           + 'MET High Command, and server administrators.\n\n'
+           + 'You are not authorised to use this command.\n\n'
            + 'If you want the steps for yourself, ask any of them to run it.')],
     }).catch(() => {});
   }
