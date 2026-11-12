@@ -43,7 +43,9 @@ function buildCommand() {
     .setName('infract')
     .setDescription('Issue discipline')
     .addUserOption(o => o
-      .setName('officer').setDescription('Who').setRequired(true))
+      .setName('hr').setDescription('HR approving/issuing this punishment').setRequired(true))
+    .addUserOption(o => o
+      .setName('user').setDescription('User being punished').setRequired(true))
     .addStringOption(o => o
       .setName('action').setDescription('Action').setRequired(true)
       .addChoices(...D.COMMAND_ACTIONS.map(a => ({ name: a, value: a }))))
@@ -51,7 +53,7 @@ function buildCommand() {
       .setName('reason').setDescription('Why').setRequired(true)
       .setMaxLength(900))
     .addStringOption(o => o
-      .setName('notes').setDescription('Notes').setMaxLength(900))
+      .setName('proof').setDescription('Proof or notes (N/A if none)').setMaxLength(900))
     .addStringOption(o => o
       .setName('case').setDescription('Case').setMaxLength(300))
     .addIntegerOption(o => o
@@ -78,7 +80,7 @@ function take(key, issuerId) {
   const hit = pending.get(key);
   if (!hit) return null;
   if (Date.now() - hit.at > PENDING_TTL) { pending.delete(key); return null; }
-  if (hit.data.issuerDiscordId !== issuerId) return null;
+  if ((hit.data.requesterDiscordId || hit.data.issuerDiscordId) !== issuerId) return null;
   pending.delete(key);
   return hit.data;
 }
@@ -198,15 +200,16 @@ async function handleDisciplineCommand(interaction) {
     return interaction.editReply({
       embeds: [new EmbedBuilder()
         .setColor(COLOR.fail)
-        .setTitle(`${e('met_denied')} Not authorised`)
+         .setTitle('Access Denied')
         .setDescription(access.why || 'This command is for Internal Affairs and Deputy Commissioner and above.')],
     }).catch(() => {});
   }
 
-  const target    = interaction.options.getUser('officer');
+  const hr        = interaction.options.getUser('hr');
+  const target    = interaction.options.getUser('user');
   const choice    = interaction.options.getString('action');
   const reason    = interaction.options.getString('reason');
-  const notes     = interaction.options.getString('notes');
+  const notes     = interaction.options.getString('proof');
   const caseLink  = interaction.options.getString('case');
   const days      = interaction.options.getInteger('days');
 
@@ -214,7 +217,7 @@ async function handleDisciplineCommand(interaction) {
     return interaction.editReply({
       embeds: [new EmbedBuilder().setColor(COLOR.fail)
         .setTitle(`${e('met_cross')} That's a bot`)
-        .setDescription('Pick an officer.')],
+        .setDescription('Pick the user being punished.')],
     }).catch(() => {});
   }
   if (target.id === issuer.id) {
@@ -278,7 +281,7 @@ async function handleDisciplineCommand(interaction) {
     : (interaction.guild ? await interaction.guild.members.fetch(issuer.id).catch(() => null) : null);
   const signedBy = signPersonally
     ? {
-        name: (issuerMember && issuerMember.displayName) || access.name || issuer.username,
+        name: (issuerMember && issuerMember.displayName) || hr.username,
         iconUrl: typeof issuer.displayAvatarURL === 'function' ? issuer.displayAvatarURL({ extension: 'png', size: 128 }) : null,
       }
     : null;
@@ -332,15 +335,19 @@ async function handleDisciplineCommand(interaction) {
   if (caveats.length) embed.addFields({ name: 'Worth knowing', value: short(caveats.join('\n'), 1000), inline: false });
 
   const baseJob = {
+    requesterDiscordId: issuer.id,
     reason, notes, caseLink, signedBy,
     targetDiscordId: target.id,
+    userDiscordId: target.id,
     targetRobloxId: robloxId || null,
     targetName: info ? info.username : null,
     targetAvatar: avatar || null,
     targetDisplay: displayName,
-    issuerDiscordId: issuer.id,
-    issuerUsername: issuer.username,
-    issuerName: access.name || issuer.username,
+    issuerDiscordId: hr.id,
+    issuerUsername: hr.username,
+    issuerName: hr.username,
+    hrDiscordId: hr.id,
+    proof: notes || 'N/A',
     strikeBefore: strike.level,
   };
 

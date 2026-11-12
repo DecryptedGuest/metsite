@@ -145,7 +145,7 @@ async function applyVerdict(log, status, by) {
   // actually been written. It stamps xpAwarded itself, which is what makes a
   // second tick (or the reconcile sweep re-reading the same reaction) a no-op
   // rather than a second payout.
-  if (status === 'APPROVED' && !updated.xpAwarded) {
+  if (process.env.XP_SYSTEM_ENABLED === '1' && status === 'APPROVED' && !updated.xpAwarded) {
     try {
       const out = await require('./logXpAward').awardForLog(updated, by || null);
       if (out.ok) {

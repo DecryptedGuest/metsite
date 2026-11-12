@@ -26,7 +26,7 @@
 // alternative is a week silently missing from the record.
 //
 // Env:
-//   QUOTA_WEEKLY_AUTO   'off' to disable and leave it to a person
+//   QUOTA_WEEKLY_AUTO   'on' to enable automatic posting; off by default
 //   QUOTA_WEEKLY_DAY    0–6, Sunday = 0 (default 0)
 //   QUOTA_WEEKLY_HOUR   0–23 (default 23)
 //   QUOTA_WEEKLY_MINUTE 0–59 (default 59)
@@ -37,7 +37,7 @@ const quota  = require('./quota');
 
 const STAMP_KEY = 'quota.weeklyCheckPostedFor';
 
-const AUTO   = () => String(process.env.QUOTA_WEEKLY_AUTO || '').toLowerCase() !== 'off';
+const AUTO   = () => String(process.env.QUOTA_WEEKLY_AUTO || '').toLowerCase() === 'on';
 const DAY    = () => num(process.env.QUOTA_WEEKLY_DAY, 0, 0, 6);
 const HOUR   = () => num(process.env.QUOTA_WEEKLY_HOUR, 23, 0, 23);
 const MINUTE = () => num(process.env.QUOTA_WEEKLY_MINUTE, 59, 0, 59);
@@ -513,7 +513,7 @@ async function markInstalled() {
 
 function startWeeklyQuotaWorker() {
   if (timer) return;
-  if (!AUTO()) { console.log('[Quota] the weekly check is off (QUOTA_WEEKLY_AUTO=off).'); return; }
+  if (!AUTO()) { console.log('[Quota] automatic weekly quota posts are disabled (set QUOTA_WEEKLY_AUTO=on to enable).'); return; }
   // Every ten minutes, not every minute. For a job that runs once a week the extra
   // precision buys nothing, and the interval is the multiplier on the blast radius
   // of anything that goes wrong — at one minute, this managed 60 pings an hour.

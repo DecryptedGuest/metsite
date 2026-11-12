@@ -621,6 +621,63 @@ async function claimPending({ discordId, robloxId, robloxUsername }) {
   });
 }
 
+/** Queue an XP-driven promotion for High Command approval. */
+async function queuePendingPromotion({ discordId, robloxId, robloxUsername, memberName, avatar, from, to, xp, issuedById, issuedBy, reason }) {
+  const id = String(discordId);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw`SELECT "pendingPromo" FROM "met_xp" WHERE "discordId" = ${id} FOR UPDATE`;
+    if (!rows || !rows[0]) return null;
+    const current = rows[0].pendingPromo;
+    const existing = current && current.status === 'PENDING' ? current : null;
+    const promo = {
+      id: existing?.id || require('crypto').randomUUID(), status: 'PENDING', discordId: id,
+      robloxId: robloxId ? String(robloxId) : null, robloxUsername: robloxUsername || null,
+      memberName: memberName || null, avatar: avatar || null,
+      fromCode: existing?.fromCode || from.code, fromRank: existing?.fromRank || from.name,
+      toCode: to.code, toRank: to.name, xp: Number(xp), reason: reason || null,
+      issuedById: issuedById ? String(issuedById) : null, issuedBy: issuedBy || null,
+      createdAt: existing?.createdAt || new Date().toISOString(), messageId: existing?.messageId || null,
+      channelId: existing?.channelId || null,
+    };
+    await tx.metXp.update({ where: { discordId: id }, data: { pendingPromo: promo } });
+    return promo;
+  });
+}
+
+async function attachPendingPromotionMessage(discordId, approvalId, channelId, messageId) {
+  const id = String(discordId);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw`SELECT "pendingPromo" FROM "met_xp" WHERE "discordId" = ${id} FOR UPDATE`;
+    const p = rows && rows[0] ? rows[0].pendingPromo : null;
+    if (!p || p.id !== approvalId || p.status !== 'PENDING') return null;
+    const next = { ...p, channelId: String(channelId), messageId: String(messageId) };
+    await tx.metXp.update({ where: { discordId: id }, data: { pendingPromo: next } });
+    return next;
+  });
+}
+
+async function resolvePendingPromotion(approvalId, status, resolvedById, resolutionReason = null) {
+  const wanted = String(approvalId || '');
+  const finalStatus = status === 'APPROVED' ? 'APPROVED' : 'REJECTED';
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw`SELECT "discordId", "pendingPromo" FROM "met_xp" WHERE "pendingPromo"->>'id' = ${wanted} FOR UPDATE`;
+    const row = rows && rows[0];
+    const p = row ? row.pendingPromo : null;
+    if (!row || !p || p.status !== 'PENDING') return null;
+    const next = { ...p, status: finalStatus, resolvedById: String(resolvedById), resolvedAt: new Date().toISOString(), ...(finalStatus === 'REJECTED' && resolutionReason ? { denialReason: String(resolutionReason).slice(0, 1000) } : {}) };
+    await tx.metXp.update({ where: { discordId: String(row.discordId) }, data: { pendingPromo: next } });
+    if (finalStatus === 'REJECTED') {
+      await tx.xpEvent.create({ data: {
+        discordId: String(row.discordId), kind: 'PROMOTION_DENIED', delta: 0,
+        before: Number(p.xp), after: Number(p.xp), fromRank: p.fromRank, toRank: p.toRank,
+        reason: resolutionReason ? String(resolutionReason).slice(0, 1000) : 'XP promotion denied by promotion review',
+        issuedById: String(resolvedById), issuedBy: 'Promotion Review',
+      } });
+    }
+    return next;
+  });
+}
+
 /**
  * Move somebody in the MET Roblox group to match their new XP rank.
  *
@@ -672,6 +729,25 @@ async function applyGroupRank(robloxId, rank, direction = 'up') {
     }
 
     await roblox.changeGroupRank(String(robloxId), target.id);
+
+    // Roblox can acknowledge the write before the membership read reflects it.
+    // Verify the resulting role and retry once if it did not stick. This keeps
+    // an approved promotion from being recorded as successful when the group
+    // still has the old rank.
+    let verified = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await new Promise(r => setTimeout(r, 750));
+      const after = await roblox.getGroupMembership(String(robloxId));
+      const afterRank = after && after.role ? Number(after.role.rank) : null;
+      if (afterRank === Number(target.rank)) {
+        verified = true;
+        break;
+      }
+      if (attempt === 0) await roblox.changeGroupRank(String(robloxId), target.id);
+    }
+    if (!verified) {
+      return { ok: false, reason: \`Roblox accepted the rank request but verification still shows \${current.name || 'the previous rank'}\` };
+    }
     return { ok: true, from: current.name || 'unknown', to: target.name };
   } catch (err) {
     return { ok: false, reason: err.message };
@@ -699,4 +775,5 @@ module.exports = {
   applyGroupRank, promoteInGroup, demoteInGroup,
   usernameKey, holdPending, pendingFor, claimPending,
   peekPendingPromo, takePendingPromo, clearPendingPromo,
+  queuePendingPromotion, attachPendingPromotionMessage, resolvePendingPromotion,
 };

@@ -418,11 +418,48 @@ router.get('/discord/callback', async (req, res) => {
         }
       }
 
+      // The division resolver runs before this enrichment. On a fresh database
+      // there is no stored Roblox id yet, so a temporary RoVer failure there can
+      // leave divisions empty even though this later lookup succeeds. Once we have
+      // the Roblox id, resolve divisions again directly from it.
+      let resolvedDivisions = null;
+      if (rbxId) {
+        try {
+          const divDiag = {};
+          const current = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { metRankOverride: true, panelGrant: true, divisions: true },
+          });
+          resolvedDivisions = await resolveDivisionsForUser({
+            discordId: discordUser.id,
+            siteRole: systemRole,
+            robloxId: String(rbxId),
+            metRankOverride: current?.metRankOverride || null,
+            panelGrant: current?.panelGrant || null,
+            diag: divDiag,
+          });
+          if (divDiag.degraded) {
+            const kept = Array.isArray(current?.divisions) ? current.divisions : [];
+            if (kept.length > resolvedDivisions.length) resolvedDivisions = kept;
+          }
+          systemRole = effectiveSiteRole(systemRole, resolvedDivisions);
+        } catch (divErr) {
+          console.warn('[Auth] Post-link division refresh failed (non-blocking):', divErr.message);
+          resolvedDivisions = null;
+        }
+      }
+
       await prisma.user.update({
         where: { id: user.id },
-        data:  { lastIp: ip, ...(rbxId ? { robloxId: rbxId, robloxUsername: rbxName } : {}) },
+        data:  {
+          lastIp: ip,
+          ...(rbxId ? { robloxId: rbxId, robloxUsername: rbxName } : {}),
+          ...(resolvedDivisions ? { divisions: resolvedDivisions, role: systemRole || 'NONE' } : {}),
+        },
       });
-      console.log('[Auth] Stored IP + Roblox link:', ip, '|', rbxName || 'unlinked', rbxId && user.robloxId ? '(cached)' : '(fresh)');
+      console.log('[Auth] Stored IP + Roblox link:', ip, '|', rbxName || 'unlinked',
+        rbxId && user.robloxId ? '(cached)' : '(fresh)',
+        resolvedDivisions ? ('| divisions: ' + (resolvedDivisions.map(d => d.division).join(',') || 'none')) : '');
 
       // XP imported for their Roblox account before anyone knew their Discord id.
       // A login is the first moment the two are tied together, so it is the right

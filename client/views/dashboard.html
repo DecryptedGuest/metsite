@@ -133,6 +133,7 @@
         <button class="nav-item dev-only" data-page="admin" style="display:none;">
           <i class="ti ti-shield-cog nav-icon"></i><span>Dev Panel</span><span class="nav-tag">DEV</span>
         </button>
+        <button class="nav-item dev-only" data-page="server-control" style="display:none;"><i class="ti ti-server-2 nav-icon"></i><span>Server Control</span><span class="nav-tag">DEV</span></button>
         <button class="nav-item dev-only" data-page="group" style="display:none;">
           <i class="ti ti-users-group nav-icon"></i><span>Group Panel</span><span class="nav-tag">DEV</span>
         </button>
@@ -160,6 +161,7 @@
         <div class="nav-group" id="nav-dev-group" style="display:none;">
           <button class="nav-item nav-sub dev-only" data-page="admin"><i class="ti ti-adjustments nav-icon"></i><span>Dev Panel</span></button>
           <button class="nav-item nav-sub dev-only" data-page="group"><i class="ti ti-users-group nav-icon"></i><span>Group Panel</span></button>
+          <button class="nav-item nav-sub dev-only" data-page="server-control"><i class="ti ti-server-2 nav-icon"></i><span>Server Control</span></button>
           <button class="nav-item nav-sub dev-only" data-page="discord-mod"><i class="ti ti-gavel nav-icon"></i><span>Discord Moderation</span></button>
           <button class="nav-item nav-sub dev-only" data-page="visits"><i class="ti ti-world-search nav-icon"></i><span>Visits</span></button>
           <button class="nav-item nav-sub dev-only" data-page="security"><i class="ti ti-shield-lock nav-icon"></i><span>Security</span></button>
@@ -1018,6 +1020,18 @@
           </table>
         </div>
       </div>
+    </section>
+
+    <!-- SERVER CONTROL (DEVELOPER ONLY) -->
+    <section class="page" id="page-server-control">
+      <div class="page-header fade-up">
+        <div>
+          <h1 class="page-title" style="color:#f5c518;">Server Control</h1>
+          <p class="page-sub">Developer · Discord server, channel, member and message management</p>
+        </div>
+        <span style="font-size:11px;background:rgba(245,197,24,0.12);color:#f5c518;border:1px solid rgba(245,197,24,0.3);border-radius:4px;padding:0.3rem 0.8rem;font-weight:700;letter-spacing:0.08em;">DEVELOPER ONLY</span>
+      </div>
+      <div id="sc-root"></div>
     </section>
 
     <!-- WEBSITE VISITS (DEVELOPER ONLY) -->
@@ -2219,6 +2233,7 @@
 <script src="/js/media.js?v=83"></script>
 <script src="/js/passkeys.js"></script>
 <script src="/js/discord-moderation.js"></script>
+<script src="/js/server-control.js?v=1"></script>
 <script src="/js/push-client.js?v=83"></script>
 <script src="/js/site-effects.js?v=83"></script>
 <script src="/js/met-topbar.js?v=83"></script>

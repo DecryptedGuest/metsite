@@ -31,12 +31,12 @@ async function mayExile(interaction) {
     const verdict = await canDiscipline(String(interaction.user.id), roleIds);
     if (verdict && verdict.ok && verdict.isMetHicomm) return { ok: true, label: verdict.label || 'MET High Command' };
   } catch (err) { console.error('[/exile] access check failed:', err.message); }
-  return { ok: false, why: 'Only MET High Command and SAS High Command can use /exile.' };
+  return { ok: false, why: 'You are not authorised to use this command.' };
 }
 
 async function handleExileCommand(interaction) {
   const access = await mayExile(interaction);
-  if (!access.ok) return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf04f5e).setTitle(e('met_denied') + ' Not for you').setDescription(access.why)], flags: 64 });
+  if (!access.ok) return interaction.reply({ embeds: [new EmbedBuilder().setColor(0xf04f5e).setTitle('Access Denied').setDescription(access.why)], flags: 64 });
   const target = interaction.options.getUser('officer');
   const reason = String(interaction.options.getString('reason') || '').trim();
   if (!target || !reason) return interaction.reply({ content: e('met_warn') + ' A target and reason are required.', flags: 64 });

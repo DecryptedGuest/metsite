@@ -74,8 +74,8 @@ async function handleDemoteCommand(interaction) {
   }
   if (!access.ok) {
     return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
-      .setTitle(`${e('met_denied')} Not authorised`)
-      .setDescription('Demoting is for FLP officers, HPC High Command, Deputy Commissioner and above, and server administrators.')],
+      .setTitle('Access Denied')
+      .setDescription('You are not authorised to use this command.')],
     }).catch(() => {});
   }
 
@@ -106,7 +106,7 @@ async function handleDemoteCommand(interaction) {
     const setAuth = await canSetRank({ discordId: interaction.user.id, roleIds, isAdmin });
     if (!setAuth.ok) {
       return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
-        .setTitle(`${e('met_denied')} Not authorised to set a rank`)
+        .setTitle('Access Denied')
         .setDescription('Setting a specific rank is for Deputy Commissioner and above. You can still demote one rank below.')],
       }).catch(() => {});
     }

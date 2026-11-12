@@ -272,42 +272,141 @@
   }
 
   async function messagesModal(cid, name) {
+    let before = null;
+    let loading = false;
+    let hasMore = false;
+    let shown = 0;
+
+    const queryState = () => ({
+      q: (document.getElementById('sc-msg-q')?.value || '').trim(),
+      author: (document.getElementById('sc-msg-author')?.value || '').trim(),
+      authorType: document.getElementById('sc-msg-author-type')?.value || '',
+      has: document.getElementById('sc-msg-has')?.value || '',
+      after: document.getElementById('sc-msg-after')?.value || '',
+      beforeDate: document.getElementById('sc-msg-before-date')?.value || '',
+    });
+
+    const buildUrl = (append) => {
+      const s = queryState();
+      const p = new URLSearchParams();
+      p.set('limit', '25');
+      if (append && before) p.set('before', before);
+      if (s.q) p.set('q', s.q);
+      if (s.author) p.set('author', s.author);
+      if (s.authorType) p.set('authorType', s.authorType);
+      if (s.has) p.set('has', s.has);
+      if (s.after) p.set('after', String(new Date(s.after).getTime()));
+      if (s.beforeDate) p.set('beforeDate', String(new Date(s.beforeDate).getTime()));
+      p.set('scan', '750');
+      return `/guilds/${SC.guildId}/channels/${cid}/messages?${p.toString()}`;
+    };
+
+    const renderRows = (messages) => messages.map(m => `<div class="sc-msg">
+      <div style="min-width:0;flex:1;">
+        <div class="who">${esc(m.authorTag)}${m.authorBot ? ' <span class="sc-note">[bot]</span>' : ''} <span class="t">${new Date(m.createdTimestamp).toLocaleString()}</span></div>
+        <div class="body">${esc(m.content) || '<span class="sc-note">(no text' + (m.embeds ? ', ' + m.embeds + ' embed(s)' : '') + (m.attachments.length ? ', ' + m.attachments.length + ' attachment(s)' : '') + ')</span>'}</div>
+        ${m.attachments.length ? '<div class="sc-note">' + m.attachments.map(a => a.url ? '<a href="' + esc(a.url) + '" target="_blank" rel="noopener">' + esc(a.name || 'attachment') + '</a>' : esc(a.name || 'attachment')).join(' · ') + '</div>' : ''}
+      </div>
+      <button class="btn btn-ghost btn-sm" data-mid="${m.id}" title="Delete message"><i class="ti ti-trash" style="color:#f04f5e;"></i></button>
+    </div>`).join('');
+
+    const renderFooter = () => {
+      const foot = document.getElementById('sc-msg-foot');
+      if (!foot) return;
+      foot.innerHTML = `<span class="sc-note">Showing <strong>${shown}</strong> result${shown === 1 ? '' : 's'}${hasMore ? ' · more available' : ''}</span>
+        ${hasMore ? '<button class="btn btn-ghost btn-sm" id="sc-msg-more"><i class="ti ti-chevron-down"></i> Load more</button>' : ''}`;
+      document.getElementById('sc-msg-more')?.addEventListener('click', () => loadMsgs(true));
+    };
+
     scModal({ title: '#' + name, icon: 'ti-messages', wide: true,
-      body: `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-        <button class="btn btn-danger btn-sm" id="sc-purge"><i class="ti ti-eraser"></i> Purge recent…</button>
-        <span class="sc-note" id="sc-msg-note"></span></div>
-        <div id="sc-msg-list"><div class="table-loading"><div class="spinner"></div></div></div>`,
+      body: `
+        <div class="sc-form-row" style="margin-bottom:8px;">
+          <div style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(160px,1fr) minmax(120px,.7fr) minmax(120px,.7fr);gap:8px;">
+            <input class="form-control" id="sc-msg-q" placeholder="Search message text…">
+            <input class="form-control" id="sc-msg-author" placeholder="Author name or ID…">
+            <select class="form-control" id="sc-msg-author-type">
+              <option value="">Any author</option><option value="user">Users</option><option value="bot">Bots</option><option value="webhook">Webhooks</option>
+            </select>
+            <select class="form-control" id="sc-msg-has">
+              <option value="">Any content</option><option value="link">Links</option><option value="attachment">Attachments</option><option value="image">Images</option><option value="embed">Embeds</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+          <label class="sc-note" style="margin:0;">After <input class="form-control" id="sc-msg-after" type="datetime-local" style="display:inline-block;width:auto;margin-left:4px;"></label>
+          <label class="sc-note" style="margin:0;">Before <input class="form-control" id="sc-msg-before-date" type="datetime-local" style="display:inline-block;width:auto;margin-left:4px;"></label>
+          <button class="btn btn-primary btn-sm" id="sc-msg-search"><i class="ti ti-search"></i> Search</button>
+          <button class="btn btn-ghost btn-sm" id="sc-msg-reset"><i class="ti ti-x"></i> Reset</button>
+          <button class="btn btn-danger btn-sm" id="sc-purge"><i class="ti ti-eraser"></i> Purge recent…</button>
+        </div>
+        <div class="sc-note" id="sc-msg-note"></div>
+        <div id="sc-msg-list"><div class="table-loading"><div class="spinner"></div></div></div>
+        <div id="sc-msg-foot" style="display:flex;justify-content:center;align-items:center;gap:10px;padding-top:10px;"></div>`,
       footer: `<button class="btn btn-ghost" onclick="scCloseModal()">Close</button>` });
+
+    const doSearch = () => loadMsgs(false);
+    document.getElementById('sc-msg-search').onclick = doSearch;
+    document.getElementById('sc-msg-q').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
+    document.getElementById('sc-msg-author').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
+    document.getElementById('sc-msg-reset').onclick = () => {
+      ['sc-msg-q','sc-msg-author','sc-msg-after','sc-msg-before-date'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      ['sc-msg-author-type','sc-msg-has'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      loadMsgs(false);
+    };
     document.getElementById('sc-purge').onclick = async () => {
       const n = await uiPrompt('How many recent messages to remove? (1 to 100, under 14 days old)', { value: '10' });
       if (!n) return;
-      try { const r = await scApi(`/guilds/${SC.guildId}/channels/${cid}/purge`, { method: 'POST', body: JSON.stringify({ count: parseInt(n, 10) }) }); toast(`Purged ${r.deleted}`, 'success'); loadMsgs(); }
-      catch (err) { toast(err.message, 'error'); }
-    };
-    async function loadMsgs() {
-      const list = document.getElementById('sc-msg-list');
       try {
-        const r = await scApi(`/guilds/${SC.guildId}/channels/${cid}/messages?limit=25`);
-        document.getElementById('sc-msg-note').textContent = r.contentReadable ? '' : 'Message text is hidden: the bot lacks the Message Content intent. You can still delete by author and time.';
-        if (!r.messages.length) { list.innerHTML = '<p class="sc-note">No messages.</p>'; return; }
-        list.innerHTML = r.messages.map(m => `<div class="sc-msg">
-          <div style="min-width:0;">
-            <div class="who">${esc(m.authorTag)}${m.authorBot ? ' <span class="sc-note">[bot]</span>' : ''} <span class="t">${new Date(m.createdTimestamp).toLocaleString()}</span></div>
-            <div class="body">${esc(m.content) || '<span class="sc-note">(no text' + (m.embeds ? ', ' + m.embeds + ' embed(s)' : '') + (m.attachments.length ? ', ' + m.attachments.length + ' attachment(s)' : '') + ')</span>'}</div>
-          </div>
-          <button class="btn btn-ghost btn-sm" data-mid="${m.id}"><i class="ti ti-trash" style="color:#f04f5e;"></i></button>
-        </div>`).join('');
-        list.onclick = async (e) => {
-          const b = e.target.closest('[data-mid]'); if (!b) return;
-          if (!await uiConfirm('Delete this message?', { danger: true, confirmText: 'Delete' })) return;
-          try { await scApi(`/guilds/${SC.guildId}/channels/${cid}/messages/${b.dataset.mid}`, { method: 'DELETE' }); toast('Deleted', 'success'); loadMsgs(); }
-          catch (err) { toast(err.message, 'error'); }
-        };
-      } catch (err) { list.innerHTML = `<p class="sc-note" style="color:#f04f5e;">${esc(err.message)}</p>`; }
-    }
-    loadMsgs();
-  }
+        const r = await scApi(`/guilds/${SC.guildId}/channels/${cid}/purge`, { method: 'POST', body: JSON.stringify({ count: parseInt(n, 10) }) });
+        toast(`Purged ${r.deleted}`, 'success');
+        loadMsgs(false);
+      } catch (err) { toast(err.message, 'error'); }
+    };
 
+    async function loadMsgs(append) {
+      if (loading) return;
+      loading = true;
+      const list = document.getElementById('sc-msg-list');
+      if (!append) {
+        before = null; shown = 0; hasMore = false;
+        list.innerHTML = '<div class="table-loading"><div class="spinner"></div></div>';
+      } else {
+        const more = document.getElementById('sc-msg-more');
+        if (more) { more.disabled = true; more.innerHTML = '<i class="ti ti-loader-2"></i> Loading…'; }
+      }
+      try {
+        const r = await scApi(buildUrl(append));
+        const note = document.getElementById('sc-msg-note');
+        note.textContent = r.contentReadable ? '' : 'Message text is hidden: the bot lacks the Message Content intent. Search by author, date and message metadata still works.';
+        const rows = r.messages || [];
+        if (!append && !rows.length) list.innerHTML = '<p class="sc-note">No messages matched.</p>';
+        else if (rows.length) {
+          if (append) list.insertAdjacentHTML('beforeend', renderRows(rows));
+          else list.innerHTML = renderRows(rows);
+          shown += rows.length;
+        }
+        before = r.nextBefore || null;
+        hasMore = !!r.hasMore;
+        renderFooter();
+      } catch (err) {
+        if (!append) list.innerHTML = `<p class="sc-note" style="color:#f04f5e;">${esc(err.message)}</p>`;
+        else toast(err.message, 'error');
+      } finally { loading = false; }
+    }
+
+    document.getElementById('sc-msg-list').onclick = async (e) => {
+      const b = e.target.closest('[data-mid]'); if (!b) return;
+      if (!await uiConfirm('Delete this message?', { danger: true, confirmText: 'Delete' })) return;
+      try {
+        await scApi(`/guilds/${SC.guildId}/channels/${cid}/messages/${b.dataset.mid}`, { method: 'DELETE' });
+        toast('Deleted', 'success');
+        // Reload the current search rather than silently losing the filters.
+        loadMsgs(false);
+      } catch (err) { toast(err.message, 'error'); }
+    };
+
+    loadMsgs(false);
+  }
   // ── Roles ───────────────────────────────────────────────────────
   async function renderRoles(box) {
     box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">

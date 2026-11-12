@@ -41,7 +41,7 @@ function short(s, n) {
 // Discord roles that may promote on top of the XP-management routes. HPC High
 // Command by default, so graduating a cadet into the MET group does not need a
 // Deputy Commissioner; PROMOTE_ROLE_IDS overrides without a deploy.
-const HPC_HICOMM_ROLE = '1398071632207151184';
+const HPC_HICOMM_ROLE = '1490857465019895828';
 function PROMOTE_ROLE_IDS() {
   const raw = process.env.PROMOTE_ROLE_IDS;
   return String(raw == null ? HPC_HICOMM_ROLE : raw)
@@ -304,8 +304,8 @@ async function handlePromoteCommand(interaction) {
   }
   if (!access.ok) {
     return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
-      .setTitle(`${e('met_denied')} Not authorised`)
-      .setDescription('Promoting is for FLP officers, HPC High Command, Deputy Commissioner and above, and server administrators.')],
+      .setTitle('Access Denied')
+      .setDescription('You are not authorised to use this command.')],
     }).catch(() => {});
   }
 
@@ -342,7 +342,7 @@ async function handlePromoteCommand(interaction) {
     const setAuth = await canSetRank({ discordId: interaction.user.id, roleIds, isAdmin });
     if (!setAuth.ok) {
       return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
-        .setTitle(`${e('met_denied')} Not authorised to set a rank`)
+        .setTitle('Access Denied')
         .setDescription(`Setting a specific rank is for Deputy Commissioner and above. `
           + `You can still promote <@${target.id}> one rank up · run \`/promote\` again and leave the **rank** field empty.`)],
       }).catch(() => {});
@@ -535,31 +535,8 @@ async function applyPromotion(state, client) {
     return out;
   }
 
-  // 2. XP follows the rank. Set to the floor of the new rank so the next
-  //    threshold they cross is the real next one.
-  try {
-    const rung = await XP.rungForGroupRank({ name: state.to.name, rank: state.to.rank });
-    if (rung) {
-      const res = await XP.applyXp({
-        discordId: state.targetId, kind: 'SET', value: rung.at,
-        reason: `Promoted to ${state.to.name}`,
-        issuedBy: state.issuerName,
-      });
-      // Mark the rank as already reached, so the XP system doesn't announce a
-      // promotion to a rank they were just given by hand.
-      await XP.recordPromotion({
-        discordId: state.targetId,
-        from: XP.rankFor(res.before), to: rung,
-        groupResult: { ok: true, to: state.to.name },
-        issuedBy: state.issuerName,
-      }).catch(() => {});
-      out.xp = { ok: true, value: rung.at, reason: null };
-    } else {
-      out.xp.reason = 'that rank is not on the XP ladder';
-    }
-  } catch (err) {
-    out.xp.reason = err.message;
-  }
+  // XP system disabled at the user's request. Rank changes still proceed normally.
+  out.xp = { ok: null, value: null, reason: 'XP system disabled' };
 
   const down = state.direction === 'down';
 
@@ -584,37 +561,21 @@ async function applyPromotion(state, client) {
     });
   } catch (err) { out.dm = false; }
 
-  // 4. And the log · a promotion post for an upward move, a rank-change post
-  //    for a downward one.
+  // 4. Log rank changes in the MET NOTICE channel.
   try {
-    const XPLog = require('./xpLog');
-    const msg = down
-      ? await XPLog.logDemotion({
-          discordId: state.targetId,
-          memberName: state.username,
-          from: { name: state.from.name, at: null },
-          to: { name: state.to.name, at: out.xp.value },
-          xp: out.xp.value,
-          groupResult: { ok: true, to: state.to.name },
-          dmSent: out.dm,
-          avatar: state.avatar,
-          issuedById: state.issuerId,
-          by: state.issuerName,
-          reason: state.reason,
-        })
-      : await XPLog.logPromotion({
-          discordId: state.targetId,
-          memberName: state.username,
-          from: { name: state.from.name, at: null },
-          to: { name: state.to.name, at: out.xp.value },
-          xp: out.xp.value,
-          groupResult: { ok: true, to: state.to.name },
-          dmSent: out.dm,
-          avatar: state.avatar,
-          by: state.issuerName,
-          reason: state.reason,
-        });
-    out.logged = !!msg;
+    const id = await require('./webhook').sendMetNotice({
+      hrId: state.issuerId,
+      hrName: state.issuerName,
+      userId: state.targetId,
+      userName: state.username,
+      reason: state.reason || 'N/A',
+      action: down
+        ? `Rank change: ${state.from.name} → ${state.to.name}`
+        : `Promotion: ${state.from.name} → ${state.to.name}`,
+      duration: 'N/A',
+      proof: 'N/A',
+    });
+    out.logged = !!id;
   } catch (err) { out.logged = false; }
 
   return out;

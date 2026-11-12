@@ -299,7 +299,14 @@ async function loadOfficer(discordId, guild) {
   //
   // Timed too: placing a rank can need an authenticated group-roles call, and
   // that is one more thing that can stall.
-  await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+  // Seed the XP row from the live MET rank. On a fresh database this is what
+  // creates the officer's starting balance. Retry once if the first DB operation
+  // raced the database becoming ready after login/deploy; otherwise a perfectly
+  // valid Inspector/Sergeant can be shown as "not on the XP ladder".
+  let seeded = await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+  if (!seeded && groupRole) {
+    seeded = await withTimeout(XP.seedFromRank(discordId, groupRole), t, null);
+  }
 
   // Any XP imported for their Roblox account before we knew their Discord id.
   // Looking somebody up is exactly the moment to settle that: it takes the higher
@@ -526,11 +533,13 @@ function buildTable(officers, client) {
 //   3. Deputy Commissioner and above           (MET group rank — a lookup)
 //
 // XP_MANAGER_ROLE_IDS adds more roles to route 1 without a deploy.
-const FLP_OFFICER_ROLE_ID = () => process.env.FLP_OFFICER_ROLE_ID || '1431554710594388018';
+const FLP_OFFICER_ROLE_ID = () => '1431554710594388018';
 
 function xpRoleIds() {
   const extra = String(process.env.XP_MANAGER_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  return [FLP_OFFICER_ROLE_ID(), ...extra].filter(Boolean);
+  // FLP is always an XP-management role. Environment configuration can add
+  // more managers, but must never be able to replace/remove the FLP role.
+  return [...new Set([FLP_OFFICER_ROLE_ID(), ...extra].filter(Boolean))];
 }
 
 /**
@@ -818,9 +827,9 @@ async function runChange({ interaction, targets, problems, action, value, reason
       let promoted = null;
       let demoted  = null;
       if (res.promotion) {
-        promoted = await promote({
+        promoted = await queuePromotion({
           officer: o, promotion: res.promotion, xp: res.after,
-          issuedById: interaction.user.id, issuedBy: issuerName,
+          issuedById: interaction.user.id, issuedBy: issuerName, reason,
         });
       } else if (res.demotion) {
         demoted = await demote({
@@ -862,11 +871,9 @@ async function runChange({ interaction, targets, problems, action, value, reason
 
   if (promotions.length) {
     embed.addFields({
-      name: `${e('met_celebrate')} Promoted`,
+      name: `<:pending:1533231156017758369> Pending promotion review`,
       value: short(promotions.map(r =>
-        `<@${r.id}> → **${r.promoted.to.name}**`
-        + (r.promoted.group.ok ? '' : ` ${e('met_warn')} *(group rank not changed: ${short(r.promoted.group.reason, 60)})*`)
-        + (r.promoted.dmSent ? '' : ` ${e('met_warn')} *(couldn't DM them)*`),
+        `<@${r.id}> → **${r.promoted.to.name}** ${e('met_pending')} · sent to High Command for approval`,
       ).join('\n'), 1000),
       inline: false,
     });
@@ -902,10 +909,39 @@ async function runChange({ interaction, targets, problems, action, value, reason
  * outcome is recorded, so a promotion whose group rank didn't move is visible
  * in the log rather than silently half-done.
  */
+async function queuePromotion({ officer, promotion, xp, issuedById, issuedBy, reason }) {
+  const pending = await require('./xpPromotionApproval').queue({
+    officer, promotion, xp, issuedById, issuedBy, reason,
+  });
+  if (!pending) return null;
+  // Keep the promotion shape used by the XP result renderer while retaining
+  // the persistent approval record returned by the review workflow.
+  return { ...pending, from: promotion.from, to: promotion.to };
+}
+
+/** Execute an already-approved XP promotion. */
 async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
   const { from, to } = promotion;
 
-  const group = await XP.promoteInGroup(officer.robloxId, to);
+  // The approval card may have been created before a Roblox link was
+  // refreshed. Re-resolve from our own stored link before touching the group;
+  // never rely on a stale Discord/Roblox mapping captured at XP-award time.
+  let robloxId = officer.robloxId ? String(officer.robloxId) : null;
+  if (!robloxId && officer.discordId) {
+    try {
+      const link = await require('./robloxLink').resolveRoblox(officer.discordId);
+      robloxId = link && link.robloxId ? String(link.robloxId) : null;
+    } catch (_) {}
+  }
+
+  let group = await XP.promoteInGroup(robloxId, to);
+  // A transient Roblox/API failure must not turn an approval into a silent
+  // non-promotion. One controlled retry uses the same target and fresh group
+  // data, without involving RoVer.
+  if (!group.ok && robloxId) {
+    await new Promise(r => setTimeout(r, 750));
+    group = await XP.promoteInGroup(robloxId, to);
+  }
 
   let dmSent = false;
   try {
@@ -992,5 +1028,5 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
 module.exports = {
   buildCommand, handleXpCommand,
   resolveTargets, loadOfficer, buildCard, buildTable, buildLeaderboard, showLeaderboard, celebratePromotion,
-  canManageXp, xpRoleIds, promote, demote,
+  canManageXp, xpRoleIds, queuePromotion, promote, demote,
 };
