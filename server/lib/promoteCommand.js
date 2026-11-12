@@ -41,7 +41,7 @@ function short(s, n) {
 // Discord roles that may promote on top of the XP-management routes. HPC High
 // Command by default, so graduating a cadet into the MET group does not need a
 // Deputy Commissioner; PROMOTE_ROLE_IDS overrides without a deploy.
-const HPC_HICOMM_ROLE = '1398071632207151184';
+const HPC_HICOMM_ROLE = '1490857465019895828';
 function PROMOTE_ROLE_IDS() {
   const raw = process.env.PROMOTE_ROLE_IDS;
   return String(raw == null ? HPC_HICOMM_ROLE : raw)
@@ -304,8 +304,8 @@ async function handlePromoteCommand(interaction) {
   }
   if (!access.ok) {
     return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
-      .setTitle(`${e('met_denied')} Not authorised`)
-      .setDescription('Promoting is for FLP officers, HPC High Command, Deputy Commissioner and above, and server administrators.')],
+      .setTitle('Access Denied')
+      .setDescription('You are not authorised to use this command.')],
     }).catch(() => {});
   }
 
@@ -342,7 +342,7 @@ async function handlePromoteCommand(interaction) {
     const setAuth = await canSetRank({ discordId: interaction.user.id, roleIds, isAdmin });
     if (!setAuth.ok) {
       return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLOR.fail)
-        .setTitle(`${e('met_denied')} Not authorised to set a rank`)
+        .setTitle('Access Denied')
         .setDescription(`Setting a specific rank is for Deputy Commissioner and above. `
           + `You can still promote <@${target.id}> one rank up · run \`/promote\` again and leave the **rank** field empty.`)],
       }).catch(() => {});
