@@ -24,13 +24,13 @@ async function execute(interaction) {
   if (discordId) {
     const rbxId = await roblox.getRobloxIdFromDiscord(discordId);
     const info  = rbxId ? await roblox.getRobloxUserInfo(rbxId) : null;
-    if (!info) return interaction.editReply('❌ That Discord account is not linked to a Roblox account.');
+    if (!info) return interaction.editReply('❌ That Discord account isn’t linked to Roblox.');
     username = info.name;
   }
 
   const result = await setMemberLOA(username);
   if (!result.ok) return interaction.editReply(`❌ ${result.error}`);
-  return interaction.editReply(`✅ **${username}** is now marked **LOA**, exempt from quota until the marker is cleared.`);
+  return interaction.editReply(`✅ **${username}** is on LOA and won’t have a quota until it’s cleared.`);
 }
 
 module.exports = { scope: 'ia', data, execute };
