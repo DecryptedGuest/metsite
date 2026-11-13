@@ -579,6 +579,22 @@ async function registerCommands(c) {
     const names = cmds.map(c => '/' + c.name).join(' ');
     try {
       const guild = await api.guilds.fetch(guildId);
+      // Recreate /xp rather than updating it in place. Discord stores per-command
+      // permission overrides separately from the command definition; an old
+      // disabled override can survive a bulk overwrite and leave /xp invisible.
+      // A fresh command ID clears that stale override before the normal full set.
+      if (cmds.some(cmd => cmd && cmd.name === 'xp')) {
+        try {
+          const existing = await guild.commands.fetch();
+          const oldXp = existing.find(cmd => cmd.name === 'xp');
+          if (oldXp) {
+            await oldXp.delete();
+            console.log(`[Bot] recreated /xp in "${guild.name}" to clear stale command permissions`);
+          }
+        } catch (err) {
+          console.warn(`[Bot] could not refresh existing /xp in "${guild.name}": ${err.message}`);
+        }
+      }
       await guild.commands.set(cmds);
       anyGuildOk = true;
       out.guilds.push({ guildId, name: guild.name, commands: cmds.map(c => c.name), ok: true });
