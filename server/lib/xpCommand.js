@@ -526,53 +526,28 @@ function buildTable(officers, client) {
 }
 
 // ── Who may change XP ─────────────────────────────────────────────
-// Three routes, checked cheapest first. Anyone at all may VIEW XP — this gate
-// only covers add / remove / set.
-//
-//   1. the FLP officer role                    (a role id — free)
-//   2. Administrator in the server             (a permission bit — free)
-//   3. Deputy Commissioner and above           (MET group rank — a lookup)
-//
-// XP_MANAGER_ROLE_IDS adds more roles to route 1 without a deploy.
-const FLP_OFFICER_ROLE_ID = () => '1431554710594388018';
+// Only members holding this exact Discord role may add, remove, or set XP.
+// Administrator permissions, MET rank, and environment-configured roles do
+// not grant an exception. Viewing XP remains available to everyone.
+const XP_MANAGER_ROLE_ID = '1569839758408941709';
 
 function xpRoleIds() {
-  const extra = String(process.env.XP_MANAGER_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  // FLP is always an XP-management role. Environment configuration can add
-  // more managers, but must never be able to replace/remove the FLP role.
-  return [...new Set([FLP_OFFICER_ROLE_ID(), ...extra].filter(Boolean))];
+  return [XP_MANAGER_ROLE_ID];
 }
 
 /**
  * @param {object} o
- * @param {string}   o.discordId
  * @param {string[]} o.roleIds  the invoker's roles in this guild
- * @param {boolean}  o.isAdmin  do they have Administrator here
  */
-async function canManageXp({ discordId, roleIds, isAdmin }) {
+async function canManageXp({ roleIds }) {
   const held = Array.isArray(roleIds) ? roleIds.map(String) : [];
-
-  for (const rid of xpRoleIds()) {
-    if (held.includes(String(rid))) {
-      return { ok: true, via: 'role', label: rid === FLP_OFFICER_ROLE_ID() ? 'FLP Officer' : 'XP Manager', name: null, why: null };
-    }
-  }
-
-  if (isAdmin) return { ok: true, via: 'admin', label: 'Server Administrator', name: null, why: null };
-
-  // Deputy Commissioner and above. canDiscipline also lets Internal Affairs
-  // through, so only the MET High Command half of its verdict counts here — an
-  // investigator has no business moving XP unless they are also DC+, an
-  // administrator, or hold one of the roles above.
-  const v = await canDiscipline(discordId, held);
-  if (v.ok && v.isMetHicomm) {
-    return { ok: true, via: v.via, label: v.label, name: v.name, why: null };
+  if (held.includes(XP_MANAGER_ROLE_ID)) {
+    return { ok: true, via: 'role', label: 'XP Manager', name: null, why: null };
   }
 
   return {
-    ok: false, via: null, label: '', name: v.name,
-    why: 'Changing XP is for FLP officers, Deputy Commissioner and above, and server administrators. '
-       + 'Anyone can run `/xp` to look at their own.',
+    ok: false, via: null, label: '', name: null,
+    why: 'Only members with the designated XP Manager role can change XP. Anyone can run /xp to view XP.',
   };
 }
 
