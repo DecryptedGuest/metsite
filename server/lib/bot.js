@@ -405,7 +405,14 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /infract:', err.message);
   }
 
-  // XP system intentionally disabled: /xp is not registered.
+  // /xp — view the MET XP ladder or manage officers' XP. Access to changes is checked in the command.
+  try {
+    const cmd = require('./xpCommand').buildCommand();
+    add(XP_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /xp:', err.message);
+  }
 
   // /check-record — the record lookup panel. In the MET server: it is what MET
   // High Command uses to see somebody's disciplinary history. Visible to
@@ -864,7 +871,15 @@ async function onInteraction(interaction) {
       .catch(e => console.error('[Bot] /undo error:', e.message));
   }
 
-  // XP command handler disabled.
+  if (interaction.commandName === 'xp') {
+    return require('./xpCommand').handleXpCommand(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /xp failed:', err.message);
+        const msg = { content: `${e('met_cross')} Something went wrong with XP · nothing was changed. (${err.message})`, embeds: [], components: [] };
+        if (interaction.deferred || interaction.replied) await interaction.editReply(msg).catch(() => {});
+        else await interaction.reply({ ...msg, flags: 64 }).catch(() => {});
+      });
+  }
 
   if (interaction.commandName === 'infract') {
     return require('./disciplineCommand').handleDisciplineCommand(interaction)
