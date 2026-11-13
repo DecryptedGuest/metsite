@@ -80,7 +80,10 @@ function ladder() {
  */
 function maxXp() {
   const l = ladder();
-  return l[l.length - 1].at;
+  // XP may promote officers as far as Inspector, but never to Chief Inspector.
+  const chiefInspector = l.find(r => r.code === 'CINS');
+  const inspector = l.find(r => r.code === 'INS');
+  return chiefInspector ? Math.max(0, chiefInspector.at - 1) : (inspector ? inspector.at : l[l.length - 1].at);
 }
 
 /** The rank an officer holds at this XP total. Never null — 0 XP is the bottom rung. */
@@ -120,6 +123,7 @@ function promotionFor(before, after, lastPromoted) {
   const to = rankFor(after);
   const from = rankFor(before);
   if (to.at <= from.at) return null;                       // no upward crossing
+  if (to.code === 'CINS') return null;                      // XP cannot promote to Chief Inspector
   if (lastPromoted && lastPromoted === to.code) return null; // already announced
   return { from, to };
 }
@@ -623,6 +627,7 @@ async function claimPending({ discordId, robloxId, robloxUsername }) {
 
 /** Queue an XP-driven promotion for High Command approval. */
 async function queuePendingPromotion({ discordId, robloxId, robloxUsername, memberName, avatar, from, to, xp, issuedById, issuedBy, reason }) {
+  if (to && to.code === 'CINS') return null; // Never create an XP approval for Chief Inspector.
   const id = String(discordId);
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw`SELECT "pendingPromo" FROM "met_xp" WHERE "discordId" = ${id} FOR UPDATE`;
@@ -695,6 +700,9 @@ async function resolvePendingPromotion(approvalId, status, resolvedById, resolut
  */
 async function applyGroupRank(robloxId, rank, direction = 'up') {
   const down = direction === 'down';
+  if (!down && rank && rank.code === 'CINS') {
+    return { ok: false, reason: 'XP promotions to Chief Inspector are disabled' };
+  }
   if (!robloxId) return { ok: false, reason: 'no linked Roblox account' };
   if (process.env.XP_GROUP_PROMOTE === 'off') {
     return { ok: false, reason: `group ${down ? 'demotion' : 'promotion'} is turned off` };
