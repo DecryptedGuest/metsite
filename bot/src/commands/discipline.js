@@ -57,15 +57,15 @@ async function execute(interaction, bot) {
     const subject = interaction.options.getUser('subject');
     const roblox  = interaction.options.getString('roblox');
     if (!subject && !roblox) {
-      return interaction.reply({ content: '❌ Give either a `subject` or a `roblox` username.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: '❌ Add a Discord member or a Roblox username.', flags: MessageFlags.Ephemeral });
     }
 
     const { actions, invalid } = parseActions(interaction.options.getString('punishments'));
     if (invalid.length) {
-      return interaction.reply({ content: `❌ Invalid action: ${invalid[0]}`, flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `❌ That action isn’t valid: ${invalid[0]}`, flags: MessageFlags.Ephemeral });
     }
     if (!actions.length) {
-      return interaction.reply({ content: '❌ Pick at least one punishment.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: '❌ Add at least one punishment.', flags: MessageFlags.Ephemeral });
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -95,13 +95,13 @@ async function execute(interaction, bot) {
     }
     const ref = normaliseRef(interaction.options.getString('ref'));
     const c = await prisma.case.findUnique({ where: { caseRef: ref } });
-    if (!c) return interaction.reply({ content: `❌ No case ${ref}.`, flags: MessageFlags.Ephemeral });
+    if (!c) return interaction.reply({ content: `❌ Couldn’t find case ${ref}.`, flags: MessageFlags.Ephemeral });
     if (c.submitterDiscordId === interaction.user.id) {
-      return interaction.reply({ content: '❌ You cannot review your own submission.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: '❌ You can’t review your own case.', flags: MessageFlags.Ephemeral });
     }
     if (sub === 'approve' && !isHicomm(interaction.member) && caseHasHicommOnlyPunishment(c.actions || [])) {
       return interaction.reply({
-        content: 'Only HICOMM can approve a case involving a Blacklist or Termination.',
+        content: 'Only HICOMM can approve Blacklist or Termination cases.',
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -152,7 +152,7 @@ async function execute(interaction, bot) {
         { name: `Pending / denied (${other.length})`,
           value: other.length ? other.map(c => `${c.caseRef} · ${c.status}`).join('\n').slice(0, 1000) : '*None*' },
       )
-      .setFooter({ text: 'Only approved cases count toward the record' });
+      .setFooter({ text: 'Only approved cases count.' });
     return interaction.editReply({ embeds: [embed] });
   }
 }
