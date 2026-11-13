@@ -52,8 +52,8 @@ async function execute(interaction, bot) {
     const info  = rbxId ? await roblox.getRobloxUserInfo(rbxId) : null;
     const r = await getMemberPoints({ discordId: user.id, robloxUsername: info?.name || null }, bot);
 
-    if (r === null) return interaction.editReply('❌ The quota sheet is not configured.');
-    if (!r.found)   return interaction.editReply(`❌ ${user} was not found on the quota sheet.`);
+    if (r === null) return interaction.editReply('❌ The quota sheet isn’t set up.');
+    if (!r.found)   return interaction.editReply(`❌ Couldn’t find ${user} on the quota sheet.`);
     return interaction.editReply({ embeds: [pointsEmbed(`Quota · ${info?.name || user.username}`, r)] });
   }
 
@@ -63,7 +63,7 @@ async function execute(interaction, bot) {
     }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const members = await getAllMembersPoints(bot);
-    if (members === null) return interaction.editReply('❌ The quota sheet is not configured.');
+    if (members === null) return interaction.editReply('❌ The quota sheet isn’t set up.');
     if (!members.length)  return interaction.editReply('❌ No members found on the sheet.');
 
     const results = members.map(m => ({
@@ -82,7 +82,7 @@ async function execute(interaction, bot) {
     });
     return interaction.editReply(ok
       ? `✅ Posted the weekly review: ${results.filter(r => r.status === 'pass').length} passed, ${results.filter(r => r.status === 'fail').length} failed.`
-      : '❌ The quota results webhook is not configured or failed to send.');
+      : '❌ Couldn’t post the quota results. Check the webhook setup.');
   }
 
   if (sub === 'reset') {
@@ -114,7 +114,7 @@ async function execute(interaction, bot) {
     if (discordId) {
       const rbxId = await roblox.getRobloxIdFromDiscord(discordId);
       const info  = rbxId ? await roblox.getRobloxUserInfo(rbxId) : null;
-      if (!info) return interaction.editReply('❌ That Discord account is not linked to a Roblox account.');
+      if (!info) return interaction.editReply('❌ That Discord account isn’t linked to Roblox.');
       username = info.name;
     }
     const result = await setMemberExempt(username);
@@ -140,15 +140,15 @@ async function execute(interaction, bot) {
 async function handleButton(interaction) {
   const [, , verb, ownerId] = interaction.customId.split(':');
   if (interaction.user.id !== ownerId) {
-    return interaction.reply({ content: '⛔ That confirmation is not yours.', flags: MessageFlags.Ephemeral });
+    return interaction.reply({ content: '⛔ You can’t use this confirmation.', flags: MessageFlags.Ephemeral });
   }
   if (verb === 'cancel') {
-    return interaction.update({ content: 'Cancelled. Nothing was changed.', components: [] });
+    return interaction.update({ content: 'Cancelled, nothing changed.', components: [] });
   }
   await interaction.update({ content: '⏳ Resetting…', components: [] });
   const result = await resetAllQuota();
   return interaction.editReply(result.ok
-    ? `✅ Weekly quota reset: ${result.cleared ?? 'all'} cell(s) cleared.`
+    ? `✅ Weekly points reset, ${result.cleared ?? 'all'} cells cleared.`
     : `❌ ${result.error}`);
 }
 
