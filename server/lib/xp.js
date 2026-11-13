@@ -746,7 +746,7 @@ async function applyGroupRank(robloxId, rank, direction = 'up') {
       if (attempt === 0) await roblox.changeGroupRank(String(robloxId), target.id);
     }
     if (!verified) {
-      return { ok: false, reason: \`Roblox accepted the rank request but verification still shows \${current.name || 'the previous rank'}\` };
+      return { ok: false, reason: `Roblox accepted the rank request but verification still shows ${current.name || 'the previous rank'}` };
     }
     return { ok: true, from: current.name || 'unknown', to: target.name };
   } catch (err) {
