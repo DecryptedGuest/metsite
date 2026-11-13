@@ -20,10 +20,6 @@ const ALL = [
   require('../commands/panel'),
 ];
 
-// Temporarily hidden from Discord; command implementations remain in place.
-// Remove names from this set to restore their slash-command registration.
-const DISABLED_COMMANDS = new Set(['add-qp', 'leaderboard', 'remove-qp', 'submit-case', 'undo']);
-
 const SCOPES = ['ia', 'met'];
 
 // A missing scope is a programming error, not a default — fail at boot rather
@@ -34,7 +30,6 @@ for (const c of ALL) {
   }
 }
 
-const ENABLED = ALL.filter(c => !DISABLED_COMMANDS.has(c.data.name));
-const forScope = (scope) => ENABLED.filter(c => c.scope === scope);
+const forScope = (scope) => ALL.filter(c => c.scope === scope);
 
-module.exports = { ALL, ENABLED, forScope, SCOPES, IA: forScope('ia'), MET: forScope('met') };
+module.exports = { ALL, forScope, SCOPES, IA: forScope('ia'), MET: forScope('met') };
