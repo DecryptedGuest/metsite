@@ -8,15 +8,15 @@ const roblox = require('../lib/roblox');
 
 // "HR" here means IA Deputy Director and above (or the developer).
 const allowed = (member) => isHR(member) || isDeveloper(member);
-const HR_DENIED = '⛔ This is an HR command: Deputy Director and above.';
+const HR_DENIED = '⛔ You need to be Deputy Director or above to use this.';
 
 function build(name, verb) {
   return new SlashCommandBuilder()
     .setName(name)
     .setDescription(`[HR] ${verb} quota points ${verb === 'Add' ? 'to' : 'from'} a member`)
-    .addUserOption(o => o.setName('member').setDescription('The member').setRequired(true))
+    .addUserOption(o => o.setName('member').setDescription('Who to change').setRequired(true))
     .addIntegerOption(o => o.setName('points').setDescription('How many points').setRequired(true).setMinValue(1).setMaxValue(1000))
-    .addStringOption(o => o.setName('reason').setDescription('Why, recorded in the audit trail').setRequired(true));
+    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(true));
 }
 
 async function adjust(interaction, sign) {
@@ -35,7 +35,7 @@ async function adjust(interaction, sign) {
     const robloxUsername = rbxId ? (await roblox.getRobloxUserInfo(rbxId))?.name : null;
     if (!robloxUsername) {
       loader.stop();
-      return interaction.editReply(`${e('DENY')} ${member} is not linked to a Roblox account, so there is no sheet row to adjust.`);
+      return interaction.editReply(`${e('DENY')} ${member} isn’t linked to Roblox, so their points can’t be changed.`);
     }
 
     // Manual adjustments go through the same durable outbox as automatic
@@ -49,7 +49,7 @@ async function adjust(interaction, sign) {
       label: `${sign > 0 ? 'added' : 'removed'} by ${interaction.user.tag}: ${reason}`.slice(0, 180),
     });
 
-    loader.update('Reading the sheet back…');
+    loader.update('Checking the updated total…');
     // Give the outbox a moment to land before reporting the new total.
     await new Promise(r => setTimeout(r, 1200));
     const after = await getMemberPoints({ discordId: member.id, robloxUsername }, interaction.client.bot);
@@ -61,7 +61,7 @@ async function adjust(interaction, sign) {
       .setDescription(`${sign > 0 ? '**+' : '**−'}${Math.abs(points)} pts** for ${member}`)
       .addFields(
         { name: 'Roblox',  value: `\`${robloxUsername}\``, inline: true },
-        { name: 'New total', value: after?.found ? `**${after.total}**${after.quota?.target != null ? ` / ${after.quota.target}` : ''}` : '*queued, sheet not read back*', inline: true },
+        { name: 'New total', value: after?.found ? `**${after.total}**${after.quota?.target != null ? ` / ${after.quota.target}` : ''}` : '*Saved, total not updated yet*', inline: true },
         { name: 'By',      value: `${interaction.user}`, inline: true },
         { name: 'Reason',  value: reason, inline: false },
       )
