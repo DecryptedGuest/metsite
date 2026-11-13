@@ -368,9 +368,7 @@ function buildCommandPlan() {
 
   const add = (guildIds, json) => {
     // These IA commands are temporarily unregistered, without deleting their logic.
-    if (json && json.name && iaGuildId
-        && DISABLED_IA_COMMANDS.has(String(json.name).toLowerCase())
-        && (Array.isArray(guildIds) ? guildIds : [guildIds]).some(g => String(g) === String(iaGuildId))) {
+    if (json && json.name && DISABLED_IA_COMMANDS.has(String(json.name).toLowerCase())) {
       return;
     }
     // Filter only the IA server: the MET set is small and deliberate already.
