@@ -41,8 +41,8 @@ async function execute(interaction) {
         .setTitle(`Pending join requests (${requests.length})`)
         .setDescription(lines.join('\n').slice(0, 3900))
         .setFooter({ text: nextPageToken
-          ? 'More pages: re-run with the cursor below'
-          : 'End of list' });
+          ? 'More requests, use the cursor below'
+          : 'That’s everyone' });
       if (nextPageToken) embed.addFields({ name: 'Next cursor', value: `\`${nextPageToken}\`` });
       return interaction.editReply({ embeds: [embed] });
     }
