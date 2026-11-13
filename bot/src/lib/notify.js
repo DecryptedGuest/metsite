@@ -9,41 +9,47 @@ const { e } = require('./emoji');
 
 const APPEAL_NOTE = 'If you believe this is a mistake, open an appeal ticket with Internal Affairs.';
 
-function punishmentLines(actions) {
-  return (actions || []).map(a => {
-    const dur  = a.durationDays ? ` · **${a.durationDays} day${a.durationDays === 1 ? '' : 's'}**` : '';
-    const code = a.code ? ` \`${a.code}\`` : '';
-    return `${e('BULLET')} **${a.action}**${dur}${code}`;
-  }).join('\n') || '*None recorded*';
+function noticeActions(c) {
+  const actions = Array.isArray(c.actions) ? c.actions : [];
+  if (actions.length) return actions.map(a => {
+    const duration = a.durationDays ? ` (${a.durationDays} day${a.durationDays === 1 ? '' : 's'})` : '';
+    return `${a.action}${duration}`;
+  }).join(', ');
+  return c.action || 'N/A';
 }
 
-/** The embed the subject receives, and the one posted publicly. */
+/** The notice sent to the subject and posted in the MET server. */
 function buildNoticeEmbed(c, { forDm }) {
+  const subject = c.officerDiscordId ? `<@${c.officerDiscordId}>` : (c.robloxUsername || 'N/A');
+  const duration = (c.actions || [])
+    .filter(a => a.durationDays)
+    .map(a => `${a.durationDays} day${a.durationDays === 1 ? '' : 's'}`)
+    .join(', ') || 'N/A';
+
   const embed = new EmbedBuilder()
     .setColor(0xf04f5e)
-    .setTitle(`${e('CASE')} Disciplinary Action · ${c.caseRef}`)
+    .setTitle(`${e('IA')} | MET HR NOTICE`)
     .addFields(
-      { name: 'Punishment(s)', value: punishmentLines(c.actions), inline: false },
-      { name: 'Reason',        value: c.reason || 'N/A', inline: false },
+      { name: 'HR', value: c.reviewedBy ? `<@${c.reviewedBy}>` : 'N/A', inline: false },
+      { name: 'Member', value: subject, inline: false },
+      { name: 'Reason', value: c.reason || 'N/A', inline: false },
+      { name: 'Action', value: noticeActions(c), inline: false },
+      { name: 'Duration', value: duration, inline: false },
+      { name: 'Proof', value: c.caseLink || 'N/A', inline: false },
     )
-    .setFooter({ text: 'Metropolitan Police · Internal Affairs' })
+    .setFooter({ text: `MET Internal Affairs · ${c.caseRef || 'Notice'}` })
     .setTimestamp();
 
-  if (c.notes && c.notes !== 'N/A') embed.addFields({ name: 'Notes', value: c.notes, inline: false });
-  if (c.blacklistCode) {
-    embed.addFields({
-      name: `${e('BLACKLIST')} Blacklist code`,
-      value: `\`${c.blacklistCode}\`${c.blacklistReason ? ` · ${c.blacklistReason}` : ''}`,
-      inline: true,
-    });
-  }
   if (forDm) {
     embed.setDescription(
-      `A disciplinary case has been **approved** against your account.\n\n${APPEAL_NOTE}`);
-  } else {
-    embed.setDescription(c.officerDiscordId
-      ? `<@${c.officerDiscordId}>${c.robloxUsername ? ` (\`${c.robloxUsername}\`)` : ''}`
-      : (c.robloxUsername ? `\`${c.robloxUsername}\`` : '*Unknown officer*'));
+      `A disciplinary action has been approved for your account. If you think this is wrong, contact Internal Affairs.`);
+  }
+  if (c.blacklistCode) {
+    embed.addFields({
+      name: 'Blacklist code',
+      value: `\\`${c.blacklistCode}\\`${c.blacklistReason ? ` · ${c.blacklistReason}` : ''}`,
+      inline: false,
+    });
   }
   return embed;
 }
