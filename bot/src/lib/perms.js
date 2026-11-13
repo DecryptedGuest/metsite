@@ -22,7 +22,7 @@ const isSupervisor = (m) => tierOf(m) >= TIER.SUPERVISOR;
 const isHicomm     = (m) => tierOf(m) >= TIER.HICOMM;
 const isDeveloper  = (m) => tierOf(m) >= TIER.DEVELOPER;
 
-const DENIED = '⛔ You are not authorised to use this command.';
-const DENIED_REVIEW = '⛔ You are not authorised to review this.';
+const DENIED = '⛔ You can’t use this command.';
+const DENIED_REVIEW = '⛔ You can’t review this.';
 
 module.exports = { TIER, tierOf, isIA, isSupervisor, isHicomm, isDeveloper, DENIED, DENIED_REVIEW };
