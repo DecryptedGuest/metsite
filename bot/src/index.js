@@ -17,7 +17,7 @@ const client = new Client({
 });
 
 // ── Command registry ──────────────────────────────────────────────
-const { ALL: COMMANDS } = require('./lib/commands');
+const { ENABLED: COMMANDS } = require('./lib/commands');
 client.commands = new Collection(COMMANDS.map(c => [c.data.name, c]));
 
 /** Which guild a scope belongs to. */
