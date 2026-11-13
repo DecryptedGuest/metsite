@@ -33,6 +33,7 @@ function buildCommand() {
   return new SlashCommandBuilder()
     .setName('xp')
     .setDescription('XP tools')
+    .setDefaultMemberPermissions(null)
     .addStringOption(o => o
       .setName('officers')
       .setDescription('Who')
