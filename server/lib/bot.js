@@ -274,6 +274,10 @@ const QP_GUILD_ID_NAMES          = 'add-qp';
 const LEADERBOARD_GUILD_ID_NAMES = 'leaderboard';
 const SUBMIT_CASE_GUILD_ID_NAMES = 'submit-case';
 
+// Temporarily hidden from Discord's slash-command list. Implementations and
+// interaction logic remain intact; remove names here to restore registration.
+const DISABLED_IA_COMMANDS = new Set(['add-qp', 'leaderboard', 'remove-qp', 'submit-case', 'undo']);
+
 const IA_COMMAND_ALLOWLIST = () => {
   const raw = (process.env.IA_COMMANDS || '').trim();
   if (raw === '*') return null;                       // null = no filtering
@@ -363,6 +367,12 @@ function buildCommandPlan() {
   }
 
   const add = (guildIds, json) => {
+    // These IA commands are temporarily unregistered, without deleting their logic.
+    if (json && json.name && iaGuildId
+        && DISABLED_IA_COMMANDS.has(String(json.name).toLowerCase())
+        && (Array.isArray(guildIds) ? guildIds : [guildIds]).some(g => String(g) === String(iaGuildId))) {
+      return;
+    }
     // Filter only the IA server: the MET set is small and deliberate already.
     if (iaAllow && json && json.name && iaGuildId
         && (guildIds || []).some(g => String(g) === String(iaGuildId))
