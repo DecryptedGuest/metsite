@@ -44,7 +44,7 @@ async function execute(interaction) {
   let robloxId = null, username = raw;
   if (discordId) {
     robloxId = await roblox.getRobloxIdFromDiscord(discordId);
-    if (!robloxId) return interaction.editReply('❌ That Discord account is not linked to a Roblox account.');
+    if (!robloxId) return interaction.editReply('❌ That Discord account isn’t linked to Roblox.');
     username = (await roblox.getRobloxUserInfo(robloxId))?.name || robloxId;
   } else {
     const u = await roblox.getRobloxIdFromUsername(raw);
