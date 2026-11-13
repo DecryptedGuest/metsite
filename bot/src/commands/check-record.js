@@ -52,7 +52,7 @@ async function execute(interaction) {
       robloxUsername = info?.name || null;
       displayName    = info?.displayName || null;
     }
-    if (!robloxId) return interaction.editReply(`❌ <@${discordId}> is not linked to a Roblox account (not_linked).`);
+    if (!robloxId) return interaction.editReply(`❌ <@${discordId}> isn’t linked to Roblox.`);
   } else {
     const u = await roblox.getRobloxIdFromUsername(raw);
     if (!u) return interaction.editReply(`❌ No Roblox user called \`${raw}\` (not_found).`);
@@ -103,7 +103,7 @@ async function execute(interaction) {
   const avatar = await roblox.getRobloxAvatarHeadshot(robloxId);
   if (avatar) embed.setThumbnail(avatar);
   if (suggestedAction) {
-    embed.addFields({ name: '⚠️ Suggested next step', value: `**${suggestedAction}** · ${warning}` });
+    embed.addFields({ name: '⚠️ Next step', value: `**${suggestedAction}** · ${warning}` });
   }
   return interaction.editReply({ embeds: [embed] });
 }
