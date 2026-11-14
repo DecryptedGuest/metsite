@@ -526,10 +526,11 @@ function buildTable(officers, client) {
 }
 
 // ── Who may change XP ─────────────────────────────────────────────
-// Only members holding this exact Discord role may add, remove, or set XP.
-// Administrator permissions, MET rank, and environment-configured roles do
-// not grant an exception. Viewing XP remains available to everyone.
+// XP Managers and members of the FLP Roblox community can add, remove, or
+// set XP. Roblox membership is checked against the verified account link;
+// failed or missing lookups never grant access. Viewing XP stays public.
 const XP_MANAGER_ROLE_ID = '1569839758408941709';
+const FLP_XP_GROUP_ID = '503075596';
 
 function xpRoleIds() {
   return [XP_MANAGER_ROLE_ID];
@@ -537,17 +538,34 @@ function xpRoleIds() {
 
 /**
  * @param {object} o
- * @param {string[]} o.roleIds  the invoker's roles in this guild
+ * @param {string} o.discordId       the invoker's Discord id
+ * @param {string[]} o.roleIds       the invoker's roles in this guild
  */
-async function canManageXp({ roleIds }) {
+async function canManageXp({ discordId, roleIds }) {
   const held = Array.isArray(roleIds) ? roleIds.map(String) : [];
   if (held.includes(XP_MANAGER_ROLE_ID)) {
     return { ok: true, via: 'role', label: 'XP Manager', name: null, why: null };
   }
 
+  // FLP access comes from membership in the exact Roblox community supplied
+  // for Frontline Policing, not from a Discord nickname or an unverified name.
+  if (discordId) {
+    try {
+      const link = await require('./robloxLink').resolveRoblox(String(discordId));
+      if (link && link.robloxId) {
+        const role = await require('./roblox').getUserGroupRole(
+          String(link.robloxId), FLP_XP_GROUP_ID,
+        );
+        if (role && Number(role.rank) > 0) {
+          return { ok: true, via: 'flp', label: 'FLP', name: null, why: null };
+        }
+      }
+    } catch (_) { /* fail closed if Roblox membership cannot be verified */ }
+  }
+
   return {
     ok: false, via: null, label: '', name: null,
-    why: 'Only members with the designated XP Manager role can change XP. Anyone can run /xp to view XP.',
+    why: 'Only XP Managers and members of the FLP Roblox group can change XP. Anyone can run /xp to view XP.',
   };
 }
 
@@ -642,7 +660,7 @@ async function handleXpCommand(interaction) {
 
   // ── Permission, only when actually changing something ──
   if (changing) {
-    const access = await canManageXp({ discordId: interaction.user.id, roleIds: issuerRoles, isAdmin });
+    const access = await canManageXp({ discordId: interaction.user.id, roleIds: issuerRoles });
     if (!access.ok) {
       return interaction.editReply({
         embeds: [new EmbedBuilder().setColor(COLOR.fail)
