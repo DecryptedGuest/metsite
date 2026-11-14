@@ -24,6 +24,25 @@
 
 const roblox = require('./roblox');
 
+// Convert the live MET group role name into the official nickname code.
+// Unknown ranks are left unchanged rather than inventing an abbreviation.
+function rankCode(rankName) {
+  const name = String(rankName || '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\\s+/g, ' ');
+  const ranks = [
+    [/^(community support officer|cso)$/, 'CSO'],
+    [/^(police )?constable$|^con$/, 'CON'],
+    [/^(sergeant|sgt)$/, 'SGT'],
+    [/^(inspector|ins)$/, 'INS'],
+    [/^(chief inspector|cins)$/, 'CINS'],
+    [/^(superintendent|sup)$/, 'SUP'],
+    [/^(chief superintendent|csup)$/, 'CSUP'],
+    [/^(commander|comm)$/, 'COMM'],
+  ];
+  const hit = ranks.find(([pattern]) => pattern.test(name));
+  return hit ? hit[1] : null;
+}
+
+
 function enabled() { return process.env.ROVER_SYNC !== 'off'; }
 
 // Reflect a rank change / termination on the member's Discord nickname.
@@ -79,9 +98,9 @@ async function roverUpdate(opts = {}) {
       const want = String(roleId).includes('/') ? String(roleId).split('/').pop() : String(roleId);
       const roles = await roblox.getGroupRolesPublic(mainGroup).catch(() => []);
       const role = (roles || []).find(r => String(r.id) === String(want));
-      if (role && role.name) prefix = role.name;
+      if (role && role.name) prefix = rankCode(role.name);
     }
-    if (!prefix) return; // couldn't confirm the new rank → let RoVer handle it (don't wipe)
+    if (!prefix) return; // unknown rank code → let RoVer handle it (don't invent a prefix)
 
     await bot.setMemberNickname(discordId, `${prefix} | ${username}`);
   } catch (e) { /* best-effort — never affects the rank change itself */ }
@@ -139,7 +158,7 @@ async function roverPush(discordId, guildIds) {
  * if RoVer did not.
  *
  *   terminated  the rank prefix goes, the username stays: "EthanCaaden"
- *   ranked      "NewRank | EthanCaaden"
+ *   ranked      "CON | EthanCaaden" (official rank code)
  *
  * @returns {{ nickname: string|null, via: 'rover'|'bot'|'none', note: string }}
  */
@@ -157,8 +176,9 @@ async function syncIdentity(opts = {}) {
   }
   if (!username) username = await bot.getRobloxNameFromNick(discordId).catch(() => null);
 
+  const code = rankCode(rankName);
   const want = terminated ? (username || null)
-             : (rankName && username) ? `${rankName} | ${username}` : null;
+             : (code && username) ? `${code} | ${username}` : null;
 
   const push = await roverPush(discordId);
   if (push.accepted) {
