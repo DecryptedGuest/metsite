@@ -1316,7 +1316,7 @@ async function setMemberNickname(discordUserId, nick) {
     if (!member) return false;
     const clean = String(nick).slice(0, 32);
     if (member.nickname === clean) return true; // already correct — no-op
-    await member.setNickname(clean, 'RoVer-style rank sync');
+    await member.setNickname(clean, 'Rank sync');
     console.log(`[rover] nickname set for ${discordUserId} → "${clean}"`);
     return true;
   } catch (err) {
