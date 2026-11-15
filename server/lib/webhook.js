@@ -172,19 +172,27 @@ async function editApprovalWebhook(messageId, data) {
  */
 async function sendMetNotice({ hrId, hrName, userId, userName, reason, action, duration, proof }) {
   const channelId = process.env.MET_NOTICE_CHANNEL_ID || '1458943564456399091';
-  const content =
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n' +
-    '<:IA:1552764629204205619> | MET NOTICE | <:IA:1552764629204205619>\n' +
-    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (hrName || 'N/A')}\n` +
-    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (userName || 'N/A')}\n` +
-    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(reason || 'N/A').slice(0, 800)}\n` +
-    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(action || 'N/A').slice(0, 500)}\n` +
-    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(duration || 'N/A').slice(0, 200)}\n` +
-    `𝐏𝐑𝐎𝐎𝐅: ${String(proof || 'N/A').slice(0, 900)}\n\n` +
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
+  const field = (name, value) => ({
+    name,
+    value: String(value || 'N/A').slice(0, 1000),
+    inline: false,
+  });
+  const embed = {
+    color: 0x1d4ed8,
+    title: '<:IA:1552764629204205619> MET NOTICE',
+    fields: [
+      field('HR', hrId ? `<@${hrId}>` : hrName),
+      field('USER', userId ? `<@${userId}>` : userName),
+      field('REASON', reason),
+      field('ACTION', action),
+      field('DURATION', duration),
+      field('PROOF', proof),
+    ],
+    footer: { text: 'Metropolitan Police Service' },
+  };
   try {
     const id = await require('./bot').postChannelMessage(channelId, {
-      content,
+      embeds: [embed],
       allowedMentions: { parse: [] },
     });
     if (!id) console.error('[MetNotice] bot could not post to channel', channelId);
@@ -194,7 +202,6 @@ async function sendMetNotice({ hrId, hrName, userId, userName, reason, action, d
     return null;
   }
 }
-
 /**
  * Post the weekly Quota Check results to Discord.
  * results: [{ username, rank, total, target, status:'pass'|'fail', reason }]
