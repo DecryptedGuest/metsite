@@ -112,7 +112,7 @@ router.post('/:division/check', requireLead, async (req, res) => {
       divisionLabel: req.division,
       mentionRoleId: process.env[`${cfg.prefix}QUOTA_MENTION_ROLE_ID`] || null,
     });
-    if (!ok) return res.status(502).json({ error: 'Quota results webhook is not configured or failed to send.' });
+    if (!ok) return res.status(502).json({ error: 'The bot could not post the quota results. Check the results channel configuration.' });
     res.json({ ok: true, division: req.division });
   } catch (err) {
     console.error(`[DivQuota] ${req.division} check error:`, err.message);
