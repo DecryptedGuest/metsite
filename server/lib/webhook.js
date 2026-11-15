@@ -20,7 +20,7 @@ function buildActionList({ actions, action }) {
 
 /**
  * Build the Administrative Log embed object for a case.
- * Used both to send the webhook and to render a preview before sending.
+ * Used both to send the bot-authored notice and to render a preview.
  */
 // The default signature: Internal Affairs High Command, over the IA badge.
 // That is right for a case, which IA investigated and IA concluded.
@@ -55,7 +55,7 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
     ? `[${officerName}](https://www.roblox.com/users/${officerRobloxId}/profile)`
     : officerName;
   else staffMemberValue = '*Unknown Officer*';
-  // Discord rejects the whole webhook (HTTP 400) if any embed field value exceeds
+  // Discord rejects the whole message (HTTP 400) if any embed field value exceeds
   // 1024 chars — which silently dropped the admin log (and left case.logMessageId
   // null, so edits could never target it) for long reasons/notes. Cap each field.
   const cap = (s) => { s = String(s == null ? '' : s); return s.length > 1024 ? s.slice(0, 1021) + '…' : s; };
@@ -204,7 +204,7 @@ async function sendMetNotice({ hrId, hrName, userId, userName, reason, action, d
 /**
  * Post the weekly Quota Check results to Discord.
  * results: [{ username, rank, total, target, status:'pass'|'fail', reason }]
- * Sends to QUOTA_RESULTS_WEBHOOK_URL, falling back to DISCORD_WEBHOOK_URL.
+ * Posts the weekly quota review directly through the MET bot.
  */
 // Where the Internal Affairs weekly quota review is posted, and which role it
 // pings. Both overridable, both with the real values as defaults so nothing has
@@ -214,10 +214,6 @@ const IA_QUOTA_GUILD_ID    = () => process.env.IA_QUOTA_GUILD_ID    || '14244984
 const IA_QUOTA_PING_ROLE_ID = () => process.env.IA_QUOTA_PING_ROLE_ID || '1424504802741588019';
 
 async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, mentionRoleId, divisionLabel, automatic, iotwTied, iotwPoints }) {
-  // A scoped (division) call passes `webhookUrl` + `divisionLabel`; the IA path
-  // passes neither, so its URL/ping/labels stay exactly as before.
-  const url = webhookUrl || process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
-
   const passed = results.filter(r => r.status === 'pass').length;
   const failed = results.filter(r => r.status === 'fail').length;
   const iotwLc = (iotwUsername || '').toString().trim().toLowerCase();
@@ -320,8 +316,7 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
  * Mirrors the channel's existing format:
  *   Username of student: @<discord>
  *   Mark: 30/36 · Percentage: 83% · PASS ✅ / FAIL ❌ · NOTE: …
- * Uses HPC_RESULTS_WEBHOOK_URL (a webhook on the results channel). Returns the
- * posted message id, or null if no webhook is configured / it failed.
+ * Posts directly through the MET bot and returns the message id, or null on failure.
  */
 async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, score, maxScore, percentage, passed, note }) {
   // Plain-text format matching how markers post results in #final-exam-results:
