@@ -63,7 +63,7 @@ router.post('/check', requireHICOMMStrict, async (req, res) => {
       weekLabel,
       iotwUsername: iotwUsername || null,
     });
-    if (!ok) return res.status(502).json({ error: 'Quota results webhook is not configured or failed to send.' });
+    if (!ok) return res.status(502).json({ error: 'The bot could not post the quota results. Check the results channel configuration.' });
     res.json({ ok: true, iotw: iotwApplied });
   } catch (err) {
     console.error('[Quota] check error:', err.message);
