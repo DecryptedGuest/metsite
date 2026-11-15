@@ -173,14 +173,14 @@ async function editApprovalWebhook(messageId, data) {
 async function sendMetNotice({ hrId, hrName, userId, userName, reason, action, duration, proof }) {
   const channelId = process.env.MET_NOTICE_CHANNEL_ID || '1458943564456399091';
   const content =
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\\n\\n' +
-    '<:IA:1552764629204205619> | MET NOTICE | <:IA:1552764629204205619>\\n' +
-    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (hrName || 'N/A')}\\n` +
-    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (userName || 'N/A')}\\n` +
-    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(reason || 'N/A').slice(0, 800)}\\n` +
-    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(action || 'N/A').slice(0, 500)}\\n` +
-    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(duration || 'N/A').slice(0, 200)}\\n` +
-    `𝐏𝐑𝐎𝐎𝐅: ${String(proof || 'N/A').slice(0, 900)}\\n\\n` +
+    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n' +
+    '<:IA:1552764629204205619> | MET NOTICE | <:IA:1552764629204205619>\n' +
+    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (hrName || 'N/A')}\n` +
+    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (userName || 'N/A')}\n` +
+    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(reason || 'N/A').slice(0, 800)}\n` +
+    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(action || 'N/A').slice(0, 500)}\n` +
+    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(duration || 'N/A').slice(0, 200)}\n` +
+    `𝐏𝐑𝐎𝐎𝐅: ${String(proof || 'N/A').slice(0, 900)}\n\n` +
     '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
   try {
     const id = await require('./bot').postChannelMessage(channelId, {
