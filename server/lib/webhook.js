@@ -1,5 +1,4 @@
 // server/lib/webhook.js
-const fetch = require('node-fetch');
 const { ACTION_CONFIG } = require('./actions');
 const { e } = require('./emoji');   // MET custom emoji, unicode fallback built in
 
@@ -214,7 +213,7 @@ const IA_QUOTA_CHANNEL_ID  = () => process.env.IA_QUOTA_CHANNEL_ID  || '15207452
 const IA_QUOTA_GUILD_ID    = () => process.env.IA_QUOTA_GUILD_ID    || '1424498408009240649';
 const IA_QUOTA_PING_ROLE_ID = () => process.env.IA_QUOTA_PING_ROLE_ID || '1424504802741588019';
 
-async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, webhookUrl, mentionRoleId, divisionLabel, automatic, iotwTied, iotwPoints }) {
+async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLabel, iotwUsername, mentionRoleId, divisionLabel, automatic, iotwTied, iotwPoints }) {
   // A scoped (division) call passes `webhookUrl` + `divisionLabel`; the IA path
   // passes neither, so its URL/ping/labels stay exactly as before.
   const url = webhookUrl || process.env.QUOTA_RESULTS_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
@@ -290,48 +289,28 @@ async function sendQuotaCheckWebhook({ reviewerName, reviewerId, results, weekLa
     timestamp: new Date().toISOString(),
   };
 
-  // IA keeps its hardcoded role ping; a scoped call pings mentionRoleId when set,
-  // otherwise no ping.
-  const content = divisionLabel
-    ? (mentionRoleId ? `<@&${mentionRoleId}>` : '')
-    : `<@&${IA_QUOTA_PING_ROLE_ID()}>`;
-
-  const payload = { content, embeds: [embed] };
-
-  // The IA review goes to a named channel by ID rather than a webhook. A
-  // webhook is a URL somebody has to create and paste, and it silently stops
-  // working the moment that webhook is deleted; the bot is already in the
-  // server and can just post. The webhook path stays for the divisions that
-  // use one, and as a fallback if the bot is offline.
-  if (!divisionLabel) {
-    const chan = IA_QUOTA_CHANNEL_ID();
-    if (chan) {
-      try {
-        const id = await require('./bot').postChannelMessage(chan, {
-          ...payload,
-          // The role ping is the point of this post — let that one through and
-          // nothing else.
-          allowedMentions: { roles: [IA_QUOTA_PING_ROLE_ID()].filter(Boolean), parse: [] },
-        });
-        if (id) return true;
-        console.warn('[Quota] could not post the IA review to the channel · falling back to the webhook.');
-      } catch (err) {
-        console.warn('[Quota] IA review channel post failed:', err.message);
-      }
-    }
+  const division = String(divisionLabel || 'IA').toUpperCase();
+  const channelId = division === 'IA'
+    ? IA_QUOTA_CHANNEL_ID()
+    : process.env[`${division}_QUOTA_RESULTS_CHANNEL_ID`] || null;
+  if (!channelId) {
+    console.error(`[Quota] No ${division} quota results channel ID is configured.`);
+    return false;
   }
-
-  if (!url) { console.warn('No webhook URL for quota check · skipping.'); return false; }
+  const roleId = division === 'IA' ? IA_QUOTA_PING_ROLE_ID() : mentionRoleId;
   try {
-    const res = await fetch(url, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    const id = await require('./bot').postChannelMessage(channelId, {
+      content: roleId ? `<@&${roleId}>` : '',
+      embeds: [embed],
+      allowedMentions: { roles: roleId ? [roleId] : [], parse: [] },
     });
-    if (!res.ok) { console.error(`Quota webhook failed [${res.status}]:`, await res.text()); return false; }
+    if (!id) {
+      console.error(`[Quota] Bot could not post ${division} quota results to channel ${channelId}.`);
+      return false;
+    }
     return true;
   } catch (err) {
-    console.error('Quota webhook error:', err.message);
+    console.error(`[Quota] ${division} channel post failed:`, err.message);
     return false;
   }
 }
@@ -372,28 +351,15 @@ async function sendHpcExamResult({ discordId, robloxUsername, discordUsername, s
   // Render the mention (nickname) but never PING the student.
   const body = { content, allowedMentions: { parse: [] } };
 
-  // Post AS THE MET BOT to the final-exam-results channel (default the linked
-  // channel). Fall back to the results webhook only if the bot can't deliver.
+  // Send directly as the MET bot. No webhook fallback.
   const chId = process.env.FINAL_EXAM_CHANNEL_ID || '1509522116590960640';
   try {
-    const bot = require('./bot');
-    if (chId && typeof bot.postChannelMessage === 'function') {
-      const id = await bot.postChannelMessage(chId, body);
-      if (id) return id;
-    }
-  } catch (e) { console.error('HPC exam bot post error:', e.message); }
-
-  const url = process.env.FINAL_EXAM_WEBHOOK || process.env.HPC_RESULTS_WEBHOOK_URL;
-  if (url) {
-    try {
-      const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      if (res.ok) { const msg = await res.json().catch(() => ({})); return msg.id || 'sent'; }
-      console.error(`HPC exam webhook failed [${res.status}]:`, await res.text().catch(() => ''));
-    } catch (err) { console.error('HPC exam webhook error:', err.message); }
+    const id = await require('./bot').postChannelMessage(chId, body);
+    if (id) return id;
+    console.error('[Exam] Bot could not post to channel', chId);
+  } catch (err) {
+    console.error('[Exam] Bot channel post failed:', err.message);
   }
-  console.warn('[Exam] result was NOT delivered · check the bot is in the guild or set FINAL_EXAM_WEBHOOK.');
   return null;
 }
 
@@ -402,7 +368,6 @@ function tryoutLogRoute(log) {
   const isCid = String(log.division || '').toUpperCase() === 'CID';
   return {
     isCid,
-    url:  (isCid && process.env.CID_TRYOUT_LOG_WEBHOOK) || process.env.HPC_TRYOUT_LOG_WEBHOOK || null,
     chId: (isCid && process.env.CID_TRYOUT_LOG_CHANNEL_ID) || process.env.HPC_TRYOUT_LOG_CHANNEL_ID || null,
   };
 }
@@ -441,27 +406,18 @@ function buildTryoutLogEmbed(log, event) {
 
 // Post a tryout log for review. Returns the message id, or null.
 async function sendTryoutLog(log, { event = 'submitted' } = {}) {
-  const { url, chId } = tryoutLogRoute(log);
-  if (!url && !chId) { console.warn('No tryout-log webhook or channel configured · skipping tryout log post.'); return null; }
-  const embed = buildTryoutLogEmbed(log, event);
-
-  if (url) {
-    try {
-      const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'wait=true', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [embed] }),
-      });
-      if (res.ok) { const msg = await res.json().catch(() => ({})); return msg.id || 'sent'; }
-      console.error(`Tryout log webhook failed [${res.status}]:`, await res.text().catch(() => ''));
-    } catch (err) { console.error('Tryout log webhook error:', err.message); }
+  const { chId } = tryoutLogRoute(log);
+  if (!chId) {
+    console.error('[TryoutLog] No channel ID is configured for this division.');
+    return null;
   }
-  if (chId) {
-    try {
-      const bot = require('./bot');
-      if (typeof bot.postChannelMessage === 'function') {
-        const id = await bot.postChannelMessage(chId, { embeds: [embed] });
-        if (id) return id;
-      }
-    } catch (e) { console.error('Tryout log channel fallback error:', e.message); }
+  const embed = buildTryoutLogEmbed(log, event);
+  try {
+    const id = await require('./bot').postChannelMessage(chId, { embeds: [embed] });
+    if (id) return id;
+    console.error('[TryoutLog] Bot could not post to channel', chId);
+  } catch (err) {
+    console.error('[TryoutLog] Bot channel post failed:', err.message);
   }
   return null;
 }
@@ -471,29 +427,16 @@ async function sendTryoutLog(log, { event = 'submitted' } = {}) {
 // to posting a fresh message if there's nothing to edit or the edit fails.
 async function editTryoutLog(log, { event = 'submitted' } = {}) {
   if (!log.logMessageId) return sendTryoutLog(log, { event });
-  const { url, chId } = tryoutLogRoute(log);
+  const { chId } = tryoutLogRoute(log);
   const embed = buildTryoutLogEmbed(log, event);
-
-  if (url) {
-    const base = url.split('?')[0].replace(/\/+$/, '');
-    try {
-      const res = await fetch(`${base}/messages/${log.logMessageId}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ embeds: [embed] }),
-      });
-      if (res.ok) return log.logMessageId;
-      console.error(`Tryout log webhook edit failed [${res.status}]:`, await res.text().catch(() => ''));
-    } catch (err) { console.error('Tryout log webhook edit error:', err.message); }
-  }
   if (chId) {
     try {
-      const bot = require('./bot');
-      if (typeof bot.editChannelMessage === 'function') {
-        const ok = await bot.editChannelMessage(chId, log.logMessageId, { embeds: [embed] });
-        if (ok) return log.logMessageId;
-      }
-    } catch (e) { console.error('Tryout log channel edit error:', e.message); }
+      const ok = await require('./bot').editChannelMessage(chId, log.logMessageId, { embeds: [embed] });
+      if (ok) return log.logMessageId;
+    } catch (err) {
+      console.error('[TryoutLog] Bot channel edit failed:', err.message);
+    }
   }
-  // Couldn't edit → post a fresh one so the outcome is still visible.
   return sendTryoutLog(log, { event });
 }
 
