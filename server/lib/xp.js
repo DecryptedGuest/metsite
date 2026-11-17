@@ -758,30 +758,14 @@ async function applyGroupRank(robloxId, rank, direction = 'up') {
     // Choose the nearest roleset in the requested direction. This avoids
     // picking a duplicate/ambiguous name match (for example "Chief Constable")
     // and prevents the old "already at or below Constable" false rejection.
-    // If the member already holds the requested rank (or a higher rank
-    // for a promotion / lower rank for a demotion), the desired group state
-    // is already satisfied. Treat it as success rather than reporting a
-    // failed update — this also handles XP records being initialised after
-    // somebody already held their earned rank.
-    const targetRank = candidates.reduce((best, candidate) => {
-      if (!best) return candidate;
-      return down
-        ? (Number(candidate.rank) > Number(best.rank) ? candidate : best)
-        : (Number(candidate.rank) < Number(best.rank) ? candidate : best);
-    }, null);
-    if (targetRank && (down
-      ? currentRank <= Number(targetRank.rank)
-      : currentRank >= Number(targetRank.rank))) {
-      return { ok: true, from: current.name || 'unknown', to: current.name || targetRank.name, unchanged: true };
-    }
-
+    // If no matching role exists in the requested direction, the member
+    // already holds the requested rank or is beyond it. That is a satisfied
+    // state, not a failed group update.
     const directional = candidates.filter(r => down
       ? Number(r.rank) < currentRank
       : Number(r.rank) > currentRank);
     if (!directional.length) {
-      return { ok: false, reason: down
-        ? `could not find a lower ${rank.name} role than the current group rank`
-        : `could not find a higher ${rank.name} role than the current group rank` };
+      return { ok: true, from: current.name || 'unknown', to: current.name || rank.name, unchanged: true };
     }
     const target = directional.reduce((best, candidate) => {
       if (!best) return candidate;
