@@ -698,6 +698,30 @@ async function resolvePendingPromotion(approvalId, status, resolvedById, resolut
  *
  * Returns { ok, from, to } or { ok:false, reason } — never throws.
  */
+function normalRankName(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function exactRoleAliases(code) {
+  const aliases = {
+    CSO: ['communitysupportofficer', 'cso'],
+    CON: ['constable', 'policeconstable', 'pc'],
+    SGT: ['sergeant', 'policesergeant', 'sgt'],
+    INS: ['inspector', 'policeinspector', 'ins'],
+    CINS: ['chiefinspector', 'chiefpoliceinspector', 'cins'],
+  };
+  return aliases[code] || [];
+}
+
+function roleMatchesLadderRank(roleName, rank) {
+  const name = normalRankName(roleName);
+  if (exactRoleAliases(rank.code).includes(name)) return true;
+  // Regex fallback for group naming variations, but never let a lower-rung
+  // pattern accidentally match a different rung (e.g. Chief Constable).
+  if (!rank.match.test(String(roleName || ''))) return false;
+  return !ladder().some(other => other.code !== rank.code && other.match.test(String(roleName || '')));
+}
+
 async function applyGroupRank(robloxId, rank, direction = 'up') {
   const down = direction === 'down';
   if (!down && rank && rank.code === 'CINS') {
@@ -716,25 +740,37 @@ async function applyGroupRank(robloxId, rank, direction = 'up') {
     if (!membership) return { ok: false, reason: 'not in the MET group' };
 
     const current = membership.role || {};
-    // Among rolesets whose name matches the rank, take the LOWEST — "Inspector"
-    // matches both "Inspector" and "Chief Inspector", and moving somebody two
-    // rungs would be wrong in either direction.
-    const candidates = (roles || []).filter(r => r.rank > 0 && rank.match.test(String(r.name || '')));
+    const candidates = (roles || []).filter(r =>
+      Number(r.rank) > 0 && roleMatchesLadderRank(r.name, rank));
     if (!candidates.length) return { ok: false, reason: `no "${rank.name}" role in the group` };
-    const target = candidates.reduce((a, b) => (b.rank < a.rank ? b : a));
+
+    const currentRank = Number(current.rank);
+    if (!Number.isFinite(currentRank)) return { ok: false, reason: 'current group rank could not be read' };
 
     if (down) {
-      // Are they even on the ladder XP governs?
-      const onLadder = ladder().some(r => r.match.test(String(current.name || '')));
+      const onLadder = ladder().some(r => roleMatchesLadderRank(current.name, r));
       if (!onLadder) {
-        return { ok: false, reason: `${current.name || 'their rank'} is above the XP ranks · left alone` };
+        return { ok: false, reason: `${current.name || 'their rank'} is outside the XP ladder · left unchanged` };
       }
-      if (current.rank != null && Number(target.rank) >= Number(current.rank)) {
-        return { ok: false, reason: `already ${current.name}, which is at or below ${target.name}` };
-      }
-    } else if (current.rank != null && Number(target.rank) <= Number(current.rank)) {
-      return { ok: false, reason: `already ${current.name}, which is at or above ${target.name}` };
     }
+
+    // Choose the nearest roleset in the requested direction. This avoids
+    // picking a duplicate/ambiguous name match (for example "Chief Constable")
+    // and prevents the old "already at or below Constable" false rejection.
+    const directional = candidates.filter(r => down
+      ? Number(r.rank) < currentRank
+      : Number(r.rank) > currentRank);
+    if (!directional.length) {
+      return { ok: false, reason: down
+        ? `already at or below ${rank.name}`
+        : `already at or above ${rank.name}` };
+    }
+    const target = directional.reduce((best, candidate) => {
+      if (!best) return candidate;
+      return down
+        ? (Number(candidate.rank) > Number(best.rank) ? candidate : best)
+        : (Number(candidate.rank) < Number(best.rank) ? candidate : best);
+    }, null);
 
     await roblox.changeGroupRank(String(robloxId), target.id);
 
