@@ -535,10 +535,47 @@ async function applyPromotion(state, client) {
     return out;
   }
 
-  // XP system disabled at the user's request. Rank changes still proceed normally.
-  out.xp = { ok: null, value: null, reason: 'XP system disabled' };
-
   const down = state.direction === 'down';
+
+  // Keep the XP balance aligned with the group rank after a manual rank change.
+  // Only ranks on the XP ladder have a corresponding XP floor.
+  try {
+    const normal = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const aliases = {
+      CSO: ['communitysupportofficer', 'cso'],
+      CON: ['constable', 'policeconstable', 'pc'],
+      SGT: ['sergeant', 'policesergeant', 'sgt'],
+      INS: ['inspector', 'policeinspector', 'ins'],
+      CINS: ['chiefinspector', 'cins'],
+    };
+    const roleName = normal(state.to.name);
+    let rung = XP.ladder().find(r => (aliases[r.code] || []).includes(roleName));
+    if (!rung) rung = XP.ladder().find(r =>
+      r.match.test(String(state.to.name || ''))
+      && !XP.ladder().some(other => other.code !== r.code && other.match.test(String(state.to.name || ''))));
+    if (rung) {
+      const balance = await XP.applyXp({
+        discordId: state.targetId, kind: 'SET', value: rung.at,
+        reason: `Manual rank change to ${state.to.name}`,
+        issuedById: state.issuerId, issuedBy: state.issuerName,
+      });
+      await require('./db').metXp.update({
+        where: { discordId: String(state.targetId) },
+        data: { promotedRank: rung.code, promotedAt: new Date(), pendingPromo: null },
+      });
+      out.xp = { ok: true, value: balance.after };
+      await require('./xpLog').logChange({
+        discordId: state.targetId, memberName: state.username,
+        kind: 'SET', delta: balance.delta, before: balance.before, after: balance.after,
+        reason: `Manual rank change to ${state.to.name}`, rank: balance.rank,
+        issuedById: state.issuerId, issuedBy: state.issuerName,
+      }).catch(() => null);
+    } else {
+      out.xp = { ok: null, value: null, reason: 'rank is not on the XP ladder' };
+    }
+  } catch (err) {
+    out.xp = { ok: false, value: null, reason: err.message };
+  }
 
   // 3. Tell them. A downward set is a rank change, not a promotion · say so
   //    plainly rather than congratulating somebody on a lower rank.
