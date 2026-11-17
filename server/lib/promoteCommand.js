@@ -535,6 +535,19 @@ async function applyPromotion(state, client) {
     return out;
   }
 
+  // Ask RoVer to refresh the member's Discord rank roles and nickname.
+  // If the Update Server is unavailable, syncIdentity sets the nickname
+  // directly through the bot where permissions allow.
+  try {
+    out.discordSync = await require('./rover').syncIdentity({
+      discordId: state.targetId,
+      robloxId: state.robloxId,
+      rankName: state.to.name,
+    });
+  } catch (err) {
+    out.discordSync = { nickname: null, via: 'none', note: err.message };
+  }
+
   const down = state.direction === 'down';
 
   // Keep the XP balance aligned with the group rank after a manual rank change.
