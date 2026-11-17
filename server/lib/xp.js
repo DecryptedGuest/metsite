@@ -715,6 +715,7 @@ function exactRoleAliases(code) {
 
 function roleMatchesLadderRank(roleName, rank) {
   const name = normalRankName(roleName);
+  if (rank.code === 'CON' && name.includes('chiefconstable')) return false;
   if (exactRoleAliases(rank.code).includes(name)) return true;
   // Regex fallback for group naming variations, but never let a lower-rung
   // pattern accidentally match a different rung (e.g. Chief Constable).
