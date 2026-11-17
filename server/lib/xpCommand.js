@@ -931,6 +931,15 @@ async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
   }
 
   let group = await XP.promoteInGroup(robloxId, to);
+  // Keep the Discord nickname and rank roles aligned with the live group rank.
+  // RoVer's Update Server handles both; syncIdentity falls back to the bot for
+  // the nickname if RoVer is unavailable or does not apply it.
+  let discordSync = null;
+  if (group.ok) {
+    discordSync = await require('./rover').syncIdentity({
+      discordId: officer.discordId, robloxId, rankName: to.name,
+    }).catch(err => ({ nickname: null, via: 'none', note: err.message }));
+  }
   // A transient Roblox/API failure must not turn an approval into a silent
   // non-promotion. One controlled retry uses the same target and fresh group
   // data, without involving RoVer.
@@ -970,7 +979,7 @@ async function promote({ officer, promotion, xp, issuedById, issuedBy }) {
     avatar: officer.avatar,
   }).catch(() => null);
 
-  return { from, to, group, dmSent };
+  return { from, to, group, dmSent, discordSync };
 }
 
 /**
@@ -984,6 +993,12 @@ async function demote({ officer, demotion, xp, reason, issuedById, issuedBy }) {
   const { from, to } = demotion;
 
   const group = await XP.demoteInGroup(officer.robloxId, to);
+  let discordSync = null;
+  if (group.ok) {
+    discordSync = await require('./rover').syncIdentity({
+      discordId: officer.discordId, robloxId: officer.robloxId, rankName: to.name,
+    }).catch(err => ({ nickname: null, via: 'none', note: err.message }));
+  }
   const p = XP.progress(xp);
 
   let dmSent = false;
