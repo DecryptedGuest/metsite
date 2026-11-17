@@ -99,7 +99,9 @@ async function handleDemoteCommand(interaction) {
     require('./roblox').getRobloxAvatarHeadshot(link.robloxId).catch(() => null),
   ]);
 
-  const issuerRank = issuerRole && issuerRole.rank != null ? Number(issuerRole.rank) : null;
+  // The configured HPC High Command Discord role is an explicit rank-change grant.
+  // Do not then re-restrict those users using a possibly junior Roblox rank.
+  const issuerRank = !extraRole && issuerRole && issuerRole.rank != null ? Number(issuerRole.rank) : null;
 
   let plan, mode = 'demote', issuerLabel = access.label, issuerName = access.name;
   if (rankArg) {
