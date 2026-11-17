@@ -681,6 +681,40 @@ async function handleXpCommand(interaction) {
   const officers = [];
   for (const t of targets) officers.push(await loadOfficer(t.discordId, guild));
 
+  // Reconcile the live Roblox rank with the XP-earned rank whenever /xp
+  // is viewed. This is promotion-only: never lower a member whose group rank
+  // is already above their XP rank, and never touch CINS or ranks above it.
+  for (let i = 0; i < officers.length; i++) {
+    const officer = officers[i];
+    if (!officer || !officer.ranked || !officer.robloxId || !officer.groupRole) continue;
+    const liveName = String(officer.groupRole.name || '');
+    if (XP.ABOVE_LADDER && XP.ABOVE_LADDER.test(liveName)) continue;
+
+    const earned = XP.rankFor(officer.xp);
+    if (!earned || earned.code === 'CINS') continue;
+
+    const liveRung = XP.rungForGroupRank(officer.groupRole);
+    if (!liveRung) continue;
+    const ladder = XP.ladder();
+    const liveIndex = ladder.findIndex(r => r.code === liveRung.code);
+    const earnedIndex = ladder.findIndex(r => r.code === earned.code);
+    if (liveIndex < 0 || earnedIndex <= liveIndex) continue;
+
+    const result = await promote({
+      officer,
+      promotion: { from: liveRung, to: earned },
+      xp: officer.xp,
+      issuedById: interaction.user.id,
+      issuedBy: interaction.user.username,
+    }).catch(err => ({ group: { ok: false, reason: err.message } }));
+
+    if (result && result.group && result.group.ok) {
+      // Refresh the displayed rank after Roblox and RoVer have had a chance
+      // to apply their updates.
+      officers[i] = await loadOfficer(officer.discordId, guild).catch(() => officer);
+    }
+  }
+
   // A promotion nobody has celebrated yet gets its moment here — on the
   // officer's own /xp, or when somebody runs it on them. Only for a single
   // officer (a table is a glance, not a moment), and taken atomically so it
