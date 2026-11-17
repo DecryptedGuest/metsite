@@ -821,9 +821,11 @@ async function runChange({ interaction, targets, problems, action, value, reason
       let promoted = null;
       let demoted  = null;
       if (res.promotion) {
-        promoted = await queuePromotion({
+        // XP thresholds are authoritative: update the Roblox group immediately
+        // rather than pausing the rank change for a separate approval card.
+        promoted = await promote({
           officer: o, promotion: res.promotion, xp: res.after,
-          issuedById: interaction.user.id, issuedBy: issuerName, reason,
+          issuedById: interaction.user.id, issuedBy: issuerName,
         });
       } else if (res.demotion) {
         demoted = await demote({
@@ -836,7 +838,7 @@ async function runChange({ interaction, targets, problems, action, value, reason
       s.state = 'done';
       s.note = `**${res.before} → ${res.after}** XP`
         + (res.capped ? ' *(stopped at 0)*' : '')
-        + (promoted ? ` · ${e('met_promote')} **${promoted.to.name}**` : '')
+        + (promoted ? ` · ${e('met_promote')} **${promoted.to.name}**${promoted.group && !promoted.group.ok ? ` (group update failed: ${short(promoted.group.reason, 55)})` : ''}` : '')
         + (demoted  ? ` · ${e('met_warn')} **${demoted.to.name}**` : '');
       results.push({ id: t.discordId, ok: true, res, promoted, demoted, officer: o });
     } catch (err) {
@@ -865,9 +867,9 @@ async function runChange({ interaction, targets, problems, action, value, reason
 
   if (promotions.length) {
     embed.addFields({
-      name: `<:pending:1533231156017758369> Pending promotion review`,
+      name: `${e('met_promote')} Promoted`,
       value: short(promotions.map(r =>
-        `<@${r.id}> → **${r.promoted.to.name}** ${e('met_pending')} · sent to High Command for approval`,
+        `<@${r.id}> → **${r.promoted.to.name}**` + (r.promoted.group && !r.promoted.group.ok ? ` · group not updated: ${short(r.promoted.group.reason, 60)}` : ''),
       ).join('\n'), 1000),
       inline: false,
     });
