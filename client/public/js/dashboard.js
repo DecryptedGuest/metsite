@@ -3730,7 +3730,7 @@ function parseRequestedActions(text) {
   //
   // Which punishments carry a length comes from the server's list, not a second
   // hand-written one — Suspension is timed and was missing from the copy that
-  // used to live here, so "7 day suspension" lost its 7.
+  // was previously here, so "7 day suspension" lost its 7.
   const DUR_RE = /\b(\d{1,3})\s*(?:d|day|days)\b/g;
   const durations = [];
   for (let m; (m = DUR_RE.exec(t)); ) durations.push({ days: parseInt(m[1], 10), at: m.index, end: m.index + m[0].length });
