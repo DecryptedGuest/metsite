@@ -123,18 +123,18 @@ containing either gets exactly:
 ## 1.2 `/infract file`
 
 Options:
-- `subject` (user) — the Discord member the case is against. *Either* this or
+* `subject` (user) — the Discord member the case is against. *Either* this or
   `roblox` is required.
-- `roblox` (string) — the subject's Roblox username, for someone not in Discord.
-- `reason` (string, required)
-- `punishments` (string, required) — the chosen actions. Because Discord has no
+* `roblox` (string) — the subject's Roblox username, for someone not in Discord.
+* `reason` (string, required)
+* `punishments` (string, required) — the chosen actions. Because Discord has no
   native multi-select on a command option, offer the eleven names via
   **autocomplete** and accept a comma-separated list; validate every entry
   against `ACTION_NAMES`.
-- `duration` (integer, optional) — days, applied to the timed punishments in
+* `duration` (integer, optional) — days, applied to the timed punishments in
   this case (`Zero Tolerance`, `Suspension`). Ignored by the rest.
-- `notes` (string, optional) — defaults to `N/A`.
-- `evidence` (string, optional) — a link.
+* `notes` (string, optional) — defaults to `N/A`.
+* `evidence` (string, optional) — a link.
 
 Behaviour: resolve the subject's Roblox identity at filing time (§8.1), but
 never block on it — if RoVer is unavailable, store what you have and carry on;
@@ -186,22 +186,22 @@ denied cases separately — only approved ones count toward the record.
 Posted to a Discord webhook with `?wait=true` so the message id comes back.
 **No emojis in this embed** — it is a plain formal notice.
 
-- `content`: `<@officerDiscordId>` when known (this pings the subject)
-- `color`: `0x2f3136`
-- `title`: `Staff Consequences & Discipline`
-- `author.name`: `Signed, Internal Affairs High Command`
-- `author.icon_url`: `<<SIGNATURE_ICON_URL>>`
-- `thumbnail`: the subject's Roblox headshot when available
-- Fields — all `inline: false`, in this order, with the `• ` inside the field
+* `content`: `<@officerDiscordId>` when known (this pings the subject)
+* `color`: `0x2f3136`
+* `title`: `Staff Consequences & Discipline`
+* `author.name`: `Signed, Internal Affairs High Command`
+* `author.icon_url`: `<<SIGNATURE_ICON_URL>>`
+* `thumbnail`: the subject's Roblox headshot when available
+* Fields — all `inline: false`, in this order, with the `• ` inside the field
   **name**:
-  - `• Staff Member:` → `<@id>`, else
+  * `• Staff Member:` → `<@id>`, else
     `[username](https://www.roblox.com/users/<id>/profile)`, else the bare
     username, else the italic literal `*Unknown Officer*`
-  - `• Punishment(s):` → the list below
-  - `• Reason:` → the reason, or `N/A`
-  - `• Notes:` → the notes, or `N/A`
-- `footer.text`: `Infraction ID | #<n>` (or `Infraction ID | pending`)
-- `timestamp`: ISO now
+  * `• Punishment(s):` → the list below
+  * `• Reason:` → the reason, or `N/A`
+  * `• Notes:` → the notes, or `N/A`
+* `footer.text`: `Infraction ID | #<n>` (or `Infraction ID | pending`)
+* `timestamp`: ISO now
 
 The punishment list, one bullet per punishment:
 ```
@@ -220,13 +220,13 @@ was deleted, post a fresh one and store the new id.
 
 ## 1.7 The timed-punishment expiry worker
 
-- Runs at boot, then **every 5 minutes** (`setInterval(fn, 5 * 60 * 1000)`).
-- Finds `CasePunishment` rows where `expiresAt <= now` AND `roleRemoved = false`
+* Runs at boot, then **every 5 minutes** (`setInterval(fn, 5 * 60 * 1000)`).
+* Finds `CasePunishment` rows where `expiresAt <= now` AND `roleRemoved = false`
   AND `roleId != null`.
-- Removes the role in `DISCORD_GUILD_ID`; on success sets `roleRemoved = true`
+* Removes the role in `DISCORD_GUILD_ID`; on success sets `roleRemoved = true`
   and logs `Expired role <roleId> removed from <userId> (#<caseRef>)`.
-- A failure leaves `roleRemoved = false`, so the next tick retries — forever.
-- It is generic: only `Zero Tolerance` and `Suspension` are timed in practice,
+* A failure leaves `roleRemoved = false`, so the next tick retries — forever.
+* It is generic: only `Zero Tolerance` and `Suspension` are timed in practice,
   but anything carrying an `expiresAt` expires.
 
 ---
@@ -242,13 +242,13 @@ Roblox username up. If RoVer errored rather than simply finding nothing, say so
 in the reply and flag whether it was a rate-limit.
 
 Reply with:
-- whether the account is linked; if not, why — `not_linked` for a Discord input,
+* whether the account is linked; if not, why — `not_linked` for a Discord input,
   `not_found` for a Roblox one
-- Roblox username, display name, and whether they are in the group with their
+* Roblox username, display name, and whether they are in the group with their
   group rank name
-- every **approved** action ever recorded against them, oldest first
-- their case history: ref, action, date
-- **the suggested next step**, resolved by this ladder, in exactly this
+* every **approved** action ever recorded against them, oldest first
+* their case history: ref, action, date
+* **the suggested next step**, resolved by this ladder, in exactly this
   precedence order — first match wins:
 
 | Already on record | Suggested next | Warning shown |
@@ -274,39 +274,39 @@ Points always go to the **submitter**, never the subject.
 
 ## 3.2 The durable outbox — never lose a point
 
-- On approval, `upsert` a `QuotaAward` row keyed `@@unique([refType, refId])`,
+* On approval, `upsert` a `QuotaAward` row keyed `@@unique([refType, refId])`,
   so a re-approve or a retry can **never** double-award. Then kick the processor
   after **50 ms**.
-- Worker: `setInterval` every **30 s**, plus a catch-up run **8 s** after boot.
-- Each pass takes up to **25** PENDING rows, oldest first.
-- Success → `DONE`. Failure → `attempts + 1`; at **40 attempts** mark `FAILED`
+* Worker: `setInterval` every **30 s**, plus a catch-up run **8 s** after boot.
+* Each pass takes up to **25** PENDING rows, oldest first.
+* Success → `DONE`. Failure → `attempts + 1`; at **40 attempts** mark `FAILED`
   and log exactly:
   `[quota] award <label> FAILED after <n> tries — discord=<id>, roblox=<name>. Add the points manually.`
 
 ## 3.3 The sheet
 
-Points live in a Google Sheet: one row per member, one column per weekday.
+Points current in a Google Sheet: one row per member, one column per weekday.
 
-- **Column discovery is by header text**, scanning every row (headers are not
+* **Column discovery is by header text**, scanning every row (headers are not
   necessarily on row 1):
-  - username: `username`, `roblox username`, `roblox user`, `roblox`, `user`
-  - discord id: `discord id`, `discordid`, `discord`
-  - rank: `rank`, `role`
-  - days: `sun`…`sat`, the full day names, or any header starting with those
-- **Row matching**, in this order: Discord ID exact → Discord ID digits-only →
+  * username: `username`, `roblox username`, `roblox user`, `roblox`, `user`
+  * discord id: `discord id`, `discordid`, `discord`
+  * rank: `rank`, `role`
+  * days: `sun`…`sat`, the full day names, or any header starting with those
+* **Row matching**, in this order: Discord ID exact → Discord ID digits-only →
   Roblox username case-insensitive → Roblox username *normalised* (lowercase,
   strip everything that is not `a-z0-9`, so `Bruh_Lord`, `bruh lord` and
-  `bruhlord` all match). Try both the stored username and the live-resolved
+  `bruhlord` all match). Try both the stored username and the current-resolved
   one — people rename.
-- Write path: **(1)** a Google Apps Script Web App bound to the sheet
+* Write path: **(1)** a Google Apps Script Web App bound to the sheet
   (`QUOTA_WEBHOOK_URL` + `QUOTA_WEBHOOK_SECRET`) — this is the path that
   actually works; **(2)** fall back to the service account
   (`GOOGLE_SERVICE_ACCOUNT_JSON`) read-modify-writing the single day cell.
-- **Serialise writes** through an in-process promise chain: concurrent
+* **Serialise writes** through an in-process promise chain: concurrent
   read-modify-writes on one cell silently lose updates.
-- "Today" resolves in `QUOTA_TIMEZONE` (default `Europe/London`), never UTC.
-- Log every write: `[quota] +<points> <label> → row <r>, <day> = <newValue>`.
-- Non-numeric cells (`EX`, `LOA`) are preserved verbatim and never summed.
+* "Today" resolves in `QUOTA_TIMEZONE` (default `Europe/London`), never UTC.
+* Log every write: `[quota] +<points> <label> → row <r>, <day> = <newValue>`.
+* Non-numeric cells (`EX`, `LOA`) are preserved verbatim and never summed.
 
 ## 3.4 Weekly targets by rank
 
@@ -322,11 +322,11 @@ anything else / blank                                → target null, tier null 
 
 ## 3.5 Quota reduction role / Investigator of the Week
 
-- A Discord role in `QUOTA_REDUCTION_GUILD_ID` (`QUOTA_REDUCTION_ROLE_ID`)
+* A Discord role in `QUOTA_REDUCTION_GUILD_ID` (`QUOTA_REDUCTION_ROLE_ID`)
   lowers its holder's weekly target by `QUOTA_REDUCTION_AMOUNT` (default **10**),
   floored at 0, flagged `reducedBy` so the reply can show it. Exempt members are
   unaffected. Cache role-holder lookups; invalidate the cache on change.
-- Setting IOTW makes one user the **exclusive** holder: fetch all guild members,
+* Setting IOTW makes one user the **exclusive** holder: fetch all guild members,
   remove the role from everyone else, add it to the target. A falsy id clears it
   from everyone.
 
@@ -339,18 +339,18 @@ warning, strikes, timezone, wtbt`.
 
 ## 3.7 Subcommands
 
-- **`/xp me`** — your own points per weekday, total, rank, tier, target,
+* **`/xp me`** — your own points per weekday, total, rank, tier, target,
   `reducedBy`, remaining. Anyone.
-- **`/xp check <user>`** — the same for someone else. IA and above.
-- **`/xp review`** — build and post the Weekly Quota Review embed (§3.8).
+* **`/xp check <user>`** — the same for someone else. IA and above.
+* **`/xp review`** — build and post the Weekly Quota Review embed (§3.8).
   HICOMM only.
-- **`/xp reset`** — HICOMM only. Show a confirmation button first, then clear
+* **`/xp reset`** — HICOMM only. Show a confirmation button first, then clear
   every numeric day cell for member rows. `EX`/`LOA` markers and any formula
   TOTAL column are left untouched. Webhook path first, service account as
   fallback.
-- **`/xp exempt <user>`** — write `EX` across that member's day cells.
+* **`/xp exempt <user>`** — write `EX` across that member's day cells.
   HICOMM only.
-- **`/xp iotw <user>`** — set the exclusive Investigator of the Week role.
+* **`/xp iotw <user>`** — set the exclusive Investigator of the Week role.
   HICOMM only.
 
 ## 3.8 The Weekly Quota Review embed (exact)
@@ -358,16 +358,16 @@ warning, strikes, timezone, wtbt`.
 Posted to `QUOTA_RESULTS_WEBHOOK_URL` (falling back to the case webhook), with
 `content` pinging `<<QUOTA_PING_ROLE_ID>>`:
 
-- `color`: `0x4a8fff`
-- `title`: `Weekly Quota Review — <week label>`
-- `description`: one line per member —
+* `color`: `0x4a8fff`
+* `title`: `Weekly Quota Review — <week label>`
+* `description`: one line per member —
   `✅ **<username>** · <rank> — <total>/<target> pts` on a pass,
   `❌ **<username>** · <rank> — <total>/<target> pts — <reason, ≤120 chars>` on a
   fail. Exempt members show `Exempt` in place of the points. The Investigator of
   the Week gets ` — ⭐ IOTW` appended. Past 3900 characters, truncate with
   `\n… (list truncated)`.
-- Fields, all inline: `Reviewed by` (`<@id>` or name), `Passed`, `Failed`
-- `footer.text`: `Internal Affairs · Quota Check`, plus an ISO timestamp
+* Fields, all inline: `Reviewed by` (`<@id>` or name), `Passed`, `Failed`
+* `footer.text`: `Internal Affairs · Quota Check`, plus an ISO timestamp
 
 ---
 
@@ -380,15 +380,15 @@ weekday cells. Same two-path write as everything else: the Apps Script webhook
 first (`action: 'exempt'`, `marker: 'LOA'`, `username`), service account as
 fallback.
 
-- Row lookup for the marker write is by **username, case-insensitive exact**.
-- Exact error strings: `No username column found.` when the sheet has no
+* Row lookup for the marker write is by **username, case-insensitive exact**.
+* Exact error strings: `No username column found.` when the sheet has no
   username column; `Member not found on the sheet.` when they are not listed;
   `Quota sheet is not configured.` when neither write path is set up.
-- A rank cell reading `LOA` makes that member **exempt, target 0, tier "LOA"**
+* A rank cell reading `LOA` makes that member **exempt, target 0, tier "LOA"**
   (§3.4), and LOA counts as a form of exemption in the weekly review.
-- `LOA` cells are non-numeric, so §3.3 preserves them and never sums them, and
+* `LOA` cells are non-numeric, so §3.3 preserves them and never sums them, and
   `/xp reset` leaves them alone.
-- **HICOMM only** — the same gate as `/xp reset`, `/xp exempt` and `/xp iotw`.
+* **HICOMM only** — the same gate as `/xp reset`, `/xp exempt` and `/xp iotw`.
 
 ---
 
@@ -399,7 +399,7 @@ fallback.
 Manages the **Roblox group's join requests**. All three subcommands are HICOMM
 only, and all need `ROBLOX_GROUP_ID` + `ROBLOX_COOKIE` (§8.3).
 
-- **`/pendingjoin list`** — fetch the pending join requests, 100 per page,
+* **`/pendingjoin list`** — fetch the pending join requests, 100 per page,
   `sortOrder=Asc`:
   `GET https://groups.roblox.com/v1/groups/<groupId>/join-requests?limit=100&sortOrder=Asc`
   (append `&cursor=<token>` to page). For each request show the Roblox
@@ -407,9 +407,9 @@ only, and all need `ROBLOX_GROUP_ID` + `ROBLOX_COOKIE` (§8.3).
   returns none), **user id**, and **requested-at** timestamp. Carry Roblox's
   `nextPageCursor` so a "next page" button or option can continue; treat a
   missing cursor as the end.
-- **`/pendingjoin approve <roblox_user_id>`** —
+* **`/pendingjoin approve <roblox_user_id>`** —
   `POST .../join-requests/users/<userId>`
-- **`/pendingjoin decline <roblox_user_id>`** —
+* **`/pendingjoin decline <roblox_user_id>`** —
   `DELETE .../join-requests/users/<userId>`
 
 Both actions hit the **same URL** and differ only in HTTP method. On a non-OK
@@ -427,7 +427,7 @@ Changes a member's **Roblox group rank**. HICOMM only.
 Options: `user` (the member — accept a Discord user, resolved to Roblox via
 §8.1, or a Roblox username) and `rank` (the target rank).
 
-Offer the target ranks through **autocomplete**, sourced live from
+Offer the target ranks through **autocomplete**, sourced current from
 `GET https://groups.roblox.com/v1/groups/<groupId>/roles` — which returns
 `{ id, name, rank }` per role — sorted ascending by `rank`. Never hard-code a
 rank ladder; the group is the source of truth.
@@ -478,13 +478,13 @@ same `CaseCounter`, so refs never collide.
 ## 7.2 `/ia ticket` — log a ticket
 
 Fields, all matching the old ticket record:
-- `roblox` (string, required) — the Roblox username the ticket concerns
-- `type` (choice, required) — exactly these four values, no others:
+* `roblox` (string, required) — the Roblox username the ticket concerns
+* `type` (choice, required) — exactly these four values, no others:
   `GENERAL_SUPPORT`, `HICOMM`, `OFFICER_REPORT`, `APPEAL`
-- `conclusion` (string, required) — how the ticket was resolved
-- `submitted_at` (string, required) and `timezone` (string, required)
-- `transcript` (string, optional) — link
-- `proof` (attachment, optional, repeatable up to 3) — store the CDN URLs
+* `conclusion` (string, required) — how the ticket was resolved
+* `submitted_at` (string, required) and `timezone` (string, required)
+* `transcript` (string, optional) — link
+* `proof` (attachment, optional, repeatable up to 3) — store the CDN URLs
 
 Ticket refs are **`TKT-0001`** — the literal prefix `TKT-` and the counter
 zero-padded to **4 digits** — from an atomic upsert-increment on
@@ -501,21 +501,21 @@ pending card — the handler parses the id out of the button, it holds no state
 in memory.
 
 While PENDING:
-- `color`: `0xf5b730` (amber)
-- `title`: `Case #<n>` or `Ticket TKT-0001`
-- Fields: the subject, the punishments (cases) or type and conclusion
+* `color`: `0xf5b730` (amber)
+* `title`: `Case #<n>` or `Ticket TKT-0001`
+* Fields: the subject, the punishments (cases) or type and conclusion
   (tickets), the reason, and any evidence or transcript link
-- `footer.text`: `Filed by <name>`, with `footer.icon_url` set to the **filer's
+* `footer.text`: `Filed by <name>`, with `footer.icon_url` set to the **filer's
   Discord avatar**
-- `timestamp`: ISO now
+* `timestamp`: ISO now
 
 On **Approve**, edit that same message in place — never post a second card:
-- `color` → `0x2ed896` (green)
-- add a field `• Approved by:` → `<@approverId>`
-- set `author.name` → `Approved by <approver display name>` and
+* `color` → `0x2ed896` (green)
+* add a field `• Approved by:` → `<@approverId>`
+* set `author.name` → `Approved by <approver display name>` and
   `author.icon_url` → the approver's avatar, from
   `interaction.user.displayAvatarURL({ extension: 'png', size: 64 })`
-- **remove the buttons** (`components: []`) so it cannot be actioned twice
+* **remove the buttons** (`components: []`) so it cannot be actioned twice
 
 On **Deny**: `color` → `0xf04f5e` (red), author line
 `Denied by <name>` with the same avatar, buttons removed. Denials award no
@@ -562,7 +562,7 @@ a ticket can share an id without colliding, and re-pressing Approve can never
 double-award. Points always go to the **filer**, never the subject.
 
 For a ticket, resolve the filer's Roblox username for the sheet lookup; if it
-is not already cached, do a live RoVer lookup (§8.1) and **cache the result**
+is not already cached, do a current RoVer lookup (§8.1) and **cache the result**
 back onto their record so the next award is free.
 
 ---
@@ -607,12 +607,12 @@ Membership GET https://groups.roblox.com/v2/users/<id>/groups/roles
 
 All writes go through one `robloxAuthFetch(url, options, allowRetry = true)`:
 
-- Headers: `Cookie: .ROBLOSECURITY=<ROBLOX_COOKIE>`,
+* Headers: `Cookie: .ROBLOSECURITY=<ROBLOX_COOKIE>`,
   `Content-Type: application/json`, plus `X-CSRF-TOKEN` when one is cached.
-- **On a 403, Roblox returns a fresh token in the `x-csrf-token` response
+* **On a 403, Roblox returns a fresh token in the `x-csrf-token` response
   header.** Capture it and retry once with `allowRetry = false`. Without this,
   every write fails.
-- Warm the token at boot with a throwaway
+* Warm the token at boot with a throwaway
   `POST https://auth.roblox.com/v2/logout` — its own failure is irrelevant, you
   only want the header — so the first real action does not pay for the retry.
 
@@ -654,14 +654,14 @@ Responses: `{ ok: true, row, day, newValue }` / `{ ok: true, cleared }` /
 `{ ok: false, error: 'bad secret' }`.
 
 The script must:
-- Verify the secret before doing anything.
-- **Take a `LockService.getScriptLock()` with `waitLock(30000)` around the whole
+* Verify the secret before doing anything.
+* **Take a `LockService.getScriptLock()` with `waitLock(30000)` around the whole
   handler**, and `SpreadsheetApp.flush()` before releasing. Two approvals
   landing together would otherwise each read the old cell value and write back
   `old + points`, silently losing one increment. On lock timeout return
   `{ ok: false, error: 'busy — could not acquire lock' }`.
-- Resolve "today" in its own `TIMEZONE` constant (`Europe/London`).
-- Use the same header-detection and row-matching rules as §3.3, so both write
+* Resolve "today" in its own `TIMEZONE` constant (`Europe/London`).
+* Use the same header-detection and row-matching rules as §3.3, so both write
   paths agree on which cell they touch.
 
 ## 6.5 The Google Sheet — service account (fallback path)
@@ -670,14 +670,14 @@ The script must:
 `https://www.googleapis.com/auth/spreadsheets`. The sheet must be shared with
 the key's `client_email` as an **Editor**, or every call 403s.
 
-- Read: `spreadsheets.values.get` over the whole tab,
+* Read: `spreadsheets.values.get` over the whole tab,
   `valueRenderOption: 'FORMATTED_VALUE'`, `majorDimension: 'ROWS'`.
-- Write one cell: `spreadsheets.values.update`,
+* Write one cell: `spreadsheets.values.update`,
   `valueInputOption: 'USER_ENTERED'`.
-- Write many (markers, reset): `spreadsheets.values.batchUpdate`.
-- When `QUOTA_SHEET_NAME` is unset, call `spreadsheets.get` with
+* Write many (markers, reset): `spreadsheets.values.batchUpdate`.
+* When `QUOTA_SHEET_NAME` is unset, call `spreadsheets.get` with
   `fields: 'sheets.properties.title'` and take the **first tab**.
-- Column letters past Z need real base-26 conversion — write the helper, do not
+* Column letters past Z need real base-26 conversion — write the helper, do not
   assume single letters.
 
 ## 6.6 Discord webhooks
@@ -711,14 +711,14 @@ approval and +2 on a ticket approval, both into the same `QuotaAward` table.
 
 ## 7.2 Bot mechanics
 
-- Intents: `Guilds` and `GuildMembers` only. Do **not** request the privileged
+* Intents: `Guilds` and `GuildMembers` only. Do **not** request the privileged
   `MessageContent` intent — nothing in this bot reads message content. Still
   guard the login: if it fails, log the reason clearly rather than crashing.
-- Boot log line, exactly: ``🤖  Discord bot online as <tag>`` (two spaces).
-- Guard every guild/member/role call: not ready → warn and return false, never
+* Boot log line, exactly: ``🤖  Discord bot online as <tag>`` (two spaces).
+* Guard every guild/member/role call: not ready → warn and return false, never
   throw. Log `Role <id> assigned to <user>` and `Role <id> removed from <user>`,
   and `Failed to assign role <id> to <user>: <msg>` on failure.
-- Defer any reply that might take time. `✅` for success, `❌ <message>` for
+* Defer any reply that might take time. `✅` for success, `❌ <message>` for
   failure, `⛔` for authorisation refusals.
 
 ---
@@ -813,7 +813,7 @@ model QuotaAward {
 `#<count>`. Never random, never reused.
 
 Note there is no `User` table: this bot has no accounts or logins. Identity is
-the Discord user id, and the Roblox link is resolved live and cached.
+the Discord user id, and the Roblox link is resolved current and cached.
 
 ---
 
@@ -849,30 +849,30 @@ Nobody may review their own case.
 
 ## Before you call it done, verify
 
-- [ ] Exactly seven commands registered — no others.
-- [ ] All 11 actions present, exact names, correct `exile`/`timed` flags.
-- [ ] `roleId` is a **getter**, not a value captured at import time.
-- [ ] A Supervisor cannot approve a Blacklist or Termination case.
-- [ ] Approving twice is refused; the outbox never double-awards.
-- [ ] Exile fires **once per case**, even with two exile-flagged punishments.
-- [ ] The embed matches §1.6 exactly — colour, author, `• ` field names, footer,
+* [ ] Exactly seven commands registered — no others.
+* [ ] All 11 actions present, exact names, correct `exile`/`timed` flags.
+* [ ] `roleId` is a **getter**, not a value captured at import time.
+* [ ] A Supervisor cannot approve a Blacklist or Termination case.
+* [ ] Approving twice is refused; the outbox never double-awards.
+* [ ] Exile fires **once per case**, even with two exile-flagged punishments.
+* [ ] The embed matches §1.6 exactly — colour, author, `• ` field names, footer,
       and the duration-suffix exceptions.
-- [ ] Editing an approved case PATCHes the original message, not a new post.
-- [ ] The expiry worker leaves `roleRemoved = false` on failure so it retries.
-- [ ] `/check-record`'s suggestion ladder resolves in the §2 precedence order.
-- [ ] `/promote`'s rank autocomplete is read live from the group, not hard-coded.
-- [ ] `/pendingjoin approve` and `decline` hit the same URL, differing only in
+* [ ] Editing an approved case PATCHes the original message, not a new post.
+* [ ] The expiry worker leaves `roleRemoved = false` on failure so it retries.
+* [ ] `/check-record`'s suggestion ladder resolves in the §2 precedence order.
+* [ ] `/promote`'s rank autocomplete is read current from the group, not hard-coded.
+* [ ] `/pendingjoin approve` and `decline` hit the same URL, differing only in
       HTTP method (POST vs DELETE).
-- [ ] Review-card buttons carry the record id in their `customId`, so a restart
+* [ ] Review-card buttons carry the record id in their `customId`, so a restart
       does not orphan pending cards.
-- [ ] Approving edits the original card in place and strips its buttons; it
+* [ ] Approving edits the original card in place and strips its buttons; it
       never posts a second card.
-- [ ] The approver's avatar shows on the card via `displayAvatarURL()`.
-- [ ] A case awards 4 and a ticket 2, into the same `QuotaAward` table, and
+* [ ] The approver's avatar shows on the card via `displayAvatarURL()`.
+* [ ] A case awards 4 and a ticket 2, into the same `QuotaAward` table, and
       re-pressing Approve cannot double-award.
-- [ ] `EX` and `LOA` cells survive `/xp reset` and are never summed.
-- [ ] No Express, no HTTP routes, no web server anywhere.
-- [ ] Nothing is a hard-coded Discord, Roblox or Sheet id.
+* [ ] `EX` and `LOA` cells survive `/xp reset` and are never summed.
+* [ ] No Express, no HTTP routes, no web server anywhere.
+* [ ] Nothing is a hard-coded Discord, Roblox or Sheet id.
 
 ---
 
