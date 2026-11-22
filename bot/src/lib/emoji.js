@@ -33,7 +33,7 @@ function spinnerFrames() {
 }
 
 /**
- * A live "working…" indicator on a deferred interaction.
+ * A visible "working…" indicator on a deferred interaction.
  *
  * Discord rate-limits message edits, so this ticks at 1.5s rather than per
  * frame of a real animation — fast enough to read as motion, slow enough not
@@ -41,13 +41,13 @@ function spinnerFrames() {
  */
 function startLoading(interaction, label = 'Working') {
   const frames = spinnerFrames();
-  let i = 0, live = true, detail = '';
+  let i = 0, isActive = true, detail = '';
 
   const render = () => `${frames[i % frames.length]}  **${label}**${detail ? `\n${detail}` : ''}`;
   interaction.editReply(render()).catch(() => {});
 
   const timer = setInterval(() => {
-    if (!live) return;
+    if (!isActive) return;
     i++;
     interaction.editReply(render()).catch(() => {});
   }, 1500);
@@ -55,7 +55,7 @@ function startLoading(interaction, label = 'Working') {
   return {
     /** Update the sub-line without resetting the spinner. */
     update(text) { detail = text; },
-    stop() { live = false; clearInterval(timer); },
+    stop() { isActive = false; clearInterval(timer); },
   };
 }
 
