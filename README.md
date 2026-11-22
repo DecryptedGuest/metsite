@@ -75,7 +75,7 @@ the link.
 
 What the site *does* have is a read-only mirror of the Discord ticket-log channel, plus a
 sign-off. The bot copies the **"Ticket Closed"** logs into `ticket_logs`
-(`server/lib/ticketIngest.js`) — live via `messageCreate`, with a catch-up sweep every 5
+(`server/lib/ticketIngest.js`) — handled by `messageCreate`, with a catch-up sweep every 5
 minutes and a backfill on first run — so **IA never logs a ticket by hand**. A
 **Supervisor or above then approves or denies each log on the site**
 (`POST /api/tickets/:id/review`); you can't sign off a ticket you closed yourself.
@@ -96,7 +96,7 @@ or crossing the message** — and that is the part
 It matters because the sign-off is read off the **message's own reactions**, not off who
 clicked what in our UI: a log ticked or crossed by *anybody*, including someone who has
 never opened the site, lands here as approved or denied. Two paths keep it current — the
-live `messageReactionAdd` / `messageReactionRemove` handlers, and a reconcile sweep every
+active `messageReactionAdd` / `messageReactionRemove` handlers, and a reconcile sweep every
 5 minutes that re-reads reactions on recent PENDING logs. The sweep is not optional:
 gateway events are never replayed, so without it a tick added while the bot was
 restarting would be lost for good.
@@ -104,7 +104,7 @@ restarting would be lost for good.
 Only two reactors are ignored: **bots** — otherwise a logger that pre-adds ✅/❌ as
 clickable buttons would mark every log both approved and denied the moment it posts — and
 **the officer who filed the log**, since "ticked by somebody else" is the whole point. A
-cross outranks a tick, except on the live path, where the reaction that just arrived
+cross outranks a tick, except on the immediate path, where the reaction that just arrived
 wins; that's how a supervisor corrects a mistaken cross.
 
 Approving an EVENT log awards its point exactly as the site's own approve button does,
@@ -226,7 +226,7 @@ already resolves its rank — decides whether they're in the division and at wha
 read, the user has no access to that division. The resolved divisions are cached on
 `User.divisions` and refreshed at login and by the same background job that refreshes IA's
 `role`. `server/lib/divisions.js` is the single place group ids, icons, and rank→tier
-mapping live.
+mapping is active.
 
 **IA is the exception** and is deliberately left on its original pipeline: IA access is
 governed by the IA **site role** (`IA` / `SUPERVISOR` / `HICOMM` / `DEVELOPER`) derived
@@ -301,8 +301,8 @@ npm install
 2. Click **New Application** → name it "MET Police Dashboard"
 3. Go to **OAuth2** → copy **Client ID** and **Client Secret**
 4. Under **Redirects**, add:
-   - `http://localhost:3000/auth/discord/callback` (local)
-   - `https://your-app.railway.app/auth/discord/callback` (production)
+   * `http://localhost:3000/auth/discord/callback` (local)
+   * `https://your-app.railway.app/auth/discord/callback` (production)
 5. Go to **Bot** → Create a Bot → copy **Bot Token**
 6. Invite the bot to your server with `Server Members Intent` enabled (under **Privileged Gateway Intents**)
 
@@ -386,8 +386,8 @@ https://your-app.railway.app/auth/discord/callback
 ### Step 6: Deploy
 
 Railway auto-deploys on every push to `main`. `railway.toml` handles:
-- Running `npm install` + `prisma generate`
-- Starting the server with `prisma db push --accept-data-loss && node server/index.js`
+* Running `npm install` + `prisma generate`
+* Starting the server with `prisma db push --accept-data-loss && node server/index.js`
 
 Railway runs the app as a single always-on process, so the Discord bot and background
 workers run here. **This is the recommended host for the full app.**
@@ -407,11 +407,11 @@ groups, Discord OAuth), not a persistent connection.
 
 **Does _not_ work on Vercel** (needs an always-on process — run it on Railway/Fly/a small
 worker, or trigger via a scheduler):
-- **Discord bot gateway** — role assignment, group management, ticket-transcript matching.
-- **Background workers** — access revalidation + the quota outbox retry loop. (Login still
-  resolves roles live via RoVer, so day-to-day auth is unaffected; only the periodic
+* **Discord bot gateway** — role assignment, group management, ticket-transcript matching.
+* **Background workers** — access revalidation + the quota outbox retry loop. (Login still
+  resolves roles handled by RoVer, so day-to-day auth is unaffected; only the periodic
   reconciliation stops.)
-- **Media uploads larger than ~4.5 MB** — Vercel's hard serverless request-body limit.
+* **Media uploads larger than ~4.5 MB** — Vercel's hard serverless request-body limit.
 
 ### Steps
 
@@ -478,7 +478,7 @@ bot-written `perms`, the profile now derives:
   scheme. Guest/Member and rank `100+` (MET ADMINISTRATION / HICOMM / Overseer / HOLDER)
   are the member's MET *rank*, not a perm, so they're filtered out, as are the divider
   roles (`-----`). Site-derived and bot-written perms are merged and de-duplicated. The
-  catalogue and filtering live in `server/lib/permsGroup.js`. **Multiple roles per group:**
+  catalogue and filtering are handled in `server/lib/permsGroup.js`. **Multiple roles per group:**
   Roblox now lets a member hold more than one role in a single group; the site collects
   **every** perm role the account holds (via `getUserGroupRoles`), so all their perms show —
   not just one.
@@ -510,9 +510,9 @@ served from `/ia/dashboard` the dev nav is never shown, even to developers. Acce
 developers-only (`role === 'DEVELOPER'`), and the division appears in developers' profile +
 division switcher.
 
-### Tryout server lock (live from the game)
+### Tryout server lock (updated from the game)
 
-Tryout announcements show the live **server-lock** state (Adonis `:serverlock on/off` /
+Tryout announcements show the current **server-lock** state (Adonis `:serverlock on/off` /
 `:slock`) of the Hendon Police Campus game — not a static "shift-lock". When the lock
 toggles in-game, the game POSTs `/api/game/serverlock` (authenticated with the
 `x-game-secret` header = `TRYOUT_GAME_SECRET`), and the site updates the tryout and edits
@@ -529,7 +529,7 @@ game:GetService("HttpService"):PostAsync(
 ```
 
 Body accepts `{ locked: true|false }` (or `state: "on"/"off"`), and optionally `tryoutId`
-or `privateServerId` to target a specific tryout (otherwise the current live one is used).
+or `privateServerId` to target a specific tryout (otherwise the current one is used).
 
 ## Division → Roblox group mapping
 
@@ -631,12 +631,12 @@ Everything else in `server/routes/` behaves as before.
 
 ## Security Features
 
-- JWT stored in **httpOnly, Secure, SameSite=Lax** cookie (not accessible to JS), shared across every division
-- Site role AND division access **re-fetched from the database on every request** (role/role changes take effect immediately)
-- Rate limiting on `/auth` (50 req/15min) and `/api` (120 req/min)
-- All inputs sanitised before database write
-- Webhook URLs stored in environment variables only
-- `bcrypt`-free (OAuth-only, no password storage)
+* JWT stored in **httpOnly, Secure, SameSite=Lax** cookie (not accessible to JS), shared across every division
+* Site role AND division access **re-fetched from the database on every request** (role/role changes take effect immediately)
+* Rate limiting on `/auth` (50 req/15min) and `/api` (120 req/min)
+* All inputs sanitised before database write
+* Webhook URLs stored in environment variables only
+* `bcrypt`-free (OAuth-only, no password storage)
 
 ---
 
