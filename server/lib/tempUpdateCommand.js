@@ -18,25 +18,68 @@ async function handle(interaction) {
     return interaction.reply({ content: 'You need Server Administrator access to run this bulk rank correction.', flags: 64 });
   }
   await interaction.deferReply({ flags: 64 });
+  let processed = 0;
+  let currentStep = 'Getting ready…';
+  let frame = 0;
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const progressBar = percent => {
+    const filled = Math.round(percent / 10);
+    return '▰'.repeat(filled) + '▱'.repeat(10 - filled);
+  };
+  let total = 0;
+  const renderStatus = () => {
+    const percent = total ? Math.min(100, Math.floor((processed / total) * 100)) : 0;
+    return {
+      embeds: [new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle(`${frames[frame++ % frames.length]} MET rank update in progress`)
+        .setDescription(`**${percent}%**  ${progressBar(percent)}\n${currentStep}`)
+        .addFields(
+          { name: 'Checked', value: `${processed} / ${total}`, inline: true },
+          { name: 'Remaining', value: String(Math.max(0, total - processed)), inline: true },
+        )
+        .setFooter({ text: 'This message updates while members are being checked.' })],
+    };
+  };
+  const statusTimer = setInterval(() => {
+    interaction.editReply(renderStatus()).catch(() => {});
+  }, 1800);
+  const stopStatus = () => clearInterval(statusTimer);
+  await interaction.editReply(renderStatus());
   const client = require('./bot').getClient();
-  if (!client) return interaction.editReply('Bot is not ready. No ranks were changed.');
+  if (!client) {
+    stopStatus();
+    return interaction.editReply('Bot is not ready. No ranks were changed.');
+  }
   const guildId = process.env.MET_GUILD_ID || process.env.DISCORD_GUILD_ID;
-  if (!guildId) return interaction.editReply('MET_GUILD_ID is not configured. No ranks were changed.');
+  if (!guildId) {
+    stopStatus();
+    return interaction.editReply('MET_GUILD_ID is not configured. No ranks were changed.');
+  }
 
   let guild, members, rows;
   try {
+    currentStep = 'Loading MET server members and XP records…';
     guild = await client.guilds.fetch(String(guildId));
     members = await guild.members.fetch();
     rows = await require('./db').metXp.findMany({ orderBy: { discordId: 'asc' } });
   } catch (err) {
+    stopStatus();
     return interaction.editReply('Pre-check failed; no ranks were changed. ' + String(err.message).slice(0, 250));
   }
+
+  total = rows.length;
+  currentStep = total ? 'Starting member checks…' : 'No XP records found.';
+  await interaction.editReply(renderStatus());
 
   const roblox = require('./roblox');
   const results = [];
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-  for (const row of rows) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+    processed = rowIndex;
     const discordId = String(row.discordId);
+    currentStep = `Checking member ${rowIndex + 1} of ${total}…`;
     const member = members.get(discordId);
     if (!member) { results.push({ status: 'skipped', label: discordId, note: 'not in MET Discord server' }); continue; }
     try {
@@ -93,6 +136,9 @@ async function handle(interaction) {
     }
     await pause(350);
   }
+  processed = total;
+  currentStep = 'Finishing the report…';
+  stopStatus();
   const count = status => results.filter(r => r.status === status).length;
   const lines = results.filter(r => r.status !== 'ok').slice(0, 35)
     .map(r => (r.status === 'changed' ? '✅' : r.status === 'failed' ? '❌' : '↪️')
