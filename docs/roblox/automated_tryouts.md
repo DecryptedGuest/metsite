@@ -1,6 +1,6 @@
 # Automated tryout contracts
 
-Everything below is live on the portal. Base URL is the value already in
+Everything below is current on the portal. Base URL is the value already in
 `HPCTryoutConfig.SITE_URL`. Every request carries `x-game-secret`.
 
 ## 1. NPC host
@@ -251,7 +251,7 @@ set to CANCELLED, its Discord announcement is deleted and its scheduled event is
 removed. That check does not care whether the host is a person or an NPC, so an
 automated tryout has to keep checking in the same way a hosted one does.
 
-Any of the existing callbacks resets the clock, so a live snapshot, a serverlock
+Any of the existing callbacks resets the clock, so a current snapshot, a serverlock
 update or a heartbeat all count. Send one every few minutes and a long tryout
 will never be cancelled out from under itself. For an NPC host there is no
 Roblox id to look for in the roster, so the callback alone is taken as proof the
@@ -276,7 +276,7 @@ and nothing changes. The first click wins: the record stores who clicked and
 when, the embed is edited to name them, and both buttons go disabled, so the
 same pass cannot be ranked twice.
 
-If the rank change itself fails, nothing is recorded and the buttons stay live
+If the rank change itself fails, nothing is recorded and the buttons stay current
 so it can be retried.
 
 ## 6. Public directory
@@ -329,7 +329,7 @@ The group cookie does two jobs. Without it the join request half of
 `metPending` cannot be read, so a trainee who has applied but not been accepted
 comes back `null` rather than `false` and stays eligible. And `Approve and rank`
 cannot move anybody: it answers with the reason, records nothing, and leaves the
-buttons live so it can be pressed again once the cookie is set.
+buttons current so it can be pressed again once the cookie is set.
 
 ## 8. Migrations
 
