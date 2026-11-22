@@ -21,13 +21,13 @@ HTTPS. If the worker is down, the CAD carries on text-only.
 
 ## Two ways to link it to the main app
 
-- **Gateway (dial-out) mode — recommended, works on FREE hosts.** The worker
+* **Gateway (dial-out) mode — recommended, works on FREE hosts.** The worker
   connects *out* to the main app over a secure WebSocket, so it needs no public
   inbound URL. Set `CAD_MAIN_WS_URL` on the worker and only
   `CAD_VOICE_WORKER_SECRET` on the main app. This is the mode to use on free
   Discord-bot hosts like **bot-hosting.net** (no credit card, 24/7, Discord
   login) — see "Deploy free (no card)" below.
-- **HTTP mode.** The main app calls the worker directly; needs a host that gives
+* **HTTP mode.** The main app calls the worker directly; needs a host that gives
   the worker a public URL (e.g. Fly.io). Set `CAD_VOICE_WORKER_URL` +
   `CAD_VOICE_WORKER_SECRET` on the main app — see "Deploy to Fly.io" below.
 
@@ -56,10 +56,10 @@ and lets you paste the setup script at server creation — no terminal, no token
    top (`VOICE_BOT_TOKEN`, `WORKER_SECRET` = same as step 1, `ELEVENLABS_API_KEY`,
    `CAD_MAIN_WS_URL` = `wss://<your-railway-domain>/cad-voice`).
 3. Sign up at **hetzner.com/cloud** → **New Project** → **Add Server**:
-   - Location: a EU region (e.g. Falkenstein/Nuremberg — closest to Discord EU).
-   - Image: **Ubuntu 22.04**. Type: the cheapest **CX22** (or ARM **CAX11**).
-   - Scroll to **Cloud config** → paste your filled-in script.
-   - **Create & Buy now.**
+   * Location: a EU region (e.g. Falkenstein/Nuremberg — closest to Discord EU).
+   * Image: **Ubuntu 22.04**. Type: the cheapest **CX22** (or ARM **CAX11**).
+   * Scroll to **Cloud config** → paste your filled-in script.
+   * **Create & Buy now.**
 4. Wait ~3 min. On the site, **Dev → CAD** shows **"Voice host: worker (linked)"**.
    Pick server + channel → Join → Radio check. 🎙️
 
@@ -79,9 +79,9 @@ it installs + runs the worker itself.
    top (`VOICE_BOT_TOKEN`, `WORKER_SECRET` = the same secret as step 1,
    `ELEVENLABS_API_KEY`, `CAD_MAIN_WS_URL` = `wss://<your-railway-domain>/cad-voice`).
 3. Sign up at **cloud.oracle.com** → **Create Instance**:
-   - Image: **Ubuntu 22.04**; Shape: **VM.Standard.E2.1.Micro** (Always Free).
-   - SSH keys: pick "Generate a key pair for me" and download it (you won't need it).
-   - **Show advanced options → Management → Cloud-init script** → paste your
+   * Image: **Ubuntu 22.04**; Shape: **VM.Standard.E2.1.Micro** (Always Free).
+   * SSH keys: pick "Generate a key pair for me" and download it (you won't need it).
+   * **Show advanced options → Management → Cloud-init script** → paste your
      filled-in `oracle-cloud-init.sh` → **Create**.
 4. Wait ~3 minutes. On the site, **Dev → CAD** shows **"Voice host: worker
    (linked)"**. Pick server + channel → Join → Radio check. 🎙️
@@ -94,18 +94,18 @@ A free Discord-bot host runs the worker 24/7 with no credit card. Because it has
 no public inbound URL, use **gateway mode** (the worker dials out).
 
 1. On the **main app** (Railway), add ONE variable and redeploy:
-   - `CAD_VOICE_WORKER_SECRET` = any long random string (write it down).
+   * `CAD_VOICE_WORKER_SECRET` = any long random string (write it down).
 2. Go to **bot-hosting.net** → sign in with Discord (free, no card) → **Create a
    server** (Node.js).
 3. In the panel → **Settings / Startup**, set it to pull this repo:
-   - Git repo: `https://github.com/DecryptedGuest/metsite`
-   - Branch: `claude/group-roles-permissions-6yn2fq`
-   - Startup command: `cd voice-worker && npm install && node index.js`
+   * Git repo: `https://github.com/DecryptedGuest/metsite`
+   * Branch: `claude/group-roles-permissions-6yn2fq`
+   * Startup command: `cd voice-worker && npm install && node index.js`
 4. In the panel → **Startup / Variables**, add these environment variables:
-   - `VOICE_BOT_TOKEN` = your second bot's token
-   - `WORKER_SECRET` = the SAME string you set on Railway in step 1
-   - `ELEVENLABS_API_KEY` = your ElevenLabs key
-   - `CAD_MAIN_WS_URL` = `wss://YOUR-RAILWAY-DOMAIN/cad-voice`
+   * `VOICE_BOT_TOKEN` = your second bot's token
+   * `WORKER_SECRET` = the SAME string you set on Railway in step 1
+   * `ELEVENLABS_API_KEY` = your ElevenLabs key
+   * `CAD_MAIN_WS_URL` = `wss://YOUR-RAILWAY-DOMAIN/cad-voice`
      (your Railway public domain, e.g. `wss://metsite-production.up.railway.app/cad-voice`)
 5. **Start** the server. In its console you should see `logged in as …` then
    `gateway: connected`.
@@ -125,11 +125,11 @@ this worker to Fly.io on GitHub's servers — you never open a terminal.
    → create → copy it).
 3. In your GitHub repo → **Settings → Secrets and variables → Actions → New
    repository secret**, add these four:
-   - `FLY_API_TOKEN` — the Fly token from step 2
-   - `VOICE_BOT_TOKEN` — the second bot's token
-   - `WORKER_SECRET` — any long random string (use the SAME value on Railway as
+   * `FLY_API_TOKEN` — the Fly token from step 2
+   * `VOICE_BOT_TOKEN` — the second bot's token
+   * `WORKER_SECRET` — any long random string (use the SAME value on Railway as
      `CAD_VOICE_WORKER_SECRET`)
-   - `ELEVENLABS_API_KEY` — your ElevenLabs key
+   * `ELEVENLABS_API_KEY` — your ElevenLabs key
 4. Go to the repo's **Actions** tab → **Deploy CAD Voice Worker** → **Run
    workflow**. When it finishes green, the log prints the worker URL
    (`https://metsite-cad-voice.fly.dev`).
@@ -170,7 +170,7 @@ CAD_VOICE_WORKER_SECRET=<the same WORKER_SECRET>
 
 That's it. In the dev CAD console pick the server + voice channel as before — the
 main app now tells the worker to join, and every transmission is spoken from
-Fly.io. The console's voice panel shows the worker's live status and event log.
+Fly.io. The console's voice panel shows the worker's current status and event log.
 
 ## HTTP API (called by the Railway app)
 
