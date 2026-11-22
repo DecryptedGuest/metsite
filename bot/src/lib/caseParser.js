@@ -78,7 +78,7 @@ function parsePunishments(text) {
       const days = bracket.match(/(\d+)\s*day/i)?.[1] || (/^\d+$/.test(bracket) ? bracket : null);
       if (days) entry.durationDays = Number(days);
     }
-    // Blacklist codes live on the line itself, not in brackets.
+    // Blacklist codes appear on the line itself, not in brackets.
     const bl = line.match(RE_BLACKLIST);
     if (bl) {
       entry.code = bl[1].trim();
