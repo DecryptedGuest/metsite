@@ -77,4 +77,4 @@ end)
 ```
 
 > Note: Roblox `HttpService` must have "Allow HTTP Requests" enabled in game
-> settings, and outbound HTTP only works in the live game (not Studio without it).
+> settings, and outbound HTTP only works in the current game (not Studio without it).
