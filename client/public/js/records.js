@@ -153,7 +153,7 @@ function renderRecord(d) {
   var roles = d.punishmentRoles || [];
   html += "<div class=\"panel glass fade-up\" style=\"margin-top:1.1rem;\">"
     + "<div class=\"panel-header\"><div class=\"panel-title\"><span class=\"panel-dot red\"></span>Active Punishment Roles</div>"
-    + "<span class=\"text-muted mono\" style=\"font-size:11px;\">live Discord roles</span></div>"
+    + "<span class=\"text-muted mono\" style=\"font-size:11px;\">current Discord roles</span></div>"
     + "<div style=\"padding:1.1rem 1.2rem;display:flex;gap:8px;flex-wrap:wrap;\">"
     + (roles.length
         ? roles.map(function (r) { return recChip("<i class=\"ti ti-alert-triangle\"></i> " + escapeHtml(r.action), "bad"); }).join("")
