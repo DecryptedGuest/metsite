@@ -41,10 +41,10 @@ const prisma = require('./db');
 // it's a pattern rather than an exact string.
 const LADDER = [
   { code: 'CSO',  name: 'Community Support Officer', at: 0,   match: /community support officer|\bcso\b/i },
-  { code: 'CON',  name: 'Constable',                 at: 2,   match: /(^|[^a-z])constable/i },
-  { code: 'SGT',  name: 'Sergeant',                  at: 15,  match: /sergeant|\bsgt\b/i },
-  { code: 'INS',  name: 'Inspector',                 at: 40,  match: /(^|[^a-z])inspector/i },
-  { code: 'CINS', name: 'Chief Inspector',           at: 100, match: /chief\s*inspector|\bcins\b/i },
+  { code: 'CON',  name: 'Constable',                 at: 12,  match: /(^|[^a-z])constable/i },
+  { code: 'SGT',  name: 'Sergeant',                  at: 35,  match: /sergeant|\bsgt\b/i },
+  { code: 'INS',  name: 'Inspector',                 at: 50,  match: /(^|[^a-z])inspector/i },
+  { code: 'CINS', name: 'Chief Inspector',           at: 80,  match: /chief\s*inspector|\bcins\b/i },
 ];
 
 // Ranks ABOVE the ladder. XP tops out at Chief Inspector, so anyone senior to
