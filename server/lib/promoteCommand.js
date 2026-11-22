@@ -42,10 +42,13 @@ function short(s, n) {
 // Command by default, so graduating a cadet into the MET group does not need a
 // Deputy Commissioner; PROMOTE_ROLE_IDS overrides without a deploy.
 const HPC_HICOMM_ROLE = '1490857465019895828';
+const RANKING_ACCESS_ROLE = '1555255620012081203';
 function PROMOTE_ROLE_IDS() {
   const raw = process.env.PROMOTE_ROLE_IDS;
-  return String(raw == null ? HPC_HICOMM_ROLE : raw)
-    .split(',').map(s => s.trim()).filter(Boolean);
+  return [...new Set([
+    ...String(raw == null ? HPC_HICOMM_ROLE : raw).split(',').map(s => s.trim()).filter(Boolean),
+    RANKING_ACCESS_ROLE,
+  ])];
 }
 
 function buildCommand() {
@@ -223,6 +226,9 @@ async function planRankChange(current, target, issuerRank) {
 // and promote people, but they do not hand out arbitrary ranks.
 async function canSetRank({ discordId, roleIds, isAdmin }) {
   if (isAdmin) return { ok: true, label: 'Server Administrator', name: null };
+  if (Array.isArray(roleIds) && roleIds.map(String).includes(RANKING_ACCESS_ROLE)) {
+    return { ok: true, label: 'Ranking Manager', name: null };
+  }
   const v = await require('./disciplineAccess').canDiscipline(discordId, roleIds).catch(() => ({ ok: false }));
   if (v.ok && v.isMetHicomm) return { ok: true, label: v.label, name: v.name };
   return { ok: false, label: '', name: v && v.name };
@@ -298,7 +304,7 @@ async function handlePromoteCommand(interaction) {
   let access = { ok: false };
   const extraRole = PROMOTE_ROLE_IDS().find(rid => roleIds.includes(String(rid)));
   if (extraRole) {
-    access = { ok: true, via: 'promote-role', label: 'HPC High Command', name: null };
+    access = { ok: true, via: 'promote-role', label: extraRole === RANKING_ACCESS_ROLE ? 'Ranking Manager' : 'HPC High Command', name: null };
   } else {
     access = await require('./xpCommand').canManageXp({ discordId: interaction.user.id, roleIds, isAdmin });
   }
