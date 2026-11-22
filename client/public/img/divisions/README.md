@@ -1,7 +1,7 @@
 # Division / MET logos
 
 Drop the group logos here and the site uses them directly (they take priority
-over the live Roblox group icon, which is unreliable). Use whatever image format
+over the current Roblox group icon, which is unreliable). Use whatever image format
 you have — `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, or `.gif`.
 
 Name each file after its slug:
