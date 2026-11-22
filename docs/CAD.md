@@ -4,8 +4,8 @@ A text-driven UK police dispatch system built into the MET dashboard, with AI
 text-to-speech read out into a Discord voice channel. Two interfaces sit on one
 pure dispatch state machine:
 
-- **Dispatchers** run the **web console** — dev panel → **CAD Dispatch**.
-- **Officers** talk in a Discord **#radio** text channel in plain English
+* **Dispatchers** run the **web console** — dev panel → **CAD Dispatch**.
+* **Officers** talk in a Discord **#radio** text channel in plain English
   (e.g. `MP-1 to control, show me en route`); an intent parser turns that into
   the same actions the console uses.
 
@@ -25,7 +25,7 @@ so it is unit-tested with a mocked Prisma and can later be driven by STT.
 ```
 server/lib/cad/
   result.js            typed { ok, ... } | { ok:false, error, code } helpers
-  units.service.js     book on/off, status, live board          (pure)
+  units.service.js     book on/off, status, current board          (pure)
   dispatch.service.js  incidents, assign, on-scene, close, backup (pure)
   pnc.service.js       PNC vehicle/person lookups               (pure)
   phrasing.js          UK-radio response strings                (pure)
@@ -94,7 +94,7 @@ npm test            # node:test, dispatch.service + units.service, mocked Prisma
 
 ## Swapping providers
 
-- **TTS**: implement `TtsProvider` (`synthesize(text) -> { ok, audio, mime }`)
+* **TTS**: implement `TtsProvider` (`synthesize(text) -> { ok, audio, mime }`)
   and pass it to `DispatchVoice` — ElevenLabs is one implementation.
-- **Intent**: `parser.js` isolates the model call; swap `claudeParse` or point
+* **Intent**: `parser.js` isolates the model call; swap `claudeParse` or point
   `CAD_INTENT_MODEL` elsewhere. The rule-based fallback stays as a safety net.
