@@ -77,7 +77,7 @@ let groupMembersCache   = [];
 let pendingCache        = [];
 // Bot account's rank — members at this rank or above cannot be managed by the bot
 const BOT_RANK_NAME     = 'Deputy Assistant Commissioner';
-// The managing bot account (METAdministration). Its live rank in each group is
+// The managing bot account (METAdministration). Its current rank in each group is
 // the real ceiling: Roblox rejects managing anyone at the bot's rank or above.
 const MET_ADMIN_USER_ID = '11077193582';
 
@@ -234,7 +234,7 @@ async function loadCurrentUser() {
       syncBtn.style.display = 'none';
     }
 
-    // Developer tools now live in their OWN "Developer" division (/dev/dashboard),
+    // Developer tools are now in their OWN "Developer" division (/dev/dashboard),
     // not mixed into the Internal Affairs section. The dev nav is therefore only
     // revealed in that context — never on the IA dashboard, even for developers.
     if (isDevContext() && currentUser.role === 'DEVELOPER') applyDevContext();
@@ -420,7 +420,7 @@ function setupNav() {
     btn.addEventListener('click', () => navigateTo(btn.dataset.page))
   );
 
-  // The developer tools live in a collapsed group so they don't dominate the
+  // The developer tools are in a collapsed group so they don't dominate the
   // sidebar for the people who can see them.
   const devToggle = document.getElementById('nav-dev-toggle');
   const devGroup  = document.getElementById('nav-dev-group');
@@ -1802,7 +1802,7 @@ async function doSubmitCase(payload) {
 
 async function doEditCase({ actions, reason, notes, caseLink }) {
   const id = editingCaseId;
-  const repost = editingCaseApproved; // only approved cases update the live log
+  const repost = editingCaseApproved; // only approved cases update the log
   const btn = document.getElementById('btn-submit-case');
   if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Saving…'; }
   try {
@@ -2956,7 +2956,7 @@ const EA_TEMPLATES = [
 
   { id: 'ordnance', name: 'Unexploded ordnance', level: 'emergency',
     title: 'Unexploded device: clear the area',
-    message: 'A suspected explosive device has been found in this area. A cordon is in place. If you live or '
+    message: 'A suspected explosive device has been found in this area. A cordon is in place. If you reside or '
            + 'work within it you must leave now and stay clear until you are told otherwise.' },
 
   { id: 'fire', name: 'Major fire', level: 'emergency',
@@ -3313,10 +3313,10 @@ async function loadGroupMembers() {
 }
 
 // Rank name of the bot's own rank (members at this rank or above are locked).
-// Derived from the live member list / roles so it works even if the role list
+// Derived from the current member list / roles so it works even if the role list
 // failed to load.
 function botRankValue() {
-  // Prefer the bot account's OWN live rank in this group (the true ceiling).
+  // Prefer the bot account's OWN current rank in this group (the true ceiling).
   const bot = groupMembersCache.find(x => String(x.userId) === MET_ADMIN_USER_ID);
   if (bot && bot.roleRank != null) return bot.roleRank;
   // Fall back to the named rank (roles list, then members).
@@ -3779,7 +3779,7 @@ function requestCaseChanges(caseId) {
   noteEl.value = '';
   if (detectedEl) detectedEl.style.display = 'none';
 
-  // Live preview of any punishment the note mentions
+  // Preview of any punishment the note mentions
   noteEl.oninput = () => {
     const detected = parseRequestedActions(noteEl.value);
     if (!detectedEl) return;
