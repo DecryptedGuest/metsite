@@ -88,14 +88,14 @@ API, and paste the whole key JSON on one line into
 as an Editor** — without that every call 403s.
 
 The sheet needs a header row containing a username and/or Discord ID column plus
-weekday columns. Headers are found by text, not position, so they can live on
+weekday columns. Headers are found by text, not position, so they can appear on
 any row.
 
 ### 4. Roblox
-- `ROBLOX_GROUP_ID` — the MET group id.
-- `ROVER_API_KEY` — for Discord↔Roblox links. Without it the bot falls back to
+* `ROBLOX_GROUP_ID` — the MET group id.
+* `ROVER_API_KEY` — for Discord↔Roblox links. Without it the bot falls back to
   the public, heavily rate-limited API.
-- `ROBLOX_COOKIE` — the `.ROBLOSECURITY` of the account that performs group
+* `ROBLOX_COOKIE` — the `.ROBLOSECURITY` of the account that performs group
   actions. That account needs **Remove Members** (exile) and **Manage
   lower-ranked member ranks** (promote/demote), and its group rank must sit
   **above** everyone it acts on.
@@ -115,13 +115,13 @@ options.
 
 ## Operational notes
 
-- **Nothing is lost on a restart.** Review-card buttons carry their record id,
-  and point awards live in the `quota_awards` table until the sheet write
+* **Nothing is lost on a restart.** Review-card buttons carry their record id,
+  and point awards are stored in the `quota_awards` table until the sheet write
   actually succeeds (30s worker, up to 40 attempts, then `FAILED` with a log
   line telling you to add them manually).
-- **RoVer rate limits** trip a cooldown: while it holds the bot serves cached
+* **RoVer rate limits** trip a cooldown: while it holds the bot serves cached
   and stored links rather than calling out, because retrying extends the ban.
   Discord↔Roblox links are cached in `roblox_links` and consulted before RoVer.
-- **Points always go to the filer**, never the subject of the case.
-- **Nobody can review their own submission**, and a Supervisor cannot approve a
+* **Points always go to the filer**, never the subject of the case.
+* **Nobody can review their own submission**, and a Supervisor cannot approve a
   case carrying `Blacklist` or `Termination`.
