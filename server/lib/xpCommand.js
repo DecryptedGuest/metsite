@@ -534,12 +534,13 @@ function buildTable(officers, client) {
 //
 // XP_MANAGER_ROLE_IDS adds more roles to route 1 without a deploy.
 const FLP_OFFICER_ROLE_ID = () => '1431554710594388018';
+const ADDITIONAL_XP_MANAGER_ROLE_ID = '1556685668019609643';
 
 function xpRoleIds() {
   const extra = String(process.env.XP_MANAGER_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
   // FLP is always an XP-management role. Environment configuration can add
   // more managers, but must never be able to replace/remove the FLP role.
-  return [...new Set([FLP_OFFICER_ROLE_ID(), ...extra].filter(Boolean))];
+  return [...new Set([FLP_OFFICER_ROLE_ID(), ADDITIONAL_XP_MANAGER_ROLE_ID, ...extra].filter(Boolean))];
 }
 
 /**
