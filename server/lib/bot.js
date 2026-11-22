@@ -422,6 +422,15 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /xp:', err.message);
   }
 
+  // /tempupdate — temporary administrator-only reconciliation of all linked MET XP ranks.
+  try {
+    const cmd = require('./tempUpdateCommand').buildCommand();
+    add(XP_GUILD_IDS(), cmd);
+    global.push(cmd);
+  } catch (err) {
+    console.error('[Bot] could not build /tempupdate:', err.message);
+  }
+
   // /check-record — the record lookup panel. In the MET server: it is what MET
   // High Command uses to see somebody's disciplinary history. Visible to
   // everyone, gated in code to the same people /infract is, because it shows the
@@ -905,6 +914,17 @@ async function onInteraction(interaction) {
         const msg = { content: `${e('met_cross')} Something went wrong with XP · nothing was changed. (${err.message})`, embeds: [], components: [] };
         if (interaction.deferred || interaction.replied) await interaction.editReply(msg).catch(() => {});
         else await interaction.reply({ ...msg, flags: 64 }).catch(() => {});
+      });
+  }
+
+  if (interaction.commandName === 'tempupdate') {
+    return require('./tempUpdateCommand').handle(interaction)
+      .catch(async (err) => {
+        console.error('[Bot] /tempupdate failed:', err.message);
+        const msg = { content: 'Temporary rank reconciliation failed. Check the bot logs. (' + String(err.message).slice(0, 200) + ')', embeds: [], components: [] };
+        await (interaction.deferred || interaction.replied
+          ? interaction.editReply(msg)
+          : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
       });
   }
 
