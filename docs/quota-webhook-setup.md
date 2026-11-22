@@ -85,7 +85,7 @@ tab) that you don't want touched.
 
 To test end‑to‑end: approve a case/ticket for a member you can see, then refresh
 the sheet — today's column on their row should go up by 4/2. The site's
-**Quota Check** tab also shows a per‑member breakdown once the webhook is live.
+**Quota Check** tab also shows a per‑member breakdown once the webhook is current.
 
 ---
 
@@ -110,7 +110,7 @@ never touch it.
 * **Tab:** `Frontline Police Database` (single personnel tab)
 * Columns seen: `USERNAME` (F), `RANK` (G), day columns **Mon–Sun (H–N)**,
   `TOTAL` (O), `FQ STRIKE`/flag (P). Two sections (FLP Management, Frontline
-  Policing Personnel) live in the same tab — that's fine, both are scanned.
+  Policing Personnel) current in the same tab — that's fine, both are scanned.
 
 ```
 SECRET     = '<unique-random-string-FLP>'
@@ -243,7 +243,7 @@ rank→target list) and I'll add a `CID_*` prefix + Quota Check tab.
 
 ---
 
-## IA — Internal Affairs (reference / already live)
+## IA — Internal Affairs (reference / already current)
 
 Included for completeness — IA is the original, unprefixed configuration.
 
