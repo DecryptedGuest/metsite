@@ -1,4 +1,4 @@
-// Temporary one-shot reconciliation of live MET group ranks against XP.
+// Temporary one-shot reconciliation of current MET group ranks against XP.
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const XP = require('./xp');
 
