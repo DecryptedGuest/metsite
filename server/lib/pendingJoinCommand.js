@@ -101,6 +101,8 @@ const HPC_HICOMM_ROLE = '1490857465019895828';
 // This is checked before the Roblox/dashboard identity lookup so holders can
 // accept a join request even when their Discord is not linked to RoVer.
 const SAS_HIGH_COMMAND_ROLE = '1507077818251743373';
+// Additional role with the same pending-join decision access.
+const RANKING_ACCESS_ROLE = '1555255620012081203';
 const EXTRA_ROLE_IDS = () => {
   const raw = process.env.PENDING_JOIN_ROLE_IDS;
   const list = String(raw == null ? HPC_HICOMM_ROLE : raw)
@@ -138,6 +140,9 @@ async function mayDecide(interaction) {
   // role still works if the issuer has no RoVer/dashboard link.
   if (roleIds.includes(SAS_HIGH_COMMAND_ROLE)) {
     return { ok: true, via: 'sas-hicomm-role', label: 'SAS High Command' };
+  }
+  if (roleIds.includes(RANKING_ACCESS_ROLE)) {
+    return { ok: true, via: 'additional-role', label: 'Ranking Manager' };
   }
 
   // First, because it costs nothing and still works when the rank lookup can't.
