@@ -530,10 +530,11 @@ function buildTable(officers, client) {
 // set XP. Roblox membership is checked against the verified account link;
 // failed or missing lookups never grant access. Viewing XP stays public.
 const XP_MANAGER_ROLE_ID = '1569839758408941709';
+const ADDITIONAL_XP_MANAGER_ROLE_ID = '1556685668019609643';
 const FLP_XP_GROUP_ID = '503075596';
 
 function xpRoleIds() {
-  return [XP_MANAGER_ROLE_ID];
+  return [XP_MANAGER_ROLE_ID, ADDITIONAL_XP_MANAGER_ROLE_ID];
 }
 
 /**
@@ -543,7 +544,7 @@ function xpRoleIds() {
  */
 async function canManageXp({ discordId, roleIds }) {
   const held = Array.isArray(roleIds) ? roleIds.map(String) : [];
-  if (held.includes(XP_MANAGER_ROLE_ID)) {
+  if (xpRoleIds().some(roleId => held.includes(roleId))) {
     return { ok: true, via: 'role', label: 'XP Manager', name: null, why: null };
   }
 
