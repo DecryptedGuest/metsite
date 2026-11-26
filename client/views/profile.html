@@ -66,7 +66,7 @@
 
   <div id="bot-notice" class="glass profile-notice" style="display:none;">
     <i class="ti ti-robot"></i>
-    <span>The MET bot hasn't linked this profile yet, so perms and punishment history aren't available. Division ranks below are current.</span>
+    <span>The MET bot has not linked your account. Permissions and punishment history are unavailable.</span>
   </div>
 
   <!-- Final exam (only shown to eligible cadets) -->
@@ -107,7 +107,7 @@
   <div class="panel glass fade-up stagger-1" id="p-metquota-panel" style="display:none;">
     <div class="panel-header">
       <div class="panel-title"><span class="panel-dot amber"></span>MET Weekly Quota</div>
-      <div class="panel-sub" style="font-size:11px;color:var(--text-muted);">3 events a week · 1 database point = 1 event</div>
+      <div class="panel-sub" style="font-size:11px;color:var(--text-muted);">3 events per week</div>
     </div>
     <div class="profile-section" id="p-metquota"></div>
   </div>
@@ -141,7 +141,7 @@
   <!-- Active sign-ins / device management -->
   <div class="panel glass fade-up stagger-3" id="p-sessions-panel">
     <div class="panel-header">
-      <div class="panel-title"><span class="panel-dot blue"></span>Active Sessions</div>
+      <div class="panel-title"><span class="panel-dot blue"></span>Signed-in devices</div>
       <button id="p-sessions-signout-others" class="btn btn-ghost btn-sm" style="display:none;" onclick="revokeOtherSessions()">
         <i class="ti ti-logout-2"></i> Sign out everywhere else
       </button>
@@ -152,15 +152,14 @@
   <!-- Passkeys / 2FA -->
   <div class="panel glass fade-up stagger-3" id="p-passkeys-panel">
     <div class="panel-header">
-      <div class="panel-title"><span class="panel-dot green"></span>Passkeys &amp; 2FA</div>
+      <div class="panel-title"><span class="panel-dot green"></span>Sign-in security</div>
       <button id="p-passkey-add" class="btn btn-primary btn-sm" onclick="addPasskey()">
         <i class="ti ti-fingerprint"></i> Add passkey
       </button>
     </div>
     <div class="profile-section">
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">
-        Add a passkey (Face ID, Touch ID, Windows Hello or a security key) for passwordless step-up
-        verification. Once you have a passkey, sensitive actions ask you to confirm with it.
+        Use a passkey (Face ID, Touch ID, Windows Hello or a security key) to confirm sensitive actions.
       </p>
       <div id="p-passkeys"><div class="table-loading"><div class="spinner"></div></div></div>
     </div>
@@ -171,7 +170,7 @@
     <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Notifications</div></div>
     <div class="profile-section">
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">
-        Get push notifications on this device for things like tryout reminders, ticket replies and quota deadlines.
+        Receive tryout reminders, ticket replies and quota deadlines on this device.
       </p>
       <div id="p-notif-body"><div class="table-loading"><div class="spinner"></div></div></div>
     </div>
