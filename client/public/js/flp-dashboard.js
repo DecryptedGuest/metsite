@@ -27,14 +27,13 @@ function flpNavigate(pageId) {
   if (pageId === 'quota-met' && typeof flpQuotaLoad === 'function') flpQuotaLoad('MET');
 }
 
-// ── Overview (KPIs + activity trend) ──
+// ── Overview (key figures) ──
 async function loadFlpOverview() {
   const kpis = document.getElementById('flp-kpis');
-  const chart = document.getElementById('flp-activity-chart');
   if (!kpis) return;
   const days = (document.getElementById('flp-ov-days') || {}).value || 30;
   let d; try { d = await api('/api/flp/analytics?days=' + days); }
-  catch (e) { if (chart) chart.innerHTML = `<div class="table-empty-text">${fesc(e.message)}</div>`; return; }
+  catch (e) { kpis.innerHTML = '<div class="table-empty-text">Could not load the figures. Try again.</div>'; return; }
   const act = d.activity || { series: [] };
   const rangeLabel = d.allTime ? 'all time' : (d.days || 30) + 'd';
   const tot = act.series.reduce((a, s) => ({ p: a.p + s.patrols, e: a.e + s.events }), { p: 0, e: 0 });
@@ -46,15 +45,6 @@ async function loadFlpOverview() {
       ${tile(tot.e, 'Event logs', 'var(--amber,#e8842a)')}
       ${tile(tot.p + tot.e, 'Total logs (' + rangeLabel + ')', 'var(--dc,#22d3ee)')}
     </div>`;
-  if (chart && window.MetCharts && act.series.length) {
-    const labels = act.series.map(s => s.day.slice(5));
-    chart.innerHTML = window.MetCharts.lineChart([
-      { name: 'Patrols', color: '#22c55e', points: act.series.map(s => s.patrols) },
-      { name: 'Events', color: '#e8842a', points: act.series.map(s => s.events) },
-    ], labels, { height: 210 });
-  } else if (chart) {
-    chart.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:1rem;">No activity in this window yet.</div>';
-  }
 }
 
 // ── Analytics tab (patrol/event/ticket activity) ──
