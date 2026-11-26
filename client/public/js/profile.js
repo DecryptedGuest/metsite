@@ -653,7 +653,7 @@ function punishmentColor(type) {
 
 // ── Appearance ────────────────────────────────────────────────────
 window.toggleTheme = function () {
-  let t = 'dark'; try { t = localStorage.getItem('iacms_theme') || 'dark'; } catch (e) {}
+  let t = 'light'; try { t = localStorage.getItem('iacms_theme') || 'light'; } catch (e) {}
   const next = t === 'dark' ? 'light' : 'dark';
   try { localStorage.setItem('iacms_theme', next); } catch (e) {}
   document.documentElement.setAttribute('data-theme', next);
