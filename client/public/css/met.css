@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;550;600;650;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
 /* ==========================================================================
    MET · the interface
    ==========================================================================
@@ -802,7 +803,6 @@ select option:disabled { color: var(--met-fg-3) !important; }
    Warm instrument-panel neutrals, restrained brass, editorial serif titles,
    square geometry and clear operational states.
    ========================================================================== */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;550;600;650;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
 
 :root, :root[data-theme], :root[data-theme="dark"], :root[data-theme="light"] {
   --met-bg: #101619;
