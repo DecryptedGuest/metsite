@@ -53,8 +53,9 @@
         <div style="font-size:11px;color:var(--text-muted);">${t.coHostName ? 'co: ' + esc(t.coHostName) + ' · ' : ''}${t.attendees} attending</div></div>
         <span class="badge ${lock ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${lock ? 'Unlocked' : 'Locked'}</span></div>`;
     }).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-calendar-off', title: 'No live tryouts', sub: 'Tryouts in progress will appear here.' }) : '<div class="table-empty"><div class="table-empty-text">No tryouts are running right now.</div></div>');
-    // audit feed
-    $('hc-audit-feed').innerHTML = d.audit.length ? d.audit.map(auditRow).join('') : (window.metEmpty ? window.metEmpty({ icon: 'ti-history', title: 'No recent activity', sub: 'Privileged actions will show up here.' }) : '<div class="table-empty"><div class="table-empty-text">No recorded actions yet.</div></div>');
+    // The full record remains on the Audit Trail page; do not duplicate it on the Command Center.
+    const auditFeed = $('hc-audit-feed');
+    if (auditFeed) auditFeed.innerHTML = d.audit.length ? d.audit.map(auditRow).join('') : '<div class="table-empty-text">No recorded actions yet.</div>';
   };
 
   const CAT_ICON = { GROUP: ['ti-users-group', '#3b82f6'], SUPPORT: ['ti-lifebuoy', '#8b93a1'], TRYOUT: ['ti-clipboard-check', '#22c55e'], CASE: ['ti-gavel', '#e0503a'], TICKET: ['ti-ticket', '#8b5cf6'], ACCESS: ['ti-key', '#e8842a'], SECURITY: ['ti-shield-lock', '#ef4444'], DEV: ['ti-code', '#f5c518'] };
