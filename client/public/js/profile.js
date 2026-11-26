@@ -83,21 +83,6 @@ async function loadProfile() {
   const name = data.metNickname || u.displayName || u.discordUsername;
   document.getElementById('p-name').textContent = name;
 
-  // Time-of-day greeting, addressed to the PERSON.
-  //
-  // The fallback used to take the first word of the display name, and MET
-  // nicknames are "RANK | RobloxUsername", so it greeted people by their rank:
-  // "Good afternoon, DEV". The rank is the one part of that string that is not
-  // their name. Parsed the same way the bot parses it, so the two agree.
-  const gEl = document.getElementById('p-greeting');
-  if (gEl) {
-    const h = new Date().getHours();
-    const part = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
-    const who = whoToGreet(u, data.metNickname);
-    gEl.textContent = who ? `${part}, ${who}` : part;
-    gEl.style.display = '';
-  }
-
   const sub = [];
   if (u.discordUsername) sub.push('@' + u.discordUsername);
   if (u.robloxUsername)  sub.push('Roblox: ' + u.robloxUsername);
@@ -153,76 +138,12 @@ async function loadProfile() {
     document.getElementById('p-flags').innerHTML = flags.map(f => chip(f.label, f.color)).join('');
   }
 
-  // ── Medals & Decorations ──
-  const medals = data.medals || [];
-  const medalsPanel = document.getElementById('p-medals-panel');
-  if (medals.length && medalsPanel) {
-    medalsPanel.style.display = '';
-    const cnt = document.getElementById('p-medals-count');
-    if (cnt) cnt.textContent = medals.length + (medals.length === 1 ? ' medal' : ' medals');
-    document.getElementById('p-medals').innerHTML =
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;">' +
-      medals.map(m => {
-        const c = /^#[0-9a-fA-F]{6}$/.test(m.color || '') ? m.color : '#f5c518';
-        const icon = /^ti-[a-z0-9-]+$/.test(m.icon || '') ? m.icon : 'ti-medal';
-        return `
-        <div class="med-card" title="${escHtml(m.desc || '')}">
-          <div class="med-badge" style="--mc:${c};"><i class="ti ${icon}"></i></div>
-          <div style="min-width:0;">
-            <div style="font-weight:700;font-size:13px;line-height:1.2;">${escHtml(m.name)}</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.35;">${escHtml(m.desc || '')}</div>
-          </div>
-        </div>`;
-      }).join('') +
-      '</div>';
+  // Promotions are recorded on the profile. A brief notice replaces the old full-screen animation.
+  const promo = data.xp && data.xp.promo;
+  if (promo) {
+    if (window.showToast) showToast('Promotion recorded: ' + (promo.to || data.metRankName || 'new rank') + '.', 'success');
+    fetch('/api/me/xp/promo-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
   }
-
-  // ── Branded milestone moments (welcome / promotion / new medal) ──
-  // Deferred so it never collides with the once-per-session intro splash.
-  setTimeout(() => {
-    try {
-      if (!window.metBrandMoment) return;
-      // A promotion the XP system recorded but has not shown them yet is the
-      // authoritative signal — the server hands it over in xp.promo, and we tell
-      // the server it has been seen so it plays exactly once, here or on /xp,
-      // whichever comes first. This is server truth, not a localStorage guess.
-      const promo = data.xp && data.xp.promo;
-      if (promo) {
-        metBrandMoment({
-          icon: 'ti-military-rank', variant: 'celebrate',
-          title: 'Promoted to ' + (promo.to || data.metRankName || 'a new rank'),
-          tagline: (promo.from ? promo.from + ' → ' + promo.to : (data.metRankName || 'Congratulations'))
-            + (promo.xp != null ? ' · ' + promo.xp + ' XP' : ''),
-          autoMs: 4200,
-        });
-        // Mark it seen so it does not replay on the next load. A failure here is
-        // harmless — worst case it plays once more.
-        fetch('/api/me/xp/promo-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
-      } else {
-        // First time we ever see them as a member — a plain welcome, still off
-        // the numeric rank so a brand-new officer gets a moment too.
-        const cur = (typeof data.metRank === 'number' && data.metRank > 0) ? data.metRank : 0;
-        const prevRaw = localStorage.getItem('metRankNum');
-        if (prevRaw != null && (parseInt(prevRaw, 10) || 0) === 0 && cur > 0) {
-          metBrandMoment({ icon: 'ti-shield-check', title: 'Welcome to the Metropolitan Police Service', tagline: data.metRankName || 'Working together for a safer London', autoMs: 3400 });
-        }
-        localStorage.setItem('metRankNum', String(cur));
-      }
-
-      // Newly-awarded medal (highest of any not seen before).
-      const medalsList = data.medals || [];
-      const prevKeysRaw = localStorage.getItem('metMedalKeys');
-      if (prevKeysRaw != null) {
-        let prevKeys = []; try { prevKeys = JSON.parse(prevKeysRaw) || []; } catch (e) {}
-        const freshMedals = medalsList.filter(m => prevKeys.indexOf(m.key) === -1);
-        if (freshMedals.length) {
-          const fm = freshMedals[0]; // list is ordered highest → lowest
-          metBrandMoment({ icon: fm.icon || 'ti-medal', iconColor: fm.color, title: fm.name, tagline: fm.desc || 'Medal awarded', autoMs: 5200 });
-        }
-      }
-      localStorage.setItem('metMedalKeys', JSON.stringify(medalsList.map(m => m.key)));
-    } catch (e) { /* cosmetic */ }
-  }, 2600);
 
   // ── Divisions & rank ── (coloured per the MET role scheme)
   const divEl = document.getElementById('p-divisions');
@@ -733,24 +654,6 @@ function punishmentColor(type) {
   return null;
 }
 
-// ── My Activity ─────────────────────────────────────────────────────
-async function loadActivity() {
-  let s; try { s = await api('/api/me/stats'); } catch (e) { return; }
-  const panel = document.getElementById('p-activity-panel');
-  if (!panel) return;
-  const hours = Math.round((s.totalMinutes || 0) / 6) / 10; // 1dp
-  const tile = (v, l, c) => `<div class="met-tile" style="padding:12px 14px;border-radius:12px;border:1px solid var(--border,#2a2a2a);">
-      <div style="font-size:24px;font-weight:800;color:${c};line-height:1.1;">${v}</div>
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:3px;">${l}</div></div>`;
-  let html =
-    tile(s.patrols || 0, 'Patrols', 'var(--green,#22c55e)') +
-    tile(hours, 'Total patrol hours', 'var(--blue,#4a8fff)');
-  if (s.showEvents)   html += tile(s.events || 0, 'Events hosted', 'var(--amber,#e8842a)');       // FLP only
-  if (s.showTryouts)  html += tile(s.tryoutsHosted || 0, 'Tryouts hosted', 'var(--text-primary)'); // HPC/CID only
-  document.getElementById('p-activity-stats').innerHTML = html;
-  panel.style.display = '';
-}
-
 // ── Appearance: accent colour + theme ───────────────────────────────
 const ACCENTS = [
   { name: 'MET Blue (default)', hex: '' },
@@ -903,7 +806,6 @@ function tickRelativeTimes() {
 setInterval(tickRelativeTimes, 60000);
 
 loadProfile();
-loadActivity();
 renderNotifPanel();
 renderAccents();
 renderReduceMotionBtn();
