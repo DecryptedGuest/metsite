@@ -37,9 +37,6 @@
     ['pendingLogs', 'Logs to Review', 'var(--amber)'],
     ['pendingCases', 'Pending Cases', 'var(--red)'],
     ['pendingPatrols', 'Patrols Pending', 'var(--text-primary)'],
-    ['tryoutsToday', 'Tryouts / 24h', 'var(--blue)'],
-    ['ticketsToday', 'Tickets / 24h', 'var(--blue)'],
-    ['newUsersToday', 'New Officers / 24h', 'var(--green)'],
   ];
   window.hcLoadOverview = async function () {
     let d; try { d = await api('/api/hicomm/overview'); } catch (e) { return; }
