@@ -119,9 +119,6 @@ async function loadProfile() {
 
   if (!data.botLinked) document.getElementById('bot-notice').style.display = 'flex';
 
-  // ── Mobile-app promo (desktop only) ──
-  showAppPromo(data.mobileAppUrl);
-
   // ── Final exam (eligible cadets only) ──
   loadExamStatus();
   // ── Upcoming / live tryouts (British citizens) ──
@@ -654,42 +651,7 @@ function punishmentColor(type) {
   return null;
 }
 
-// ── Appearance: accent colour + theme ───────────────────────────────
-const ACCENTS = [
-  { name: 'MET Blue (default)', hex: '' },
-  { name: 'Azure',   hex: '#4a8fff' }, { name: 'Emerald', hex: '#22c55e' },
-  { name: 'Amber',   hex: '#e8842a' }, { name: 'Rose',    hex: '#f04f6e' },
-  { name: 'Violet',  hex: '#8b5cf6' }, { name: 'Teal',    hex: '#14b8a6' },
-  { name: 'Gold',    hex: '#f5b730' }, { name: 'Crimson', hex: '#e0503a' },
-];
-function renderAccents() {
-  const wrap = document.getElementById('p-accent-swatches');
-  if (!wrap) return;
-  let cur = ''; try { cur = localStorage.getItem('iacms_accent') || ''; } catch (e) {}
-
-  // Separate, unselectable indicator of the colour they're currently on.
-  const curEl = document.getElementById('p-accent-current');
-  if (curEl) {
-    const curAccent = ACCENTS.find(a => (a.hex || '') === cur) || ACCENTS[0];
-    const curBg = curAccent.hex || 'var(--blue,#4a8fff)';
-    curEl.innerHTML =
-      `<span style="width:26px;height:26px;border-radius:50%;background:${curBg};border:2px solid var(--border,#2a2a2a);flex-shrink:0;"></span>` +
-      `<div><div style="font-size:13px;font-weight:700;">${escHtml(curAccent.name)}</div>` +
-      `<div style="font-size:11px;color:var(--text-muted);">Current accent colour</div></div>`;
-  }
-
-  wrap.innerHTML = ACCENTS.map(a => {
-    const active = (a.hex || '') === cur;
-    const bg = a.hex || 'var(--blue,#4a8fff)';
-    return `<button title="${escHtml(a.name)}" onclick="setAccent('${a.hex}')" style="width:34px;height:34px;border-radius:50%;cursor:pointer;background:${bg};border:2px solid ${active ? 'var(--text-primary)' : 'transparent'};box-shadow:${active ? '0 0 0 2px var(--bg,#0a0a0a)' : 'none'};position:relative;">${active ? '<i class="ti ti-check" style="color:#fff;font-size:16px;"></i>' : ''}</button>`;
-  }).join('');
-}
-window.setAccent = function (hex) {
-  try { if (hex) localStorage.setItem('iacms_accent', hex); else localStorage.removeItem('iacms_accent'); } catch (e) {}
-  if (window.applyAccent) window.applyAccent(hex);
-  renderAccents();
-  if (window.showToast) showToast('Accent updated.', 'success');
-};
+// ── Appearance ────────────────────────────────────────────────────
 window.toggleTheme = function () {
   let t = 'dark'; try { t = localStorage.getItem('iacms_theme') || 'dark'; } catch (e) {}
   const next = t === 'dark' ? 'light' : 'dark';
@@ -718,23 +680,6 @@ window.toggleReduceMotion = function () {
   if (window.applyReduceMotion) window.applyReduceMotion(next);
   renderReduceMotionBtn();
   if (window.showToast) showToast(next ? 'Reduced motion on' : 'Reduced motion off', 'info');
-};
-
-function densityOn() { try { return localStorage.getItem('iacms_density') === 'compact'; } catch (e) { return false; } }
-function renderDensityBtn() {
-  const btn = document.getElementById('p-density-btn');
-  if (!btn) return;
-  const on = densityOn();
-  btn.classList.toggle('btn-primary', on);
-  btn.classList.toggle('btn-ghost', !on);
-  btn.innerHTML = `<i class="ti ti-layout-rows"></i> Compact${on ? ' · on' : ''}`;
-}
-window.toggleDensity = function () {
-  const next = !densityOn();
-  try { localStorage.setItem('iacms_density', next ? 'compact' : 'cosy'); } catch (e) {}
-  if (window.applyDensity) window.applyDensity(next);
-  renderDensityBtn();
-  if (window.showToast) showToast(next ? 'Compact layout on' : 'Comfortable layout', 'info');
 };
 
 // ── Push notifications ──────────────────────────────────────────────
@@ -807,6 +752,4 @@ setInterval(tickRelativeTimes, 60000);
 
 loadProfile();
 renderNotifPanel();
-renderAccents();
 renderReduceMotionBtn();
-renderDensityBtn();
