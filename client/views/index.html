@@ -109,7 +109,7 @@
   </div>
 
   <div id="error-banner" class="error-banner" style="display:none;width:100%;">
-    <i class="ti ti-alert-triangle"></i><span id="error-text">An error occurred.</span>
+    <i class="ti ti-alert-triangle"></i><span id="error-text">Sign-in failed. Try again.</span>
   </div>
 
   <div class="signin-card glass-bright">
@@ -124,7 +124,7 @@
         Sign in with Roblox
       </a>
     </div>
-    <div class="hint"><i class="ti ti-lock" style="opacity:.7;margin-right:4px;"></i>You must be a member of the MET Discord server. Either option signs you into the same account.</div>
+    <div class="hint"><i class="ti ti-lock" style="opacity:.7;margin-right:4px;"></i>Use the Discord or Roblox account linked to your MET profile.</div>
     <button type="button" id="try-another" class="try-another-btn">Try another way</button>
   </div>
 
@@ -140,20 +140,18 @@
   const err = params.get('error');
   if (err) {
     const messages = {
-      oauth_cancelled:   'Discord authorisation was cancelled.',
-      token_failed:      'Failed to exchange Discord token. Please try again.',
-      user_fetch_failed: 'Could not retrieve your Discord profile.',
-      server_error:      'A server error occurred. Please try again.',
-      access_revoked:    'Your access has changed. Please sign in again.',
-      no_role:           'Your Discord account does not have access to the MET Dashboard.',
-      not_in_server:     'You must be a member of the MET Discord server.',
-      oauth_state:       'Sign-in session expired. Please try again.',
-      roblox_not_configured: 'Roblox sign-in isn\'t set up yet. Use Discord for now.',
-      roblox_unlinked:   'Your Roblox account isn\'t linked to Discord (via RoVer). Sign in with Discord, or verify with RoVer first.',
+      oauth_cancelled:   'Sign-in was cancelled. Try again.',
+      token_failed:      'Sign-in failed. Try again.',
+      user_fetch_failed: 'We could not load your Discord account. Try again.',
+      server_error:      'Something went wrong. Try again.',
+      access_revoked:    'Your access has changed. Sign in again.',
+      no_role:           'Your account does not have access to the MET Dashboard.',
+      not_in_server:     'Join the MET Discord server before signing in.',
+      oauth_state:       'Your sign-in has expired. Try again.',
+      roblox_not_configured: 'Roblox sign-in is not available yet. Use Discord.',
+      roblox_unlinked:   'Your Roblox account is not linked to your Discord account. Sign in with Discord first.',
     };
     let msg = messages[err] || 'An error occurred.';
-    const detail = params.get('detail');
-    if (detail) msg += ` (${detail})`;
     document.getElementById('error-text').textContent = msg;
     document.getElementById('error-banner').style.display = 'flex';
   } else {
