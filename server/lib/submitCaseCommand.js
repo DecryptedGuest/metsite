@@ -104,9 +104,10 @@ function detailsModal(ownerId, robloxId, indexes) {
     .setPlaceholder('Additional context for reviewers')
     .setRequired(false).setMaxLength(1500);
   const duration = new TextInputBuilder()
-    .setCustomId('duration').setLabel('Duration in days (optional)')
-    .setStyle(TextInputStyle.Short).setPlaceholder('Leave blank for Permanent')
-    .setRequired(false).setMaxLength(5);
+    .setCustomId('duration').setLabel('Timed punishment durations (optional)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Suspension=14, Disciplinary Strike 1=30. Blank = Permanent.')
+    .setRequired(false).setMaxLength(500);
   const blacklist = new TextInputBuilder()
     .setCustomId('blacklist_code').setLabel('Blacklist code (optional)')
     .setStyle(TextInputStyle.Short).setPlaceholder('Only used for a Blacklist')
@@ -176,6 +177,31 @@ async function handleComponent(interaction) {
   if (action === 'form') return handleFormSubmit(interaction, ownerId, parts[3], parts[4] || '');
 }
 
+function parseDurations(raw, selected) {
+  const out = {};
+  const value = String(raw || '').trim();
+  if (!value) return { durations: out, error: null };
+  const selectedTimed = selected.filter(isTimed);
+  if (/^\\d+$/.test(value)) {
+    const days = Number(value);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) return { durations: {}, error: 'Duration must be 1–3650 days.' };
+    for (const action of selectedTimed) out[action] = days;
+    return { durations: out, error: null };
+  }
+  const entries = value.split(/[,;\\n]+/).map(x => x.trim()).filter(Boolean);
+  for (const entry of entries) {
+    const match = entry.match(/^(.+?)\\s*=\\s*(\\d+|permanent)$/i);
+    if (!match) return { durations: {}, error: 'Use Action=days, for example Suspension=14. Use Permanent to keep an action permanent.' };
+    const action = selected.find(name => name.toLowerCase() === match[1].trim().toLowerCase());
+    if (!action || !isTimed(action)) return { durations: {}, error: `“${match[1]}” is not a selected timed punishment.` };
+    if (/^permanent$/i.test(match[2])) { out[action] = null; continue; }
+    const days = Number(match[2]);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) return { durations: {}, error: 'Each duration must be 1–3650 days or Permanent.' };
+    out[action] = days;
+  }
+  return { durations: out, error: null };
+}
+
 async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   if (!ownerCheck(interaction, ownerId)) {
     return interaction.reply({ content: 'This private case builder belongs to another user.', flags: MessageFlags.Ephemeral });
@@ -190,13 +216,11 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   if (!/^https?:\/\//i.test(caseLink)) {
     return interaction.reply({ content: `${e('met_denied')} The case link must be a valid http(s) link.`, flags: MessageFlags.Ephemeral });
   }
-  let durationDays = null;
-  if (durationRaw && !/^permanent$/i.test(durationRaw)) {
-    durationDays = Number(durationRaw);
-    if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 3650) {
-      return interaction.reply({ content: `${e('met_denied')} Duration must be 1–3650 days, or left blank for Permanent.`, flags: MessageFlags.Ephemeral });
-    }
+  const durationResult = parseDurations(durationRaw, actions);
+  if (durationResult.error) {
+    return interaction.reply({ content: `${e('met_denied')} ${durationResult.error}`, flags: MessageFlags.Ephemeral });
   }
+  const durations = durationResult.durations;
   if (actions.includes('Blacklist') && blacklistCode.length > 80) {
     return interaction.reply({ content: `${e('met_denied')} The blacklist code is too long.`, flags: MessageFlags.Ephemeral });
   }
@@ -217,7 +241,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   const enriched = actions.map(action => ({
     action,
     roleId: roleIdForAction(action),
-    durationDays: isTimed(action) ? durationDays : null,
+    durationDays: isTimed(action) ? (durations[action] || null) : null,
     ...(action === 'Blacklist' && blacklistCode ? { code: blacklistCode } : {}),
   }));
   const caseRef = await generateCaseRef();
