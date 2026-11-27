@@ -70,7 +70,7 @@ router.get('/meta', async (req, res) => {
     if (!user.robloxId) return res.json({ canApply: false, needsRobloxLink: true, message: 'Link your Roblox account before applying.', groupUrl: GROUP_URL });
     const [check, existing] = await Promise.all([
       eligibility(user),
-      prisma.metApplication.findFirst({ where: { applicantId: user.id, status: 'SUBMITTED' }, select: { appRef: true, submittedAt: true, status: true } }),
+      prisma.metApplication.findFirst({ where: { applicantId: user.id, status: { in: ['SUBMITTED', 'ACCEPTED'] } }, select: { appRef: true, submittedAt: true, status: true } }),
     ]);
     res.json({
       canApply: check.eligible && !existing,
