@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MET Application</title>
+<link rel="icon" type="image/png" href="/img/divisions/met.png?v=1">
 <script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
 <link rel="stylesheet" href="/css/met.css?v=11">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
@@ -43,6 +44,11 @@ textarea,select{width:100%;border:1px solid #354353;background:#0d151e;color:#e8
 textarea{min-height:165px}textarea:focus,select:focus{outline:0;border-color:#8397ad;box-shadow:0 0 0 3px rgba(131,151,173,.12)}
 .checkline{display:flex;gap:12px;align-items:flex-start;padding:16px;border:1px solid #354353;border-radius:9px;background:#111b26;font-size:12px;line-height:1.7;color:#c4ced9}.checkline input{margin-top:3px;flex-shrink:0;width:16px;height:16px;accent-color:#c8d4e0}
 .status{font-size:12px;color:#9ba8b7;min-height:20px;margin-top:13px}.small-link{color:#e3eaf2;text-decoration:underline;text-underline-offset:3px}
+.loading-state{min-height:320px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;color:var(--ink-muted);font-size:12px}
+.loading-state strong{font-size:13px;font-weight:600;color:var(--ink)}
+.loading-spinner{width:30px;height:30px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;animation:apply-spin .8s linear infinite}
+@keyframes apply-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.loading-spinner{animation:none;border-top-color:var(--line-strong)}}
 
 .ambient-icon{width:36px;height:36px;border:1px solid var(--apply-line);border-radius:8px;background:#111a24;color:#cbd5df;display:grid;place-items:center;font-size:17px;cursor:pointer}
 .ambient-icon:hover,.ambient-icon[aria-pressed="true"]{background:#202d3b;border-color:#61758b;color:#fff}
@@ -89,9 +95,9 @@ textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(
 <main class="apply-wrap">
   <div class="workspace">
     <aside class="rail"><div class="rail-label">Progress</div><div id="apply-steps"><div class="rail-step active"><span class="num">01</span>Eligibility</div><div class="rail-step"><span class="num">02</span>Application</div><div class="rail-step"><span class="num">03</span>Review</div></div><div class="rail-note">Progress is kept in this tab. Avoid refreshing before you submit.</div></aside>
-    <section class="main-card"><div id="apply-content"><div class="status">Preparing your application…</div></div></section>
+    <section class="main-card"><div id="apply-content"><div class="loading-state" role="status" aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span><strong>Checking account eligibility…</strong><span>This usually takes a few seconds.</span></div></div></section>
   </div>
 </main>
 <div id="toast-container"></div>
-<script src="/js/met-application.js?v=2"></script>
+<script src="/js/met-application.js?v=3"></script>
 </body></html>
