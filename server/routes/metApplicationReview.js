@@ -36,7 +36,28 @@ router.get('/:id', async (req, res) => {
       }
     }
     const words = allText.trim() ? allText.trim().split(/\s+/).length : 0;
-    res.json({ ...row, reviewSignals: { wordCount: words, repeatedAnswerPatterns: repeated, note: 'These are review prompts only. They are not AI-detection results and must never be treated as proof of AI use or misconduct.' } });
+    const comparisonRows = await prisma.metApplication.findMany({
+      where: { id: { not: row.id } },
+      orderBy: { submittedAt: 'desc' },
+      take: 300,
+      select: { appRef: true, robloxId: true, answers: true },
+    });
+    const tokenSet = value => new Set(String(value || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 3));
+    const applicantTokens = tokenSet(textAnswers.join(' '));
+    const similarApplications = [];
+    if (applicantTokens.size >= 12) {
+      for (const other of comparisonRows) {
+        const otherAnswers = Object.entries(other.answers || {}).filter(([k, v]) => /^q[3-9]$/.test(k) && typeof v === 'string').map(([, v]) => v).join(' ');
+        const otherTokens = tokenSet(otherAnswers);
+        if (otherTokens.size < 12) continue;
+        let shared = 0;
+        for (const token of applicantTokens) if (otherTokens.has(token)) shared++;
+        const score = shared / Math.min(applicantTokens.size, otherTokens.size);
+        if (score >= 0.58) similarApplications.push({ appRef: other.appRef, similarity: Math.round(score * 100), sameRobloxAccount: String(other.robloxId) === String(row.robloxId) });
+      }
+      similarApplications.sort((a, b) => b.similarity - a.similarity);
+    }
+    res.json({ ...row, reviewSignals: { wordCount: words, repeatedAnswerPatterns: repeated, similarApplications: similarApplications.slice(0, 8), comparisonCount: comparisonRows.length, note: 'Similarity checks are heuristic review prompts, not proof of copying or AI use. AI detectors are not integrated into this site; automated AI-writing scores are unreliable and must not decide an application. Review the answers and context yourself.' } });
   } catch (e) {
     res.status(500).json({ error: 'Could not load application.' });
   }
