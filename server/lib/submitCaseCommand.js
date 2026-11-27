@@ -8,7 +8,10 @@ const {
 } = require('discord.js');
 const prisma = require('./db');
 const { e } = require('./emoji');
-const { ACTION_NAMES, isTimed, roleIdForAction } = require('./actions');
+const { ACTION_NAMES, roleIdForAction } = require('./actions');
+
+const DURATION_ACTIONS = ['Zero Tolerance', 'Suspension'];
+function needsDuration(action) { return DURATION_ACTIONS.includes(action); }
 const { generateCaseRef } = require('./caseRef');
 const { HICOMM_ONLY_ACTIONS } = require('./iaRank');
 const { resolveAuthority, canView } = require('./iaAuthority');
@@ -98,19 +101,21 @@ function detailsModal(ownerId, robloxId, indexes) {
     .setPlaceholder('Additional context for reviewers')
     .setRequired(false).setMaxLength(1500);
   const selected = selectedNames(indexes.split('.').filter(Boolean));
-  const timedActions = selected.filter(isTimed);
+  const durationActions = selected.filter(needsDuration);
   modal.addComponents(
     new ActionRowBuilder().addComponents(reason),
     new ActionRowBuilder().addComponents(link),
     new ActionRowBuilder().addComponents(notes),
   );
-  if (timedActions.length) {
-    const durations = new TextInputBuilder()
-      .setCustomId('timed_durations').setLabel('Durations in days (optional)')
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder(`Optional. Leave blank for permanent. Selected: ${timedActions.join(', ')}. Format: Punishment=Days`)
-      .setRequired(false).setMaxLength(500);
-    modal.addComponents(new ActionRowBuilder().addComponents(durations));
+  for (const action of durationActions) {
+    const field = new TextInputBuilder()
+      .setCustomId(action === 'Zero Tolerance' ? 'duration_zero_tolerance' : 'duration_suspension')
+      .setLabel(`${action} Duration (days)`)
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Leave blank for permanent')
+      .setRequired(false)
+      .setMaxLength(4);
+    modal.addComponents(new ActionRowBuilder().addComponents(field));
   }
   return modal;
 }
@@ -215,23 +220,15 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   if (!/^https?:\/\//i.test(caseLink)) {
     return interaction.reply({ content: `${e('met_denied')} The case link must be a valid http(s) link.`, flags: MessageFlags.Ephemeral });
   }
-  const timedActions = actions.filter(isTimed);
   const durations = {};
-  if (timedActions.length) {
-    const rawDurations = interaction.fields.getTextInputValue('timed_durations').trim();
-    const entries = rawDurations.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean);
-    for (const entry of entries) {
-      const match = entry.match(/^(.+?)\s*=\s*(\d+)$/);
-      if (!match) {
-        return interaction.reply({ content: `${e('met_denied')} Enter each optional duration as Punishment=Days, for example Suspension=14.`, flags: MessageFlags.Ephemeral });
-      }
-      const actionName = timedActions.find(name => name.toLowerCase() === match[1].trim().toLowerCase());
-      const days = Number(match[2]);
-      if (!actionName || Object.prototype.hasOwnProperty.call(durations, actionName) || !Number.isInteger(days) || days < 1 || days > 3650) {
-        return interaction.reply({ content: `${e('met_denied')} Only enter durations for selected timed punishments, once each, using 1 to 3650 days.`, flags: MessageFlags.Ephemeral });
-      }
-      durations[actionName] = days;
+  for (const action of DURATION_ACTIONS.filter(name => actions.includes(name))) {
+    const fieldId = action === 'Zero Tolerance' ? 'duration_zero_tolerance' : 'duration_suspension';
+    const raw = interaction.fields.getTextInputValue(fieldId).trim();
+    if (!raw) continue;
+    if (!/^\\d+$/.test(raw) || !Number.isInteger(Number(raw)) || Number(raw) < 1 || Number(raw) > 3650) {
+      return interaction.reply({ content: `${e('met_denied')} ${action} duration must be a whole number of days from 1 to 3650, or left blank for permanent.`, flags: MessageFlags.Ephemeral });
     }
+    durations[action] = Number(raw);
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -250,7 +247,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   const enriched = actions.map(action => ({
     action,
     roleId: roleIdForAction(action),
-    durationDays: isTimed(action) ? durations[action] : null,
+    durationDays: needsDuration(action) ? (durations[action] || null) : null,
   }));
   const caseRef = await generateCaseRef();
   let created;
