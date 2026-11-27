@@ -60,10 +60,7 @@
         <div class="nav-section-label">Overview</div>
         <button class="nav-item active" data-page="dashboard"><i class="ti ti-layout-dashboard nav-icon"></i><span>Dashboard</span></button>
         <div class="nav-section-label">Recruitment</div>
-        <a class="nav-item" href="/hpc/applications"><i class="ti ti-clipboard-list nav-icon"></i><span>MET Applications</span></a>
-        <div class="nav-section-label">Examinations</div>
-        <button class="nav-item" data-page="results"><i class="ti ti-list-check nav-icon"></i><span>Final Exams</span></button>
-        <button class="nav-item marker-only" data-page="mark" style="display:none;"><i class="ti ti-checkbox nav-icon"></i><span>Mark Final Exams</span><span class="nav-badge pending" id="hpc-pending-badge" style="display:none;"></span></button>
+        <button class="nav-item" data-page="applications"><i class="ti ti-clipboard-list nav-icon"></i><span>MET Applications</span></button>
         <div class="nav-section-label">Tryouts</div>
         <button class="nav-item" data-page="analytics"><i class="ti ti-chart-histogram nav-icon"></i><span>Analytics</span></button>
         <button class="nav-item" data-page="tryouts"><i class="ti ti-calendar-event nav-icon"></i><span>Tryouts</span></button>
@@ -84,55 +81,15 @@
       <div class="page-header fade-up">
         <div><h1 class="page-title">Dashboard</h1><p class="page-sub">Hendon Police College · Overview</p></div>
       </div>
-      <div class="stats-grid">
-        <div class="stat-card amber fade-up stagger-1"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-hourglass"></i></div>
-          <div class="stat-body"><div class="stat-label">Exams Awaiting Marking</div><div class="stat-value" id="stat-pending">·</div></div>
-        </div><div class="stat-bar amber"></div></div>
-        <div class="stat-card green fade-up stagger-2"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-circle-check"></i></div>
-          <div class="stat-body"><div class="stat-label">Passed</div><div class="stat-value" id="stat-passed">·</div></div>
-        </div><div class="stat-bar green"></div></div>
-        <div class="stat-card red fade-up stagger-3"><div class="stat-card-inner">
-          <div class="stat-icon"><i class="ti ti-circle-x"></i></div>
-          <div class="stat-body"><div class="stat-label">Failed</div><div class="stat-value" id="stat-failed">·</div></div>
-        </div><div class="stat-bar red"></div></div>
-      </div>
-
       <div class="panel glass fade-up" id="dq-HPC-mine" style="display:none;"></div>
-
-      <!-- Exam insights -->
-      <div class="panel glass fade-up stagger-2" id="hpc-exam-insights" style="display:none;">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>Exam Insights</div></div>
-        <div class="profile-section">
-          <div id="hpc-insights-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;"></div>
-          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin:4px 0 8px;">Marks distribution</div>
-          <div id="hpc-insights-dist" style="display:flex;align-items:flex-end;gap:8px;height:120px;"></div>
-        </div>
-      </div>
-
-      <div class="panel glass fade-up stagger-2" id="hpc-nonmarker-note" style="display:none;">
-        <div style="padding:1.4rem;color:var(--text-secondary);font-size:13px;line-height:1.7;">
-          Welcome to Hendon Police College. Marking final exams requires <strong>Database Manager</strong> and above;
-          the quota check requires <strong>Assistant Director</strong> and above. More HPC features are coming soon.
-        </div>
-      </div>
     </section>
 
-    <!-- ALL FINAL EXAMS (read-only, Junior Instructor+) -->
-    <section class="page" id="page-results">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">Final Exams</h1><p class="page-sub">All cadet exams, their marks and status</p></div>
-        <button class="btn btn-ghost btn-sm" onclick="loadResults()"><i class="ti ti-refresh"></i> Refresh</button>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Results</div></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Student</th><th>Roblox</th><th>Mark</th><th>%</th><th>Status</th><th>Marked By</th><th>Submitted</th></tr></thead>
-            <tbody id="hpc-results-tbody"><tr><td colspan="7" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
+    <!-- MET APPLICATIONS -->
+    <section class="page" id="page-applications">
+      <div class="page-header fade-up"><div><h1 class="page-title">MET Applications</h1><p class="page-sub">Review applications and record recruitment decisions.</p></div></div>
+      <div class="hpc-app-review" style="display:grid;grid-template-columns:minmax(240px,320px) minmax(0,1fr);gap:16px;align-items:start;min-width:0;">
+        <section class="panel glass" style="min-width:0;"><div class="panel-header"><div class="panel-title">Application queue</div></div><div class="profile-section"><input id="queue-search" class="form-control" placeholder="Search reference or username…" autocomplete="off" style="width:100%;margin-bottom:12px;"><div id="queue" class="text-muted">Loading applications…</div></div></section>
+        <section class="panel glass" style="min-width:0;"><div class="profile-section" id="detail">Choose an application from the queue to begin.</div></section>
       </div>
     </section>
 
@@ -211,31 +168,7 @@
       </div>
     </section>
 
-    <!-- MARK FINAL EXAMS (Database Manager+) -->
-    <section class="page" id="page-mark">
-      <div class="page-header fade-up">
-        <div><h1 class="page-title">Mark Final Exams</h1><p class="page-sub">Score submissions · review AI/cheating detection</p></div>
-      </div>
-      <div class="panel glass fade-up stagger-1">
-        <div class="panel-header">
-          <div class="panel-title"><span class="panel-dot amber"></span>Submissions</div>
-          <div class="filter-tabs" id="hpc-filter-tabs">
-            <button class="filter-tab active" data-filter="PENDING">Awaiting</button>
-            <button class="filter-tab" data-filter="PASSED">Passed</button>
-            <button class="filter-tab" data-filter="FAILED">Failed</button>
-            <button class="filter-tab" data-filter="all">All</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Student</th><th>Roblox</th><th>Detections</th><th>Status</th><th>Submitted</th><th></th></tr></thead>
-            <tbody id="hpc-subs-tbody"><tr><td colspan="6" class="table-loading"><div class="spinner"></div></td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- QUOTA CHECK (Assistant Director+) -->
+    <!-- QUOTA CHECK    <!-- QUOTA CHECK (Assistant Director+) -->
     <section class="page" id="page-quota">
       <div class="page-header fade-up">
         <div><h1 class="page-title">Quota Check</h1><p class="page-sub">Assistant Director+ · HPC quota</p></div>
@@ -332,18 +265,6 @@
   </div>
 </div>
 
-<!-- Final exam detail (read-only, any HPC member) -->
-<div class="modal-overlay" id="modal-exam-detail">
-  <div class="modal glass-bright" style="max-width:520px;">
-    <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-file-certificate" style="font-size:18px;"></i> <span id="exd-title">Final Exam</span></div>
-      <button class="modal-close" title="Close" aria-label="Close" onclick="closeModal('modal-exam-detail')"><i class="ti ti-x"></i></button>
-    </div>
-    <div class="modal-body" id="exd-body"><div class="table-loading"><div class="spinner"></div></div></div>
-    <div class="modal-footer" id="exd-footer"></div>
-  </div>
-</div>
-
 <!-- Tryout log detail — host review/post, or HICOMM approve/deny -->
 <div class="modal-overlay" id="modal-tryout-log">
   <div class="modal glass-bright" style="max-width:760px;">
@@ -365,7 +286,8 @@
 <script src="/js/met-topbar.js?v=85"></script>
 <script src="/js/command-palette.js"></script>
 <script src="/js/events-client.js"></script>
-<script src="/js/hpc-dashboard.js?v=82"></script>
+<script src="/js/hpc-dashboard.js?v=83"></script>
+<script src="/js/met-applications.js?v=3"></script>
 <script src="/js/division-quota.js"></script>
 <script src="/js/met-select.js?v=1"></script>
 <script>(function(){var DIV='HPC';if(window.DivQuota)DivQuota.loadMyQuota(DIV,'dq-'+DIV+'-mine');function once(fn){var d;return function(){if(d)return;d=1;fn();};}var la=once(function(){window.DivQuota&&DivQuota.loadActivity(DIV);});var a=document.querySelector('.nav-item[data-page="dq-activity"]');if(a)a.addEventListener('click',la);if(typeof api==='function'){api('/api/divquota/'+DIV+'/access').then(function(d){if(d&&d.canReview){document.querySelectorAll('.dq-hicomm').forEach(function(e){e.style.display='';});}}).catch(function(){});}})();</script>
