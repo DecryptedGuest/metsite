@@ -108,7 +108,7 @@ function detailsModal(ownerId, robloxId, indexes) {
     const durations = new TextInputBuilder()
       .setCustomId('timed_durations').setLabel('Timed punishment durations (required)')
       .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder(timedActions.map(name => `${name}=14`).join('\n'))
+      .setPlaceholder('One per line: Suspension=14, Zero Tolerance=7')
       .setRequired(true).setMaxLength(500);
     modal.addComponents(new ActionRowBuilder().addComponents(durations));
   }
