@@ -320,3 +320,35 @@ html[data-division] .nav-item.active { background:var(--nav-raised) !important; 
 html[data-division] .nav-item:hover { background:rgba(255,255,255,.065) !important; color:var(--nav-text) !important; }
 html[data-division] .stat-card.blue .stat-icon { background:var(--accent-wash) !important; color:var(--accent-strong) !important; }
 html[data-division] .panel-accent { display:none !important; }
+
+/* IDSystems-style application shell: the old topbar is retired. */
+.met-topbar { display:none !important; }
+.app-layout { display:flex !important; min-height:100vh; }
+.sidebar { position:fixed !important; inset:0 auto 0 0 !important; width:252px !important; height:100vh !important; height:100dvh !important; min-height:0 !important; z-index:30 !important; background:var(--nav) !important; border-right:1px solid rgba(255,255,255,.11) !important; border-radius:0 !important; box-shadow:none !important; backdrop-filter:none !important; }
+.main-content { width:calc(100% - 252px) !important; min-width:0 !important; margin-left:252px !important; padding:34px 40px 56px !important; }
+.sidebar-brand { min-height:76px; padding:17px 18px !important; border-bottom:1px solid rgba(255,255,255,.12); }
+.brand-logo { width:38px !important; height:38px !important; border-radius:5px !important; background:transparent !important; border:0 !important; box-shadow:none !important; }
+.brand-logo img { object-fit:contain !important; }
+.brand-name { color:var(--nav-text) !important; font-family:var(--font-ui) !important; font-size:14px !important; letter-spacing:-.01em !important; text-transform:none !important; font-weight:600 !important; }
+.brand-sub { color:var(--nav-muted) !important; font-size:11px !important; letter-spacing:0 !important; text-transform:none !important; }
+.sidebar-divider { background:rgba(255,255,255,.12) !important; margin:8px 16px !important; }
+.sidebar-nav { padding:12px 10px !important; gap:3px !important; }
+.nav-section-label { color:var(--nav-muted) !important; font-size:11px !important; letter-spacing:0 !important; text-transform:none !important; padding:15px 10px 6px !important; }
+.nav-item { min-height:38px; padding:8px 10px !important; border:0 !important; border-radius:5px !important; color:var(--nav-muted) !important; background:transparent !important; font-family:var(--font-ui) !important; font-size:13px !important; font-weight:450 !important; box-shadow:none !important; }
+.nav-item:hover { color:var(--nav-text) !important; background:rgba(255,255,255,.075) !important; }
+.nav-item.active { color:var(--nav-text) !important; background:var(--nav-raised) !important; border:0 !important; box-shadow:inset 2px 0 var(--accent) !important; font-weight:550 !important; }
+.nav-icon { color:inherit !important; opacity:.85; }
+.nav-badge,.nav-tag,.rank-tag,.high-rank,.user-rank,.rank-badge,.sidebar-rank { display:none !important; }
+.sidebar-bottom { border-top:1px solid rgba(255,255,255,.12); padding:10px 0 14px !important; }
+.page-header { border-bottom:1px solid var(--line) !important; padding-bottom:18px !important; margin-bottom:26px !important; }
+.page-title { color:var(--ink) !important; font-family:var(--font-display) !important; font-size:clamp(25px,3vw,32px) !important; font-weight:600 !important; letter-spacing:-.025em !important; text-transform:none !important; background:none !important; -webkit-text-fill-color:var(--ink) !important; }
+.panel,.glass,.glass-bright,.stat-card,.login-card { border-radius:6px !important; box-shadow:none !important; backdrop-filter:none !important; }
+.panel { background:var(--surface) !important; border:1px solid var(--line) !important; }
+.panel-header { border-bottom:1px solid var(--line) !important; }
+.btn-primary { background:var(--nav) !important; border-color:var(--nav) !important; box-shadow:none !important; }
+.btn-primary:hover { background:var(--nav-raised) !important; border-color:var(--nav-raised) !important; }
+.table-loading::before { content:""; display:block; width:42px; height:42px; margin:0 auto 12px; background:url('/img/divisions/met.png') center/contain no-repeat; animation:met-mark-breathe 1.6s ease-in-out infinite; }
+@keyframes met-mark-breathe { 0%,100% { transform:scale(.94); opacity:.78; } 50% { transform:scale(1.04); opacity:1; } }
+@media (max-width:900px) and (min-width:641px) { .sidebar { width:224px !important; } .main-content { width:calc(100% - 224px) !important; margin-left:224px !important; padding:26px 24px 44px !important; } }
+@media (max-width:640px) { .app-layout { display:flex !important; flex-direction:column !important; } .sidebar { position:relative !important; inset:auto !important; width:100% !important; height:auto !important; min-height:0 !important; max-height:42vh; } .sidebar-top { min-height:0 !important; } .sidebar-nav { max-height:26vh; } .sidebar-bottom { display:none !important; } .main-content { width:100% !important; margin-left:0 !important; padding:22px 15px 42px !important; } .page-header { margin-bottom:18px !important; } }
+@media (prefers-reduced-motion:reduce) { .table-loading::before { animation:none !important; } }
