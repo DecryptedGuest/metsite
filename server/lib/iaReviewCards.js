@@ -447,6 +447,8 @@ async function handleReviewButton(interaction) {
   const actor = {
     id: auth.userId,                 // User.id — what performedBy is a key to
     role: auth.role,                 // what the punishment-tier gate reads
+    iaRank: auth.rank,
+    iaRankName: auth.rankName,
     discordId: String(interaction.user.id),
     displayName: interaction.member?.displayName || interaction.user.username,
     discordUsername: interaction.user.username,
