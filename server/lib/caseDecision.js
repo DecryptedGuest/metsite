@@ -99,7 +99,7 @@ function tierRefusal(actor, kase, verb) {
   const rank = Number(actor && actor.iaRank);
   const minimum = parseInt(process.env.IA_ADIR_MIN_RANK || '30', 10);
   const rankName = String(actor && actor.iaRankName || '');
-  const rankNameIsAdir = /assistant\\s*director|deputy\\s*director|\\bdirector\\b|administration|hicom|overseer|owner|holder/i.test(rankName);
+  const rankNameIsAdir = /assistant\s*director|deputy\s*director|\bdirector\b|administration|hicom|overseer|owner|holder/i.test(rankName);
   const isAdirPlus = ['HICOMM', 'DEVELOPER'].includes(role)
     || (Number.isFinite(rank) && rank >= (Number.isFinite(minimum) ? minimum : 30))
     || rankNameIsAdir;
@@ -215,6 +215,10 @@ async function approveCase({ caseId, actor, note } = {}) {
     const logMessageId = await sendApprovalWebhook({
       caseRef: existing.caseRef, action: existing.action, actions,
       reason: existing.reason, notes: existing.notes,
+      hrDiscordId: actor.discordId || null,
+      userDiscordId: officerDiscordId,
+      targetDiscordId: officerDiscordId,
+      caseLink: existing.caseLink || null,
       hrDiscordId: actor.discordId || null,
       userDiscordId: officerDiscordId,
       targetDiscordId: officerDiscordId,
