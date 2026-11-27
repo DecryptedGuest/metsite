@@ -60,7 +60,7 @@ async function eligibility(user) {
 
 async function nextRef(attempt = 0) {
   const latest = await prisma.metApplication.findFirst({ where: { appRef: { startsWith: 'MET-' } }, orderBy: { appRef: 'desc' }, select: { appRef: true } });
-  const highest = latest ? parseInt(String(latest.appRef).replace(/\\D/g, ''), 10) : 0;
+  const highest = latest ? parseInt(String(latest.appRef).replace(/\D/g, ''), 10) : 0;
   return 'MET-' + String((Number.isFinite(highest) ? highest : 0) + 1 + attempt).padStart(4, '0');
 }
 
