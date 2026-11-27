@@ -260,8 +260,8 @@ function ticketCard(ticket, extra = {}) {
     const { ticketPointsFor } = require('./quota');
     const n = ticketPointsFor();
     const word = n === 1 ? 'point' : 'points';
-    if (!identified || ticket.closerIsIa == null) {
-      points = `**${n}** quota ${word} - awaiting investigator identification`;
+    if (!identified || ticket.closerIsIa == null || (!ticket.closerDiscordId && !ticket.closerUserId)) {
+      points = `**${n}** quota ${word} - awaiting investigator account identification`;
     } else if (ticket.closerIsIa === false) {
       points = 'No IA quota - investigator is not Internal Affairs';
     } else {
