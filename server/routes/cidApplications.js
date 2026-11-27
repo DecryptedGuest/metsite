@@ -125,6 +125,19 @@ function integrityFlags(answers, telemetry) {
   if(matches.length>=3) flags.push({severity:'review',code:'FORMAL_PATTERN',label:'Writing pattern to review',detail:'Several formulaic phrases appear across responses; this is not proof of AI use.'});
   const words=combined.split(/\s+/).filter(Boolean).length;
   if(words>2500) flags.push({severity:'info',code:'HIGH_VOLUME',label:'High response volume',detail:'The combined response is unusually long.'});
+  const timings=telemetry && telemetry.answerSeconds && typeof telemetry.answerSeconds==='object' ? Object.values(telemetry.answerSeconds).map(Number).filter(Number.isFinite) : [];
+  if(timings.length>=8 && timings.reduce((a,b)=>a+b,0)<90) flags.push({severity:'review',code:'FAST_COMPLETION',label:'Unusually fast completion',detail:'The form was completed unusually quickly. Review alongside the answers; speed alone is not evidence of misconduct.'});
+  if(telemetry && Number(telemetry.pasteCount)>0) flags.push({severity:'info',code:'PASTE_ACTIVITY',label:'Paste activity recorded',detail:String(Number(telemetry.pasteCount))+' paste event(s) recorded. Pasting is not proof of AI use.'});
+  let similar=false;
+  for(let i=0;i<normalized.length;i++) for(let j=i+1;j<normalized.length;j++) {
+    const a=new Set(normalized[i].text.split(/\\W+/).filter(w=>w.length>3));
+    const b=new Set(normalized[j].text.split(/\\W+/).filter(w=>w.length>3));
+    if(a.size<12 || b.size<12) continue;
+    const union=new Set([...a,...b]);
+    const overlap=[...a].filter(w=>b.has(w)).length/Math.max(1,union.size);
+    if(overlap>.72) similar=true;
+  }
+  if(similar) flags.push({severity:'review',code:'HIGH_SIMILARITY',label:'Similar responses',detail:'Some answers use unusually similar vocabulary. Consider whether the questions naturally call for similar wording.'});
   return flags;
 }
 function nextRef(n){return 'CID-'+String(n).padStart(4,'0');}
@@ -158,8 +171,8 @@ router.post('/submit',async(req,res)=>{
     const row=await prisma.cidApplication.create({data:{
       appRef:nextRef(count+1),applicantId:req.user.id,discordId:req.user.discordId,
       discordUsername:req.user.discordUsername||null,robloxId:String(req.user.robloxId),
-      robloxUsername:String(answers.roblox||req.user.robloxUsername||'').trim(),
-      answers,context:check,flags:integrityFlags(answers,req.body&&req.body.telemetry),status:'SUBMITTED',
+      robloxUsername:String(req.user.robloxUsername||'').trim(),
+      answers:{...answers,roblox:req.user.robloxUsername||'',discord:req.user.discordUsername||'',metRank:check.metRank||''},context:check,flags:integrityFlags(answers,req.body&&req.body.telemetry),status:'SUBMITTED',
     }});
     require('../lib/audit').record({req,action:'CID_APPLICATION_SUBMITTED',category:'recruitment',targetType:'cid_application',targetId:row.id,summary:'Submitted CID application '+row.appRef}).catch(()=>{});
     res.status(201).json({ok:true,appRef:row.appRef});
