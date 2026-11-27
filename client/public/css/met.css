@@ -266,3 +266,34 @@ input:focus,select:focus,textarea:focus,.form-control:focus { border-color:var(-
   .stat-icon { width:32px !important; height:32px !important; font-size:16px !important; }
   .stat-value { font-size:25px !important; }
 }
+
+/* Compatibility names used by legacy page-specific components, mapped to the new palette. */
+:root,:root[data-theme="light"] {
+ --bg-base:var(--bg); --bg-deep:var(--surface-alt); --bg-panel:var(--surface); --bg-panel-hover:var(--surface-hover); --bg-input:var(--surface);
+ --border-dim:var(--line); --border-mid:var(--line-strong); --border-bright:var(--accent);
+ --text-primary:var(--ink); --text-secondary:var(--ink-soft); --text-muted:var(--ink-muted); --text-tiny:var(--ink-faint);
+ --blue:var(--info); --blue-dim:var(--info-wash); --blue-glow:transparent;
+ --green:var(--success); --green-dim:var(--success-wash); --green-glow:transparent;
+ --amber:var(--warning); --amber-dim:var(--warning-wash); --amber-glow:transparent;
+ --red:var(--danger); --red-dim:var(--danger-wash); --red-glow:transparent;
+ --purple:var(--accent); --purple-dim:var(--accent-wash);
+ --discord:var(--nav); --discord-dim:var(--surface-alt); --discord-border:var(--line);
+ --radius-sm:var(--r-xs); --radius-md:var(--r-sm); --radius-lg:var(--r-md); --radius-xl:var(--r-lg);
+ --font-display:var(--font-display); --font-body:var(--font-ui); --font-mono:var(--font-data);
+ --border:var(--line); --panel:var(--surface); --surface-1:var(--surface); --hover:var(--surface-hover);
+}
+:root[data-theme="dark"] {
+ --bg-base:var(--bg); --bg-deep:var(--surface-alt); --bg-panel:var(--surface); --bg-panel-hover:var(--surface-hover); --bg-input:var(--surface);
+ --border-dim:var(--line); --border-mid:var(--line-strong); --border-bright:var(--accent);
+ --text-primary:var(--ink); --text-secondary:var(--ink-soft); --text-muted:var(--ink-muted); --text-tiny:var(--ink-faint);
+ --blue:var(--info); --blue-dim:var(--info-wash); --blue-glow:transparent;
+ --green:var(--success); --green-dim:var(--success-wash); --green-glow:transparent;
+ --amber:var(--warning); --amber-dim:var(--warning-wash); --amber-glow:transparent;
+ --red:var(--danger); --red-dim:var(--danger-wash); --red-glow:transparent;
+ --purple:var(--accent); --purple-dim:var(--accent-wash);
+ --discord:var(--nav); --discord-dim:var(--surface-alt); --discord-border:var(--line);
+ --radius-sm:var(--r-xs); --radius-md:var(--r-sm); --radius-lg:var(--r-md); --radius-xl:var(--r-lg);
+ --font-display:var(--font-display); --font-body:var(--font-ui); --font-mono:var(--font-data);
+ --border:var(--line); --panel:var(--surface); --surface-1:var(--surface); --hover:var(--surface-hover);
+}
+.panel-dot,.badge-dot,.status-dot,.green-dot,.pulse-dot,.nav-dot,.online-dot,.live-dot,.dot-green,.status-indicator,.online-indicator,.live-indicator { display:none !important; }
