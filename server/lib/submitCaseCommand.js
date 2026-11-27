@@ -285,6 +285,8 @@ async function handleSubmitCase(interaction) {
       metGroup: met ? { roleName: met.role.name, rank: met.role.rank } : null,
       discord, dashboardRole: linked && linked.role, iaRankName: linked && linked.iaRankName, iaRank: linked && linked.iaRank,
     };
+    loading.update('Checking current MET punishments');
+    profile.currentPunishments = await getCurrentPunishments(interaction.client, profile);
     loading.stop();
     return interaction.editReply({ content: null, embeds: [panelEmbed(profile, [])], components: panelComponents(interaction.user.id, profile.robloxId, []) });
   } catch (err) {
