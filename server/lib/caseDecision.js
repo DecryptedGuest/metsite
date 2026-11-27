@@ -362,9 +362,6 @@ async function approveCase({ caseId, actor, note, onProgress } = {}) {
     catch (err) { console.warn('[IA] quota board refresh after case approval failed:', err.message); }
   }
 
-  // The reviewer's own point, for the reading either decision takes.
-  await awardReviewer(existing, actor, 'APPROVED');
-
   await progress('Recording the approval audit…');
   await require('./actionJournal').record({
     kind: 'CASE_APPROVE',
