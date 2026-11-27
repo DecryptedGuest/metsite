@@ -158,7 +158,7 @@ function caseCard(kase, extra = {}) {
   // that throws is a case nobody can approve.
   addFields(embed,
     field('Officer', subject),
-    field('Investigator', [kase.investigatorRobloxUsername ? `**${kase.investigatorRobloxUsername}**` : null, kase.investigatorDiscordUsername ? `Discord: ${kase.investigatorDiscordUsername}` : null, kase.investigatorRankName ? `Rank: ${kase.investigatorRankName}` : null].filter(Boolean).join('\n') || 'Not recorded'),
+    field('Investigator', [kase.investigatorRobloxUsername ? `**${kase.investigatorRobloxUsername}**` : null, kase.investigatorDiscordUsername ? `Discord: ${kase.investigatorDiscordUsername}` : null, null].filter(Boolean).join('\n') || 'Not recorded'),
     field('Punishment', punishmentLines(kase.actions, kase.action)),
     field('Reason', kase.reason),
     field('Case file', safeUrl(kase.caseLink || kase.docUrl) ? `[Open case file](${safeUrl(kase.caseLink || kase.docUrl)})` : null),
