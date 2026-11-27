@@ -136,57 +136,29 @@ function reviewButtons(kind, id, { disabled = false } = {}) {
  */
 function caseCard(kase, extra = {}) {
   const status = String(kase.status || 'PENDING').toUpperCase();
-  const colour = status === 'APPROVED' ? GREEN : status === 'DENIED' ? RED : AMBER;
-  const state  = status === 'APPROVED' ? 'Approved' : status === 'DENIED' ? 'Denied' : 'Awaiting review';
-
   const embed = new EmbedBuilder()
-    .setColor(colour)
-    .setTitle(`Case ${kase.caseRef || ''}`.trim())
-    .setURL(`https://slrmet.com/ia/dashboard?case=${encodeURIComponent(kase.id)}`)
-    .setTimestamp(safeDate(kase.createdAt));
+    .setTitle('Case Information');
 
-  // The document, when there is one, is the most-clicked thing on the card.
-  const caseLink = safeUrl(kase.caseLink || kase.docUrl);
+  const { e } = require('./emoji');
+  const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
+  const investigatorDiscord = extra.investigatorDiscordId
+    ? `<@${extra.investigatorDiscordId}>`
+    : (kase.investigatorDiscordUsername ? `@${kase.investigatorDiscordUsername}` : 'Not recorded');
+  const officer = kase.officerDiscordId
+    ? `<@${kase.officerDiscordId}>${kase.robloxUsername ? ` (Roblox: **${kase.robloxUsername}**)` : ''}`
+    : (kase.robloxUsername ? `**${kase.robloxUsername}**` : 'Not identified');
 
-  // WHO, first. A card whose subject you have to hunt for is the main
-  // complaint about the old layout.
-  const subject = kase.officerDiscordId
-    ? `<@${kase.officerDiscordId}>${kase.robloxUsername ? ` · \`${kase.robloxUsername}\`` : ''}`
-    : (kase.robloxUsername ? `\`${kase.robloxUsername}\`` : '*not identified*');
-  // Through field()/addFields(), like the ticket card. Adding these raw meant an
-  // empty or oversized column threw while BUILDING the embed, and a case card
-  // that throws is a case nobody can approve.
   addFields(embed,
-    field('Officer', subject),
-    field('Investigator', [kase.investigatorRobloxUsername ? `**${kase.investigatorRobloxUsername}**` : null, kase.investigatorDiscordUsername ? `Discord: ${kase.investigatorDiscordUsername}` : null, kase.investigatorRank ? `IA Rank: ${kase.investigatorRank}` : null].filter(Boolean).join('\n') || 'Not recorded'),
-    field('Punishment', punishmentLines(kase.actions, kase.action)),
+    field('Case', kase.caseRef ? `#${String(kase.caseRef).replace(/^#/, '')}` : 'Not assigned'),
+    field('Punishments', punishmentLines(kase.actions, kase.action) || 'None recorded'),
+    field('Investigator Information',
+      ` ${e('ia_roblox_white')} **${investigatorRoblox}**\n ${e('ia_discord_white')} ${investigatorDiscord}${kase.investigatorRank ? `\nIA Rank: **${kase.investigatorRank}**` : ''}`),
+    field('Officer Information', officer),
     field('Reason', kase.reason),
-    field('Case file', safeUrl(kase.caseLink || kase.docUrl) ? `[Open case file](${safeUrl(kase.caseLink || kase.docUrl)})` : null),
     (kase.notes && kase.notes !== 'N/A') ? field('Notes', kase.notes) : null,
-    kase.blacklistCode
-      ? field('Blacklist code',
-          `\`${trim(kase.blacklistCode, 90)}\``
-          + (kase.blacklistReason ? ` · ${trim(kase.blacklistReason, 300)}` : ''), true)
-      : null,
+    kase.blacklistCode ? field('Blacklist Information',
+      `Code: \`${trim(kase.blacklistCode, 90)}\`${kase.blacklistReason ? `\nReason: ${trim(kase.blacklistReason, 300)}` : ''}`) : null,
   );
-
-  const filer = actorName(extra.filer) || kase.reviewedByRaw || null;
-  if (filer) {
-    const author = { name: trim(`Filed by ${filer}`, 256) };
-    const filerAvatar = safeUrl(extra.filer?.avatarURL);
-    if (filerAvatar) author.iconURL = filerAvatar;
-    embed.setAuthor(author);
-  }
-
-  const decided = actorName(extra.decidedBy);
-  embed.setFooter({
-    text: status === 'PENDING'
-      ? `${state} · Internal Affairs`
-      : `${state}${decided ? ` by ${decided}` : ''} · Internal Affairs`,
-  });
-
-  const subjectAvatar = safeUrl(extra.subjectAvatar);
-  if (subjectAvatar) embed.setThumbnail(subjectAvatar);
   return embed;
 }
 
@@ -361,12 +333,24 @@ const postCaseCard = async (client, kase, extra) => {
   try {
     // Permanent, read-only case log: no reviewer ping and no components.
     const forum = await client.channels.fetch(String(casesForumChannelId()));
-    const embed = caseCard(kase, extra);
+    // Resolve the filing investigator's Discord id so the log contains a
+    // real mention rather than a plain username.
+    const investigatorUser = kase.userId
+      ? await require('./db').user.findUnique({ where: { id: kase.userId }, select: { discordId: true } }).catch(() => null)
+      : null;
+    const forumExtra = { ...extra, investigatorDiscordId: investigatorUser?.discordId || extra?.investigatorDiscordId || null };
+    const embed = caseCard(kase, forumExtra);
     const ref = String(kase.caseRef || 'New').replace(/^#?/, '#');
     const title = `Case ${ref} - ${trim(kase.robloxUsername || 'Unknown officer', 70)}`;
+    const caseUrl = safeUrl(kase.caseLink || kase.docUrl);
     const thread = await forum.threads.create({
       name: title.slice(0, 100),
-      message: { embeds: [embed], components: [], allowedMentions: { parse: [] } },
+      message: {
+        content: caseUrl || '',
+        embeds: [embed],
+        components: [],
+        allowedMentions: { parse: [], users: investigatorUser?.discordId ? [String(investigatorUser.discordId)] : [] },
+      },
     });
     forumThreadId = thread.id;
     console.log(`[IA] read-only case forum log created for ${kase.caseRef} in ${casesForumChannelId()} (${thread.id})`);
