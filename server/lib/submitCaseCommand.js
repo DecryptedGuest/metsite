@@ -17,15 +17,15 @@ const roblox = require('./roblox');
 
 const COLOUR = 0x26384d;
 const ACTION_META = {
-  'Written Warning': 'AUTO-ROLE · Permanent',
-  'Zero Tolerance': 'AUTO-ROLE · Permanent or timed',
-  'Suspension': 'AUTO-ROLE · Permanent or timed',
-  'Activity Strike': 'AUTO-ROLE · Permanent',
-  'Disciplinary Strike 1': 'AUTO-ROLE · Permanent or timed',
-  'Disciplinary Strike 2': 'AUTO-ROLE · Permanent or timed',
-  'Demotion': 'NO ROLE · Rank demotion',
-  'Termination': 'EXILE · MET and divisional groups',
-  'Blacklist': 'EXILE + ROLE · Blacklist role',
+  'Written Warning': 'AUTO-ROLE - Permanent',
+  'Zero Tolerance': 'AUTO-ROLE - Permanent or timed',
+  'Suspension': 'AUTO-ROLE - Permanent or timed',
+  'Activity Strike': 'AUTO-ROLE - Permanent',
+  'Disciplinary Strike 1': 'AUTO-ROLE - Permanent or timed',
+  'Disciplinary Strike 2': 'AUTO-ROLE - Permanent or timed',
+  'Demotion': 'NO ROLE - Rank demotion',
+  'Termination': 'EXILE - MET and divisional groups',
+  'Blacklist': 'EXILE + ROLE - Blacklist role',
 };
 
 function buildCommand() {
@@ -50,7 +50,7 @@ function ownerCheck(interaction, ownerId) {
 }
 function panelEmbed(profile, selected) {
   const linked = profile.discord
-    ? `<@${profile.discord.id}> · \`${profile.discord.username}\`${profile.discord.inMetServer === false ? ' · Not in MET' : ''}`
+    ? `<@${profile.discord.id}> - \`${profile.discord.username}\`${profile.discord.inMetServer === false ? ' - Not in MET' : ''}`
     : '*No Discord account linked*';
   const created = profile.createdAt
     ? `<t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:D>`
@@ -60,17 +60,17 @@ function panelEmbed(profile, selected) {
     .setTitle('<:IA:1552764629204205619>  NEW IA CASE')
     .setDescription('Check the officer details and choose the action for this case.')
     .addFields(
-      { name: 'OFFICER', value: `**${String(profile.displayName || profile.username).slice(0, 80)}**\n[${String(profile.username).slice(0, 60)}](https://www.roblox.com/users/${profile.robloxId}/profile) · \`${profile.robloxId}\``, inline: true },
+      { name: 'OFFICER', value: `**${String(profile.displayName || profile.username).slice(0, 80)}**\n[${String(profile.username).slice(0, 60)}](https://www.roblox.com/users/${profile.robloxId}/profile) - \`${profile.robloxId}\``, inline: true },
       { name: 'DISCORD', value: linked, inline: true },
       { name: 'ACCOUNT CREATED', value: created, inline: true },
-      { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** · ${profile.metGroup.rank}` : 'Not in MET group', inline: true },
+      { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** - ${profile.metGroup.rank}` : 'Not in MET group', inline: true },
       { name: 'IA ACCESS', value: profile.dashboardRole || 'Not set', inline: true },
-      { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** · ${profile.iaRank}` : 'Not set', inline: true },
-      { name: 'ACTIONS', value: selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
+      { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** - ${profile.iaRank}` : 'Not set', inline: true },
+      { name: 'ACTIONS', value: selected.length ? selected.map(a => `- **${a}** - ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
       { name: 'CASE NUMBER', value: 'Added when submitted', inline: true },
       { name: 'NEXT', value: 'Choose the action(s), then press Continue.', inline: true },
     )
-    .setFooter({ text: 'Metropolitan Police Service · Internal Affairs' });
+    .setFooter({ text: 'Metropolitan Police Service - Internal Affairs' });
   if (profile.avatar) embed.setThumbnail(profile.avatar);
   if (profile.discord && profile.discord.avatar) embed.setAuthor({ name: profile.discord.username, iconURL: profile.discord.avatar });
   return embed;
@@ -201,7 +201,7 @@ async function handleComponent(interaction) {
     const current = interaction.message.embeds && interaction.message.embeds[0];
     if (!current) return interaction.reply({ content: 'This case panel expired. Start /case again.', flags: MessageFlags.Ephemeral });
     const embed = EmbedBuilder.from(current);
-    const value = selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*';
+    const value = selected.length ? selected.map(a => `- **${a}** - ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*';
     embed.setFields((current.fields || []).map(field => field.name === 'PUNISHMENTS SELECTED' ? { ...field, value } : field));
     return interaction.update({ embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
   }
@@ -329,9 +329,9 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   return interaction.editReply({
     content: `${e('met_tick')} Case **${created.caseRef}** has been submitted for review. ${gate} may decide this case.`,
     embeds: [new EmbedBuilder().setColor(COLOUR).setTitle(`IA CASE  ${created.caseRef}`)
-      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `• ${a}${isTimed(a) ? (durations[a] ? ` · ${durations[a]} days` : ' · Permanent') : ''}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
+      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `- ${a}${isTimed(a) ? (durations[a] ? ` - ${durations[a]} days` : ' - Permanent') : ''}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
       .addFields({ name: 'Case link', value: caseLink.slice(0, 1024) })
-      .setFooter({ text: 'Metropolitan Police Service  ·  Internal Affairs' })],
+      .setFooter({ text: 'Metropolitan Police Service  -  Internal Affairs' })],
     components: [],
   });
 }
