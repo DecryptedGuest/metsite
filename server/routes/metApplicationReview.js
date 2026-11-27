@@ -83,8 +83,8 @@ router.post('/:id/decision', async (req, res) => {
         color: status === 'ACCEPTED' ? 0x64748b : 0x475569,
         title: status === 'ACCEPTED' ? 'MET Application Approved' : 'MET Application Update',
         description: status === 'ACCEPTED'
-          ? 'Your MET Application **' + row.appRef + '** has been approved.' + (note ? '\\n\\n**Reviewer note:** ' + note : '')
-          : 'Your MET Application **' + row.appRef + '** has been declined.' + (note ? '\\n\\n**Reason:** ' + note : ''),
+          ? 'Your MET Application **' + row.appRef + '** has been approved.' + (note ? '\n\n**Reviewer note:**  + note : '')
+          : 'Your MET Application **' + row.appRef + '** has been declined.' + (note ? '\n\n**Reason:**  + note : ''),
         footer: 'Metropolitan Police Service · Recruitment',
       });
     } catch (e) { console.warn('[MET application] decision DM unavailable:', e.message); }
