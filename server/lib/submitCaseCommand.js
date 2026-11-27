@@ -225,7 +225,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
     const fieldId = action === 'Zero Tolerance' ? 'duration_zero_tolerance' : 'duration_suspension';
     const raw = interaction.fields.getTextInputValue(fieldId).trim();
     if (!raw) continue;
-    if (!/^\\d+$/.test(raw) || !Number.isInteger(Number(raw)) || Number(raw) < 1 || Number(raw) > 3650) {
+    if (!/^\d+$/.test(raw) || !Number.isInteger(Number(raw)) || Number(raw) < 1 || Number(raw) > 3650) {
       return interaction.reply({ content: `${e('met_denied')} ${action} duration must be a whole number of days from 1 to 3650, or left blank for permanent.`, flags: MessageFlags.Ephemeral });
     }
     durations[action] = Number(raw);
