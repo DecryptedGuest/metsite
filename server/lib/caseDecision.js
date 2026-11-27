@@ -31,11 +31,18 @@ async function syncCaseForumPost(kase, actor) {
     if (!client) return;
     const cards = require('./iaReviewCards');
     const { suspectAvatar } = await resolveCaseAvatars(null, kase);
+    const investigatorUser = kase.userId
+      ? await require('./db').user.findUnique({ where: { id: kase.userId }, select: { discordId: true } }).catch(() => null)
+      : null;
     await cards.finaliseCard(
       client,
       cards.casesForumChannelId(),
       kase.cardMessageId,
-      cards.caseCard(kase, { decidedBy: actor, subjectAvatar: suspectAvatar }),
+      cards.caseCard(kase, {
+        decidedBy: actor,
+        subjectAvatar: suspectAvatar,
+        investigatorDiscordId: investigatorUser?.discordId || null,
+      }),
     );
   } catch (err) {
     console.warn('[IA] case forum post sync failed:', err.message);
