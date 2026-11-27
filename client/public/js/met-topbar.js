@@ -168,6 +168,18 @@ if (typeof document !== 'undefined' && !window.metTour && !document.getElementBy
 // ── Breadcrumb: "Division › Section" in the topbar ─────────────────────────
 // The Section tracks the active sidebar nav item live (dashboards toggle the
 // .active class on nav-items when switching pages), via a MutationObserver.
+// Add a consistent route back to the main MET home page on every division shell.
+function metInjectHomeLink() {
+  const nav = document.querySelector('.app-layout .sidebar .sidebar-nav');
+  if (!nav || nav.querySelector('.met-home-link')) return;
+  const home = document.createElement('a');
+  home.href = '/';
+  home.className = 'nav-item met-home-link';
+  home.setAttribute('aria-label', 'Return to MET home page');
+  home.innerHTML = '<i class="ti ti-home nav-icon" aria-hidden="true"></i><span>Home</span>';
+  nav.insertBefore(home, nav.firstChild);
+}
+
 function metInjectBreadcrumb(currentDivision) {
   const titleEl = document.querySelector('.met-topbar-left .met-topbar-title');
   if (!titleEl || document.getElementById('met-breadcrumb')) return;
@@ -361,6 +373,7 @@ async function initMetTopbar(currentDivision) {
 
   // Breadcrumb (Division › Section), mobile nav drawer + back-to-top — injected
   // centrally so every dashboard gets them without per-view markup.
+  try { metInjectHomeLink(); } catch (e) {}
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
   try { metInjectMobileNav(myDivisions, currentDivision, examEligible); } catch (e) {}
