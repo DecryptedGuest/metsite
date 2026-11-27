@@ -804,7 +804,10 @@ async function computeMyDivisions(user) {
   // CID is a restricted leadership workspace. Only members whose current CID
   // group rank is Assistant Director (HIGH) or above receive the division link.
   const { tierForRank } = require('./lib/ranks');
-  mine = mine.filter(d => d.division !== 'CID' || tierForRank('CID', d.rankName) === 'HIGH');
+  // Site developers have full access to the CID workspace, regardless of CID group rank.
+  if (user.role !== 'DEVELOPER') {
+    mine = mine.filter(d => d.division !== 'CID' || tierForRank('CID', d.rankName) === 'HIGH');
+  }
   // MET HICOMM — the dashboard-wide oversight tier (Deputy Commissioner+ in the MET
   // group, or DEVELOPER). The 'MET' cache entry is an access marker, not a real
   // division dashboard, so pull it out and use its rank for the HICOMM card. The
