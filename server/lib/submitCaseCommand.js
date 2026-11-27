@@ -124,7 +124,7 @@ function detailsModal(ownerId, robloxId, indexes) {
 
 async function handleSubmitCase(interaction) {
   const username = String(interaction.options.getString('officer') || '').trim();
-  if (!username || /[\\s]/.test(username)) {
+  if (!username || /[\s]/.test(username)) {
     return interaction.reply({ content: `${e('met_denied')} Enter one Roblox username without spaces.`, flags: MessageFlags.Ephemeral });
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -182,15 +182,15 @@ function parseDurations(raw, selected) {
   const value = String(raw || '').trim();
   if (!value) return { durations: out, error: null };
   const selectedTimed = selected.filter(isTimed);
-  if (/^\\d+$/.test(value)) {
+  if (/^\d+$/.test(value)) {
     const days = Number(value);
     if (!Number.isInteger(days) || days < 1 || days > 3650) return { durations: {}, error: 'Duration must be 1–3650 days.' };
     for (const action of selectedTimed) out[action] = days;
     return { durations: out, error: null };
   }
-  const entries = value.split(/[,;\\n]+/).map(x => x.trim()).filter(Boolean);
+  const entries = value.split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
   for (const entry of entries) {
-    const match = entry.match(/^(.+?)\\s*=\\s*(\\d+|permanent)$/i);
+    const match = entry.match(/^(.+?)\s*=\s*(\d+|permanent)$/i);
     if (!match) return { durations: {}, error: 'Use Action=days, for example Suspension=14. Use Permanent to keep an action permanent.' };
     const action = selected.find(name => name.toLowerCase() === match[1].trim().toLowerCase());
     if (!action || !isTimed(action)) return { durations: {}, error: `“${match[1]}” is not a selected timed punishment.` };
