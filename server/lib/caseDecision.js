@@ -243,7 +243,11 @@ async function approveCase({ caseId, actor, note, onProgress } = {}) {
       hrDiscordId: actor.discordId || null,
       userDiscordId: officerDiscordId,
       targetDiscordId: officerDiscordId,
-      caseLink: existing.caseLink || null,
+      // cardMessageId is the Discord forum thread id. Never expose the
+      // classified case document URL in the disciplinary actions channel.
+      forumUrl: existing.cardMessageId
+        ? `https://discord.com/channels/1574841102169669692/1574841103042093225/${existing.cardMessageId}`
+        : null,
       officerDiscordId,
       officerName: existing.robloxUsername || existing.suspectRobloxDisplayName || null,
       officerRobloxId: existing.robloxUserId || null,
