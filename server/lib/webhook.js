@@ -63,7 +63,6 @@ function buildCaseEmbed(data) {
   const caseValue = caseUrl.startsWith('https://') || caseUrl.startsWith('http://')
     ? `[Open case / evidence](${caseUrl})`
     : (caseRef ? `Case ${caseRef}` : 'N/A');
-    : (caseRef ? `Case ${caseRef}` : 'N/A');
   const embed = {
     color: 0x24364b,
     title: `Administrative Action · ${caseRef || 'Record'}`,
