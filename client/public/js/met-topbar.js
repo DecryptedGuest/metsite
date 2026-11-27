@@ -245,7 +245,7 @@ function metInjectNavToggle() {
 // menu (My Dashboard, the divisions you can enter, LOA, Exam, App,
 // Sign out) instead of only the cramped topbar dropdowns. ──
 const DIV_ICON = { CID: 'ti-search', SCO19: 'ti-target-arrow', IA: 'ti-scale', FLP: 'ti-shield', HPC: 'ti-school', DEV: 'ti-code', METHICOMM: 'ti-star' };
-function metInjectMobileNav(mine, currentDivision, examEligible) {
+function metInjectMobileNav(mine, currentDivision) {
   const topbar = document.querySelector('.met-topbar');
   const left = document.querySelector('.met-topbar-left');
   // Skip pages that already have a sidebar drawer (division/dev dashboards).
@@ -277,7 +277,6 @@ function metInjectMobileNav(mine, currentDivision, examEligible) {
       + item('/dashboard', 'ti-home', 'My Dashboard', here === '/dashboard' || here === '/profile')
       + (divLinks ? '<div class="met-mnav-label">Divisions you can access</div>' + divLinks : '')
       + '<div class="met-mnav-label">You</div>'
-      + (examEligible ? item('/exam', 'ti-writing', 'Final Exam', here === '/exam') : '')
       + item('/app', 'ti-device-mobile', 'Mobile App', here === '/app')
     + '</div>'
     + '<form class="met-mnav-foot" action="/auth/logout" method="POST">'
@@ -313,13 +312,11 @@ async function initMetTopbar(currentDivision) {
   // profile page sets its own label in HTML).
   if (badge && currentDivision) badge.textContent = DIVISION_LABEL[currentDivision] || currentDivision;
 
-  let examEligible = false;  // holds the final-exam role → show the Final Exam menu entry
   let hasIADivision = false; // IA-division access
   let myDivisions = [];      // the divisions this user can enter (for the mobile nav drawer)
   try {
     const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     if (me) {
-      examEligible = !!me.examEligible;
       const nameEl = document.getElementById('met-user-name');
       if (nameEl) nameEl.textContent = me.displayName || me.discordUsername;
 
@@ -384,7 +381,6 @@ async function initMetTopbar(currentDivision) {
   try { metInjectHomeLink(); } catch (e) {}
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
-  try { metInjectMobileNav(myDivisions, currentDivision, examEligible); } catch (e) {}
   try { metInjectBackToTop(); } catch (e) {}
   try { metInjectFooterStrap(); } catch (e) {}
 
@@ -400,8 +396,6 @@ async function initMetTopbar(currentDivision) {
         // "My Dashboard" is a dedicated top-level button now (added below), so it's
         // not repeated here.
         { label: 'You', items: [
-          // Final Exam only appears for cadets who hold the final-exam role.
-          ...(examEligible ? [{ href: '/exam', icon: 'ti-writing', label: 'Final Exam' }] : []),
           { href: '/app', icon: 'ti-device-mobile', label: 'Mobile App' },
         ] },
       ];
