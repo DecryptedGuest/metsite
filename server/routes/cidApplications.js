@@ -76,7 +76,7 @@ async function eligibility(user) {
   const checks=[met,cid,sco,flp,ia,hpc];
   if (checks.some(x=>!x.available) || !metRoles) return { available:false, eligible:false, reasons:['Roblox eligibility checks are temporarily unavailable. Please try again later.'] };
   const reasons=[];
-  const constables=metRoles.filter(r=>/constable/i.test(String(r.name||''))).sort((a,b)=>Number(a.rank)-Number(b.rank));
+  const constables=metRoles.filter(r=>/^(?:police\\s+)?constable$/i.test(String(r.name||''))).sort((a,b)=>Number(a.rank)-Number(b.rank));
   const constable=constables[0]||null;
   if (!constable || !met.role || Number(met.role.rank)<Number(constable.rank)) reasons.push('You must be MET Constable or above.');
   if (sco.member) reasons.push('Members of Specialist Firearms Command are not eligible.');
