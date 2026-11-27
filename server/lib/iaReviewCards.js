@@ -157,7 +157,7 @@ function caseCard(kase, extra = {}) {
     field('Case', kase.caseRef ? `#${String(kase.caseRef).replace(/^#/, '')}` : 'Not assigned'),
     field('Punishments', punishmentLines(kase.actions, kase.action) || 'None recorded'),
     field('Investigator Information',
-      ` ${robloxMark} Roblox: **${investigatorRoblox}**\n ${discordMark} Discord: ${investigatorDiscord}${kase.investigatorRank ? `\nIA Rank: **${kase.investigatorRank}**` : ''}`),
+      `${robloxMark} Roblox: **${investigatorRoblox}**\n${discordMark} Discord: ${investigatorDiscord}${kase.investigatorRank ? `\nIA Rank: **${kase.investigatorRank}**` : ''}`),
     field('Officer Information', officer),
     field('Reason', kase.reason),
     (kase.notes && kase.notes !== 'N/A') ? field('Notes', kase.notes) : null,
@@ -195,7 +195,7 @@ function caseReviewCard(kase, extra = {}) {
   addFields(embed,
     field('Officer', officer),
     field('Investigator',
-      `${robloxMark} Roblox: **${investigatorRoblox}**  ${discordMark} Discord: ${investigatorDiscord}`),
+      `${robloxMark} Roblox: **${investigatorRoblox}**\n${discordMark} Discord: ${investigatorDiscord}`),
     field('Punishment', punishmentLines(kase.actions, kase.action) || 'None recorded'),
     field('Reason', kase.reason),
   );
