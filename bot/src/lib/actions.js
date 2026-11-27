@@ -22,7 +22,7 @@ const ACTION_CONFIG = {
 const ACTION_NAMES = Object.keys(ACTION_CONFIG);
 
 // Punishments only High Command may approve.
-const HICOMM_ONLY_ACTIONS = ['Blacklist', 'Termination'];
+const HICOMM_ONLY_ACTIONS = []; // These actions are ADIR+ under the IA rank ladder.
 
 function roleIdForAction(action) {
   return ACTION_CONFIG[action] ? ACTION_CONFIG[action].roleId : null;
