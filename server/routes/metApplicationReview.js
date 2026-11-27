@@ -63,6 +63,33 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+async function provisionAcceptedApplicant(current) {
+  if (!current.robloxId) throw new Error('Applicant has no linked Roblox account.');
+  const roblox = require('../lib/roblox');
+  const groupId = '17275620';
+  const cookie = roblox.cookieForDivision('HPC');
+  if (!cookie) throw new Error('Roblox group automation is not configured: ROBLOX_COOKIE is missing.');
+
+  const roles = await roblox.listGroupRoles(groupId, cookie);
+  const csoRole = roles.find(role => {
+    const name = String(role.name || '').trim().toLowerCase();
+    return name === 'cso' || name === 'community support officer';
+  });
+  if (!csoRole) throw new Error('Could not find the Community Support Officer (CSO) rank in the MET Roblox group.');
+
+  const diag = {};
+  const memberships = await roblox.getUserGroupRoles(String(current.robloxId), groupId, diag, true);
+  if (diag.failed) throw new Error('Could not verify the applicant’s current MET group membership. Please retry.');
+  if (!memberships.length) {
+    // Applicants confirm that they have already requested to join. Accept that
+    // request, then assign the standard entry rank.
+    await roblox.resolveJoinRequest(String(current.robloxId), 'approve', groupId, cookie);
+  }
+
+  await roblox.changeGroupRank(String(current.robloxId), csoRole.id, groupId, cookie);
+  return { groupId, roleId: csoRole.id, roleName: csoRole.name, alreadyMember: memberships.length > 0 };
+}
+
 router.post('/:id/decision', async (req, res) => {
   try {
     const status = String(req.body && req.body.status || '');
@@ -71,6 +98,22 @@ router.post('/:id/decision', async (req, res) => {
     const current = await prisma.metApplication.findUnique({ where: { id: String(req.params.id) } });
     if (!current) return res.status(404).json({ error: 'Application not found.' });
     if (current.status !== 'SUBMITTED') return res.status(409).json({ error: 'This application has already been decided.' });
+
+    // Acceptance is conditional on successful Roblox onboarding. A failed group
+    // action leaves the application pending so HPC can correct the issue and retry.
+    let robloxProvisioning = null;
+    if (status === 'ACCEPTED') {
+      try {
+        robloxProvisioning = await provisionAcceptedApplicant(current);
+      } catch (e) {
+        console.error('[MET application] Roblox onboarding failed:', e.message);
+        return res.status(502).json({
+          error: 'The application was not marked accepted because MET group onboarding did not complete: ' + e.message,
+          onboardingFailed: true,
+        });
+      }
+    }
+
     const row = await prisma.metApplication.update({
       where: { id: current.id },
       data: { status, markerNote: note || null, markedAt: new Date(), markedById: req.user.id, markedByName: req.user.displayName || req.user.discordUsername || 'Hendon Police College' },
@@ -88,7 +131,7 @@ router.post('/:id/decision', async (req, res) => {
         footer: 'Metropolitan Police Service · Recruitment',
       });
     } catch (e) { console.warn('[MET application] decision DM unavailable:', e.message); }
-    res.json({ ok: true, dmSent, application: { id: row.id, appRef: row.appRef, status: row.status, markedAt: row.markedAt } });
+    res.json({ ok: true, dmSent, robloxProvisioning, application: { id: row.id, appRef: row.appRef, status: row.status, markedAt: row.markedAt } });
   } catch (e) {
     console.error('[MET application review] decision error:', e.message);
     res.status(500).json({ error: 'Could not save the decision.' });
