@@ -87,6 +87,7 @@ model User {
   iaEventsHosted       IaEventLog[]        @relation("IaEventHost")
   iaPatrols            IaPatrolLog[]       @relation("IaPatrolOfficer")
   iaApplications       IaApplication[]     @relation("IaApplicant")
+  metApplications      MetApplication[]
   iaApplicationsMarked IaApplication[]     @relation("IaApplicationMarker")
   pushSubscriptions    PushSubscription[]
   media                Media[]
