@@ -409,6 +409,9 @@ function addQuotaPoints(rawMember, points, label = '', division = 'IA') {
   const run = () => addQuotaPointsImpl(rawMember, points, label, division);
   const result = _quotaChain.then(run, run); // run regardless of prior outcome
   _quotaChain = result.catch(() => {});       // a failure must not break the chain
+  if (String(division || 'IA').toUpperCase() === 'IA') {
+    result.then(ok => { if (ok) { try { require('./iaQuotaBoard').requestRefresh(); } catch (_) {} } }).catch(() => {});
+  }
   return result;
 }
 
