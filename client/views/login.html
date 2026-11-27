@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IACMS · Sign In</title>
+  <title>Metropolitan Police Service · Sign in</title>
 
   <!-- ─── Link embed (Discord / social preview) — EDIT THESE ─────────── -->
   <meta property="og:type" content="website" />
@@ -90,6 +90,33 @@
     .corner-tl { top:1.5rem; left:1.5rem; border-top:1px solid rgba(40,80,200,0.2); border-left:1px solid rgba(40,80,200,0.2); }
     .corner-br { bottom:1.5rem; right:1.5rem; border-bottom:1px solid rgba(40,80,200,0.2); border-right:1px solid rgba(40,80,200,0.2); }
     .system-id { position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%); font-family:var(--font-mono); font-size:9px; color:var(--text-tiny); letter-spacing:0.12em; text-transform:uppercase; z-index:1; }
+
+    body { display:flex !important; align-items:center !important; justify-content:center !important; min-height:100vh !important; padding:32px 16px !important; background:var(--bg) !important; }
+    .bg-canvas,.corner-tl,.corner-br,.system-id { display:none !important; }
+    .login-wrap { max-width:420px !important; gap:24px !important; }
+    .crest { gap:12px !important; animation:none !important; }
+    .crest-logo { width:64px !important; height:64px !important; border:0 !important; border-radius:0 !important; box-shadow:none !important; overflow:visible !important; }
+    .crest-logo img { object-fit:contain !important; }
+    .crest-title { color:var(--ink) !important; font-family:var(--font-ui) !important; font-size:22px !important; letter-spacing:-.02em !important; text-transform:none !important; font-weight:600 !important; }
+    .crest-subtitle { margin:0 !important; color:var(--ink-muted) !important; font-size:13px !important; letter-spacing:0 !important; text-transform:none !important; }
+    .login-card { background:var(--surface) !important; border:1px solid var(--line) !important; border-radius:6px !important; box-shadow:none !important; animation:none !important; }
+    .login-card-header { padding:22px 24px 16px !important; }
+    .login-card-header::before,.header-label { display:none !important; }
+    .header-title { color:var(--ink) !important; background:none !important; -webkit-text-fill-color:var(--ink) !important; font-family:var(--font-ui) !important; font-size:19px !important; letter-spacing:-.01em !important; text-transform:none !important; }
+    .login-card-body { padding:18px 24px 24px !important; gap:18px !important; }
+    .access-info { background:var(--surface-alt) !important; border:1px solid var(--line) !important; border-radius:5px !important; }
+    .access-row { color:var(--ink-soft) !important; font-size:13px !important; line-height:1.5 !important; }
+    .discord-btn-wrap { gap:10px !important; }
+    .btn-discord-full { border-radius:5px !important; min-height:44px !important; }
+    .btn-roblox { background:var(--surface) !important; color:var(--ink) !important; border:1px solid var(--line-strong) !important; }
+    .btn-roblox:hover { background:var(--surface-hover) !important; color:var(--ink) !important; border-color:var(--line-strong) !important; }
+    .btn-hint { color:var(--ink-muted) !important; font-size:12px !important; }
+    .login-card-footer { padding:12px 24px !important; border-color:var(--line) !important; }
+    .footer-badge { color:var(--ink-muted) !important; text-transform:none !important; letter-spacing:0 !important; font-size:12px !important; }
+    .footer-dot { display:none !important; }
+    .error-banner { border-radius:5px !important; }
+    @media (max-width:480px) { .login-wrap { padding:0 !important; } .login-card-header,.login-card-body { padding-left:18px !important; padding-right:18px !important; } }
+
   </style>
 </head>
 <body>
@@ -107,7 +134,7 @@
        style="width:100%;border-radius:14px;border:1px solid rgba(60,110,255,.25);box-shadow:0 10px 34px rgba(0,0,0,.45);display:block;" />
   <div class="crest">
     <div class="crest-logo">
-      <img src="/img/divisions/ia.png" alt="MET Police IA" />
+      <img src="/img/divisions/met.png" alt="Metropolitan Police Service" />
     </div>
     <div>
       <div class="crest-title">Metropolitan Police</div>
@@ -122,13 +149,12 @@
 
   <div class="login-card glass-bright">
     <div class="login-card-header">
-      <div class="header-label">Secure Access</div>
-      <div class="header-title">Authentication Required</div>
+      <div class="header-title">Sign in</div>
     </div>
     <div class="login-card-body">
       <div class="access-info">
         <div class="access-row">
-          <div class="access-dot blue pulse-anim"></div>
+          
           <span>Access is restricted to Internal Affairs Members. Sign in with your Discord account to continue.</span>
         </div>
       </div>
@@ -145,13 +171,13 @@
       </div>
     </div>
     <div class="login-card-footer">
-      <div class="footer-badge"><div class="footer-dot pulse-anim"></div>System Online</div>
+      <div class="footer-badge">Metropolitan Police Service</div>
       <div style="font-size:10px;color:var(--text-tiny);letter-spacing:0.06em;">IACMS v2.0</div>
     </div>
   </div>
 </div>
 
-<div class="system-id">sys · iacms · restricted · authorised personnel only</div>
+
 <div id="toast-container"></div>
 <script src="/js/guard.js?v=72"></script>
 <script src="/js/ui.js?v=81"></script>
