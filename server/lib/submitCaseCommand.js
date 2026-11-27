@@ -16,18 +16,6 @@ const cards = require('./iaReviewCards');
 const roblox = require('./roblox');
 
 const COLOUR = 0x26384d;
-const ACTION_META = {
-  'Written Warning': 'AUTO-ROLE - Permanent',
-  'Zero Tolerance': 'AUTO-ROLE - Permanent or timed',
-  'Suspension': 'AUTO-ROLE - Permanent or timed',
-  'Activity Strike': 'AUTO-ROLE - Permanent',
-  'Disciplinary Strike 1': 'AUTO-ROLE - Permanent or timed',
-  'Disciplinary Strike 2': 'AUTO-ROLE - Permanent or timed',
-  'Demotion': 'NO ROLE - Rank demotion',
-  'Termination': 'EXILE - MET and divisional groups',
-  'Blacklist': 'EXILE + ROLE - Blacklist role',
-};
-
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('case')
@@ -66,7 +54,7 @@ function panelEmbed(profile, selected) {
       { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** - ${profile.metGroup.rank}` : 'Not in MET group', inline: true },
       { name: 'IA ACCESS', value: profile.dashboardRole || 'Not set', inline: true },
       { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** - ${profile.iaRank}` : 'Not set', inline: true },
-      { name: 'ACTIONS', value: selected.length ? selected.map(a => `- **${a}** - ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
+      { name: 'ACTIONS', value: selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
       { name: 'CASE NUMBER', value: 'Added when submitted', inline: true },
       { name: 'NEXT', value: 'Choose the action(s), then press Continue.', inline: true },
     )
@@ -83,7 +71,7 @@ function panelComponents(ownerId, robloxId, selected) {
     .setMinValues(1)
     .setMaxValues(Math.max(1, ACTION_NAMES.length))
     .addOptions(ACTION_NAMES.map((name, index) => ({
-      label: name, value: String(index), description: ACTION_META[name].slice(0, 100), default: selected.includes(name),
+      label: name, value: String(index), default: selected.includes(name),
     })));
   const continueButton = new ButtonBuilder()
     .setCustomId(`casebuilder:continue:${ownerId}:${robloxId}:${encodeIndexes(selected)}`)
@@ -109,11 +97,6 @@ function detailsModal(ownerId, robloxId, indexes) {
     .setCustomId('notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph)
     .setPlaceholder('Additional context for reviewers')
     .setRequired(false).setMaxLength(1500);
-  const duration = new TextInputBuilder()
-    .setCustomId('duration').setLabel('Timed punishment durations (optional)')
-    .setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder('Suspension=14, Disciplinary Strike 1=30. Blank = Permanent.')
-    .setRequired(false).setMaxLength(500);
   const blacklist = new TextInputBuilder()
     .setCustomId('blacklist_code').setLabel('Blacklist code (optional)')
     .setStyle(TextInputStyle.Short).setPlaceholder('Only used for a Blacklist')
@@ -122,7 +105,6 @@ function detailsModal(ownerId, robloxId, indexes) {
     new ActionRowBuilder().addComponents(reason),
     new ActionRowBuilder().addComponents(link),
     new ActionRowBuilder().addComponents(notes),
-    new ActionRowBuilder().addComponents(duration),
     new ActionRowBuilder().addComponents(blacklist),
   );
   return modal;
@@ -201,7 +183,7 @@ async function handleComponent(interaction) {
     const current = interaction.message.embeds && interaction.message.embeds[0];
     if (!current) return interaction.reply({ content: 'This case panel expired. Start /case again.', flags: MessageFlags.Ephemeral });
     const embed = EmbedBuilder.from(current);
-    const value = selected.length ? selected.map(a => `- **${a}** - ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*';
+    const value = selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose one or more below*';
     embed.setFields((current.fields || []).map(field => field.name === 'PUNISHMENTS SELECTED' ? { ...field, value } : field));
     return interaction.update({ embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
   }
@@ -250,16 +232,11 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   const reason = interaction.fields.getTextInputValue('reason').trim();
   const caseLink = interaction.fields.getTextInputValue('case_link').trim();
   const notes = interaction.fields.getTextInputValue('notes').trim();
-  const durationRaw = interaction.fields.getTextInputValue('duration').trim();
   const blacklistCode = interaction.fields.getTextInputValue('blacklist_code').trim();
   if (!/^https?:\/\//i.test(caseLink)) {
     return interaction.reply({ content: `${e('met_denied')} The case link must be a valid http(s) link.`, flags: MessageFlags.Ephemeral });
   }
-  const durationResult = parseDurations(durationRaw, actions);
-  if (durationResult.error) {
-    return interaction.reply({ content: `${e('met_denied')} ${durationResult.error}`, flags: MessageFlags.Ephemeral });
-  }
-  const durations = durationResult.durations;
+  const durations = {};
   if (actions.includes('Blacklist') && blacklistCode.length > 80) {
     return interaction.reply({ content: `${e('met_denied')} The blacklist code is too long.`, flags: MessageFlags.Ephemeral });
   }
@@ -329,7 +306,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   return interaction.editReply({
     content: `${e('met_tick')} Case **${created.caseRef}** has been submitted for review. ${gate} may decide this case.`,
     embeds: [new EmbedBuilder().setColor(COLOUR).setTitle(`IA CASE  ${created.caseRef}`)
-      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `- ${a}${isTimed(a) ? (durations[a] ? ` - ${durations[a]} days` : ' - Permanent') : ''}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
+      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `- ${a}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
       .addFields({ name: 'Case link', value: caseLink.slice(0, 1024) })
       .setFooter({ text: 'Metropolitan Police Service  -  Internal Affairs' })],
     components: [],
