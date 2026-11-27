@@ -143,8 +143,8 @@ function caseCard(kase, extra = {}) {
   // These are the exact application emoji IDs supplied for the IA case log.
   // Use explicit Discord markup here so a missing/late emoji sync cannot
   // degrade the identity marks to the manifest's single-letter fallbacks.
-  const robloxMark = '<:ia_roblox_white:1575987316537696580>';
-  const discordMark = '<:ia_discord_white:1575987317917622324>';
+  const robloxMark = '<:ia_roblox:1576000861639811192>';
+  const discordMark = '<:ia_discord:1576000703015419994>';
   const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
@@ -175,8 +175,8 @@ function caseCard(kase, extra = {}) {
 function caseReviewCard(kase, extra = {}) {
   const caseUrl = safeUrl(kase.caseLink || kase.docUrl);
   const caseNo = String(kase.caseRef || 'New').replace(/^#/, '');
-  const robloxMark = '<:ia_roblox_white:1575987316537696580>';
-  const discordMark = '<:ia_discord_white:1575987317917622324>';
+  const robloxMark = '<:ia_roblox:1576000861639811192>';
+  const discordMark = '<:ia_discord:1576000703015419994>';
   const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
