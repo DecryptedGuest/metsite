@@ -381,7 +381,7 @@ function startLoading(interaction, label) {
     if (!live) return;
     const frame = e(LOAD_FRAMES[i % LOAD_FRAMES.length]) || '';
     i++;
-    interaction.editReply({ content: `${frame} ${text}…`, embeds: [], components: [] })
+    Promise.resolve().then(() => interaction.editReply({ content: `${frame} ${text}…`, embeds: [], components: [] }))
       .catch(() => { /* the interaction may already have been answered */ });
   };
 
