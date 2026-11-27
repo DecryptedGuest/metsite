@@ -609,7 +609,9 @@ async function handleReviewButton(interaction) {
         ? `<@${fresh.user.discordId}>`
         : (fresh.user?.robloxUsername || fresh.user?.discordUsername || 'the submitter');
       const line = approved
-        ? `${e('met_tick')} **Approved ${fresh.caseRef || ''}.**\n+4 QP awarded to ${submitter}. The IA quota leaderboard has been refreshed.`
+        ? (out.quotaAwarded
+          ? `${e('met_tick')} **Approved ${fresh.caseRef || ''}.**\n+4 QP award queued for ${submitter}. The IA quota leaderboard refresh has been triggered.`
+          : `${e('met_tick')} **Approved ${fresh.caseRef || ''}.**\nThe case was approved, but +4 QP could not be queued because the submitter is not matched to an IA quota account.`)
         : `${e('met_cross')} **Denied ${fresh.caseRef || ''}.** No submitter quota points were awarded.`;
       return interaction.editReply({ content: line, allowedMentions: { parse: [] } });
     }
