@@ -78,12 +78,12 @@ function remainingLabel(expiresAt) {
 }
 
 async function getCurrentPunishments(client, profile) {
-  if (!profile.discord?.id) return [];
+  if (!profile.discord?.id) return null;
   const guildId = process.env.MET_GUILD_ID || '1191048287315304470';
   const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) return [];
+  if (!guild) return null;
   const member = await guild.members.fetch(String(profile.discord.id)).catch(() => null);
-  if (!member) return [];
+  if (!member) return null;
 
   const roleMap = new Map(CURRENT_PUNISHMENT_ACTIONS.map(action => [
     action, roleIdForAction(action),
@@ -99,9 +99,10 @@ async function getCurrentPunishments(client, profile) {
   const recordExpiry = (action, expiresAt) => {
     if (!activeActions.includes(action)) return;
     const date = expiresAt ? new Date(expiresAt) : null;
+    const hasCurrent = expiryByAction.has(action);
     const current = expiryByAction.get(action);
-    // If duplicate live records exist, show the furthest valid expiry.
-    if (!current || (date && (!current || date > current))) expiryByAction.set(action, date);
+    // A permanent live record wins. Otherwise show the furthest valid expiry.
+    if (!hasCurrent || (current !== null && (!date || date > current))) expiryByAction.set(action, date);
   };
 
   try {
@@ -171,7 +172,7 @@ function panelEmbed(profile, selected) {
       { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}**` : 'Not in MET group', inline: true },
       { name: 'IA ACCESS', value: profile.dashboardRole || 'Not set', inline: true },
       { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** - ${profile.iaRank}` : 'Not set', inline: true },
-      { name: 'CURRENT PUNISHMENTS', value: profile.currentPunishments?.length ? profile.currentPunishments.map(p => `- **${p.action}** - ${p.remaining}`).join('\n').slice(0, 1024) : 'No active strikes, Zero Tolerance, Suspension or Activity Strike roles found.', inline: false },
+      { name: 'CURRENT PUNISHMENTS', value: profile.currentPunishments === null ? 'Could not verify current punishments because the officer has no linked MET Discord member.' : profile.currentPunishments.length ? profile.currentPunishments.map(p => `- **${p.action}** - ${p.remaining}`).join('\n').slice(0, 1024) : 'No active strikes, Zero Tolerance, Suspension or Activity Strike roles found.', inline: false },
       { name: 'ACTIONS', value: selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
       { name: 'CASE NUMBER', value: 'Added when submitted', inline: true },
       { name: 'NEXT', value: 'Choose the action(s), then press Continue.', inline: true },
