@@ -146,7 +146,6 @@ function caseCard(kase, extra = {}) {
 
   // The document, when there is one, is the most-clicked thing on the card.
   const caseLink = safeUrl(kase.caseLink || kase.docUrl);
-  if (caseLink) embed.setURL(caseLink);
 
   // WHO, first. A card whose subject you have to hunt for is the main
   // complaint about the old layout.
@@ -158,7 +157,7 @@ function caseCard(kase, extra = {}) {
   // that throws is a case nobody can approve.
   addFields(embed,
     field('Officer', subject),
-    field('Investigator', [kase.investigatorRobloxUsername ? `**${kase.investigatorRobloxUsername}**` : null, kase.investigatorDiscordUsername ? `Discord: ${kase.investigatorDiscordUsername}` : null, null].filter(Boolean).join('\n') || 'Not recorded'),
+    field('Investigator', [kase.investigatorRobloxUsername ? `**${kase.investigatorRobloxUsername}**` : null, kase.investigatorDiscordUsername ? `Discord: ${kase.investigatorDiscordUsername}` : null, kase.investigatorRank ? `IA Rank: ${kase.investigatorRank}` : null].filter(Boolean).join('\n') || 'Not recorded'),
     field('Punishment', punishmentLines(kase.actions, kase.action)),
     field('Reason', kase.reason),
     field('Case file', safeUrl(kase.caseLink || kase.docUrl) ? `[Open case file](${safeUrl(kase.caseLink || kase.docUrl)})` : null),
@@ -598,10 +597,8 @@ async function handleReviewButton(interaction) {
         where: { id: recordId },
         include: { user: { select: { discordId: true, discordUsername: true, robloxUsername: true } } },
       });
-      await interaction.message.edit({
-        embeds: [caseCard(fresh, { decidedBy: actor })], components: [],
-      }).catch(() => {});
-      await applyCaseStatusTag(interaction.channel, fresh.status).catch(() => {});
+      // caseDecision updates the forum starter message and status tag as part of
+      // the decision pipeline, preserving the suspect thumbnail and website link.
       // Both halves of the award, stated, because they differ by decision:
       // an approval pays the submitter and the reviewer, a denial pays only the
       // reviewer.
