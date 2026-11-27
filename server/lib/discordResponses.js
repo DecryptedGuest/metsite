@@ -1,7 +1,5 @@
 // Normalise Discord interaction responses so command output always uses a
 // restrained Metropolitan Police Service embed rather than bare chat text.
-const { EmbedBuilder } = require('discord.js');
-
 const COLOURS = {
   error: 0xb94141,
   success: 0x287a55,
@@ -30,10 +28,11 @@ function toEmbedPayload(payload, method) {
   const embeds = Array.isArray(payload.embeds) ? [...payload.embeds] : [];
   const description = content.length > 4096 ? content.slice(0, 4093) + '...' : content;
   const kind = classify(content);
-  const embed = new EmbedBuilder()
-    .setColor(COLOURS[kind])
-    .setDescription(description)
-    .setFooter({ text: 'Metropolitan Police Service' });
+  const embed = {
+    color: COLOURS[kind],
+    description,
+    footer: { text: 'Metropolitan Police Service' },
+  };
 
   if (method === 'update' && embeds.length) embeds.push(embed);
   else embeds.push(embed);
