@@ -167,6 +167,41 @@ function caseCard(kase, extra = {}) {
 }
 
 /**
+ * Actionable review card. Kept deliberately separate from the permanent forum
+ * log: review cards are yellow, carry the pending state, links and avatar, and
+ * can ping both the reviewer role and the investigator.
+ */
+function caseReviewCard(kase, extra = {}) {
+  const caseUrl = safeUrl(kase.caseLink || kase.docUrl);
+  const caseNo = String(kase.caseRef || 'New').replace(/^#/, '');
+  const robloxMark = '<:ia_roblox_white:1575987316537696580>';
+  const discordMark = '<:ia_discord_white:1575987317917622324>';
+  const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
+  const investigatorDiscord = extra.investigatorDiscordId
+    ? `<@${extra.investigatorDiscordId}>`
+    : (kase.investigatorDiscordUsername ? `@${kase.investigatorDiscordUsername}` : 'Not recorded');
+  const officer = kase.officerDiscordId
+    ? `<@${kase.officerDiscordId}>${kase.robloxUsername ? ` · \`${kase.robloxUsername}\`` : ''}`
+    : (kase.robloxUsername ? `\`${kase.robloxUsername}\`` : 'Not identified');
+  const embed = new EmbedBuilder()
+    .setColor(AMBER)
+    .setTitle(`Case #${caseNo}`)
+    .setDescription(caseUrl ? `[Open case file](${caseUrl})` : 'Case file link unavailable')
+    .setFooter({ text: 'Awaiting review · Internal Affairs' })
+    .setTimestamp(safeDate(kase.createdAt));
+  if (caseUrl) embed.setURL(caseUrl);
+  if (extra.subjectAvatar) embed.setThumbnail(extra.subjectAvatar);
+  addFields(embed,
+    field('Officer', officer),
+    field('Investigator',
+      `${robloxMark} **${investigatorRoblox}**  ${discordMark} Discord: ${investigatorDiscord}`),
+    field('Punishment', punishmentLines(kase.actions, kase.action) || 'None recorded'),
+    field('Reason', kase.reason),
+  );
+  return embed;
+}
+
+/**
  * The ticket card.
  *
  * A reviewer approving this is deciding whether somebody gets paid for it, so
@@ -272,7 +307,7 @@ function ticketCard(ticket, extra = {}) {
  * Never throws: a channel that cannot be posted to is logged and the caller
  * carries on, because losing the record matters more than losing the card.
  */
-async function postCard(client, channelId, embed, components, { ping = false } = {}) {
+async function postCard(client, channelId, embed, components, { ping = false, users = [] } = {}) {
   if (!client || !channelId) return null;
   try {
     const channel = await client.channels.fetch(String(channelId));
@@ -280,7 +315,7 @@ async function postCard(client, channelId, embed, components, { ping = false } =
       content: ping ? reviewerPing() : undefined,
       embeds: [embed],
       components: components ? [components] : [],
-      allowedMentions: ping ? { parse: ['roles'] } : { parse: [] },
+      allowedMentions: { parse: ping ? ['roles'] : [], users: [...new Set((users || []).map(String).filter(Boolean))] },
     });
     return msg.id;
   } catch (err) {
@@ -340,7 +375,7 @@ const postCaseCard = async (client, kase, extra) => {
     // Resolve the filing investigator's Discord id so the log contains a
     // real mention rather than a plain username.
     const investigatorUser = kase.userId
-      ? await require('./db').user.findUnique({ where: { id: kase.userId }, select: { discordId: true } }).catch(() => null)
+      ? await Promise.resolve(require('./db').user.findUnique({ where: { id: kase.userId }, select: { discordId: true } })).catch(() => null)
       : null;
     const forumExtra = { ...extra, investigatorDiscordId: investigatorUser?.discordId || extra?.investigatorDiscordId || null };
     const embed = caseCard(kase, forumExtra);
@@ -368,9 +403,9 @@ const postCaseCard = async (client, kase, extra) => {
   const reviewMessageId = await buildAndPost(
     client,
     reviewChannelId,
-    () => ({ embed: caseCard(kase, extra), components: reviewButtons('case', kase.id) }),
+    () => ({ embed: caseReviewCard(kase, { ...extra, investigatorDiscordId: investigatorUser?.discordId || extra?.investigatorDiscordId || null }), components: reviewButtons('case', kase.id) }),
     'case review',
-    { ping: true },
+    { ping: true, users: [investigatorUser?.discordId, kase.officerDiscordId].filter(Boolean) },
   );
   if (!reviewMessageId) {
     console.error(`[IA] case review card could not be posted to ${reviewChannelId} for ${kase.caseRef}`);
@@ -457,7 +492,7 @@ async function finaliseCard(client, channelId, messageId, embed) {
   }
 }
 
-module.exports = {
+module.exports = { caseReviewCard,
   caseCard, ticketCard, punishmentLines,
   postCaseCard, postTicketCard, postCard, finaliseCard, reviewButtons, applyCaseStatusTag,
   casesChannelId, casesForumChannelId, ticketsChannelId, reviewerRoleId, reviewerPing,
