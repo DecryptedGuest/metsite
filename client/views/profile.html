@@ -47,7 +47,35 @@
   </div>
 </div>
 
-<div class="profile-wrap">
+<div class="app-layout profile-app-layout">
+  <aside class="sidebar profile-sidebar" aria-label="Main navigation">
+    <div class="sidebar-top">
+      <a class="sidebar-brand" href="/profile" aria-label="Metropolitan Police Service home">
+        <div class="brand-logo"><img src="/img/divisions/met.png" alt="" /></div>
+        <div class="brand-text">
+          <div class="brand-name">Metropolitan Police Service</div>
+          <div class="brand-sub">Member account</div>
+        </div>
+      </a>
+      <div class="sidebar-divider"></div>
+      <nav class="sidebar-nav" aria-label="Account">
+        <div class="nav-section-label">Account</div>
+        <a class="nav-item active" href="/profile" aria-current="page"><i class="ti ti-user nav-icon"></i><span>My profile</span></a>
+        <a class="nav-item" href="/tryout"><i class="ti ti-target-arrow nav-icon"></i><span>Tryout</span></a>
+      </nav>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="sidebar-divider"></div>
+      <div class="profile-sidebar-account">
+        <span class="profile-sidebar-account-label">Signed in</span>
+        <form action="/auth/logout" method="POST">
+          <button type="submit" class="profile-sidebar-signout"><i class="ti ti-logout"></i><span>Sign out</span></button>
+        </form>
+      </div>
+    </div>
+  </aside>
+  <main class="main-content profile-main">
+    <div class="profile-wrap">
   <!-- Identity header -->
   <div class="glass profile-hero fade-up">
     <div class="profile-avatar-wrap">
@@ -184,6 +212,9 @@
       </div>
     </div>
   </div>
+</div>
+
+  </main>
 </div>
 
 <div id="toast-container"></div>
