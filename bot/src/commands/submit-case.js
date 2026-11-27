@@ -10,8 +10,8 @@ const { nextCaseRef } = require('../lib/discipline');
 const roblox = require('../lib/roblox');
 
 const data = new SlashCommandBuilder()
-  .setName('submit-case')
-  .setDescription('Submit a disciplinary case document for HR review')
+  .setName('case')
+  .setDescription('Submit an IA disciplinary case for Supervisor+ review')
   .addStringOption(o => o.setName('document').setDescription('Link to the case document').setRequired(true))
   .addStringOption(o => o.setName('punishments')
     .setDescription('Comma-separated punishments').setRequired(true).setAutocomplete(true))
