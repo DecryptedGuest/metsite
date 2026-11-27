@@ -16,7 +16,6 @@ const cards = require('./iaReviewCards');
 const roblox = require('./roblox');
 
 const COLOUR = 0x26384d;
-const TIMED = ACTION_NAMES.filter(isTimed);
 const ACTION_META = {
   'Written Warning': 'AUTO-ROLE · Permanent',
   'Zero Tolerance': 'AUTO-ROLE · Permanent or timed',
@@ -49,44 +48,52 @@ function encodeIndexes(names) {
 function ownerCheck(interaction, ownerId) {
   return String(interaction.user.id) === String(ownerId);
 }
-function panelEmbed(username, selected) {
+function panelEmbed(profile, selected) {
+  const linked = profile.discord
+    ? `<@${profile.discord.id}> · \`${profile.discord.username}\`${profile.discord.inMetServer === false ? ' · Not in MET server' : ''}`
+    : '*No linked Discord account found*';
+  const created = profile.createdAt
+    ? `<t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:D> · <t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:R>`
+    : 'Unavailable';
   const embed = new EmbedBuilder()
     .setColor(COLOUR)
     .setTitle('<:IA:1552764629204205619>  INTERNAL AFFAIRS  /  NEW CASE')
-    .setDescription('**Case builder**\nChoose one or more punishments, then continue to the case details. This panel is private to you.')
+    .setDescription('**OFFICER PROFILE VERIFIED**\nReview the information, select one or more punishments, then continue. This panel is private to you.')
     .addFields(
-      { name: 'OFFICER', value: '`' + String(username).slice(0, 80) + '`', inline: true },
+      { name: 'ROBLOX OFFICER', value: `**${String(profile.displayName || profile.username).slice(0, 80)}**\n[${String(profile.username).slice(0, 60)}](https://www.roblox.com/users/${profile.robloxId}/profile)\nID: \`${profile.robloxId}\``, inline: true },
+      { name: 'ACCOUNT STATUS', value: profile.banned ? 'Banned on Roblox' : 'Not marked as banned', inline: true },
+      { name: 'ACCOUNT CREATED', value: created, inline: true },
+      { name: 'LINKED DISCORD', value: linked, inline: true },
+      { name: 'MET GROUP RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** · Rank ${profile.metGroup.rank}` : 'Not in MET group / unavailable', inline: true },
+      { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** · Rank ${profile.iaRank}` : 'No IA rank on dashboard record', inline: true },
+      { name: 'OTHER GROUPS', value: profile.divisions.length ? profile.divisions.map(g => `• ${g.group.name}: **${g.role.name}** (Rank ${g.role.rank})`).join('\n').slice(0, 1024) : 'No other group memberships found', inline: false },
+      { name: 'PUNISHMENTS SELECTED', value: selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*' },
       { name: 'CASE NUMBER', value: 'Assigned automatically on submission', inline: true },
-      { name: 'PUNISHMENTS SELECTED', value: selected.length ? selected.map(a => '• **' + a + '** — ' + ACTION_META[a]).join('\n').slice(0, 1024) : '*Choose one or more below*' },
-      { name: 'PERMANENCE', value: 'Timed punishments can be made permanent by leaving the duration blank. A duration applies to all timed punishments selected.', inline: false },
+      { name: 'NEXT STEP', value: 'Select punishments below. You can set each timed action to a duration or Permanent in the next step.', inline: true },
     )
-    .setFooter({ text: 'Metropolitan Police Service  ·  Internal Affairs' });
+    .setFooter({ text: 'Metropolitan Police Service · Internal Affairs' });
+  if (profile.avatar) embed.setThumbnail(profile.avatar);
+  if (profile.discord && profile.discord.avatar) embed.setAuthor({ name: `Linked Discord · ${profile.discord.username}`, iconURL: profile.discord.avatar });
   return embed;
 }
-function panelComponents(ownerId, robloxId, username, selected) {
+
+function panelComponents(ownerId, robloxId, selected) {
   const select = new StringSelectMenuBuilder()
     .setCustomId(`casebuilder:pick:${ownerId}:${robloxId}`)
     .setPlaceholder('Select one or more punishments')
     .setMinValues(1)
     .setMaxValues(Math.max(1, ACTION_NAMES.length))
     .addOptions(ACTION_NAMES.map((name, index) => ({
-      label: name,
-      value: String(index),
-      description: ACTION_META[name].slice(0, 100),
-      default: selected.includes(name),
+      label: name, value: String(index), description: ACTION_META[name].slice(0, 100), default: selected.includes(name),
     })));
-  const row = new ActionRowBuilder().addComponents(select);
   const continueButton = new ButtonBuilder()
     .setCustomId(`casebuilder:continue:${ownerId}:${robloxId}:${encodeIndexes(selected)}`)
-    .setLabel('Continue to case details')
-    .setStyle(ButtonStyle.Primary)
-    .setDisabled(!selected.length);
+    .setLabel('Continue to case details').setStyle(ButtonStyle.Primary).setDisabled(!selected.length);
   const cancelButton = new ButtonBuilder()
-    .setCustomId(`casebuilder:cancel:${ownerId}`)
-    .setLabel('Cancel')
-    .setStyle(ButtonStyle.Secondary);
-  return [row, new ActionRowBuilder().addComponents(continueButton, cancelButton)];
+    .setCustomId(`casebuilder:cancel:${ownerId}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary);
+  return [new ActionRowBuilder().addComponents(select), new ActionRowBuilder().addComponents(continueButton, cancelButton)];
 }
+
 function detailsModal(ownerId, robloxId, indexes) {
   const modal = new ModalBuilder()
     .setCustomId(`casebuilder:form:${ownerId}:${robloxId}:${indexes}`)
@@ -124,27 +131,60 @@ function detailsModal(ownerId, robloxId, indexes) {
 
 async function handleSubmitCase(interaction) {
   const username = String(interaction.options.getString('officer') || '').trim();
-  if (!username || /[\s]/.test(username)) {
+  if (!username || /[\\s]/.test(username)) {
     return interaction.reply({ content: `${e('met_denied')} Enter one Roblox username without spaces.`, flags: MessageFlags.Ephemeral });
   }
+  // deferReply triggers Discord's native loading animation while lookups run.
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const auth = await resolveAuthority(interaction);
-  const view = canView(auth);
-  if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
-  if (!auth.userId) {
-    return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case. The case needs a filer account for its audit history.`);
+  try {
+    const auth = await resolveAuthority(interaction);
+    const view = canView(auth);
+    if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
+    if (!auth.userId) return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`);
+
+    await interaction.editReply({ content: '⏳ **Loading officer profile…**\nVerifying Roblox details, group ranks and linked Discord account.', embeds: [], components: [] });
+    const target = await roblox.getRobloxIdFromUsername(username);
+    if (!target) return interaction.editReply(`${e('met_denied')} I couldn't find the Roblox username **${username}**.`);
+
+    const [info, groups, linked] = await Promise.all([
+      roblox.getRobloxUserInfo(target.id),
+      roblox.getUserGroups(target.id).catch(() => []),
+      prisma.user.findFirst({
+        where: { robloxId: String(target.id) },
+        select: { discordId: true, discordUsername: true, discordAvatar: true, role: true, iaRankName: true, iaRank: true },
+      }).catch(() => null),
+    ]);
+    if (!info) return interaction.editReply(`${e('met_warn')} Roblox profile lookup failed. Please try again.`);
+
+    const mainGroupId = String(roblox.mainGroupId());
+    const met = groups.find(g => String(g.group.id) === mainGroupId) || null;
+    let discord = null;
+    if (linked && linked.discordId) {
+      discord = { id: String(linked.discordId), username: linked.discordUsername || 'Linked Discord account', avatar: linked.discordAvatar ? `https://cdn.discordapp.com/avatars/${linked.discordId}/${linked.discordAvatar}.png?size=128` : null };
+      const guildId = process.env.MET_GUILD_ID || '1191048287315304470';
+      const guild = interaction.client.guilds.cache.get(guildId) || await interaction.client.guilds.fetch(guildId).catch(() => null);
+      if (guild) {
+        const member = await guild.members.fetch(discord.id).catch(() => null);
+        if (member) {
+          discord.username = member.user.tag || member.user.username;
+          discord.avatar = member.user.displayAvatarURL({ size: 128 });
+          discord.inMetServer = true;
+        } else discord.inMetServer = false;
+      }
+    }
+    const profile = {
+      robloxId: String(target.id), username: info.username || target.username || username,
+      displayName: info.displayName || info.username || username, createdAt: info.createdAt,
+      banned: !!info.banned, avatar: await roblox.getRobloxAvatarHeadshot(target.id).catch(() => null),
+      divisions: groups.filter(g => String(g.group.id) !== mainGroupId).slice(0, 8),
+      metGroup: met ? { roleName: met.role.name, rank: met.role.rank } : null,
+      discord, iaRankName: linked && linked.iaRankName, iaRank: linked && linked.iaRank,
+    };
+    return interaction.editReply({ content: null, embeds: [panelEmbed(profile, [])], components: panelComponents(interaction.user.id, profile.robloxId, []) });
+  } catch (err) {
+    console.error('[IA] /case profile lookup failed:', err.message);
+    return interaction.editReply(`${e('met_cross')} I couldn't finish loading the officer profile. Please try /case again.`).catch(() => {});
   }
-
-  const target = await roblox.getRobloxIdFromUsername(username);
-  if (!target) return interaction.editReply(`${e('met_denied')} I couldn't find the Roblox username **${username}**. Check the spelling and try again.`);
-
-  const info = await roblox.getRobloxUserInfo(target.id).catch(() => null);
-  const canonicalName = (info && (info.name || info.username)) || target.username || username;
-  await interaction.editReply({
-    embeds: [panelEmbed(canonicalName, [])],
-    components: panelComponents(interaction.user.id, target.id, canonicalName, []),
-    content: null,
-  });
 }
 
 async function handleComponent(interaction) {
@@ -159,14 +199,15 @@ async function handleComponent(interaction) {
   }
   if (action === 'pick') {
     const robloxId = parts[3];
-    const selected = (interaction.values || []).map(String).filter(v => /^\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
-    const member = await roblox.getRobloxUserInfo(robloxId).catch(() => null);
-    const username = member && member.name ? member.name : 'Roblox user';
-    return interaction.update({
-      embeds: [panelEmbed(username, selected)],
-      components: panelComponents(ownerId, robloxId, username, selected),
-    });
+    const selected = (interaction.values || []).map(String).filter(v => /^\\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
+    const current = interaction.message.embeds && interaction.message.embeds[0];
+    if (!current) return interaction.reply({ content: 'This case panel expired. Start /case again.', flags: MessageFlags.Ephemeral });
+    const embed = EmbedBuilder.from(current);
+    const value = selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*';
+    embed.setFields((current.fields || []).map(field => field.name === 'PUNISHMENTS SELECTED' ? { ...field, value } : field));
+    return interaction.update({ embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
   }
+
   if (action === 'continue') {
     const robloxId = parts[3];
     const indexes = parts[4] || '';
