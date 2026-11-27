@@ -137,8 +137,6 @@ async function loadProfile() {
   // ── Mobile-app promo (desktop only) ──
   showAppPromo(data.mobileAppUrl);
 
-  // ── Final exam (eligible cadets only) ──
-  loadExamStatus();
   // ── Upcoming / live tryouts (British citizens) ──
   loadTryouts();
   // ── Active sign-ins / devices ──
@@ -493,35 +491,6 @@ function openPunishment(idx) {
   openModal('modal-punishment');
 }
 window.openPunishment = openPunishment;
-
-async function loadExamStatus() {
-  let s;
-  try { s = await api('/api/exam/my'); } catch (e) { return; }
-  if (!s.eligible) return; // not a cadet — hide the panel entirely
-  document.getElementById('p-exam-panel').style.display = '';
-  const el = document.getElementById('p-exam');
-
-  const latest = s.latest;
-  let html;
-  if (!latest) {
-    html = `<p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px;">You're required to take the Metropolitan Police Final Examination.</p>
-      <a href="/exam" class="btn btn-primary btn-sm"><i class="ti ti-writing"></i> Take Final Exam</a>`;
-  } else if (latest.status === 'PENDING') {
-    html = `<div style="display:flex;align-items:center;gap:10px;"><span class="badge badge-pending"><span class="badge-dot"></span>Awaiting marking</span>
-      <span style="font-size:12px;color:var(--text-muted);">Submitted ${formatDateTime(latest.createdAt)}</span></div>
-      <p style="font-size:12px;color:var(--text-secondary);margin:10px 0 0;">Your exam is with Hendon Police College. You'll see your result here once it's marked.</p>`;
-  } else {
-    const passed = latest.status === 'PASSED';
-    html = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span class="badge ${passed ? 'badge-approved' : 'badge-denied'}"><span class="badge-dot"></span>${passed ? 'Passed' : 'Failed'}</span>
-        <span style="font-size:14px;font-weight:700;">${latest.score}/${latest.maxScore} · ${latest.percentage}%</span>
-        <span style="font-size:12px;color:var(--text-muted);">marked by ${escHtml(latest.markedByName || 'HPC')} · ${formatDate(latest.markedAt)}</span>
-      </div>
-      ${latest.markerNote ? `<p style="font-size:13px;color:var(--text-secondary);margin:10px 0 0;"><strong>Note:</strong> ${escHtml(latest.markerNote)}</p>` : ''}
-      ${!passed && s.canRetake ? `<div style="margin-top:12px;"><a href="/exam" class="btn btn-primary btn-sm"><i class="ti ti-refresh"></i> Retake Exam</a></div>` : ''}`;
-  }
-  el.innerHTML = html;
-}
 
 // Show the "get the mobile app" promo only on desktop/PC (not phones/tablets),
 // and only if the user hasn't dismissed it.
