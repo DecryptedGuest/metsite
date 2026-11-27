@@ -20,36 +20,44 @@ function noticeActions(c) {
 
 /** The notice sent to the subject and posted in the MET server. */
 function buildNoticeEmbed(c, { forDm }) {
-  const subject = c.officerDiscordId ? `<@${c.officerDiscordId}>` : (c.robloxUsername || 'N/A');
+  const subject = c.officerDiscordId
+    ? `<@${c.officerDiscordId}>${c.robloxUsername ? ` (\`${c.robloxUsername}\`)` : ''}`
+    : (c.robloxUsername || 'N/A');
+  const actions = noticeActions(c);
   const duration = (c.actions || [])
     .filter(a => a.durationDays)
     .map(a => `${a.durationDays} day${a.durationDays === 1 ? '' : 's'}`)
     .join(', ') || 'N/A';
-
+  const caseValue = /^https?:\\/\\//i.test(String(c.caseLink || ''))
+    ? `[Open case / evidence](${c.caseLink})`
+    : (c.caseRef || 'N/A');
   const embed = new EmbedBuilder()
-    .setColor(0xf04f5e)
-    .setTitle(`${e('IA')} | MET HR NOTICE`)
+    .setColor(0x24364b)
+    .setAuthor({ name: 'METROPOLITAN POLICE SERVICE · INTERNAL AFFAIRS', iconURL: 'https://metia.uk/media/880b6a85-064d-4c5a-a36f-c3d1fc8e7569' })
+    .setTitle(`${e('IA')} Administrative Action · ${c.caseRef || 'Case'}`)
     .addFields(
-      { name: 'HR', value: c.reviewedBy ? `<@${c.reviewedBy}>` : 'N/A', inline: false },
-      { name: 'Member', value: subject, inline: false },
-      { name: 'Reason', value: c.reason || 'N/A', inline: false },
-      { name: 'Action', value: noticeActions(c), inline: false },
-      { name: 'Duration', value: duration, inline: false },
-      { name: 'Proof', value: c.caseLink || 'N/A', inline: false },
+      { name: 'HR', value: c.reviewedBy ? `<@${c.reviewedBy}>` : 'N/A', inline: true },
+      { name: 'USER', value: subject, inline: true },
+      { name: 'ACTION', value: actions.slice(0, 1024), inline: false },
+      { name: 'REASON', value: String(c.reason || 'N/A').slice(0, 1024), inline: false },
+      { name: 'CASE', value: caseValue, inline: false },
+      { name: 'DURATION', value: duration, inline: true },
+      { name: 'APPEALS', value: 'Contact Internal Affairs through <#1400148940560797846>.', inline: false },
     )
-    .setFooter({ text: `MET Internal Affairs · ${c.caseRef || 'Notice'}` })
+    .setFooter({ text: 'Metropolitan Police Service · Internal Affairs' })
     .setTimestamp();
-
-  if (forDm) {
-    embed.setDescription(
-      `A disciplinary action has been approved for your account. If you think this is wrong, contact Internal Affairs.`);
+  if (c.notes && c.notes !== 'N/A') {
+    embed.addFields({ name: 'NOTES', value: String(c.notes).slice(0, 1024), inline: false });
   }
   if (c.blacklistCode) {
     embed.addFields({
-      name: 'Blacklist code',
-      value: `\\`${c.blacklistCode}\\`${c.blacklistReason ? ` · ${c.blacklistReason}` : ''}`,
+      name: 'BLACKLIST CODE',
+      value: `\`${c.blacklistCode}\`${c.blacklistReason ? ` · ${c.blacklistReason}` : ''}`.slice(0, 1024),
       inline: false,
     });
+  }
+  if (forDm) {
+    embed.setDescription('A disciplinary action has been approved for your account. If you believe this is incorrect, contact Internal Affairs through the appeal channel.');
   }
   return embed;
 }
