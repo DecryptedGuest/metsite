@@ -149,6 +149,7 @@ const bot = {
 
 // ── Interactions ──────────────────────────────────────────────────
 client.on('interactionCreate', async (interaction) => {
+  require('../../server/lib/discordResponses').installEmbedResponses(interaction);
   try {
     if (interaction.isAutocomplete()) {
       const cmd = client.commands.get(interaction.commandName);
