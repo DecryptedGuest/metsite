@@ -95,11 +95,11 @@ function metSidebarIdentity(identity, currentDivision, mine) {
   const initials = metInitials(nick);
   const profileAccount = sidebar.querySelector('.profile-sidebar-account');
   const identityCard = `
-    <div class="met-sidebar-identity" style="display:flex;align-items:center;gap:10px;min-width:0;padding:12px 14px 10px;">
+    <div class="met-sidebar-identity" style="display:flex;align-items:center;gap:10px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:10px 12px;">
       ${avatar
         ? `<img src="${metEsc(avatar)}" alt="" style="width:36px;height:36px;flex:0 0 36px;border-radius:50%;object-fit:cover;border:1px solid var(--border-dim);" />`
         : `<span aria-hidden="true" style="width:36px;height:36px;flex:0 0 36px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2,rgba(127,140,155,.16));color:var(--text-primary);font-size:13px;font-weight:650;">${metEsc(initials)}</span>`}
-      <span style="display:block;min-width:0;overflow:hidden;">
+      <span style="display:block;flex:1 1 0;width:0;max-width:100%;min-width:0;overflow:hidden;">
         <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);font-size:12px;font-weight:650;" title="${metEsc(nick)}">${metEsc(nick)}</span>
         <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:10px;margin-top:3px;">${metEsc(rankName || (d.robloxUsername ? '@' + d.robloxUsername : d.discordUsername || 'Signed in'))}</span>
       </span>
