@@ -1449,8 +1449,8 @@ app.get('/n/ticket-dm', async (req, res) => {
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/apply', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'apply.html')));
-app.get('/hpc/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => sendPage(res, path.join(views, 'met-applications.html')));
-app.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/applications'));
+app.get('/hpc/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/dashboard?view=applications'));
+app.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/dashboard?view=applications'));
 
 // Leave of Absence — any signed-in member requests; reviewers see a queue.
 
@@ -1459,9 +1459,8 @@ app.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC')
 // only a signed-in device can approve.
 app.get('/link/approve', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'link-approve.html')));
 
-// Final Examination — any signed-in officer; the page itself gates on
-// eligibility (the HPC final-exam Discord role) via /api/exam/my.
-app.get('/exam', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'exam.html')));
+// The retired final-exam page is no longer served.
+app.get('/exam', recordVisit, requireAuth, (req, res) => res.redirect('/dashboard'));
 
 // Support help desk — any signed-in user (community members open tickets;
 // staff see a queue for the types they handle). One page serves both.
