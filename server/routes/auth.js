@@ -134,7 +134,9 @@ router.get('/discord', (req, res) => {
   // Without it, an attacker's captured `code` can be replayed to sign a victim
   // into the ATTACKER's account (OAuth login CSRF). Mirrors the Roblox flow.
   const state = b64url(crypto.randomBytes(16));
-  const stateToken = jwt.sign({ state }, process.env.JWT_SECRET, { expiresIn: '10m' });
+  // Only allow known local destinations. Never accept an arbitrary return URL.
+  const returnTo = req.query.returnTo === '/apply' ? '/apply' : '/dashboard';
+  const stateToken = jwt.sign({ state, returnTo }, process.env.JWT_SECRET, { expiresIn: '10m' });
   res.cookie('discord_oauth', stateToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 10 * 60 * 1000 });
   const params = new URLSearchParams({
     client_id:     process.env.DISCORD_CLIENT_ID,
@@ -481,7 +483,7 @@ router.get('/discord/callback', async (req, res) => {
     }
 
     // ── Step 6: Create the server-side session + cookie, then redirect ──
-    return establishSession(req, res, user);
+    return establishSession(req, res, user, savedState.returnTo === '/apply' ? '/apply' : '/dashboard');
 
   } catch (err) {
     console.error('[Auth] Unhandled error in OAuth callback:', err.stack || err.message);
@@ -494,7 +496,7 @@ router.get('/discord/callback', async (req, res) => {
 // cookie and does new-device/IP/audit WITHOUT redirecting, so XHR flows (the
 // "try another way" options) can set the cookie then return JSON. createSession
 // THROWS on session-create failure so each caller handles it its own way.
-async function establishSession(req, res, user) {
+async function establishSession(req, res, user, returnTo = '/dashboard') {
   // Advanced alt detection + VPN blocking (developer-toggleable, fails open).
   try {
     const { getClientIp } = require('../middleware/visit');
@@ -515,7 +517,7 @@ async function establishSession(req, res, user) {
   try { await createSession(req, res, user); }
   catch (e) { return serverErr(res, e); }
   console.log('[Auth] Login complete, redirecting to dashboard');
-  res.redirect('/dashboard');
+  res.redirect(returnTo === '/apply' ? '/apply' : '/dashboard');
 }
 
 async function createSession(req, res, user) {
