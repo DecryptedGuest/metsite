@@ -672,7 +672,7 @@ async function loadPasskeys() {
   const list = data.passkeys || [];
   if (!list.length) {
     el.innerHTML = window.metEmpty
-      ? window.metEmpty({ icon: 'ti-fingerprint', title: 'No passkeys yet', sub: 'Add one to enable step-up verification.', cta: 'Add a passkey', ctaIcon: 'ti-fingerprint', onclick: 'addPasskey()' })
+      ? window.metEmpty({ icon: 'ti-fingerprint', title: 'No passkeys yet', sub: 'Add one to enable step-up verification.' })
       : '<div class="table-empty-text">No passkeys yet. Add one to enable step-up verification.</div>';
     return;
   }
