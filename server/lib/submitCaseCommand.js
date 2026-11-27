@@ -247,7 +247,7 @@ async function handleSubmitCase(interaction) {
     const auth = await resolveAuthority(interaction);
     const view = canView(auth);
     if (!view.allowed) { loading.stop(); return interaction.editReply(`${e('met_denied')} ${view.reason}`); }
-    if (!auth.userId) { loading.stop(); return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`); }
+    if (!auth.userId) { loading.stop(); return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once before filing a case: https://slrmet.com/auth/discord`); }
 
     loading.update('Verifying Roblox details, group ranks and linked Discord account');
     const target = await roblox.getRobloxIdFromUsername(username);
