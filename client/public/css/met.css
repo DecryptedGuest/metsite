@@ -376,3 +376,11 @@ body:has(.signin-wrap) .bg-canvas { display:none !important; }
 .try-another-btn { color:var(--ink-muted) !important; }
 .alt-method { background:var(--surface) !important; border-color:var(--line) !important; color:var(--ink) !important; border-radius:5px !important; }
 .alt-method i { color:var(--accent-strong) !important; }
+
+/* Keep rank and coloured metric chrome out of the navigation shell. */
+.user-role-badge,.sidebar-rank,.rank-label,.rank-chip,.high-rank-label { display:none !important; }
+.stat-card.blue .stat-icon,.stat-card.green .stat-icon,.stat-card.amber .stat-icon,.stat-card.red .stat-icon,.stat-card.purple .stat-icon {
+  background:var(--surface-alt) !important; color:var(--ink-soft) !important; box-shadow:none !important;
+}
+.stat-bar { background:var(--line-strong) !important; box-shadow:none !important; }
+.panel-accent,.status-dot::before,.status-indicator::before,.online-indicator::before,.live-indicator::before { display:none !important; content:none !important; }
