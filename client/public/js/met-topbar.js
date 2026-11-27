@@ -174,19 +174,48 @@ if (typeof document !== 'undefined' && !window.metTour && !document.getElementBy
   document.head.appendChild(_tourScript);
 }
 
-// ── Breadcrumb: "Division › Section" in the topbar ─────────────────────────
-// The Section tracks the active sidebar nav item live (dashboards toggle the
-// .active class on nav-items when switching pages), via a MutationObserver.
-// Add a consistent route back to the main MET home page on every division shell.
+// ── Back navigation: dashboard tabs are recorded as browser-history entries.
 function metInjectHomeLink() {
   const nav = document.querySelector('.app-layout .sidebar .sidebar-nav');
-  if (!nav || nav.querySelector('.met-home-link')) return;
-  const home = document.createElement('a');
-  home.href = '/';
-  home.className = 'nav-item met-home-link';
-  home.setAttribute('aria-label', 'Return to MET home page');
-  home.innerHTML = '<i class="ti ti-home nav-icon" aria-hidden="true"></i><span>Home</span>';
-  nav.insertBefore(home, nav.firstChild);
+  if (!nav || nav.querySelector('.met-back-link')) return;
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'nav-item met-back-link';
+  back.setAttribute('aria-label', 'Go back to the previous page or tab');
+  back.innerHTML = '<i class="ti ti-arrow-left nav-icon" aria-hidden="true"></i><span>Back</span>';
+  back.addEventListener('click', () => {
+    const ref = document.referrer;
+    let sameSiteReferrer = false;
+    try { sameSiteReferrer = !!ref && new URL(ref).origin === location.origin; } catch (e) {}
+    if (sameSiteReferrer && history.length > 1) history.back();
+    else location.assign('/profile');
+  });
+  nav.insertBefore(back, nav.firstChild);
+}
+
+function metInitSidebarHistory() {
+  const nav = document.querySelector('.app-layout .sidebar .sidebar-nav');
+  if (!nav || nav.dataset.historyReady === '1') return;
+  nav.dataset.historyReady = '1';
+  const marker = 'metDivisionTab';
+  const active = nav.querySelector('.nav-item[data-page].active');
+  const initialPage = active ? active.dataset.page : 'dashboard';
+  history.replaceState({ ...(history.state || {}), [marker]: true, page: initialPage }, '', location.href);
+  let restoring = false;
+  nav.addEventListener('click', (event) => {
+    const button = event.target.closest('.nav-item[data-page]');
+    if (!button || restoring) return;
+    history.pushState({ ...(history.state || {}), [marker]: true, page: button.dataset.page }, '', location.href);
+  }, true);
+  window.addEventListener('popstate', (event) => {
+    const state = event.state;
+    if (!state || !state[marker] || !state.page) return;
+    const button = nav.querySelector('.nav-item[data-page="' + CSS.escape(state.page) + '"]');
+    if (!button) return;
+    restoring = true;
+    button.click();
+    restoring = false;
+  });
 }
 
 function metInjectBreadcrumb(currentDivision) {
@@ -379,6 +408,7 @@ async function initMetTopbar(currentDivision) {
   // Breadcrumb (Division › Section), mobile nav drawer + back-to-top — injected
   // centrally so every dashboard gets them without per-view markup.
   try { metInjectHomeLink(); } catch (e) {}
+  try { metInitSidebarHistory(); } catch (e) {}
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
   try { metInjectMobileNav(myDivisions, currentDivision); } catch (e) {}
@@ -431,25 +461,6 @@ async function initMetTopbar(currentDivision) {
       });
       const allHrefs = GROUPS.reduce((a, g) => a.concat(g.items.reduce((b, it) => b.concat(it.match || [it.href]), [])), []);
       if (allHrefs.indexOf(HERE) >= 0) markHere(pBtn);
-
-      // Search (⌘K / Ctrl-K) — the leftmost control in the group. Always shown;
-      // if the command palette isn't loaded on this page yet, it's fetched on
-      // demand so search works everywhere.
-      if (!document.getElementById('met-cmdk-btn')) {
-        const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-        const sBtn = document.createElement('button');
-        sBtn.id = 'met-cmdk-btn';
-        sBtn.className = 'btn btn-ghost btn-sm';
-        sBtn.title = 'Search (' + (isMac ? '⌘K' : 'Ctrl + K') + ')';
-        sBtn.innerHTML = `<i class="ti ti-search"></i> <span style="margin:0 2px;">Search</span> <span class="cmdk-kbd" style="opacity:.6;font-size:11px;">${isMac ? '⌘K' : 'Ctrl + K'}</span>`;
-        sBtn.addEventListener('click', function () {
-          if (typeof window.openCommandPalette === 'function') return window.openCommandPalette();
-          const s = document.createElement('script'); s.src = '/js/command-palette.js';
-          s.onload = function () { if (typeof window.openCommandPalette === 'function') window.openCommandPalette(); };
-          document.head.appendChild(s);
-        });
-        right.insertBefore(sBtn, right.firstChild);
-      }
 
       // Dashboard "home" button — a persistent, obvious way back to your own
       // dashboard from anywhere. Kept as the leftmost top-level control (not buried
