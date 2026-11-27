@@ -19,14 +19,19 @@ const QUESTIONS = {
   q10: { type: 'agreement' },
 };
 
-async function isGroupMember(robloxId) {
-  if (!robloxId) return false;
+async function groupMembership(user) {
+  if (!user || !user.robloxId) return { member: false, available: false };
+  // This is a previously resolved natural Roblox group rank, not a site-only override.
+  if (user.metRankNatural && user.metRankNatural.name) return { member: true, available: true, source: 'account' };
   try {
-    const { getUserGroupRole } = require('../lib/roblox');
-    return !!(await getUserGroupRole(String(robloxId), GROUP_ID));
+    const { getUserGroupRoles } = require('../lib/roblox');
+    const diag = {};
+    const roles = await getUserGroupRoles(String(user.robloxId), GROUP_ID, diag);
+    if (diag.failed) return { member: null, available: false };
+    return { member: Array.isArray(roles) && roles.length > 0, available: true, source: 'roblox' };
   } catch (e) {
     console.warn('[MET application] group membership check unavailable:', e.message);
-    return false;
+    return { member: null, available: false };
   }
 }
 
@@ -50,8 +55,8 @@ router.get('/meta', async (req, res) => {
         groupUrl: GROUP_URL,
       });
     }
-    const [member, existing] = await Promise.all([
-      isGroupMember(user.robloxId),
+    const [membership, existing] = await Promise.all([
+      groupMembership(user),
       prisma.metApplication.findFirst({
         where: { applicantId: user.id, status: 'SUBMITTED' },
         select: { appRef: true, submittedAt: true, status: true },
@@ -60,12 +65,13 @@ router.get('/meta', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({
       canApply: !existing,
-      isMember: member,
+      isMember: membership.member,
+      membershipCheckAvailable: membership.available,
       groupUrl: GROUP_URL,
       pendingRequestCheckAvailable: false,
       existing,
       robloxUsername: user.robloxUsername || null,
-      groupStepRequired: !member,
+      groupStepRequired: membership.member !== true,
     });
   } catch (e) {
     console.error('[MET application] meta error:', e.message);
@@ -104,7 +110,8 @@ router.post('/submit', async (req, res) => {
       }
     }
 
-    const member = await isGroupMember(user.robloxId);
+    const membership = await groupMembership(user);
+    const member = membership.member === true;
     const groupRequestConfirmed = req.body.groupRequestConfirmed === true;
     if (!member && !groupRequestConfirmed) {
       return res.status(400).json({ error: 'Request to join the Roblox group first, then confirm that you have sent the request.' });
