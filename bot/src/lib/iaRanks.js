@@ -41,8 +41,8 @@ const APPROVAL_MIN = {
   'Zero Tolerance':        RANK_INDEX.ADIR,
   'Suspension':            RANK_INDEX.ADIR,
   'Demotion':              RANK_INDEX.DDIR,
-  'Termination':           RANK_INDEX.DIR,
-  'Blacklist':             RANK_INDEX.DIR,
+  'Termination':           RANK_INDEX.ADIR,
+  'Blacklist':             RANK_INDEX.ADIR,
 };
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -64,6 +64,12 @@ function rankOf(member) {
       return n === wantName || n === wantAbbr || n === norm(rank.key);
     });
     if (found) best = rank;
+  }
+  // This explicitly assigned IA review role is Supervisor-equivalent, not ADIR.
+  const reviewRoleId = env('IA_REVIEW_ROLE_ID', '1574841102169669693');
+  if (reviewRoleId && member.roles?.cache?.has(reviewRoleId)
+      && (!best || RANK_INDEX[best.key] < RANK_INDEX.SPVR)) {
+    best = IA_RANKS[RANK_INDEX.SPVR];
   }
   return best;
 }
