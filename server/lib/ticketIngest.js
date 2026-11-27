@@ -1299,6 +1299,32 @@ async function awardTicketQuota(ticket) {
   return true;
 }
 
+// Catch tickets whose investigator identity was resolved after the close log
+// arrived. Only rows from the active ingest period are eligible; the unique
+// quota-award reference prevents a second credit if a worker runs twice.
+async function awardRecentlyResolvedTickets(limit = 500) {
+  const line = await cardingStartedAt();
+  const rows = await prisma.ticketLog.findMany({
+    where: { status: 'APPROVED', voidedAt: null, closerIsIa: true, closedAt: { gte: line } },
+    orderBy: { closedAt: 'desc' },
+    take: limit,
+    select: { id: true, ticketRef: true, ticketName: true, ticketNo: true, closerUserId: true, closerDiscordId: true, closerIsIa: true },
+  }).catch(() => []);
+  if (!rows.length) return 0;
+  const existing = await prisma.quotaAward.findMany({
+    where: { refType: 'ticket', refId: { in: rows.map(row => row.id) } },
+    select: { refId: true },
+  }).catch(() => []);
+  const alreadyQueued = new Set(existing.map(row => row.refId));
+  let queued = 0;
+  for (const row of rows) {
+    if (alreadyQueued.has(row.id)) continue;
+    if (await awardTicketQuota(row)) queued++;
+  }
+  if (queued) console.log(`[TicketLogs] queued ${queued} newly identified investigator quota awards`);
+  return queued;
+}
+
 // Convert the existing pending queue to the new automatic-approval policy.
 // Existing cards are edited in place and lose their approve/deny buttons.
 async function autoApprovePendingTickets(client, limit = 250) {
@@ -2001,6 +2027,8 @@ async function repairOnce(client) {
 function startTicketLogWorker(client) {
   setTimeout(() => autoApprovePendingTickets(client).catch(err => console.warn('[TicketLogs] auto-approval migration failed:', err.message)), 5000);
   setInterval(() => autoApprovePendingTickets(client).catch(err => console.warn('[TicketLogs] auto-approval migration failed:', err.message)), 30 * 1000);
+  setTimeout(() => awardRecentlyResolvedTickets().catch(err => console.warn('[TicketLogs] late quota award sweep failed:', err.message)), 20000);
+  setInterval(() => awardRecentlyResolvedTickets().catch(err => console.warn('[TicketLogs] late quota award sweep failed:', err.message)), 60 * 1000);
   // First sweep once the gateway has had time to connect, then every 5 minutes
   // as a safety net behind the live messageCreate handler.
   setTimeout(() => { sweep(client).catch(() => {}); }, 25 * 1000);
@@ -2027,7 +2055,7 @@ module.exports = {
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
   queueCard, retryMissingCards, refreshStaleCards, removeStaleCards, cardingStartedAt, worthCarding,
-  autoApprovePendingTickets, awardTicketQuota,
+  autoApprovePendingTickets, awardTicketQuota, awardRecentlyResolvedTickets,
   cardTicketsSince,
   refreshCloserIsIa,
   voidNonCloseRows,
