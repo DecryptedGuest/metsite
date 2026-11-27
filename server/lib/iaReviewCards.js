@@ -369,6 +369,7 @@ async function buildAndPost(client, channelId, build, what, options = {}) {
 const postCaseCard = async (client, kase, extra) => {
   if (!client) return null;
   let forumThreadId = null;
+  let investigatorDiscordId = extra?.investigatorDiscordId || null;
   try {
     // Permanent, read-only case log: no reviewer ping and no components.
     const forum = await client.channels.fetch(String(casesForumChannelId()));
@@ -377,7 +378,8 @@ const postCaseCard = async (client, kase, extra) => {
     const investigatorUser = kase.userId
       ? await Promise.resolve(require('./db').user.findUnique({ where: { id: kase.userId }, select: { discordId: true } })).catch(() => null)
       : null;
-    const forumExtra = { ...extra, investigatorDiscordId: investigatorUser?.discordId || extra?.investigatorDiscordId || null };
+    investigatorDiscordId = investigatorUser?.discordId || investigatorDiscordId;
+    const forumExtra = { ...extra, investigatorDiscordId };
     const embed = caseCard(kase, forumExtra);
     const ref = String(kase.caseRef || 'New').replace(/^#?/, '#');
     const title = `Case ${ref} - ${trim(kase.robloxUsername || 'Unknown officer', 70)}`;
@@ -388,7 +390,7 @@ const postCaseCard = async (client, kase, extra) => {
         content: caseUrl || '',
         embeds: [embed],
         components: [],
-        allowedMentions: { parse: [], users: investigatorUser?.discordId ? [String(investigatorUser.discordId)] : [] },
+        allowedMentions: { parse: [], users: investigatorDiscordId ? [String(investigatorDiscordId)] : [] },
       },
     });
     forumThreadId = thread.id;
@@ -403,9 +405,9 @@ const postCaseCard = async (client, kase, extra) => {
   const reviewMessageId = await buildAndPost(
     client,
     reviewChannelId,
-    () => ({ embed: caseReviewCard(kase, { ...extra, investigatorDiscordId: investigatorUser?.discordId || extra?.investigatorDiscordId || null }), components: reviewButtons('case', kase.id) }),
+    () => ({ embed: caseReviewCard(kase, { ...extra, investigatorDiscordId }), components: reviewButtons('case', kase.id) }),
     'case review',
-    { ping: true, users: [investigatorUser?.discordId, kase.officerDiscordId].filter(Boolean) },
+    { ping: true, users: [investigatorDiscordId, kase.officerDiscordId].filter(Boolean) },
   );
   if (!reviewMessageId) {
     console.error(`[IA] case review card could not be posted to ${reviewChannelId} for ${kase.caseRef}`);
