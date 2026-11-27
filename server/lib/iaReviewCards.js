@@ -39,7 +39,7 @@ const RED   = 0xf04f5e;   // denied
 // case-sensitive on Linux, so a var set with that lower-case "i" never matched
 // the lookup and the ping silently did nothing.
 const casesChannelId   = () =>
-  process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1574841103042093224';
+  process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1574841103042093225';
 const ticketsChannelId = () =>
   process.env.IA_TICKET_CLOSED_CHANNEL_ID || process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1574841102836699252';
 const reviewerRoleId   = () =>
@@ -355,9 +355,30 @@ async function buildAndPost(client, channelId, build, what, options = {}) {
   return postCard(client, channelId, embed, components, { ping: options.ping === true });
 }
 
-const postCaseCard = (client, kase, extra) =>
-  buildAndPost(client, casesChannelId(),
-    () => ({ embed: caseCard(kase, extra), components: reviewButtons('case', kase.id) }), 'case', { ping: true });
+const postCaseCard = async (client, kase, extra) => {
+  const channelId = casesChannelId();
+  if (!client || !channelId) return null;
+  try {
+    const forum = await client.channels.fetch(String(channelId));
+    const embed = caseCard(kase, extra);
+    const tags = caseStatusTag(forum, kase.status || 'PENDING');
+    const title = `Case ${kase.caseRef || 'New'} - ${trim(kase.robloxUsername || 'Officer review', 70)}`;
+    const thread = await forum.threads.create({
+      name: title.slice(0, 100),
+      message: {
+        embeds: [embed],
+        components: [reviewButtons('case', kase.id)],
+        allowedMentions: { parse: [] },
+      },
+      ...(tags.length ? { appliedTags: tags } : {}),
+    });
+    console.log(`[IA] case forum thread created for ${kase.caseRef} in ${channelId} (${thread.id})`);
+    return thread.id;
+  } catch (err) {
+    console.error(`[IA] could not create case forum post in ${channelId}: ${err.message}`);
+    return null;
+  }
+};
 
 /**
  * A link discord.js will actually accept, or null.
@@ -387,9 +408,46 @@ const postTicketCard = (client, ticket, extra) =>
     () => ({ embed: ticketCard(ticket, extra), components: ticketComponents(ticket) }), 'ticket', { ping: false });
 
 /** Rewrite a card in place once it has been decided, and take the buttons away. */
+function caseStatusTag(channel, status) {
+  const state = String(status || '').toUpperCase();
+  const tags = channel && channel.availableTags || [];
+  const match = state === 'APPROVED'
+    ? tags.find(t => /approved|accepted/i.test(t.name))
+    : state === 'DENIED'
+      ? tags.find(t => /denied|rejected/i.test(t.name))
+      : tags.find(t => /pending|awaiting|under review|review/i.test(t.name));
+  return match ? [match.id] : [];
+}
+
+async function applyCaseStatusTag(thread, status) {
+  if (!thread || typeof thread.setAppliedTags !== 'function') return false;
+  try {
+    const parent = thread.parent || await thread.guild.channels.fetch(thread.parentId).catch(() => null);
+    const tags = caseStatusTag(parent, status);
+    if (!tags.length) {
+      console.warn(`[IA] no forum tag configured for case status ${status}`);
+      return false;
+    }
+    await thread.setAppliedTags(tags);
+    return true;
+  } catch (err) {
+    console.warn(`[IA] could not update forum tag for ${thread.id}: ${err.message}`);
+    return false;
+  }
+}
+
 async function finaliseCard(client, channelId, messageId, embed) {
   if (!client || !channelId || !messageId) return false;
   try {
+    if (String(channelId) === String(casesChannelId())) {
+      const thread = await client.channels.fetch(String(messageId));
+      const msg = await thread.fetchStarterMessage();
+      await msg.edit({ embeds: [embed], components: [] });
+      const footer = embed.data?.footer?.text || '';
+      const status = /^Approved/i.test(footer) ? 'APPROVED' : /^Denied/i.test(footer) ? 'DENIED' : 'PENDING';
+      await applyCaseStatusTag(thread, status);
+      return true;
+    }
     const channel = await client.channels.fetch(String(channelId));
     const msg = await channel.messages.fetch(String(messageId));
     await msg.edit({ embeds: [embed], components: [] });
@@ -402,7 +460,7 @@ async function finaliseCard(client, channelId, messageId, embed) {
 
 module.exports = {
   caseCard, ticketCard, punishmentLines,
-  postCaseCard, postTicketCard, postCard, finaliseCard, reviewButtons,
+  postCaseCard, postTicketCard, postCard, finaliseCard, reviewButtons, applyCaseStatusTag,
   casesChannelId, ticketsChannelId, reviewerRoleId, reviewerPing,
 };
 
