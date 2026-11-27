@@ -12,7 +12,7 @@ function tierOf(member) {
   const has = (id) => id && member.roles?.cache?.has(id);
   if (has(env('DEVELOPER_ROLE_ID'))) return TIER.DEVELOPER;
   if (has(env('ROLE_HICOMM')))       return TIER.HICOMM;
-  if (has(env('ROLE_SUPERVISOR')))   return TIER.SUPERVISOR;
+  if (has(env('ROLE_SUPERVISOR')) || has(env('IA_REVIEW_ROLE_ID', '1574841102169669693'))) return TIER.SUPERVISOR;
   if (has(env('ROLE_IA')))           return TIER.IA;
   return TIER.NONE;
 }
