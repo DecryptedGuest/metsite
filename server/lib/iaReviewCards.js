@@ -172,7 +172,10 @@ function caseCard(kase, extra = {}) {
 
   const filer = actorName(extra.filer) || kase.reviewedByRaw || null;
   if (filer) {
-    embed.setAuthor({ name: trim(`Filed by ${filer}`, 256), iconURL: extra.filer?.avatarURL || undefined });
+    const author = { name: trim(`Filed by ${filer}`, 256) };
+    const filerAvatar = safeUrl(extra.filer?.avatarURL);
+    if (filerAvatar) author.iconURL = filerAvatar;
+    embed.setAuthor(author);
   }
 
   const decided = actorName(extra.decidedBy);
@@ -180,10 +183,10 @@ function caseCard(kase, extra = {}) {
     text: status === 'PENDING'
       ? `${state} · Internal Affairs`
       : `${state}${decided ? ` by ${decided}` : ''} · Internal Affairs`,
-    iconURL: extra.decidedBy?.avatarURL || undefined,
   });
 
-  if (extra.subjectAvatar) embed.setThumbnail(extra.subjectAvatar);
+  const subjectAvatar = safeUrl(extra.subjectAvatar);
+  if (subjectAvatar) embed.setThumbnail(subjectAvatar);
   return embed;
 }
 
@@ -343,8 +346,12 @@ async function buildAndPost(client, channelId, build, what) {
   try {
     ({ embed, components } = build());
   } catch (err) {
-    console.error(`[IA] could not BUILD the ${what} card · ${err.message}`
-      + ' · the record is stored; this is a card-rendering fault, not a lost record');
+    console.error(`[IA] could not BUILD the ${what} card`, err);
+    console.error(`[IA] ${what} card context`, {
+      channelId, recordId: build.recordId || null,
+      errorName: err && err.name, errorMessage: err && err.message,
+      errors: err && err.errors,
+    });
     return null;
   }
   return postCard(client, channelId, embed, components, { ping: true });
