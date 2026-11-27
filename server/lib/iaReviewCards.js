@@ -353,6 +353,7 @@ const postCaseCard = async (client, kase, extra) => {
       },
     });
     forumThreadId = thread.id;
+    await applyCaseStatusTag(thread, kase.status || 'PENDING');
     console.log(`[IA] read-only case forum log created for ${kase.caseRef} in ${casesForumChannelId()} (${thread.id})`);
   } catch (err) {
     console.error(`[IA] could not create read-only case forum log in ${casesForumChannelId()}: ${err.message}`);
