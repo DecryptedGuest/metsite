@@ -37,7 +37,7 @@ const QUESTIONS = [
   { id:'motivation3', section:'Motivation and Commitment', label:'How would you contribute to improving CID activity and professionalism?', required:true, max:3000 },
   { id:'motivation4', section:'Motivation and Commitment', label:'How would you react if a supervisor corrected your behaviour or performance during a patrol?', required:true, max:3000 },
   { id:'motivation5', section:'Motivation and Commitment', label:'Are you willing to follow CID leadership instructions and maintain division activity standards?', required:true, max:3000 },
-  { id:'declaration', section:'Declaration', label:'I confirm that all information is truthful; I understand submission does not guarantee acceptance; I agree to follow MET regulations and the CID Handbook; I understand successful applicants complete a supervised patrol period; I understand my activity, professionalism, communication and roleplay will be evaluated; and I understand failure to meet CID standards may result in rejection.', required:true, type:'agreement' },
+  { id:'declaration', section:'Declaration', label:'Confirm each statement below', required:true, type:'agreement' },
 ];
 const DECLARATION = [
   'All information provided is truthful.',
@@ -108,7 +108,7 @@ async function requireCidAdmin(req,res,next) {
 async function settings() {
   return prisma.cidApplicationSettings.upsert({where:{id:'default'},create:{id:'default',isOpen:false},update:{}});
 }
-function integrityFlags(answers) {
+function integrityFlags(answers, telemetry) {
   const values=Object.entries(answers||{}).filter(([k,v])=>k!=='declaration' && typeof v==='string' && v.trim());
   const flags=[];
   const normalized=values.map(([id,v])=>({id,text:v.trim().toLowerCase().replace(/\s+/g,' ')}));
@@ -159,7 +159,7 @@ router.post('/submit',async(req,res)=>{
       appRef:nextRef(count+1),applicantId:req.user.id,discordId:req.user.discordId,
       discordUsername:req.user.discordUsername||null,robloxId:String(req.user.robloxId),
       robloxUsername:String(answers.roblox||req.user.robloxUsername||'').trim(),
-      answers,context:check,flags:integrityFlags(answers),status:'SUBMITTED',
+      answers,context:check,flags:integrityFlags(answers,req.body&&req.body.telemetry),status:'SUBMITTED',
     }});
     require('../lib/audit').record({req,action:'CID_APPLICATION_SUBMITTED',category:'recruitment',targetType:'cid_application',targetId:row.id,summary:'Submitted CID application '+row.appRef}).catch(()=>{});
     res.status(201).json({ok:true,appRef:row.appRef});
@@ -184,8 +184,11 @@ router.post('/admin/state',requireCidAdmin,async(req,res)=>{
 });
 router.patch('/admin/:id',requireCidAdmin,async(req,res)=>{
   try {
-    const status=String(req.body&&req.body.status||'').toUpperCase();
-    if(!['UNDER_REVIEW','ACCEPTED','REJECTED'].includes(status)) return res.status(400).json({error:'Invalid application status.'});
+    const requested=String(req.body&&req.body.status||'').toUpperCase();
+    if(requested && !['UNDER_REVIEW','ACCEPTED','REJECTED'].includes(requested)) return res.status(400).json({error:'Invalid application status.'});
+    const existing=await prisma.cidApplication.findUnique({where:{id:req.params.id},select:{status:true}});
+    if(!existing) return res.status(404).json({error:'Application not found.'});
+    const status=requested||existing.status;
     const note=String(req.body&&req.body.note||'').slice(0,4000);
     const row=await prisma.cidApplication.update({where:{id:req.params.id},data:{status,reviewerNote:note,reviewedAt:new Date(),reviewedById:req.user.id,reviewedByName:req.user.discordUsername||req.user.displayName||'CID reviewer'}});
     require('../lib/audit').record({req,action:'CID_APPLICATION_'+status,category:'recruitment',targetType:'cid_application',targetId:row.id,summary:row.appRef+' marked '+status}).catch(()=>{});
