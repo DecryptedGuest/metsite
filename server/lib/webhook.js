@@ -46,48 +46,45 @@ function signatureFor(signedBy) {
   return { name: SIGN_AUTHOR_NAME, icon_url: SIGN_AUTHOR_ICON };
 }
 
-function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscordId, officerName, officerRobloxId, suspectAvatar, timestamp, appealed, direct, signedBy }) {
-  // Prefer a Discord mention; otherwise fall back to the Roblox username (with a
-  // profile link if we have the id) so a known officer is never "Unknown".
-  let staffMemberValue;
-  if (officerDiscordId) staffMemberValue = `<@${officerDiscordId}>`;
-  else if (officerName) staffMemberValue = officerRobloxId
-    ? `[${officerName}](https://www.roblox.com/users/${officerRobloxId}/profile)`
-    : officerName;
-  else staffMemberValue = '*Unknown Officer*';
-  // Discord rejects the whole message (HTTP 400) if any embed field value exceeds
-  // 1024 chars — which silently dropped the admin log (and left case.logMessageId
-  // null, so edits could never target it) for long reasons/notes. Cap each field.
-  const cap = (s) => { s = String(s == null ? '' : s); return s.length > 1024 ? s.slice(0, 1021) + '…' : s; };
+function buildCaseEmbed(data) {
+  const {
+    caseRef, action, actions, reason, notes, officerDiscordId, officerName,
+    userDiscordId, targetDiscordId, targetName, suspectName, suspectAvatar,
+    timestamp, appealed, signedBy,
+  } = data || {};
+  const hrId = data.hrDiscordId || officerDiscordId;
+  const userId = userDiscordId || targetDiscordId || data.suspectDiscordId;
+  const cap = value => {
+    const text = String(value == null ? '' : value);
+    return text.length > 1024 ? text.slice(0, 1021) + '…' : (text || 'N/A');
+  };
+  const userValue = userId ? `<@${userId}>` : (targetName || suspectName || officerName || '*Unknown*');
+  const caseValue = /^https?:\\/\\//i.test(String(data.caseLink || data.docUrl || ''))
+    ? `[Open case / evidence](${data.caseLink || data.docUrl})`
+    : (caseRef ? `Case ${caseRef}` : 'N/A');
   const embed = {
-    color:       0x2f3136,
-    title:       'Staff Consequences & Discipline',
-    author:      signatureFor(signedBy),
+    color: 0x24364b,
+    title: `Administrative Action · ${caseRef || 'Record'}`,
+    author: signatureFor(signedBy),
     fields: [
-      { name: '• Officer:',       value: cap(staffMemberValue),                     inline: false },
-      { name: '• Punishment(s):', value: cap(buildActionList({ actions, action })), inline: false },
-      { name: '• Reason:',        value: cap(reason || 'N/A'),                      inline: false },
-      { name: '• Notes:',         value: cap(notes || 'N/A'),                       inline: false },
+      { name: 'HR', value: cap(hrId ? `<@${hrId}>` : officerName), inline: true },
+      { name: 'USER', value: cap(userValue), inline: true },
+      { name: 'ACTION', value: cap(buildActionList({ actions, action })), inline: false },
+      { name: 'REASON', value: cap(reason), inline: false },
+      { name: 'CASE', value: cap(caseValue), inline: false },
+      { name: 'APPEALS', value: 'Contact Internal Affairs through <#1400148940560797846>.', inline: false },
+      ...(notes ? [{ name: 'NOTES', value: cap(notes), inline: false }] : []),
     ],
-    // Every notice carries its infraction id — the number people quote at each
-    // other. A /infract action reads exactly like any other infraction here;
-    // how it was filed is not something the footer should announce.
-    footer:    { text: `Infraction ID | ${caseRef || 'pending'}` },
+    footer: { text: 'Metropolitan Police Service · Internal Affairs' },
     timestamp: new Date(timestamp || Date.now()).toISOString(),
   };
-  if (suspectAvatar) embed.thumbnail = { url: suspectAvatar };        // suspect's Roblox headshot
-
-  // An overturned case keeps its original notice but is visibly marked as
-  // appealed, so the channel history stays honest instead of silently changing.
+  if (suspectAvatar) embed.thumbnail = { url: suspectAvatar };
   if (appealed) {
-    embed.color = 0x9d7dff;
-    embed.title = 'Staff Consequences & Discipline · APPEALED';
+    embed.color = 0x64748b;
+    embed.title = `Administrative Action · ${caseRef || 'Record'} · APPEALED`;
     embed.fields.push({
-      name:  '• Appeal:',
-      value: `Granted by **${appealed.by || 'Internal Affairs'}**`
-           + (appealed.rank ? ` (${appealed.rank})` : '')
-           + `\nPunishments have been lifted.`
-           + (appealed.reason ? `\n> ${String(appealed.reason).slice(0, 900)}` : ''),
+      name: 'APPEAL OUTCOME',
+      value: cap(`Granted by ${appealed.by || 'Internal Affairs'}${appealed.rank ? ` (${appealed.rank})` : ''}. Punishments have been lifted.${appealed.reason ? `\n${appealed.reason}` : ''}`),
       inline: false,
     });
   }
@@ -99,25 +96,10 @@ function buildCaseEmbed({ caseRef, action, actions, reason, notes, officerDiscor
  * Returns the posted message ID (so edits can update it in place), or null.
  */
 async function sendApprovalWebhook(data) {
-  const channelId = process.env.DISCIPLINARY_LOG_CHANNEL_ID || '1560790967450337412';
-  const hrId = data.hrDiscordId || data.officerDiscordId || null;
-  const userId = data.userDiscordId || data.suspectDiscordId || data.targetDiscordId || null;
-  const actions = Array.isArray(data.actions) && data.actions.length
-    ? data.actions.map(a => a.action + (a.durationDays ? ` (${a.durationDays} days)` : '')).join(', ')
-    : (data.action || 'N/A');
-  const content =
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\\n\\n' +
-    '<:IA:1552764629204205619> | DISCIPLINARY PUNISHMENT | <:IA:1552764629204205619>\\n' +
-    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (data.officerName || 'N/A')}\\n` +
-    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (data.suspectName || data.targetName || 'N/A')}\\n` +
-    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(data.reason || 'N/A').slice(0, 800)}\\n` +
-    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(actions).slice(0, 500)}\\n` +
-    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(data.durationDays ? data.durationDays + ' days' : ((data.actions || []).find(a => a && a.durationDays) || {}).durationDays ? ((data.actions || []).find(a => a && a.durationDays)).durationDays + ' days' : (data.duration || 'N/A')).slice(0, 200)}\\n` +
-    `𝐏𝐑𝐎𝐎𝐅: ${String(data.proof || data.notes || 'N/A').slice(0, 900)}\\n\\n` +
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
+  const channelId = process.env.DISCIPLINARY_LOG_CHANNEL_ID || '1561488521230024854';
   try {
     const id = await require('./bot').postChannelMessage(channelId, {
-      content,
+      embeds: [buildCaseEmbed(data)],
       allowedMentions: { parse: [] },
     });
     if (!id) {
@@ -138,25 +120,10 @@ async function sendApprovalWebhook(data) {
  */
 async function editApprovalWebhook(messageId, data) {
   if (!messageId) return false;
-  const channelId = process.env.DISCIPLINARY_LOG_CHANNEL_ID || '1560790967450337412';
-  const hrId = data.hrDiscordId || data.officerDiscordId || null;
-  const userId = data.userDiscordId || data.suspectDiscordId || data.targetDiscordId || null;
-  const actions = Array.isArray(data.actions) && data.actions.length
-    ? data.actions.map(a => a.action + (a.durationDays ? ` (${a.durationDays} days)` : '')).join(', ')
-    : (data.action || 'N/A');
-  const content =
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\\n\\n' +
-    '<:IA:1552764629204205619> | DISCIPLINARY PUNISHMENT | <:IA:1552764629204205619>\\n' +
-    `𝐇𝐑: ${hrId ? `<@${hrId}>` : (data.officerName || 'N/A')}\\n` +
-    `𝐔𝐒𝐄𝐑: ${userId ? `<@${userId}>` : (data.suspectName || data.targetName || 'N/A')}\\n` +
-    `𝐑𝐄𝐀𝐒𝐎𝐍: ${String(data.reason || 'N/A').slice(0, 800)}\\n` +
-    `𝐀𝐂𝐓𝐈𝐎𝐍: ${String(actions).slice(0, 500)}\\n` +
-    `𝐃𝐔𝐑𝐀𝐓𝐈𝐎𝐍: ${String(data.durationDays ? data.durationDays + ' days' : (data.duration || 'N/A')).slice(0, 200)}\\n` +
-    `𝐏𝐑𝐎𝐎𝐅: ${String(data.proof || data.notes || 'N/A').slice(0, 900)}\\n\\n` +
-    '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬';
+  const channelId = process.env.DISCIPLINARY_LOG_CHANNEL_ID || '1561488521230024854';
   try {
     return await require('./bot').editChannelMessage(channelId, messageId, {
-      content,
+      embeds: [buildCaseEmbed(data)],
       allowedMentions: { parse: [] },
     });
   } catch (err) {
