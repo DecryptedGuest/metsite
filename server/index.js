@@ -392,7 +392,10 @@ app.use('/api/ia-application-review', requireAuth, require('./routes/iaApplicati
 app.use('/api/met-application', requireAuth, require('./routes/metApplication'));
 // CID recruitment application submissions and restricted CID leadership management.
 const cidApplicationRoutes = require('./routes/cidApplications');
-app.use('/api/cid-applications', requireAuth, cidApplicationRoutes);
+const cidApplicationSubmitLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 3, message: { error: 'Too many CID application submissions. Please wait before trying again.' } });
+app.use('/api/cid-applications', requireAuth,
+  (req, res, next) => (req.method === 'POST' && req.path === '/submit') ? cidApplicationSubmitLimiter(req, res, next) : next(),
+  cidApplicationRoutes);
 app.use('/api/met-application-review', requireAuth, require('./routes/metApplicationReview'));
 // IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
 app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
