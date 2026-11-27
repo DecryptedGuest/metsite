@@ -305,13 +305,13 @@ const groupRolesCache = new Map(); // `${robloxUserId}:${groupId}` → { roles, 
  *        covered by stale cache is still flagged — over-reporting only means a
  *        caller declines to shrink a list this pass, which is the safe direction.
  */
-async function getUserGroupRoles(robloxUserId, groupId, diag) {
+async function getUserGroupRoles(robloxUserId, groupId, diag, forceRefresh = false) {
   const d = diag || {};
   d.failed = false; d.stale = false;
   if (!groupId || !robloxUserId) return [];
   const key = `${robloxUserId}:${groupId}`;
   const hit = groupRolesCache.get(key);
-  if (hit && Date.now() < hit.expires) return hit.roles;
+  if (!forceRefresh && hit && Date.now() < hit.expires) return hit.roles;
   try {
     const res = await fetch(`https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`);
     if (!res.ok) {
