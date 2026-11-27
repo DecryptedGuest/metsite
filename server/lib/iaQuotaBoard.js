@@ -10,8 +10,8 @@ function rankOrder(rank) {
   const r = String(rank || '').toLowerCase();
   if (/director|high command|administration|overseer/.test(r)) return 0;
   if (/supervisor/.test(r)) return 1;
-  if (/senior\\s*investigator/.test(r)) return 2;
-  if (/junior\\s*investigator/.test(r)) return 4;
+  if (/senior\s*investigator/.test(r)) return 2;
+  if (/junior\s*investigator/.test(r)) return 4;
   if (/probationary|trainee/.test(r)) return 5;
   if (/investigator/.test(r)) return 3;
   return 6;
@@ -59,7 +59,7 @@ function buildEmbed(members) {
     const pushChunk = () => {
       if (!chunk.length) return;
       const name = part === 1 ? group.rank : `${group.rank} (continued)`;
-      const value = chunk.join('\\n');
+      const value = chunk.join('\n');
       if (fields.length < 25 && used + name.length + value.length < 5700) {
         fields.push({ name, value });
         used += name.length + value.length;
@@ -68,7 +68,7 @@ function buildEmbed(members) {
       part++;
     };
     for (const line of lines) {
-      if (chunk.join('\\n').length + line.length + 1 > 1000) pushChunk();
+      if (chunk.join('\n').length + line.length + 1 > 1000) pushChunk();
       chunk.push(line);
     }
     pushChunk();
