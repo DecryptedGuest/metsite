@@ -7,14 +7,15 @@
 // route additionally requires CID tryout access.
 const express = require('express');
 const prisma  = require('../lib/db');
-const { requireCidTryout, requireCidLead, userIsCidLead } = require('../middleware/division');
+const { requireCidLead, userIsCidLead } = require('../middleware/division');
+const { requireCidAdmin } = require('./cidApplications');
 
 const router = express.Router();
 
 const DIVISION = 'CID';
 
 // Every CID route requires CID tryout access (either CID role, or DEVELOPER).
-router.use(requireCidTryout);
+router.use(requireCidAdmin);
 
 // GET /api/cid/context — what the current CID member can do (drives the UI).
 router.get('/context', async (req, res) => {
