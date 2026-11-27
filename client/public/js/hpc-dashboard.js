@@ -49,7 +49,6 @@ function esc(s) {
 }
 async function initHpc() {
   try { hpcCtx = await api('/api/hpc/context'); } catch (e) { hpcCtx = { canMark: false, canQuota: false, canApprove: false }; }
-  if (hpcCtx.canMark) document.querySelectorAll('.marker-only').forEach(el => el.style.display = '');
   if (hpcCtx.canQuota) document.querySelectorAll('.quota-only').forEach(el => el.style.display = '');
   if (hpcCtx.canApprove) { document.querySelectorAll('.approve-only').forEach(el => el.style.display = ''); loadReviewBadge(); }
   // Keep the "Live" tab appearing/disappearing with active tryouts even when
