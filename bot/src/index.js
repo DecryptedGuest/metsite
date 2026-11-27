@@ -13,7 +13,7 @@ const { handleReviewButton } = require('./lib/reviewCard');
 assertEnv();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
 // ── Command registry ──────────────────────────────────────────────
@@ -179,6 +179,58 @@ client.on('interactionCreate', async (interaction) => {
     else await interaction.reply(body).catch(() => {});
   }
 });
+
+// Relay only explicit Ticket Closed log entries from MET to the IA feed.
+async function relayClosedTicket(message) {
+  const sourceGuildId = env('MET_GUILD_ID') || '1191048287315304470';
+  const sourceChannelId = env('MET_TICKET_LOG_CHANNEL_ID') || '1455877424582492264';
+  const targetChannelId = env('IA_TICKET_CLOSED_CHANNEL_ID') || '1574841102836699252';
+  if (!message.guild || message.guild.id !== sourceGuildId || message.channelId !== sourceChannelId) return;
+
+  const embeds = (message.embeds || []).map(e => e.toJSON());
+  const isClosed = embeds.some(embed =>
+    String(embed.title || '').trim().toLowerCase() === 'ticket closed'
+    || (embed.fields || []).some(field =>
+      String(field.name || '').trim().toLowerCase() === 'status'
+      && String(field.value || '').trim().toLowerCase() === 'ticket closed'))
+    || String(message.content || '').trim().toLowerCase() === 'ticket closed';
+  if (!isClosed) return;
+
+  try {
+    const target = await client.channels.fetch(targetChannelId);
+    if (!target || !target.isTextBased() || !target.send) {
+      console.error('[ticket-relay] IA destination is unavailable or not text-based');
+      return;
+    }
+
+    // The source message id in the footer makes delivery idempotent across restarts.
+    const recent = await target.messages.fetch({ limit: 50 }).catch(() => null);
+    if (recent?.some(m => m.author?.id === client.user.id
+      && m.embeds?.some(e => String(e.footer?.text || '').includes(`Source message: ${message.id}`)))) return;
+
+    const source = embeds.find(embed => String(embed.title || '').trim().toLowerCase() === 'ticket closed')
+      || embeds[0] || {};
+    const fields = (source.fields || []).slice(0, 20).map(field => ({
+      name: String(field.name || 'Details').slice(0, 256),
+      value: String(field.value || 'N/A').slice(0, 1024),
+      inline: !!field.inline,
+    }));
+    const embed = {
+      color: 0x24364b,
+      title: 'Ticket Closed',
+      description: String(source.description || message.content || 'A ticket was closed in the MET ticket log.').slice(0, 4000),
+      fields,
+      url: message.url,
+      footer: { text: `MET Ticket Logs · Source message: ${message.id}` },
+      timestamp: message.createdAt?.toISOString?.() || new Date().toISOString(),
+    };
+    await target.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    console.log(`[ticket-relay] relayed closed ticket ${message.id} to IA`);
+  } catch (err) {
+    console.error('[ticket-relay] failed:', err.message);
+  }
+}
+client.on('messageCreate', relayClosedTicket);
 
 client.bot = bot;   // some commands reach helpers via interaction.client.bot
 
