@@ -187,7 +187,7 @@ router.post('/submit',async(req,res)=>{
     require('../lib/audit').record({req,action:'CID_APPLICATION_SUBMITTED',category:'recruitment',targetType:'cid_application',targetId:row.id,summary:'Submitted CID application '+row.appRef}).catch(()=>{});
     const scanItems=QUESTIONS.filter(q=>q.type!=='agreement').map(q=>({qid:q.id,prompt:q.label,text:String(answers[q.id]||'')}));
     scanAnswers(scanItems).then(async scan=>{
-      const aiFlags=(scan.perAnswer||[]).map(item=>({severity:item.overall!=null&&item.overall>=60?'review':'info',code:'AI_WRITING_SCAN',label:'Writing scan: '+item.qid,detail:item.overall==null?'No reliable detector score was available.':'Detector estimate '+item.overall+'% across '+(item.providers||[]).filter(p=>p.aiProbability!=null).length+' provider signal(s). This is not proof of AI use.',score:item.overall,providers:item.providers||[],highlightedSentences:item.aiSentences||[]}));
+      const aiFlags=(scan.perAnswer||[]).map(item=>({severity:item.overall!=null&&item.overall>=60?'review':'info',code:'AI_WRITING_SCAN',label:'Writing scan: '+(item.prompt||item.qid),detail:item.overall==null?'No reliable detector score was available.':'Detector estimate '+item.overall+'% across '+(item.providers||[]).filter(p=>p.aiProbability!=null).length+' provider signal(s). This is not proof of AI use.',score:item.overall,providers:item.providers||[],highlightedSentences:item.aiSentences||[]}));
       const current=await prisma.cidApplication.findUnique({where:{id:row.id},select:{flags:true}});
       const keep=(Array.isArray(current&&current.flags)?current.flags:[]).filter(x=>x.code!=='AI_SCAN_PENDING');
       await prisma.cidApplication.update({where:{id:row.id},data:{flags:[...keep,...aiFlags]}});
