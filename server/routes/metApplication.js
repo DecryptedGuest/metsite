@@ -35,7 +35,7 @@ async function eligibility(user) {
     checkGroup(user, MET_GROUP_ID, true),
     checkGroup(user, SAS_GROUP_ID),
     prisma.case.findMany({
-      where: { robloxUserId: String(user.robloxId || ''), status: 'APPROVED' },
+      where: { OR: [{ robloxUserId: String(user.robloxId || '') }, { userId: String(user.id) }], status: 'APPROVED' },
       select: { caseRef: true, action: true, reason: true, actions: true },
       take: 100,
     }),
