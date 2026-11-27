@@ -193,3 +193,4 @@ router.patch('/admin/:id',requireCidAdmin,async(req,res)=>{
   } catch(e){res.status(500).json({error:'Could not update this application.'});}
 });
 module.exports=router;
+module.exports.requireCidAdmin=requireCidAdmin;
