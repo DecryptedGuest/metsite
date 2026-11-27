@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MET Application · Metropolitan Police Service</title>
+<title>MET Application</title>
+<script>document.documentElement.setAttribute("data-theme",localStorage.getItem("iacms_theme")||"dark");</script>
 <link rel="stylesheet" href="/css/met.css?v=11">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
 <style>
@@ -67,15 +68,55 @@ textarea{min-height:165px}textarea:focus,select:focus{outline:0;border-color:#83
 .review-answer{border:1px solid var(--apply-line);border-radius:8px;padding:12px 14px;margin:10px 0;color:#c1ccd8;font-size:12px;line-height:1.7;white-space:pre-wrap}
 @media(max-width:760px){.hero{grid-template-columns:1fr;gap:15px}.hero-side{border-left:0;border-top:1px solid var(--apply-line);padding:12px 0 0}.workspace{grid-template-columns:1fr}.rail{position:static;display:flex;align-items:center;gap:4px;overflow:auto;padding:10px}.rail-label,.rail-note{display:none}.rail-step{white-space:nowrap;padding:7px}.rail-step .num{width:21px;height:21px}.apply-wrap{padding:20px 14px 48px}.topmeta{display:none}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+/* Match the main MET site theme and keep recruitment copy compact. */
+body{background:var(--bg)!important;color:var(--ink)!important}
+body:before{display:none}
+.apply-wrap{color:var(--ink)}
+.topline{border-color:var(--line)}
+.brand b{color:var(--ink);letter-spacing:0;font-weight:650}
+.brand small,.topmeta,.hero-side,.intro,.eyebrow,.introline,.help,.rail-label,.rail-note,.rail-step,.step-label,.status{color:var(--ink-muted)!important}
+.kicker{color:var(--ink-muted);letter-spacing:.12em}
+h1,h2,.question{color:var(--ink)!important}
+.hero-side strong{color:var(--ink)!important}
+.rail,.main-card,.music-panel{background:var(--surface)!important;border-color:var(--line)!important;box-shadow:none!important}
+.rail-step{color:var(--ink-muted)!important}
+.rail-step.active{background:var(--surface-alt)!important;color:var(--ink)!important}
+.rail-step .num{border-color:var(--line-strong);color:var(--ink-muted)}
+.rail-step.active .num{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.rail-step.done .num{border-color:var(--line-strong);color:var(--ink)}
+.progress{background:var(--line)}
+.progress>span{background:var(--accent)}
+.notice,.checkline,.music-tile,.music-player button,.local-audio,.ambient-icon{background:var(--surface-alt)!important;color:var(--ink-soft)!important;border-color:var(--line)!important}
+.notice strong,.music-head strong,.music-tile b{color:var(--ink)!important}
+.notice.warning{background:var(--warning-wash)!important;border-color:var(--line-strong)!important}
+.notice.error{background:var(--danger-wash)!important;border-color:var(--line-strong)!important}
+.notice.success{background:var(--success-wash)!important;border-color:var(--line-strong)!important}
+.btn{background:var(--surface-alt);color:var(--ink);border-color:var(--line-strong)}
+.btn:hover{background:var(--surface-hover);border-color:var(--line-strong)}
+.btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn.primary:hover{opacity:.9;background:var(--accent)}
+textarea,select{background:var(--surface);color:var(--ink);border-color:var(--line-strong)}
+textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
+.checkline{color:var(--ink-soft)!important}
+.checkline input{accent-color:var(--accent)}
+.small-link{color:var(--ink)}
+.music-head small,.music-tile small,.music-status{color:var(--ink-muted)!important}
+.music-art,.music-tile:nth-child(2) .music-art,.music-tile:nth-child(3) .music-art,.music-tile:nth-child(4) .music-art{background:var(--surface-hover);color:var(--ink-soft)}
+.music-tile[aria-pressed="true"],.ambient-icon[aria-pressed="true"]{background:var(--accent-wash)!important;border-color:var(--line-strong)!important;color:var(--ink)!important}
+.music-player{border-color:var(--line)}
+.music-player input[type=range]{accent-color:var(--accent)}
+.review-answer{border-color:var(--line);color:var(--ink-soft)}
+@media(prefers-reduced-motion:reduce){.progress>span{transition:none}}
 </style>
 </head>
 <body>
 <main class="apply-wrap">
   <header class="topline"><div class="brand"><img src="/img/divisions/met.png" alt="MET"><div><b>METROPOLITAN POLICE SERVICE</b><small>Recruitment portal</small></div></div><div class="ambient-controls"><button class="ambient-icon" id="fullscreen-toggle" type="button" aria-label="Enter fullscreen" title="Enter fullscreen"><i class="ti ti-maximize"></i></button><button class="ambient-icon" id="music-toggle" type="button" aria-label="Open ambient music" title="Ambient music" aria-expanded="false"><i class="ti ti-music"></i></button></div></header>
   <section class="music-panel" id="music-panel" aria-label="Ambient music player"><div class="music-head"><div><strong>Ambient audio</strong><small>Choose a soundscape or play an audio file from your device</small></div><button class="ambient-icon" id="music-close" type="button" aria-label="Close music panel"><i class="ti ti-x"></i></button></div><div class="music-tiles"><button class="music-tile" data-scene="calm" aria-pressed="false"><div class="music-art"><i class="ti ti-cloud"></i></div><b>Stillness</b><small>Soft ambient tones</small></button><button class="music-tile" data-scene="rain" aria-pressed="false"><div class="music-art"><i class="ti ti-cloud-rain"></i></div><b>Rainfall</b><small>Gentle noise texture</small></button><button class="music-tile" data-scene="night" aria-pressed="false"><div class="music-art"><i class="ti ti-moon-stars"></i></div><b>Night</b><small>Low drifting tones</small></button><button class="music-tile" data-scene="focus" aria-pressed="false"><div class="music-art"><i class="ti ti-waves"></i></div><b>Focus</b><small>Steady soft pulse</small></button></div><div class="music-player"><button id="audio-prev" type="button" title="Previous soundscape" aria-label="Previous soundscape"><i class="ti ti-player-skip-back"></i></button><button id="audio-play" type="button" title="Play" aria-label="Play"><i class="ti ti-player-play"></i></button><button id="audio-next" type="button" title="Next soundscape" aria-label="Next soundscape"><i class="ti ti-player-skip-forward"></i></button><label>Volume <input id="audio-volume" type="range" min="0" max="1" step="0.01" value="0.35"></label><label class="local-audio" for="local-audio-file"><i class="ti ti-device-audio-tape"></i> Choose device audio</label><input id="local-audio-file" type="file" accept="audio/*" hidden><span class="music-status" id="audio-status">Ready</span></div><audio id="local-audio-player" preload="none"></audio></section>
-  <section class="hero"><div><div class="kicker">Recruitment / New application</div><h1>MET Application</h1><p class="intro">A clear, considered application is the first step. Confirm your eligibility, work through each question at your own pace, then review everything before sending it to the recruitment team.</p></div><aside class="hero-side"><strong>Before you start</strong>Use your linked Roblox account, answer in your own words, and make sure you can meet the initial training requirements.</aside></section>
+  <section class="hero"><div><div class="kicker">Recruitment / New application</div><h1>MET Application</h1><p class="intro">Check your eligibility, complete the questions and review your answers before submitting.</p></div><aside class="hero-side"><strong>Before you start</strong>Use your linked Roblox account and answer in your own words.</aside></section>
   <div class="workspace">
-    <aside class="rail"><div class="rail-label">Your progress</div><div id="apply-steps"><div class="rail-step active"><span class="num">01</span>Eligibility</div><div class="rail-step"><span class="num">02</span>Application</div><div class="rail-step"><span class="num">03</span>Review</div></div><div class="rail-note">Your answers are saved for this session while you complete the form. Do not refresh until you have submitted.</div></aside>
+    <aside class="rail"><div class="rail-label">Progress</div><div id="apply-steps"><div class="rail-step active"><span class="num">01</span>Eligibility</div><div class="rail-step"><span class="num">02</span>Application</div><div class="rail-step"><span class="num">03</span>Review</div></div><div class="rail-note">Progress is kept in this tab. Avoid refreshing before you submit.</div></aside>
     <section class="main-card"><div id="apply-content"><div class="status">Preparing your application…</div></div></section>
   </div>
 </main>
