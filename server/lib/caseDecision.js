@@ -93,9 +93,18 @@ async function resolveOfficerDiscordId(caseRow) {
 // A Supervisor may not decide a case carrying a Termination or a Blacklist;
 // those are High Command (Deputy Director) and above. Checked here as well as
 // in the caller so no surface can skip it.
-function tierRefusal(actorRole, kase, verb) {
-  if (actorRole === 'SUPERVISOR' && caseHasHicommOnlyPunishment(kase)) {
-    return `Only HICOMM can ${verb} a case involving a Blacklist or Termination.`;
+function tierRefusal(actor, kase, verb) {
+  if (!caseHasHicommOnlyPunishment(kase)) return null;
+  const role = actor && actor.role;
+  const rank = Number(actor && actor.iaRank);
+  const minimum = parseInt(process.env.IA_ADIR_MIN_RANK || '30', 10);
+  const rankName = String(actor && actor.iaRankName || '');
+  const rankNameIsAdir = /assistant\\s*director|deputy\\s*director|\\bdirector\\b|administration|hicom|overseer|owner|holder/i.test(rankName);
+  const isAdirPlus = ['HICOMM', 'DEVELOPER'].includes(role)
+    || (Number.isFinite(rank) && rank >= (Number.isFinite(minimum) ? minimum : 30))
+    || rankNameIsAdir;
+  if (!isAdirPlus) {
+    return `Only Assistant Director and above can ${verb} a case involving a Blacklist or Termination.`;
   }
   return null;
 }
@@ -162,7 +171,7 @@ async function approveCase({ caseId, actor, note } = {}) {
 
   if (!existing) return { ok: false, status: 404, error: 'Case not found' };
   if (existing.status !== 'PENDING') return { ok: false, status: 409, error: 'Case is not pending' };
-  const refusal = tierRefusal(actor && actor.role, existing, 'approve');
+  const refusal = tierRefusal(actor, existing, 'approve');
   if (refusal) return { ok: false, status: 403, error: refusal };
 
   // Atomically claim the PENDING→APPROVED transition so two concurrent
@@ -206,6 +215,10 @@ async function approveCase({ caseId, actor, note } = {}) {
     const logMessageId = await sendApprovalWebhook({
       caseRef: existing.caseRef, action: existing.action, actions,
       reason: existing.reason, notes: existing.notes,
+      hrDiscordId: actor.discordId || null,
+      userDiscordId: officerDiscordId,
+      targetDiscordId: officerDiscordId,
+      caseLink: existing.caseLink || null,
       officerDiscordId,
       officerName: existing.robloxUsername || existing.suspectRobloxDisplayName || null,
       officerRobloxId: existing.robloxUserId || null,
@@ -336,7 +349,7 @@ async function denyCase({ caseId, actor, note } = {}) {
   const existing = await prisma.case.findUnique({ where: { id: caseId } });
   if (!existing) return { ok: false, status: 404, error: 'Case not found' };
   if (existing.status !== 'PENDING') return { ok: false, status: 409, error: 'Case is not pending' };
-  const refusal = tierRefusal(actor && actor.role, existing, 'deny');
+  const refusal = tierRefusal(actor, existing, 'deny');
   if (refusal) return { ok: false, status: 403, error: refusal };
 
   const claim = await prisma.case.updateMany({ where: { id: caseId, status: 'PENDING' }, data: { status: 'DENIED' } });
