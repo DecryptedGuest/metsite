@@ -39,6 +39,24 @@ function encodeIndexes(names) {
 function ownerCheck(interaction, ownerId) {
   return String(interaction.user.id) === String(ownerId);
 }
+
+function showTimedPanelNotice(message, notice) {
+  // Give longer notices a little more reading time, with a five-second minimum.
+  const seconds = Math.max(5, Math.min(10, Math.ceil(String(notice).length / 90) + 4));
+  let remaining = seconds;
+  const render = () => `⚠️ ${notice}\\n\\n_Clear in ${remaining}s_`;
+  message.edit({ content: render() }).catch(() => {});
+  const timer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(timer);
+      message.edit({ content: null }).catch(() => {});
+      return;
+    }
+    message.edit({ content: render() }).catch(() => {});
+  }, 1000);
+  timer.unref?.();
+}
 function panelEmbed(profile, selected) {
   const linked = profile.discord
     ? `<@${profile.discord.id}> - \`${profile.discord.username}\`${profile.discord.inMetServer === false ? ' - Not in MET' : ''}`
@@ -54,7 +72,7 @@ function panelEmbed(profile, selected) {
       { name: 'OFFICER', value: `**${String(profile.displayName || profile.username).slice(0, 80)}**\n[${String(profile.username).slice(0, 60)}](https://www.roblox.com/users/${profile.robloxId}/profile) - \`${profile.robloxId}\``, inline: true },
       { name: 'DISCORD', value: linked, inline: true },
       { name: 'ACCOUNT CREATED', value: created, inline: true },
-      { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** - ${profile.metGroup.rank}` : 'Not in MET group', inline: true },
+      { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}**` : 'Not in MET group', inline: true },
       { name: 'IA ACCESS', value: profile.dashboardRole || 'Not set', inline: true },
       { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** - ${profile.iaRank}` : 'Not set', inline: true },
       { name: 'ACTIONS', value: selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
@@ -223,10 +241,7 @@ async function handleComponent(interaction) {
     const value = selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose one or more below*';
     embed.setFields((current.fields || []).map(field => field.name === 'ACTIONS' ? { ...field, value } : field));
     await interaction.update({ content: notice ? `⚠️ ${notice}` : null, embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
-    if (notice) {
-      const message = interaction.message;
-      setTimeout(() => message.edit({ content: null }).catch(() => {}), 5000).unref?.();
-    }
+    if (notice) showTimedPanelNotice(interaction.message, notice);
     return;
   }
 
