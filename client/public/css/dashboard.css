@@ -1611,3 +1611,25 @@ tr.row-updated > td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
   color: rgba(175, 195, 230, 0.9);
   cursor: default;
 }
+
+
+/* Keep the injected account identity fully within the sidebar bounds. */
+.sidebar-bottom,
+.sidebar-user,
+.met-sidebar-identity {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.met-sidebar-identity > span:last-child {
+  flex: 1 1 0;
+  width: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.met-sidebar-identity img,
+.met-sidebar-identity > span[aria-hidden="true"] {
+  flex: 0 0 36px;
+}
