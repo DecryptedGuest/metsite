@@ -41,8 +41,7 @@ const RED   = 0xf04f5e;   // denied
 const casesChannelId   = () => '1574841103042093225';
 const ticketsChannelId = () =>
   process.env.IA_TICKET_CLOSED_CHANNEL_ID || process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1574841102836699252';
-const reviewerRoleId   = () =>
-  process.env.IA_REVIEWER_ROLE_ID || process.env.IA_REVIEWER_ROLE_iD || '1574841102169669693';
+const reviewerRoleId   = () => '1574841102190780564';
 
 /** The reviewer ping, or nothing if no role is configured. */
 function reviewerPing() {
@@ -142,6 +141,7 @@ function caseCard(kase, extra = {}) {
   const embed = new EmbedBuilder()
     .setColor(colour)
     .setTitle(`Case ${kase.caseRef || ''}`.trim())
+    .setURL(`https://slrmet.com/ia/dashboard?case=${encodeURIComponent(kase.id)}`)
     .setTimestamp(safeDate(kase.createdAt));
 
   // The document, when there is one, is the most-clicked thing on the card.
@@ -158,9 +158,10 @@ function caseCard(kase, extra = {}) {
   // that throws is a case nobody can approve.
   addFields(embed,
     field('Officer', subject),
+    field('Investigator', [kase.investigatorRobloxUsername ? `**${kase.investigatorRobloxUsername}**` : null, kase.investigatorDiscordUsername ? `Discord: ${kase.investigatorDiscordUsername}` : null, kase.investigatorRankName ? `Rank: ${kase.investigatorRankName}` : null].filter(Boolean).join('\n') || 'Not recorded'),
     field('Punishment', punishmentLines(kase.actions, kase.action)),
-    field('On approval', 'The selected punishment is applied automatically. This can include Discord role changes, Roblox group rank changes, or removal from groups, depending on the punishment.'),
     field('Reason', kase.reason),
+    field('Case file', safeUrl(kase.caseLink || kase.docUrl) ? `[Open case file](${safeUrl(kase.caseLink || kase.docUrl)})` : null),
     (kase.notes && kase.notes !== 'N/A') ? field('Notes', kase.notes) : null,
     kase.blacklistCode
       ? field('Blacklist code',
@@ -361,13 +362,15 @@ const postCaseCard = async (client, kase, extra) => {
     const forum = await client.channels.fetch(String(channelId));
     const embed = caseCard(kase, extra);
     const tags = caseStatusTag(forum, kase.status || 'PENDING');
-    const title = `Case ${kase.caseRef || 'New'} - ${trim(kase.robloxUsername || 'Officer review', 70)}`;
+    const ref = String(kase.caseRef || 'New').replace(/^#?/, '#');
+    const title = `Case ${ref} - ${trim(kase.robloxUsername || 'Unknown officer', 70)}`;
     const thread = await forum.threads.create({
       name: title.slice(0, 100),
       message: {
+        content: `<@&${reviewerRoleId()}>`,
         embeds: [embed],
         components: [reviewButtons('case', kase.id)],
-        allowedMentions: { parse: [] },
+        allowedMentions: { roles: [reviewerRoleId()], parse: [] },
       },
       ...(tags.length ? { appliedTags: tags } : {}),
     });
