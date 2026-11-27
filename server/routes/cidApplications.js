@@ -75,7 +75,8 @@ async function eligibility(user) {
   const checks=[met,cid,sco,flp,ia,hpc];
   if (checks.some(x=>!x.available) || !metRoles) return { available:false, eligible:false, reasons:['Roblox eligibility checks are temporarily unavailable. Please try again later.'] };
   const reasons=[];
-  const constable=metRoles.find(r=>/constable/i.test(String(r.name||'')));
+  const constables=metRoles.filter(r=>/constable/i.test(String(r.name||''))).sort((a,b)=>Number(a.rank)-Number(b.rank));
+  const constable=constables[0]||null;
   if (!constable || !met.role || Number(met.role.rank)<Number(constable.rank)) reasons.push('You must be MET Constable or above.');
   if (sco.member) reasons.push('Members of Specialist Firearms Command are not eligible.');
   if (flp.member) reasons.push('Members of a primary division are not eligible for CID applications.');
@@ -149,7 +150,7 @@ router.get('/meta', async(req,res)=>{
       eligibility(req.user), settings(),
       prisma.cidApplication.findFirst({where:{applicantId:req.user.id,status:{in:['SUBMITTED','UNDER_REVIEW','ACCEPTED']}},select:{appRef:true,status:true,submittedAt:true}})
     ]);
-    res.json({eligible:check.eligible,checksAvailable:check.available,reasons:check.reasons||[],context:check,open:form.isOpen,existing,questions:QUESTIONS,declaration:DECLARATION,robloxUsername:req.user.robloxUsername||null,discordUsername:req.user.discordUsername||null});
+    res.json({eligible:check.eligible,checksAvailable:check.available,reasons:check.reasons||[],context:check,open:form.isOpen,existing,questions:QUESTIONS,declaration:DECLARATION,robloxUsername:req.user.robloxUsername||null,discordUsername:req.user.discordUsername||req.user.displayName||'Discord user'});
   } catch(e){console.error('[CID application] meta:',e.message);res.status(500).json({error:'Could not load CID application.'});}
 });
 router.post('/submit',async(req,res)=>{
