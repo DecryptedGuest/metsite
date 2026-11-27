@@ -568,7 +568,10 @@ async function handleReviewButton(interaction) {
     if (kind === 'case') {
       const row = await prisma.case.findUnique({
         where: { id: recordId },
-        include: { casePunishments: { select: { action: true } } },
+        include: {
+          casePunishments: { select: { action: true } },
+          user: { select: { discordId: true, discordUsername: true, robloxUsername: true } },
+        },
       }).catch(() => null);
       if (!row) return interaction.editReply('That case is no longer in the database.');
       if (row.status && row.status !== 'PENDING') {
@@ -585,10 +588,16 @@ async function handleReviewButton(interaction) {
       // pipeline decides — this button only triggers it.
       const decision = require('./caseDecision');
       const fn = approved ? decision.approveCase : decision.denyCase;
-      const out = await fn({ caseId: recordId, actor });
+      const out = await fn({
+        caseId: recordId, actor,
+        onProgress: approved ? (step) => interaction.editReply({ content: `⏳ **${step}**`, allowedMentions: { parse: [] } }) : undefined,
+      });
       if (out && out.ok === false) return interaction.editReply(out.error || out.reason || 'Refused.');
 
-      const fresh = await prisma.case.findUnique({ where: { id: recordId } });
+      const fresh = await prisma.case.findUnique({
+        where: { id: recordId },
+        include: { user: { select: { discordId: true, discordUsername: true, robloxUsername: true } } },
+      });
       await interaction.message.edit({
         embeds: [caseCard(fresh, { decidedBy: actor })], components: [],
       }).catch(() => {});
@@ -596,14 +605,13 @@ async function handleReviewButton(interaction) {
       // Both halves of the award, stated, because they differ by decision:
       // an approval pays the submitter and the reviewer, a denial pays only the
       // reviewer.
-      const review = parseInt(process.env.IA_CASE_REVIEW_POINTS || '1', 10) || 0;
-      const mine = review ? ` ${review} quota ${review === 1 ? 'point' : 'points'} queued for you.` : '';
+      const submitter = fresh.user?.discordId
+        ? `<@${fresh.user.discordId}>`
+        : (fresh.user?.robloxUsername || fresh.user?.discordUsername || 'the submitter');
       const line = approved
-        ? `${e('met_tick')} ` + `Approved ${fresh.caseRef || ''}.`.trim()
-          + ` 4 quota points queued for the submitter.${mine}`
-        : `${e('met_cross')} ` + `Denied ${fresh.caseRef || ''}.`.trim()
-          + `${mine} The submitter gets nothing.`;
-      return interaction.editReply(line);
+        ? `${e('met_tick')} **Approved ${fresh.caseRef || ''}.**\n+4 QP awarded to ${submitter}. The IA quota leaderboard has been refreshed.`
+        : `${e('met_cross')} **Denied ${fresh.caseRef || ''}.** No submitter quota points were awarded.`;
+      return interaction.editReply({ content: line, allowedMentions: { parse: [] } });
     }
 
     return interaction.editReply(`${e('met_warn')} Unknown review action.`);
