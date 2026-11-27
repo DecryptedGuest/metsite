@@ -79,13 +79,13 @@ async function dmSubject(client, c) {
 
 /** Post the public notice in the MET server. */
 async function postMetNotice(client, c) {
-  const channelId = env('MET_NOTICES_CHANNEL_ID');
+  const channelId = env('MET_NOTICES_CHANNEL_ID', '1561488521230024854');
   if (!channelId) return false;
   try {
     const channel = await client.channels.fetch(channelId);
     await channel.send({
-      content: c.officerDiscordId ? `<@${c.officerDiscordId}>` : undefined,
       embeds: [buildNoticeEmbed(c, { forDm: false })],
+      allowedMentions: { parse: [] },
     });
     return true;
   } catch (err) {
