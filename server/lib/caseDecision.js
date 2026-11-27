@@ -191,7 +191,7 @@ async function awardReviewer(kase, actor, decision) {
  * @returns {Promise<{ok:boolean, status:number, error?:string, case?:object}>}
  */
 async function approveCase({ caseId, actor, note, onProgress } = {}) {
-  const progress = async (message) => { if (typeof onProgress === 'function') await onProgress(message).catch(() => {}); };
+  const progress = async (message) => { if (typeof onProgress === 'function') await Promise.resolve().then(() => onProgress(message)).catch(() => {}); };
   const existing = await prisma.case.findUnique({
     where:   { id: caseId },
     include: { user: { select: { discordUsername: true, displayName: true, discordId: true, robloxId: true, robloxUsername: true } } },
