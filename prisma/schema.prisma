@@ -1719,3 +1719,39 @@ model MetApplication {
   @@index([submittedAt])
   @@map("met_applications")
 }
+ 
+// CID application form configuration and submitted applications.
+model CidApplicationSettings {
+  id        String   @id @default("default")
+  isOpen    Boolean  @default(false)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  @@map("cid_application_settings")
+}
+
+model CidApplication {
+  id             String   @id @default(uuid())
+  appRef          String   @unique
+  applicantId     String
+  discordId       String
+  discordUsername String?
+  robloxId        String
+  robloxUsername  String?
+  answers         Json
+  context         Json?
+  flags           Json?
+  status          String   @default("SUBMITTED")
+  submittedAt     DateTime @default(now())
+  reviewedAt      DateTime?
+  reviewedById    String?
+  reviewedByName  String?
+  reviewerNote    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([applicantId])
+  @@index([status])
+  @@index([submittedAt])
+  @@map("cid_applications")
+}
+
