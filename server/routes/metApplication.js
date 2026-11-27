@@ -17,7 +17,6 @@ const QUESTIONS = {
 
 async function checkGroup(user, groupId) {
   if (!user || !user.robloxId) return { member: false, available: true };
-  if (cachedMet && user.metRankNatural && user.metRankNatural.name) return { member: true, available: true };
   try {
     const { getUserGroupRoles } = require('../lib/roblox');
     const diag = {};
