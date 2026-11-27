@@ -182,7 +182,8 @@ async function awardReviewer(kase, actor, decision) {
  * @param {string} [o.note] what to write on the CaseAction
  * @returns {Promise<{ok:boolean, status:number, error?:string, case?:object}>}
  */
-async function approveCase({ caseId, actor, note } = {}) {
+async function approveCase({ caseId, actor, note, onProgress } = {}) {
+  const progress = async (message) => { if (typeof onProgress === 'function') await onProgress(message).catch(() => {}); };
   const existing = await prisma.case.findUnique({
     where:   { id: caseId },
     include: { user: { select: { discordUsername: true, displayName: true, discordId: true, robloxId: true, robloxUsername: true } } },
@@ -193,11 +194,13 @@ async function approveCase({ caseId, actor, note } = {}) {
   const refusal = tierRefusal(actor, existing, 'approve');
   if (refusal) return { ok: false, status: 403, error: refusal };
 
+  await progress('Confirming case approval…');
   // Atomically claim the PENDING→APPROVED transition so two concurrent
   // approvals can't both run the side effects (double demotion / dupe rows).
   const claim = await prisma.case.updateMany({ where: { id: caseId, status: 'PENDING' }, data: { status: 'APPROVED' } });
   if (claim.count === 0) return { ok: false, status: 409, error: 'Case is not pending' };
   const updated = await prisma.case.findUnique({ where: { id: caseId } });
+  await progress('Updating the IA forum post and status tag…');
   await syncCaseForumPost(updated, actor);
 
   // Already actioned before? A synced case can be approved, reverted to PENDING
@@ -232,6 +235,7 @@ async function approveCase({ caseId, actor, note } = {}) {
       ? existing.actions
       : [{ action: existing.action, roleId: ACTION_CONFIG[existing.action]?.roleId || null, durationDays: null }];
 
+    await progress('Posting the disciplinary notice…');
     const logMessageId = await sendApprovalWebhook({
       caseRef: existing.caseRef, action: existing.action, actions,
       reason: existing.reason, notes: existing.notes,
@@ -253,6 +257,7 @@ async function approveCase({ caseId, actor, note } = {}) {
     // still gets it, falling back to whatever was snapshotted on the action.
     if (existing.officerDiscordId) {
       for (const a of actions) {
+        await progress(`Applying ${a.action}…`);
         const roleId = ACTION_CONFIG[a.action]?.roleId || a.roleId || null;
         if (!roleId) continue;
         await assignRole(existing.officerDiscordId, roleId);
@@ -268,6 +273,7 @@ async function approveCase({ caseId, actor, note } = {}) {
       let exiledOnce = false;
       for (const a of actions) {
         if (!ACTION_CONFIG[a.action]?.exile) continue;
+        await progress(`Processing group action for ${a.action}…`);
         if (exiledOnce) continue; // one pass per case covers every group
         const { exileEverywhere } = require('./exile');
         const res = await exileEverywhere(existing.robloxUserId);
@@ -285,6 +291,7 @@ async function approveCase({ caseId, actor, note } = {}) {
 
     // Strip their MET Discord roles when the case terminates or blacklists them.
     if (existing.officerDiscordId && actions.some(a => ACTION_CONFIG[a.action]?.exile)) {
+      await progress('Removing MET Discord roles…');
       const stripRes = await require('./exile')
         .stripDiscordRolesForExile(existing.officerDiscordId, actions.map(a => a.action))
         .catch(err => ({ summary: 'role strip failed: ' + err.message }));
@@ -300,6 +307,7 @@ async function approveCase({ caseId, actor, note } = {}) {
 
     // Demotion → drop the suspect one rank in the Roblox group.
     if (existing.robloxUserId && actions.some(a => a.action === 'Demotion')) {
+      await progress('Applying Roblox group demotion…');
       const { demoteByOneRank } = require('./roblox');
       const result = await demoteByOneRank(existing.robloxUserId);
       await prisma.caseAction.create({
@@ -337,19 +345,27 @@ async function approveCase({ caseId, actor, note } = {}) {
   // idempotent per case id, so a re-approval never doubles or drops them. Only
   // the placeholder-owned bulk imports are excluded.
   const IMPORT_OWNERS = new Set(['SYSTEM_LEGACY_IMPORT', 'ia-archive-import']);
+  let quotaAwarded = false;
   if (existing.user && existing.user.discordId && !IMPORT_OWNERS.has(existing.user.discordId)) {
+    await progress('Issuing +4 QP to the case submitter…');
     const { enqueueQuotaAward } = require('./quota');
-    enqueueQuotaAward({
+    quotaAwarded = await enqueueQuotaAward({
       refType: 'case', refId: existing.id,
       discordId: existing.user.discordId,
       robloxUsername: existing.user.robloxUsername || existing.investigatorRobloxUsername || null,
       points: 4, label: `case ${existing.caseRef}`,
-    }).catch(() => {});
+    }).then(() => true).catch(() => false);
+  }
+  if (quotaAwarded) {
+    await progress('Refreshing the IA quota leaderboard…');
+    try { await require('./iaQuotaBoard').refresh(require('./bot').getClient()); }
+    catch (err) { console.warn('[IA] quota board refresh after case approval failed:', err.message); }
   }
 
   // The reviewer's own point, for the reading either decision takes.
   await awardReviewer(existing, actor, 'APPROVED');
 
+  await progress('Recording the approval audit…');
   await require('./actionJournal').record({
     kind: 'CASE_APPROVE',
     actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
