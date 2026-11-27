@@ -300,3 +300,30 @@ body:has(.login-wrap) .bg-canvas { display: none !important; }
 .profile-sidebar-signout:hover { color: var(--nav-text); }
 .profile-main { min-height: 100vh; }
 .profile-main .profile-wrap { margin-top: 26px !important; }
+
+/* Profile navigation and division selector */
+.profile-wrap { gap: 18px !important; }
+.profile-tabs { display: flex; align-items: center; gap: 4px; padding: 4px; background: var(--surface-alt); border: 1px solid var(--line); border-radius: 6px; width: fit-content; max-width: 100%; }
+.profile-tab { appearance: none; border: 0; border-radius: 4px; padding: 8px 13px; color: var(--ink-muted); background: transparent; font-size: 13px; font-weight: 550; cursor: pointer; white-space: nowrap; }
+.profile-tab:hover { color: var(--ink); background: var(--surface-hover); }
+.profile-tab.active { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.profile-tab-pane { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.profile-tab-pane[hidden] { display: none !important; }
+.profile-pane-heading { padding: 2px 0 8px; }
+.profile-pane-heading h1 { margin: 0 0 5px; }
+.profile-pane-heading p { margin: 0; color: var(--ink-muted); font-size: 13px; }
+.profile-division-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 10px; }
+.profile-division-choice { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; text-decoration: none; }
+.profile-division-choice:hover { background: var(--surface-alt); border-color: var(--line-strong); color: var(--ink); }
+.profile-division-icon, .profile-division-icon-fallback { width: 38px; height: 38px; flex: 0 0 38px; object-fit: contain; border-radius: 4px; background: var(--surface-alt); }
+.profile-division-icon-fallback { display: flex; align-items: center; justify-content: center; color: var(--ink-muted); font-size: 17px; }
+.profile-division-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.profile-division-copy strong { color: var(--ink); font-size: 13px; font-weight: 600; }
+.profile-division-copy small { color: var(--ink-muted); font-size: 12px; }
+.profile-division-arrow { color: var(--ink-muted); font-size: 16px; }
+#pane-settings > .panel { margin-bottom: 0 !important; }
+#pane-settings .profile-section { padding: 16px !important; }
+@media (max-width: 640px) {
+  .profile-tabs { width: 100%; }
+  .profile-tab { flex: 1; padding: 8px 7px; }
+}
