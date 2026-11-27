@@ -436,12 +436,7 @@ function setupNav() {
     });
   }
 
-  // The sidebar search chip opens the command palette (Ctrl/Cmd+K).
-  const navSearch = document.getElementById('nav-search-btn');
-  if (navSearch) navSearch.addEventListener('click', () => {
-    if (typeof openCommandPalette === 'function') openCommandPalette();
-    else navigateTo('all-cases');
-  });
+
 }
 
 // Cases and tickets used to be four pages; the review queue was a fifth. They
