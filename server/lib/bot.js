@@ -272,7 +272,7 @@ const metGuild = (specific) => guildFor(specific, 'MET_GUILD_ID');
 const UNDO_GUILD_ID_NAMES        = 'undo';
 const QP_GUILD_ID_NAMES          = 'add-qp';
 const LEADERBOARD_GUILD_ID_NAMES = 'leaderboard';
-const SUBMIT_CASE_GUILD_ID_NAMES = 'submit-case';
+const SUBMIT_CASE_GUILD_ID_NAMES = 'case';
 
 // Temporarily hidden from Discord's slash-command list. Implementations and
 // interaction logic remain intact; remove names here to restore registration.
@@ -897,9 +897,9 @@ async function onInteraction(interaction) {
       .catch(e => console.error('[Bot] /leaderboard error:', e.message));
   }
 
-  if (interaction.commandName === 'submit-case') {
+  if (interaction.commandName === 'case') {
     return require('./submitCaseCommand').handleSubmitCase(interaction)
-      .catch(e => console.error('[Bot] /submit-case error:', e.message));
+      .catch(e => console.error('[Bot] /case error:', e.message));
   }
 
   if (interaction.commandName === 'undo') {
