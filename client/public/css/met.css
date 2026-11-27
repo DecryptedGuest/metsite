@@ -360,3 +360,19 @@ html[data-division] .panel-accent { display:none !important; }
   background:url('/img/divisions/met.png') center/contain no-repeat !important;
   animation:met-mark-breathe 1.6s ease-in-out infinite !important;
 }
+
+/* Root sign-in page: compact and plain, matching the internal application shell. */
+body:has(.signin-wrap) { display:flex !important; align-items:center !important; justify-content:center !important; min-height:100vh !important; padding:32px 16px !important; background:var(--bg) !important; }
+body:has(.signin-wrap) .bg-canvas { display:none !important; }
+.signin-wrap { max-width:420px !important; gap:22px !important; padding:16px !important; }
+.signin-crest { gap:12px !important; animation:none !important; }
+.signin-crest img { width:64px !important; height:64px !important; border-radius:0 !important; box-shadow:none !important; object-fit:contain !important; }
+.signin-title { color:var(--ink) !important; background:none !important; -webkit-text-fill-color:var(--ink) !important; font-family:var(--font-ui) !important; font-size:22px !important; font-weight:600 !important; letter-spacing:-.02em !important; text-transform:none !important; }
+.signin-card { background:var(--surface) !important; border:1px solid var(--line) !important; border-radius:6px !important; box-shadow:none !important; padding:22px !important; animation:none !important; }
+.signin-or { color:var(--ink-muted) !important; letter-spacing:0 !important; }
+.signin-or::before,.signin-or::after { background:var(--line) !important; }
+.signin-card .hint { color:var(--ink-muted) !important; font-size:12px !important; }
+.signin-footer { color:var(--ink-muted) !important; font-family:var(--font-ui) !important; font-size:11px !important; letter-spacing:0 !important; text-transform:none !important; }
+.try-another-btn { color:var(--ink-muted) !important; }
+.alt-method { background:var(--surface) !important; border-color:var(--line) !important; color:var(--ink) !important; border-radius:5px !important; }
+.alt-method i { color:var(--accent-strong) !important; }
