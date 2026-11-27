@@ -371,6 +371,19 @@ async function initMetTopbar(currentDivision) {
   try {
     const data = await fetch('/api/me/divisions', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
     myDivisions = (data && Array.isArray(data.mine)) ? data.mine : [];
+    // The current division page gets a first-position sidebar switcher only
+    // when the account has at least one OTHER division available.
+    const sidebarDivisionLink = document.querySelector('.sidebar-nav a[href="/profile#divisions"]');
+    if (sidebarDivisionLink && currentDivision) {
+      const others = myDivisions.filter(d => String(d.division) !== String(currentDivision));
+      if (!others.length) sidebarDivisionLink.remove();
+      else {
+        const label = sidebarDivisionLink.querySelector('span');
+        if (label) label.textContent = 'Switch Divisions';
+        const nav = sidebarDivisionLink.closest('.sidebar-nav');
+        if (nav) nav.insertBefore(sidebarDivisionLink, nav.firstChild);
+      }
+    }
     hasIADivision = !!(data && Array.isArray(data.mine) && data.mine.some(d => d.division === 'IA'));
     if (data && data.identity) {
       try { metTopbarAvatars(data.identity); } catch (e) {}
