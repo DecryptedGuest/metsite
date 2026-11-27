@@ -2,55 +2,60 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MET · Constable Application</title>
-<link rel="stylesheet" href="/css/met.css?v=10">
+<title>MET Application · Metropolitan Police Service</title>
+<link rel="stylesheet" href="/css/met.css?v=11">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
 <style>
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui)}
-.apply-wrap{max-width:760px;margin:0 auto;padding:38px 20px 64px}
-.apply-brand{display:flex;align-items:center;gap:14px;margin-bottom:30px}
-.apply-brand img{width:48px;height:48px;object-fit:contain}
-.apply-brand strong{display:block;font-size:15px;font-weight:650}
-.apply-brand span{font-size:12px;color:var(--ink-muted)}
-.apply-card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:28px}
-.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-muted);font-weight:650}
-h1{font-size:25px!important;margin:7px 0 8px}
-.intro{color:var(--ink-muted);line-height:1.65;margin:0 0 24px}
-.notice{border:1px solid var(--line);background:var(--surface-alt);border-radius:6px;padding:14px 16px;color:var(--ink-soft);font-size:13px;line-height:1.6;margin:16px 0}
-.notice strong{color:var(--ink)}
-.notice.warning{border-color:#d8c9a8;background:#faf7ef}
-.notice.error{border-color:#dfc0bd;background:#fbf3f2}
-.notice.success{border-color:#c7d8cc;background:#f2f7f3}
-.apply-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}
-.btn{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);padding:10px 15px;border-radius:5px;font:600 13px var(--font-ui);cursor:pointer}
-.btn.primary{background:#20252b;color:white;border-color:#20252b}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.progress{height:5px;background:var(--surface-alt);border-radius:8px;overflow:hidden;margin:18px 0 24px}
-.progress>span{display:block;height:100%;background:var(--accent);transition:width .2s}
-.step-label{display:flex;justify-content:space-between;color:var(--ink-muted);font-size:12px;margin-bottom:6px}
-.question{font-size:17px;font-weight:650;line-height:1.45;margin:8px 0 14px}
-.help{font-size:13px;line-height:1.6;color:var(--ink-muted);margin-bottom:14px}
-textarea,select{width:100%;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:5px;padding:12px;font:14px/1.6 var(--font-ui);resize:vertical}
-textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
-textarea{min-height:150px}
-.checkline{display:flex;gap:11px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--surface-alt);font-size:13px;line-height:1.6}
-.checkline input{margin-top:3px;flex-shrink:0;width:17px;height:17px}
-.status{font-size:13px;color:var(--ink-muted);min-height:20px;margin-top:12px}
-.small-link{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
-@media(max-width:560px){.apply-wrap{padding:20px 12px 40px}.apply-card{padding:20px 16px}h1{font-size:22px!important}}
+:root{--apply-ink:#e9edf3;--apply-muted:#929dab;--apply-line:rgba(191,205,222,.14);--apply-panel:#111821;--apply-panel2:#151f2b;--apply-accent:#aebed0}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#080d13;color:var(--apply-ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(125deg,transparent 0 55%,rgba(121,148,177,.045)),radial-gradient(ellipse at 12% 0%,rgba(90,116,145,.13),transparent 42%)}
+.apply-wrap{position:relative;max-width:1040px;margin:auto;padding:38px 24px 76px}
+.topline{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--apply-line);padding-bottom:20px;margin-bottom:36px}
+.brand{display:flex;align-items:center;gap:13px}.brand img{width:42px;height:42px;object-fit:contain}.brand b{display:block;font-size:13px;letter-spacing:.035em}.brand small{display:block;color:var(--apply-muted);font-size:11px;margin-top:3px}
+.topmeta{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--apply-muted)}
+.hero{display:grid;grid-template-columns:1fr 270px;gap:38px;align-items:end;margin-bottom:26px}
+.kicker{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#aab8c8;font-weight:700}
+h1{font-size:clamp(30px,4vw,43px);letter-spacing:-.045em;line-height:1.08;margin:12px 0 12px;color:#f4f6f9}
+.intro{max-width:630px;color:#a5afbc;line-height:1.75;font-size:14px;margin:0}
+.hero-side{border-left:1px solid var(--apply-line);padding-left:22px;color:var(--apply-muted);font-size:12px;line-height:1.7}.hero-side strong{display:block;color:#dce3eb;font-size:13px;margin-bottom:4px}
+.workspace{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;align-items:start}
+.rail,.main-card{background:rgba(17,24,33,.92);border:1px solid var(--apply-line);border-radius:13px;box-shadow:0 18px 50px rgba(0,0,0,.18)}
+.rail{padding:18px;position:sticky;top:18px}.rail-label{font-size:9px;text-transform:uppercase;letter-spacing:.16em;color:#748193;font-weight:700;margin:0 0 14px}
+.rail-step{display:flex;align-items:center;gap:11px;padding:10px 8px;border-radius:8px;color:#7f8b9a;font-size:12px;margin:3px 0}
+.rail-step .num{width:23px;height:23px;border:1px solid #354252;border-radius:7px;display:grid;place-items:center;font-size:10px}
+.rail-step.active{background:#1a2633;color:#e5ebf2}.rail-step.active .num{background:#dce5ef;color:#17212c;border-color:#dce5ef}
+.rail-step.done{color:#c4d0dc}.rail-step.done .num{border-color:#8396aa;color:#d9e2eb}
+.rail-note{border-top:1px solid var(--apply-line);padding-top:14px;margin-top:18px;color:#788596;font-size:11px;line-height:1.65}
+.main-card{padding:clamp(20px,3vw,34px);min-height:390px}
+.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.16em;color:#8797a9;font-weight:700}
+h2{font-size:22px;letter-spacing:-.025em;margin:9px 0 9px;color:#f0f3f7}
+.introline,.help{font-size:13px;color:#9aa6b4;line-height:1.7;margin:0 0 22px}
+.question{font-size:18px;font-weight:650;line-height:1.45;margin:10px 0 13px;color:#f0f3f7}
+.step-label{display:flex;justify-content:space-between;color:#8996a5;font-size:11px}
+.progress{height:3px;background:#27313d;border-radius:8px;overflow:hidden;margin:12px 0 28px}.progress>span{display:block;height:100%;background:#aab9c9;transition:width .28s ease}
+.notice{border:1px solid var(--apply-line);background:#141e29;border-radius:9px;padding:14px 16px;color:#b1bdca;font-size:12px;line-height:1.7;margin:15px 0}
+.notice strong{color:#edf1f5}.notice.warning{border-color:rgba(188,157,103,.35);background:rgba(107,82,39,.13)}.notice.error{border-color:rgba(194,117,117,.4);background:rgba(110,46,46,.13)}.notice.success{border-color:rgba(125,166,143,.32);background:rgba(47,91,64,.13)}
+.apply-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:24px}
+.btn{border:1px solid #3a4858;background:#182330;color:#e7edf4;padding:11px 16px;border-radius:7px;font:600 12px inherit;cursor:pointer;transition:background .18s,border-color .18s,transform .18s;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:40px}
+.btn:hover{background:#223142;border-color:#61758b}.btn.primary{background:#dce5ee;color:#17212c;border-color:#dce5ee}.btn.primary:hover{background:#fff}.btn:disabled{opacity:.42;cursor:not-allowed;transform:none}
+textarea,select{width:100%;border:1px solid #354353;background:#0d151e;color:#e8edf4;border-radius:8px;padding:14px;font:13px/1.7 inherit;resize:vertical;transition:border-color .18s,box-shadow .18s}
+textarea{min-height:165px}textarea:focus,select:focus{outline:0;border-color:#8397ad;box-shadow:0 0 0 3px rgba(131,151,173,.12)}
+.checkline{display:flex;gap:12px;align-items:flex-start;padding:16px;border:1px solid #354353;border-radius:9px;background:#111b26;font-size:12px;line-height:1.7;color:#c4ced9}.checkline input{margin-top:3px;flex-shrink:0;width:16px;height:16px;accent-color:#c8d4e0}
+.status{font-size:12px;color:#9ba8b7;min-height:20px;margin-top:13px}.small-link{color:#e3eaf2;text-decoration:underline;text-underline-offset:3px}
+.review-answer{border:1px solid var(--apply-line);border-radius:8px;padding:12px 14px;margin:10px 0;color:#c1ccd8;font-size:12px;line-height:1.7;white-space:pre-wrap}
+@media(max-width:760px){.hero{grid-template-columns:1fr;gap:15px}.hero-side{border-left:0;border-top:1px solid var(--apply-line);padding:12px 0 0}.workspace{grid-template-columns:1fr}.rail{position:static;display:flex;align-items:center;gap:4px;overflow:auto;padding:10px}.rail-label,.rail-note{display:none}.rail-step{white-space:nowrap;padding:7px}.rail-step .num{width:21px;height:21px}.apply-wrap{padding:20px 14px 48px}.topmeta{display:none}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
 <body>
 <main class="apply-wrap">
-  <div class="apply-brand"><img src="/img/divisions/met.png" alt="MET"><div><strong>Metropolitan Police Service</strong><span>Recruitment · Constable application</span></div></div>
-  <section class="apply-card">
-    <div class="eyebrow">Recruitment</div>
-    <h1>Join the Metropolitan Police</h1>
-    <p class="intro">Complete the group check and application below. Your account details are linked to your submission so the recruitment team can identify your application.</p>
-    <div id="apply-content"><div class="status">Loading application…</div></div>
-  </section>
+  <header class="topline"><div class="brand"><img src="/img/divisions/met.png" alt="MET"><div><b>METROPOLITAN POLICE SERVICE</b><small>Recruitment portal</small></div></div><div class="topmeta">Applicant workspace · Secure session</div></header>
+  <section class="hero"><div><div class="kicker">Recruitment / New application</div><h1>MET Application</h1><p class="intro">A clear, considered application is the first step. Confirm your eligibility, work through each question at your own pace, then review everything before sending it to the recruitment team.</p></div><aside class="hero-side"><strong>Before you start</strong>Use your linked Roblox account, answer in your own words, and make sure you can meet the initial training requirements.</aside></section>
+  <div class="workspace">
+    <aside class="rail"><div class="rail-label">Your progress</div><div id="apply-steps"><div class="rail-step active"><span class="num">01</span>Eligibility</div><div class="rail-step"><span class="num">02</span>Application</div><div class="rail-step"><span class="num">03</span>Review</div></div><div class="rail-note">Your answers are saved for this session while you complete the form. Do not refresh until you have submitted.</div></aside>
+    <section class="main-card"><div id="apply-content"><div class="status">Preparing your application…</div></div></section>
+  </div>
 </main>
 <div id="toast-container"></div>
-<script src="/js/met-application.js?v=1"></script>
-</body>
-</html>
+<script src="/js/met-application.js?v=2"></script>
+</body></html>
