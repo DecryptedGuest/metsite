@@ -139,7 +139,11 @@ function caseCard(kase, extra = {}) {
   const embed = new EmbedBuilder()
     .setTitle('Case Information');
 
-  const { e } = require('./emoji');
+  // These are the exact application emoji IDs supplied for the IA case log.
+  // Use explicit Discord markup here so a missing/late emoji sync cannot
+  // degrade the identity marks to the manifest's single-letter fallbacks.
+  const robloxMark = '<:ia_roblox_white:1575987316537696580>';
+  const discordMark = '<:ia_discord_white:1575987317917622324>';
   const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
@@ -152,7 +156,7 @@ function caseCard(kase, extra = {}) {
     field('Case', kase.caseRef ? `#${String(kase.caseRef).replace(/^#/, '')}` : 'Not assigned'),
     field('Punishments', punishmentLines(kase.actions, kase.action) || 'None recorded'),
     field('Investigator Information',
-      ` ${e('ia_roblox_white')} **${investigatorRoblox}**\n ${e('ia_discord_white')} ${investigatorDiscord}${kase.investigatorRank ? `\nIA Rank: **${kase.investigatorRank}**` : ''}`),
+      ` ${robloxMark} **${investigatorRoblox}**\n ${discordMark} ${investigatorDiscord}${kase.investigatorRank ? `\nIA Rank: **${kase.investigatorRank}**` : ''}`),
     field('Officer Information', officer),
     field('Reason', kase.reason),
     (kase.notes && kase.notes !== 'N/A') ? field('Notes', kase.notes) : null,
