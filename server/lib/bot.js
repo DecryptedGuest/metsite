@@ -84,6 +84,9 @@ async function onReady() {
   // Mirror the closed-ticket logs onto the site (All Tickets / My Tickets).
   try { require('./ticketIngest').startTicketLogWorker(client); }
   catch (e) { console.warn('[TicketLogs] worker not started:', e.message); }
+  // Keep the IA quota leaderboard in sync with the live quota sheet.
+  try { require('./iaQuotaBoard').start(client); }
+  catch (e) { console.warn('[IA Quota Board] worker not started:', e.message); }
 
   // Which configured servers the bot can actually SEE. A card that cannot be
   // posted, a command that will not register and a suggestions channel that
