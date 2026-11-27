@@ -50,32 +50,29 @@ function ownerCheck(interaction, ownerId) {
 }
 function panelEmbed(profile, selected) {
   const linked = profile.discord
-    ? `<@${profile.discord.id}> · \`${profile.discord.username}\`${profile.discord.inMetServer === false ? ' · Not in MET server' : ''}`
-    : '*No linked Discord account found*';
+    ? `<@${profile.discord.id}> · \`${profile.discord.username}\`${profile.discord.inMetServer === false ? ' · Not in MET' : ''}`
+    : '*No Discord account linked*';
   const created = profile.createdAt
-    ? `<t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:D> · <t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:R>`
-    : 'Unavailable';
+    ? `<t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:D>`
+    : 'Not available';
   const embed = new EmbedBuilder()
     .setColor(COLOUR)
-    .setTitle('<:IA:1552764629204205619>  INTERNAL AFFAIRS  /  NEW CASE')
-    .setDescription('**OFFICER PROFILE VERIFIED**\nReview the information, select one or more punishments, then continue. This panel is private to you.')
+    .setTitle('<:IA:1552764629204205619>  NEW IA CASE')
+    .setDescription('Check the officer details and choose the action for this case.')
     .addFields(
-      { name: 'ROBLOX OFFICER', value: `**${String(profile.displayName || profile.username).slice(0, 80)}**\n[${String(profile.username).slice(0, 60)}](https://www.roblox.com/users/${profile.robloxId}/profile)\nID: \`${profile.robloxId}\``, inline: true },
-      { name: 'ACCOUNT STATUS', value: profile.banned ? 'Banned on Roblox' : 'Not marked as banned', inline: true },
+      { name: 'OFFICER', value: `**${String(profile.displayName || profile.username).slice(0, 80)}**\n[${String(profile.username).slice(0, 60)}](https://www.roblox.com/users/${profile.robloxId}/profile) · \`${profile.robloxId}\``, inline: true },
+      { name: 'DISCORD', value: linked, inline: true },
       { name: 'ACCOUNT CREATED', value: created, inline: true },
-      { name: 'LINKED DISCORD', value: linked, inline: true },
-      { name: 'MET DISCORD ROLES', value: profile.discord && profile.discord.roles.length ? profile.discord.roles.join(', ').slice(0, 1024) : 'No Discord role data available', inline: true },
-      { name: 'MET GROUP RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** · Rank ${profile.metGroup.rank}` : 'Not in MET group / unavailable', inline: true },
-      { name: 'IA DASHBOARD ACCESS', value: profile.dashboardRole || 'No IA dashboard role recorded', inline: true },
-      { name: 'IA ROBLOX RANK', value: profile.iaRankName ? `**${profile.iaRankName}** · Rank ${profile.iaRank}` : 'No IA rank on dashboard record', inline: true },
-      { name: 'OTHER GROUPS', value: profile.divisions.length ? profile.divisions.map(g => `• ${g.group.name}: **${g.role.name}** (Rank ${g.role.rank})`).join('\n').slice(0, 1024) : 'No other group memberships found', inline: false },
-      { name: 'PUNISHMENTS SELECTED', value: selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*' },
-      { name: 'CASE NUMBER', value: 'Assigned automatically on submission', inline: true },
-      { name: 'NEXT STEP', value: 'Select punishments below. You can set each timed action to a duration or Permanent in the next step.', inline: true },
+      { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** · ${profile.metGroup.rank}` : 'Not in MET group', inline: true },
+      { name: 'IA ACCESS', value: profile.dashboardRole || 'Not set', inline: true },
+      { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** · ${profile.iaRank}` : 'Not set', inline: true },
+      { name: 'ACTIONS', value: selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
+      { name: 'CASE NUMBER', value: 'Added when submitted', inline: true },
+      { name: 'NEXT', value: 'Choose the action(s), then press Continue.', inline: true },
     )
     .setFooter({ text: 'Metropolitan Police Service · Internal Affairs' });
   if (profile.avatar) embed.setThumbnail(profile.avatar);
-  if (profile.discord && profile.discord.avatar) embed.setAuthor({ name: `Linked Discord · ${profile.discord.username}`, iconURL: profile.discord.avatar });
+  if (profile.discord && profile.discord.avatar) embed.setAuthor({ name: profile.discord.username, iconURL: profile.discord.avatar });
   return embed;
 }
 
@@ -162,7 +159,7 @@ async function handleSubmitCase(interaction) {
     const met = groups.find(g => String(g.group.id) === mainGroupId) || null;
     let discord = null;
     if (linked && linked.discordId) {
-      discord = { id: String(linked.discordId), username: linked.discordUsername || 'Linked Discord account', avatar: linked.discordAvatar ? `https://cdn.discordapp.com/avatars/${linked.discordId}/${linked.discordAvatar}.png?size=128` : null, roles: [] };
+      discord = { id: String(linked.discordId), username: linked.discordUsername || 'Linked Discord account', avatar: linked.discordAvatar ? `https://cdn.discordapp.com/avatars/${linked.discordId}/${linked.discordAvatar}.png?size=128` : null };
       const guildId = process.env.MET_GUILD_ID || '1191048287315304470';
       const guild = interaction.client.guilds.cache.get(guildId) || await interaction.client.guilds.fetch(guildId).catch(() => null);
       if (guild) {
@@ -171,7 +168,6 @@ async function handleSubmitCase(interaction) {
           discord.username = member.user.tag || member.user.username;
           discord.avatar = member.user.displayAvatarURL({ size: 128 });
           discord.inMetServer = true;
-          discord.roles = member.roles.cache.filter(role => role.id !== guildId).sort((a, b) => b.position - a.position).map(role => role.name).slice(0, 12);
         } else discord.inMetServer = false;
       }
     }
@@ -179,7 +175,6 @@ async function handleSubmitCase(interaction) {
       robloxId: String(target.id), username: info.username || target.username || username,
       displayName: info.displayName || info.username || username, createdAt: info.createdAt,
       banned: !!info.banned, avatar: await roblox.getRobloxAvatarHeadshot(target.id).catch(() => null),
-      divisions: groups.filter(g => String(g.group.id) !== mainGroupId).slice(0, 8),
       metGroup: met ? { roleName: met.role.name, rank: met.role.rank } : null,
       discord, dashboardRole: linked && linked.role, iaRankName: linked && linked.iaRankName, iaRank: linked && linked.iaRank,
     };
