@@ -297,3 +297,26 @@ input:focus,select:focus,textarea:focus,.form-control:focus { border-color:var(-
  --border:var(--line); --panel:var(--surface); --surface-1:var(--surface); --hover:var(--surface-hover);
 }
 .panel-dot,.badge-dot,.status-dot,.green-dot,.pulse-dot,.nav-dot,.online-dot,.live-dot,.dot-green,.status-indicator,.online-indicator,.live-indicator { display:none !important; }
+
+
+/* Suppress alternate theme layers and division-specific accents: MET has one identity everywhere. */
+html[data-ui="aurora"] body { background:var(--bg) !important; background-image:none !important; }
+html[data-ui="aurora"] body::before,html[data-ui="aurora"] body::after { display:none !important; content:none !important; animation:none !important; }
+html[data-ui="aurora"] .sidebar { background:var(--nav) !important; border-right:1px solid rgba(255,255,255,.07) !important; }
+html[data-ui="aurora"] .nav-item { border-radius:5px !important; }
+html[data-ui="aurora"] .nav-item.active { background:var(--nav-raised) !important; border:1px solid rgba(255,255,255,.08) !important; color:var(--nav-text) !important; box-shadow:inset 2px 0 var(--accent) !important; }
+html[data-ui="aurora"] .glass,html[data-ui="aurora"] .panel { background:var(--surface) !important; border:1px solid var(--line) !important; border-radius:var(--r-md) !important; backdrop-filter:none !important; box-shadow:var(--shadow) !important; }
+html[data-ui="aurora"] .btn-primary { background:var(--nav) !important; color:#fff !important; border:1px solid var(--nav) !important; box-shadow:none !important; }
+html[data-ui="aurora"] .filter-tab.active { background:var(--nav) !important; color:#fff !important; border-color:var(--nav) !important; box-shadow:none !important; }
+html[data-ui="aurora"] .page-title { color:var(--ink) !important; background:none !important; -webkit-text-fill-color:var(--ink) !important; }
+html[data-division] { --blue:var(--info) !important; --blue-dim:var(--info-wash) !important; --blue-glow:transparent !important; --border-dim:var(--line) !important; --border-mid:var(--line-strong) !important; --border-bright:var(--accent) !important; }
+html[data-division] .met-topbar { box-shadow:none !important; }
+html[data-division] .met-topbar-division { color:var(--ink-soft) !important; }
+html[data-division] .met-topbar-division::before { display:none !important; content:none !important; }
+html[data-division] .brand-sub { color:var(--nav-muted) !important; }
+html[data-division] .btn-primary { background:var(--nav) !important; border-color:var(--nav) !important; color:#fff !important; }
+html[data-division] .btn-primary:hover { background:var(--nav-raised) !important; border-color:var(--nav-raised) !important; box-shadow:none !important; }
+html[data-division] .nav-item.active { background:var(--nav-raised) !important; border-color:rgba(255,255,255,.08) !important; color:var(--nav-text) !important; }
+html[data-division] .nav-item:hover { background:rgba(255,255,255,.065) !important; color:var(--nav-text) !important; }
+html[data-division] .stat-card.blue .stat-icon { background:var(--accent-wash) !important; color:var(--accent-strong) !important; }
+html[data-division] .panel-accent { display:none !important; }
