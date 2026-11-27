@@ -130,6 +130,14 @@ function integrityFlags(answers, telemetry) {
   const timings=telemetry && telemetry.answerSeconds && typeof telemetry.answerSeconds==='object' ? Object.values(telemetry.answerSeconds).map(Number).filter(Number.isFinite) : [];
   if(timings.length>=8 && timings.reduce((a,b)=>a+b,0)<90) flags.push({severity:'review',code:'FAST_COMPLETION',label:'Unusually fast completion',detail:'The form was completed unusually quickly. Review alongside the answers; speed alone is not evidence of misconduct.'});
   if(telemetry && Number(telemetry.pasteCount)>0) flags.push({severity:'info',code:'PASTE_ACTIVITY',label:'Paste activity recorded',detail:String(Number(telemetry.pasteCount))+' paste event(s) recorded. Pasting is not proof of AI use.'});
+  const perQuestion=telemetry&&telemetry.perQuestion&&typeof telemetry.perQuestion==='object'?telemetry.perQuestion:{};
+  for(const [id,signal] of Object.entries(perQuestion)) {
+    const answer=String((answers||{})[id]||'');
+    if(Number(signal.pastedChars)>0) flags.push({severity:'review',code:'PASTED_TEXT',label:'Pasted text: '+id,detail:String(Number(signal.pastedChars))+' pasted character(s). This can be legitimate and is not proof of AI use.'});
+    else if(answer.length>=80 && Number(signal.keystrokes)<answer.length*0.35) flags.push({severity:'review',code:'LOW_KEYSTROKE_RATIO',label:'Low typing activity: '+id,detail:'The recorded keystroke count is low compared with the answer length. This can also result from accessibility tools or browser limitations.'});
+    if(answer.length>=100 && Number(signal.activeMs)>0 && Number(signal.activeMs)<4000) flags.push({severity:'info',code:'FAST_ANSWER',label:'Fast response: '+id,detail:'A long answer was entered during a short active period.'});
+  }
+  if(telemetry && Number(telemetry.totalMs)>0 && Number(telemetry.totalMs)<90000) flags.push({severity:'review',code:'FAST_FORM',label:'Fast form completion',detail:'The whole application was completed in under 90 seconds. This is a prompt for human review only.'});
   let similar=false;
   for(let i=0;i<normalized.length;i++) for(let j=i+1;j<normalized.length;j++) {
     const a=new Set(normalized[i].text.split(/\W+/).filter(w=>w.length>3));
