@@ -232,9 +232,6 @@
   function openPalette() { build(); open = true; el.style.display = 'flex'; items = baseItems(''); sel = 0; render(); input.value = ''; setTimeout(() => input.focus(), 30); }
   function close() { open = false; if (el) el.style.display = 'none'; }
 
-  document.addEventListener('keydown', e => {
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); open ? close() : openPalette(); }
-  });
   window.openCommandPalette = openPalette;
 
   // Remember this page so it can appear under "Recent" next time.
