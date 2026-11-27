@@ -487,7 +487,7 @@ async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA'
 // An approved case is worth CASE_POINTS (4) to its investigator; an approved
 // ticket log is worth TICKET_POINTS (2) to whoever closed the ticket.
 const CASE_POINTS   = () => { const n = parseInt(process.env.IA_CASE_POINTS   || '4', 10); return Number.isFinite(n) ? n : 4; };
-const TICKET_POINTS = () => { const n = parseInt(process.env.IA_TICKET_POINTS || '2', 10); return Number.isFinite(n) ? n : 2; };
+const TICKET_POINTS = () => 2;
 // A ticket is worth 2 points. Every ticket, whatever type it is.
 //
 // There used to be a third rate paying appeals 3, read off a line in the sheet's
