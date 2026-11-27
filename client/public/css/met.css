@@ -383,3 +383,98 @@ input[type="checkbox"], input[type="radio"] { min-height: 0; accent-color: var(-
 }
 @media (prefers-reduced-motion: reduce) { .card, .stat-card, .panel { transition: none !important; } }
 
+
+
+/* Mobile dashboard navigation — keep the shared MET skin from overriding the
+   off-canvas drawer supplied by dashboard.css. */
+@media (max-width: 640px) {
+  .app-layout {
+    display: flex !important;
+    flex-direction: row !important;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  .sidebar {
+    position: fixed !important;
+    inset: 0 auto 0 0 !important;
+    width: min(84vw, 300px) !important;
+    min-width: 0 !important;
+    max-width: 300px !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+    transform: translateX(-105%) !important;
+    transition: transform .22s ease !important;
+    z-index: 90 !important;
+    overflow: hidden !important;
+    display: flex !important;
+  }
+  .app-layout.nav-open .sidebar {
+    transform: translateX(0) !important;
+  }
+  .sidebar-top {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+  .sidebar-nav {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 18px !important;
+  }
+  .sidebar-bottom { display: block !important; flex: 0 0 auto !important; }
+  .app-layout > .main-content {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 18px 14px 38px !important;
+  }
+  .met-nav-toggle, #met-nav-toggle, #met-mnav-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    position: relative;
+    z-index: 95;
+  }
+  .sidebar-scrim {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 85 !important;
+    background: rgba(0,0,0,.56) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  .app-layout.nav-open .sidebar-scrim {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+  .page { min-width: 0 !important; width: 100% !important; }
+  .page-header { flex-wrap: wrap !important; }
+  .page-header > * { min-width: 0; }
+  .stat-grid, .stats-grid, .profile-div-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .hpc-app-review { grid-template-columns: minmax(0, 1fr) !important; }
+  .panel, .card, .stat-card { min-width: 0; }
+  .table-wrap { max-width: 100%; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 620px; }
+  input, select, textarea, .form-control { max-width: 100%; }
+}
+@media (max-width: 380px) {
+  .app-layout > .main-content { padding-left: 11px !important; padding-right: 11px !important; }
+  .stat-grid, .stats-grid, .profile-div-grid { grid-template-columns: minmax(0, 1fr) !important; }
+}
+@media (min-width: 641px) {
+  .sidebar { transform: none !important; }
+  .sidebar-scrim { display: none !important; }
+  .met-nav-toggle, #met-nav-toggle { display: none !important; }
+}
