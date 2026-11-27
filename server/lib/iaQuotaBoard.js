@@ -69,13 +69,17 @@ async function verifiedIaMembers(client, members) {
     }
     if (!robloxId) continue;
 
-    const groups = await roblox.getUserGroups(robloxId);
-    const iaGroup = groups.find(item => String(item.group?.id) === String(groupId));
-    if (!iaGroup || !iaGroup.role) continue;
+    // Force a fresh group-membership check here. The normal profile helper caches
+    // group lists for 15 minutes, which is too stale for an eligibility gate.
+    const iaRoles = await roblox.getUserGroupRoles(robloxId, groupId, null, true).catch(() => []);
+    const iaRole = Array.isArray(iaRoles) && iaRoles.length
+      ? iaRoles.reduce((highest, role) => Number(role.rank) > Number(highest.rank) ? role : highest)
+      : null;
+    if (!iaRole) continue;
 
     // Use the live IA group rank, never a potentially stale or manually edited
     // spreadsheet rank label (which could falsely elevate somebody on the board).
-    verified.push({ ...member, rank: String(iaGroup.role.name || 'IA Member') });
+    verified.push({ ...member, rank: String(iaRole.name || 'IA Member') });
   }
   return verified;
 }
