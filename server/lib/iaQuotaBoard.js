@@ -4,7 +4,8 @@
 const { EmbedBuilder } = require('discord.js');
 const CHANNEL_ID = () => process.env.IA_QUOTA_BOARD_CHANNEL_ID || '1575970681865117716';
 const TITLE = 'INTERNAL AFFAIRS | QUOTA POINTS';
-const FOOTER = 'Metropolitan Police Service - Internal Affairs | Automatically updated';
+const IA_LOGO = 'https://cdn.discordapp.com/icons/1574841102169669692/bdaf270aa78f376ce95c7a9ad6095858.webp?size=1024';
+const FOOTER = 'Metropolitan Police Service - Internal Affairs';
 
 function rankOrder(rank) {
   const r = String(rank || '').toLowerCase();
@@ -47,8 +48,8 @@ function buildEmbed(members) {
 
   const embed = new EmbedBuilder()
     .setColor(0x26384d)
+    .setAuthor({ name: 'INTERNAL AFFAIRS', iconURL: IA_LOGO })
     .setTitle(TITLE)
-    .setDescription('Quota points by IA rank. Ticket closures award **+2 QP** and approved cases award **+4 QP**.')
     .setFooter({ text: FOOTER })
     .setTimestamp(new Date());
 
