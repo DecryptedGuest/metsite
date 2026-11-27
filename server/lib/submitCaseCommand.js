@@ -131,7 +131,7 @@ function detailsModal(ownerId, robloxId, indexes) {
 
 async function handleSubmitCase(interaction) {
   const username = String(interaction.options.getString('officer') || '').trim();
-  if (!username || /[\\s]/.test(username)) {
+  if (!username || /[\s]/.test(username)) {
     return interaction.reply({ content: `${e('met_denied')} Enter one Roblox username without spaces.`, flags: MessageFlags.Ephemeral });
   }
   // deferReply triggers Discord's native loading animation while lookups run.
@@ -331,7 +331,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   return interaction.editReply({
     content: `${e('met_tick')} Case **${created.caseRef}** has been submitted for review. ${gate} may decide this case.`,
     embeds: [new EmbedBuilder().setColor(COLOUR).setTitle(`IA CASE  ${created.caseRef}`)
-      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `• ${a}${isTimed(a) ? (durationDays ? ` · ${durationDays} days` : ' · Permanent') : ''}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
+      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `• ${a}${isTimed(a) ? (durations[a] ? ` · ${durations[a]} days` : ' · Permanent') : ''}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
       .addFields({ name: 'Case link', value: caseLink.slice(0, 1024) })
       .setFooter({ text: 'Metropolitan Police Service  ·  Internal Affairs' })],
     components: [],
