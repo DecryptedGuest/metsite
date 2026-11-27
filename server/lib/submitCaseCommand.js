@@ -189,7 +189,7 @@ async function handleComponent(interaction) {
     if (!current) return interaction.reply({ content: 'This case panel expired. Start /case again.', flags: MessageFlags.Ephemeral });
     const embed = EmbedBuilder.from(current);
     const value = selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose one or more below*';
-    embed.setFields((current.fields || []).map(field => field.name === 'PUNISHMENTS SELECTED' ? { ...field, value } : field));
+    embed.setFields((current.fields || []).map(field => field.name === 'ACTIONS' ? { ...field, value } : field));
     return interaction.update({ embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
   }
 
