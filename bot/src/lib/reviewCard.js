@@ -7,7 +7,6 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags
 const prisma = require('./db');
 const { env } = require('./env');
 const { isSupervisor, isHicomm, DENIED_REVIEW } = require('./perms');
-const { caseHasHicommOnlyPunishment } = require('./actions');
 const { canReview, canApproveActions, rankOf } = require('./iaRanks');
 const { e } = require('./emoji');
 const { announceApproval } = require('./notify');
@@ -132,14 +131,10 @@ async function handleReviewButton(interaction, bot) {
     if (verb === 'approve') {
       const names = (c.actions || []).map(a => a.action || a);
       const verdict = canApproveActions(member, names);
-      if (!verdict.ok && !isHicomm(member)) {
+      if (!verdict.ok) {
         return interaction.editReply(
           `${e('DENIED_MARK')} **${verdict.blocking}** needs **${verdict.required.abbr} · ${verdict.required.name}** or above. ` +
           `You are ${rankOf(member)?.abbr || 'unranked'}.`);
-      }
-      // The site-tier rule still stands on top of the ladder.
-      if (!isHicomm(member) && caseHasHicommOnlyPunishment(c.actions || [])) {
-        return interaction.editReply('Only HICOMM can approve a case involving a Blacklist or Termination.');
       }
     }
 
