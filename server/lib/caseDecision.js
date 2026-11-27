@@ -354,9 +354,11 @@ async function approveCase({ caseId, actor, note, onProgress } = {}) {
       discordId: existing.user.discordId,
       robloxUsername: existing.user.robloxUsername || existing.investigatorRobloxUsername || null,
       points: 4, label: `case ${existing.caseRef}`,
-    }).then(() => true).catch(() => false);
+    }).catch(() => false);
   }
   if (quotaAwarded) {
+    await progress('Applying the +4 QP award to the quota sheet…');
+    await require('./quota').processQuotaAwards().catch(() => {});
     await progress('Refreshing the IA quota leaderboard…');
     try { await require('./iaQuotaBoard').refresh(require('./bot').getClient()); }
     catch (err) { console.warn('[IA] quota board refresh after case approval failed:', err.message); }
