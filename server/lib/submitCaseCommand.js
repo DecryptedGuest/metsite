@@ -22,8 +22,8 @@ const roblox = require('./roblox');
 
 function buildCommand() {
   return new SlashCommandBuilder()
-    .setName('submit-case')
-    .setDescription('Submit a case')
+    .setName('case')
+    .setDescription('Submit an IA disciplinary case for review')
     .addStringOption(o => o.setName('document').setDescription('Document').setRequired(true))
     .addStringOption(o => o.setName('punishments')
       .setDescription('Punishments').setRequired(true).setAutocomplete(true))
@@ -151,7 +151,7 @@ async function handleSubmitCase(interaction) {
   await prisma.caseAction.create({
     data: {
       caseId: created.id, actionType: 'CREATED',
-      performedBy: auth.userId, notes: 'Submitted via /submit-case',
+      performedBy: auth.userId, notes: 'Submitted via /case',
     },
   }).catch(() => {});
 
@@ -172,7 +172,7 @@ async function handleSubmitCase(interaction) {
 
   loader.stop();
   const needsHicomm = enriched.some(a => HICOMM_ONLY_ACTIONS.includes(a.action));
-  const gate = needsHicomm ? 'High Command' : 'Supervisor and above';
+  const gate = needsHicomm ? 'Assistant Director and above' : 'Supervisor and above';
 
   if (!messageId) {
     return interaction.editReply(`${e('met_warn')} Filed **${created.caseRef}**, but the review card could not be posted.`
