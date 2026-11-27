@@ -130,8 +130,8 @@ async function handleSubmitCase(interaction) {
   try {
     const auth = await resolveAuthority(interaction);
     const view = canView(auth);
-    if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
-    if (!auth.userId) return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`);
+    if (!view.allowed) { loading.stop(); return interaction.editReply(`${e('met_denied')} ${view.reason}`); }
+    if (!auth.userId) { loading.stop(); return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`); }
 
     loading.update('Verifying Roblox details, group ranks and linked Discord account');
     const target = await roblox.getRobloxIdFromUsername(username);
