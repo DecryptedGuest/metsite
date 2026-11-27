@@ -97,16 +97,21 @@ function detailsModal(ownerId, robloxId, indexes) {
     .setCustomId('notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph)
     .setPlaceholder('Additional context for reviewers')
     .setRequired(false).setMaxLength(1500);
-  const blacklist = new TextInputBuilder()
-    .setCustomId('blacklist_code').setLabel('Blacklist code (optional)')
-    .setStyle(TextInputStyle.Short).setPlaceholder('Only used for a Blacklist')
-    .setRequired(false).setMaxLength(80);
+  const selected = selectedNames(indexes.split('.').filter(Boolean));
+  const timedActions = selected.filter(isTimed);
   modal.addComponents(
     new ActionRowBuilder().addComponents(reason),
     new ActionRowBuilder().addComponents(link),
     new ActionRowBuilder().addComponents(notes),
-    new ActionRowBuilder().addComponents(blacklist),
   );
+  if (timedActions.length) {
+    const durations = new TextInputBuilder()
+      .setCustomId('timed_durations').setLabel('Timed punishment durations (required)')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder(timedActions.map(name => `${name}=14`).join('\n'))
+      .setRequired(true).setMaxLength(500);
+    modal.addComponents(new ActionRowBuilder().addComponents(durations));
+  }
   return modal;
 }
 
@@ -207,13 +212,30 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   const reason = interaction.fields.getTextInputValue('reason').trim();
   const caseLink = interaction.fields.getTextInputValue('case_link').trim();
   const notes = interaction.fields.getTextInputValue('notes').trim();
-  const blacklistCode = interaction.fields.getTextInputValue('blacklist_code').trim();
   if (!/^https?:\/\//i.test(caseLink)) {
     return interaction.reply({ content: `${e('met_denied')} The case link must be a valid http(s) link.`, flags: MessageFlags.Ephemeral });
   }
+  const timedActions = actions.filter(isTimed);
   const durations = {};
-  if (actions.includes('Blacklist') && blacklistCode.length > 80) {
-    return interaction.reply({ content: `${e('met_denied')} The blacklist code is too long.`, flags: MessageFlags.Ephemeral });
+  if (timedActions.length) {
+    const rawDurations = interaction.fields.getTextInputValue('timed_durations').trim();
+    const entries = rawDurations.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean);
+    for (const entry of entries) {
+      const match = entry.match(/^(.+?)\s*=\s*(\d+)$/);
+      if (!match) {
+        return interaction.reply({ content: `${e('met_denied')} Enter each duration as Punishment=Days, for example Suspension=14.`, flags: MessageFlags.Ephemeral });
+      }
+      const actionName = timedActions.find(name => name.toLowerCase() === match[1].trim().toLowerCase());
+      const days = Number(match[2]);
+      if (!actionName || durations[actionName] || !Number.isInteger(days) || days < 1 || days > 3650) {
+        return interaction.reply({ content: `${e('met_denied')} Provide one valid duration from 1 to 3650 days for each selected timed punishment, without duplicates or extra entries.`, flags: MessageFlags.Ephemeral });
+      }
+      durations[actionName] = days;
+    }
+    const missing = timedActions.filter(name => !durations[name]);
+    if (missing.length) {
+      return interaction.reply({ content: `${e('met_denied')} A duration is required for: ${missing.join(', ')}. Submit each as Punishment=Days.`, flags: MessageFlags.Ephemeral });
+    }
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -232,8 +254,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   const enriched = actions.map(action => ({
     action,
     roleId: roleIdForAction(action),
-    durationDays: isTimed(action) ? (durations[action] || null) : null,
-    ...(action === 'Blacklist' && blacklistCode ? { code: blacklistCode } : {}),
+    durationDays: isTimed(action) ? durations[action] : null,
   }));
   const caseRef = await generateCaseRef();
   let created;
