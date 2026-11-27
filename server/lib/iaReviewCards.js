@@ -39,11 +39,11 @@ const RED   = 0xf04f5e;   // denied
 // case-sensitive on Linux, so a var set with that lower-case "i" never matched
 // the lookup and the ping silently did nothing.
 const casesChannelId   = () =>
-  process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1537076390829101057';
+  process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1574841103042093224';
 const ticketsChannelId = () =>
   process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1537076390829101058';
 const reviewerRoleId   = () =>
-  process.env.IA_REVIEWER_ROLE_ID || process.env.IA_REVIEWER_ROLE_iD || '1537076386198716439';
+  process.env.IA_REVIEWER_ROLE_ID || process.env.IA_REVIEWER_ROLE_iD || '1574841102169669693';
 
 /** The reviewer ping, or nothing if no role is configured. */
 function reviewerPing() {
