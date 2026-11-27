@@ -356,8 +356,8 @@ async function addQuotaViaWebhook(member, points, label, division = 'IA') {
     console.warn(`[quota] webhook did not apply for ${label}: ${data && data.error}`);
     return false;
   } catch (err) {
-    console.error('[quota] webhook error:', err.message);
-    return false;
+    console.error('[quota] webhook error; falling back to the Google Sheets service account:', err.message);
+    return null;
   }
 }
 
