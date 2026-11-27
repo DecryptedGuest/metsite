@@ -388,6 +388,9 @@ app.use('/api/ia-application', requireAuth, require('./routes/iaApplication'));
 // Marking IA applications — Deputy Director and above. The gate is on the whole
 // router inside the file, not here, so it cannot be lost by editing this line.
 app.use('/api/ia-application-review', requireAuth, require('./routes/iaApplicationReview'));
+// MET Constable recruitment applications — applicants and HICOMM review.
+app.use('/api/met-application', requireAuth, require('./routes/metApplication'));
+app.use('/api/met-application-review', requireAuth, require('./routes/metApplicationReview'));
 // IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
 app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
 // Push + notification self-service must be open to EVERY signed-in member — the
@@ -1445,6 +1448,8 @@ app.get('/n/ticket-dm', async (req, res) => {
 // (The profile page IS the dashboard; served at both paths.)
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
+app.get('/apply', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'apply.html')));
+app.get('/hicomm/applications', recordVisit, requireAuth, requireMetHicomm, (req, res) => sendPage(res, path.join(views, 'met-applications.html')));
 
 // Leave of Absence — any signed-in member requests; reviewers see a queue.
 
