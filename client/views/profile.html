@@ -101,12 +101,6 @@
     <span>The MET bot has not linked your account. Permissions and punishment history are unavailable.</span>
   </div>
 
-  <!-- Final exam (only shown to eligible cadets) -->
-  <div class="panel glass fade-up" id="p-exam-panel" style="display:none;">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Final Examination</div></div>
-    <div class="profile-section" id="p-exam"></div>
-  </div>
-
   <!-- Upcoming / current tryouts (British citizens) -->
   <div class="panel glass fade-up" id="p-tryouts-panel" style="display:none;">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot green"></span>MET Tryouts</div></div>
@@ -196,11 +190,9 @@
   <div class="panel glass fade-up stagger-3" id="p-passkeys-panel">
     <div class="panel-header">
       <div class="panel-title"><span class="panel-dot green"></span>Sign-in security</div>
-      <button id="p-passkey-add" class="btn btn-primary btn-sm" onclick="addPasskey()">
-        <i class="ti ti-fingerprint"></i> Add passkey
-      </button>
-    </div>
+</div>
     <div class="profile-section">
+      <button id="p-passkey-add" class="btn btn-primary btn-sm" onclick="addPasskey()" style="margin-bottom:12px;"><i class="ti ti-fingerprint"></i> Add passkey</button>
       <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px;">
         Use a passkey (Face ID, Touch ID, Windows Hello or a security key) to confirm sensitive actions.
       </p>
