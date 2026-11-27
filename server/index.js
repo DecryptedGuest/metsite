@@ -1410,7 +1410,19 @@ function sendPage(res, file, division) {
 // Public: shows a "Sign in" CTA when logged out, and the 5 division cards
 // (per-user access resolved client-side via /api/me + /api/me/divisions)
 // once authenticated. requireAuth's `res.redirect('/login')` lands here too.
-app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'index.html')));
+app.get('/', recordVisit, maybeAuth, (req, res) => {
+  if (req.user && !req.user.isBlacklisted && !req.user.mustReauth) {
+    if (req.user.role === 'DEVELOPER') return res.redirect('/dev/dashboard');
+    const mine = Array.isArray(req.user.divisions) ? req.user.divisions : [];
+    const preferred = mine.find(d => d && d.division === 'IA') || mine[0];
+    if (preferred && preferred.division) {
+      const slug = String(preferred.division).toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return res.redirect(`/${slug}/dashboard`);
+    }
+    return res.redirect('/profile');
+  }
+  return sendPage(res, path.join(views, 'index.html'));
+});
 app.get('/login', maybeAuth, (req, res) => {
   if (req.user && !req.user.isBlacklisted && !req.user.mustReauth) {
     const mine = Array.isArray(req.user.divisions) ? req.user.divisions : [];
