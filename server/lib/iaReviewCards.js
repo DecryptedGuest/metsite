@@ -38,8 +38,7 @@ const RED   = 0xf04f5e;   // denied
 // IA_REVIEWER_ROLE_iD is read too. Environment variable names are
 // case-sensitive on Linux, so a var set with that lower-case "i" never matched
 // the lookup and the ping silently did nothing.
-const casesChannelId   = () =>
-  process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1574841103042093225';
+const casesChannelId   = () => '1574841103042093225';
 const ticketsChannelId = () =>
   process.env.IA_TICKET_CLOSED_CHANNEL_ID || process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1574841102836699252';
 const reviewerRoleId   = () =>
@@ -590,6 +589,7 @@ async function handleReviewButton(interaction) {
       await interaction.message.edit({
         embeds: [caseCard(fresh, { decidedBy: actor })], components: [],
       }).catch(() => {});
+      await applyCaseStatusTag(interaction.channel, fresh.status).catch(() => {});
       // Both halves of the award, stated, because they differ by decision:
       // an approval pays the submitter and the reviewer, a denial pays only the
       // reviewer.
