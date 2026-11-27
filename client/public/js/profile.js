@@ -71,11 +71,26 @@ function whoToGreet(u, metNickname) {
 
 async function loadProfile() {
   let data;
+  const profileController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const profileTimeout = profileController ? setTimeout(() => profileController.abort(), 20000) : null;
   try {
-    data = await api('/api/me/profile');
+    data = await api('/api/me/profile', profileController ? { signal: profileController.signal } : {});
   } catch (err) {
-    showToast(err.message, 'error');
+    const message = err && err.name === 'AbortError'
+      ? 'The profile request timed out. Other account sections can still load; refresh to retry the profile.'
+      : (err && err.message) || 'The profile could not be loaded.';
+    const nameEl = document.getElementById('p-name');
+    if (nameEl) nameEl.textContent = 'Profile unavailable';
+    const subEl = document.getElementById('p-sub');
+    if (subEl) subEl.textContent = message;
+    const divEl = document.getElementById('p-divisions');
+    if (divEl) divEl.innerHTML = '<div class="profile-load-error">Divisions and rank could not be loaded.</div>';
+    const punishmentsEl = document.getElementById('p-punishments');
+    if (punishmentsEl) punishmentsEl.innerHTML = '<tr><td colspan="6" class="profile-load-error">Punishment history could not be loaded.</td></tr>';
+    if (window.showToast) showToast(message, 'error');
     return;
+  } finally {
+    if (profileTimeout) clearTimeout(profileTimeout);
   }
 
   // ── Identity header ──
@@ -123,11 +138,6 @@ async function loadProfile() {
   loadExamStatus();
   // ── Upcoming / live tryouts (British citizens) ──
   loadTryouts();
-  // ── Active sign-ins / devices ──
-  loadSessions();
-  // ── Passkeys / 2FA ──
-  loadPasskeys();
-
   // ── Standing / disciplinary flags ──
   const flags = data.flags || [];
   if (flags.length) {
@@ -529,9 +539,11 @@ function relativeTime(ts) {
 }
 
 async function loadSessions() {
-  let data;
-  try { data = await api('/api/me/sessions'); } catch (e) { return; }
   const el = document.getElementById('p-sessions');
+  if (!el) return;
+  let data;
+  try { data = await api('/api/me/sessions'); }
+  catch (e) { el.innerHTML = '<div class="profile-load-error">Could not load signed-in devices. Refresh to try again.</div>'; return; }
   const sessions = data.sessions || [];
   if (!sessions.length) {
     el.innerHTML = '<div class="table-empty-text">No active sessions.</div>';
@@ -750,6 +762,9 @@ function tickRelativeTimes() {
 }
 setInterval(tickRelativeTimes, 60000);
 
+// Independent account sections must not wait for the profile aggregate endpoint.
+loadSessions();
+loadPasskeys();
 loadProfile();
 renderNotifPanel();
 renderReduceMotionBtn();
