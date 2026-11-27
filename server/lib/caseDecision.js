@@ -388,64 +388,14 @@ async function denyCase({ caseId, actor, note } = {}) {
  * @param {'approve'|'deny'} o.action
  */
 async function reviewTicket({ ticketId, actor, action } = {}) {
-  const verb = String(action || '').toLowerCase();
-  if (!['approve', 'deny'].includes(verb)) {
-    return { ok: false, status: 400, error: "action must be 'approve' or 'deny'." };
-  }
-  const status = verb === 'approve' ? 'APPROVED' : 'DENIED';
-
-  const ticket = await prisma.ticketLog.findUnique({ where: { id: ticketId } });
-  if (!ticket) return { ok: false, status: 404, error: 'Ticket log not found.' };
-
-  const updated = await prisma.ticketLog.update({
-    where: { id: ticket.id },
-    data: {
-      status,
-      reviewedById:   actor.id,
-      reviewedByName: actor.displayName || actor.discordUsername || 'Internal Affairs',
-      reviewedAt:     new Date(),
-    },
-  });
-
-  // Quota points are Internal Affairs'. A CID or SCO-19 ticket closed by one of
-  // that division's own officers is still logged and still reviewed, but there
-  // is no IA quota to pay — so the award is skipped rather than credited to
-  // somebody who is not on the IA sheet. `closerIsIa` was resolved at ingest.
-  const payable = ticket.closerIsIa !== false;
-  if (status === 'APPROVED' && payable && (ticket.closerDiscordId || ticket.closerUserId)) {
-    const { enqueueQuotaAward, ticketPointsFor } = require('./quota');
-    let closer = null;
-    if (ticket.closerUserId) {
-      closer = await prisma.user.findUnique({
-        where:  { id: ticket.closerUserId },
-        select: { discordId: true, robloxUsername: true },
-      }).catch(() => null);
-    }
-    const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
-    if (discordId) {
-      enqueueQuotaAward({
-        refType: 'ticket', refId: ticket.id,
-        discordId,
-        // Only the matched site account's Roblox name — NEVER
-        // creatorRobloxUsername, which is the person who OPENED the ticket.
-        robloxUsername: (closer && closer.robloxUsername) || null,
-        points: ticketPointsFor(),
-        label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.id}`,
-      }).catch(() => {});
-    }
-  }
-
-  // Journalled so /undo can put it back — including cancelling an award that
-  // has not reached the sheet yet.
-  await require('./actionJournal').record({
-    kind: 'TICKET_REVIEW',
-    actorId: actor.id, actorName: actor.displayName || actor.discordUsername,
-    targetType: 'ticket', targetId: ticket.id,
-    summary: `${status === 'APPROVED' ? 'Approved' : 'Denied'} ticket ${ticket.ticketNo != null ? '#' + ticket.ticketNo : ticket.id}`,
-    payload: { decision: status },
-  });
-
-  return { ok: true, status: 200, ticket: updated, decision: status };
+  // Closed tickets are approved automatically at ingest. Keep this guard for
+  // old dashboard routes and stale Discord buttons so nobody can manually
+  // approve or deny a ticket after the policy change.
+  return {
+    ok: false,
+    status: 409,
+    error: 'Ticket logs are automatically approved. Manual ticket review is disabled.',
+  };
 }
 
 module.exports = {
