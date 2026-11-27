@@ -39,9 +39,8 @@ window.metEmpty = function (o) {
       : `<button class="btn btn-primary btn-sm met-empty-cta" onclick="${o.onclick}">${inner}</button>`;
   }
   // Faint strap-line watermark on the fuller (sub-carrying) empty states.
-  const strap = (o.strap === false || !o.sub) ? '' :
-    '<div class="met-strap met-empty-strap"><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>';
-  return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}${strap}</div>`;
+  const strap = '';
+return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}${strap}</div>`;
 };
 
 // A small overlapping Discord + Roblox avatar stack. Discord first, Roblox
@@ -169,6 +168,18 @@ if (typeof document !== 'undefined' && !window.metTour && !document.getElementBy
 // ── Breadcrumb: "Division › Section" in the topbar ─────────────────────────
 // The Section tracks the active sidebar nav item live (dashboards toggle the
 // .active class on nav-items when switching pages), via a MutationObserver.
+// Add a consistent route back to the main MET home page on every division shell.
+function metInjectHomeLink() {
+  const nav = document.querySelector('.app-layout .sidebar .sidebar-nav');
+  if (!nav || nav.querySelector('.met-home-link')) return;
+  const home = document.createElement('a');
+  home.href = '/';
+  home.className = 'nav-item met-home-link';
+  home.setAttribute('aria-label', 'Return to MET home page');
+  home.innerHTML = '<i class="ti ti-home nav-icon" aria-hidden="true"></i><span>Home</span>';
+  nav.insertBefore(home, nav.firstChild);
+}
+
 function metInjectBreadcrumb(currentDivision) {
   const titleEl = document.querySelector('.met-topbar-left .met-topbar-title');
   if (!titleEl || document.getElementById('met-breadcrumb')) return;
@@ -257,7 +268,6 @@ function metInjectMobileNav(mine, currentDivision, examEligible) {
       + item('/dashboard', 'ti-home', 'My Dashboard', here === '/dashboard' || here === '/profile')
       + (divLinks ? '<div class="met-mnav-label">Divisions you can access</div>' + divLinks : '')
       + '<div class="met-mnav-label">You</div>'
-      + item('/tryout', 'ti-target-arrow', 'Tryout', here === '/tryout')
       + (examEligible ? item('/exam', 'ti-writing', 'Final Exam', here === '/exam') : '')
       + item('/app', 'ti-device-mobile', 'Mobile App', here === '/app')
     + '</div>'
@@ -362,6 +372,7 @@ async function initMetTopbar(currentDivision) {
 
   // Breadcrumb (Division › Section), mobile nav drawer + back-to-top — injected
   // centrally so every dashboard gets them without per-view markup.
+  try { metInjectHomeLink(); } catch (e) {}
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
   try { metInjectMobileNav(myDivisions, currentDivision, examEligible); } catch (e) {}
@@ -478,14 +489,7 @@ function closeOtherDropdowns(except) {
   document.querySelectorAll('.met-switcher.open').forEach(s => { if (s !== except) s.classList.remove('open'); });
 }
 
-// ── MET brand: intro splash, tagline rotator, footer strap ────────────
-// A short, once-per-session intro that mirrors the Met's on-screen strap-line
-// ("More Trust · Less Crime · High Standards" / "Working together for a safer
-// London"). Purely cosmetic and fully guarded — never blocks the page.
-// Generic full-screen branded "moment" — the reusable engine behind the intro
-// splash and one-off celebrations (e.g. passing the final exam).
-//   opts: { strap:[seg,seg,seg] | title, tagline, icon (Tabler), crest (url|false),
-//           variant, autoMs }
+// ── MET brand moments (explicitly invoked only; no automatic slogan splash). ──
 function metBrandMoment(opts) {
   opts = opts || {};
   try {
@@ -526,15 +530,7 @@ function metBrandMoment(opts) {
   } catch (e) { /* cosmetic only */ }
 }
 
-function metPlaySplash() {
-  try {
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('metSplashSeen')) return;
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    try { sessionStorage.setItem('metSplashSeen', '1'); } catch (e) {}
-    if (reduce) return;
-    metBrandMoment({ strap: ['More Trust', 'Less Crime', 'High Standards'], tagline: 'Working together for a safer London', autoMs: 2100 });
-  } catch (e) { /* cosmetic only */ }
-}
+function metPlaySplash() { /* automatic branding splash intentionally disabled */ }
 
 // Cycle a line of text through several taglines with a soft fade.
 function metRotateTagline(elOrId, phrases, interval) {
@@ -553,18 +549,7 @@ function metRotateTagline(elOrId, phrases, interval) {
 }
 
 // A quiet strap-line footer at the bottom of a dashboard's main content.
-function metInjectFooterStrap() {
-  try {
-    var main = document.querySelector('.main-content');
-    if (!main || document.getElementById('met-footer-strap')) return;
-    var f = document.createElement('div');
-    f.id = 'met-footer-strap'; f.className = 'met-footer-strap';
-    f.innerHTML =
-      '<div class="met-strap"><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>' +
-      '<span class="fs-tag">Working together for a safer London</span>';
-    main.appendChild(f);
-  } catch (e) { /* cosmetic */ }
-}
+function metInjectFooterStrap() { /* footer strap intentionally removed */ }
 
 if (typeof window !== 'undefined') {
   window.metBrandMoment = metBrandMoment;
@@ -572,5 +557,3 @@ if (typeof window !== 'undefined') {
   window.metRotateTagline = metRotateTagline;
   window.metInjectFooterStrap = metInjectFooterStrap;
 }
-// Play the intro as early as possible (this script loads at the end of <body>).
-metPlaySplash();

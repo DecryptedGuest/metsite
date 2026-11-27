@@ -20,7 +20,7 @@ const hpcRoutes   = require('./routes/hpc');
 const examRoutes  = require('./routes/exam');
 const tryoutRoutes = require('./routes/tryouts');
 const { requireAuth } = require('./middleware/auth');
-const { requireDivision, requireCidTryout, requireMetHicomm } = require('./middleware/division');
+const { requireDivision, requireMetHicomm } = require('./middleware/division');
 const { maybeAuth } = require('./middleware/auth');
 const { recordVisit } = require('./middleware/visit');
 const { startBot, startRoleExpiryChecker } = require('./lib/bot');
@@ -1491,11 +1491,14 @@ function mountDivisionPages(slug, division) {
 // not the generic CID-division cache.
 app.get('/cid',           recordVisit, (req, res) => res.redirect('/'));
 app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html'), 'CID'));
-app.get('/cid/dashboard', recordVisit, linkPreview('CID'), requireAuth, requireCidTryout,
-  (req, res) => sendPage(res, path.join(views, 'cid-dashboard.html'), 'CID'));
-mountDivisionPages('sco19', 'SCO19');
-mountDivisionPages('flp',   'FLP');
-mountDivisionPages('hpc',   'HPC');
+// CID, SCO-19 and FLP dashboards are temporarily disabled. Keep their API
+// routes and division membership data intact; only the dashboard pages are off.
+const disabledDivisionDashboard = (req, res) =>
+  res.status(404).type('text').send('This division dashboard is currently unavailable.');
+app.get('/cid/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
+app.get('/sco19/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
+app.get('/flp/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
+mountDivisionPages('hpc', 'HPC');
 
 // ── MET HICOMM — dashboard-wide oversight dashboard (Deputy Commissioner+). ──
 app.get('/hicomm',           recordVisit, (req, res) => res.redirect('/hicomm/dashboard'));

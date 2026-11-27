@@ -768,3 +768,60 @@ loadPasskeys();
 loadProfile();
 renderNotifPanel();
 renderReduceMotionBtn();
+
+/* Profile navigation: keep identity/history, division access and preferences separate. */
+function activateProfileTab(name, updateHash) {
+  const allowed = ['profile', 'divisions', 'settings'];
+  if (!allowed.includes(name)) name = 'profile';
+  document.querySelectorAll('[data-profile-tab]').forEach(el => {
+    const active = el.getAttribute('data-profile-tab') === name;
+    if (el.classList.contains('profile-tab')) {
+      el.classList.toggle('active', active);
+      el.setAttribute('aria-selected', active ? 'true' : 'false');
+    } else {
+      el.classList.toggle('active', active);
+    }
+  });
+  allowed.forEach(key => {
+    const pane = document.getElementById('pane-' + key);
+    if (pane) {
+      pane.hidden = key !== name;
+      pane.classList.toggle('active', key === name);
+    }
+  });
+  if (updateHash) {
+    try { history.replaceState(null, '', '#' + name); } catch (e) {}
+  }
+}
+document.querySelectorAll('[data-profile-tab]').forEach(el => {
+  el.addEventListener('click', () => activateProfileTab(el.getAttribute('data-profile-tab'), true));
+});
+const initialProfileTab = (location.hash || '').slice(1);
+if (['profile', 'divisions', 'settings'].includes(initialProfileTab)) activateProfileTab(initialProfileTab, false);
+
+async function loadMyDivisions() {
+  const host = document.getElementById('p-division-list');
+  if (!host) return;
+  try {
+    const data = await api('/api/me/divisions');
+    const mine = Array.isArray(data.mine) ? data.mine : [];
+    if (!mine.length) {
+      host.innerHTML = '<div class="table-empty-text">No divisions are currently assigned to your account.</div>';
+      return;
+    }
+    host.innerHTML = '<div class="profile-division-grid">' + mine.map(d => {
+      const name = escHtml(d.fullName || d.name || d.division || 'Division');
+      const rank = escHtml(d.rankName || d.tier || 'Member');
+      const icon = d.icon ? '<img src="' + escHtml(d.icon) + '" alt="" class="profile-division-icon" onerror="this.style.display=\'none\'">' : '<span class="profile-division-icon-fallback"><i class="ti ti-building-community"></i></span>';
+      const slug = String(d.slug || '').split('/').filter(Boolean).join('/');
+      const href = slug ? '/' + encodeURIComponent(slug) + '/dashboard' : '';
+      return '<a class="profile-division-choice" href="' + (href || '#') + '"' + (href ? '' : ' aria-disabled="true"') + '>' +
+        icon + '<span class="profile-division-copy"><strong>' + name + '</strong><small>' + rank + '</small></span>' +
+        '<i class="ti ti-arrow-up-right profile-division-arrow"></i></a>';
+    }).join('') + '</div>';
+  } catch (e) {
+    host.innerHTML = '<div class="profile-load-error">Could not load your divisions. Refresh to try again.</div>';
+  }
+}
+
+loadMyDivisions();
