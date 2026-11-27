@@ -1468,7 +1468,7 @@ app.get('/n/ticket-dm', async (req, res) => {
 // (The profile page IS the dashboard; served at both paths.)
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
-app.get('/apply', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'apply.html')));
+app.get('/apply', recordVisit, maybeAuth, (req, res) => sendPage(res, path.join(views, 'apply.html')));
 app.get('/hpc/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/dashboard?view=applications'));
 app.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/dashboard?view=applications'));
 
