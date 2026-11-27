@@ -1,185 +1,276 @@
 // server/lib/submitCaseCommand.js
-// /submit-case — file a disciplinary case from Discord.
-//
-// The case it writes is the SAME Case row the website writes, decided by the
-// same reviewers through the same buttons (lib/iaReviewCards → lib/caseDecision).
-// There is deliberately no second code path here: a case filed in Discord and a
-// case filed on the site have to approve, pay and audit identically, and the
-// only way to guarantee that is for them to be the same record.
-//
-// Case.userId is a foreign key to User, so filing needs a dashboard account.
-// That is surfaced as its own message rather than a flat refusal, because "sign
-// in once" is a fix and "not authorised" is not.
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+// Private, interactive IA case builder. /case takes only a Roblox username;
+// all remaining fields are collected in an ephemeral Discord panel + modal.
+const {
+  SlashCommandBuilder, MessageFlags, EmbedBuilder, ActionRowBuilder,
+  StringSelectMenuBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle,
+} = require('discord.js');
 const prisma = require('./db');
-const { e, startLoading } = require('./emoji');
-const { ACTION_NAMES, parseActions, isTimed, roleIdForAction } = require('./actions');
+const { e } = require('./emoji');
+const { ACTION_NAMES, isTimed, roleIdForAction } = require('./actions');
 const { generateCaseRef } = require('./caseRef');
 const { HICOMM_ONLY_ACTIONS } = require('./iaRank');
 const { resolveAuthority, canView } = require('./iaAuthority');
 const cards = require('./iaReviewCards');
 const roblox = require('./roblox');
 
+const COLOUR = 0x26384d;
+const TIMED = ACTION_NAMES.filter(isTimed);
+const ACTION_META = {
+  'Written Warning': 'AUTO-ROLE · Permanent',
+  'Zero Tolerance': 'AUTO-ROLE · Permanent or timed',
+  'Suspension': 'AUTO-ROLE · Permanent or timed',
+  'Activity Strike': 'AUTO-ROLE · Permanent',
+  'Disciplinary Strike 1': 'AUTO-ROLE · Permanent or timed',
+  'Disciplinary Strike 2': 'AUTO-ROLE · Permanent or timed',
+  'Demotion': 'NO ROLE · Rank demotion',
+  'Termination': 'EXILE · MET and divisional groups',
+  'Blacklist': 'EXILE + ROLE · Blacklist role',
+};
+
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('case')
-    .setDescription('Submit an IA disciplinary case for review')
-    .addStringOption(o => o.setName('document').setDescription('Document').setRequired(true))
-    .addStringOption(o => o.setName('punishments')
-      .setDescription('Punishments').setRequired(true).setAutocomplete(true))
-    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(true))
-    .addUserOption(o => o.setName('subject').setDescription('Subject'))
-    .addStringOption(o => o.setName('roblox').setDescription('Roblox'))
-    .addIntegerOption(o => o.setName('duration').setDescription('Days').setMinValue(1))
-    .addStringOption(o => o.setName('blacklist_code').setDescription('Blacklist'))
-    .addStringOption(o => o.setName('notes').setDescription('Notes'))
+    .setDescription('Open the private IA case builder')
+    .addStringOption(o => o.setName('officer')
+      .setDescription('Officer Roblox username')
+      .setRequired(true)
+      .setMaxLength(20))
     .toJSON();
 }
 
-/** Suggest punishments as they are typed, keeping what has already been picked. */
-async function handleAutocomplete(interaction) {
-  const typed  = interaction.options.getFocused() || '';
-  const parts  = typed.split(',');
-  const prefix = parts.slice(0, -1).join(',').trim();
-  const last   = (parts[parts.length - 1] || '').trim().toLowerCase();
-
-  const choices = ACTION_NAMES
-    .filter(a => a.toLowerCase().includes(last))
-    .map(a => {
-      const value = (prefix ? `${prefix}, ${a}` : a).slice(0, 100);
-      // Say what a punishment will COST to approve before it is chosen, so the
-      // filer is not surprised by a card nobody present can decide.
-      const gate = HICOMM_ONLY_ACTIONS.includes(a) ? '  (High Command)' : '';
-      return { name: `${a}${gate}`.slice(0, 100), value };
-    })
-    .slice(0, 25);
-
-  await interaction.respond(choices).catch(() => {});
+function selectedNames(indexes) {
+  return indexes.map(n => ACTION_NAMES[Number(n)]).filter(Boolean);
+}
+function encodeIndexes(names) {
+  return names.map(name => ACTION_NAMES.indexOf(name)).filter(n => n >= 0).join('.');
+}
+function ownerCheck(interaction, ownerId) {
+  return String(interaction.user.id) === String(ownerId);
+}
+function panelEmbed(username, selected) {
+  const embed = new EmbedBuilder()
+    .setColor(COLOUR)
+    .setTitle('<:IA:1552764629204205619>  INTERNAL AFFAIRS  /  NEW CASE')
+    .setDescription('**Case builder**\nChoose one or more punishments, then continue to the case details. This panel is private to you.')
+    .addFields(
+      { name: 'OFFICER', value: '`' + String(username).slice(0, 80) + '`', inline: true },
+      { name: 'CASE NUMBER', value: 'Assigned automatically on submission', inline: true },
+      { name: 'PUNISHMENTS SELECTED', value: selected.length ? selected.map(a => '• **' + a + '** — ' + ACTION_META[a]).join('\n').slice(0, 1024) : '*Choose one or more below*' },
+      { name: 'PERMANENCE', value: 'Timed punishments can be made permanent by leaving the duration blank. A duration applies to all timed punishments selected.', inline: false },
+    )
+    .setFooter({ text: 'Metropolitan Police Service  ·  Internal Affairs' });
+  return embed;
+}
+function panelComponents(ownerId, robloxId, username, selected) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`casebuilder:pick:${ownerId}:${robloxId}`)
+    .setPlaceholder('Select one or more punishments')
+    .setMinValues(1)
+    .setMaxValues(Math.max(1, ACTION_NAMES.length))
+    .addOptions(ACTION_NAMES.map((name, index) => ({
+      label: name,
+      value: String(index),
+      description: ACTION_META[name].slice(0, 100),
+      default: selected.includes(name),
+    })));
+  const row = new ActionRowBuilder().addComponents(select);
+  const continueButton = new ButtonBuilder()
+    .setCustomId(`casebuilder:continue:${ownerId}:${robloxId}:${encodeIndexes(selected)}`)
+    .setLabel('Continue to case details')
+    .setStyle(ButtonStyle.Primary)
+    .setDisabled(!selected.length);
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`casebuilder:cancel:${ownerId}`)
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Secondary);
+  return [row, new ActionRowBuilder().addComponents(continueButton, cancelButton)];
+}
+function detailsModal(ownerId, robloxId, indexes) {
+  const modal = new ModalBuilder()
+    .setCustomId(`casebuilder:form:${ownerId}:${robloxId}:${indexes}`)
+    .setTitle('Submit IA Case');
+  const reason = new TextInputBuilder()
+    .setCustomId('reason').setLabel('Reason').setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Explain the conduct and relevant circumstances')
+    .setRequired(true).setMaxLength(4000);
+  const link = new TextInputBuilder()
+    .setCustomId('case_link').setLabel('Case link / evidence document')
+    .setStyle(TextInputStyle.Short).setPlaceholder('https://...')
+    .setRequired(true).setMaxLength(500);
+  const notes = new TextInputBuilder()
+    .setCustomId('notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Additional context for reviewers')
+    .setRequired(false).setMaxLength(1500);
+  const duration = new TextInputBuilder()
+    .setCustomId('duration').setLabel('Duration in days (optional)')
+    .setStyle(TextInputStyle.Short).setPlaceholder('Leave blank for Permanent')
+    .setRequired(false).setMaxLength(5);
+  const blacklist = new TextInputBuilder()
+    .setCustomId('blacklist_code').setLabel('Blacklist code (optional)')
+    .setStyle(TextInputStyle.Short).setPlaceholder('Only used for a Blacklist')
+    .setRequired(false).setMaxLength(80);
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(reason),
+    new ActionRowBuilder().addComponents(link),
+    new ActionRowBuilder().addComponents(notes),
+    new ActionRowBuilder().addComponents(duration),
+    new ActionRowBuilder().addComponents(blacklist),
+  );
+  return modal;
 }
 
 async function handleSubmitCase(interaction) {
-  const subject    = interaction.options.getUser('subject');
-  const robloxName = interaction.options.getString('roblox');
-  const doc        = (interaction.options.getString('document') || '').trim();
-  const rawActions = interaction.options.getString('punishments');
+  const username = String(interaction.options.getString('officer') || '').trim();
+  if (!username || /[\\s]/.test(username)) {
+    return interaction.reply({ content: `${e('met_denied')} Enter one Roblox username without spaces.`, flags: MessageFlags.Ephemeral });
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const auth = await resolveAuthority(interaction);
+  const view = canView(auth);
+  if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
+  if (!auth.userId) {
+    return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case. The case needs a filer account for its audit history.`);
+  }
 
-  // Everything that can be refused without a round-trip is refused first, so an
-  // obvious typo comes back instantly instead of after three Roblox lookups.
-  if (!subject && !robloxName) {
-    return interaction.reply({ content: `${e('met_denied')} Give either a \`subject\` or a \`roblox\` username.`,
-      flags: MessageFlags.Ephemeral });
+  const target = await roblox.getRobloxIdFromUsername(username);
+  if (!target) return interaction.editReply(`${e('met_denied')} I couldn't find the Roblox username **${username}**. Check the spelling and try again.`);
+
+  const info = await roblox.getRobloxUserInfo(target.id).catch(() => null);
+  const canonicalName = (info && (info.name || info.username)) || target.username || username;
+  await interaction.editReply({
+    embeds: [panelEmbed(canonicalName, [])],
+    components: panelComponents(interaction.user.id, target.id, canonicalName, []),
+    content: null,
+  });
+}
+
+async function handleComponent(interaction) {
+  const parts = String(interaction.customId || '').split(':');
+  const action = parts[1];
+  const ownerId = parts[2];
+  if (!ownerCheck(interaction, ownerId)) {
+    return interaction.reply({ content: 'This private case builder belongs to another user.', flags: MessageFlags.Ephemeral });
   }
-  if (!/^https?:\/\//i.test(doc)) {
-    return interaction.reply({ content: `${e('met_denied')} \`document\` must be a link.`,
-      flags: MessageFlags.Ephemeral });
+  if (action === 'cancel') {
+    return interaction.update({ content: 'Case builder cancelled. No case was created.', embeds: [], components: [] });
   }
-  const { actions, invalid } = parseActions(rawActions);
-  if (invalid.length) {
-    return interaction.reply({ content: `${e('met_denied')} Not a punishment: \`${invalid[0]}\`.`
-      + ` Pick from: ${ACTION_NAMES.join(', ')}`, flags: MessageFlags.Ephemeral });
+  if (action === 'pick') {
+    const robloxId = parts[3];
+    const selected = (interaction.values || []).map(String).filter(v => /^\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
+    const member = await roblox.getRobloxUserInfo(robloxId).catch(() => null);
+    const username = member && member.name ? member.name : 'Roblox user';
+    return interaction.update({
+      embeds: [panelEmbed(username, selected)],
+      components: panelComponents(ownerId, robloxId, username, selected),
+    });
   }
-  if (!actions.length) {
-    return interaction.reply({ content: `${e('met_denied')} Pick at least one punishment.`,
-      flags: MessageFlags.Ephemeral });
+  if (action === 'continue') {
+    const robloxId = parts[3];
+    const indexes = parts[4] || '';
+    const selected = selectedNames(indexes.split('.').filter(Boolean));
+    if (!selected.length) return interaction.reply({ content: 'Choose at least one punishment first.', flags: MessageFlags.Ephemeral });
+    return interaction.showModal(detailsModal(ownerId, robloxId, indexes));
+  }
+  if (action === 'form') return handleFormSubmit(interaction, ownerId, parts[3], parts[4] || '');
+}
+
+async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
+  if (!ownerCheck(interaction, ownerId)) {
+    return interaction.reply({ content: 'This private case builder belongs to another user.', flags: MessageFlags.Ephemeral });
+  }
+  const actions = selectedNames(indexes.split('.').filter(Boolean));
+  if (!actions.length) return interaction.reply({ content: 'No punishments were selected. Start /case again.', flags: MessageFlags.Ephemeral });
+  const reason = interaction.fields.getTextInputValue('reason').trim();
+  const caseLink = interaction.fields.getTextInputValue('case_link').trim();
+  const notes = interaction.fields.getTextInputValue('notes').trim();
+  const durationRaw = interaction.fields.getTextInputValue('duration').trim();
+  const blacklistCode = interaction.fields.getTextInputValue('blacklist_code').trim();
+  if (!/^https?:\/\//i.test(caseLink)) {
+    return interaction.reply({ content: `${e('met_denied')} The case link must be a valid http(s) link.`, flags: MessageFlags.Ephemeral });
+  }
+  let durationDays = null;
+  if (durationRaw && !/^permanent$/i.test(durationRaw)) {
+    durationDays = Number(durationRaw);
+    if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 3650) {
+      return interaction.reply({ content: `${e('met_denied')} Duration must be 1–3650 days, or left blank for Permanent.`, flags: MessageFlags.Ephemeral });
+    }
+  }
+  if (actions.includes('Blacklist') && blacklistCode.length > 80) {
+    return interaction.reply({ content: `${e('met_denied')} The blacklist code is too long.`, flags: MessageFlags.Ephemeral });
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const loader = startLoading(interaction, 'Filing the case');
-
   const auth = await resolveAuthority(interaction);
   const view = canView(auth);
-  if (!view.allowed) { loader.stop(); return interaction.editReply(`${e('met_denied')} ${view.reason}`); }
-  if (!auth.userId) {
-    loader.stop();
-    return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord, then file this again.`
-      + ' A case has to be recorded against an account, and you do not have one yet.');
-  }
+  if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
+  if (!auth.userId) return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`);
 
-  // Resolve the subject's Roblox identity. Best-effort: a case against somebody
-  // whose account cannot be resolved is still a case worth filing.
-  loader.update('Resolving the subject');
-  let robloxUserId = null;
-  let robloxUsername = robloxName || null;
-  try {
-    if (subject) {
-      robloxUserId = await roblox.getRobloxIdFromDiscord(subject.id);
-      if (robloxUserId) {
-        const info = await roblox.getRobloxUserInfo(robloxUserId);
-        robloxUsername = (info && (info.name || info.username)) || robloxUsername;
-      }
-    } else if (robloxName) {
-      const u = await roblox.getRobloxIdFromUsername(robloxName);
-      if (u) { robloxUserId = u.id; robloxUsername = u.name || u.username || robloxUsername; }
-    }
-  } catch (err) { /* keep whatever was typed */ }
-
-  const duration = interaction.options.getInteger('duration');
-  const blCode   = interaction.options.getString('blacklist_code');
-  // A duration only attaches to a punishment that HAS one. Storing it on a
-  // warning is what once turned "Strike(s) [2]" into a two-day strike.
-  const enriched = actions.map(a => ({
-    action: a,
-    roleId: roleIdForAction(a),
-    durationDays: isTimed(a) ? (duration || null) : null,
-    ...(a === 'Blacklist' && blCode ? { code: blCode } : {}),
+  const targetInfo = await roblox.getRobloxUserInfo(robloxId).catch(() => null);
+  const robloxUsername = targetInfo && (targetInfo.name || targetInfo.username);
+  if (!robloxUsername) return interaction.editReply(`${e('met_denied')} The officer's Roblox account could not be re-verified. Please start /case again.`);
+  const linked = await prisma.user.findFirst({
+    where: { robloxId: String(robloxId) },
+    select: { discordId: true },
+  }).catch(() => null);
+  const enriched = actions.map(action => ({
+    action,
+    roleId: roleIdForAction(action),
+    durationDays: isTimed(action) ? durationDays : null,
+    ...(action === 'Blacklist' && blacklistCode ? { code: blacklistCode } : {}),
   }));
-
-  loader.update('Writing the record');
+  const caseRef = await generateCaseRef();
   let created;
   try {
     created = await prisma.case.create({
       data: {
-        caseRef: await generateCaseRef(),
+        caseRef,
         userId: auth.userId,
-        officerDiscordId: subject ? subject.id : null,
-        robloxUserId: robloxUserId ? String(robloxUserId) : null,
+        officerDiscordId: linked ? String(linked.discordId) : null,
+        robloxUserId: String(robloxId),
         robloxUsername,
-        action: enriched.map(a => a.action).join(', '),
+        action: actions.join(', '),
         actions: enriched,
-        reason: interaction.options.getString('reason'),
-        notes:  interaction.options.getString('notes') || 'N/A',
-        caseLink: doc,
+        reason,
+        notes: notes || 'N/A',
+        caseLink,
         investigatorDiscordUsername: interaction.user.username,
         status: 'PENDING',
       },
     });
   } catch (err) {
-    loader.stop();
-    return interaction.editReply(`${e('met_cross')} Could not file the case: ${err.message}`);
+    console.error('[IA] case create failed:', err.message);
+    return interaction.editReply(`${e('met_cross')} Could not file the case. No review card was posted; check the MET database connection.`);
   }
 
   await prisma.caseAction.create({
-    data: {
-      caseId: created.id, actionType: 'CREATED',
-      performedBy: auth.userId, notes: 'Submitted via /case',
-    },
-  }).catch(() => {});
+    data: { caseId: created.id, actionType: 'CREATED', performedBy: auth.userId, notes: 'Submitted via private /case builder' },
+  }).catch(err => console.warn('[IA] case action audit failed:', err.message));
 
-  // The card. Losing it must never undo the record, so a failure here downgrades
-  // the reply rather than throwing: the case exists and is visible on the site.
-  loader.update('Posting it for review');
   let messageId = null;
   try {
     const filer = interaction.member || interaction.user;
-    const avatar = robloxUserId ? await roblox.getRobloxAvatarHeadshot(robloxUserId).catch(() => null) : null;
+    const avatar = await roblox.getRobloxAvatarHeadshot(robloxId).catch(() => null);
     messageId = await cards.postCaseCard(interaction.client, created, { filer, subjectAvatar: avatar });
-    if (messageId) {
-      await prisma.case.update({ where: { id: created.id }, data: { cardMessageId: messageId } }).catch(() => {});
-    }
+    if (messageId) await prisma.case.update({ where: { id: created.id }, data: { cardMessageId: messageId } }).catch(() => {});
   } catch (err) {
-    console.warn('[IA] /submit-case card not posted:', err.message);
+    console.warn('[IA] case review card not posted:', err.message);
   }
 
-  loader.stop();
-  const needsHicomm = enriched.some(a => HICOMM_ONLY_ACTIONS.includes(a.action));
-  const gate = needsHicomm ? 'Assistant Director and above' : 'Supervisor and above';
-
+  const needsAdir = enriched.some(item => HICOMM_ONLY_ACTIONS.includes(item.action));
+  const gate = needsAdir ? 'Assistant Director and above' : 'Supervisor and above';
   if (!messageId) {
-    return interaction.editReply(`${e('met_warn')} Filed **${created.caseRef}**, but the review card could not be posted.`
-      + ' Check `CASES_CHANNEL_ID` and that the bot can post there. The case is on the dashboard either way.');
+    return interaction.editReply(`${e('met_warn')} Case **${created.caseRef}** was recorded, but its review card could not be posted. It remains on the dashboard for review.`);
   }
-  return interaction.editReply(`${e('met_tick')} Filed **${created.caseRef}** and posted it for review.`
-    + ` **${gate}** can decide it.`);
+  return interaction.editReply({
+    content: `${e('met_tick')} Case **${created.caseRef}** has been submitted for review. ${gate} may decide this case.`,
+    embeds: [new EmbedBuilder().setColor(COLOUR).setTitle(`IA CASE  ${created.caseRef}`)
+      .setDescription(`**Officer**  ${robloxUsername}\n**Punishments**\n${actions.map(a => `• ${a}${isTimed(a) ? (durationDays ? ` · ${durationDays} days` : ' · Permanent') : ''}`).join('\n')}\n\n**Reason**\n${reason.slice(0, 900)}`)
+      .addFields({ name: 'Case link', value: caseLink.slice(0, 1024) })
+      .setFooter({ text: 'Metropolitan Police Service  ·  Internal Affairs' })],
+    components: [],
+  });
 }
 
-module.exports = { buildCommand, handleSubmitCase, handleAutocomplete };
+module.exports = { buildCommand, handleSubmitCase, handleComponent };
