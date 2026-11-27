@@ -381,6 +381,7 @@ async function initMetTopbar(currentDivision) {
   try { metInjectHomeLink(); } catch (e) {}
   try { metInjectBreadcrumb(currentDivision); } catch (e) {}
   try { metInjectNavToggle(); } catch (e) {}
+  try { metInjectMobileNav(myDivisions, currentDivision); } catch (e) {}
   try { metInjectBackToTop(); } catch (e) {}
   try { metInjectFooterStrap(); } catch (e) {}
 
