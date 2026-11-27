@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MET · Constable Application</title>
+<link rel="stylesheet" href="/css/met.css?v=10">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
+<style>
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui)}
+.apply-wrap{max-width:760px;margin:0 auto;padding:38px 20px 64px}
+.apply-brand{display:flex;align-items:center;gap:14px;margin-bottom:30px}
+.apply-brand img{width:48px;height:48px;object-fit:contain}
+.apply-brand strong{display:block;font-size:15px;font-weight:650}
+.apply-brand span{font-size:12px;color:var(--ink-muted)}
+.apply-card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:28px}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-muted);font-weight:650}
+h1{font-size:25px!important;margin:7px 0 8px}
+.intro{color:var(--ink-muted);line-height:1.65;margin:0 0 24px}
+.notice{border:1px solid var(--line);background:var(--surface-alt);border-radius:6px;padding:14px 16px;color:var(--ink-soft);font-size:13px;line-height:1.6;margin:16px 0}
+.notice strong{color:var(--ink)}
+.notice.warning{border-color:#d8c9a8;background:#faf7ef}
+.notice.error{border-color:#dfc0bd;background:#fbf3f2}
+.notice.success{border-color:#c7d8cc;background:#f2f7f3}
+.apply-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}
+.btn{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);padding:10px 15px;border-radius:5px;font:600 13px var(--font-ui);cursor:pointer}
+.btn.primary{background:#20252b;color:white;border-color:#20252b}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.progress{height:5px;background:var(--surface-alt);border-radius:8px;overflow:hidden;margin:18px 0 24px}
+.progress>span{display:block;height:100%;background:var(--accent);transition:width .2s}
+.step-label{display:flex;justify-content:space-between;color:var(--ink-muted);font-size:12px;margin-bottom:6px}
+.question{font-size:17px;font-weight:650;line-height:1.45;margin:8px 0 14px}
+.help{font-size:13px;line-height:1.6;color:var(--ink-muted);margin-bottom:14px}
+textarea,select{width:100%;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:5px;padding:12px;font:14px/1.6 var(--font-ui);resize:vertical}
+textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
+textarea{min-height:150px}
+.checkline{display:flex;gap:11px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--surface-alt);font-size:13px;line-height:1.6}
+.checkline input{margin-top:3px;flex-shrink:0;width:17px;height:17px}
+.status{font-size:13px;color:var(--ink-muted);min-height:20px;margin-top:12px}
+.small-link{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+@media(max-width:560px){.apply-wrap{padding:20px 12px 40px}.apply-card{padding:20px 16px}h1{font-size:22px!important}}
+</style>
+</head>
+<body>
+<main class="apply-wrap">
+  <div class="apply-brand"><img src="/img/divisions/met.png" alt="MET"><div><strong>Metropolitan Police Service</strong><span>Recruitment · Constable application</span></div></div>
+  <section class="apply-card">
+    <div class="eyebrow">Recruitment</div>
+    <h1>Join the Metropolitan Police</h1>
+    <p class="intro">Complete the group check and application below. Your account details are linked to your submission so the recruitment team can identify your application.</p>
+    <div id="apply-content"><div class="status">Loading application…</div></div>
+  </section>
+</main>
+<div id="toast-container"></div>
+<script src="/js/met-application.js?v=1"></script>
+</body>
+</html>
