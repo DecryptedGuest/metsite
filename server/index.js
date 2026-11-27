@@ -1529,7 +1529,7 @@ app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(vie
 // routes and division membership data intact; only the dashboard pages are off.
 const disabledDivisionDashboard = (req, res) =>
   res.status(404).type('text').send('This division dashboard is currently unavailable.');
-app.get('/cid/dashboard', recordVisit, requireAuth, cidApplicationRoutes.requireCidAdmin, (req, res) => sendPage(res, path.join(views, 'cid-dashboard-applications.html'), 'CID'));
+app.get('/cid/dashboard', recordVisit, requireAuth, cidApplicationRoutes.requireCidAdminPage, (req, res) => sendPage(res, path.join(views, 'cid-dashboard-applications.html'), 'CID'));
 app.get('/sco19/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
 app.get('/flp/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
 mountDivisionPages('hpc', 'HPC');
