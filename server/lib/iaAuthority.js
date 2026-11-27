@@ -149,8 +149,11 @@ function isAssistantDirectorPlus(auth) {
   const rank = Number(auth.rank);
   const minimum = parseInt(process.env.IA_ADIR_MIN_RANK || '30', 10);
   if (Number.isFinite(rank) && rank >= (Number.isFinite(minimum) ? minimum : 30)) return true;
-  return /assistant\\s*director|deputy\\s*director|\\bdirector\\b|administration|hicom|overseer|owner|holder/i
-    .test(String(auth.rankName || ''));
+  const name = String(auth.rankName || '').toLowerCase();
+  return name.includes('assistant director') || name.includes('deputy director')
+    || name.includes('director') || name.includes('administration')
+    || name.includes('hicom') || name.includes('overseer')
+    || name.includes('owner') || name.includes('holder');
 }
 
 /** Reading cases and tickets: any IA member. */
