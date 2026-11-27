@@ -199,7 +199,7 @@ router.post('/submit',async(req,res)=>{
 router.get('/admin',requireCidAdmin,async(req,res)=>{
   try {
     const form=await settings();
-    const rows=await prisma.cidApplication.findMany({orderBy:{submittedAt:'desc'},take:250});
+    const rows=await prisma.cidApplication.findMany({orderBy:{submittedAt:'desc'}});
     res.set('Cache-Control','no-store');
     res.json({open:form.isOpen,updatedAt:form.updatedAt,responses:rows});
   } catch(e){res.status(500).json({error:'Could not load CID applications.'});}
@@ -220,7 +220,7 @@ router.patch('/admin/:id',requireCidAdmin,async(req,res)=>{
     if(!existing) return res.status(404).json({error:'Application not found.'});
     const status=requested||existing.status;
     const note=String(req.body&&req.body.note||'').slice(0,4000);
-    const row=await prisma.cidApplication.update({where:{id:req.params.id},data:{status,reviewerNote:note,reviewedAt:new Date(),reviewedById:req.user.id,reviewedByName:req.user.discordUsername||req.user.displayName||'CID reviewer'}});
+    const row=await prisma.cidApplication.update({where:{id:req.params.id},data:{status,reviewerNote:Object.prototype.hasOwnProperty.call(req.body||{},'note')?note:undefined,reviewedAt:new Date(),reviewedById:req.user.id,reviewedByName:req.user.discordUsername||req.user.displayName||'CID reviewer'}});
     require('../lib/audit').record({req,action:'CID_APPLICATION_'+status,category:'recruitment',targetType:'cid_application',targetId:row.id,summary:row.appRef+' marked '+status}).catch(()=>{});
     res.json({ok:true,id:row.id,status:row.status});
   } catch(e){res.status(500).json({error:'Could not update this application.'});}
