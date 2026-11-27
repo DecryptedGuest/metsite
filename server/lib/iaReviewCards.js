@@ -160,6 +160,7 @@ function caseCard(kase, extra = {}) {
   addFields(embed,
     field('Officer', subject),
     field('Punishment', punishmentLines(kase.actions, kase.action)),
+    field('On approval', 'The selected punishment is applied automatically. This can include Discord role changes, Roblox group rank changes, or removal from groups, depending on the punishment.'),
     field('Reason', kase.reason),
     (kase.notes && kase.notes !== 'N/A') ? field('Notes', kase.notes) : null,
     kase.blacklistCode
