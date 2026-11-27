@@ -138,6 +138,7 @@ function caseCard(kase, extra = {}) {
   const status = String(kase.status || 'PENDING').toUpperCase();
   const embed = new EmbedBuilder()
     .setTitle('Case Information');
+  if (extra.subjectAvatar) embed.setThumbnail(extra.subjectAvatar);
 
   // These are the exact application emoji IDs supplied for the IA case log.
   // Use explicit Discord markup here so a missing/late emoji sync cannot
@@ -281,7 +282,7 @@ function ticketCard(ticket, extra = {}) {
         : `**${n}** quota ${word} pending approval`;
     }
   } catch { /* quota not loaded — leave the placeholder */ }
-  addFields(embed, field('Quota points', points, true));
+  addFields(embed, field('Quota points', String(ticket.status || 'PENDING').toUpperCase() === 'APPROVED' && ticket.closerIsIa === true ? `+${require('./quota').ticketPointsFor()}` : points, true));
 
   // The close reason is the substance of the decision.
   addFields(embed, field('Close reason', ticket.reason));
