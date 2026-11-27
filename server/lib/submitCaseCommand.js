@@ -44,7 +44,7 @@ function showTimedPanelNotice(message, notice) {
   // Give longer notices a little more reading time, with a five-second minimum.
   const seconds = Math.max(5, Math.min(10, Math.ceil(String(notice).length / 90) + 4));
   let remaining = seconds;
-  const render = () => `⚠️ ${notice}\\n\\n_Clear in ${remaining}s_`;
+  const render = () => `⚠️ ${notice}\n\n_Clear in ${remaining}s_`;
   message.edit({ content: render() }).catch(() => {});
   const timer = setInterval(() => {
     remaining -= 1;
