@@ -38,7 +38,8 @@ const RED   = 0xf04f5e;   // denied
 // IA_REVIEWER_ROLE_iD is read too. Environment variable names are
 // case-sensitive on Linux, so a var set with that lower-case "i" never matched
 // the lookup and the ping silently did nothing.
-const casesChannelId   = () => '1574841103042093225';
+const casesChannelId   = () => '1574841103042093224'; // review queue with approve/deny controls
+const casesForumChannelId = () => '1574841103042093225'; // read-only case log forum
 const ticketsChannelId = () =>
   process.env.IA_TICKET_CLOSED_CHANNEL_ID || process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1574841102836699252';
 const reviewerRoleId   = () => '1574841102190780564';
@@ -355,30 +356,38 @@ async function buildAndPost(client, channelId, build, what, options = {}) {
 }
 
 const postCaseCard = async (client, kase, extra) => {
-  const channelId = casesChannelId();
-  if (!client || !channelId) return null;
+  if (!client) return null;
+  let forumThreadId = null;
   try {
-    const forum = await client.channels.fetch(String(channelId));
+    // Permanent, read-only case log: no reviewer ping and no components.
+    const forum = await client.channels.fetch(String(casesForumChannelId()));
     const embed = caseCard(kase, extra);
-    const tags = caseStatusTag(forum, kase.status || 'PENDING');
     const ref = String(kase.caseRef || 'New').replace(/^#?/, '#');
     const title = `Case ${ref} - ${trim(kase.robloxUsername || 'Unknown officer', 70)}`;
     const thread = await forum.threads.create({
       name: title.slice(0, 100),
-      message: {
-        content: `<@&${reviewerRoleId()}>`,
-        embeds: [embed],
-        components: [reviewButtons('case', kase.id)],
-        allowedMentions: { roles: [reviewerRoleId()], parse: [] },
-      },
-      ...(tags.length ? { appliedTags: tags } : {}),
+      message: { embeds: [embed], components: [], allowedMentions: { parse: [] } },
     });
-    console.log(`[IA] case forum thread created for ${kase.caseRef} in ${channelId} (${thread.id})`);
-    return thread.id;
+    forumThreadId = thread.id;
+    console.log(`[IA] read-only case forum log created for ${kase.caseRef} in ${casesForumChannelId()} (${thread.id})`);
   } catch (err) {
-    console.error(`[IA] could not create case forum post in ${channelId}: ${err.message}`);
-    return null;
+    console.error(`[IA] could not create read-only case forum log in ${casesForumChannelId()}: ${err.message}`);
   }
+
+  // Actionable review card lives in the separate IA review channel.
+  const reviewChannelId = casesChannelId();
+  const reviewMessageId = await buildAndPost(
+    client,
+    reviewChannelId,
+    () => ({ embed: caseCard(kase, extra), components: reviewButtons('case', kase.id) }),
+    'case review',
+    { ping: true },
+  );
+  if (!reviewMessageId) {
+    console.error(`[IA] case review card could not be posted to ${reviewChannelId} for ${kase.caseRef}`);
+  }
+  // cardMessageId is the forum thread id; notices link to this log.
+  return forumThreadId;
 };
 
 /**
@@ -440,7 +449,7 @@ async function applyCaseStatusTag(thread, status) {
 async function finaliseCard(client, channelId, messageId, embed) {
   if (!client || !channelId || !messageId) return false;
   try {
-    if (String(channelId) === String(casesChannelId())) {
+    if (String(channelId) === String(casesForumChannelId())) {
       const thread = await client.channels.fetch(String(messageId));
       const msg = await thread.fetchStarterMessage();
       await msg.edit({ embeds: [embed], components: [] });
@@ -462,7 +471,7 @@ async function finaliseCard(client, channelId, messageId, embed) {
 module.exports = {
   caseCard, ticketCard, punishmentLines,
   postCaseCard, postTicketCard, postCard, finaliseCard, reviewButtons, applyCaseStatusTag,
-  casesChannelId, ticketsChannelId, reviewerRoleId, reviewerPing,
+  casesChannelId, casesForumChannelId, ticketsChannelId, reviewerRoleId, reviewerPing,
 };
 
 // ── Review buttons ────────────────────────────────────────────────
