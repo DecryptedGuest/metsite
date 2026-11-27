@@ -415,9 +415,9 @@ const EMOJI = [
        + `<path d="M64 4 L64 40 L94 22 Z" fill="${C.green}"/>` },
 
   // ── IA case-log identity marks ──────────────────────────────────
-  { name: 'ia_roblox_white', fallback: 'R', desc: 'Roblox identity mark',
+  { name: 'ia_roblox', fallback: 'R', desc: 'Roblox identity mark',
     svg: `<path fill="#ffffff" fill-rule="evenodd" d="M24 18 L108 34 L92 110 L8 94 Z M48 48 L76 54 L70 82 L42 76 Z"/>` },
-  { name: 'ia_discord_white', fallback: 'D', desc: 'Discord identity mark',
+  { name: 'ia_discord', fallback: 'D', desc: 'Discord identity mark',
     svg: `<path d="M36 26 Q64 14 92 26 Q108 48 110 82 Q92 102 76 104 L70 94 Q82 90 88 84 Q64 96 40 84 Q46 90 58 94 L52 104 Q36 102 18 82 Q20 48 36 26 Z" fill="#ffffff"/><circle cx="46" cy="62" r="5" fill="#ffffff"/><circle cx="78" cy="62" r="5" fill="#ffffff"/>` },
 
   // ── Site-only (seasonal effects) ────────────────────────────────
