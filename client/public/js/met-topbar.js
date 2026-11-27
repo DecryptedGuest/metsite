@@ -39,9 +39,8 @@ window.metEmpty = function (o) {
       : `<button class="btn btn-primary btn-sm met-empty-cta" onclick="${o.onclick}">${inner}</button>`;
   }
   // Faint strap-line watermark on the fuller (sub-carrying) empty states.
-  const strap = (o.strap === false || !o.sub) ? '' :
-    '<div class="met-strap met-empty-strap"><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>';
-  return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}${strap}</div>`;
+  const strap = '';
+return `<div class="table-empty met-empty">${icon}${title}${sub}${cta}${strap}</div>`;
 };
 
 // A small overlapping Discord + Roblox avatar stack. Discord first, Roblox
@@ -478,14 +477,7 @@ function closeOtherDropdowns(except) {
   document.querySelectorAll('.met-switcher.open').forEach(s => { if (s !== except) s.classList.remove('open'); });
 }
 
-// ── MET brand: intro splash, tagline rotator, footer strap ────────────
-// A short, once-per-session intro that mirrors the Met's on-screen strap-line
-// ("More Trust · Less Crime · High Standards" / "Working together for a safer
-// London"). Purely cosmetic and fully guarded — never blocks the page.
-// Generic full-screen branded "moment" — the reusable engine behind the intro
-// splash and one-off celebrations (e.g. passing the final exam).
-//   opts: { strap:[seg,seg,seg] | title, tagline, icon (Tabler), crest (url|false),
-//           variant, autoMs }
+// ── MET brand moments (explicitly invoked only; no automatic slogan splash). ──
 function metBrandMoment(opts) {
   opts = opts || {};
   try {
@@ -526,15 +518,7 @@ function metBrandMoment(opts) {
   } catch (e) { /* cosmetic only */ }
 }
 
-function metPlaySplash() {
-  try {
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('metSplashSeen')) return;
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    try { sessionStorage.setItem('metSplashSeen', '1'); } catch (e) {}
-    if (reduce) return;
-    metBrandMoment({ strap: ['More Trust', 'Less Crime', 'High Standards'], tagline: 'Working together for a safer London', autoMs: 2100 });
-  } catch (e) { /* cosmetic only */ }
-}
+function metPlaySplash() { /* automatic branding splash intentionally disabled */ }
 
 // Cycle a line of text through several taglines with a soft fade.
 function metRotateTagline(elOrId, phrases, interval) {
@@ -553,18 +537,7 @@ function metRotateTagline(elOrId, phrases, interval) {
 }
 
 // A quiet strap-line footer at the bottom of a dashboard's main content.
-function metInjectFooterStrap() {
-  try {
-    var main = document.querySelector('.main-content');
-    if (!main || document.getElementById('met-footer-strap')) return;
-    var f = document.createElement('div');
-    f.id = 'met-footer-strap'; f.className = 'met-footer-strap';
-    f.innerHTML =
-      '<div class="met-strap"><span class="seg">More Trust</span><span class="seg">Less Crime</span><span class="seg">High Standards</span></div>' +
-      '<span class="fs-tag">Working together for a safer London</span>';
-    main.appendChild(f);
-  } catch (e) { /* cosmetic */ }
-}
+function metInjectFooterStrap() { /* footer strap intentionally removed */ }
 
 if (typeof window !== 'undefined') {
   window.metBrandMoment = metBrandMoment;
@@ -572,5 +545,3 @@ if (typeof window !== 'undefined') {
   window.metRotateTagline = metRotateTagline;
   window.metInjectFooterStrap = metInjectFooterStrap;
 }
-// Play the intro as early as possible (this script loads at the end of <body>).
-metPlaySplash();
