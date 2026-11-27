@@ -7,7 +7,7 @@ const {
   ModalBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const prisma = require('./db');
-const { e } = require('./emoji');
+const { e, startLoading } = require('./emoji');
 const { ACTION_NAMES, roleIdForAction } = require('./actions');
 
 const DURATION_ACTIONS = ['Zero Tolerance', 'Suspension'];
@@ -125,17 +125,17 @@ async function handleSubmitCase(interaction) {
   if (!username || /[\s]/.test(username)) {
     return interaction.reply({ content: `${e('met_denied')} Enter one Roblox username without spaces.`, flags: MessageFlags.Ephemeral });
   }
-  // deferReply triggers Discord's native loading animation while lookups run.
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const loading = startLoading(interaction, 'Loading officer profile');
   try {
     const auth = await resolveAuthority(interaction);
     const view = canView(auth);
     if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
     if (!auth.userId) return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`);
 
-    await interaction.editReply({ content: '⏳ **Loading officer profile…**\nVerifying Roblox details, group ranks and linked Discord account.', embeds: [], components: [] });
+    loading.update('Verifying Roblox details, group ranks and linked Discord account');
     const target = await roblox.getRobloxIdFromUsername(username);
-    if (!target) return interaction.editReply(`${e('met_denied')} I couldn't find the Roblox username **${username}**.`);
+    if (!target) { loading.stop(); return interaction.editReply(`${e('met_denied')} I couldn't find the Roblox username **${username}**.`); }
 
     const [info, groups, linked] = await Promise.all([
       roblox.getRobloxUserInfo(target.id),
@@ -145,7 +145,7 @@ async function handleSubmitCase(interaction) {
         select: { discordId: true, discordUsername: true, discordAvatar: true, role: true, iaRankName: true, iaRank: true },
       }).catch(() => null),
     ]);
-    if (!info) return interaction.editReply(`${e('met_warn')} Roblox profile lookup failed. Please try again.`);
+    if (!info) { loading.stop(); return interaction.editReply(`${e('met_warn')} Roblox profile lookup failed. Please try again.`); }
 
     const mainGroupId = String(roblox.mainGroupId());
     const met = groups.find(g => String(g.group.id) === mainGroupId) || null;
@@ -170,8 +170,10 @@ async function handleSubmitCase(interaction) {
       metGroup: met ? { roleName: met.role.name, rank: met.role.rank } : null,
       discord, dashboardRole: linked && linked.role, iaRankName: linked && linked.iaRankName, iaRank: linked && linked.iaRank,
     };
+    loading.stop();
     return interaction.editReply({ content: null, embeds: [panelEmbed(profile, [])], components: panelComponents(interaction.user.id, profile.robloxId, []) });
   } catch (err) {
+    loading.stop();
     console.error('[IA] /case profile lookup failed:', err.message);
     return interaction.editReply(`${e('met_cross')} I couldn't finish loading the officer profile. Please try /case again.`).catch(() => {});
   }
@@ -189,13 +191,43 @@ async function handleComponent(interaction) {
   }
   if (action === 'pick') {
     const robloxId = parts[3];
-    const selected = (interaction.values || []).map(String).filter(v => /^\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
+    let selected = (interaction.values || []).map(String).filter(v => /^\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
     const current = interaction.message.embeds && interaction.message.embeds[0];
     if (!current) return interaction.reply({ content: 'This case panel expired. Start /case again.', flags: MessageFlags.Ephemeral });
+
+    // Check live MET roles whenever the filer changes the punishment selection.
+    // A first strike cannot be re-issued to somebody already wearing that role:
+    // automatically move the selection to Strike 2 and explain the correction.
+    let notice = null;
+    if (selected.includes('Disciplinary Strike 1')) {
+      const linked = await prisma.user.findFirst({
+        where: { robloxId: String(robloxId) },
+        select: { discordId: true },
+      }).catch(() => null);
+      const discordId = linked && linked.discordId ? String(linked.discordId) : null;
+      const guildId = process.env.MET_GUILD_ID || '1191048287315304470';
+      const guild = interaction.client.guilds.cache.get(guildId)
+        || await interaction.client.guilds.fetch(guildId).catch(() => null);
+      const member = guild && discordId
+        ? await guild.members.fetch(discordId).catch(() => null)
+        : null;
+      const strikeOneRole = roleIdForAction('Disciplinary Strike 1');
+      if (member && strikeOneRole && member.roles.cache.has(String(strikeOneRole))) {
+        selected = selected.filter(name => name !== 'Disciplinary Strike 1');
+        if (!selected.includes('Disciplinary Strike 2')) selected.push('Disciplinary Strike 2');
+        notice = 'Already has **Disciplinary Strike 1** in the MET server. Selection changed to **Disciplinary Strike 2**.';
+      }
+    }
+
     const embed = EmbedBuilder.from(current);
     const value = selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose one or more below*';
     embed.setFields((current.fields || []).map(field => field.name === 'ACTIONS' ? { ...field, value } : field));
-    return interaction.update({ embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
+    await interaction.update({ content: notice ? `⚠️ ${notice}` : null, embeds: [embed], components: panelComponents(ownerId, robloxId, selected) });
+    if (notice) {
+      const message = interaction.message;
+      setTimeout(() => message.edit({ content: null }).catch(() => {}), 5000).unref?.();
+    }
+    return;
   }
 
   if (action === 'continue') {
