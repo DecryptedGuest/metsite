@@ -595,6 +595,7 @@ async function applyDiscipline(o) {
       actions: [{ action: o.action, roleId: cfg.roleId || null, durationDays: o.durationDays || null }],
       reason:  o.reason,
       notes:   o.notes || null,
+      caseLink: o.caseLink || null,
       officerDiscordId: o.hrDiscordId || o.issuerDiscordId || null,
       hrDiscordId:      o.hrDiscordId || o.issuerDiscordId || null,
       userDiscordId:    o.userDiscordId || o.targetDiscordId,
