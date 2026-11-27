@@ -8,13 +8,15 @@ const FOOTER = 'Metropolitan Police Service - Internal Affairs | Automatically u
 
 function rankOrder(rank) {
   const r = String(rank || '').toLowerCase();
+  if (/assistant\s+director/.test(r)) return 2;
+  if (/deputy\s+director/.test(r)) return 1;
   if (/director|high command|administration|overseer/.test(r)) return 0;
-  if (/supervisor/.test(r)) return 1;
-  if (/senior\s*investigator/.test(r)) return 2;
-  if (/junior\s*investigator/.test(r)) return 4;
-  if (/probationary|trainee/.test(r)) return 5;
-  if (/investigator/.test(r)) return 3;
-  return 6;
+  if (/supervisor/.test(r)) return 3;
+  if (/senior\s*investigator/.test(r)) return 4;
+  if (/junior\s*investigator/.test(r)) return 6;
+  if (/probationary|trainee/.test(r)) return 7;
+  if (/investigator/.test(r)) return 5;
+  return 8;
 }
 
 function rankLabel(rank) {
@@ -97,6 +99,7 @@ async function refresh(client) {
     );
     if (existing) await existing.edit({ content: null, embeds: [embed], components: [] });
     else await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    console.log(`[IA Quota Board] ${existing ? 'updated' : 'posted'} in ${channelId} with ${members.length} members`);
     return true;
   } catch (err) {
     console.warn('[IA Quota Board] refresh failed:', err.message);
