@@ -373,7 +373,7 @@ async function approveCase({ caseId, actor, note, onProgress } = {}) {
     payload: { caseRef: existing.caseRef, officerDiscordId: existing.officerDiscordId },
   });
 
-  return { ok: true, status: 200, case: updated };
+  return { ok: true, status: 200, case: updated, quotaAwarded };
 }
 
 /**
