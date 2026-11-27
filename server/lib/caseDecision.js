@@ -22,6 +22,25 @@ const { caseHasHicommOnlyPunishment } = require('./iaRank');
 const { sendApprovalWebhook } = require('./webhook');
 const { assignRole } = require('./bot');
 
+// Keep the IA forum post and its status tag in sync for decisions made
+// from either Discord or the MET Dashboard.
+async function syncCaseForumPost(kase, actor) {
+  if (!kase || !kase.cardMessageId) return;
+  try {
+    const client = require('./bot').getClient();
+    if (!client) return;
+    const cards = require('./iaReviewCards');
+    await cards.finaliseCard(
+      client,
+      cards.casesChannelId(),
+      kase.cardMessageId,
+      cards.caseCard(kase, { decidedBy: actor }),
+    );
+  } catch (err) {
+    console.warn('[IA] case forum post sync failed:', err.message);
+  }
+}
+
 // ── Avatar + identity helpers (moved here with the decision logic) ──
 
 // A Roblox headshot URL for an id: the thumbnails API gives a direct CDN URL,
@@ -179,6 +198,7 @@ async function approveCase({ caseId, actor, note } = {}) {
   const claim = await prisma.case.updateMany({ where: { id: caseId, status: 'PENDING' }, data: { status: 'APPROVED' } });
   if (claim.count === 0) return { ok: false, status: 409, error: 'Case is not pending' };
   const updated = await prisma.case.findUnique({ where: { id: caseId } });
+  await syncCaseForumPost(updated, actor);
 
   // Already actioned before? A synced case can be approved, reverted to PENDING
   // by a stale IA sync, then re-approved — the admin log was already posted and
@@ -355,6 +375,7 @@ async function denyCase({ caseId, actor, note } = {}) {
   const claim = await prisma.case.updateMany({ where: { id: caseId, status: 'PENDING' }, data: { status: 'DENIED' } });
   if (claim.count === 0) return { ok: false, status: 409, error: 'Case is not pending' };
   const updated = await prisma.case.findUnique({ where: { id: caseId } });
+  await syncCaseForumPost(updated, actor);
   await prisma.caseAction.create({
     data: { caseId: existing.id, actionType: 'DENIED', performedBy: actor.id, notes: note || 'Denied by HICOMM/Developer' },
   });
