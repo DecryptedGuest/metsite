@@ -1690,3 +1690,30 @@ model DiscordAvatarAsset {
   @@index([discordId, state])
   @@map("discord_avatar_assets")
 }
+
+
+// MET Constable recruitment applications.
+model MetApplication {
+  id                    String   @id @default(uuid())
+  appRef                String   @unique
+  applicantId           String
+  discordId             String
+  discordUsername       String?
+  robloxId              String
+  robloxUsername        String?
+  answers               Json
+  groupRequestConfirmed Boolean  @default(false)
+  status                String   @default("SUBMITTED") // SUBMITTED | ACCEPTED | REJECTED
+  submittedAt           DateTime @default(now())
+  markedAt              DateTime?
+  markedById            String?
+  markedByName          String?
+  markerNote            String?
+  createdAt             DateTime @default(now())
+  applicant             User     @relation(fields: [applicantId], references: [id])
+
+  @@index([status])
+  @@index([applicantId])
+  @@index([submittedAt])
+  @@map("met_applications")
+}
