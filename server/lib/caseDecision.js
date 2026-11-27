@@ -33,7 +33,7 @@ async function syncCaseForumPost(kase, actor) {
     const { suspectAvatar } = await resolveCaseAvatars(null, kase);
     await cards.finaliseCard(
       client,
-      cards.casesChannelId(),
+      cards.casesForumChannelId(),
       kase.cardMessageId,
       cards.caseCard(kase, { decidedBy: actor, subjectAvatar: suspectAvatar }),
     );
