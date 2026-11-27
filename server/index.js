@@ -390,6 +390,9 @@ app.use('/api/ia-application', requireAuth, require('./routes/iaApplication'));
 app.use('/api/ia-application-review', requireAuth, require('./routes/iaApplicationReview'));
 // MET Constable recruitment applications — applicants and HICOMM review.
 app.use('/api/met-application', requireAuth, require('./routes/metApplication'));
+// CID recruitment application submissions and restricted CID leadership management.
+const cidApplicationRoutes = require('./routes/cidApplications');
+app.use('/api/cid-applications', requireAuth, cidApplicationRoutes);
 app.use('/api/met-application-review', requireAuth, require('./routes/metApplicationReview'));
 // IA Profiles (oversight) — HICOMM/DEVELOPER only (gate inside the router).
 app.use('/api/ia-profiles', requireAuth, require('./routes/iaProfiles'));
@@ -793,6 +796,10 @@ async function computeMyDivisions(user) {
     // group member (e.g. a cadet) doesn't get the HPC dashboard.
     const { userHpcTier } = require('./middleware/division');
     mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
+    // CID is a restricted leadership workspace. Only members whose current CID
+    // group rank is Assistant Director (HIGH) or above receive the division link.
+    const { tierForRank } = require('./lib/ranks');
+    mine = mine.filter(d => d.division !== 'CID' || tierForRank('CID', d.rankName) === 'HIGH');
   }
   // MET HICOMM — the dashboard-wide oversight tier (Deputy Commissioner+ in the MET
   // group, or DEVELOPER). The 'MET' cache entry is an access marker, not a real
@@ -1469,6 +1476,7 @@ app.get('/n/ticket-dm', async (req, res) => {
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/apply', recordVisit, maybeAuth, (req, res) => sendPage(res, path.join(views, 'apply.html')));
+app.get('/apply/cid', recordVisit, maybeAuth, (req, res) => sendPage(res, path.join(views, 'cid-application.html'), 'CID'));
 app.get('/hpc/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/dashboard?view=applications'));
 app.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/dashboard?view=applications'));
 
@@ -1520,7 +1528,7 @@ app.get('/cid/denied',    recordVisit, (req, res) => sendPage(res, path.join(vie
 // routes and division membership data intact; only the dashboard pages are off.
 const disabledDivisionDashboard = (req, res) =>
   res.status(404).type('text').send('This division dashboard is currently unavailable.');
-app.get('/cid/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
+app.get('/cid/dashboard', recordVisit, requireAuth, cidApplicationRoutes.requireCidAdmin, (req, res) => sendPage(res, path.join(views, 'cid-dashboard-applications.html'), 'CID'));
 app.get('/sco19/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
 app.get('/flp/dashboard', recordVisit, requireAuth, disabledDivisionDashboard);
 mountDivisionPages('hpc', 'HPC');
