@@ -96,7 +96,7 @@ router.post('/submit', async (req, res) => {
     if (!check.checksAvailable) return res.status(503).json({ error: 'We cannot verify Roblox group eligibility right now. Please try again later.' });
     if (!check.eligible) return res.status(403).json({ error: check.restrictions[0]?.label || 'This account is not eligible to apply.' });
 
-    const existing = await prisma.metApplication.findFirst({ where: { applicantId: user.id, status: 'SUBMITTED' }, select: { appRef: true } });
+    const existing = await prisma.metApplication.findFirst({ where: { applicantId: user.id, status: { in: ['SUBMITTED', 'ACCEPTED'] } }, select: { appRef: true } });
     if (existing) return res.status(409).json({ error: 'You already have an application awaiting review.', appRef: existing.appRef });
 
     const answers = req.body && req.body.answers;
