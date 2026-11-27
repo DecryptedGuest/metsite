@@ -15,7 +15,7 @@ const QUESTIONS = {
   q9: { min: 20, max: 2500 }, q10: { type: 'agreement' },
 };
 
-async function checkGroup(user, groupId, cachedMet = false) {
+async function checkGroup(user, groupId) {
   if (!user || !user.robloxId) return { member: false, available: true };
   if (cachedMet && user.metRankNatural && user.metRankNatural.name) return { member: true, available: true };
   try {
@@ -32,7 +32,7 @@ async function checkGroup(user, groupId, cachedMet = false) {
 
 async function eligibility(user) {
   const [met, sas, cases] = await Promise.all([
-    checkGroup(user, MET_GROUP_ID, true),
+    checkGroup(user, MET_GROUP_ID),
     checkGroup(user, SAS_GROUP_ID),
     prisma.case.findMany({
       where: { OR: [{ robloxUserId: String(user.robloxId || '') }, { userId: String(user.id) }], status: 'APPROVED' },
