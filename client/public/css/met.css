@@ -352,3 +352,11 @@ html[data-division] .panel-accent { display:none !important; }
 @media (max-width:900px) and (min-width:641px) { .sidebar { width:224px !important; } .main-content { width:calc(100% - 224px) !important; margin-left:224px !important; padding:26px 24px 44px !important; } }
 @media (max-width:640px) { .app-layout { display:flex !important; flex-direction:column !important; } .sidebar { position:relative !important; inset:auto !important; width:100% !important; height:auto !important; min-height:0 !important; max-height:42vh; } .sidebar-top { min-height:0 !important; } .sidebar-nav { max-height:26vh; } .sidebar-bottom { display:none !important; } .main-content { width:100% !important; margin-left:0 !important; padding:22px 15px 42px !important; } .page-header { margin-bottom:18px !important; } }
 @media (prefers-reduced-motion:reduce) { .table-loading::before { animation:none !important; } }
+
+/* Use the MET mark for all shared inline loading indicators. */
+.spinner {
+  width:30px !important; height:30px !important; display:inline-block !important;
+  vertical-align:middle !important; border:0 !important; border-radius:0 !important;
+  background:url('/img/divisions/met.png') center/contain no-repeat !important;
+  animation:met-mark-breathe 1.6s ease-in-out infinite !important;
+}
