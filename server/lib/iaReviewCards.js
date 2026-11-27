@@ -41,7 +41,7 @@ const RED   = 0xf04f5e;   // denied
 const casesChannelId   = () =>
   process.env.CASES_CHANNEL_ID || process.env.IA_CASES_CHANNEL_ID || '1574841103042093224';
 const ticketsChannelId = () =>
-  process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1537076390829101058';
+  process.env.IA_TICKET_CLOSED_CHANNEL_ID || process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1574841102836699252';
 const reviewerRoleId   = () =>
   process.env.IA_REVIEWER_ROLE_ID || process.env.IA_REVIEWER_ROLE_iD || '1574841102169669693';
 
@@ -230,8 +230,6 @@ function ticketCard(ticket, extra = {}) {
   const handlerName = ticket.closerUsername || ticket.closerRaw || null;
   const handled = ticket.closerDiscordId
     ? `<@${ticket.closerDiscordId}>`
-    // Not a dead end: the sweep re-reads the log and fills this in, and the
-    // card is re-rendered when it does.
     : (handlerName || '*being identified*');
 
   const closedAt = ticket.closedAt && !isNaN(new Date(ticket.closedAt).getTime())
@@ -262,14 +260,14 @@ function ticketCard(ticket, extra = {}) {
     const { ticketPointsFor } = require('./quota');
     const n = ticketPointsFor();
     const word = n === 1 ? 'point' : 'points';
-    if (!identified) {
-      points = `**${n}** quota ${word}, once the handler is identified`;
+    if (!identified || ticket.closerIsIa == null) {
+      points = `**${n}** quota ${word} - awaiting investigator identification`;
     } else if (ticket.closerIsIa === false) {
-      points = 'None · the handler is not Internal Affairs';
+      points = 'No IA quota - investigator is not Internal Affairs';
     } else {
       points = String(ticket.status || 'PENDING').toUpperCase() === 'APPROVED'
-        ? `**${n}** quota ${word} awarded`
-        : `**${n}** quota ${word} on approval`;
+        ? `**${n}** quota ${word} awarded automatically`
+        : `**${n}** quota ${word} pending approval`;
     }
   } catch { /* quota not loaded — leave the placeholder */ }
   addFields(embed, field('Quota points', points, true));
@@ -340,7 +338,7 @@ async function postCard(client, channelId, embed, components, { ping = false } =
  * value, an unparseable date) made the review card vanish in complete silence,
  * which is indistinguishable from the ingest never having run.
  */
-async function buildAndPost(client, channelId, build, what) {
+async function buildAndPost(client, channelId, build, what, options = {}) {
   if (!client || !channelId) return null;
   let embed, components;
   try {
@@ -354,12 +352,12 @@ async function buildAndPost(client, channelId, build, what) {
     });
     return null;
   }
-  return postCard(client, channelId, embed, components, { ping: true });
+  return postCard(client, channelId, embed, components, { ping: options.ping === true });
 }
 
 const postCaseCard = (client, kase, extra) =>
   buildAndPost(client, casesChannelId(),
-    () => ({ embed: caseCard(kase, extra), components: reviewButtons('case', kase.id) }), 'case');
+    () => ({ embed: caseCard(kase, extra), components: reviewButtons('case', kase.id) }), 'case', { ping: true });
 
 /**
  * A link discord.js will actually accept, or null.
@@ -378,18 +376,15 @@ function safeUrl(value) {
 }
 
 function ticketComponents(ticket) {
-  const row = reviewButtons('ticket', ticket.id);
   const link = safeUrl(ticket.transcriptUrl);
-  if (link) {
-    row.addComponents(new ButtonBuilder()
-      .setLabel('Transcript').setStyle(ButtonStyle.Link).setURL(link));
-  }
-  return row;
+  if (!link) return null;
+  return new ActionRowBuilder().addComponents(new ButtonBuilder()
+    .setLabel('View transcript').setStyle(ButtonStyle.Link).setURL(link));
 }
 
 const postTicketCard = (client, ticket, extra) =>
   buildAndPost(client, ticketsChannelId(),
-    () => ({ embed: ticketCard(ticket, extra), components: ticketComponents(ticket) }), 'ticket');
+    () => ({ embed: ticketCard(ticket, extra), components: ticketComponents(ticket) }), 'ticket', { ping: false });
 
 /** Rewrite a card in place once it has been decided, and take the buttons away. */
 async function finaliseCard(client, channelId, messageId, embed) {
