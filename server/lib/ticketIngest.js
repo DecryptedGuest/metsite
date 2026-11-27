@@ -1037,45 +1037,28 @@ async function ingestMessage(msg) {
     // the channel rebuilds the exact wall somebody just cleared.
     const cleared = await statusForNewRow(data.closedAt);
     const created = await prisma.ticketLog.create({
-      data: { ...data, ...(cleared || {}), ticketNo: await nextTicketNo() },
+      data: {
+        ...data,
+        ...(cleared || {}),
+        ...(!cleared ? { status: 'APPROVED', reviewedAt: new Date(), reviewedByName: 'Automatic approval' } : {}),
+        ticketNo: await nextTicketNo(),
+      },
     });
     console.log(`[TicketLogs] stored ${created.division} ticket ${created.ticketNo ?? created.id}`
       + ` · ${created.ticketName || created.ticketRef || 'unnamed'}`
       + ` · closed ${new Date(created.closedAt).toISOString()}`
       + ` by ${created.closerUsername || 'nobody named'}`);
 
-    // Put it in front of a reviewer straight away. Until now the queue only
-    // existed on the site, so a closed ticket sat unseen until somebody
-    // remembered to look — which is why tickets went unpaid. A ticket that
-    // arrived already voided (backlog clear) is history and is not re-queued.
-    // A divisional ticket (CID, SCO) closed by that division's own officer is
-    // not IA's to review and pays nothing, so putting it in the queue is pure
-    // noise -- the row is still stored and searchable. MET tickets queue
-    // regardless of who closed them, because that IS the IA queue.
-    const divisional = String(created.division || 'MET').toUpperCase() !== 'MET';
-    const queueable  = !divisional || created.closerIsIa === true;
-    // NEW in the channel is not the same as newly CLOSED. A sweep walking back
-    // through history stores rows it has never seen before, and every one of
-    // them is `created` here — which is exactly how eleven tickets from last
-    // week arrived in the queue at once.
+    // Closed-ticket logs are automatically approved. They are published to IA
+    // for visibility, with no reviewer buttons or manual sign-off step.
     const isNew = await worthCarding(created);
-
-    if (created.status === 'PENDING' && queueable && isNew) {
-      // Never let a card failure undo the row: the ticket is stored either way.
-      // But SAY SO. This used to be `.catch(() => {})`, which swallowed a card
-      // that threw while being built and produced no log line at all — the exact
-      // shape of "the bot did nothing and said nothing".
-      await queueCard(created).catch((err) => {
-        console.error(`[TicketLogs] card failed for ticket ${created.ticketNo ?? created.id}`
-          + ` · ${err && err.message ? err.message : err}`);
+    if (created.status === 'APPROVED' && !created.voidedAt && isNew) {
+      await awardTicketQuota(created);
+      await queueCard(created).catch(err => {
+        console.error(`[TicketLogs] automatic ticket card failed for ${created.ticketNo ?? created.id}: ${err.message}`);
       });
-    } else if (created.status === 'PENDING' && !isNew) {
-      const line = await cardingStartedAt();
-      console.log(`[TicketLogs] ticket ${created.ticketNo ?? created.id} stored but not queued `
-        + `· closed ${new Date(created.closedAt).toISOString()}, cards start ${line.toISOString()}`);
-    } else if (created.status === 'PENDING' && divisional) {
-      console.log(`[TicketLogs] ${created.division} ticket ${created.ticketNo ?? created.id} not queued `
-        + '· closed by a non-IA handler');
+    } else if (created.voidedAt) {
+      console.log(`[TicketLogs] ticket ${created.ticketNo ?? created.id} retained as cleared backlog; no quota award`);
     }
     return 'created';
   } catch (err) {
@@ -1258,15 +1241,14 @@ function queueable(row) {
 async function queueCard(row) {
   const cards = require('./iaReviewCards');
   const label = `ticket ${row && (row.ticketNo ?? row.id)}`;
-
   if (!cards.ticketsChannelId()) {
-    console.warn(`[TicketLogs] no card for ${label} · no tickets channel is configured`);
+    console.warn(`[TicketLogs] no card for ${label} - no tickets channel is configured`);
     return false;
   }
   const { getClient } = require('./bot');
   const client = getClient();
   if (!client) {
-    console.warn(`[TicketLogs] no card for ${label} · the Discord client is not ready`);
+    console.warn(`[TicketLogs] no card for ${label} - the Discord client is not ready`);
     return false;
   }
 
@@ -1274,24 +1256,81 @@ async function queueCard(row) {
   try {
     messageId = await cards.postTicketCard(client, row);
   } catch (err) {
-    console.error(`[TicketLogs] no card for ${label} · building or posting it threw · ${err.message}`);
+    console.error(`[TicketLogs] no card for ${label} - building or posting it threw - ${err.message}`);
     return false;
   }
   if (!messageId) {
-    console.warn(`[TicketLogs] no card for ${label} · the channel could not be posted to`);
+    console.warn(`[TicketLogs] no card for ${label} - the channel could not be posted to`);
     return false;
   }
-  console.log(`[TicketLogs] review card posted for ${label} in ${cards.ticketsChannelId()}`);
   try {
     await prisma.ticketLog.update({ where: { id: row.id }, data: { cardMessageId: messageId } });
   } catch (err) {
-    // The card is up but nothing records where. Left unsaid, the retry above
-    // posts it again on the next sweep and the reviewer gets duplicates.
-    console.error(`[TicketLogs] card posted for ${label} but the id could not be saved`
-      + ` · ${err.message} · it may be posted again`);
+    console.error(`[TicketLogs] card posted for ${label} but its id could not be saved - ${err.message}`);
     return false;
   }
+  console.log(`[TicketLogs] automatic approval log posted for ${label} in ${cards.ticketsChannelId()}`);
   return true;
+}
+
+// One automatic +2 IA quota award per closed ticket. The unique
+// (refType, refId) key makes this safe across duplicate gateway events/restarts.
+async function awardTicketQuota(ticket) {
+  if (!ticket || ticket.closerIsIa !== true) return false;
+  let closer = null;
+  if (ticket.closerUserId) {
+    closer = await prisma.user.findUnique({
+      where: { id: ticket.closerUserId },
+      select: { discordId: true, robloxUsername: true },
+    }).catch(() => null);
+  }
+  const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
+  if (!discordId) return false;
+  const { enqueueQuotaAward, ticketPointsFor } = require('./quota');
+  await enqueueQuotaAward({
+    refType: 'ticket',
+    refId: ticket.id,
+    discordId,
+    robloxUsername: (closer && closer.robloxUsername) || null,
+    points: 2,
+    label: `ticket ${ticket.ticketRef || ticket.ticketName || ticket.ticketNo || ticket.id}`,
+    division: 'IA',
+  });
+  return true;
+}
+
+// Convert the existing pending queue to the new automatic-approval policy.
+// Existing cards are edited in place and lose their approve/deny buttons.
+async function autoApprovePendingTickets(client, limit = 250) {
+  const rows = await prisma.ticketLog.findMany({
+    where: { status: 'PENDING', voidedAt: null },
+    orderBy: { closedAt: 'asc' },
+    take: limit,
+  }).catch(() => []);
+  let approved = 0;
+  const cards = require('./iaReviewCards');
+  for (const row of rows) {
+    const updated = await prisma.ticketLog.update({
+      where: { id: row.id, status: 'PENDING' },
+      data: { status: 'APPROVED', reviewedAt: new Date(), reviewedByName: 'Automatic approval' },
+    }).catch(() => null);
+    if (!updated) continue;
+    approved++;
+    await awardTicketQuota(updated).catch(err => console.warn('[TicketLogs] automatic quota award failed:', err.message));
+    if (updated.cardMessageId && client) {
+      try {
+        const channel = await client.channels.fetch(cards.ticketsChannelId());
+        const message = await channel.messages.fetch(updated.cardMessageId);
+        await message.edit({ embeds: [cards.ticketCard(updated)], components: [] });
+      } catch (err) {
+        console.warn(`[TicketLogs] could not update old ticket card ${updated.ticketNo ?? updated.id}: ${err.message}`);
+      }
+    } else {
+      await queueCard(updated).catch(() => {});
+    }
+  }
+  if (approved) console.log(`[TicketLogs] automatically approved ${approved} existing pending ticket logs`);
+  return { approved };
 }
 
 // ── When carding started ──────────────────────────────────────────
@@ -1430,7 +1469,7 @@ async function cardTicketsSince(since, { limit = 25 } = {}) {
   try {
     rows = await prisma.ticketLog.findMany({
       where: {
-        status: 'PENDING', voidedAt: null, cardMessageId: null,
+        status: 'APPROVED', voidedAt: null, cardMessageId: null,
         closedAt: { gte: from },
       },
       orderBy: { closedAt: 'asc' },
@@ -1486,7 +1525,7 @@ async function removeStaleCards(limit = 25) {
   try {
     rows = await prisma.ticketLog.findMany({
       where: {
-        status: 'PENDING', voidedAt: null,
+        status: 'APPROVED', voidedAt: null,
         cardMessageId: { not: null },
         closedAt: { lt: cutoff },
       },
@@ -1546,7 +1585,7 @@ async function retryMissingCards(limit = 5) {
     });
   } catch (err) { return out; }
 
-  const todo = rows.filter(queueable);
+  const todo = rows;
   out.waiting = todo.length;
   for (const row of todo.slice(0, limit)) {
     try { if (await queueCard(row)) out.posted++; }
@@ -1960,6 +1999,8 @@ async function repairOnce(client) {
 }
 
 function startTicketLogWorker(client) {
+  setTimeout(() => autoApprovePendingTickets(client).catch(err => console.warn('[TicketLogs] auto-approval migration failed:', err.message)), 5000);
+  setInterval(() => autoApprovePendingTickets(client).catch(err => console.warn('[TicketLogs] auto-approval migration failed:', err.message)), 30 * 1000);
   // First sweep once the gateway has had time to connect, then every 5 minutes
   // as a safety net behind the live messageCreate handler.
   setTimeout(() => { sweep(client).catch(() => {}); }, 25 * 1000);
@@ -1986,6 +2027,7 @@ module.exports = {
   ticketSources, divisionForChannel, rankFromRaw, resolveCloserIsIa,
   // Review-card queueing, exposed for the dev dashboard's ticket sweep.
   queueCard, retryMissingCards, refreshStaleCards, removeStaleCards, cardingStartedAt, worthCarding,
+  autoApprovePendingTickets, awardTicketQuota,
   cardTicketsSince,
   refreshCloserIsIa,
   voidNonCloseRows,
