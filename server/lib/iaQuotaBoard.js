@@ -31,6 +31,55 @@ function memberLine(member, index) {
   return `${index + 1}. ${identity} - **${points} QP**`;
 }
 
+async function verifiedIaMembers(client, members) {
+  const guildId = process.env.IA_DISCORD_GUILD_ID || '1574841102169669692';
+  const groupId = process.env.IA_GROUP_ID;
+  if (!groupId) {
+    console.warn('[IA Quota Board] IA_GROUP_ID is not configured; refusing to publish unverified quota rows');
+    return [];
+  }
+  const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
+  if (!guild) {
+    console.warn('[IA Quota Board] IA Discord server unavailable; refusing to publish unverified quota rows');
+    return [];
+  }
+
+  const prisma = require('./db');
+  const roblox = require('./roblox');
+  const verified = [];
+  for (const member of members) {
+    // A quota-sheet row is not proof of current IA membership. Require a current
+    // Discord server member and a current Roblox IA-group membership.
+    const discordId = String(member.discordId || '').trim();
+    if (!discordId) continue;
+    const discordMember = await guild.members.fetch(discordId).catch(() => null);
+    if (!discordMember) continue;
+
+    let user = await prisma.user.findFirst({
+      where: { OR: [
+        { discordId },
+        ...(member.username ? [{ robloxUsername: { equals: member.username, mode: 'insensitive' } }] : []),
+      ] },
+      select: { robloxId: true, robloxUsername: true },
+    }).catch(() => null);
+    let robloxId = user && user.robloxId ? String(user.robloxId) : null;
+    if (!robloxId && member.username) {
+      const resolved = await roblox.getRobloxIdFromUsername(member.username).catch(() => null);
+      robloxId = resolved && resolved.id ? String(resolved.id) : null;
+    }
+    if (!robloxId) continue;
+
+    const groups = await roblox.getUserGroups(robloxId);
+    const iaGroup = groups.find(item => String(item.group?.id) === String(groupId));
+    if (!iaGroup || !iaGroup.role) continue;
+
+    // Use the live IA group rank, never a potentially stale or manually edited
+    // spreadsheet rank label (which could falsely elevate somebody on the board).
+    verified.push({ ...member, rank: String(iaGroup.role.name || 'IA Member') });
+  }
+  return verified;
+}
+
 function buildEmbed(members) {
   const sorted = [...members].sort((a, b) =>
     rankOrder(a.rank) - rankOrder(b.rank)
@@ -91,8 +140,9 @@ async function refresh(client) {
       console.warn('[IA Quota Board] quota sheet is not currently readable; keeping the existing board');
       return false;
     }
+    const eligible = await verifiedIaMembers(client, members);
     const channel = await client.channels.fetch(String(channelId));
-    const embed = buildEmbed(members);
+    const embed = buildEmbed(eligible);
     const recent = await channel.messages.fetch({ limit: 100 });
     const existing = recent.find(message =>
       message.author?.id === client.user.id
@@ -121,4 +171,4 @@ function start(client) {
   console.log(`[IA Quota Board] updates enabled in channel ${CHANNEL_ID()}`);
 }
 
-module.exports = { start, refresh, buildEmbed, rankOrder };
+module.exports = { start, refresh, buildEmbed, rankOrder, verifiedIaMembers };
