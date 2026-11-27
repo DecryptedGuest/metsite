@@ -106,10 +106,10 @@ function detailsModal(ownerId, robloxId, indexes) {
   );
   if (timedActions.length) {
     const durations = new TextInputBuilder()
-      .setCustomId('timed_durations').setLabel('Timed punishment durations (required)')
+      .setCustomId('timed_durations').setLabel('Durations in days (optional)')
       .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('One per line: Suspension=14, Zero Tolerance=7')
-      .setRequired(true).setMaxLength(500);
+      .setPlaceholder(`Optional. Leave blank for permanent. Selected: ${timedActions.join(', ')}. Format: Punishment=Days`)
+      .setRequired(false).setMaxLength(500);
     modal.addComponents(new ActionRowBuilder().addComponents(durations));
   }
   return modal;
@@ -223,18 +223,14 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
     for (const entry of entries) {
       const match = entry.match(/^(.+?)\s*=\s*(\d+)$/);
       if (!match) {
-        return interaction.reply({ content: `${e('met_denied')} Enter each duration as Punishment=Days, for example Suspension=14.`, flags: MessageFlags.Ephemeral });
+        return interaction.reply({ content: `${e('met_denied')} Enter each optional duration as Punishment=Days, for example Suspension=14.`, flags: MessageFlags.Ephemeral });
       }
       const actionName = timedActions.find(name => name.toLowerCase() === match[1].trim().toLowerCase());
       const days = Number(match[2]);
-      if (!actionName || durations[actionName] || !Number.isInteger(days) || days < 1 || days > 3650) {
-        return interaction.reply({ content: `${e('met_denied')} Provide one valid duration from 1 to 3650 days for each selected timed punishment, without duplicates or extra entries.`, flags: MessageFlags.Ephemeral });
+      if (!actionName || Object.prototype.hasOwnProperty.call(durations, actionName) || !Number.isInteger(days) || days < 1 || days > 3650) {
+        return interaction.reply({ content: `${e('met_denied')} Only enter durations for selected timed punishments, once each, using 1 to 3650 days.`, flags: MessageFlags.Ephemeral });
       }
       durations[actionName] = days;
-    }
-    const missing = timedActions.filter(name => !durations[name]);
-    if (missing.length) {
-      return interaction.reply({ content: `${e('met_denied')} A duration is required for: ${missing.join(', ')}. Submit each as Punishment=Days.`, flags: MessageFlags.Ephemeral });
     }
   }
 
