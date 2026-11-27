@@ -16,7 +16,7 @@ This file is the design contract for every MET page. It exists to prevent indivi
 - Avoid all-caps micro-labels as a default. Use sentence case and readable sizes.
 
 ## Surfaces and layout
-- Use the shared full-height navigation rail, separate utility bar and aligned page content.
+- Use the shared full-height left navigation sidebar and aligned page content. There is no topbar or separate utility bar.
 - Prefer clear page hierarchy and intentional asymmetry over equal-weight card grids.
 - Use a small, fixed radius scale: 3, 5, 8 and 11px.
 - Panels are flat surfaces with one quiet border. Do not use glassmorphism, blur, neon, gradients, glow, noise, scanlines or decorative background grids.
@@ -29,14 +29,16 @@ This file is the design contract for every MET page. It exists to prevent indivi
 - Respect prefers-reduced-motion.
 
 ## Explicit prohibitions
-- No green dots, status dots, decorative bullets beside panel titles, live indicators or glowing dots.
+- No green, blue, amber, red or other coloured status dots; no decorative bullets beside panel titles, live indicators or glowing dots.
+- Do not add rank/status labels to navigation chrome unless the underlying workflow requires them.
 - No purple/blue gradient heroes, gradient text, glass cards, excessive rounded pills or default three-card feature grids.
 - No decorative icons that do not communicate an action or category.
 - No repeated eyebrow labels, filler subtitles, marketing slogans or copy that explains obvious controls.
 - No per-division colour themes that fragment the product.
 
 ## Review checklist
-- Check dashboard, profile, sign-in, every division view, forms, modals, empty/loading/error states and mobile navigation.
+- Check the sidebar shell, profile, sign-in, every division view, forms, modals, empty/loading/error states and mobile navigation.
+- The MET logo is the shared loading mark. It uses a restrained scale pulse, never rotation.
 - Check both light and dark themes.
 - Check that every status remains understandable without a coloured dot.
 - Check keyboard focus and reduced-motion behaviour.
