@@ -61,7 +61,8 @@
       <nav class="sidebar-nav" aria-label="Account">
         <div class="nav-section-label">Account</div>
         <a class="nav-item active" href="/profile" aria-current="page"><i class="ti ti-user nav-icon"></i><span>My profile</span></a>
-        <a class="nav-item" href="/tryout"><i class="ti ti-target-arrow nav-icon"></i><span>Tryout</span></a>
+        <button type="button" class="nav-item" data-profile-tab="divisions"><i class="ti ti-building-community nav-icon"></i><span>Divisions</span></button>
+        <button type="button" class="nav-item" data-profile-tab="settings"><i class="ti ti-settings nav-icon"></i><span>Settings</span></button>
       </nav>
     </div>
     <div class="sidebar-bottom">
@@ -76,6 +77,13 @@
   </aside>
   <main class="main-content profile-main">
     <div class="profile-wrap">
+      <nav class="profile-tabs" aria-label="Profile sections" role="tablist">
+        <button type="button" class="profile-tab active" id="tab-profile" role="tab" aria-selected="true" aria-controls="pane-profile" data-profile-tab="profile">My Profile</button>
+        <button type="button" class="profile-tab" id="tab-divisions" role="tab" aria-selected="false" aria-controls="pane-divisions" data-profile-tab="divisions">Divisions</button>
+        <button type="button" class="profile-tab" id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-profile-tab="settings">Settings</button>
+      </nav>
+      <section class="profile-tab-pane active" id="pane-profile" role="tabpanel" aria-labelledby="tab-profile">
+
   <!-- Identity header -->
   <div class="glass profile-hero fade-up">
     <div class="profile-avatar-wrap">
@@ -110,12 +118,6 @@
   <div class="panel glass fade-up" id="p-flags-panel" style="display:none;">
     <div class="panel-header"><div class="panel-title"><span class="panel-dot amber"></span>Standing</div></div>
     <div class="profile-section"><div class="chip-row" id="p-flags"></div></div>
-  </div>
-
-  <!-- Divisions + rank -->
-  <div class="panel glass fade-up stagger-1">
-    <div class="panel-header"><div class="panel-title"><span class="panel-dot blue"></span>Divisions &amp; Rank</div></div>
-    <div class="profile-section" id="p-divisions"><div class="table-loading"><div class="spinner"></div></div></div>
   </div>
 
   <!-- XP — where they stand on the MET ladder. Shown to anyone the XP system
@@ -163,6 +165,23 @@
     </div>
   </div>
 
+
+      </section>
+      <section class="profile-tab-pane" id="pane-divisions" role="tabpanel" aria-labelledby="tab-divisions" hidden>
+        <header class="profile-pane-heading">
+          <h1>Divisions</h1>
+          <p>View the divisions available to your account and open the ones you are assigned to.</p>
+        </header>
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title">Your divisions</div></div>
+          <div class="profile-section" id="p-division-list"><div class="table-loading">Loading divisions…</div></div>
+        </div>
+      </section>
+      <section class="profile-tab-pane" id="pane-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <header class="profile-pane-heading">
+          <h1>Settings</h1>
+          <p>Manage your sign-in security, devices, notifications and appearance.</p>
+        </header>
   <!-- Active sign-ins / device management -->
   <div class="panel glass fade-up stagger-3" id="p-sessions-panel">
     <div class="panel-header">
@@ -212,7 +231,9 @@
       </div>
     </div>
   </div>
-</div>
+      </section>
+    </div>
+
 
   </main>
 </div>
