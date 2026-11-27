@@ -733,6 +733,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
 
   const { isSeniorInvestigatorPlus, isHicomm, iaRankLabel } = require('./lib/iaRank');
   const { userNeedsFinalExam } = require('./middleware/division');
+  const { mine: visibleDivisions } = await computeMyDivisions(req.user);
   res.json({
     id:              req.user.id,
     discordId:       req.user.discordId,
@@ -746,7 +747,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
     // Whether the user holds the HPC final-exam role (login snapshot). Drives the
     // "Final Exam" menu entry — the /exam page still does the authoritative check.
     examEligible:    userNeedsFinalExam(req.user),
-    divisions:       Array.isArray(req.user.divisions) ? req.user.divisions : [],
+    divisions:       visibleDivisions,
     // IA standing — drives the SI+ gate on case appeals in the UI. The server
     // enforces the same rule on every appeal endpoint; this is only so the
     // button can be hidden rather than shown-and-rejected.
@@ -1417,10 +1418,10 @@ function sendPage(res, file, division) {
 // Public: shows a "Sign in" CTA when logged out, and the 5 division cards
 // (per-user access resolved client-side via /api/me + /api/me/divisions)
 // once authenticated. requireAuth's `res.redirect('/login')` lands here too.
-app.get('/', recordVisit, maybeAuth, (req, res) => {
+app.get('/', recordVisit, maybeAuth, async (req, res) => {
   if (req.user && !req.user.isBlacklisted && !req.user.mustReauth) {
     if (req.user.role === 'DEVELOPER') return res.redirect('/dev/dashboard');
-    const mine = Array.isArray(req.user.divisions) ? req.user.divisions : [];
+    const mine = (await computeMyDivisions(req.user)).mine;
     const preferred = mine.find(d => d && d.division === 'IA') || mine[0];
     if (preferred && preferred.division) {
       const slug = String(preferred.division).toLowerCase().replace(/[^a-z0-9]+/g, '');
