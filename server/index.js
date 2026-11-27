@@ -797,11 +797,11 @@ async function computeMyDivisions(user) {
     // group member (e.g. a cadet) doesn't get the HPC dashboard.
     const { userHpcTier } = require('./middleware/division');
     mine = mine.filter(d => d.division !== 'HPC' || userHpcTier(user, 'instructor'));
-    // CID is a restricted leadership workspace. Only members whose current CID
-    // group rank is Assistant Director (HIGH) or above receive the division link.
-    const { tierForRank } = require('./lib/ranks');
-    mine = mine.filter(d => d.division !== 'CID' || tierForRank('CID', d.rankName) === 'HIGH');
   }
+  // CID is a restricted leadership workspace. Only members whose current CID
+  // group rank is Assistant Director (HIGH) or above receive the division link.
+  const { tierForRank } = require('./lib/ranks');
+  mine = mine.filter(d => d.division !== 'CID' || tierForRank('CID', d.rankName) === 'HIGH');
   // MET HICOMM — the dashboard-wide oversight tier (Deputy Commissioner+ in the MET
   // group, or DEVELOPER). The 'MET' cache entry is an access marker, not a real
   // division dashboard, so pull it out and use its rank for the HICOMM card. The
