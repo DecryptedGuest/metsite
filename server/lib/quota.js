@@ -1067,8 +1067,10 @@ async function enqueueQuotaAward({ refType, refId, discordId, robloxUsername, po
     });
   } catch (e) {
     console.error('[quota] enqueueQuotaAward error:', e.message);
+    return false;
   }
   setTimeout(() => { processQuotaAwards().catch(() => {}); }, 50);
+  return true;
 }
 
 function startQuotaWorker() {
