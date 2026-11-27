@@ -245,8 +245,8 @@ input:focus, select:focus, textarea:focus, .form-control:focus { border-color: v
 .met-chip img { width: 16px; height: 16px; object-fit: contain; }
 .profile-load-error { padding: 12px 14px; color: var(--danger) !important; background: var(--danger-wash); border: 1px solid var(--line); border-radius: 5px; font-size: 13px; }
 .table-loading { padding: 20px !important; text-align: center !important; color: var(--ink-muted) !important; }
-.table-loading::before { content: ""; display: block; width: 36px; height: 36px; margin: 0 auto 8px; background: url('/img/divisions/met.png') center/contain no-repeat; animation: met-mark-breathe 1.6s ease-in-out infinite; }
-.spinner { display: inline-block !important; width: 28px !important; height: 28px !important; border: 0 !important; border-radius: 0 !important; background: url('/img/divisions/met.png') center/contain no-repeat !important; animation: met-mark-breathe 1.6s ease-in-out infinite !important; }
+.table-loading::before { content: none !important; display: none !important; }
+.spinner { display: inline-block !important; width: 36px !important; height: 36px !important; border: 0 !important; border-radius: 0 !important; background: url('/img/METnewlogo.png') center/contain no-repeat !important; animation: met-mark-breathe 1.6s ease-in-out infinite !important; }
 @keyframes met-mark-breathe { 0%,100% { transform: scale(.96); opacity: .7; } 50% { transform: scale(1.03); opacity: 1; } }
 
 /* Login */
