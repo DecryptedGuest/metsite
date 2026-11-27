@@ -29,7 +29,7 @@ function buildActionList({ actions, action }) {
 // Internal Affairs and shouldn't be signing as them. Those are signed
 // personally — see signatureFor().
 const SIGN_AUTHOR_NAME = 'Signed, Internal Affairs High Command';
-const SIGN_AUTHOR_ICON = 'https://metia.uk/media/880b6a85-064d-4c5a-a36f-c3d1fc8e7569';
+const SIGN_AUTHOR_ICON = 'https://cdn.discordapp.com/icons/1574841102169669692/bdaf270aa78f376ce95c7a9ad6095858.webp?size=1024';
 
 /**
  * Who a notice is signed by.
