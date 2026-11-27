@@ -135,7 +135,7 @@ router.get('/discord', (req, res) => {
   // into the ATTACKER's account (OAuth login CSRF). Mirrors the Roblox flow.
   const state = b64url(crypto.randomBytes(16));
   // Only allow known local destinations. Never accept an arbitrary return URL.
-  const returnTo = req.query.returnTo === '/apply' ? '/apply' : '/dashboard';
+  const returnTo = ['/apply','/apply/cid'].includes(req.query.returnTo) ? req.query.returnTo : '/dashboard';
   const stateToken = jwt.sign({ state, returnTo }, process.env.JWT_SECRET, { expiresIn: '10m' });
   res.cookie('discord_oauth', stateToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 10 * 60 * 1000 });
   const params = new URLSearchParams({
@@ -483,7 +483,7 @@ router.get('/discord/callback', async (req, res) => {
     }
 
     // ── Step 6: Create the server-side session + cookie, then redirect ──
-    return establishSession(req, res, user, savedState.returnTo === '/apply' ? '/apply' : '/dashboard');
+    return establishSession(req, res, user, ['/apply','/apply/cid'].includes(savedState.returnTo) ? savedState.returnTo : '/dashboard');
 
   } catch (err) {
     console.error('[Auth] Unhandled error in OAuth callback:', err.stack || err.message);
