@@ -276,17 +276,17 @@ const SUBMIT_CASE_GUILD_ID_NAMES = 'submit-case';
 
 // Temporarily hidden from Discord's slash-command list. Implementations and
 // interaction logic remain intact; remove names here to restore registration.
-const DISABLED_IA_COMMANDS = new Set(['add-qp', 'leaderboard', 'remove-qp', 'submit-case', 'undo']);
+const DISABLED_IA_COMMANDS = new Set(['add-qp', 'leaderboard', 'remove-qp', 'undo']);
 
 const IA_COMMAND_ALLOWLIST = () => {
   const raw = (process.env.IA_COMMANDS || '').trim();
   if (raw === '*') return null;                       // null = no filtering
   const list = raw
-    ? raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
+    ? raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean).map(x => x === 'submit-case' ? 'case' : x)
     // The Internal Affairs server's whole command set. Everything else lives in
     // the MET server, including /check-record and /ia, which are about IA but
     // are used by MET High Command.
-    : ['submit-case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
+    : ['case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
   return new Set(list);
 };
 
@@ -516,7 +516,7 @@ function buildCommandPlan() {
     add(iaGuild('SUBMIT_CASE_GUILD_ID'), cmd);
     global.push(cmd);
   } catch (err) {
-    console.error('[Bot] could not build /submit-case:', err.message);
+    console.error('[Bot] could not build /case:', err.message);
   }
 
   try {
@@ -794,7 +794,7 @@ async function onInteraction(interaction) {
       return require('./demoteCommand').handleDemoteAutocomplete(interaction)
         .catch(e => console.error('[Bot] demote autocomplete error:', e.message));
     }
-    if (interaction.commandName === 'submit-case') {
+    if (interaction.commandName === 'case') {
       return require('./submitCaseCommand').handleAutocomplete(interaction)
         .catch(e => console.error('[Bot] submit-case autocomplete error:', e.message));
     }
@@ -1912,6 +1912,37 @@ async function sendTryoutHostDM(tryout) {
 // A new message in PATROL_CHANNEL_ID / EVENTLOGS_CHANNEL_ID that looks like a
 // log → capture it for site review. (Pure chat without "shift" and no image is
 // ignored.)
+async function mirrorMetClosedTicket(message) {
+  if (String(message.guildId || '') !== String(TICKET_LOG_GUILD_ID)
+      || String(message.channelId || '') !== String(TICKET_LOG_CHANNEL_ID)) return;
+  const source = (message.embeds || []).find(embed =>
+    String(embed.title || '').trim().toLowerCase() === 'ticket closed');
+  if (!source) return; // Ticket Created / edited / other log types are never mirrored.
+
+  const targetId = process.env.IA_TICKET_CLOSED_CHANNEL_ID || '1574841102836699252';
+  try {
+    const target = await client.channels.fetch(targetId);
+    if (!target || !target.isTextBased() || typeof target.send !== 'function') {
+      console.warn('[TicketLogs] IA closed-ticket destination is unavailable');
+      return;
+    }
+    const recent = await target.messages.fetch({ limit: 50 }).catch(() => null);
+    if (recent && recent.some(m => m.author?.id === client.user.id
+        && (m.embeds || []).some(e => String(e.footer?.text || '').includes(`Source message: ${message.id}`)))) return;
+
+    const embed = EmbedBuilder.from(source)
+      .setTitle('Ticket Closed')
+      .setColor(0x24364b)
+      .setURL(message.url)
+      .setFooter({ text: `MET Ticket Logs · Source message: ${message.id}` })
+      .setTimestamp(message.createdAt || new Date());
+    await target.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    console.log(`[TicketLogs] mirrored closed ticket ${message.id} to IA`);
+  } catch (err) {
+    console.warn('[TicketLogs] IA close mirror failed:', err.message);
+  }
+}
+
 async function onPatrolMessage(message) {
   try {
     const ch = String(message.channelId);
@@ -1920,6 +1951,9 @@ async function onPatrolMessage(message) {
     // before the not-a-bot guard below. Any of the ticket-log channels counts:
     // the MET one, CID's and SCO-19's — Internal Affairs handles all three.
     if (require('./ticketIngest').divisionForChannel(ch)) {
+      if (ch === String(TICKET_LOG_CHANNEL_ID) && String(message.guildId || '') === String(TICKET_LOG_GUILD_ID)) {
+        await mirrorMetClosedTicket(message);
+      }
       try { await require('./ticketIngest').ingestMessage(message); }
       catch (e) { console.warn('[TicketLogs] live ingest error:', e.message); }
       return;
