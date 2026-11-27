@@ -1035,6 +1035,9 @@ async function processQuotaAwards() {
           where: { id: a.id },
           data:  { status: 'DONE', attempts: { increment: 1 }, lastError: null },
         }).catch(() => {});
+        if (String(a.division || 'IA').toUpperCase() === 'IA') {
+          try { require('./iaQuotaBoard').requestRefresh(); } catch (_) {}
+        }
       } else {
         const attempts = a.attempts + 1;
         const status   = attempts >= MAX_ATTEMPTS ? 'FAILED' : 'PENDING';
