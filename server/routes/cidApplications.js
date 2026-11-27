@@ -5,6 +5,7 @@ const router = express.Router();
 const prisma = require('../lib/db');
 const { getUserGroupRole, getGroupRolesPublic, getUserGroupRoles } = require('../lib/roblox');
 const { tierForRank } = require('../lib/ranks');
+const { scanAnswers } = require('../lib/aiDetect');
 
 const GROUPS = {
   MET: process.env.GROUP_MET || '17275620',
@@ -173,9 +174,16 @@ router.post('/submit',async(req,res)=>{
       appRef:nextRef(count+1),applicantId:req.user.id,discordId:req.user.discordId,
       discordUsername:req.user.discordUsername||null,robloxId:String(req.user.robloxId),
       robloxUsername:String(req.user.robloxUsername||'').trim(),
-      answers:{...answers,roblox:req.user.robloxUsername||'',discord:req.user.discordUsername||'',metRank:check.metRank||''},context:check,flags:integrityFlags(answers,req.body&&req.body.telemetry),status:'SUBMITTED',
+      answers:{...answers,roblox:req.user.robloxUsername||'',discord:req.user.discordUsername||'',metRank:check.metRank||''},context:check,flags:[...integrityFlags(answers,req.body&&req.body.telemetry),{severity:'info',code:'AI_SCAN_PENDING',label:'Writing analysis pending',detail:'Automated checks are still processing. Results are review signals, not proof.'}],status:'SUBMITTED',
     }});
     require('../lib/audit').record({req,action:'CID_APPLICATION_SUBMITTED',category:'recruitment',targetType:'cid_application',targetId:row.id,summary:'Submitted CID application '+row.appRef}).catch(()=>{});
+    const scanItems=QUESTIONS.filter(q=>q.type!=='agreement').map(q=>({qid:q.id,prompt:q.label,text:String(answers[q.id]||'')}));
+    scanAnswers(scanItems).then(async scan=>{
+      const aiFlags=(scan.perAnswer||[]).map(item=>({severity:item.overall!=null&&item.overall>=60?'review':'info',code:'AI_WRITING_SCAN',label:'Writing scan: '+item.qid,detail:item.overall==null?'No reliable detector score was available.':'Detector estimate '+item.overall+'% across '+(item.providers||[]).filter(p=>p.aiProbability!=null).length+' provider signal(s). This is not proof of AI use.',score:item.overall,providers:item.providers||[],highlightedSentences:item.aiSentences||[]}));
+      const current=await prisma.cidApplication.findUnique({where:{id:row.id},select:{flags:true}});
+      const keep=(Array.isArray(current&&current.flags)?current.flags:[]).filter(x=>x.code!=='AI_SCAN_PENDING');
+      await prisma.cidApplication.update({where:{id:row.id},data:{flags:[...keep,...aiFlags]}});
+    }).catch(err=>console.warn('[CID application] writing scan failed:',err.message));
     res.status(201).json({ok:true,appRef:row.appRef});
   } catch(e){console.error('[CID application] submit:',e.message);res.status(500).json({error:'Could not submit your CID application.'});}
 });
