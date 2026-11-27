@@ -1449,7 +1449,8 @@ app.get('/n/ticket-dm', async (req, res) => {
 app.get('/dashboard', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/profile',   recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'profile.html')));
 app.get('/apply', recordVisit, requireAuth, (req, res) => sendPage(res, path.join(views, 'apply.html')));
-app.get('/hpc/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => sendPage(res, path.join(views, 'met-applications.html')));\napp.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/applications'));
+app.get('/hpc/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => sendPage(res, path.join(views, 'met-applications.html')));
+app.get('/hicomm/applications', recordVisit, requireAuth, requireDivision('HPC'), (req, res) => res.redirect('/hpc/applications'));
 
 // Leave of Absence — any signed-in member requests; reviewers see a queue.
 
