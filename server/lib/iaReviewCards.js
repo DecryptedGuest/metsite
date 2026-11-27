@@ -517,6 +517,7 @@ async function handleReviewButton(interaction) {
     avatarURL: interaction.user.displayAvatarURL({ extension: 'png', size: 64 }),
   };
 
+  let caseLoading = null;
   try {
     if (kind === 'ticket') {
       const row = await prisma.ticketLog.findUnique({ where: { id: recordId } }).catch(() => null);
@@ -587,10 +588,16 @@ async function handleReviewButton(interaction) {
       // pipeline decides — this button only triggers it.
       const decision = require('./caseDecision');
       const fn = approved ? decision.approveCase : decision.denyCase;
+      // Use the shared MET blue four-frame spinner. It cycles the custom
+      // met_load emoji while the decision pipeline reports its live step.
+      caseLoading = approved
+        ? require('./emoji').startLoading(interaction, 'Preparing case approval')
+        : null;
       const out = await fn({
         caseId: recordId, actor,
-        onProgress: approved ? (step) => interaction.editReply({ content: `⏳ **${step}**`, allowedMentions: { parse: [] } }) : undefined,
+        onProgress: approved ? (step) => caseLoading.update(step) : undefined,
       });
+      if (caseLoading) { caseLoading.stop(); caseLoading = null; }
       if (out && out.ok === false) return interaction.editReply(out.error || out.reason || 'Refused.');
 
       const fresh = await prisma.case.findUnique({
@@ -615,6 +622,7 @@ async function handleReviewButton(interaction) {
 
     return interaction.editReply(`${e('met_warn')} Unknown review action.`);
   } catch (err) {
+    if (caseLoading) caseLoading.stop();
     console.error('[IA] review button failed:', err.message);
     return interaction.editReply('That did not go through: ' + err.message);
   }
