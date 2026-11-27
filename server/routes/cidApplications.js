@@ -149,7 +149,7 @@ router.get('/meta', async(req,res)=>{
       eligibility(req.user), settings(),
       prisma.cidApplication.findFirst({where:{applicantId:req.user.id,status:{in:['SUBMITTED','UNDER_REVIEW','ACCEPTED']}},select:{appRef:true,status:true,submittedAt:true}})
     ]);
-    res.json({eligible:check.eligible,checksAvailable:check.available,reasons:check.reasons||[],context:check,open:form.isOpen,existing,questions:QUESTIONS,declaration:DECLARATION,robloxUsername:req.user.robloxUsername||null});
+    res.json({eligible:check.eligible,checksAvailable:check.available,reasons:check.reasons||[],context:check,open:form.isOpen,existing,questions:QUESTIONS,declaration:DECLARATION,robloxUsername:req.user.robloxUsername||null,discordUsername:req.user.discordUsername||null});
   } catch(e){console.error('[CID application] meta:',e.message);res.status(500).json({error:'Could not load CID application.'});}
 });
 router.post('/submit',async(req,res)=>{
@@ -210,3 +210,4 @@ router.patch('/admin/:id',requireCidAdmin,async(req,res)=>{
 });
 module.exports=router;
 module.exports.requireCidAdmin=requireCidAdmin;
+module.exports.requireCidAdminPage=async function(req,res,next){if(!req.user)return res.redirect('/login');if(await adminUser(req))return next();return res.redirect('/cid/denied');};
