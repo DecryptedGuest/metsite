@@ -42,6 +42,28 @@ textarea,select{width:100%;border:1px solid #354353;background:#0d151e;color:#e8
 textarea{min-height:165px}textarea:focus,select:focus{outline:0;border-color:#8397ad;box-shadow:0 0 0 3px rgba(131,151,173,.12)}
 .checkline{display:flex;gap:12px;align-items:flex-start;padding:16px;border:1px solid #354353;border-radius:9px;background:#111b26;font-size:12px;line-height:1.7;color:#c4ced9}.checkline input{margin-top:3px;flex-shrink:0;width:16px;height:16px;accent-color:#c8d4e0}
 .status{font-size:12px;color:#9ba8b7;min-height:20px;margin-top:13px}.small-link{color:#e3eaf2;text-decoration:underline;text-underline-offset:3px}
+
+.ambient-controls{display:flex;align-items:center;gap:7px}
+.ambient-icon{width:36px;height:36px;border:1px solid var(--apply-line);border-radius:8px;background:#111a24;color:#cbd5df;display:grid;place-items:center;font-size:17px;cursor:pointer}
+.ambient-icon:hover,.ambient-icon[aria-pressed="true"]{background:#202d3b;border-color:#61758b;color:#fff}
+.music-panel{display:none;position:relative;margin:-18px 0 28px;padding:18px;background:#111821;border:1px solid var(--apply-line);border-radius:12px}
+.music-panel.open{display:block}
+.music-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:13px}
+.music-head strong{font-size:13px}.music-head small{display:block;color:var(--apply-muted);font-size:11px;margin-top:3px}
+.music-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.music-tile{min-width:0;border:1px solid #344252;background:#151f2a;color:#dce4ec;border-radius:9px;padding:11px 8px;text-align:left;cursor:pointer}
+.music-tile[aria-pressed="true"]{border-color:#9aafc5;background:#202e3d}
+.music-art{height:54px;border-radius:6px;margin-bottom:9px;display:grid;place-items:center;background:linear-gradient(145deg,#28394a,#111923);font-size:21px;color:#d3deea}
+.music-tile:nth-child(2) .music-art{background:linear-gradient(145deg,#35434c,#1a252d)}
+.music-tile:nth-child(3) .music-art{background:linear-gradient(145deg,#333c53,#171e2d)}
+.music-tile:nth-child(4) .music-art{background:linear-gradient(145deg,#3b4148,#1b2229)}
+.music-tile b{display:block;font-size:11px}.music-tile small{display:block;color:#929eac;font-size:10px;margin-top:3px}
+.music-player{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border-top:1px solid var(--apply-line);margin-top:14px;padding-top:13px}
+.music-player button,.local-audio{border:1px solid #3a4858;background:#182330;color:#e7edf4;border-radius:7px;padding:8px 11px;cursor:pointer;font-size:12px}
+.music-player input[type=range]{width:112px;accent-color:#c4d1df}
+.music-player label{font-size:11px;color:#9ba8b7;display:flex;align-items:center;gap:7px}
+.music-status{font-size:11px;color:#98a5b4;margin-left:auto}
+@media(max-width:540px){.music-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.music-status{width:100%;margin:0}}
 .review-answer{border:1px solid var(--apply-line);border-radius:8px;padding:12px 14px;margin:10px 0;color:#c1ccd8;font-size:12px;line-height:1.7;white-space:pre-wrap}
 @media(max-width:760px){.hero{grid-template-columns:1fr;gap:15px}.hero-side{border-left:0;border-top:1px solid var(--apply-line);padding:12px 0 0}.workspace{grid-template-columns:1fr}.rail{position:static;display:flex;align-items:center;gap:4px;overflow:auto;padding:10px}.rail-label,.rail-note{display:none}.rail-step{white-space:nowrap;padding:7px}.rail-step .num{width:21px;height:21px}.apply-wrap{padding:20px 14px 48px}.topmeta{display:none}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
@@ -49,7 +71,8 @@ textarea{min-height:165px}textarea:focus,select:focus{outline:0;border-color:#83
 </head>
 <body>
 <main class="apply-wrap">
-  <header class="topline"><div class="brand"><img src="/img/divisions/met.png" alt="MET"><div><b>METROPOLITAN POLICE SERVICE</b><small>Recruitment portal</small></div></div><div class="topmeta">Applicant workspace · Secure session</div></header>
+  <header class="topline"><div class="brand"><img src="/img/divisions/met.png" alt="MET"><div><b>METROPOLITAN POLICE SERVICE</b><small>Recruitment portal</small></div></div><div class="ambient-controls"><button class="ambient-icon" id="fullscreen-toggle" type="button" aria-label="Enter fullscreen" title="Enter fullscreen"><i class="ti ti-maximize"></i></button><button class="ambient-icon" id="music-toggle" type="button" aria-label="Open ambient music" title="Ambient music" aria-expanded="false"><i class="ti ti-music"></i></button></div></header>
+  <section class="music-panel" id="music-panel" aria-label="Ambient music player"><div class="music-head"><div><strong>Ambient audio</strong><small>Choose a soundscape or play an audio file from your device</small></div><button class="ambient-icon" id="music-close" type="button" aria-label="Close music panel"><i class="ti ti-x"></i></button></div><div class="music-tiles"><button class="music-tile" data-scene="calm" aria-pressed="false"><div class="music-art"><i class="ti ti-cloud"></i></div><b>Stillness</b><small>Soft ambient tones</small></button><button class="music-tile" data-scene="rain" aria-pressed="false"><div class="music-art"><i class="ti ti-cloud-rain"></i></div><b>Rainfall</b><small>Gentle noise texture</small></button><button class="music-tile" data-scene="night" aria-pressed="false"><div class="music-art"><i class="ti ti-moon-stars"></i></div><b>Night</b><small>Low drifting tones</small></button><button class="music-tile" data-scene="focus" aria-pressed="false"><div class="music-art"><i class="ti ti-waves"></i></div><b>Focus</b><small>Steady soft pulse</small></button></div><div class="music-player"><button id="audio-prev" type="button" title="Previous soundscape" aria-label="Previous soundscape"><i class="ti ti-player-skip-back"></i></button><button id="audio-play" type="button" title="Play" aria-label="Play"><i class="ti ti-player-play"></i></button><button id="audio-next" type="button" title="Next soundscape" aria-label="Next soundscape"><i class="ti ti-player-skip-forward"></i></button><label>Volume <input id="audio-volume" type="range" min="0" max="1" step="0.01" value="0.35"></label><label class="local-audio" for="local-audio-file"><i class="ti ti-device-audio-tape"></i> Choose device audio</label><input id="local-audio-file" type="file" accept="audio/*" hidden><span class="music-status" id="audio-status">Ready</span></div><audio id="local-audio-player" preload="none"></audio></section>
   <section class="hero"><div><div class="kicker">Recruitment / New application</div><h1>MET Application</h1><p class="intro">A clear, considered application is the first step. Confirm your eligibility, work through each question at your own pace, then review everything before sending it to the recruitment team.</p></div><aside class="hero-side"><strong>Before you start</strong>Use your linked Roblox account, answer in your own words, and make sure you can meet the initial training requirements.</aside></section>
   <div class="workspace">
     <aside class="rail"><div class="rail-label">Your progress</div><div id="apply-steps"><div class="rail-step active"><span class="num">01</span>Eligibility</div><div class="rail-step"><span class="num">02</span>Application</div><div class="rail-step"><span class="num">03</span>Review</div></div><div class="rail-note">Your answers are saved for this session while you complete the form. Do not refresh until you have submitted.</div></aside>
