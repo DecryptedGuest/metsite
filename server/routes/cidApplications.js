@@ -79,8 +79,7 @@ async function eligibility(user) {
   const constables=metRoles.filter(r=>/^(?:police\s+)?constable$/i.test(String(r.name||''))).sort((a,b)=>Number(a.rank)-Number(b.rank));
   const constable=constables[0]||null;
   if (!constable || !met.role || Number(met.role.rank)<Number(constable.rank)) reasons.push('You must be MET Constable or above.');
-  if (sco.member) reasons.push('Members of Specialist Firearms Command are not eligible.');
-  if (flp.member) reasons.push('You are already in another primary division.');
+  if (sco.member || flp.member) reasons.push('You are already in another primary division.');
   if (ia.member && hpc.member) reasons.push('You already hold two secondary divisions (IA and HPC).');
   let multi=false;
   try {
@@ -101,7 +100,7 @@ async function eligibility(user) {
     }
   }
   if (!cid.role || !/pending/i.test(String(cid.role.name||''))) reasons.push('Your CID group rank must be Pending before you submit.');
-  return { available:true, eligible:reasons.length===0, reasons, metRank:met.role && met.role.name, cidRank:cid.role && cid.role.name, divisions:{ primary:flp.member?['FLP']:[], secondary:[ia.member?'IA':null,hpc.member?'HPC':null].filter(Boolean) }, multiDivisionPermissions:multi };
+  return { available:true, eligible:reasons.length===0, reasons, metRank:met.role && met.role.name, cidRank:cid.role && cid.role.name, divisions:{ primary:[sco.member?'SCO-19':null,flp.member?'FLP':null].filter(Boolean), secondary:[ia.member?'IA':null,hpc.member?'HPC':null].filter(Boolean) }, multiDivisionPermissions:multi };
 }
 async function adminUser(req) {
   // Site developers retain full management access regardless of CID group rank.
