@@ -6,6 +6,16 @@ const CHANNEL_ID = () => process.env.IA_QUOTA_BOARD_CHANNEL_ID || '1575970681865
 const TITLE = 'INTERNAL AFFAIRS | QUOTA POINTS';
 const IA_LOGO = 'https://cdn.discordapp.com/icons/1574841102169669692/bdaf270aa78f376ce95c7a9ad6095858.webp?size=1024';
 const FOOTER = 'Metropolitan Police Service - Internal Affairs';
+let activeClient = null;
+let refreshQueued = false;
+function requestRefresh() {
+  if (!activeClient || refreshQueued) return;
+  refreshQueued = true;
+  setTimeout(async () => {
+    refreshQueued = false;
+    await refresh(activeClient);
+  }, 1500);
+}
 
 function rankOrder(rank) {
   const r = String(rank || '').toLowerCase();
@@ -163,6 +173,7 @@ async function refresh(client) {
 }
 
 function start(client) {
+  activeClient = client;
   let running = false;
   const run = async () => {
     if (running) return;
@@ -175,4 +186,4 @@ function start(client) {
   console.log(`[IA Quota Board] updates enabled in channel ${CHANNEL_ID()}`);
 }
 
-module.exports = { start, refresh, buildEmbed, rankOrder, verifiedIaMembers };
+module.exports = { start, refresh, requestRefresh, buildEmbed, rankOrder, verifiedIaMembers };
