@@ -414,6 +414,12 @@ const EMOJI = [
     svg: `<path d="M64 22 a42 42 0 1 0 42 42" fill="none" stroke="${C.green}" stroke-width="13" stroke-linecap="round"/>`
        + `<path d="M64 4 L64 40 L94 22 Z" fill="${C.green}"/>` },
 
+  // ── IA case-log identity marks ──────────────────────────────────
+  { name: 'ia_roblox_white', fallback: 'R', desc: 'Roblox identity mark',
+    svg: `<path d="M24 18 L108 34 L92 110 L8 94 Z" fill="#ffffff"/><path d="M48 48 L76 54 L70 82 L42 76 Z" fill="#111111"/>` },
+  { name: 'ia_discord_white', fallback: 'D', desc: 'Discord identity mark',
+    svg: `<path d="M36 26 Q64 14 92 26 Q108 48 110 82 Q92 102 76 104 L70 94 Q82 90 88 84 Q64 96 40 84 Q46 90 58 94 L52 104 Q36 102 18 82 Q20 48 36 26 Z" fill="#ffffff"/><path d="M46 62 a6 8 0 1 0 0 1 M78 62 a6 8 0 1 0 0 1" fill="none" stroke="#111111" stroke-width="8" stroke-linecap="round"/>` },
+
   // ── Site-only (seasonal effects) ────────────────────────────────
   { name: 'met_pumpkin', fallback: '🎃', discord: false, desc: 'halloween',
     svg: `<ellipse cx="64" cy="76" rx="52" ry="44" fill="#ff7a1a"/>`
