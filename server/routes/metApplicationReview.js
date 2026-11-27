@@ -29,13 +29,13 @@ router.get('/:id', async (req, res) => {
     const repeated = [];
     for (let i = 0; i < textAnswers.length; i++) {
       for (let j = i + 1; j < textAnswers.length; j++) {
-        const a = textAnswers[i].toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\\s+/).filter(Boolean);
-        const b = new Set(textAnswers[j].toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\\s+/).filter(Boolean));
+        const a = textAnswers[i].toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+        const b = new Set(textAnswers[j].toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
         const overlap = a.filter(w => w.length > 4 && b.has(w));
         if (a.length && overlap.length / a.length > 0.65) repeated.push({ answers: [i + 1, j + 1], overlap: Math.round(overlap.length / a.length * 100) });
       }
     }
-    const words = allText.trim() ? allText.trim().split(/\\s+/).length : 0;
+    const words = allText.trim() ? allText.trim().split(/\s+/).length : 0;
     res.json({ ...row, reviewSignals: { wordCount: words, repeatedAnswerPatterns: repeated, note: 'These are review prompts only. They are not AI-detection results and must never be treated as proof of AI use or misconduct.' } });
   } catch (e) {
     res.status(500).json({ error: 'Could not load application.' });
