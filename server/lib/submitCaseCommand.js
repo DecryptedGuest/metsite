@@ -264,14 +264,16 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const loading = startLoading(interaction, 'Validating case submission');
   const auth = await resolveAuthority(interaction);
   const view = canView(auth);
-  if (!view.allowed) return interaction.editReply(`${e('met_denied')} ${view.reason}`);
-  if (!auth.userId) return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`);
+  if (!view.allowed) { loading.stop(); return interaction.editReply(`${e('met_denied')} ${view.reason}`); }
+  if (!auth.userId) { loading.stop(); return interaction.editReply(`${e('met_warn')} Sign in to the MET Dashboard once with Discord before filing a case.`); }
 
+  loading.update('Re-verifying the officer Roblox account');
   const targetInfo = await roblox.getRobloxUserInfo(robloxId).catch(() => null);
   const robloxUsername = targetInfo && (targetInfo.name || targetInfo.username);
-  if (!robloxUsername) return interaction.editReply(`${e('met_denied')} The officer's Roblox account could not be re-verified. Please start /case again.`);
+  if (!robloxUsername) { loading.stop(); return interaction.editReply(`${e('met_denied')} The officer's Roblox account could not be re-verified. Please start /case again.`); }
   const linked = await prisma.user.findFirst({
     where: { robloxId: String(robloxId) },
     select: { discordId: true },
@@ -280,6 +282,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
     where: { id: auth.userId },
     select: { robloxUsername: true, discordUsername: true, iaRankName: true, iaRank: true },
   }).catch(() => null);
+  loading.update('Preparing punishment records');
   const enriched = actions.map(action => ({
     action,
     roleId: roleIdForAction(action),
@@ -307,6 +310,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
       },
     });
   } catch (err) {
+    loading.stop();
     console.error('[IA] case create failed:', err.message);
     return interaction.editReply(`${e('met_cross')} Could not file the case. No review card was posted; check the MET database connection.`);
   }
@@ -315,6 +319,7 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
     data: { caseId: created.id, actionType: 'CREATED', performedBy: auth.userId, notes: 'Submitted via private /case builder' },
   }).catch(err => console.warn('[IA] case action audit failed:', err.message));
 
+  loading.update('Creating the IA review post');
   let messageId = null;
   try {
     const filer = interaction.member || interaction.user;
@@ -328,8 +333,10 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
   const needsAdir = enriched.some(item => HICOMM_ONLY_ACTIONS.includes(item.action));
   const gate = needsAdir ? 'Assistant Director and above' : 'Supervisor and above';
   if (!messageId) {
+    loading.stop();
     return interaction.editReply(`${e('met_warn')} Case **${created.caseRef}** was recorded, but its review card could not be posted. It remains on the dashboard for review.`);
   }
+  loading.stop();
   return interaction.editReply({
     content: `${e('met_tick')} Case **${created.caseRef}** has been submitted for review. ${gate} may decide this case.`,
     embeds: [new EmbedBuilder().setColor(COLOUR).setTitle(`IA CASE  ${created.caseRef}`)
