@@ -1,8 +1,5 @@
 // client/public/js/hpc-dashboard.js — HPC: final-exam marking + quota
 let hpcCtx = { canMark: false, canQuota: false };
-let hpcPaper = null;
-let hpcCurrent = null; // submission being marked
-let hpcFilter = 'PENDING';
 
 function navigateTo(pageId) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -50,23 +47,6 @@ function statCard(v, l, c) { return `<div style="padding:14px 16px;border-radius
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-const SEV_COLOR = { high: 'var(--red)', medium: 'var(--amber)', low: 'var(--text-muted)' };
-
-// Turn any internal question id in flag text (e.g. "revolver") into the
-// marker-facing question number (Q9), using the loaded paper's question order.
-// Handles both the quoted form ("revolver") and a bare id. Safe no-op when the
-// text already uses question numbers.
-function qNumberize(text) {
-  if (!text || !hpcPaper || !Array.isArray(hpcPaper.questions)) return text || '';
-  let out = String(text);
-  hpcPaper.questions.forEach((q, i) => {
-    const label = 'Q' + (i + 1);
-    out = out.split('"' + q.id + '"').join(label);
-    out = out.replace(new RegExp('\\b' + q.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), label);
-  });
-  return out;
-}
-
 async function initHpc() {
   try { hpcCtx = await api('/api/hpc/context'); } catch (e) { hpcCtx = { canMark: false, canQuota: false, canApprove: false }; }
   if (hpcCtx.canMark) document.querySelectorAll('.marker-only').forEach(el => el.style.display = '');
