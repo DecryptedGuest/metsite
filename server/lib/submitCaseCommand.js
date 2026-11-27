@@ -199,7 +199,7 @@ async function handleComponent(interaction) {
   }
   if (action === 'pick') {
     const robloxId = parts[3];
-    const selected = (interaction.values || []).map(String).filter(v => /^\\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
+    const selected = (interaction.values || []).map(String).filter(v => /^\d+$/.test(v)).map(v => ACTION_NAMES[Number(v)]).filter(Boolean);
     const current = interaction.message.embeds && interaction.message.embeds[0];
     if (!current) return interaction.reply({ content: 'This case panel expired. Start /case again.', flags: MessageFlags.Ephemeral });
     const embed = EmbedBuilder.from(current);
