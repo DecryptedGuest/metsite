@@ -1286,7 +1286,7 @@ async function awardTicketQuota(ticket) {
   }
   const discordId = (closer && closer.discordId) || ticket.closerDiscordId || null;
   if (!discordId) return false;
-  const { enqueueQuotaAward, ticketPointsFor } = require('./quota');
+  const { enqueueQuotaAward } = require('./quota');
   await enqueueQuotaAward({
     refType: 'ticket',
     refId: ticket.id,
