@@ -50,7 +50,7 @@ function buildCaseEmbed(data) {
   const {
     caseRef, action, actions, reason, notes, officerDiscordId, officerName,
     userDiscordId, targetDiscordId, targetName, suspectName, suspectAvatar,
-    timestamp, appealed, signedBy,
+    timestamp, appealed, signedBy, forumUrl,
   } = data || {};
   const hrId = data.hrDiscordId || officerDiscordId;
   const userId = userDiscordId || targetDiscordId || data.suspectDiscordId;
@@ -59,10 +59,12 @@ function buildCaseEmbed(data) {
     return text.length > 1024 ? text.slice(0, 1021) + '…' : (text || 'N/A');
   };
   const userValue = userId ? `<@${userId}>` : (targetName || suspectName || officerName || '*Unknown*');
-  const caseUrl = String(data.caseLink || data.docUrl || '');
+  // The disciplinary channel must link to the IA forum discussion, never the
+  // classified case document/evidence URL stored in caseLink.
+  const caseUrl = String(forumUrl || '');
   const caseValue = caseUrl.startsWith('https://') || caseUrl.startsWith('http://')
-    ? `[Open case / evidence](${caseUrl})`
-    : (caseRef ? `Case ${caseRef}` : 'N/A');
+    ? `[Open IA forum case](${caseUrl})`
+    : (caseRef ? `Case ${caseRef} · forum link unavailable` : 'N/A');
   const embed = {
     color: 0x24364b,
     title: `<:IA:1552764629204205619> Administrative Action · ${caseRef || 'Record'}`,
