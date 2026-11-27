@@ -131,8 +131,8 @@ function integrityFlags(answers, telemetry) {
   if(telemetry && Number(telemetry.pasteCount)>0) flags.push({severity:'info',code:'PASTE_ACTIVITY',label:'Paste activity recorded',detail:String(Number(telemetry.pasteCount))+' paste event(s) recorded. Pasting is not proof of AI use.'});
   let similar=false;
   for(let i=0;i<normalized.length;i++) for(let j=i+1;j<normalized.length;j++) {
-    const a=new Set(normalized[i].text.split(/\\W+/).filter(w=>w.length>3));
-    const b=new Set(normalized[j].text.split(/\\W+/).filter(w=>w.length>3));
+    const a=new Set(normalized[i].text.split(/\W+/).filter(w=>w.length>3));
+    const b=new Set(normalized[j].text.split(/\W+/).filter(w=>w.length>3));
     if(a.size<12 || b.size<12) continue;
     const union=new Set([...a,...b]);
     const overlap=[...a].filter(w=>b.has(w)).length/Math.max(1,union.size);
