@@ -138,7 +138,7 @@ router.post('/submit', async (req, res) => {
         footer: 'Metropolitan Police Service · Recruitment',
       });
     } catch (e) { console.warn('[MET application] receipt DM unavailable:', e.message); }
-    res.status(201).json({ ok: true, appRef: row.appRef, submittedAt: row.submittedAt });
+    res.status(201).json({ ok: true, dmSent, appRef: row.appRef, submittedAt: row.submittedAt });
   } catch (e) {
     console.error('[MET application] submit error:', e.message);
     res.status(500).json({ error: 'Could not submit your application.' });
