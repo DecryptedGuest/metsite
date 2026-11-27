@@ -65,7 +65,7 @@ function buildCaseEmbed(data) {
     : (caseRef ? `Case ${caseRef}` : 'N/A');
   const embed = {
     color: 0x24364b,
-    title: `Administrative Action · ${caseRef || 'Record'}`,
+    title: `<:IA:1552764629204205619> Administrative Action · ${caseRef || 'Record'}`,
     author: signatureFor(signedBy),
     fields: [
       { name: 'HR', value: cap(hrId ? `<@${hrId}>` : officerName), inline: true },
