@@ -59,8 +59,10 @@ function buildCaseEmbed(data) {
     return text.length > 1024 ? text.slice(0, 1021) + '…' : (text || 'N/A');
   };
   const userValue = userId ? `<@${userId}>` : (targetName || suspectName || officerName || '*Unknown*');
-  const caseValue = /^https?:\\/\\//i.test(String(data.caseLink || data.docUrl || ''))
-    ? `[Open case / evidence](${data.caseLink || data.docUrl})`
+  const caseUrl = String(data.caseLink || data.docUrl || '');
+  const caseValue = caseUrl.startsWith('https://') || caseUrl.startsWith('http://')
+    ? `[Open case / evidence](${caseUrl})`
+    : (caseRef ? `Case ${caseRef}` : 'N/A');
     : (caseRef ? `Case ${caseRef}` : 'N/A');
   const embed = {
     color: 0x24364b,
