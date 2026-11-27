@@ -1411,7 +1411,15 @@ function sendPage(res, file, division) {
 // (per-user access resolved client-side via /api/me + /api/me/divisions)
 // once authenticated. requireAuth's `res.redirect('/login')` lands here too.
 app.get('/',      recordVisit, (req, res) => sendPage(res, path.join(views, 'index.html')));
-app.get('/login',                (req, res) => res.redirect('/' + req.url.replace(/^\/login/, '')));
+app.get('/login', maybeAuth, (req, res) => {
+  if (req.user && !req.user.isBlacklisted && !req.user.mustReauth) {
+    const mine = Array.isArray(req.user.divisions) ? req.user.divisions : [];
+    const preferred = mine.find(d => d && d.division === 'IA') || mine[0];
+    if (preferred && preferred.slug) return res.redirect(`/${preferred.slug}/dashboard`);
+    return res.redirect('/profile');
+  }
+  return res.redirect('/' + req.url.replace(/^\/login/, ''));
+});
 app.get('/denied', recordVisit, (req, res) => sendPage(res, path.join(views, 'access-denied.html')));
 
 // Public one-click opt-out / opt-in for the IA ticket DMs. Reached from the
