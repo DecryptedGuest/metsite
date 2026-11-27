@@ -334,32 +334,7 @@ async function loadProfile() {
     permsPanel.style.display = 'none';
   }
 
-  // ── Punishment history ──
-  // No "Issued By" column. Who disciplined somebody is Internal Affairs'
-  // business; this page belongs to the person it was done to.
-  const pun = document.getElementById('p-punishments');
-  window.myPunishments = data.punishments || [];
-  if (data.punishments && data.punishments.length) {
-    pun.innerHTML = data.punishments.map((p, idx) => `<tr onclick="openPunishment(${idx})" style="cursor:pointer;" title="See the full details">
-      <td>${chip(p.type, punishmentColor(p.type))}${p.caseRef ? ` <span style="color:var(--text-muted);font-size:10px;">${escHtml(p.caseRef)}</span>` : ''}</td>
-      <td>${escHtml((p.reason || '·').slice(0, 80))}${(p.reason || '').length > 80 ? '…' : ''}</td>
-      <td>${punishmentStatusBadge(p)}</td>
-      <td>${p.expiresAt ? formatDate(p.expiresAt) : (p.active ? '<span style="color:var(--text-muted);">Permanent</span>' : '·')}</td>
-      <td>${formatDate(p.issuedAt)}</td>
-      <td style="text-align:right;color:var(--text-muted);"><i class="ti ti-chevron-right"></i></td>
-    </tr>`).join('');
-  } else {
-    pun.innerHTML = window.metEmpty
-      ? `<tr><td colspan="6">${window.metEmpty({ icon: 'ti-shield-check', title: 'No punishments on record', sub: 'Your record is clean.' })}</td></tr>`
-      : `<tr><td colspan="6" class="table-empty"><div class="table-empty-text">No punishments on record.</div></td></tr>`;
-  }
 
-  // A DM's "View my full record" button links straight to one entry.
-  const want = new URLSearchParams(location.search).get('record');
-  if (want) {
-    const at = (data.punishments || []).findIndex(p => p.id === want || p.caseRef === want);
-    if (at >= 0) setTimeout(function () { openPunishment(at); }, 250);
-  }
 }
 
 // ── MET XP ───────────────────────────────────────────────────────
