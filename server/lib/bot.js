@@ -779,6 +779,7 @@ async function listRegisteredCommands() {
 
 // Handle the import slash command (restricted to the developer user)
 async function onInteraction(interaction) {
+  require('./discordResponses').installEmbedResponses(interaction);
   // Autocomplete (the /promote rank picker). Answered separately from the
   // command itself · it only ever suggests, it never runs anything.
   if (interaction.isAutocomplete && interaction.isAutocomplete()) {
