@@ -187,8 +187,14 @@ function metInjectHomeLink() {
     const ref = document.referrer;
     let sameSiteReferrer = false;
     try { sameSiteReferrer = !!ref && new URL(ref).origin === location.origin; } catch (e) {}
-    if (sameSiteReferrer && history.length > 1) history.back();
-    else location.assign('/profile');
+    const state = history.state || {};
+    if (state.metDivisionTab && state.tabEntry) {
+      history.back();
+    } else if (sameSiteReferrer && history.length > 1) {
+      history.back();
+    } else {
+      location.assign('/profile');
+    }
   });
   nav.insertBefore(back, nav.firstChild);
 }
@@ -200,12 +206,13 @@ function metInitSidebarHistory() {
   const marker = 'metDivisionTab';
   const active = nav.querySelector('.nav-item[data-page].active');
   const initialPage = active ? active.dataset.page : 'dashboard';
-  history.replaceState({ ...(history.state || {}), [marker]: true, page: initialPage }, '', location.href);
+  history.replaceState({ ...(history.state || {}), [marker]: true, page: initialPage, tabEntry: false }, '', location.href);
   let restoring = false;
   nav.addEventListener('click', (event) => {
     const button = event.target.closest('.nav-item[data-page]');
     if (!button || restoring) return;
-    history.pushState({ ...(history.state || {}), [marker]: true, page: button.dataset.page }, '', location.href);
+    if (history.state && history.state[marker] && history.state.page === button.dataset.page) return;
+    history.pushState({ ...(history.state || {}), [marker]: true, page: button.dataset.page, tabEntry: true }, '', location.href);
   }, true);
   window.addEventListener('popstate', (event) => {
     const state = event.state;
@@ -462,19 +469,6 @@ async function initMetTopbar(currentDivision) {
       const allHrefs = GROUPS.reduce((a, g) => a.concat(g.items.reduce((b, it) => b.concat(it.match || [it.href]), [])), []);
       if (allHrefs.indexOf(HERE) >= 0) markHere(pBtn);
 
-      // Dashboard "home" button — a persistent, obvious way back to your own
-      // dashboard from anywhere. Kept as the leftmost top-level control (not buried
-      // in the Menu) and highlighted when you're already on it.
-      if (!document.getElementById('met-dash-btn')) {
-        const dBtn = document.createElement('a');
-        dBtn.id = 'met-dash-btn';
-        dBtn.href = '/dashboard';
-        dBtn.className = 'btn btn-ghost btn-sm';
-        dBtn.title = 'Go to your dashboard';
-        dBtn.innerHTML = '<i class="ti ti-home"></i> Dashboard';
-        right.insertBefore(dBtn, right.firstChild);
-        if (HERE === '/dashboard' || HERE === '/profile') markHere(dBtn);
-      }
     }
   } catch (e) { /* cosmetic */ }
 
