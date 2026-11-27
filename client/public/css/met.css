@@ -291,3 +291,12 @@ body:has(.login-wrap) .bg-canvas { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Profile account rail — same structure as the rest of the application. */
+.profile-sidebar .sidebar-brand { color: var(--nav-text) !important; text-decoration: none !important; }
+.profile-sidebar-account { padding: 10px 16px 4px; }
+.profile-sidebar-account-label { display: block; margin-bottom: 7px; color: var(--ink-muted); font-size: 11px; }
+.profile-sidebar-signout { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 0; color: var(--nav-muted); background: transparent; border: 0; font-size: 13px; cursor: pointer; }
+.profile-sidebar-signout:hover { color: var(--nav-text); }
+.profile-main { min-height: 100vh; }
+.profile-main .profile-wrap { margin-top: 26px !important; }
