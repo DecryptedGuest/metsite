@@ -28,8 +28,9 @@ function buildNoticeEmbed(c, { forDm }) {
     .filter(a => a.durationDays)
     .map(a => `${a.durationDays} day${a.durationDays === 1 ? '' : 's'}`)
     .join(', ') || 'N/A';
-  const caseValue = /^https?:\\/\\//i.test(String(c.caseLink || ''))
-    ? `[Open case / evidence](${c.caseLink})`
+  const caseUrl = String(c.caseLink || '');
+  const caseValue = caseUrl.startsWith('https://') || caseUrl.startsWith('http://')
+    ? `[Open case / evidence](${caseUrl})`
     : (c.caseRef || 'N/A');
   const embed = new EmbedBuilder()
     .setColor(0x24364b)
