@@ -30,11 +30,12 @@ async function syncCaseForumPost(kase, actor) {
     const client = require('./bot').getClient();
     if (!client) return;
     const cards = require('./iaReviewCards');
+    const { suspectAvatar } = await resolveCaseAvatars(null, kase);
     await cards.finaliseCard(
       client,
       cards.casesChannelId(),
       kase.cardMessageId,
-      cards.caseCard(kase, { decidedBy: actor }),
+      cards.caseCard(kase, { decidedBy: actor, subjectAvatar: suspectAvatar }),
     );
   } catch (err) {
     console.warn('[IA] case forum post sync failed:', err.message);
