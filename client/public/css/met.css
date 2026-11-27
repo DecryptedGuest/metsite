@@ -279,7 +279,7 @@ input:focus,select:focus,textarea:focus,.form-control:focus { border-color:var(-
  --purple:var(--accent); --purple-dim:var(--accent-wash);
  --discord:var(--nav); --discord-dim:var(--surface-alt); --discord-border:var(--line);
  --radius-sm:var(--r-xs); --radius-md:var(--r-sm); --radius-lg:var(--r-md); --radius-xl:var(--r-lg);
- --font-display:var(--font-display); --font-body:var(--font-ui); --font-mono:var(--font-data);
+ --font-body:var(--font-ui); --font-mono:var(--font-data);
  --border:var(--line); --panel:var(--surface); --surface-1:var(--surface); --hover:var(--surface-hover);
 }
 :root[data-theme="dark"] {
@@ -293,7 +293,7 @@ input:focus,select:focus,textarea:focus,.form-control:focus { border-color:var(-
  --purple:var(--accent); --purple-dim:var(--accent-wash);
  --discord:var(--nav); --discord-dim:var(--surface-alt); --discord-border:var(--line);
  --radius-sm:var(--r-xs); --radius-md:var(--r-sm); --radius-lg:var(--r-md); --radius-xl:var(--r-lg);
- --font-display:var(--font-display); --font-body:var(--font-ui); --font-mono:var(--font-data);
+ --font-body:var(--font-ui); --font-mono:var(--font-data);
  --border:var(--line); --panel:var(--surface); --surface-1:var(--surface); --hover:var(--surface-hover);
 }
 .panel-dot,.badge-dot,.status-dot,.green-dot,.pulse-dot,.nav-dot,.online-dot,.live-dot,.dot-green,.status-indicator,.online-indicator,.live-indicator { display:none !important; }
