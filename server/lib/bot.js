@@ -810,7 +810,7 @@ async function onInteraction(interaction) {
           const msg = { content: 'The case builder could not complete that step. Please start /case again.', embeds: [], components: [] };
           await (interaction.deferred || interaction.replied
             ? interaction.editReply(msg)
-            : interaction.reply({ ...msg, flags: MessageFlags.Ephemeral })).catch(() => {});
+            : interaction.reply({ ...msg, flags: 64 })).catch(() => {});
         });
     }
     if (cid.startsWith('atr_')) {
