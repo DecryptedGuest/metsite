@@ -794,10 +794,6 @@ async function onInteraction(interaction) {
       return require('./demoteCommand').handleDemoteAutocomplete(interaction)
         .catch(e => console.error('[Bot] demote autocomplete error:', e.message));
     }
-    if (interaction.commandName === 'case') {
-      return require('./submitCaseCommand').handleAutocomplete(interaction)
-        .catch(e => console.error('[Bot] submit-case autocomplete error:', e.message));
-    }
     return;
   }
 
@@ -807,6 +803,16 @@ async function onInteraction(interaction) {
       || (interaction.isStringSelectMenu && interaction.isStringSelectMenu())
       || (interaction.isModalSubmit && interaction.isModalSubmit())) {
     const cid = interaction.customId || '';
+    if (cid.startsWith('casebuilder:')) {
+      return require('./submitCaseCommand').handleComponent(interaction)
+        .catch(async err => {
+          console.error('[Bot] IA case builder component error:', err.message);
+          const msg = { content: 'The case builder could not complete that step. Please start /case again.', embeds: [], components: [] };
+          await (interaction.deferred || interaction.replied
+            ? interaction.editReply(msg)
+            : interaction.reply({ ...msg, flags: MessageFlags.Ephemeral })).catch(() => {});
+        });
+    }
     if (cid.startsWith('atr_')) {
       return require('./automatedTryout').handleButton(interaction)
         .catch(e => console.error('[Bot] automated tryout button error:', e.message));
