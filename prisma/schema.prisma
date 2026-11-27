@@ -162,6 +162,7 @@ model Case {
   investigatorRobloxId        String?
   investigatorRobloxUsername  String?
   investigatorDiscordUsername String?
+  investigatorRank            String?
   suspectRobloxDisplayName    String?
   punishmentsSummary          String?
   logMessageId                String?
