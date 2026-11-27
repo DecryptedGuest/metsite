@@ -244,6 +244,10 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
     where: { robloxId: String(robloxId) },
     select: { discordId: true },
   }).catch(() => null);
+  const investigator = await prisma.user.findUnique({
+    where: { id: auth.userId },
+    select: { robloxUsername: true, discordUsername: true },
+  }).catch(() => null);
   const enriched = actions.map(action => ({
     action,
     roleId: roleIdForAction(action),
@@ -264,7 +268,8 @@ async function handleFormSubmit(interaction, ownerId, robloxId, indexes) {
         reason,
         notes: notes || 'N/A',
         caseLink,
-        investigatorDiscordUsername: interaction.user.username,
+        investigatorRobloxUsername: investigator?.robloxUsername || null,
+        investigatorDiscordUsername: investigator?.discordUsername || interaction.user.username,
         status: 'PENDING',
       },
     });
