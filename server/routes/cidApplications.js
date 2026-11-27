@@ -80,16 +80,25 @@ async function eligibility(user) {
   const constable=constables[0]||null;
   if (!constable || !met.role || Number(met.role.rank)<Number(constable.rank)) reasons.push('You must be MET Constable or above.');
   if (sco.member) reasons.push('Members of Specialist Firearms Command are not eligible.');
-  if (flp.member) reasons.push('Members of a primary division are not eligible for CID applications.');
-  if (ia.member && hpc.member) reasons.push('You cannot hold two secondary divisions (IA and HPC) while applying.');
+  if (flp.member) reasons.push('You are already in another primary division.');
+  if (ia.member && hpc.member) reasons.push('You already hold two secondary divisions (IA and HPC).');
   let multi=false;
   try {
-    const perms=await require('../lib/permsGroup').resolveUserPerms(String(user.robloxId));
-    multi=perms.some(p=>String(p.key)==='773235023' || /multi division perms/i.test(String(p.label||'')));
+    const permsGroup=require('../lib/permsGroup');
+    const [robloxPerms] = await Promise.all([
+      permsGroup.resolveUserPerms(String(user.robloxId)).catch(()=>[]),
+    ]);
+    const discordPerms=permsGroup.permsFromMetRoles(user.metRoleIds || []);
+    multi=[...(robloxPerms || []), ...(discordPerms || [])].some(p =>
+      String(p.key)==='773235023' ||
+      String(p.key).toLowerCase()==='multidiv' ||
+      /multi[ -]divisional? perms/i.test(String(p.label||''))
+    );
   } catch(e) {}
-  if ((flp.member || (ia.member && hpc.member)) && multi) {
-    const i=reasons.findIndex(x=>/primary division|two secondary divisions/.test(x));
-    if(i>=0) reasons.splice(i,1);
+  if (multi) {
+    for (let i=reasons.length-1;i>=0;i--) {
+      if (/primary division|two secondary divisions/.test(reasons[i])) reasons.splice(i,1);
+    }
   }
   if (!cid.role || !/pending/i.test(String(cid.role.name||''))) reasons.push('Your CID group rank must be Pending before you submit.');
   return { available:true, eligible:reasons.length===0, reasons, metRank:met.role && met.role.name, cidRank:cid.role && cid.role.name, divisions:{ primary:flp.member?['FLP']:[], secondary:[ia.member?'IA':null,hpc.member?'HPC':null].filter(Boolean) }, multiDivisionPermissions:multi };
