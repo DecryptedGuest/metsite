@@ -808,7 +808,7 @@ async function onInteraction(interaction) {
       || (interaction.isModalSubmit && interaction.isModalSubmit())) {
     const cid = interaction.customId || '';
     if (cid.startsWith('casebuilder:')) {
-      return require('./submitCaseCommand').handleComponent(interaction)
+      return Promise.resolve(require('./submitCaseCommand').handleComponent(interaction))
         .catch(async err => {
           console.error('[Bot] IA case builder component error:', err.message);
           const msg = { content: 'The case builder could not complete that step. Please start /case again.', embeds: [], components: [] };
@@ -908,8 +908,17 @@ async function onInteraction(interaction) {
   }
 
   if (interaction.commandName === 'case') {
-    return require('./submitCaseCommand').handleSubmitCase(interaction)
-      .catch(e => console.error('[Bot] /case error:', e.message));
+    return Promise.resolve(require('./submitCaseCommand').handleSubmitCase(interaction))
+      .catch(async err => {
+        console.error('[Bot] /case error:', err && err.stack || err);
+        const msg = { content: 'The case submission could not be completed. Please try again. If a case number was already issued, check the IA case queue before submitting again.', embeds: [], components: [] };
+        try {
+          if (interaction.deferred || interaction.replied) await interaction.editReply(msg);
+          else await interaction.reply({ ...msg, flags: 64 });
+        } catch (replyError) {
+          console.error('[Bot] could not report /case failure:', replyError && replyError.message);
+        }
+      });
   }
 
   if (interaction.commandName === 'undo') {
