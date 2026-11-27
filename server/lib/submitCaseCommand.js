@@ -64,8 +64,10 @@ function panelEmbed(profile, selected) {
       { name: 'ACCOUNT STATUS', value: profile.banned ? 'Banned on Roblox' : 'Not marked as banned', inline: true },
       { name: 'ACCOUNT CREATED', value: created, inline: true },
       { name: 'LINKED DISCORD', value: linked, inline: true },
+      { name: 'MET DISCORD ROLES', value: profile.discord && profile.discord.roles.length ? profile.discord.roles.join(', ').slice(0, 1024) : 'No Discord role data available', inline: true },
       { name: 'MET GROUP RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}** · Rank ${profile.metGroup.rank}` : 'Not in MET group / unavailable', inline: true },
-      { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** · Rank ${profile.iaRank}` : 'No IA rank on dashboard record', inline: true },
+      { name: 'IA DASHBOARD ACCESS', value: profile.dashboardRole || 'No IA dashboard role recorded', inline: true },
+      { name: 'IA ROBLOX RANK', value: profile.iaRankName ? `**${profile.iaRankName}** · Rank ${profile.iaRank}` : 'No IA rank on dashboard record', inline: true },
       { name: 'OTHER GROUPS', value: profile.divisions.length ? profile.divisions.map(g => `• ${g.group.name}: **${g.role.name}** (Rank ${g.role.rank})`).join('\n').slice(0, 1024) : 'No other group memberships found', inline: false },
       { name: 'PUNISHMENTS SELECTED', value: selected.length ? selected.map(a => `• **${a}** — ${ACTION_META[a]}`).join('\n').slice(0, 1024) : '*Choose one or more below*' },
       { name: 'CASE NUMBER', value: 'Assigned automatically on submission', inline: true },
@@ -160,7 +162,7 @@ async function handleSubmitCase(interaction) {
     const met = groups.find(g => String(g.group.id) === mainGroupId) || null;
     let discord = null;
     if (linked && linked.discordId) {
-      discord = { id: String(linked.discordId), username: linked.discordUsername || 'Linked Discord account', avatar: linked.discordAvatar ? `https://cdn.discordapp.com/avatars/${linked.discordId}/${linked.discordAvatar}.png?size=128` : null };
+      discord = { id: String(linked.discordId), username: linked.discordUsername || 'Linked Discord account', avatar: linked.discordAvatar ? `https://cdn.discordapp.com/avatars/${linked.discordId}/${linked.discordAvatar}.png?size=128` : null, roles: [] };
       const guildId = process.env.MET_GUILD_ID || '1191048287315304470';
       const guild = interaction.client.guilds.cache.get(guildId) || await interaction.client.guilds.fetch(guildId).catch(() => null);
       if (guild) {
@@ -169,6 +171,7 @@ async function handleSubmitCase(interaction) {
           discord.username = member.user.tag || member.user.username;
           discord.avatar = member.user.displayAvatarURL({ size: 128 });
           discord.inMetServer = true;
+          discord.roles = member.roles.cache.filter(role => role.id !== guildId).sort((a, b) => b.position - a.position).map(role => role.name).slice(0, 12);
         } else discord.inMetServer = false;
       }
     }
@@ -178,7 +181,7 @@ async function handleSubmitCase(interaction) {
       banned: !!info.banned, avatar: await roblox.getRobloxAvatarHeadshot(target.id).catch(() => null),
       divisions: groups.filter(g => String(g.group.id) !== mainGroupId).slice(0, 8),
       metGroup: met ? { roleName: met.role.name, rank: met.role.rank } : null,
-      discord, iaRankName: linked && linked.iaRankName, iaRank: linked && linked.iaRank,
+      discord, dashboardRole: linked && linked.role, iaRankName: linked && linked.iaRankName, iaRank: linked && linked.iaRank,
     };
     return interaction.editReply({ content: null, embeds: [panelEmbed(profile, [])], components: panelComponents(interaction.user.id, profile.robloxId, []) });
   } catch (err) {
