@@ -93,6 +93,17 @@ async function resolveAuthority(interaction) {
     } catch (e) { /* keep whatever the account gave us */ }
   }
 
+  // This explicit IA role grants Supervisor-level review access. It does not
+  // grant Assistant Director authority; that still comes from the IA rank.
+  const reviewRoleId = process.env.IA_REVIEW_ROLE_ID || '1574841102169669693';
+  if (memberRoles.includes(String(reviewRoleId))) {
+    if (!role || role === 'IA') role = 'SUPERVISOR';
+    if (rank == null || rank < 20) {
+      rank = 20;
+      rankName = 'Supervisor';
+    }
+  }
+
   if (!role || !VIEW_ROLES.includes(role)) {
     return blank(discordId, 'This is for Internal Affairs. If you have just joined IA, log into the MET Dashboard once so your rank is picked up.');
   }
@@ -132,6 +143,16 @@ function blank(discordId, why) {
 function isReviewer(auth) { return !!auth && REVIEW_ROLES.includes(auth.role); }
 function isHicomm(auth)   { return !!auth && HICOMM_ROLES.includes(auth.role); }
 
+function isAssistantDirectorPlus(auth) {
+  if (!auth) return false;
+  if (HICOMM_ROLES.includes(auth.role)) return true;
+  const rank = Number(auth.rank);
+  const minimum = parseInt(process.env.IA_ADIR_MIN_RANK || '30', 10);
+  if (Number.isFinite(rank) && rank >= (Number.isFinite(minimum) ? minimum : 30)) return true;
+  return /assistant\\s*director|deputy\\s*director|\\bdirector\\b|administration|hicom|overseer|owner|holder/i
+    .test(String(auth.rankName || ''));
+}
+
 /** Reading cases and tickets: any IA member. */
 function canView(auth) {
   if (!auth || !auth.ok) return { allowed: false, reason: (auth && auth.why) || 'Not authorised.' };
@@ -157,8 +178,8 @@ function canDecideCase(auth, kase) {
   if (!isReviewer(auth)) {
     return { allowed: false, reason: 'Approving and denying is for Supervisor and above.' };
   }
-  if (auth.role === 'SUPERVISOR' && caseHasHicommOnlyPunishment(kase)) {
-    return { allowed: false, reason: 'This case carries a Termination or Blacklist · only Deputy Director and above can decide it.' };
+  if (caseHasHicommOnlyPunishment(kase) && !isAssistantDirectorPlus(auth)) {
+    return { allowed: false, reason: 'This case carries a Termination or Blacklist · only Assistant Director and above can decide it.' };
   }
   if (!auth.linked) {
     return { allowed: false, reason: 'Log into the MET Dashboard once first · a decision is recorded against your account, and you do not have one yet.' };
@@ -232,7 +253,7 @@ function capabilitySummary(auth) {
     yes.push('Approve and deny cases and tickets');
     yes.push('Request changes on a case');
     if (isHicomm(auth)) yes.push(`Decide cases carrying a ${HICOMM_ONLY_ACTIONS.join(' or ')}`);
-    else no.push(`Decide cases carrying a ${HICOMM_ONLY_ACTIONS.join(' or ')} (Deputy Director and above)`);
+    else no.push(`Decide cases carrying a ${HICOMM_ONLY_ACTIONS.join(' or ')} (Assistant Director and above)`);
   } else {
     no.push('Approve, deny or request changes (Supervisor and above)');
   }
@@ -242,7 +263,7 @@ function capabilitySummary(auth) {
 
 module.exports = {
   resolveAuthority, capabilitySummary,
-  isReviewer, isHicomm,
+  isReviewer, isHicomm, isAssistantDirectorPlus,
   canView, canDecideCase, canRequestChanges, canReviewTicket, canAppeal,
   VIEW_ROLES, REVIEW_ROLES, HICOMM_ROLES, ROLE_LABEL,
 };
