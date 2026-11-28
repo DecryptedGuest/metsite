@@ -28,8 +28,8 @@ const TICKET_LOG_CHANNEL_ID = () => process.env.TICKET_LOG_CHANNEL_ID || '145587
 // CID and for SCO-19, so all three land in the same queue and carry a tag
 // saying which department they came out of. Each is overridable by env so a
 // server move does not need a deploy.
-const CID_TICKET_GUILD_ID   = () => process.env.CID_TICKET_LOG_GUILD_ID   || '1438215998338760887';
-const CID_TICKET_CHANNEL_ID = () => process.env.CID_TICKET_LOG_CHANNEL_ID || '1438215999231885505';
+const CID_TICKET_GUILD_ID   = () => process.env.CID_TICKET_LOG_GUILD_ID   || '1574842450105597972';
+const CID_TICKET_CHANNEL_ID = () => process.env.CID_TICKET_LOG_CHANNEL_ID || '1574842455348748404';
 const SCO_TICKET_GUILD_ID   = () => process.env.SCO_TICKET_LOG_GUILD_ID   || '1438247592071921919';
 const SCO_TICKET_CHANNEL_ID = () => process.env.SCO_TICKET_LOG_CHANNEL_ID || '1438247593011581092';
 
@@ -83,20 +83,27 @@ const IA_SITE_ROLES = new Set(['IA', 'SUPERVISOR', 'HICOMM', 'DEVELOPER']);
  * unknown all the way to the card and to the payment decision, and a later
  * handler backfill can turn it into a real answer.
  */
-async function resolveCloserIsIa({ discordId, siteRole, rank }) {
-  if (siteRole && IA_SITE_ROLES.has(siteRole)) return true;
-  // "IA | DCI | White_Bullet8" — the department is in the nickname itself.
+async function resolveCloserIsIa({ discordId, siteRole, rank, division }) {
+  // An explicit site role or the rank printed in the ticket log is stronger
+  // evidence than a failed live lookup.
+  if (siteRole) return IA_SITE_ROLES.has(siteRole);
   if (rank && /(^|\|)\s*ia\b/i.test(rank)) return true;
-  // Nobody to look up. Not an answer, so do not give one.
-  if (!discordId) return null;
-  try {
-    const { resolveSiteRoleDetailed } = require('./roleResolver');
-    const live = await resolveSiteRoleDetailed({ discordId: String(discordId), memberRoles: [] });
-    // A resolve that came back with no role at all did not say "not IA", it said
-    // nothing; only a resolved role that is not an IA one is a real false.
-    if (!live || !live.role) return null;
-    return IA_SITE_ROLES.has(live.role);
-  } catch (e) { return null; }
+  // A named rank that is not IA is a conclusive non-IA handler.
+  if (rank) return false;
+
+  if (discordId) {
+    try {
+      const { resolveSiteRoleDetailed } = require('./roleResolver');
+      const live = await resolveSiteRoleDetailed({ discordId: String(discordId), memberRoles: [] });
+      if (live && live.role) return IA_SITE_ROLES.has(live.role);
+      if (live && live.conclusive) return false;
+    } catch (e) { /* continue to the source-specific fallback */ }
+  }
+
+  // A handler on the CID support server is a CID handler unless the IA role
+  // checks above positively identify them as IA. Do not leave this as unknown.
+  if (String(division || '').toUpperCase() === 'CID') return false;
+  return null;
 }
 
 // How far back the first (empty-table) backfill reaches. Later sweeps stop as
@@ -232,7 +239,7 @@ async function rowFromMessage(msg) {
   const division = divisionForChannel(msg.channelId) || 'MET';
   const closerRank = rankFromRaw(closerRaw) || rankFromRaw(closerUsername) || null;
   const closerIsIa = await resolveCloserIsIa({
-    discordId: parsed.executorId, siteRole: closerSiteRole, rank: closerRank,
+    discordId: parsed.executorId, siteRole: closerSiteRole, rank: closerRank, division,
   });
 
   return {
@@ -279,7 +286,7 @@ async function rowFromMessage(msg) {
 const RESOLVED_FIELDS = [
   'ticketRef', 'ticketName', 'reason', 'transcriptUrl',
   'creatorDiscordId', 'creatorUsername', 'creatorRobloxUsername',
-  'closerDiscordId', 'closerUsername', 'closerRaw', 'closerUserId',
+  'closerDiscordId', 'closerUsername', 'closerRaw', 'closerUserId', 'closerIsIa',
   // The handler's rank is parsed from what the log printed, so it is only null
   // when the log named nobody — never overwrite a good one with that.
   'closerRank',
@@ -1442,8 +1449,8 @@ async function refreshCloserIsIa(limit = 500) {
   let rows;
   try {
     rows = await prisma.ticketLog.findMany({
-      where: { closerIsIa: false, status: 'PENDING' },
-      select: { id: true, closerDiscordId: true, closerRank: true, closerRaw: true, closerUsername: true },
+      where: { closerIsIa: null, status: { in: ['PENDING', 'APPROVED'] } },
+      select: { id: true, closerDiscordId: true, closerRank: true, closerRaw: true, closerUsername: true, division: true },
       take: limit,
     });
   } catch (err) { return out; }
@@ -1458,8 +1465,8 @@ async function refreshCloserIsIa(limit = 500) {
       }).catch(() => null);
       siteRole = (u && u.role) || null;
     }
-    const answer = await resolveCloserIsIa({ discordId: row.closerDiscordId, siteRole, rank });
-    if (answer === false) continue;          // still a real no
+    const answer = await resolveCloserIsIa({ discordId: row.closerDiscordId, siteRole, rank, division: row.division });
+    if (answer == null) continue;
     await prisma.ticketLog.update({ where: { id: row.id }, data: { closerIsIa: answer } }).catch(() => {});
     out.fixed++;
   }
