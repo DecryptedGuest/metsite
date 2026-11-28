@@ -488,9 +488,9 @@ function caseStatusTags(channel, kaseOrStatus) {
     return '';
   }).join(' ').toLowerCase();
 
-  if (/\\btermination\\b/.test(actionValues)) wanted.push('Termination Charge');
-  if (/\\bblacklist(?:ed)?\\b/.test(actionValues)) wanted.push('Blacklist Charge');
-  if (/\\bpromotion(?:al)?\\b/.test(actionValues)) wanted.push('Promotional Purposes');
+  if (/\btermination\b/.test(actionValues)) wanted.push('Termination Charge');
+  if (/\bblacklist(?:ed)?\b/.test(actionValues)) wanted.push('Blacklist Charge');
+  if (/\bpromotion(?:al)?\b/.test(actionValues)) wanted.push('Promotional Purposes');
 
   return [...new Set(wanted)].flatMap(name => {
     const match = tags.find(tag => String(tag.name || '').trim().toLowerCase() === name.toLowerCase());
