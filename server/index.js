@@ -1377,11 +1377,16 @@ function sendPage(res, file, division) {
       if (slug) {
         html = html.replace('<html', `<html data-division="${slug}"`);
         if (html.includes('</head>')) {
-          // A page that already carries its own og: tags would otherwise have two
-          // of each, and a crawler takes the first — the generic one. The
-          // division's are the right ones, so the page's own go.
-          html = html.replace(/\s*<meta\s+(?:property|name)="(?:og:[a-z:]+|twitter:[a-z:]+)"[^>]*>/gi, '');
-          html = html.replace('</head>', brandHead(division, originOf(res.req)) + '</head>');
+          const socialMetaPattern = /\s*<meta\s+(?:property|name)="(?:og:[a-z:]+|twitter:[a-z:]+)"[^>]*>/gi;
+          // Application pages own their social preview copy. Keep the CID
+          // application title/description instead of replacing it with the
+          // division-wide "CID Dashboard" metadata.
+          const ownsSocialPreview = path.basename(String(file || '')) === 'cid-application.html';
+          const pageSocialMeta = ownsSocialPreview ? (html.match(socialMetaPattern) || []).join('\n') : '';
+          html = html.replace(socialMetaPattern, '');
+          let divisionHead = brandHead(division, originOf(res.req));
+          if (ownsSocialPreview) divisionHead = divisionHead.replace(socialMetaPattern, '');
+          html = html.replace('</head>', divisionHead + (pageSocialMeta ? '\n' + pageSocialMeta : '') + '</head>');
         }
       }
     }
