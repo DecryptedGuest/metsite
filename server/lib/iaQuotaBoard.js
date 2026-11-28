@@ -42,27 +42,17 @@ function memberLine(member, index) {
 }
 
 async function verifiedIaMembers(client, members) {
-  const guildId = process.env.IA_DISCORD_GUILD_ID || '1574841102169669692';
+  // The quota sheet is the maintained IA roster. Do not silently hide people
+  // because their Discord link is blank, they are not currently cached in the
+  // IA Discord server, or Roblox lookups are temporarily unavailable. Resolve
+  // links and live ranks where possible, but retain every valid sheet row.
   const groupId = process.env.IA_GROUP_ID;
-  if (!groupId) {
-    console.warn('[IA Quota Board] IA_GROUP_ID is not configured; refusing to publish unverified quota rows');
-    return [];
-  }
-  const guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) {
-    console.warn('[IA Quota Board] IA Discord server unavailable; refusing to publish unverified quota rows');
-    return [];
-  }
-
   const prisma = require('./db');
   const roblox = require('./roblox');
-  const verified = [];
-  let noDiscord = 0, notInDiscord = 0, noRoblox = 0, notInIa = 0;
+  const included = [];
+  let linked = 0, liveRanks = 0, missingDiscord = 0, missingRoblox = 0, notInIa = 0;
+
   for (const member of members) {
-    // Quota sheets are often maintained by Roblox username and may not have
-    // a Discord ID column populated. Resolve the linked site account FIRST;
-    // the old early-continue on a blank sheet Discord ID silently removed every
-    // such investigator from the leaderboard.
     const sheetDiscordId = String(member.discordId || '').trim();
     const user = await prisma.user.findFirst({
       where: { OR: [
@@ -71,32 +61,37 @@ async function verifiedIaMembers(client, members) {
       ] },
       select: { discordId: true, robloxId: true, robloxUsername: true },
     }).catch(() => null);
-    const discordId = sheetDiscordId || String(user?.discordId || '').trim();
-    if (!discordId) { noDiscord++; continue; }
-    const discordMember = await guild.members.fetch(discordId).catch(() => null);
-    if (!discordMember) { notInDiscord++; continue; }
 
-    let robloxId = user && user.robloxId ? String(user.robloxId) : null;
+    const discordId = sheetDiscordId || String(user?.discordId || '').trim() || null;
+    if (discordId) linked++;
+    else missingDiscord++;
+
+    let rank = String(member.rank || 'IA Member');
+    let robloxId = user?.robloxId ? String(user.robloxId) : null;
     if (!robloxId && member.username) {
       const resolved = await roblox.getRobloxIdFromUsername(member.username).catch(() => null);
-      robloxId = resolved && resolved.id ? String(resolved.id) : null;
+      robloxId = resolved?.id ? String(resolved.id) : null;
     }
-    if (!robloxId) { noRoblox++; continue; }
+    if (!robloxId) {
+      missingRoblox++;
+    } else if (groupId) {
+      const roles = await roblox.getUserGroupRoles(robloxId, groupId, null, true).catch(() => []);
+      const iaRole = Array.isArray(roles) && roles.length
+        ? roles.reduce((highest, role) => Number(role.rank) > Number(highest.rank) ? role : highest)
+        : null;
+      if (iaRole?.name) {
+        rank = String(iaRole.name);
+        liveRanks++;
+      } else {
+        notInIa++;
+      }
+    }
 
-    // Force a fresh group-membership check here. The normal profile helper caches
-    // group lists for 15 minutes, which is too stale for an eligibility gate.
-    const iaRoles = await roblox.getUserGroupRoles(robloxId, groupId, null, true).catch(() => []);
-    const iaRole = Array.isArray(iaRoles) && iaRoles.length
-      ? iaRoles.reduce((highest, role) => Number(role.rank) > Number(highest.rank) ? role : highest)
-      : null;
-    if (!iaRole) { notInIa++; continue; }
-
-    // Use the live IA group rank, never a potentially stale or manually edited
-    // spreadsheet rank label (which could falsely elevate somebody on the board).
-    verified.push({ ...member, rank: String(iaRole.name || 'IA Member') });
+    included.push({ ...member, discordId, rank });
   }
-  console.log(`[IA Quota Board] verified ${verified.length}/${members.length} sheet rows (no Discord link: ${noDiscord}, not in IA Discord: ${notInDiscord}, no Roblox link: ${noRoblox}, not in Roblox IA group: ${notInIa})`);
-  return verified;
+
+  console.log(`[IA Quota Board] included ${included.length}/${members.length} quota rows (linked Discord: ${linked}, missing Discord: ${missingDiscord}, missing Roblox: ${missingRoblox}, live IA ranks: ${liveRanks}, no live IA group rank: ${notInIa})`);
+  return included;
 }
 
 function buildEmbed(members) {
