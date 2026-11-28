@@ -177,13 +177,13 @@ async function findQuotaMember(user, interaction) {
   } catch (err) { /* try the quota roster by Discord ID */ }
 
   const members = await quotaApi.getAllMembersPoints('IA');
-  if (members == null) throw new Error('The IA quota sheet could not be read. Check the sheet connection and try again.');
+  if (members == null) throw new Error('The IA quota leaderboard could not be read. Check that the bot can access its channel and message.');
   const id = String(user.id);
   const row = members.find(m => String(m.discordId || '').replace(/\D/g, '') === id.replace(/\D/g, ''))
     || (robloxUsername ? members.find(m => String(m.username || '').toLowerCase() === robloxUsername.toLowerCase()) : null);
   if (!row) throw new Error(robloxUsername
-    ? `No IA quota row was found for ${robloxUsername}. Check that their Discord ID or Roblox username is on the IA quota sheet.`
-    : 'No IA quota row was found for this Discord account. Link the Roblox account and add the member to the IA quota sheet.');
+    ? `No IA quota entry was found for ${robloxUsername} on the leaderboard.`
+    : 'No IA quota entry was found for this Discord account on the leaderboard.');
   return row;
 }
 
@@ -226,7 +226,7 @@ async function handleQuotaCommand(interaction) {
       return interaction.editReply('Without a management action, /qp only displays your own quota. Add an action to manage another member.');
     }
 
-    loader.update('Looking up the IA quota record');
+    loader.update('Reading the IA leaderboard');
     const member = await findQuotaMember(targetUser, interaction);
     const total = Number(member.total) || 0;
     let note = null;
@@ -238,7 +238,7 @@ async function handleQuotaCommand(interaction) {
       }
       const delta = action === 'ADD' ? points : action === 'REMOVE' ? -points : points - total;
       if (delta !== 0) {
-        loader.update('Queueing the quota adjustment');
+        loader.update('Updating the IA leaderboard');
         const queued = await quotaApi.enqueueQuotaAward({
           refType: 'manual',
           refId: `qp:${interaction.id}`,
@@ -259,8 +259,7 @@ async function handleQuotaCommand(interaction) {
           summary: `${delta > 0 ? '+' : ''}${delta} QP for ${member.username}`,
           payload: { discordId: targetUser.id, robloxUsername: member.username, points: delta, action, reason: reason.trim() },
         }).catch(() => {});
-        loader.update('Applying the adjustment and refreshing the leaderboard');
-        await quotaApi.processQuotaAwards().catch(() => {});
+        loader.update('Updating the leaderboard and confirming the adjustment');
         const expected = total + delta;
         let confirmed = false;
         let refreshed = member;
@@ -271,11 +270,11 @@ async function handleQuotaCommand(interaction) {
           await new Promise(resolve => setTimeout(resolve, 600));
           refreshed = await findQuotaMember(targetUser, interaction);
           if (Number(refreshed.total) === expected) { confirmed = true; break; }
-          loader.update('Waiting for the quota sheet to confirm the adjustment');
+          loader.update('Waiting for the leaderboard to confirm the adjustment');
         }
         note = confirmed
           ? `${action === 'SET' ? `Total set to ${points} QP` : `${delta > 0 ? '+' : ''}${delta} QP applied`} for <@${targetUser.id}>. Reason: ${reason.trim()}`
-          : `Adjustment queued (${delta > 0 ? '+' : ''}${delta} QP), but the sheet has not confirmed it yet. The leaderboard will update after the write succeeds. Reason: ${reason.trim()}`;
+          : `Adjustment queued (${delta > 0 ? '+' : ''}${delta} QP), but the leaderboard has not confirmed the adjustment yet. Reason: ${reason.trim()}`;
         loader.stop();
         return interaction.editReply({ content: '', embeds: [quotaProgressEmbed(refreshed, targetUser, note)] });
       } else {
@@ -283,7 +282,7 @@ async function handleQuotaCommand(interaction) {
       }
     }
 
-    loader.update('Refreshing the quota record');
+    loader.update('Refreshing the leaderboard record');
     const refreshed = await findQuotaMember(targetUser, interaction);
     loader.stop();
     return interaction.editReply({
