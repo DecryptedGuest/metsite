@@ -99,7 +99,7 @@ async function eligibility(user) {
       if (/primary division|two secondary divisions/.test(reasons[i])) reasons.splice(i,1);
     }
   }
-  if (!cid.role || !/pending/i.test(String(cid.role.name||''))) reasons.push('Your CID group rank must be Pending before you submit.');
+  if (!cid.role) reasons.push('You must be a member of the CID Roblox group before you submit.');
   return { available:true, eligible:reasons.length===0, reasons, metRank:met.role && met.role.name, cidRank:cid.role && cid.role.name, divisions:{ primary:[sco.member?'SCO-19':null,flp.member?'FLP':null].filter(Boolean), secondary:[ia.member?'IA':null,hpc.member?'HPC':null].filter(Boolean) }, multiDivisionPermissions:multi };
 }
 async function adminUser(req) {
