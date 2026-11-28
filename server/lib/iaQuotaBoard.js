@@ -122,7 +122,7 @@ function buildEmbed(members) {
     .setTimestamp(new Date());
 
   let fields = [];
-  let used = embed.data.title.length + embed.data.description.length + FOOTER.length;
+  let used = String(embed.data.title || '').length + String(embed.data.description || '').length + FOOTER.length;
   for (const group of groups) {
     const lines = group.members.map((m, i) => memberLine(m, i));
     let chunk = [];
