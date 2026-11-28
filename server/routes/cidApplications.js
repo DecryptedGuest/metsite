@@ -16,12 +16,6 @@ const GROUPS = {
   HPC: process.env.GROUP_HPC || '35685825',
 };
 const QUESTIONS = [
-  { id:'roblox', section:'Personal Information', label:'Roblox Username', required:true, max:40 },
-  { id:'discord', section:'Personal Information', label:'Discord Username', required:true, max:80 },
-  { id:'metRank', section:'Personal Information', label:'Current Metropolitan Police Rank', required:true, max:100 },
-  { id:'tenure', section:'Personal Information', label:'How long have you been in the department?', required:true, max:300 },
-  { id:'timezone', section:'Personal Information', label:'What is your timezone?', required:true, max:100 },
-  { id:'hours', section:'Personal Information', label:'How many hours per week can you dedicate to CID?', required:true, max:100 },
   { id:'knowledge1', section:'CID Knowledge', label:'What does CID stand for?', required:true, max:2000 },
   { id:'knowledge2', section:'CID Knowledge', label:'What is the primary role of CID within the Metropolitan Police?', required:true, max:3000 },
   { id:'knowledge3', section:'CID Knowledge', label:'What is the difference between operating undercover and conducting a patrol in uniform?', required:true, max:3000 },
@@ -178,7 +172,9 @@ router.get('/meta', async(req,res)=>{
       eligibility(req.user), settings(),
       prisma.cidApplication.findFirst({where:{applicantId:req.user.id,status:{in:['SUBMITTED','UNDER_REVIEW','ACCEPTED']}},select:{appRef:true,status:true,submittedAt:true}})
     ]);
-    res.json({eligible:check.eligible,checksAvailable:check.available,reasons:check.reasons||[],context:check,open:form.isOpen,existing,questions:QUESTIONS,declaration:DECLARATION,robloxUsername:req.user.robloxUsername||null,discordUsername:req.user.discordUsername||req.user.displayName||'Discord user'});
+    let robloxAvatar=null;
+    if(req.user.robloxId) { try { robloxAvatar=await require('../lib/roblox').getRobloxAvatarHeadshot(req.user.robloxId); } catch(e) {} }
+    res.json({eligible:check.eligible,checksAvailable:check.available,reasons:check.reasons||[],context:check,open:form.isOpen,existing,questions:QUESTIONS,declaration:DECLARATION,robloxId:req.user.robloxId||null,robloxUsername:req.user.robloxUsername||null,robloxAvatar,discordId:req.user.discordId||null,discordAvatar:req.user.discordAvatar||null,discordUsername:req.user.discordUsername||req.user.displayName||'Discord user'});
   } catch(e){console.error('[CID application] meta:',e.message);res.status(500).json({error:'Could not load CID application.'});}
 });
 router.post('/submit',async(req,res)=>{
