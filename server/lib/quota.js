@@ -418,7 +418,13 @@ function addQuotaPoints(rawMember, points, label = '', division = 'IA') {
 async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA') {
   const member = await resolveMember(rawMember);
   const viaWebhook = await addQuotaViaWebhook(member, points, label, division);
-  if (viaWebhook !== null) return viaWebhook; // webhook configured (success or fail)
+  if (viaWebhook === true) return true;
+  if (viaWebhook === false) {
+    // A configured Apps Script can reject a write because its tab/header or
+    // roster is stale. A rejection means no cell was changed, so try the
+    // service-account path instead of treating the webhook as the only writer.
+    console.warn(`[quota] webhook rejected ${label}; trying the Google Sheets service account`);
+  }
 
   try {
     const cfg = quotaConfig(division);
@@ -1079,9 +1085,42 @@ async function enqueueQuotaAward({ refType, refId, discordId, robloxUsername, po
   return true;
 }
 
+async function requeueKnownFailedAwards() {
+  const key = 'quotaAwards.failedWebhookRequeue.v1';
+  try {
+    const marker = await prisma.systemSetting.findUnique({ where: { key } });
+    if (marker && marker.value) return 0;
+    // These webhook responses explicitly mean that no points were written.
+    // Re-open only these failures once so the service-account fallback can try.
+    const result = await prisma.quotaAward.updateMany({
+      where: {
+        status: 'FAILED',
+        OR: [
+          { lastError: { contains: 'day column not found' } },
+          { lastError: { contains: 'member not found' } },
+        ],
+      },
+      data: { status: 'PENDING', attempts: 0, lastError: null },
+    });
+    await prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: String(result.count || 0) },
+      create: { key, value: String(result.count || 0) },
+    });
+    if (result.count) console.log(`[quota] re-queued ${result.count} failed awards for the service-account fallback`);
+    return result.count || 0;
+  } catch (err) {
+    console.warn('[quota] could not re-queue known webhook failures:', err.message);
+    return 0;
+  }
+}
+
 function startQuotaWorker() {
   setInterval(() => { processQuotaAwards().catch(() => {}); }, 30 * 1000);
-  setTimeout(() => { processQuotaAwards().catch(() => {}); }, 8 * 1000); // catch up after boot
+  setTimeout(async () => {
+    await requeueKnownFailedAwards();
+    await processQuotaAwards().catch(() => {});
+  }, 8 * 1000); // catch up after boot
 }
 
 // ── Sheet primitives, shared with the MET database sync ───────────
