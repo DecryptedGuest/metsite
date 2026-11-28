@@ -17,13 +17,34 @@ function renderTerms(){
  const agree=document.getElementById('terms-agree'),next=document.getElementById('terms-continue'),modal=document.getElementById('terms-modal');agree.onchange=()=>{next.disabled=!agree.checked};next.onclick=()=>{termsAccepted=true;renderForm()};document.getElementById('terms-link').onclick=e=>{e.preventDefault();modal.hidden=false;modal.style.display='flex'};document.getElementById('terms-close').onclick=()=>{modal.hidden=true;modal.style.display='none'};
 }
 function renderForm(){
- const sections=[...new Set(meta.questions.map(q=>q.section))];let html='<div class="notice">Applicant: <strong>'+esc(meta.robloxUsername||'Linked Roblox account')+'</strong><br>You must join the <a href="https://www.roblox.com/communities/12697126" target="_blank" rel="noopener">CID Roblox group</a> and have the Pending rank before applying. If you already hold another CID rank, you cannot submit another application.<br>Written responses may be screened by automated writing-analysis services. These tools can be inaccurate; results are review signals only and never proof of AI use.</div>';
- for(const section of sections){html+='<section class="section"><h2>'+esc(section)+'</h2>';for(const q of meta.questions.filter(x=>x.section===section)){html+='<div class="q"><label for="'+esc(q.id)+'">'+esc(q.label)+' *</label>'+(q.prompt?'<p>'+esc(q.prompt)+'</p>':'');if(q.type==='agreement'){html+='<div>'+meta.declaration.map((s,i)=>'<label class="check"><input type="checkbox" class="declaration" data-index="'+i+'"><span>'+esc(s)+'</span></label>').join('')+'</div>'}else{html+='<textarea id="'+esc(q.id)+'" data-answer="'+esc(q.id)+'" maxlength="'+q.max+'" '+(q.id==='roblox'?'value="'+esc(meta.robloxUsername||'')+'"':'')+' placeholder="Enter your answer…"></textarea>'}html+='</div>'}html+='</section>'}
+ const sections=[...new Set(meta.questions.map(q=>q.section))];
+ const discordAvatar=meta.discordAvatar?(String(meta.discordAvatar).startsWith('http')?meta.discordAvatar:'https://cdn.discordapp.com/avatars/'+encodeURIComponent(meta.discordId)+'/'+encodeURIComponent(meta.discordAvatar)+'.png?size=128'):null;
+ const avatar=(src,alt,kind)=>src?'<img class="identity-avatar '+kind+'" src="'+esc(src)+'" alt="'+esc(alt)+'" referrerpolicy="no-referrer">':'<div class="identity-avatar '+kind+' identity-fallback">'+esc((alt||'?').slice(0,1).toUpperCase())+'</div>';
+ let html='<section class="identity-card"><div class="identity-heading"><div><div class="identity-kicker">Applicant identity</div><h2>Information submitted with your application</h2></div><span class="identity-lock"><i class="ti ti-shield-check" aria-hidden="true"></i> Linked account</span></div><p class="identity-caption">These details are taken from your linked accounts and will be included automatically. You do not need to enter them again.</p><div class="identity-profiles"><div class="identity-profile">'+avatar(meta.robloxAvatar,meta.robloxUsername||"Roblox","roblox-avatar")+'<div class="identity-details"><span class="identity-platform"><i class="ti ti-brand-roblox" aria-hidden="true"></i> Roblox</span><strong>'+esc(meta.robloxUsername||"Not linked")+'</strong><small>MET rank: '+esc(meta.context&&meta.context.metRank||"Unavailable")+'</small></div></div><div class="identity-profile">'+avatar(discordAvatar,meta.discordUsername||"Discord","discord-avatar")+'<div class="identity-details"><span class="identity-platform"><i class="ti ti-brand-discord" aria-hidden="true"></i> Discord</span><strong>'+esc(meta.discordUsername||"Discord user")+'</strong><small>Connected account</small></div></div></div></section>';
+ html+='<div class="notice">You must join the <a href="https://www.roblox.com/communities/12697126" target="_blank" rel="noopener">CID Roblox group</a> and have the Pending rank before applying. If you already hold another CID rank, you cannot submit another application.<br>Written responses may be screened by automated writing-analysis services. These tools can be inaccurate; results are review signals only and never proof of AI use.</div>';
+ for(const section of sections){
+  html+='<section class="section"><h2>'+esc(section)+'</h2>';
+  for(const q of meta.questions.filter(x=>x.section===section)){
+   html+='<div class="q"><label for="'+esc(q.id)+'">'+esc(q.label)+' *</label>'+(q.prompt?'<p>'+esc(q.prompt)+'</p>':'');
+   if(q.type==='agreement'){
+    html+='<div class="declaration-list">'+meta.declaration.map((s,i)=>'<label class="custom-check"><input type="checkbox" class="declaration" data-index="'+i+'"><span class="checkmark" aria-hidden="true"><i class="ti ti-check"></i></span><span class="check-copy">'+esc(s)+'</span></label>').join('')+'</div>';
+   }else{
+    html+='<textarea id="'+esc(q.id)+'" data-answer="'+esc(q.id)+'" maxlength="'+q.max+'" placeholder="Enter your answer…"></textarea>';
+   }
+   html+='</div>';
+  }
+  html+='</section>';
+ }
+ html+='<label class="custom-check final-confirm"><input id="confirm" type="checkbox"><span class="checkmark" aria-hidden="true"><i class="ti ti-check"></i></span><span class="check-copy">I confirm that I have reviewed my answers and that they are accurate and my own.</span></label><div class="actions"><button class="btn primary" id="submit">Submit application</button><span class="status" id="status"></span></div>';
  root.innerHTML=html;
- ['roblox','discord','metRank'].forEach((id,i)=>{const el=document.getElementById(id);if(el){el.value=[meta.robloxUsername||'',meta.discordUsername||'',meta.context&&meta.context.metRank||''][i];el.readOnly=true;el.setAttribute('aria-readonly','true')}});
- root.querySelectorAll('[data-answer]').forEach(el=>{const id=el.dataset.answer;telemetry.perQuestion[id]={keystrokes:0,pastedChars:0,pasteCount:0,activeMs:0};el.addEventListener('focus',()=>{if(!telemetry.answerStarted[id])telemetry.answerStarted[id]=Date.now()});el.addEventListener('input',()=>{if(!telemetry.answerStarted[id])telemetry.answerStarted[id]=Date.now()});el.addEventListener('keydown',ev=>{if(ev.key&&ev.key.length===1)telemetry.perQuestion[id].keystrokes++});el.addEventListener('paste',ev=>{telemetry.pasteCount++;telemetry.perQuestion[id].pasteCount++;const text=(ev.clipboardData&&ev.clipboardData.getData('text'))||'';telemetry.perQuestion[id].pastedChars+=text.length});el.addEventListener('blur',()=>{if(telemetry.answerStarted[id]){telemetry.perQuestion[id].activeMs+=Date.now()-telemetry.answerStarted[id];telemetry.answerStarted[id]=0}})});
- html+='<div class="check"><input id="confirm" type="checkbox"><label for="confirm">I confirm that I have reviewed my answers and that they are accurate and my own.</label></div><div class="actions"><button class="btn primary" id="submit">Submit application</button><span class="status" id="status"></span></div>';
- root.insertAdjacentHTML('beforeend',html.slice(html.indexOf('<div class="check">')));
+ root.querySelectorAll('[data-answer]').forEach(el=>{
+  const id=el.dataset.answer;telemetry.perQuestion[id]={keystrokes:0,pastedChars:0,pasteCount:0,activeMs:0};
+  el.addEventListener('focus',()=>{if(!telemetry.answerStarted[id])telemetry.answerStarted[id]=Date.now()});
+  el.addEventListener('input',()=>{if(!telemetry.answerStarted[id])telemetry.answerStarted[id]=Date.now()});
+  el.addEventListener('keydown',ev=>{if(ev.key&&ev.key.length===1)telemetry.perQuestion[id].keystrokes++});
+  el.addEventListener('paste',ev=>{telemetry.pasteCount++;telemetry.perQuestion[id].pasteCount++;const text=(ev.clipboardData&&ev.clipboardData.getData('text'))||'';telemetry.perQuestion[id].pastedChars+=text.length});
+  el.addEventListener('blur',()=>{if(telemetry.answerStarted[id]){telemetry.perQuestion[id].activeMs+=Date.now()-telemetry.answerStarted[id];telemetry.answerStarted[id]=0}});
+ });
  document.getElementById('submit').onclick=submit;
 }
 async function submit(){
