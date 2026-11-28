@@ -63,7 +63,7 @@ function buildCaseEmbed(data) {
   // classified case document/evidence URL stored in caseLink.
   const caseUrl = String(forumUrl || '');
   const caseValue = caseUrl.startsWith('https://') || caseUrl.startsWith('http://')
-    ? `[Open IA forum case](${caseUrl})`
+    ? `[Case](${caseUrl})`
     : (caseRef ? `Case ${caseRef} · forum link unavailable` : 'N/A');
   const embed = {
     color: 0x24364b,
