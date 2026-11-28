@@ -1039,8 +1039,12 @@ async function processQuotaAwards() {
   if (_processing) return;
   _processing = true;
   try {
+    // IA balances and idempotency now live exclusively in the Discord
+    // leaderboard message. This worker remains only for other divisions;
+    // old IA outbox rows are intentionally not replayed because the visible
+    // leaderboard already carries the starting balances.
     const due = await prisma.quotaAward.findMany({
-      where:   { status: 'PENDING' },
+      where:   { status: 'PENDING', division: { not: 'IA' } },
       orderBy: { createdAt: 'asc' },
       take:    25,
     });
