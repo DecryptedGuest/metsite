@@ -29,7 +29,13 @@ async function checkGroup(user, groupId) {
   }
 }
 
+function isRecruitmentTestUser(user) {
+  const directorDiscordId = process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
+  return !!(user && user.discordId && String(user.discordId) === String(directorDiscordId));
+}
+
 async function eligibility(user) {
+  const testAccess = isRecruitmentTestUser(user);
   const [met, sas, cases] = await Promise.all([
     checkGroup(user, MET_GROUP_ID),
     checkGroup(user, SAS_GROUP_ID),
@@ -42,16 +48,16 @@ async function eligibility(user) {
   const restrictions = [];
   if (user.isBlacklisted) restrictions.push({ code: 'SITE_BLACKLIST', label: 'This account is currently blacklisted.' });
   if (user.mustReauth) restrictions.push({ code: 'ACCOUNT_REVIEW', label: 'This account requires an access review.' });
-  if (met.member === true) restrictions.push({ code: 'ALREADY_MET', label: 'This Roblox account is already a member of the MET group.' });
-  if (sas.member === true) restrictions.push({ code: 'SAS_MEMBER', label: 'This Roblox account is a member of the SAS group.' });
+  if (!testAccess && met.member === true) restrictions.push({ code: 'ALREADY_MET', label: 'This Roblox account is already a member of the MET group.' });
+  if (!testAccess && sas.member === true) restrictions.push({ code: 'SAS_MEMBER', label: 'This Roblox account is a member of the SAS group.' });
   const barred = cases.filter(c => {
     const text = [c.action, c.reason, JSON.stringify(c.actions || {})].join(' ').toUpperCase();
     return /BLACKLIST|TERMINAT|EXILE|PERMANENT BAN/.test(text);
   });
   if (barred.length) restrictions.push({ code: 'DISCIPLINARY_BAR', label: 'An active approved disciplinary record prevents this account from applying.' });
   return {
-    eligible: restrictions.length === 0 && met.available && sas.available,
-    restrictions, met, sas,
+    eligible: restrictions.length === 0 && (testAccess || (met.available && sas.available)),
+    restrictions, met, sas, testAccess,
     checksAvailable: met.available && sas.available,
     barredCases: barred.map(c => ({ caseRef: c.caseRef, action: c.action })),
   };
