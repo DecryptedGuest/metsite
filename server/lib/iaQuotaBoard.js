@@ -193,10 +193,22 @@ async function applyAward({ refType, refId, discordId, robloxUsername, points, l
       || (username && m.username.toLowerCase() === username.toLowerCase()));
     if (!member) {
       if (!id && !username) return false;
+      let displayName = username;
+      let rank = 'IA Member';
+      if (id) {
+        try {
+          const user = await require('./db').user.findUnique({
+            where: { discordId: id },
+            select: { robloxUsername: true, iaRankName: true },
+          });
+          displayName = displayName || user?.robloxUsername || null;
+          rank = user?.iaRankName || rank;
+        } catch (_) {}
+      }
       member = {
         discordId: id || null,
-        username: username || (id ? `Discord-${id.slice(-4)}` : 'Unknown'),
-        rank: 'IA Member', total: 0,
+        username: displayName || (id ? `Discord-${id.slice(-4)}` : 'Unknown'),
+        rank, total: 0,
       };
       members.push(member);
     }
