@@ -172,7 +172,7 @@ function panelEmbed(profile, selected) {
       { name: 'MET RANK', value: profile.metGroup ? `**${profile.metGroup.roleName}**` : 'Not in MET group', inline: true },
       { name: 'IA ACCESS', value: profile.dashboardRole || 'Not set', inline: true },
       { name: 'IA RANK', value: profile.iaRankName ? `**${profile.iaRankName}** - ${profile.iaRank}` : 'Not set', inline: true },
-      { name: 'CURRENT PUNISHMENTS', value: profile.currentPunishments === null || !profile.currentPunishments.length ? 'No punishments found / N/A' : profile.currentPunishments.map(p => `- **${p.action}** - ${p.remaining}`).join('\n').slice(0, 1024), inline: false },
+      { name: 'CURRENT PUNISHMENTS', value: profile.currentPunishments === null ? 'N/A' : !profile.currentPunishments.length ? 'No punishments found' : profile.currentPunishments.map(p => `- **${p.action}** - ${p.remaining}`).join('\n').slice(0, 1024), inline: false },
       { name: 'ACTIONS', value: selected.length ? selected.map(a => `- **${a}**`).join('\n').slice(0, 1024) : '*Choose the action(s) below*', inline: false },
       { name: 'CASE NUMBER', value: 'Added when submitted', inline: true },
       { name: 'NEXT', value: 'Choose the action(s), then press Continue.', inline: true },
