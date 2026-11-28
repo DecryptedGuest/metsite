@@ -71,10 +71,10 @@ function isRecruitmentTestUser(user) {
 }
 
 async function eligibility(user) {
-  // The configured site director can exercise the application flow for testing.
-  // This bypasses recruitment membership/division gates only, not authentication.
-  if (isRecruitmentTestUser(user)) return { available:true, eligible:true, reasons:[], metRank:'Director (test access)', cidRank:'Pending (test access)', divisions:{primary:[],secondary:[]}, multiDivisionPermissions:false, testAccess:true };
   if (!user.robloxId) return { available:true, eligible:false, reasons:['Link your Roblox account before applying.'] };
+  // The configured site director can exercise the application flow for testing.
+  // This bypasses recruitment membership/division gates only, not authentication or account linking.
+  if (isRecruitmentTestUser(user)) return { available:true, eligible:true, reasons:[], metRank:'Director (test access)', cidRank:'Pending (test access)', divisions:{primary:[],secondary:[]}, multiDivisionPermissions:false, testAccess:true };
   const [met,cid,sco,flp,ia,hpc,metRoles] = await Promise.all([
     groupRole(user,GROUPS.MET), groupRole(user,GROUPS.CID),
     groupMember(user,GROUPS.SCO19), groupMember(user,GROUPS.FLP),
