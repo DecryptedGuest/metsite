@@ -1047,10 +1047,18 @@ async function processQuotaAwards() {
     for (const a of due) {
       let ok = false, err = null;
       try {
-        ok = await addQuotaPointsImpl(
-          { discordId: a.discordId, robloxUsername: a.robloxUsername },
-          a.points, a.label || '', a.division || 'IA',
-        );
+        if (String(a.division || 'IA').toUpperCase() === 'IA') {
+          ok = await require('./iaQuotaBoard').applyAward({
+            refType: a.refType, refId: a.refId,
+            discordId: a.discordId, robloxUsername: a.robloxUsername,
+            points: a.points, label: a.label || '',
+          });
+        } else {
+          ok = await addQuotaPointsImpl(
+            { discordId: a.discordId, robloxUsername: a.robloxUsername },
+            a.points, a.label || '', a.division || 'IA',
+          );
+        }
       } catch (e) { ok = false; err = e.message; }
 
       if (ok) {
