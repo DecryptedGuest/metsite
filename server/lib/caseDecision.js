@@ -30,7 +30,6 @@ async function syncCaseForumPost(kase, actor) {
     const client = require('./bot').getClient();
     if (!client) return;
     const cards = require('./iaReviewCards');
-    await cards.finaliseCaseReviewCard(client, kase, actor);
     if (!kase.cardMessageId) return;
     const { suspectAvatar } = await resolveCaseAvatars(null, kase);
     const investigatorUser = kase.userId
