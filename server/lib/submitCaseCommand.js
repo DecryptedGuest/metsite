@@ -22,7 +22,7 @@ const COLOUR = 0x26384d;
 function buildCommand() {
   return new SlashCommandBuilder()
     .setName('case')
-    .setDescription('Open the private IA case builder')
+    .setDescription('IA Cases')
     .addStringOption(o => o.setName('officer')
       .setDescription('Officer Roblox username')
       .setRequired(true)
