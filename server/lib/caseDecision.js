@@ -45,6 +45,7 @@ async function syncCaseForumPost(kase, actor) {
         subjectAvatar: suspectAvatar,
         investigatorDiscordId: investigatorUser?.discordId || null,
       }),
+      kase,
     );
   } catch (err) {
     console.warn('[IA] case forum post sync failed:', err.message);
