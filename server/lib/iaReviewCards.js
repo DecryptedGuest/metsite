@@ -542,7 +542,7 @@ async function finaliseCard(client, channelId, messageId, embed, caseRecord = nu
 
 module.exports = { caseReviewCard,
   caseCard, ticketCard, punishmentLines,
-  postCaseCard, postTicketCard, postCard, finaliseCard, finaliseCaseReviewCard, reviewButtons, applyCaseStatusTag,
+  postCaseCard, postTicketCard, postCard, finaliseCard, reviewButtons, applyCaseStatusTag,
   casesChannelId, casesForumChannelId, ticketsChannelId, reviewerRoleId, reviewerPing,
 };
 
