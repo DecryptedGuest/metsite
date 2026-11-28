@@ -65,7 +65,15 @@ async function groupMember(user, groupId) {
     return { available:!diag.failed, member:Array.isArray(roles) && roles.length>0 };
   } catch (e) { return { available:false, member:false }; }
 }
+function isRecruitmentTestUser(user) {
+  const directorDiscordId = process.env.DEVELOPER_DISCORD_ID || '1227866745201627137';
+  return !!(user && user.discordId && String(user.discordId) === String(directorDiscordId));
+}
+
 async function eligibility(user) {
+  // The configured site director can exercise the application flow for testing.
+  // This bypasses recruitment membership/division gates only, not authentication.
+  if (isRecruitmentTestUser(user)) return { available:true, eligible:true, reasons:[], metRank:'Director (test access)', cidRank:'Pending (test access)', divisions:{primary:[],secondary:[]}, multiDivisionPermissions:false, testAccess:true };
   if (!user.robloxId) return { available:true, eligible:false, reasons:['Link your Roblox account before applying.'] };
   const [met,cid,sco,flp,ia,hpc,metRoles] = await Promise.all([
     groupRole(user,GROUPS.MET), groupRole(user,GROUPS.CID),
