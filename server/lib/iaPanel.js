@@ -411,16 +411,16 @@ async function recordView(subject) {
     }))
     .sort((a, b) => new Date(b.at) - new Date(a.at));
 
+  if (!rows.length) {
+    return new EmbedBuilder()
+      .setColor(COLOR.ok)
+      .setDescription('No punishments found');
+  }
+
   const embed = new EmbedBuilder()
-    .setColor(rows.length ? COLOR.warn : COLOR.ok)
+    .setColor(COLOR.warn)
     .setTitle(`${e('met_gavel')} Record · ${short(subject.displayName, 50)}`)
     .setDescription(headline(subject));
-
-  if (!rows.length) {
-    embed.addFields({ name: 'Nothing on file', value:
-      'No cases and no punishments against this person.', inline: false });
-    return embed;
-  }
 
   const lines = rows.slice(0, 18).map(r => {
     const tag = r.origin === 'DISCIPLINE' ? ' *(direct)*' : r.origin === 'BOT' ? ' *(bot)*' : '';
