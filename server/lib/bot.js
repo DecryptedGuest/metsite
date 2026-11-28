@@ -279,7 +279,7 @@ const SUBMIT_CASE_GUILD_ID_NAMES = 'case';
 
 // Temporarily hidden from Discord's slash-command list. Implementations and
 // interaction logic remain intact; remove names here to restore registration.
-const DISABLED_IA_COMMANDS = new Set(['add-qp', 'leaderboard', 'remove-qp', 'undo']);
+const DISABLED_IA_COMMANDS = new Set(['add-qp', 'remove-qp', 'undo']);
 
 const IA_COMMAND_ALLOWLIST = () => {
   const raw = (process.env.IA_COMMANDS || '').trim();
@@ -289,7 +289,7 @@ const IA_COMMAND_ALLOWLIST = () => {
     // /case is the core IA filing command and must remain available even when
     // IA_COMMANDS is used to trim the optional utility commands.
     : ['case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
-  list.push('case', 'check-record');
+  list.push('case', 'check-record', 'qp', 'leaderboard');
   return new Set(list);
 };
 
@@ -487,20 +487,19 @@ function buildCommandPlan() {
     console.error('[Bot] could not build /adonis:', err.message);
   }
 
-  // The four Internal Affairs commands. All IA-server only: quota points and
-  // case filing have no meaning in the MET or CID servers.
+  // /qp is the single IA quota command. Everyone can view their own
+  // standing; the handler gates add/remove/set to Assistant Director+.
   try {
-    for (const cmd of require('./qpCommand').buildCommands()) {
-      add(iaGuild('QP_GUILD_ID'), cmd);
-      global.push(cmd);
-    }
+    const cmd = require('./qpCommand').buildQuotaCommand();
+    add(['1574841102169669692'], cmd);
+    global.push(cmd);
   } catch (err) {
-    console.error('[Bot] could not build /add-qp + /remove-qp:', err.message);
+    console.error('[Bot] could not build /qp:', err.message);
   }
 
   try {
     const cmd = require('./leaderboardCommand').buildCommand();
-    add(iaGuild('LEADERBOARD_GUILD_ID'), cmd);
+    add(['1574841102169669692'], cmd);
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /leaderboard:', err.message);
@@ -884,6 +883,11 @@ async function onInteraction(interaction) {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'qp') {
+    return require('./qpCommand').handleQuotaCommand(interaction)
+      .catch(e => console.error('[Bot] /qp error:', e.message));
+  }
 
   if (interaction.commandName === 'add-qp' || interaction.commandName === 'remove-qp') {
     return require('./qpCommand')
