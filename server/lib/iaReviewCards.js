@@ -685,6 +685,13 @@ async function handleReviewButton(interaction) {
         where: { id: recordId },
         include: { user: { select: { discordId: true, discordUsername: true, robloxUsername: true } } },
       });
+      // Update the actionable review card in place so the decision is visible
+      // immediately in the IA review channel, with the matching status colour.
+      await interaction.message.edit({
+        embeds: [caseReviewCard(fresh, { decidedBy: actor })],
+        components: [],
+      }).catch(err => console.warn('[IA] could not update case review card:', err.message));
+
       // caseDecision updates the forum starter message and status tag as part of
       // the decision pipeline, preserving the suspect thumbnail and website link.
       // Both halves of the award, stated, because they differ by decision:
