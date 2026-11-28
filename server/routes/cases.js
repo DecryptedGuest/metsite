@@ -1106,6 +1106,18 @@ router.post('/:id/appeal', async (req, res) => {
     if (!out.ok) return res.status(out.status || 500).json({ error: out.error });
     const { updated, appeal, lifted, failed, kept, manual } = out;
 
+    // The appeal is the decision: keep the matching IA forum thread's status
+    // and appeal tags in sync with the newly overturned record.
+    if (updated.cardMessageId) {
+      try {
+        const client = require('../lib/bot').getClient();
+        const thread = client && await client.channels.fetch(String(updated.cardMessageId)).catch(() => null);
+        if (thread) await require('../lib/iaReviewCards').applyCaseStatusTag(thread, updated);
+      } catch (tagError) {
+        console.warn('[IA] appealed case forum tag sync failed:', tagError.message);
+      }
+    }
+
     require('../lib/audit').record({
       req, action: 'CASE_APPEAL', category: 'ia', targetType: 'case', targetId: existing.id,
       summary: `Appeal granted on ${existing.caseRef} · ${lifted.length} punishment role(s) lifted`,
