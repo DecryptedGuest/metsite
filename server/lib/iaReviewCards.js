@@ -149,9 +149,13 @@ function caseCard(kase, extra = {}) {
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
     : (kase.investigatorDiscordUsername ? `@${kase.investigatorDiscordUsername}` : 'Not recorded');
-  const officer = kase.officerDiscordId
-    ? `<@${kase.officerDiscordId}>${kase.robloxUsername ? ` (Roblox: **${kase.robloxUsername}**)` : ''}`
-    : (kase.robloxUsername ? `**${kase.robloxUsername}**` : 'Not identified');
+  const officerRoblox = kase.robloxUsername
+    ? (kase.robloxUserId
+      ? `[**${kase.robloxUsername}**](https://www.roblox.com/users/${encodeURIComponent(kase.robloxUserId)}/profile)`
+      : `**${kase.robloxUsername}**`)
+    : 'Not identified';
+  const officerDiscord = kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'Not identified';
+  const officer = `${robloxMark} Roblox: ${officerRoblox}\n${discordMark} Discord: ${officerDiscord}`;
 
   addFields(embed,
     field('Case', kase.caseRef ? `#${String(kase.caseRef).replace(/^#/, '')}` : 'Not assigned'),
@@ -181,9 +185,13 @@ function caseReviewCard(kase, extra = {}) {
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
     : (kase.investigatorDiscordUsername ? `@${kase.investigatorDiscordUsername}` : 'Not recorded');
-  const officer = kase.officerDiscordId
-    ? `<@${kase.officerDiscordId}>${kase.robloxUsername ? ` · \`${kase.robloxUsername}\`` : ''}`
-    : (kase.robloxUsername ? `\`${kase.robloxUsername}\`` : 'Not identified');
+  const officerRoblox = kase.robloxUsername
+    ? (kase.robloxUserId
+      ? `[**${kase.robloxUsername}**](https://www.roblox.com/users/${encodeURIComponent(kase.robloxUserId)}/profile)`
+      : `**${kase.robloxUsername}**`)
+    : 'Not identified';
+  const officerDiscord = kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'Not identified';
+  const officer = `${robloxMark} Roblox: ${officerRoblox}\n${discordMark} Discord: ${officerDiscord}`;
   const embed = new EmbedBuilder()
     .setColor(AMBER)
     .setTitle(`Case #${caseNo}`)
