@@ -33,10 +33,14 @@ function decodeMeta(content) {
   } catch (_) { return null; }
 }
 function weekKey(date = new Date()) {
-  const d = new Date(date);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit',
+    day: '2-digit', weekday: 'short',
+  }).formatToParts(date);
+  const get = type => parts.find(p => p.type === type)?.value;
+  const d = new Date(Date.UTC(Number(get('year')), Number(get('month')) - 1, Number(get('day'))));
   const day = (d.getUTCDay() + 6) % 7;
   d.setUTCDate(d.getUTCDate() - day);
-  d.setUTCHours(0, 0, 0, 0);
   return d.toISOString().slice(0, 10);
 }
 function rankOrder(rank) {
@@ -181,7 +185,7 @@ async function applyAward({ refType, refId, discordId, robloxUsername, points, l
   if (!client) return false;
   return withLock(async () => {
     const { message, members, meta } = await readState(client);
-    const ref = require('crypto').createHash('sha256').update(`${refType}:${refId}`).digest('hex').slice(0, 16);
+    const ref = require('crypto').createHash('sha256').update(`${refType}:${refId}`).digest('hex').slice(0, 10);
     if ((meta.refs || []).includes(ref)) return true;
     const id = String(discordId || '').replace(/\D/g, '');
     const username = String(robloxUsername || '').trim();
@@ -198,7 +202,7 @@ async function applyAward({ refType, refId, discordId, robloxUsername, points, l
     }
     member.total = (Number(member.total) || 0) + Number(points || 0);
     member.quota = require('./quota').quotaForRank(member.rank);
-    const refs = [...(meta.refs || []), ref].slice(-90);
+    const refs = [...(meta.refs || []), ref].slice(-80);
     await message.edit({
       content: encodeMeta({ v: 1, week: meta.week || weekKey(), refs }),
       embeds: [buildEmbed(members)],
@@ -236,18 +240,20 @@ async function reset() {
 }
 async function refresh(client) {
   if (!client) return false;
-  try {
-    activeClient = client;
-    // Refresh only normalizes the existing message. It never imports or
-    // overwrites balances from any external source.
-    const { message, members, meta } = await readState(client);
-    await message.edit({ content: encodeMeta(meta), embeds: [buildEmbed(members)], components: [], allowedMentions: { parse: [] } });
-    console.log(`[IA Quota Board] message-backed board ready with ${members.length} members in ${CHANNEL_ID()}`);
-    return true;
-  } catch (err) {
-    console.warn('[IA Quota Board] refresh failed:', err.message);
-    return false;
-  }
+  activeClient = client;
+  return withLock(async () => {
+    try {
+      // Refresh only normalizes the existing message. It never imports or
+      // overwrites balances from any external source.
+      const { message, members, meta } = await readState(client);
+      await message.edit({ content: encodeMeta(meta), embeds: [buildEmbed(members)], components: [], allowedMentions: { parse: [] } });
+      console.log(`[IA Quota Board] message-backed board ready with ${members.length} members in ${CHANNEL_ID()}`);
+      return true;
+    } catch (err) {
+      console.warn('[IA Quota Board] refresh failed:', err.message);
+      return false;
+    }
+  });
 }
 function requestRefresh() {
   if (!activeClient || refreshQueued) return;
