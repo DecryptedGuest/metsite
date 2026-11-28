@@ -369,11 +369,11 @@ async function approveCase({ caseId, actor, note, onProgress } = {}) {
     }).catch(() => false);
   }
   if (quotaAwarded) {
-    await progress('Applying the +4 QP award to the quota sheet…');
-    await require('./quota').processQuotaAwards().catch(() => {});
-    await progress('Refreshing the IA quota leaderboard…');
-    try { await require('./iaQuotaBoard').refresh(require('./bot').getClient()); }
-    catch (err) { console.warn('[IA] quota board refresh after case approval failed:', err.message); }
+    // Do not make the Discord approval interaction wait on Google Sheets,
+    // the quota worker, or leaderboard reads. Those services can be slow or
+    // temporarily unavailable; the durable award worker retries the sheet
+    // write and requests a board refresh once it succeeds.
+    await progress('The +4 QP award has been queued for processing…');
   }
 
   await progress('Recording the approval audit…');
