@@ -145,7 +145,11 @@ function caseCard(kase, extra = {}) {
   // degrade the identity marks to the manifest's single-letter fallbacks.
   const robloxMark = '<:ia_roblox:1576000861639811192>';
   const discordMark = '<:ia_discord:1576000703015419994>';
-  const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
+  const investigatorRoblox = kase.investigatorRobloxUsername
+    ? (kase.investigatorRobloxId
+      ? `[**${kase.investigatorRobloxUsername}**](https://www.roblox.com/users/${encodeURIComponent(kase.investigatorRobloxId)}/profile)`
+      : `**${kase.investigatorRobloxUsername}**`)
+    : 'Not recorded';
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
     : (kase.investigatorDiscordUsername ? `@${kase.investigatorDiscordUsername}` : 'Not recorded');
@@ -181,7 +185,11 @@ function caseReviewCard(kase, extra = {}) {
   const caseNo = String(kase.caseRef || 'New').replace(/^#/, '');
   const robloxMark = '<:ia_roblox:1576000861639811192>';
   const discordMark = '<:ia_discord:1576000703015419994>';
-  const investigatorRoblox = kase.investigatorRobloxUsername || 'Not recorded';
+  const investigatorRoblox = kase.investigatorRobloxUsername
+    ? (kase.investigatorRobloxId
+      ? `[**${kase.investigatorRobloxUsername}**](https://www.roblox.com/users/${encodeURIComponent(kase.investigatorRobloxId)}/profile)`
+      : `**${kase.investigatorRobloxUsername}**`)
+    : 'Not recorded';
   const investigatorDiscord = extra.investigatorDiscordId
     ? `<@${extra.investigatorDiscordId}>`
     : (kase.investigatorDiscordUsername ? `@${kase.investigatorDiscordUsername}` : 'Not recorded');
