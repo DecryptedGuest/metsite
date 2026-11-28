@@ -375,7 +375,7 @@ async function approveCase({ caseId, actor, note, onProgress } = {}) {
     // the quota worker, or leaderboard reads. Those services can be slow or
     // temporarily unavailable; the durable award worker retries the sheet
     // write and requests a board refresh once it succeeds.
-    await progress('The +4 QP award has been queued for processing…');
+    await progress('The +4 QP award has been added to the IA leaderboard.');
   }
 
   await progress('Recording the approval audit…');
