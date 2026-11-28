@@ -221,9 +221,9 @@ async function handleQuotaCommand(interaction) {
         loader.stop();
         return interaction.editReply('Add and remove require at least 1 point. Use Set total to set a member to 0.');
       }
-    } else if (points != null || reason) {
+    } else if (points != null || reason || targetUser.id !== interaction.user.id) {
       loader.stop();
-      return interaction.editReply('Choose an action before entering points or a reason.');
+      return interaction.editReply('Without a management action, /qp only displays your own quota. Add an action to manage another member.');
     }
 
     loader.update('Looking up the IA quota record');
@@ -261,6 +261,23 @@ async function handleQuotaCommand(interaction) {
         }).catch(() => {});
         loader.update('Applying the adjustment and refreshing the leaderboard');
         await quotaApi.processQuotaAwards().catch(() => {});
+        const expected = total + delta;
+        let confirmed = false;
+        let refreshed = member;
+        // The durable worker may already be processing another award. Read
+        // back for a few seconds so this response never claims a write landed
+        // just because it was queued.
+        for (let attempt = 0; attempt < 8; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 600));
+          refreshed = await findQuotaMember(targetUser, interaction);
+          if (Number(refreshed.total) === expected) { confirmed = true; break; }
+          loader.update('Waiting for the quota sheet to confirm the adjustment');
+        }
+        note = confirmed
+          ? `${action === 'SET' ? `Total set to ${points} QP` : `${delta > 0 ? '+' : ''}${delta} QP applied`} for <@${targetUser.id}>. Reason: ${reason.trim()}`
+          : `Adjustment queued (${delta > 0 ? '+' : ''}${delta} QP), but the sheet has not confirmed it yet. The leaderboard will update after the write succeeds. Reason: ${reason.trim()}`;
+        loader.stop();
+        return interaction.editReply({ content: '', embeds: [quotaProgressEmbed(refreshed, targetUser, note)] });
       } else {
         note = `Already at ${total} QP. No adjustment was needed.`;
       }
