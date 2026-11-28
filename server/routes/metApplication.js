@@ -136,12 +136,14 @@ router.post('/submit', async (req, res) => {
     try {
       await require('../lib/audit').record({ req, action: 'MET_APPLICATION_SUBMITTED', category: 'RECRUITMENT', targetType: 'met_application', targetId: row.id, summary: 'MET application submitted (' + row.appRef + ').', metadata: { appRef: row.appRef, robloxId: String(user.robloxId) } });
     } catch (e) {}
+    let dmSent = false;
     try {
       await require('../lib/bot').dmMemberNotice(user.discordId, {
         color: 0x64748b, title: 'MET Application Received',
         description: 'Your MET Application **' + row.appRef + '** has been received and is awaiting review by Hendon Police College.',
         footer: 'Metropolitan Police Service · Recruitment',
       });
+      dmSent = true;
     } catch (e) { console.warn('[MET application] receipt DM unavailable:', e.message); }
     res.status(201).json({ ok: true, dmSent, appRef: row.appRef, submittedAt: row.submittedAt });
   } catch (e) {
