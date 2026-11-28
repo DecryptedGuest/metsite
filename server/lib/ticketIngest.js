@@ -28,8 +28,8 @@ const TICKET_LOG_CHANNEL_ID = () => process.env.TICKET_LOG_CHANNEL_ID || '145587
 // CID and for SCO-19, so all three land in the same queue and carry a tag
 // saying which department they came out of. Each is overridable by env so a
 // server move does not need a deploy.
-const CID_TICKET_GUILD_ID   = () => process.env.CID_TICKET_LOG_GUILD_ID   || '1574842450105597972';
-const CID_TICKET_CHANNEL_ID = () => process.env.CID_TICKET_LOG_CHANNEL_ID || '1574842455348748404';
+const CID_TICKET_GUILD_ID   = () => '1574842450105597972';
+const CID_TICKET_CHANNEL_ID = () => '1574842455348748404';
 const SCO_TICKET_GUILD_ID   = () => process.env.SCO_TICKET_LOG_GUILD_ID   || '1438247592071921919';
 const SCO_TICKET_CHANNEL_ID = () => process.env.SCO_TICKET_LOG_CHANNEL_ID || '1438247593011581092';
 
