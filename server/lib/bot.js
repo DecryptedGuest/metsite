@@ -289,7 +289,7 @@ const IA_COMMAND_ALLOWLIST = () => {
     // /case is the core IA filing command and must remain available even when
     // IA_COMMANDS is used to trim the optional utility commands.
     : ['case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
-  list.push('case');
+  list.push('case', 'check-record');
   return new Set(list);
 };
 
@@ -302,17 +302,9 @@ const DISCIPLINE_GUILD_IDS  = () => metGuild('DISCIPLINE_GUILD_ID');
 // canonical MET target — that is how the command can disappear from MET while
 // still looking perfectly valid in the source.
 const XP_GUILD_IDS          = () => guildFor('MET_GUILD_ID', 'DISCORD_GUILD_ID');
-// /check-record and /ia are MET commands, not IA ones.
-//
-// They resolved through iaGuild(), so with IA_GUILD_ID set they targeted the IA
-// server — where /check-record was then also filtered out by the allowlist, and
-// /ia was not on that list at all, so it registered NOWHERE. Meanwhile the
-// people who need them, MET High Command, are in the MET server and could not
-// see either.
-//
-// They look up and act on a record. That is MET work, gated in code by rank
-// exactly as /infract is — being about Internal Affairs is not the same as
-// belonging in the Internal Affairs server.
+// /check-record is available in both the MET server and the IA server.
+// The IA server copy is explicitly included in the IA command allowlist below;
+// the MET copy remains available to MET High Command.
 const IA_GUILD_IDS          = () => metGuild('IA_PANEL_GUILD_ID');
 const LOA_GUILD_IDS         = () => metGuild('LOA_GUILD_ID');
 const PROMOTE_GUILD_IDS     = () => metGuild('PROMOTE_GUILD_ID');
@@ -440,7 +432,7 @@ function buildCommandPlan() {
   // same material.
   try {
     const cmd = require('./iaPanel').buildCommand();
-    add(IA_GUILD_IDS(), cmd);
+    add([...new Set([...IA_GUILD_IDS(), '1574841102169669692'])], cmd);
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /check-record:', err.message);
