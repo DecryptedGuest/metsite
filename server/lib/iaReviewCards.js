@@ -43,11 +43,14 @@ const casesForumChannelId = () => '1574841103042093225'; // read-only case log f
 const ticketsChannelId = () =>
   process.env.IA_TICKET_CLOSED_CHANNEL_ID || process.env.TICKETS_CHANNEL_ID || process.env.IA_TICKETS_CHANNEL_ID || '1574841102836699252';
 const reviewerRoleId   = () => '1574841102190780564';
+const supervisorRoleId = () => '1574841102190780560';
 
 /** The reviewer ping, or nothing if no role is configured. */
 function reviewerPing() {
-  const id = reviewerRoleId();
-  return id ? `<@&${id}>` : undefined;
+  return [reviewerRoleId(), supervisorRoleId()]
+    .filter(Boolean)
+    .map(id => `<@&${id}>`)
+    .join(' ');
 }
 
 const trim = (s, n) => {
