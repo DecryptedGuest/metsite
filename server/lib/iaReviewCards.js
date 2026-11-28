@@ -200,11 +200,15 @@ function caseReviewCard(kase, extra = {}) {
     : 'Not identified';
   const officerDiscord = kase.officerDiscordId ? `<@${kase.officerDiscordId}>` : 'Not identified';
   const officer = `${robloxMark} Roblox: ${officerRoblox}\n${discordMark} Discord: ${officerDiscord}`;
+  const status = String(kase.status || 'PENDING').toUpperCase();
+  const decided = actorName(extra.decidedBy) || kase.reviewedByName;
+  const state = status === 'APPROVED' ? 'Approved' : status === 'DENIED' ? 'Denied' : 'Awaiting review';
+  const colour = status === 'APPROVED' ? GREEN : status === 'DENIED' ? RED : AMBER;
   const embed = new EmbedBuilder()
-    .setColor(AMBER)
+    .setColor(colour)
     .setTitle(`Case #${caseNo}`)
     .setDescription(caseUrl ? `[Open case file](${caseUrl})` : 'Case file link unavailable')
-    .setFooter({ text: 'Awaiting review · Internal Affairs' })
+    .setFooter({ text: `${state}${status !== 'PENDING' && decided ? ` by ${decided}` : ''} · Internal Affairs`, iconURL: extra.decidedBy?.avatarURL || undefined })
     .setTimestamp(safeDate(kase.createdAt));
   if (caseUrl) embed.setURL(caseUrl);
   if (extra.subjectAvatar) embed.setThumbnail(extra.subjectAvatar);
@@ -489,6 +493,31 @@ async function applyCaseStatusTag(thread, status) {
   }
 }
 
+async function finaliseCaseReviewCard(client, kase, actor) {
+  if (!client || !kase) return false;
+  try {
+    const channel = await client.channels.fetch(String(casesChannelId()));
+    const recent = await channel.messages.fetch({ limit: 100 });
+    const customId = `iareview:case:approve:${kase.id}`;
+    const message = recent.find(item =>
+      item.author?.id === client.user.id
+      && item.components?.some(row => row.components?.some(component => component.customId === customId))
+    );
+    if (!message) {
+      console.warn(`[IA] review card for case ${kase.caseRef || kase.id} was not found in the latest 100 review messages`);
+      return false;
+    }
+    await message.edit({
+      embeds: [caseReviewCard(kase, { decidedBy: actor })],
+      components: [],
+    });
+    return true;
+  } catch (err) {
+    console.warn(`[IA] could not update review card for case ${kase.caseRef || kase.id}: ${err.message}`);
+    return false;
+  }
+}
+
 async function finaliseCard(client, channelId, messageId, embed) {
   if (!client || !channelId || !messageId) return false;
   try {
@@ -513,7 +542,7 @@ async function finaliseCard(client, channelId, messageId, embed) {
 
 module.exports = { caseReviewCard,
   caseCard, ticketCard, punishmentLines,
-  postCaseCard, postTicketCard, postCard, finaliseCard, reviewButtons, applyCaseStatusTag,
+  postCaseCard, postTicketCard, postCard, finaliseCard, finaliseCaseReviewCard, reviewButtons, applyCaseStatusTag,
   casesChannelId, casesForumChannelId, ticketsChannelId, reviewerRoleId, reviewerPing,
 };
 
