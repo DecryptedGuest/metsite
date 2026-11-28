@@ -286,10 +286,10 @@ const IA_COMMAND_ALLOWLIST = () => {
   if (raw === '*') return null;                       // null = no filtering
   const list = raw
     ? raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean).map(x => x === 'submit-case' ? 'case' : x)
-    // The Internal Affairs server's whole command set. Everything else lives in
-    // the MET server, including /check-record and /ia, which are about IA but
-    // are used by MET High Command.
+    // /case is the core IA filing command and must remain available even when
+    // IA_COMMANDS is used to trim the optional utility commands.
     : ['case', 'leaderboard', 'add-qp', 'remove-qp', 'undo'];
+  list.push('case');
   return new Set(list);
 };
 
@@ -516,7 +516,9 @@ function buildCommandPlan() {
 
   try {
     const cmd = require('./submitCaseCommand').buildCommand();
-    add(iaGuild('SUBMIT_CASE_GUILD_ID'), cmd);
+    // /case is always registered in the IA server itself. Do not let a stale
+    // SUBMIT_CASE_GUILD_ID override strand the filing command in another guild.
+    add(['1574841102169669692'], cmd);
     global.push(cmd);
   } catch (err) {
     console.error('[Bot] could not build /case:', err.message);
