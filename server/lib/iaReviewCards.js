@@ -415,7 +415,7 @@ const postCaseCard = async (client, kase, extra) => {
       },
     });
     forumThreadId = thread.id;
-    await applyCaseStatusTag(thread, kase.status || 'PENDING');
+    await applyCaseStatusTag(thread, kase);
     console.log(`[IA] read-only case forum log created for ${kase.caseRef} in ${casesForumChannelId()} (${thread.id})`);
   } catch (err) {
     console.error(`[IA] could not create read-only case forum log in ${casesForumChannelId()}: ${err.message}`);
@@ -465,60 +465,57 @@ const postTicketCard = (client, ticket, extra) =>
     () => ({ embed: ticketCard(ticket, extra), components: ticketComponents(ticket) }), 'ticket', { ping: false });
 
 /** Rewrite a card in place once it has been decided, and take the buttons away. */
-function caseStatusTag(channel, status) {
-  const state = String(status || '').toUpperCase();
+function caseStatusTags(channel, kaseOrStatus) {
+  const kase = kaseOrStatus && typeof kaseOrStatus === 'object' ? kaseOrStatus : { status: kaseOrStatus };
+  const status = String(kase.status || 'PENDING').toUpperCase();
   const tags = channel && channel.availableTags || [];
-  const match = state === 'APPROVED'
-    ? tags.find(t => /approved|accepted/i.test(t.name))
-    : state === 'DENIED'
-      ? tags.find(t => /denied|rejected/i.test(t.name))
-      : tags.find(t => /pending|awaiting|under review|review/i.test(t.name));
-  return match ? [match.id] : [];
+  const wanted = [];
+
+  if (status === 'APPROVED') wanted.push('Approved');
+  else if (status === 'DENIED') wanted.push('Denied');
+  else if (status === 'OVERTURNED') wanted.push('Overruled');
+  else if (status === 'EXPIRED') wanted.push('Expired');
+  else wanted.push('Awaiting Approval');
+
+  if (kase.appealedAt || kase.appealReason || status === 'OVERTURNED') wanted.push('Appealed');
+
+  const actionValues = [
+    ...(Array.isArray(kase.actions) ? kase.actions : []),
+    kase.action, kase.purpose, kase.caseType, kase.type,
+  ].map(value => {
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object') return [value.name, value.action, value.type, value.label].filter(Boolean).join(' ');
+    return '';
+  }).join(' ').toLowerCase();
+
+  if (/\\btermination\\b/.test(actionValues)) wanted.push('Termination Charge');
+  if (/\\bblacklist(?:ed)?\\b/.test(actionValues)) wanted.push('Blacklist Charge');
+  if (/\\bpromotion(?:al)?\\b/.test(actionValues)) wanted.push('Promotional Purposes');
+
+  return [...new Set(wanted)].flatMap(name => {
+    const match = tags.find(tag => String(tag.name || '').trim().toLowerCase() === name.toLowerCase());
+    return match ? [match.id] : [];
+  });
 }
 
-async function applyCaseStatusTag(thread, status) {
+async function applyCaseStatusTag(thread, kaseOrStatus) {
   if (!thread || typeof thread.setAppliedTags !== 'function') return false;
   try {
     const parent = thread.parent || await thread.guild.channels.fetch(thread.parentId).catch(() => null);
-    const tags = caseStatusTag(parent, status);
+    const tags = caseStatusTags(parent, kaseOrStatus);
     if (!tags.length) {
-      console.warn(`[IA] no forum tag configured for case status ${status}`);
+      console.warn(`[IA] no matching forum tags configured for case status ${kaseOrStatus?.status || kaseOrStatus}`);
       return false;
     }
     await thread.setAppliedTags(tags);
     return true;
   } catch (err) {
-    console.warn(`[IA] could not update forum tag for ${thread.id}: ${err.message}`);
+    console.warn(`[IA] could not update forum tags for ${thread.id}: ${err.message}`);
     return false;
   }
 }
 
-async function finaliseCaseReviewCard(client, kase, actor) {
-  if (!client || !kase) return false;
-  try {
-    const channel = await client.channels.fetch(String(casesChannelId()));
-    const recent = await channel.messages.fetch({ limit: 100 });
-    const customId = `iareview:case:approve:${kase.id}`;
-    const message = recent.find(item =>
-      item.author?.id === client.user.id
-      && item.components?.some(row => row.components?.some(component => component.customId === customId))
-    );
-    if (!message) {
-      console.warn(`[IA] review card for case ${kase.caseRef || kase.id} was not found in the latest 100 review messages`);
-      return false;
-    }
-    await message.edit({
-      embeds: [caseReviewCard(kase, { decidedBy: actor })],
-      components: [],
-    });
-    return true;
-  } catch (err) {
-    console.warn(`[IA] could not update review card for case ${kase.caseRef || kase.id}: ${err.message}`);
-    return false;
-  }
-}
-
-async function finaliseCard(client, channelId, messageId, embed) {
+async function finaliseCard(client, channelId, messageId, embed, caseRecord = null) {
   if (!client || !channelId || !messageId) return false;
   try {
     if (String(channelId) === String(casesForumChannelId())) {
@@ -526,8 +523,8 @@ async function finaliseCard(client, channelId, messageId, embed) {
       const msg = await thread.fetchStarterMessage();
       await msg.edit({ embeds: [embed], components: [] });
       const footer = embed.data?.footer?.text || '';
-      const status = /^Approved/i.test(footer) ? 'APPROVED' : /^Denied/i.test(footer) ? 'DENIED' : 'PENDING';
-      await applyCaseStatusTag(thread, status);
+      const status = /^Approved/i.test(footer) ? 'APPROVED' : /^Denied/i.test(footer) ? 'DENIED' : /^Overruled/i.test(footer) ? 'OVERTURNED' : 'PENDING';
+      await applyCaseStatusTag(thread, caseRecord || status);
       return true;
     }
     const channel = await client.channels.fetch(String(channelId));
