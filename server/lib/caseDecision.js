@@ -25,11 +25,13 @@ const { assignRole } = require('./bot');
 // Keep the IA forum post and its status tag in sync for decisions made
 // from either Discord or the MET Dashboard.
 async function syncCaseForumPost(kase, actor) {
-  if (!kase || !kase.cardMessageId) return;
+  if (!kase) return;
   try {
     const client = require('./bot').getClient();
     if (!client) return;
     const cards = require('./iaReviewCards');
+    await cards.finaliseCaseReviewCard(client, kase, actor);
+    if (!kase.cardMessageId) return;
     const { suspectAvatar } = await resolveCaseAvatars(null, kase);
     const investigatorUser = kase.userId
       ? await require('./db').user.findUnique({ where: { id: kase.userId }, select: { discordId: true } }).catch(() => null)
