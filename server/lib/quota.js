@@ -416,6 +416,14 @@ function addQuotaPoints(rawMember, points, label = '', division = 'IA') {
 }
 
 async function addQuotaPointsImpl(rawMember, points, label = '', division = 'IA') {
+  if (String(division || 'IA').toUpperCase() === 'IA') {
+    const member = await resolveMember(rawMember);
+    return require('./iaQuotaBoard').applyAward({
+      refType: 'direct', refId: `${label || 'quota'}:${member.discordId || member.robloxUsername}:${Date.now()}`,
+      discordId: member.discordId, robloxUsername: member.robloxUsername || member.robloxCandidates?.[0],
+      points, label,
+    });
+  }
   const member = await resolveMember(rawMember);
   const viaWebhook = await addQuotaViaWebhook(member, points, label, division);
   if (viaWebhook === true) return true;
@@ -592,6 +600,9 @@ async function setInvestigatorOfWeek(discordId) {
  * or { found:false }. Requires the Google service account (read path).
  */
 async function getMemberPoints(member, division = 'IA') {
+  if (String(division || 'IA').toUpperCase() === 'IA') {
+    return require('./iaQuotaBoard').getMemberPoints(member, 'IA');
+  }
   try {
     const cfg = quotaConfig(division);
     const sheets = getSheetsClient(cfg);
@@ -852,6 +863,9 @@ async function getAllMembersViaWebhook(cfg) {
 // first (IA), then falls back to the division's Apps Script webhook — so a
 // division only needs its webhook configured, not a shared service account.
 async function getAllMembersPoints(division = 'IA') {
+  if (String(division || 'IA').toUpperCase() === 'IA') {
+    return require('./iaQuotaBoard').getAllMembersPoints('IA');
+  }
   const cfg = quotaConfig(division);
   const viaSA = await getAllMembersViaServiceAccount(cfg);
   if (viaSA && viaSA.length) return viaSA;      // service-account read worked
@@ -869,6 +883,9 @@ async function getAllMembersPoints(division = 'IA') {
  * Returns { ok, cleared } or { ok:false, error }.
  */
 async function resetAllQuota(division = 'IA') {
+  if (String(division || 'IA').toUpperCase() === 'IA') {
+    return require('./iaQuotaBoard').reset();
+  }
   const cfg = quotaConfig(division);
   // 1) Webhook first (the path that actually works for points). Falls back to
   //    the service account only if the webhook isn't configured / errors.
@@ -1065,6 +1082,14 @@ async function processQuotaAwards() {
 // Record an award durably, then kick the processor. Idempotent per ref so a
 // re-approve (or retry) never double-awards.
 async function enqueueQuotaAward({ refType, refId, discordId, robloxUsername, points, label, division }) {
+  if (String(division || 'IA').toUpperCase() === 'IA') {
+    try {
+      return await require('./iaQuotaBoard').applyAward({ refType, refId, discordId, robloxUsername, points, label });
+    } catch (err) {
+      console.error('[quota] message-backed IA award failed:', err.message);
+      return false;
+    }
+  }
   try {
     await prisma.quotaAward.upsert({
       where:  { refType_refId: { refType, refId } },
